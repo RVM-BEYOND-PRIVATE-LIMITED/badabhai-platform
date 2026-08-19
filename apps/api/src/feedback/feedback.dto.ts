@@ -34,6 +34,17 @@ const FORBIDDEN_CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
  * `message` is the worker's OWN words and may contain their own PII. It is stored, and shown to
  * admins, and that is the entire feature — but it is never logged, never carried on an event,
  * and never echoed back: the response is `{ ok: true }` and nothing else.
+ *
+ * `screen` is the route the worker was on when they tapped Feedback, and it is OPTIONAL so that
+ * every already-released client — none of which sends it — keeps working unchanged. It is typed
+ * `unknown` ON PURPOSE, which is the one place this schema deliberately validates nothing:
+ *
+ *   EVERY refinement that could go here (a type check, a length, a charset) is a 400, and a 400
+ *   on this field throws away the paragraph the worker typed over a telemetry value they never
+ *   filled in. `sanitizeScreenContext` takes it from here and returns a normalized route pattern
+ *   or `null` — the SANITIZE-NEVER-REJECT posture `sanitizeAppBuild` already applies to
+ *   `x-app-build`, whose signature is `unknown` for exactly this reason. The key still has to be
+ *   DECLARED, because `.strict()` would otherwise 400 the very clients this field is for.
  */
 export const SubmitFeedbackSchema = z
   .object({
@@ -50,6 +61,8 @@ export const SubmitFeedbackSchema = z
       .max(WORKER_FEEDBACK_MESSAGE_MAX, "message is too long")
       .refine((s) => !FORBIDDEN_CONTROL.test(s), "message must not contain control characters"),
     category: z.enum(WORKER_FEEDBACK_CATEGORIES).optional(),
+    // See the header. Declared, never validated — normalized or nulled by `sanitizeScreenContext`.
+    screen: z.unknown().optional(),
   })
   .strict();
 export type SubmitFeedbackDto = z.infer<typeof SubmitFeedbackSchema>;

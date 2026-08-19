@@ -9,6 +9,7 @@ import {
 } from "../auth/worker-auth.guard";
 import { SERVER_CONFIG } from "../config/config.module";
 import { APP_BUILD_HEADER, sanitizeAppBuild } from "../common/app-build";
+import { sanitizeScreenContext } from "../common/screen-context";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { SubjectRateLimit } from "../common/rate-limit/subject-rate-limit.service";
@@ -77,10 +78,24 @@ export class WorkerFeedbackController {
       worker.id,
       this.config.WORKER_FEEDBACK_PER_HOUR,
     );
-    // SANITIZED, NEVER VALIDATING. A malformed build stamp becomes null and the submission
-    // proceeds — losing a worker's typed feedback over a telemetry header nobody asked them for
-    // is the wrong failure direction.
-    await this.feedback.submit(worker.id, dto, sanitizeAppBuild(appBuild), ctx);
+    // SANITIZED, NEVER VALIDATING — both of them. A malformed build stamp or an unrecognisable
+    // route becomes null and the submission proceeds; losing a worker's typed feedback over
+    // telemetry nobody asked them for is the wrong failure direction.
+    //
+    // `screen` is normalized HERE even though the Flutter overlay normalizes before sending. It
+    // is defence in depth and not redundancy: the shipped client is not the only caller this
+    // endpoint can have, and the one that skips normalization is precisely the one whose value
+    // arrives carrying a concrete entity id. Doing it at the edge also means the id can never
+    // reach the row, the event or the log — there is no later layer that could forget.
+    await this.feedback.submit(
+      worker.id,
+      dto,
+      {
+        appBuild: sanitizeAppBuild(appBuild),
+        screenContext: sanitizeScreenContext(dto.screen),
+      },
+      ctx,
+    );
     return { ok: true };
   }
 }

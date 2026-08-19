@@ -569,3 +569,64 @@ actions, or the PII-reveal:
   [`main.ts`](../../apps/api/src/main.ts) (`assertPayerAuthConfig`)
 - The console: [`apps/web/src/lib/api.ts`](../../apps/web/src/lib/api.ts)
 - CLAUDE.md §2 invariants 1, 2, 7, 8; §3 locked stack; §7 escalation; §8 deferred
+
+---
+
+## Amendment 1 (2026-08-19) — the admin READ audit events (Decision 6 enumeration extended)
+
+**Status:** ACCEPTED. Additive amendment to a signed ADR — Decision 6's ENUMERATION is extended;
+none of its decisions, and no other decision in this document, is altered. The original text
+above stands unedited, per the amendment convention ADR-0022/ADR-0026 already use.
+
+**Why this exists.** Decision 6 enumerated four events, all of them audits of a MUTATION or of a
+PII reveal. Two audits of a READ have since shipped, and the enumeration did not follow them:
+
+- `admin.worker_journey_viewed` shipped with Phase 6 (the worker-journey reads) **without being
+  added here at all**. That is the drift this amendment closes first — the ADR is the document
+  reviewers check the event set against, so an event that exists only in `registry.ts` is one
+  nobody agreed to.
+- `admin.feedback_viewed` is added now, for `GET /admin/feedback`.
+
+**The principle Decision 6 did not state, because it had no read events yet:** an admin READ is
+audited when it returns something materially more sensitive than an entity snapshot — a
+BEHAVIOURAL profile of one person, or worker-authored FREE TEXT — even though the capability is
+the `read_entities` floor all four roles hold. Broad access is the reason the trail must exist,
+not a reason it need not. Ordinary faceless reads (`/admin/workers`, `/admin/payers`,
+`/admin/finance/*`, `/admin/dashboard/summary`) stay unaudited; a read is not a state change,
+and auditing all of them would bury the two that matter.
+
+| Event | Subject | Payload (PII-free) | Notes |
+|---|---|---|---|
+| `admin.worker_journey_viewed` | `worker` | `{ admin_id, subject_id, view, chat_session_id }` — a closed `view` enum (`journey_summary \| chat_session`); **never a question key, status, count or free text** | the Phase-6 funnel / one interview session in depth. Emitted **after** the 404 check (so an unknown id leaves no row and the stream is not an enumeration oracle) and **before** the read completes; awaited, fail-closed. For the session read the subject worker is taken off the session ROW, never from the path. `GET /admin/workers/:id/chat-sessions` is deliberately NOT audited — it is an index of session ids/timings, and both reads it leads to are audited themselves |
+| `admin.feedback_viewed` | `admin_session` | `{ admin_id, worker_id, category, result_count }` — the filters as applied + how many rows came back; **never message text, an excerpt, or a length** | `GET /admin/feedback`, the ONE admin read that projects worker-authored prose. Awaited and fail-closed. Emitted **after the rows are fetched and before they are returned** — the one deviation from audit-before-read, because `result_count` does not exist until the query has run; the guarantee is unchanged, since an awaited emit means no words reach the caller unless the audit row committed first |
+
+**The subject-type decision on `admin.feedback_viewed`, recorded because it is the contestable
+one.** Decision 6 says an admin event's subject is "the target entity", and `admin.pii_viewed`
+and `admin.worker_journey_viewed` both follow it with `worker`. Neither route can do otherwise:
+their worker id is a PATH PARAMETER. `GET /admin/feedback` takes an OPTIONAL `workerId` filter,
+so the same route serves both a one-worker read and a page spanning many.
+
+A per-request subject type would be worse than a uniform one rather than more precise. Filing
+the filtered reads under `subject_type=worker` makes the obvious spine query — *"who has read
+worker W's feedback?"* — look COMPLETE while structurally omitting every unfiltered page that
+contained W's message; a reader would conclude nobody had read it. A trail that is silently
+partial on the axis people query it on is worse than one that is honestly about the reading ACT.
+So the subject is the `admin_session` (the `admin.pii_reveal_cap_exceeded` precedent, which uses
+it for the same reason), and the questions this event answers completely — *what did this admin
+read, under what narrowing, and how much came back* — are answered off `actor_id` +
+`event_name`. **Consequence, recorded rather than glossed:** `admin_session` is not in
+`ADMIN_TIMELINE_SUBJECT_TYPES`, so this event is not reachable from the admin-web entity
+timeline's subject filter — the same as `admin.pii_reveal_cap_exceeded` and
+`admin.kill_switch_pause_requested` today. Widening that enum is an admin-web-facing change and
+is deliberately NOT made here (CLAUDE.md §6).
+
+**Versioning.** Both are `version: 1` net-new names; nothing existing is mutated (§2 #8). The
+same release widens `feedback.submitted` with an OPTIONAL `screen_context` — a normalized route
+PATTERN, never a path — which stays v1 on the `agency_invite.created` precedent for an additive
+optional field.
+
+**Unchanged by this amendment:** the capability matrix (Decision 3 — no capability is minted;
+both reads stay on `read_entities`), the PII-reveal policy (Decision 4), the spine's
+append-only/read-only posture (Decision 5), and the OQ-7 review cadence. OQ-7 named
+`admin.pii_viewed` + `admin.action_performed` as the weekly review set; whether these two read
+audits join that cadence is an **owner process decision, not made here**.

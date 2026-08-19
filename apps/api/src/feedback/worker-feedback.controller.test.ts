@@ -49,7 +49,12 @@ describe("the worker's OWN feedback sink (#997)", () => {
   it("stamps the submitting worker from the TOKEN, never from the body", async () => {
     const { controller, feedback } = make();
     await controller.submit(WORKER as never, DTO, "abc1234", CTX);
-    expect(feedback.submit).toHaveBeenCalledWith(WORKER.id, DTO, "abc1234", CTX);
+    expect(feedback.submit).toHaveBeenCalledWith(
+      WORKER.id,
+      DTO,
+      { appBuild: "abc1234", screenContext: null },
+      CTX,
+    );
   });
 
   it("REJECTS a body that carries a worker_id rather than ignoring it", () => {
@@ -117,7 +122,12 @@ describe("the x-app-build stamp on a submission", () => {
   it("passes a well-formed build straight through", async () => {
     const { controller, feedback } = make();
     await controller.submit(WORKER as never, DTO, "1.4.2+318", CTX);
-    expect(feedback.submit).toHaveBeenCalledWith(WORKER.id, DTO, "1.4.2+318", CTX);
+    expect(feedback.submit).toHaveBeenCalledWith(
+      WORKER.id,
+      DTO,
+      { appBuild: "1.4.2+318", screenContext: null },
+      CTX,
+    );
   });
 
   it("turns an absent or malformed stamp into null WITHOUT refusing the feedback", async () => {
@@ -128,7 +138,12 @@ describe("the x-app-build stamp on a submission", () => {
       await expect(controller.submit(WORKER as never, DTO, raw, CTX)).resolves.toEqual({
         ok: true,
       });
-      expect(feedback.submit).toHaveBeenCalledWith(WORKER.id, DTO, null, CTX);
+      expect(feedback.submit).toHaveBeenCalledWith(
+        WORKER.id,
+        DTO,
+        { appBuild: null, screenContext: null },
+        CTX,
+      );
     }
   });
 });
@@ -186,5 +201,71 @@ describe("what the request schema will and will not accept", () => {
     expect(pipe.transform({ message: "  spaces around  " })).toEqual({
       message: "spaces around",
     });
+  });
+});
+
+describe("the screen context on a submission — normalized at the edge, never trusted", () => {
+  it("normalizes the route BEFORE the service sees it, so no id can reach the row", async () => {
+    // The controller is the ONLY place this happens, and that is deliberate: with the id
+    // stripped here, there is no later layer — repository, event emitter, logger — that could
+    // forget. A concrete job id arriving from an unofficial client dies at this line.
+    const { controller, feedback } = make();
+    await controller.submit(
+      WORKER as never,
+      { ...DTO, screen: "/jobs/6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply?src=push#top" },
+      undefined,
+      CTX,
+    );
+    expect(feedback.submit).toHaveBeenCalledWith(
+      WORKER.id,
+      expect.anything(),
+      { appBuild: null, screenContext: "/jobs/:id/apply" },
+      CTX,
+    );
+  });
+
+  it("turns an unusable screen into null WITHOUT refusing the feedback", async () => {
+    // Same rule as `x-app-build`, and it matters more here: `screen` is filled in by the CLIENT,
+    // not the worker, so a client bug must never cost the worker the paragraph they typed. Every
+    // value below is a 400 under any schema that validated it, and a `{ ok: true }` under this one.
+    for (const screen of [
+      undefined,
+      "",
+      "   ",
+      42,
+      { path: "/jobs" },
+      "jobs/apply", // not rooted
+      "/jobs/<script>alert(1)</script>", // injection primitive on the admin screen
+      "/jobs/my job", // whitespace — a label, not a route
+      `/${"a".repeat(200)}`, // past the bound
+    ]) {
+      const { controller, feedback } = make();
+      await expect(
+        controller.submit(WORKER as never, { ...DTO, screen } as never, undefined, CTX),
+      ).resolves.toEqual({ ok: true });
+      expect(feedback.submit).toHaveBeenCalledWith(
+        WORKER.id,
+        expect.anything(),
+        { appBuild: null, screenContext: null },
+        CTX,
+      );
+    }
+  });
+
+  it("the schema ACCEPTS a submission with no screen at all — every released client omits it", () => {
+    // The additivity assertion. `screen` shipped after the app did, so a `.strict()` schema that
+    // required it would 400 every client already in workers' hands.
+    expect(SubmitFeedbackSchema.safeParse({ message: "button kaam nahi kar raha" }).success).toBe(
+      true,
+    );
+    // ...and it accepts one that DOES send it, without validating it — that is the sanitizer's job.
+    expect(
+      SubmitFeedbackSchema.safeParse({ message: "button kaam nahi kar raha", screen: "/home" })
+        .success,
+    ).toBe(true);
+    // `.strict()` still holds for everything else, `screen` being declared changes nothing there.
+    expect(
+      SubmitFeedbackSchema.safeParse({ message: "hi", screen_context: "/home" }).success,
+    ).toBe(false);
   });
 });

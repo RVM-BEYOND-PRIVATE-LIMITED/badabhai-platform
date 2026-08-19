@@ -26,7 +26,7 @@ This has already cost the project real work:
 ## Reserved blocks
 
 Numbers are reserved **up front**, per developer, per workstream. Current head:
-**`0080_worker_feedback`** (journal has 81 entries, `idx` 0–80).
+**`0081_worker_feedback_screen_context`** (journal has 82 entries, `idx` 0–81).
 
 | Block         | Owner     | Workstream                                                    |
 | ------------- | --------- | ------------------------------------------------------------- |
@@ -43,7 +43,8 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 | `0078`        | Prakash   | **APPLIED IN PRODUCTION** — S3-C / D-6: `unresolved_phrase.job_domain_id` (verified object-by-object 2026-08-19) |
 | `0079`        | Prakash   | **APPLIED IN PRODUCTION** — admin worker-journey read indexes (#992; renumbered from `0078`, see notes below; verified object-by-object 2026-08-19) |
 | `0080`        | Divyanshu | **MERGED, NOT APPLIED** — worker app feedback table (#997, `ac3db91c`). `worker_feedback` is absent from production in every schema; both surfaces 500 until it lands. See the journal-drift note below — `db:migrate` alone cannot apply it |
-| `0081`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own |
+| `0081`        | Prakash   | **MERGED, NOT APPLIED** — `worker_feedback.screen_context` (#997 follow-up). ALTERs the table `0080` creates, so it is strictly ordered behind it and inherits the same journal-drift block. APPLY BEFORE DEPLOY for BOTH surfaces: the admin list names the column in its SELECT list, so "additive" describes the DDL, not the deploy |
+| `0082`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own |
 
 ### The journal is four files behind reality, and that blocks `db:migrate` — 2026-08-19
 
@@ -120,7 +121,7 @@ including the `events` write-lock caveat, is in the migration's own header.
 One new table, `worker_feedback`: the worker taps the app-wide Feedback button (#997), types free
 text, optionally tags it, and it lands here for ops to read in the admin portal.
 
-**Renumbered `0079` → `0080` mid-review**, after `#992` took `0079` while this branch was in flight — the third time the OIE block has been overtaken, and the second collision this file has recorded in one day. REGENERATED, NOT RENAMED (the `0071` rule): the snapshot was deleted and `db:generate` re-run against a tree that already contained `0079_journey_read_indexes`, so `0080_snapshot.json.prevId == 0079_snapshot.json.id` and a second `db:generate` emits nothing. The pre-renumber file was never applied to any database, so nothing needed its `when` pinned. **OIE moves to `0081`.**
+**Renumbered `0079` → `0080` mid-review**, after `#992` took `0079` while this branch was in flight — the third time the OIE block has been overtaken, and the second collision this file has recorded in one day. REGENERATED, NOT RENAMED (the `0071` rule): the snapshot was deleted and `db:generate` re-run against a tree that already contained `0079_journey_read_indexes`, so `0080_snapshot.json.prevId == 0079_snapshot.json.id` and a second `db:generate` emits nothing. The pre-renumber file was never applied to any database, so nothing needed its `when` pinned. **OIE moves to `0081`.** *(Superseded 2026-08-19: `0081` went to `worker_feedback.screen_context`, the #997 follow-up. OIE's block is `0082`+ — the reserved-block table above is the authority. Left here rather than rewritten, because this paragraph is the record of what was decided at the time.)*
 
 **APPLY BEFORE DEPLOY**, and unlike `0077` there is no savepoint softening it.
 `FeedbackRepository.insert` names `worker_feedback` unconditionally on the request path of

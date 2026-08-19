@@ -8,7 +8,7 @@ import type { AdminPage } from "./admin-entities.dto";
 import { decodeCursor, encodeCursor } from "./admin-events.cursor";
 import { AdminEventsRepository } from "./admin-events.repository";
 import { AdminWorkerJourneyRepository } from "./admin-worker-journey.repository";
-import { deriveStuckQuestion } from "./admin-worker-journey.stuck";
+import { deriveStuckQuestion, SETTLED_ANSWER_STATUSES } from "./admin-worker-journey.stuck";
 import {
   type AdminChatSessionDetail,
   type AdminChatSessionListItem,
@@ -148,7 +148,23 @@ export class AdminWorkerJourneyService {
     const answeredCount = AdminWorkerJourneyService.statCount(answerStats, "answered");
     const declinedCount = AdminWorkerJourneyService.statCount(answerStats, "declined");
     const unansweredCount = AdminWorkerJourneyService.statCount(answerStats, "unanswered");
-    const settledTotal = answeredCount + declinedCount + unansweredCount;
+    // THE NUMERATOR IS THE SETTLED SET, AND IT IS DERIVED FROM THE CONSTANT rather than summed
+    // by hand. `unanswered` is NOT settled: `isSettled` in `answer-map.ts` says so, and both
+    // `countAnswersBySession` and `listSettledKeys` already filter to exactly
+    // SETTLED_ANSWER_STATUSES. This was the FOURTH reader and it drifted — it added
+    // `unansweredCount` to a local literally named `settledTotal`, overstating
+    // `steps[profiling].completed` by the unanswered count and letting `status` read `done` for
+    // a worker who settled nothing.
+    //
+    // Deriving from the constant is the point of the fix. The bug was inert only because
+    // `packAnswerRowFor` cannot currently emit `unanswered` (it returns null for that record) —
+    // a property of today's flush, not of the schema, which permits the third value and arms
+    // this for any future writer. A fifth reader written as a hand-rolled sum would drift the
+    // same way; one written over this constant cannot.
+    const settledTotal = SETTLED_ANSWER_STATUSES.reduce(
+      (sum, status) => sum + AdminWorkerJourneyService.statCount(answerStats, status),
+      0,
+    );
     const packTotal = packs.reduce((sum, p) => sum + p.item_count, 0);
 
     // ---- step 1: login ----------------------------------------------------
@@ -192,10 +208,19 @@ export class AdminWorkerJourneyService {
       // Null rather than 0 when nothing is known: `x of 0` is not a progress bar, it is a
       // missing denominator wearing one.
       total: packTotal > 0 ? packTotal : null,
+      // ⚠ ALL-STATUS ON PURPOSE, and deliberately NOT narrowed to the settled set with the
+      // numerator above. These two answer a different question — "when did this worker touch
+      // profiling at all" — and an unanswered row is a touch. Filtering them would report a
+      // worker who opened the interview and settled nothing as having never been there.
       first_at: AdminWorkerJourneyService.earliest(answerStats.map((s) => s.firstAt)),
       last_at: AdminWorkerJourneyService.latest(answerStats.map((s) => s.lastAt)),
       answered_count: answeredCount,
       declined_count: declinedCount,
+      // The EXCLUDED bucket, and making it visible is this field's whole job: once unanswered
+      // rows exist, `completed !== sum(packs[].answer_count)`, because `answer_count` is also
+      // all-status per its DTO. That is correct, not a rounding error — and it is the trap for
+      // a UI author who re-derives the headline number by summing the per-pack rows. Read
+      // `completed` for progress; read these three for the breakdown.
       unanswered_count: unansweredCount,
       session_count: sessionCount,
       packs,

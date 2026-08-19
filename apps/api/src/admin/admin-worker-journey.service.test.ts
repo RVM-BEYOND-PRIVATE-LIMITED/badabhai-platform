@@ -353,7 +353,20 @@ describe("step 2: profiling — the denominator comes from the ANSWERS' OWN pack
     expect(step(summary, "profiling").total).toBeNull();
   });
 
-  it("counts answered + declined + unanswered as the numerator, and breaks them out", async () => {
+  /**
+   * THE RULE: the numerator is the SETTLED set only — `answered` + `declined`. `unanswered` is
+   * counted and reported, never added in.
+   *
+   * The fixture is built so that the difference is the whole test: 6 + 2 + 1 against an
+   * `item_count` of 9, so the wrong rule reads `9 of 9` → `done` and the right one reads
+   * `8 of 9` → `in_progress`. That is the exact shape of the bug this replaced — a worker who
+   * settled nothing at all would have reported `done` under it.
+   *
+   * The answered/declined/unanswered/total assertions are deliberately left alone: they are
+   * what make this prove the SPLIT rather than re-baseline a number. A version that dropped
+   * unanswered rows on the floor entirely would pass a `completed: 8` assertion and fail here.
+   */
+  it("counts ONLY answered + declined as the numerator, and reports unanswered separately", async () => {
     const { service } = fakeRepo({
       answeredPackVersions: vi.fn(async () => [
         { packId: "qp_welding", packVersion: 1, answerCount: 9 },
@@ -374,9 +387,11 @@ describe("step 2: profiling — the denominator comes from the ANSWERS' OWN pack
     expect(profiling.answered_count).toBe(6);
     expect(profiling.declined_count).toBe(2);
     expect(profiling.unanswered_count).toBe(1);
-    expect(profiling.completed).toBe(9);
+    // 6 + 2, NOT 6 + 2 + 1. The unanswered row is visible in its own field and absent here.
+    expect(profiling.completed).toBe(8);
     expect(profiling.total).toBe(9);
-    expect(profiling.status).toBe("done");
+    // ...so 8 of 9, not 9 of 9. A worker with a question still hanging is not finished.
+    expect(profiling.status).toBe("in_progress");
     // first/last span every status bucket, not just the answered one.
     expect(profiling.first_at).toEqual(new Date("2026-04-30"));
     expect(profiling.last_at).toEqual(new Date("2026-05-03"));

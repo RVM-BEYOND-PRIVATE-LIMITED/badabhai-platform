@@ -1,6 +1,7 @@
 import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
-import { AdminAuthGuard } from "./admin-auth.guard";
+import { AdminAuthGuard, CurrentAdmin, type AuthenticatedAdmin } from "./admin-auth.guard";
 import { AdminRolesGuard, RequireAdminRole } from "./admin-roles.guard";
 import { AdminFeedbackService } from "./admin-feedback.service";
 import { AdminFeedbackQuerySchema, type AdminFeedbackQueryDto } from "./admin-feedback.dto";
@@ -25,6 +26,12 @@ import { AdminFeedbackQuerySchema, type AdminFeedbackQueryDto } from "./admin-fe
  *
  * PII: `worker_id` is an opaque id. No name, no phone, no join that could grow one, and no
  * search over the message body. See the header of `admin-feedback.dto.ts` for the contract.
+ *
+ * AND THE COMPENSATING CONTROL (ADR-0025 Amendment 1): the read emits `admin.feedback_viewed`,
+ * awaited and fail-closed, carrying the admin, the filters and the result count — never any
+ * message text. `read_entities` is a broad capability, and this is the one read on the surface
+ * that returns a worker's own prose; the trail is what makes that acceptable. The ADMIN comes
+ * from the session the guard resolved, never from the request.
  */
 @Controller("admin")
 @UseGuards(AdminAuthGuard, AdminRolesGuard)
@@ -33,7 +40,11 @@ export class AdminFeedbackController {
 
   @Get("feedback")
   @RequireAdminRole("read_entities")
-  list(@Query(new ZodValidationPipe(AdminFeedbackQuerySchema)) query: AdminFeedbackQueryDto) {
-    return this.service.list(query);
+  list(
+    @CurrentAdmin() admin: AuthenticatedAdmin,
+    @Query(new ZodValidationPipe(AdminFeedbackQuerySchema)) query: AdminFeedbackQueryDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.service.list(admin.id, query, ctx);
   }
 }

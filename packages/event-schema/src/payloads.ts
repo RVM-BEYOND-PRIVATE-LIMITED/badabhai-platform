@@ -5,6 +5,8 @@ import {
   JOB_POSTING_VERIFICATION_STATUSES,
   WORKER_FEEDBACK_CATEGORIES,
   WORKER_FEEDBACK_APP_BUILD_MAX,
+  WORKER_FEEDBACK_SCREEN_MAX,
+  WORKER_FEEDBACK_SCREEN_PATTERN,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -2356,6 +2358,59 @@ export const AdminWorkerJourneyViewedPayload = z
   .strict();
 export type AdminWorkerJourneyViewedPayload = z.infer<typeof AdminWorkerJourneyViewedPayload>;
 
+/**
+ * An admin READ a page of worker FEEDBACK — the worker's own free text (#997 follow-up).
+ *
+ * ⚠ WHY THIS EXISTS. `admin.worker_journey_viewed` audits reading a worker's step COUNTS.
+ * Reading their actual WORDS emitted nothing, which made `FeedbackService`'s own comment —
+ * the words are "one authenticated admin screen away, behind an audited surface" — false. This
+ * is the event that makes it true. `GET /admin/feedback` sits on `read_entities`, the floor all
+ * four roles hold, and it is the ONE admin read that projects worker-authored prose; broad
+ * access is exactly why the trail has to exist, the same argument the journey read settled.
+ *
+ * ── THE SUBJECT IS THE ADMIN SESSION, NOT THE WORKER, AND THAT IS THE DESIGN QUESTION ────
+ * ADR-0025 Decision 6 says an admin event's subject is "the target entity", and both
+ * `admin.pii_viewed` and `admin.worker_journey_viewed` follow it with `worker`. Neither applies
+ * here, because on those routes the worker id is a PATH PARAMETER — structurally guaranteed.
+ * This route's `workerId` is an OPTIONAL FILTER, so the same call is sometimes about one worker
+ * and sometimes about a page spanning many.
+ *
+ * A per-request subject_type would be worse than a uniform one, not more precise. Filing the
+ * filtered reads under `subject_type=worker` makes the obvious spine query — "who has read
+ * worker W's feedback?" — look COMPLETE when it is structurally incapable of being so: every
+ * UNFILTERED page that happened to contain W's message would be missing from the answer, and
+ * the reader would conclude nobody had read it. A trail that is silently partial on the very
+ * axis people query it on is worse than one that is honestly about the reading ACT.
+ *
+ * So: `admin_session` + the admin's id, the `admin.pii_reveal_cap_exceeded` precedent (which
+ * uses it for the same reason — its payload deliberately carries no worker subject). The
+ * questions this event CAN answer completely — "what did this admin read, with what filters,
+ * and how much came back" — are answered off `actor_id` and `event_name`.
+ *
+ * PII-FREE BY CONSTRUCTION AND NARROWER THAN THE ROW IT AUDITS: an opaque admin id, the two
+ * filters as they were applied, and a count. NEVER the message text, never an excerpt, never a
+ * hash of one, and deliberately NOT A LENGTH either — `feedback.submitted` carries a length
+ * because it is the shape of ONE submission the worker chose to make, whereas a length here
+ * would be a fact about what an admin was shown, adding nothing to "how many" but starting the
+ * spine down the road of describing content. `.strict()` is the structural backstop.
+ */
+export const AdminFeedbackViewedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    /** The `workerId` filter, when one was applied. Null means the page was unfiltered. */
+    worker_id: uuidSchema.nullable().default(null),
+    /** The `category` filter, when one was applied. Null means all categories. */
+    category: z.enum(WORKER_FEEDBACK_CATEGORIES).nullable().default(null),
+    /**
+     * How many rows the admin was actually shown — the page as RETURNED, never the `limit + 1`
+     * the repository over-fetches to detect a next page. Auditing the peeked row would claim
+     * the admin saw one message more than they did, on every page but the last.
+     */
+    result_count: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AdminFeedbackViewedPayload = z.infer<typeof AdminFeedbackViewedPayload>;
+
 /** Which per-admin reveal cap was breached (ADR-0025 ADMIN-3b must-fix #8). Enum-only → no PII. */
 export const ADMIN_PII_REVEAL_CAP_WINDOWS = ["hour", "day"] as const;
 export const AdminPiiRevealCapWindow = z.enum(ADMIN_PII_REVEAL_CAP_WINDOWS);
@@ -3287,6 +3342,21 @@ export type ProfileSubmissionDuplicatedPayload = z.infer<
  *
  * `.strict()` is load-bearing here more than anywhere: a later field carrying the text is the
  * one mistake that would look exactly like a helpful improvement.
+ *
+ * ── `screen_context` — ADDED LATER, ADDITIVE, STILL v1 ───────────────────────────────────
+ * The `AgencyInviteCreatedPayload` precedent (W1 added `medium` and `payload_keys`): an OPTIONAL
+ * field is backward-compatible in both directions, so the registry entry stays `version: 1` and
+ * every shipped consumer keeps parsing unchanged (invariant #8). `.nullable().default(null)` is
+ * the shape — `chat_session_id` on `AdminWorkerJourneyViewedPayload` uses the same one — so rows
+ * written before the widening re-validate as `null` rather than as absent, and a consumer never
+ * has to tell "we did not know the screen" from "this event predates the field".
+ *
+ * WHY A ROUTE PATTERN IS ALLOWED ON THE SPINE AT ALL, when the message is not. `/jobs/:id/apply`
+ * has had every id-shaped segment substituted out by `sanitizeScreenContext` before it reaches
+ * here, so it is a label from a closed-ish set the client's own router defines — it says WHICH
+ * SCREEN, and cannot say which job, which application, or which worker. A raw path would be an
+ * identifier and would not be allowed; the bound and the charset below are what keep the
+ * distinction structural rather than a matter of the emitter behaving.
  */
 export const FeedbackSubmittedPayload = z
   .object({
@@ -3299,6 +3369,25 @@ export const FeedbackSubmittedPayload = z
     message_length: z.number().int().nonnegative(),
     /** `x-app-build` (#966): a commit SHA / build number, or null when absent or malformed. */
     app_build: z.string().min(1).max(WORKER_FEEDBACK_APP_BUILD_MAX).nullable(),
+    /**
+     * The normalized ROUTE PATTERN the worker was on — `/jobs/:id/apply` — or null when the
+     * client sent nothing or sent something unrecognisable.
+     *
+     * `WORKER_FEEDBACK_SCREEN_PATTERN` is not belt-and-braces over the sanitizer; it is what
+     * makes "no identifier ever lands here" STRUCTURAL rather than a matter of the emitter
+     * behaving — the same job `.strict()` does for the message. It is the SHARED regex
+     * `sanitizeScreenContext` tests against, imported rather than re-typed, so the request edge
+     * and the spine cannot drift; and it rejects id-shaped SEGMENTS, not merely a wrong
+     * charset, because a uuid is made entirely of legal path characters and a charset check
+     * would wave one through. A second emitter added later without a normalizer fails here.
+     */
+    screen_context: z
+      .string()
+      .min(1)
+      .max(WORKER_FEEDBACK_SCREEN_MAX)
+      .regex(WORKER_FEEDBACK_SCREEN_PATTERN)
+      .nullable()
+      .default(null),
   })
   .strict();
 export type FeedbackSubmittedPayload = z.infer<typeof FeedbackSubmittedPayload>;

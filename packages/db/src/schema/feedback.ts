@@ -51,6 +51,15 @@ export const workerFeedback = pgTable(
     message: text("message").notNull(),
     // `x-app-build` (#966): a commit SHA / build number, or NULL when absent or malformed.
     appBuild: text("app_build"),
+    // WHICH SCREEN the worker was on when they tapped Feedback — a ROUTE PATTERN
+    // (`/jobs/:id/apply`), NEVER the concrete path. That distinction is the privacy design and
+    // not a tidying step: a raw path carries an entity id, which links this row to one specific
+    // job or session — a fact about the worker nobody asked them to disclose. Normalized
+    // server-side by `sanitizeScreenContext` even though the client normalizes too (the client
+    // is untrusted; the one that skips it is precisely the one whose value carries an id), and
+    // NULL when absent or unrecognisable, because losing a worker's typed feedback over a bad
+    // route string is the wrong failure direction.
+    screenContext: text("screen_context"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -93,5 +102,13 @@ export const workerFeedback = pgTable(
       "worker_feedback_app_build_len_chk",
       sql`${t.appBuild} IS NULL OR char_length(${t.appBuild}) BETWEEN 1 AND 64`,
     ),
+    // And for the route pattern: WORKER_FEEDBACK_SCREEN_MAX. A LENGTH bound only — the charset
+    // and the id-substitution live in `sanitizeScreenContext`, because a CHECK that refused a
+    // malformed value would turn the sanitizer's "store NULL and carry on" into a 500 that
+    // costs the worker their message, which is the exact failure this column must not cause.
+    check(
+      "worker_feedback_screen_context_len_chk",
+      sql`${t.screenContext} IS NULL OR char_length(${t.screenContext}) BETWEEN 1 AND 128`,
+    ),
   ],
-).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0079
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0080

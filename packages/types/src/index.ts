@@ -279,6 +279,54 @@ export const WORKER_FEEDBACK_MESSAGE_MAX = 4000;
  */
 export const WORKER_FEEDBACK_APP_BUILD_MAX = 64;
 
+/**
+ * Ceiling on the normalized SCREEN CONTEXT stored with a feedback row, in characters.
+ *
+ * The stored value is a ROUTE PATTERN (`/jobs/:id/apply`), never the concrete path the worker
+ * was on — see `sanitizeScreenContext` for why that distinction is the whole privacy design.
+ * 128 is generous for the deepest route the worker app ships and small enough that the column
+ * cannot be repurposed as a second free-text channel around the `message` bound.
+ *
+ * Pinned at the database too (`worker_feedback_screen_context_len_chk`), because SQL cannot
+ * import and nothing else stops the request-layer cap and the CHECK drifting apart —
+ * `worker-feedback-schema.test.ts` asserts the two are equal, exactly as it does for the other
+ * two bounds.
+ */
+export const WORKER_FEEDBACK_SCREEN_MAX = 128;
+
+/**
+ * What a stored/evented `screen_context` may look like: a rooted ROUTE PATTERN with NO segment
+ * that is an identifier.
+ *
+ * ⚠ IT LIVES HERE, WITH THE BOUND, FOR THE SAME REASON `WORKER_FEEDBACK_CATEGORIES` DOES. Two
+ * layers pin this shape — `sanitizeScreenContext` in apps/api, which normalizes an untrusted
+ * client value, and `FeedbackSubmittedPayload` in packages/event-schema, which is the structural
+ * backstop on the audit spine — and a private second copy is exactly how they drift. The drift
+ * is silent and one-directional: a payload regex looser than the sanitizer admits, from any
+ * FUTURE emitter that forgot to normalize, precisely the value the sanitizer exists to stop.
+ *
+ * ⚠ AND WHY A CHARSET ALONE IS NOT ENOUGH — the mistake worth recording. `[A-Za-z0-9._:/-]`
+ * happily admits `/jobs/6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply`: a uuid is made of exactly
+ * those characters. A charset can say "this is not prose"; it cannot say "this is not an
+ * identifier", which is the whole property that makes this field permissible on a spine where
+ * §2 forbids personal data. Hence the leading negative lookahead: no path SEGMENT may be
+ * all-numeric or uuid-shaped. Every segment on a rooted path is preceded by `/`, so scanning
+ * for `/<id>(/|end)` covers the first segment as well as the rest.
+ *
+ * ⚠ AND NO EMPTY SEGMENT — the `//` arm, which is not tidiness either. `//evil.example/jobs` is
+ * a rooted path by every check above and a SCHEME-RELATIVE URL to a host we do not control;
+ * rendered as a link on the admin Feedback screen it is an outbound navigation an attacker
+ * chose. `/a//b` is meaningless besides. So a doubled slash is refused anywhere in the value.
+ *
+ * Deliberately no whitespace, no `%`, no `?`, no `#`, no `<`, no non-ASCII. `:` is admitted only
+ * because `:id` is the substitution marker itself.
+ */
+const SCREEN_ID_SEGMENT =
+  "\\d+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+export const WORKER_FEEDBACK_SCREEN_PATTERN = new RegExp(
+  `^(?!.*\\/\\/)(?!.*\\/(?:${SCREEN_ID_SEGMENT})(?:\\/|$))\\/[A-Za-z0-9._:\\/-]*$`,
+);
+
 // ---- Branded id helpers (lightweight; not enforced at runtime) ----
 export type Uuid = string;
 export type Iso8601 = string;

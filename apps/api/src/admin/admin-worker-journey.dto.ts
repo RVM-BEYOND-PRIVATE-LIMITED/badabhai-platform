@@ -199,9 +199,13 @@ export interface AdminJourneyLoginStep extends AdminJourneyStepBase {
 /**
  * Step 2 — CHAT / AI PROFILING.
  *
- * NUMERATOR: the worker's own `worker_pack_answer` rows.
+ * NUMERATOR (`completed`): the worker's own `worker_pack_answer` rows in a SETTLED status —
+ * `SETTLED_ANSWER_STATUSES`, i.e. `answered` + `declined`. `unanswered` is excluded, because a
+ * question that was served and left unanswered is not progress; it is the absence of it.
  * DENOMINATOR: `question_pack_item` counts for exactly the `(pack_id, pack_version)` pairs
  * those rows STAMP THEMSELVES WITH — never "the currently active pack".
+ *
+ * ⚠ `completed` IS NOT `sum(packs[].answer_count)` — see `answer_count` below.
  *
  * ⚠ WHY THAT DISTINCTION IS LOAD-BEARING. The interview merges TWO packs, an occupation pack
  * and a universal one, and only the occupation pack is pinned on `chat_sessions.pack_id`. The
@@ -233,7 +237,15 @@ export interface AdminJourneyPackProgress {
   pack_version: number;
   /** `question_pack_item` rows for THIS EXACT version. 0 = the version was retired. */
   item_count: number;
-  /** The worker's answer rows stamped with this version. */
+  /**
+   * The worker's answer rows stamped with this version — ALL STATUSES, unlike the step's
+   * `completed`, which counts only the settled ones.
+   *
+   * ⚠ SO DO NOT RE-DERIVE THE HEADLINE BY SUMMING THESE. `sum(packs[].answer_count)` exceeds
+   * `completed` by the unanswered count the moment any unanswered row exists, and a UI that
+   * added them up would render a fuller progress bar than the step reports, from the same
+   * response. Read `completed`/`total` for progress; read this for per-pack volume.
+   */
   answer_count: number;
 }
 
