@@ -13,7 +13,7 @@
 | 0 | `0078` / S3-C | — | ✅ **APPLIED & VERIFIED** — object-by-object, write path exercised |
 | 1 | Embedding provenance (76 unstamped rows) | — | ✅ **CLOSED** — proven `gemini-embedding-001`, stamped |
 | 2 | `cnc-programming` scope decision | **product / taxonomy owner** | ⏸ quantified against production |
-| 3 | 11 provider evaluation cases | — | ✅ **EXECUTED** — 11 real calls, replay gap closed |
+| 3 | 11 provider evaluation cases | — | ✅ **EXECUTED**; replay gap closed; harness defect fixed; **US-04 resolved** |
 | 4 | 5 TD-01 trainer slots | **trade trainer** | ⏸ worksheet ready |
 | 5 | TD-07 | **product + trainer** | ⏸ worksheet ready, five options costed |
 | 6 | R38 residual | **host-only** | 🔴 open — CD cannot fix it (see below) |
@@ -114,39 +114,86 @@ Evidence: `packages/db/data/taxonomy/replay/phase-9-replay-query-vector-provenan
 
 ### The replay gap is closed: 127/127, 0 skipped
 
-| | before | after |
-|---|---|---|
-| replayed | 116 | **127** |
-| skipped (no cached query vector) | 11 | **0** |
-| scored | 113 | **117** |
-| Path A R@1 | 0.9912 | **0.9829** |
-| Path A MRR | 0.9956 | **0.9872** |
-| Path A false positives | 0 | **0** |
-| Path A false negatives | 0 | **1** |
-| Path B false positives | 0 | **2** |
+**And a harness defect was found in the act of reading the result.** The first full-127 run
+reported R@1 0.9829 over 117 scored, down from 0.9912 over 113. That drop was **not real**.
 
-Report: `packages/db/data/taxonomy/replay/phase-9-path-a-replay-FULL-127-PRE-PROMOTION.json`.
+`taxonomy-retrieval-eval.ts` defines `COVERAGE_ONLY_CATEGORIES = {"unembedded_shipped"}` and
+excludes those cases from Recall/MRR. `taxonomy-alias-experiment.ts` honours it. The fixture says
+so per case — US-04's own note reads *"excluded from headline Recall/MRR — reported as its own
+category"*. But `path-a-replay.ts`'s `summarizeReplay` split only on `negative` and had **no
+notion of coverage-only at all**, so the moment the last four `unembedded_shipped` queries got
+vectors they walked into the recall denominator. Three places agreed; the fourth had never been
+told.
 
-**The drop is the gap closing, not a regression** — exactly as the contract predicted. The 11
-cases were never ordinary recall cases: 7 are `cross_domain_isolation` (expected skill `null`) and
-4 are `unembedded_shipped`. The 4 entered scoring; one of them misses.
+Fixed (`coverageOnly` threaded from the case category, imported from the one shared set rather
+than re-declared) and pinned by 8 tests. Corrected numbers:
 
-**Three findings that were invisible while these cases were unscoreable:**
+| | baseline (116 replayed) | full 127, harness bug | full 127, corrected |
+|---|---|---|---|
+| cases | 116 | 127 | **127** |
+| skipped | 11 | 0 | **0** |
+| scored | 113 | 117 | **113** |
+| hits | 112 | 115 | **112** |
+| **R@1** | 0.9912 | 0.9829 | **0.9912** |
+| MRR | 0.9956 | 0.9872 | **0.9956** |
+| Path A false positives | 0 | 0 | **0** |
+| Path A false negatives | 0 | 1 | **0** |
+| coverage reached (Path A) | — | — | **3 / 4** |
+| coverage reached (Path B) | — | — | **1 / 4** |
 
-- **Path A's cross-domain isolation holds — 0 false positives on all 7 XD cases.** This is the
-  safety property (a query from a foreign trade must return nothing), and it had never been
-  measured on the hardest cases. It passes.
-- **Path B leaks: 2 false positives on the same 7 cases.** The legacy path returns a skill where
-  Path A correctly returns nothing. First time this has been quantified, and it is an argument
-  for Path A that did not exist before.
-- **US-04 is a genuine Path A miss, and it needs a taxonomy owner, not a fix.**
-  Query `"dimensional inspection"` in `jd_nco_7313_2601` (Final Quality Inspector) expects
-  `skill_quality_control`; Path A returns `skill_drawing_reading`. It is the single
-  `top1_changed` case in the TD-01/02/03 impact table: pre-merge it returned
-  `skill_dimensional_inspection`, which **TD-02 deprecated**. So either TD-02's merge target is
-  wrong for this query, or the fixture's expectation is stale. **DC-18 is the standing warning
-  against engineering deciding which** — a case that read as a model failure for two phases turned
-  out to be a fixture opinion. Referred, not resolved.
+**Retrieval quality did not move.** R@1, MRR and hits are identical to the baseline; the extra 11
+cases were never scoring cases. The report now prints `scored` beside R@1, because a recall figure
+whose denominator is invisible is exactly how 113 and 117 came to be compared as if they described
+the same set.
+
+Corrected report: `phase-9-path-a-replay-FULL-127-COVERAGE-CORRECTED.json`.
+The earlier `phase-9-path-a-replay-FULL-127-PRE-PROMOTION.json` is **superseded but retained** —
+evidence is not deleted because it turned out to be wrong; it is the record of what the harness
+said before the defect was found.
+
+**The three genuine findings from the provider run survive the correction:**
+
+- **Path A's cross-domain isolation holds — 0 false positives across all 10 XD cases**, 7 of
+  which had never been scoreable. This is the safety property (a query from a foreign trade must
+  return nothing) and it is the strongest single result of the pass.
+- **Path B leaks: 2 false positives** on those same cases, where Path A returns nothing. First
+  time this has been quantified, and it is an argument for Path A that did not exist before.
+- **US-04 — RESOLVED, and it needs no taxonomy ruling after all.** It is not a stale fixture,
+  not a wrong TD-02 successor, and not a Path-A scope bug. It is the measurable gap between two
+  steps the deployment plan already orders adjacently.
+
+  The chain, each link checked:
+
+  | | evidence |
+  |---|---|
+  | `skill_dimensional_inspection` holds the alias `"dimensional inspection"` | `SKILL_CORPUS`: aliases `["inspection", "dimensional inspection", "quality check"]` |
+  | TD-02 deprecates it into `skill_quality_control` | corpus `status: "deprecated"`, `replacedBy: "skill_quality_control"` |
+  | the successor never received the alias | `skill_quality_control` aliases are `["QC", "quality control"]` only |
+  | that is BY DESIGN, not an oversight | the TD-02 record: re-homing alias rows is *"the separate, later, explicitly-gated step"* `db:retag:skills` |
+  | which the plan already schedules | `phase-9-s3-deployment-plan.md`: step 1 is the 4 deprecations, **step 2 is `db:retag:skills`** |
+  | and which has not run anywhere | production has **0** rows with `status='deprecated' AND replaced_by IS NOT NULL` |
+
+  **Production today is unaffected**: `skill_dimensional_inspection` is still `active` with its
+  alias embedded, so the query resolves correctly right now. The replay was forecasting the
+  window *after* the deprecations land and *before* the retag runs.
+
+  **Now measurable rather than argued.** A fourth replay variant, `aliases_retagged`, applies
+  what `db:retag:skills --apply` does — move each deprecated skill's aliases to its terminal,
+  resolving chains, excluding dead ends and cycles fail-safe, and dropping a copy the terminal
+  already owns (the runner's `ON CONFLICT DO NOTHING`). Result:
+
+  | variant | Path A coverage | R@1 |
+  |---|---|---|
+  | `as_applied` (deprecations only) | 3 / 4 | 0.9912 |
+  | **`aliases_retagged`** (+ step 2) | **4 / 4** | 0.9912 |
+
+  It moves **8** aliases, including `"dimensional inspection" → skill_quality_control`. Recall
+  does not move; the coverage gap closes. Forecast:
+  `phase-9-path-a-replay-RETAG-FORECAST.json`.
+
+  **The one thing worth an owner's attention** is ordering, not taxonomy: steps 1 and 2 must
+  land together. Between them the corpus is in exactly the state the replay showed, and any
+  measurement taken in that window will read as a regression that is not one.
 
 ---
 
@@ -194,6 +241,54 @@ Pinned by `deploy-workflow-taxonomy.guard.test.ts`, which asserts the `--no-deps
 this reasoning cannot silently stop being true.
 
 ---
+
+## S3-D readiness — what an adversarial sweep found
+
+Four lenses were run over the S3 plan, the harness family, the `cnc-programming` option and the
+trainer worksheet, with each serious finding independently refuted-or-confirmed. What survived:
+
+### Closed in this pass
+
+| finding | state |
+|---|---|
+| `path-a-replay` scored coverage-only cases in Recall | **fixed** — R@1 back to 0.9912 over 113, 8 tests |
+| `retag-skills` destroyed paid embeddings on deterministic-id collision | **fixed** — `onConflictDoUpdate` guarded by `isNull(embedding)`, 8 tests |
+| **P1 had no runnable implementation** | **built** — `db:verify:path-b-parity`, 17 tests, baseline captured |
+| trainer worksheet: 4 factual errors + a DC-18 leak | **fixed** — revision 2 |
+
+**P1 is now an assertion, not a promise.** It was the load-bearing safety property of the whole
+S3 sequence — *"Path B's result set before vs after must be unchanged"* — and it was verified by
+reading migrations and reasoning about them, which is exactly the check that already failed once
+this phase. The verifier digests each legacy slug's candidate set under the exact
+`legacyAliasRows` predicate (pinned against the repository source by test), so a match proves
+every Path B answer to *every possible query* is unchanged — a stronger statement than replaying
+a fixture, and one that needs no provider call.
+
+Pre-S3 baseline captured from production: **10 slugs, 76 candidate rows**,
+`phase-9-path-b-parity-BASELINE-PRE-S3.json`. Re-run with `--against=` after any stage.
+
+### Open, and each one blocks or weakens S3-D
+
+| # | finding | why it matters |
+|---|---|---|
+| 1 | **S3-D has no rollback procedure** beyond four lines of prose — no script, no manifest, no rehearsal | the stage that changes live retrieval is the one with no tested way back |
+| 2 | **`--preserve-existing-status` does not exist** in `seed-skills.ts` | S3-A is specified in terms of a flag nobody wrote, so the stage S3-D is gated on cannot be run as designed |
+| 3 | **4 of 5 S3-D abort thresholds have no instrument**, and the S3-C dual-read shadow they were to be derived from was never built | the thresholds are inherited numbers with nothing to measure them against |
+| 4 | **The worker/profile caller has no read switch** — `apps/ai-service/app/routers/profile.py` is hard-pinned to the legacy anchor slug | S3-D's "everything is tied to the switch" property does not hold for that caller |
+| 5 | `db:retag:skills` guards on `NODE_ENV`, not on the database host | the guard that stopped me reading production is the right guard keyed on the wrong thing |
+
+Items 2 and 5 are engineering-safe and small. Item 1 is engineering-safe but not small. Items 3
+and 4 need a design decision about what S3-C's shadow actually is before they can be built.
+
+### Harness-family defects, none blocking
+
+`isScoreable` / `pending_review` is honoured by 2 of 5 fixture consumers; `COVERAGE_ONLY_CATEGORIES`
+still has a private duplicate in `taxonomy-alias-experiment.ts` and a bare string literal in
+`taxonomy-floor-sweep.ts`; `--k` is validated in 1 of 5 harnesses; "which skills the fixture
+covers" is computed two incompatible ways; `promote-skills.ts`'s `EVAL_COVERED` gate admits the
+39 mechanical cases its own spec excludes. All are the same shape as the coverage-only defect
+fixed above — a rule defined in one module and re-implemented or omitted in another — and the
+`promote-skills` one makes a live promotion gate **weaker** than specified.
 
 ## Flags, unchanged
 

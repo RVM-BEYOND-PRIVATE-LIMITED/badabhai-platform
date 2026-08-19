@@ -49,6 +49,9 @@
  */
 import type { SkillStatus } from "@badabhai/taxonomy";
 import { evaluateCase } from "./taxonomy-retrieval-metrics";
+// IMPORTED, not re-declared. A second copy of this set is exactly how the replay came to
+// disagree with the two harnesses that already honoured it — see `coverageOnly` below.
+import { COVERAGE_ONLY_CATEGORIES } from "./taxonomy-retrieval-eval";
 
 /**
  * Statuses production retrieval will serve. Mirrors both repository statements.
@@ -66,7 +69,7 @@ export const LEGACY_ANCHOR_SKILL_DOMAIN = "cnc-machining";
 
 export type RetrievalPath = "path_a_canonical" | "path_b_legacy";
 
-export type CorpusVariant = "pre_merge" | "as_applied" | "edges_repointed";
+export type CorpusVariant = "pre_merge" | "as_applied" | "edges_repointed" | "aliases_retagged";
 
 /** One alias as retrieval sees it: a text, its owning skill, and that skill's reachability. */
 export interface ReplayAlias {
@@ -224,6 +227,75 @@ export function buildVariant(
         mintedSkillIds: minted,
         restoredSkillIds: [],
         reassignedAliases: [],
+        repointedEdges: [],
+      },
+    };
+  }
+
+  if (variant === "aliases_retagged") {
+    // ── The offline dry-run for `db:retag:skills --apply`, step 2 of the deprecation stage ──
+    //
+    // WHY THIS VARIANT EXISTS. `as_applied` models the deprecations landing and NOTHING else,
+    // so it shows a real but TRANSIENT loss: a deprecated skill's aliases stop being
+    // retrievable while its successor still carries only its own. US-04 is the measured
+    // example — "dimensional inspection" lives on `skill_dimensional_inspection`, which TD-02
+    // deprecates in favour of `skill_quality_control`, whose only aliases are "QC" and
+    // "quality control". The query misses in `as_applied` and the fixture reads as broken.
+    //
+    // It is not broken. `phase-9-s3-deployment-plan.md` orders `db:retag:skills` as step 2 of
+    // the SAME stage, and that runner "MOVES the deprecated skills' aliases to the terminal
+    // skill ... so future canonicalization assigns the successor". This variant applies that
+    // move to the corpus, so the plan's own remedy can be MEASURED before it is run against a
+    // database rather than asserted in prose.
+    //
+    // Chains are resolved to a terminal, exactly as the runner does, and dead ends are
+    // EXCLUDED fail-safe: an alias whose chain terminates on a skill that is itself deprecated
+    // with no successor stays where it is rather than being sent somewhere unreachable.
+    const successorOf = new Map(
+      input.skills.filter((s) => s.replacedBy !== null).map((s) => [s.skillId, s.replacedBy as string]),
+    );
+    const byId = new Map(input.skills.map((s) => [s.skillId, s]));
+    /** Walk to the end of the crosswalk. `null` = a cycle or a dead end; leave the alias put. */
+    const terminalOf = (start: string): string | null => {
+      const seen = new Set<string>([start]);
+      let at = start;
+      for (;;) {
+        const next = successorOf.get(at);
+        if (next === undefined) break;
+        if (seen.has(next)) return null; // cycle
+        seen.add(next);
+        at = next;
+      }
+      if (at === start) return null;
+      const end = byId.get(at);
+      // A terminal that is itself deprecated-without-successor is a dead end. Moving an alias
+      // onto it would hide the alias behind the same status gate it was moved to escape.
+      if (end === undefined || end.status === "deprecated") return null;
+      return at;
+    };
+
+    const domainOf = new Map(input.aliases.map((a) => [a.skillId, a.domainId]));
+    const existing = new Set(input.aliases.map((a) => `${a.skillId}\u0000${a.text}`));
+    const moved: { text: string; to: string }[] = [];
+    const aliases: ReplayAlias[] = [];
+    for (const a of input.aliases) {
+      const to = terminalOf(a.skillId);
+      if (to === null) {
+        aliases.push(a);
+        continue;
+      }
+      // `ON CONFLICT DO NOTHING` in the runner: the terminal already owning this text wins and
+      // the predecessor's copy simply disappears, rather than producing a duplicate.
+      if (existing.has(`${to}\u0000${a.text}`)) continue;
+      moved.push({ text: a.text, to });
+      aliases.push({ ...a, skillId: to, domainId: domainOf.get(to) ?? a.domainId });
+    }
+    return {
+      corpus: { variant, skills: input.skills, aliases, edges: input.edges },
+      provenance: {
+        mintedSkillIds: minted,
+        restoredSkillIds: [],
+        reassignedAliases: moved.sort((x, y) => x.text.localeCompare(y.text)),
         repointedEdges: [],
       },
     };
@@ -433,6 +505,14 @@ export interface ReplayCaseResult {
   /** null on a NEGATIVE case — one whose correct outcome is "nothing relevant". */
   readonly expectedSkillId: string | null;
   readonly negative: boolean;
+  /**
+   * A COVERAGE-ONLY case: it has an expected skill, but that skill is shipped-and-reused-only,
+   * so the case asks "is this reachable at all" rather than "is it ranked first". Excluded from
+   * Recall/MRR and reported separately — `taxonomy-retrieval-eval.ts` and
+   * `taxonomy-alias-experiment.ts` have always done this, and the fixture's own notes say so
+   * per-case ("excluded from headline Recall/MRR — reported as its own category").
+   */
+  readonly coverageOnly: boolean;
   readonly hit: boolean;
   /** 1-based rank of the expected (or acceptable) skill; null when it never appeared. */
   readonly expectedRank: number | null;
@@ -465,6 +545,12 @@ export function replayCase(
     forbiddenSkillIds?: readonly string[];
     k: number;
     statuses?: readonly SkillStatus[];
+    /**
+     * The fixture case's `category`. Optional so existing callers compile, but a caller that
+     * omits it gets the case counted in Recall — which for an `unembedded_shipped` case is the
+     * wrong answer. `replay-path-a.ts` passes it.
+     */
+    category?: string;
   },
 ): ReplayCaseResult {
   const candidates =
@@ -484,6 +570,9 @@ export function replayCase(
   );
 
   const negative = args.expectedSkillId === null && (args.acceptableSkillIds ?? []).length === 0;
+  // A negative case is never coverage-only: it has no expected skill to cover, and its whole
+  // purpose is the false-positive check, which stays in force.
+  const coverageOnly = !negative && args.category !== undefined && COVERAGE_ONLY_CATEGORIES.has(args.category);
   return {
     caseId: args.caseId,
     path,
@@ -494,7 +583,10 @@ export function replayCase(
     top1Score: skills[0]?.score ?? null,
     expectedSkillId: args.expectedSkillId,
     negative,
+    coverageOnly,
     // A negative case is "hit" when it stayed clean; a positive one when it ranked first.
+    // `hit` is still computed for a coverage-only case — it is what the coverage line reports —
+    // it simply does not enter Recall/MRR.
     hit: negative ? outcome.structuralViolations.length === 0 : outcome.rank === 1,
     expectedRank: outcome.rank,
     structuralViolations: outcome.structuralViolations,
@@ -563,17 +655,33 @@ export interface ReplaySummary {
   readonly falsePositives: number;
   /** POSITIVE cases where the expected skill never appeared at all. */
   readonly falseNegatives: number;
+  /** COVERAGE-ONLY cases — excluded from every number above. */
+  readonly coverageOnly: number;
+  /** Of those, how many reached their expected skill at rank 1. Reachability, not quality. */
+  readonly coverageReached: number;
 }
 
 /**
  * Aggregate.
  *
- * Recall and MRR are computed over POSITIVE cases only, matching `summarize`. Dividing by all
- * cases would let a fixture dilute its own recall by adding negatives, which is the opposite of
- * what adding a negative case is for.
+ * Recall and MRR are computed over SCORING cases only — positives that are not coverage-only —
+ * matching `summarize` and `partitionCases` in `taxonomy-retrieval-eval.ts`. Two exclusions,
+ * for two different reasons:
+ *
+ *   NEGATIVES have no correct answer to find. Dividing by all cases would let a fixture dilute
+ *   its own recall by adding negatives, which is the opposite of what adding one is for.
+ *
+ *   COVERAGE-ONLY cases have an expected skill that is shipped-and-reused-only, with no
+ *   locally-authored corpus record. They ask "is this reachable", not "is this ranked first",
+ *   and the fixture says so in each case's own notes. This exclusion was MISSING here while
+ *   `taxonomy-retrieval-eval.ts` and `taxonomy-alias-experiment.ts` both applied it — so the
+ *   moment the last four `unembedded_shipped` queries got vectors, they entered Recall and
+ *   moved a headline number that three other places agreed they should not touch. The number
+ *   was reported before the disagreement was noticed, which is the real cost.
  */
 export function summarizeReplay(rows: readonly ReplayCaseResult[]): ReplaySummary {
-  const positives = rows.filter((r) => !r.negative);
+  const positives = rows.filter((r) => !r.negative && !r.coverageOnly);
+  const coverage = rows.filter((r) => r.coverageOnly);
   const n = positives.length;
   const hits = positives.filter((r) => r.hit).length;
   const rr = positives.reduce((s, r) => s + (r.expectedRank === null ? 0 : 1 / r.expectedRank), 0);
@@ -589,6 +697,8 @@ export function summarizeReplay(rows: readonly ReplayCaseResult[]): ReplaySummar
     meanCandidates: rows.length === 0 ? 0 : cand / rows.length,
     falsePositives: rows.filter((r) => r.negative && r.structuralViolations.length > 0).length,
     falseNegatives: positives.filter((r) => r.expectedRank === null).length,
+    coverageOnly: coverage.length,
+    coverageReached: coverage.filter((r) => r.hit).length,
   };
 }
 

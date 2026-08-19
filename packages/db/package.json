@@ -81,7 +81,8 @@
     "db:review-pack:td01": "tsx src/td01-review-pack.ts",
     "db:audit:embeddings": "tsx src/audit-embedding-provenance.ts",
     "db:verify:embeddings": "tsx src/verify-embedding-provenance.ts",
-    "db:audit:schema-contract": "tsx src/audit-schema-contract.ts"
+    "db:audit:schema-contract": "tsx src/audit-schema-contract.ts",
+    "db:verify:path-b-parity": "tsx src/verify-path-b-parity.ts"
   },
   "dependencies": {
     "@badabhai/ai-contracts": "workspace:*",

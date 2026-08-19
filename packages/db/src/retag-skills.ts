@@ -19,9 +19,13 @@
  *      before`) — a row that moved since planning is SKIPPED and reported; re-run to
  *      re-plan it. Also MOVES the deprecated skills' aliases to the terminal skill
  *      (insert-with-new-deterministic-id copying the embedding + the terminal's
- *      domain_id, ON CONFLICT DO NOTHING, then delete the old row) so future
- *      canonicalization assigns the successor — without this the live path keeps
- *      emitting the deprecated id forever.
+ *      domain_id, then delete the old row) so future canonicalization assigns the
+ *      successor — without this the live path keeps emitting the deprecated id forever.
+ *      On id conflict — the NORMAL case when the successor's corpus already declares the
+ *      same alias text — the vector is carried onto the existing row IF AND ONLY IF that
+ *      row has none. It used to be `ON CONFLICT DO NOTHING` followed by an unconditional
+ *      DELETE, which destroyed a paid, provenance-stamped embedding and left a row both
+ *      retrieval paths filter out.
  *
  * IMMUTABILITY (SG-5): ids are never reused/renamed; `skill` rows are never deleted.
  * GUARDED: refuses NODE_ENV === "production" (prod re-tag is a deliberate, gated step).
@@ -49,7 +53,7 @@ import path from "node:path";
 
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { config } from "dotenv";
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { createDbClient } from "./client";
 import { jobPostings, skillAliases, skills, workerProfiles } from "./schema";
@@ -494,7 +498,36 @@ async function main(): Promise<void> {
             // not. The footer below says so out loud rather than leaving it to be discovered.
             isSearchable: false,
           })
-          .onConflictDoNothing({ target: skillAliases.id });
+          // ── WHY THIS IS AN UPSERT AND NOT `onConflictDoNothing` ────────────────────────
+          //
+          // The id is `deterministicAliasId(terminal, text, lang)`, so it collides with a row
+          // the SEED already wrote for the same text on the terminal — which is the normal
+          // case, not a rare one, whenever a merge successor declares the predecessor's text
+          // in its own corpus alias list. `skill_drawing_reading` declares "CAD", "technical
+          // drawing" and "read engineering drawings", all three of which `skill_cad_
+          // interpretation` holds EMBEDDED in production today.
+          //
+          // With DO NOTHING the sequence was: insert skipped (id taken by the seed's
+          // unembedded row) -> DELETE the predecessor unconditionally. Net effect: a paid,
+          // provenance-stamped vector destroyed, and the surviving row has `embedding IS
+          // NULL`, which BOTH retrieval paths filter out. Silent, and unrecoverable without
+          // re-embedding.
+          //
+          // So on conflict, carry the vector across — but only INTO A HOLE. `setWhere` makes
+          // that explicit: an existing row that already has its own embedding keeps it, and is
+          // never overwritten by a predecessor's.
+          .onConflictDoUpdate({
+            target: skillAliases.id,
+            set: {
+              embedding: a.embedding,
+              embeddingModel: a.embeddingModel,
+              embeddedAt: a.embeddedAt,
+              textNorm: a.textNorm,
+            },
+            setWhere: isNull(skillAliases.embedding),
+          });
+        // Only now is the delete safe: either the insert created the row with the vector, or
+        // the conflict branch copied it onto the row that was already there.
         await db.delete(skillAliases).where(eq(skillAliases.id, a.id));
         moved += 1;
       }

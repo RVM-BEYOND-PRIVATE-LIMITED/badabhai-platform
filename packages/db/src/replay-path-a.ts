@@ -50,6 +50,7 @@ import { SKILL_CORPUS, ratifiedWedgeAliases } from "@badabhai/taxonomy";
 import { EMBEDDING_MODEL } from "./taxonomy-alias-experiment";
 import { isScoreable, loadEvalFixture, type EvalCase } from "./taxonomy-eval-fixture";
 import { loadTaxonomyCorpus } from "./taxonomy-corpus";
+import { COVERAGE_ONLY_CATEGORIES } from "./taxonomy-retrieval-eval";
 import { argFlag, argValue } from "./match-v1-cli";
 import {
   LEGACY_ANCHOR_SKILL_DOMAIN,
@@ -75,7 +76,15 @@ import {
 
 config();
 
-const VARIANTS: readonly CorpusVariant[] = ["pre_merge", "as_applied", "edges_repointed"];
+// `aliases_retagged` is LAST on purpose: it is the only variant that models a step which has
+// not run anywhere yet (`db:retag:skills`), so it reads as the forecast it is rather than as
+// another view of the current corpus.
+const VARIANTS: readonly CorpusVariant[] = [
+  "pre_merge",
+  "as_applied",
+  "edges_repointed",
+  "aliases_retagged",
+];
 const PATHS: readonly RetrievalPath[] = ["path_a_canonical", "path_b_legacy"];
 
 function dataPath(...p: string[]): string {
@@ -252,6 +261,9 @@ function main(): void {
           forbiddenSkillIds: c.must_not_return_skill_ids,
           k,
           statuses,
+          // Load-bearing: without it every `unembedded_shipped` case is scored in Recall/MRR,
+          // which is what silently moved R@1 the first time all 127 queries had vectors.
+          category: c.category,
         }),
       );
       runs.set(`${variant}|${path}`, rows);
@@ -291,16 +303,27 @@ function main(): void {
   }
 
   console.log(`\n=== summary — ${covered.length} cases, k=${k} ===`);
-  console.log(`  ${"variant".padEnd(17)} ${"path".padEnd(18)} ${"resolved".padStart(8)} ${"unres".padStart(6)} ${"R@1".padStart(7)} ${"MRR".padStart(7)} ${"meanCand".padStart(9)}`);
+  // `scored` is printed beside R@1 on purpose. A recall figure whose denominator is invisible
+  // is how 113 and 117 got compared as though they described the same set.
+  console.log(
+    `  ${"variant".padEnd(17)} ${"path".padEnd(18)} ${"resolved".padStart(8)} ${"unres".padStart(6)} ` +
+      `${"scored".padStart(6)} ${"R@1".padStart(7)} ${"MRR".padStart(7)} ${"meanCand".padStart(9)} ${"cover".padStart(7)}`,
+  );
   for (const v of VARIANTS) {
     for (const p of PATHS) {
       const s = summarizeReplay(get(v, p));
       console.log(
         `  ${v.padEnd(17)} ${p.padEnd(18)} ${String(s.resolved).padStart(8)} ${String(s.unresolved).padStart(6)} ` +
-          `${s.recallAt1.toFixed(4).padStart(7)} ${s.mrr.toFixed(4).padStart(7)} ${s.meanCandidates.toFixed(1).padStart(9)}`,
+          `${String(s.scored).padStart(6)} ${s.recallAt1.toFixed(4).padStart(7)} ${s.mrr.toFixed(4).padStart(7)} ` +
+          `${s.meanCandidates.toFixed(1).padStart(9)} ${`${s.coverageReached}/${s.coverageOnly}`.padStart(7)}`,
       );
     }
   }
+  console.log(
+    `  cover = coverage-only cases REACHED/TOTAL (category ${[...COVERAGE_ONLY_CATEGORIES].join(", ")}).\n` +
+      `  They are excluded from scored/R@1/MRR: their expected skill is shipped-and-reused-only, so the\n` +
+      `  case asks whether it is reachable at all, not whether it ranks first.`,
+  );
 
   console.log(`\n=== path agreement on identical phrases (as_applied) ===`);
   const ag = summarizeAgreement(get("as_applied", "path_a_canonical"), get("as_applied", "path_b_legacy"));

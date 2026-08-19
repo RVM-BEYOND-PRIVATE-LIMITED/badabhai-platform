@@ -1,73 +1,96 @@
 # Trainer & product worksheet — TD-01 slots and TD-07
 
 > **For a trade trainer and a product owner. No engineering knowledge needed.**
-> Nothing here is a draft answer. Every blank is blank because a plausible-looking answer
-> written by the same process that scores it would measure nothing — see DC-18 below.
+> Nothing here is a draft answer. Every blank is blank on purpose — see *Why the blanks are
+> blank*.
 >
-> Generated from `packages/db/data/taxonomy/eval/review-pack/td01-drawing-reading-trainer-pack.json`
-> plus the production database (read-only, 2026-08-19). The pack is the machine-readable
-> original; this file exists because the pack identifies domains as `jd_nco_7223_0701`, which
-> nobody can answer questions about.
+> **Do Part 1 before reading Part 1B.** That order is not a formality; the reason is below.
+>
+> **Where these numbers come from:** the corpus source files on `main` and a read-only export of
+> the alias vectors — **not** the production database. Two of the three facts about production
+> are labelled as such where they appear. Revision 2, 2026-08-19: the first revision of this
+> file contained four factual errors and one leading question; all are corrected here and the
+> corrections are noted inline so nobody carries the old version forward.
 
 ---
 
 ## Why the blanks are blank
 
-**DC-18** is the standing example in this repository. A test case read as a model failure for
-two entire phases before anyone noticed the case itself was wrong — the "correct answer" it
-asserted was one person's opinion, written by the same pipeline that then measured against it.
+**DC-18** is the standing example in this repository. A test case read as a model failure for two
+phases before anyone noticed the case itself was wrong — its "correct answer" was one person's
+opinion, written by the same pipeline that then measured against it.
 
-So: if engineering invents how a lathe machinist describes reading a drawing, and then measures
-whether the system finds that phrase, the measurement is circular. It proves the phrase matches
-itself. **The only phrasings worth measuring are ones a person who does the trade supplied.**
+So if engineering invents how a lathe machinist describes reading a drawing, and then measures
+whether the system finds that phrase, the measurement is circular. **Only phrasings from someone
+who does the trade are worth measuring.**
 
-The cases that DO carry a query are marked `mechanical`. Their query is the skill's own alias —
-tautologically correct, weak by construction, present only to prove the skill is reachable at
-all. **They must never be promoted to recall evidence.**
+The same logic is why Part 1 comes before Part 1B. Part 1B shows you which skills the system
+currently confuses with this one. If you read that first, your paraphrases will be written to
+avoid those specific confusions — and the test will then confirm a distinction you were shown
+rather than discover one you know.
 
 ---
 
-# Part 1 — TD-01: five empty slots
+# Part 1 — TD-01: five paraphrases
 
 ## The skill
 
 **Drawing reading (GD&T / technical drawing)** — `skill_drawing_reading`
 
-It already answers to these phrases. **Do not reuse any of them verbatim** — a paraphrase that
-repeats an existing alias tests nothing:
+It already answers to these phrases. **Do not reuse any of them** — a paraphrase that repeats an
+existing phrase tests nothing:
 
 > drawing reading · GD&T · geometric dimensioning and tolerancing · blueprint reading · CAD ·
 > technical drawing · read engineering drawings · drawing padhna *(hi)*
 
 ## What to write
 
-For each slot: **how would a worker in that trade describe this skill, in their own words,
-without using any phrase above?** One line. Their words, not the catalogue's.
-
-Then set `review_status` to `reviewed` in the pack JSON, or hand these back and engineering will.
+For each row: **how would a worker in that trade describe this skill, in their own words, without
+using any phrase above?** One line each. Their words, not the catalogue's.
 
 | # | case id | trade (job domain) | language | how a worker there would say it |
 |---|---|---|---|---|
 | 1 | `PR-drawing_reading-1` | **Quality Inspector** — forged, cast or machined components<br><sub>`jd_nco_7543_2001` · required</sub> | English | |
-| 2 | `PR-drawing_reading-2` | **Quality Inspector** — forged, cast or machined components<br><sub>`jd_nco_7543_2001` · required</sub> | **Hindi** | |
+| 2 | `PR-drawing_reading-2` | **Quality Inspector** — forged, cast or machined components<br><sub>`jd_nco_7543_2001` · required</sub> | **Hindi — in Devanagari script**, as a worker would type or say it. Not romanised. | |
 | 3 | `PR-drawing_reading-jd_nco_7223_6003` | **CNC Programmer**<br><sub>`jd_nco_7223_6003` · required</sub> | English | |
 | 4 | `PR-drawing_reading-jd_nco_7223_0701` | **Lathe Machinist**<br><sub>`jd_nco_7223_0701` · required</sub> | English | |
 | 5 | `PR-drawing_reading-jd_nco_7224_0102` | **Fitter — Fabrication**<br><sub>`jd_nco_7224_0102` · required</sub> | English | |
 
-Those four trades were chosen by the corpus, not by taste: they are the ones that mark this
-skill **`required`** — the corpus's own statement that it is not optional work there.
+Those four trades were chosen by the corpus, not by taste: they are the ones that mark this skill
+**`required`** — the corpus's own statement that it is not optional work there.
 
-## Three questions that come with the slots
+**One more question, and it is not a formality.** This skill is currently reachable in **12**
+trades. Beyond the four above: Final Quality Inspector, CNC Operator-Turning, Sheet Metal Worker,
+Pipe Fitter, Welder, Automobile Assembler, Electrical Fitter, Fitter Automobile. Does "reading a
+drawing" mean the same job in all twelve? If a pipe fitter and a quality inspector mean materially
+different things by it, this needs one case per trade rather than one shared case.
 
-**Q1 — Is the label right?**
-The catalogue calls this *"Drawing reading (GD&T / technical drawing)"*. Is that what a worker
-or a supervisor would actually call it? If the label is jargon, the fix is the alias list, not
-the test cases.
+☐ Same everywhere ☐ Differs in: ______________________
+
+**Stop here until the five rows above are filled in.**
+
+---
+
+# Part 1B — after the paraphrases are written
+
+**Correction to revision 1.** It said filling these slots was why recall is reported over 113
+cases instead of 127. That was wrong. `skill_drawing_reading` appears in **zero** of the 127 eval
+cases — the pack records `existing_fixture_coverage_for_this_skill: 0`. The 113/127 difference is
+a separate matter (negative cases and coverage-only cases). The true state: **this skill has no
+eval coverage at all today**, and these five slots would be the first.
+
+### Is the label right?
+
+The catalogue calls this *"Drawing reading (GD&T / technical drawing)"*. Is that what a worker or
+a supervisor would actually call it? If the label is jargon, the fix is the phrase list, not the
+test cases.
 
 ☐ Label is fine ☐ Should be: ______________________
 
-**Q2 — Are these separate skills, or the same work under different names?**
-Measured similarity to drawing reading, from the live vectors:
+### Which of these are the same work under another name?
+
+Measured similarity to drawing reading, computed over the **corpus** alias vectors — this is an
+offline measurement, **not** production traffic:
 
 | skill | closest phrase | similarity |
 |---|---|---|
@@ -76,88 +99,89 @@ Measured similarity to drawing reading, from the live vectors:
 | CMM operation | "coordinate measuring machine" | 0.664 |
 | Fixture / job setup | "workholding" | 0.643 |
 
-For each: **same work, or different?** If the same, that is a taxonomy merge, not a test case.
-If different, say in one line what separates them, so the paraphrase can be written to keep them
-apart.
+For each: **same work, or different?** If the same, that is a taxonomy merge, not a test case. If
+different, say in one line what separates them.
 
 ☐ CAM software: same / different — because ______________________
 ☐ TIG welding: same / different — because ______________________
 ☐ CMM operation: same / different — because ______________________
 ☐ Fixture setup: same / different — because ______________________
 
-**Q3 — Does it mean the same thing everywhere?**
-This skill is reachable in **12** trades. Beyond the four above: Final Quality Inspector, CNC
-Operator-Turning, Sheet Metal Worker, Pipe Fitter, Welder, Automobile Assembler, Electrical
-Fitter, Fitter Automobile.
-
-Does "reading a drawing" mean the same job in all twelve? If a pipe fitter and a quality
-inspector mean materially different things by it, this needs one case per trade rather than one
-shared case.
-
-☐ Same everywhere ☐ Differs in: ______________________
-
 ---
 
 # Part 2 — TD-07: the generic welding gap
 
-## The finding, restated
+## What the corpus holds
 
-There is **no generic welding skill**. The catalogue holds four specific ones:
+Five welding-related skills, with the number of trades each is wired to:
 
-| skill | aliases in production |
-|---|---|
-| `skill_arc_welding` — Arc welding | 3 |
-| `skill_mig_welding` — MIG welding | 3 |
-| `skill_tig_welding` — TIG welding | 2 |
-| `skill_gas_cutting` — Gas cutting | 3 |
+| skill | trades wired | phrases | note |
+|---|---|---|---|
+| `skill_arc_welding` — Arc welding | 4 | 3 | |
+| `skill_mig_welding` — MIG welding | 2 | 3 | |
+| `skill_tig_welding` — TIG welding | 1 | 2 | |
+| `skill_gas_cutting` — Gas cutting | 5 | 2 | filed under **fabrication**, not welding — the corpus does not model it as a joining process |
+| `skill_welder_occupation` — Welder | **0** | 1 | an occupation, not a skill. **Zero trades wired**, so the domain-scoped retrieval path cannot return it anywhere |
 
-Plus `skill_welder_occupation` ("Welder"), which is an **occupation**, not a skill — it answers
-to *"welder"* and *"welding ka kaam"*.
+`SMAW` vs `GMAW` sit at cosine **0.8405**, the closest cross-skill pair in the corpus.
 
-`SMAW` vs `GMAW` sit at cosine **0.8405**, the closest cross-skill pair anywhere in the corpus.
-They are genuinely near-identical in phrasing and genuinely different in the workshop.
+## Two corrections to revision 1, both material
 
-## Why it was left open rather than guessed
+**1. Something specific is already being written, and it is not arc welding.**
+Revision 1 said bare "welding" resolves to nothing, so no specific process is being assigned. That
+was true only of one layer. At the **match** layer, `packages/taxonomy/src/match-skills.ts` maps
+`skill_welder_occupation → mskill_mig_welder`. So a worker who says only *"welder"* or
+*"welding ka kaam"* — the two phrases that skill answers to — already has **MIG welder** derived
+onto their match profile. The silent specific-process assignment TD-07 was raised to prevent is
+shipping today, by a different route than the one the register examined.
 
-A worker who says only **"welding"** has not said which process. Resolving that silently to
-`skill_arc_welding` — the tempting default, since it is the most common — writes a specific
-process onto their profile that they may not do. That is a hiring-quality failure the platform
-cannot see and the worker cannot correct.
+**2. Bare "welding" already works one layer up.** `"welding"` is a registered alias of the job
+domain `jd_nco_7212_0301` (Welder). So at the *trade* layer the phrase resolves correctly. The gap
+is specifically at the *skill* layer.
 
-## The current production behaviour, measured
+**Production, measured (read-only, 2026-08-19):** no skill phrase matches bare `"welding"`.
+`"welder"` and `"welding ka kaam"` both match `skill_welder_occupation`.
 
-Bare **"welding"** matches **no skill alias**. The nearest thing is the occupation
-`skill_welder_occupation` via *"welder"*. So today a bare "welding" does not silently become arc
-welding — the gap is open, not papered over. **Nothing is on fire; this is a coverage decision,
-not an incident.**
+## The options
 
-## What product + a trainer need to choose
+Consequences below are mechanics only — what changes, what it costs, what it rules out. No option
+is marked recommended.
 
-| option | what it means | consequence |
+| option | what it means | what it changes |
 |---|---|---|
-| **A — create a generic parent skill** | a new `skill_welding_general`, with the four specific ones as children | Bare "welding" resolves to something honest. Needs a parent/child concept the taxonomy does not currently have |
-| **B — create a flat generic skill** | `skill_welding_general` as a sibling, no hierarchy | Cheapest. Risk: a worker who does only TIG may now match generic-welding jobs, and vice versa |
-| **C — route to the occupation** | bare "welding" resolves to `skill_welder_occupation` | Uses what already exists. But an occupation is not a skill, and mixing them makes "what can this worker do" ambiguous |
-| **D — ask the worker** | the interview follows up: "which kind — arc, MIG, TIG, gas cutting?" | Best data quality. Costs one interview turn and needs a product decision about turn budget |
-| **E — leave the gap open** | status quo | Bare "welding" keeps matching nothing. Honest, and loses a real worker signal |
+| **A — generic parent skill** | a new `skill_welding_general` with the specific ones as children | Needs a parent/child concept the schema does not have. New skill id ⇒ also needs a match-layer mapping entry |
+| **B — flat generic skill** | `skill_welding_general` as a sibling, no hierarchy | New skill id ⇒ needs trade wiring, phrases, an embedding, and a match-layer mapping entry. A worker who does only TIG may then match generic-welding jobs, and the reverse |
+| **C — route to the occupation** | bare "welding" resolves to `skill_welder_occupation` | That skill has **0 trades wired**, so it is unreachable on the domain-scoped path until edges are added. Also inherits the existing `→ mskill_mig_welder` mapping unless that is changed too |
+| **D — ask the worker** | the interview follows up: "which kind — arc, MIG, TIG, gas cutting?" | One extra interview turn. Needs a product decision on turn budget |
+| **E — leave the skill layer as it is** | status quo | Bare "welding" keeps matching no skill. The `→ mskill_mig_welder` derivation in correction 1 continues either way unless separately changed |
+| **F — treat it as trade-level only** | leave the skill layer alone; rely on the job-domain alias that already resolves "welding" | Nothing to build. Bare "welding" identifies the trade but never a skill, so it contributes nothing to skill-based ranking |
 
-**Engineering has no view on which is right** — every one of them is a product judgement about
-what a worker's profile should claim on their behalf. What engineering can say is that A needs a
-schema concept that does not exist yet, D needs an interview-flow change, and B, C and E are
-data-only.
+**The `→ mskill_mig_welder` mapping is a separate decision from A–F** and applies under every one
+of them. It can be changed, removed, or kept independently.
 
-☐ Chosen: ______ Rationale: ______________________
+☐ Chosen: ______ ☐ Keep `skill_welder_occupation → mskill_mig_welder`? yes / no
+Rationale: ______________________
+
+## What is missing from this page, and should be before you decide
+
+This worksheet has **no impact sizing** — no denominator. Engineering can produce these on
+request; they are read-only queries, and none of them is a judgement call:
+
+- how many worker utterances contain bare "welding" (from `unresolved_phrase` and chat logs);
+- how many job posts require any welding skill;
+- how many worker profiles currently carry `skill_welder_occupation`, and therefore how many
+  already have MIG derived onto them by correction 1.
+
+**Ask for these before choosing.** A five-way option table with no volumes behind it invites a
+decision on aesthetics.
 
 ---
 
 ## Where the answers go
-
-Hand this back filled in, or edit directly:
 
 - **TD-01 slots** → `packages/db/data/taxonomy/eval/review-pack/td01-drawing-reading-trainer-pack.json`,
   setting each slot's `query` and flipping `review_status` from `pending_review` to `reviewed`.
 - **TD-07** → a new decision entry in `phase-8-taxonomy-decisions.md` §TD-07, which currently
   reads *"GAP, not a merge"*.
 
-Until TD-01's five slots are `reviewed`, they stay **excluded from every recall metric** — which
-is why R@1 0.9912 is reported over 113 cases and not 127.
+Or hand this page back filled in and engineering will transcribe it.

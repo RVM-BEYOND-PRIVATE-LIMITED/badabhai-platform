@@ -9,6 +9,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { COVERAGE_ONLY_CATEGORIES } from "./taxonomy-retrieval-eval";
 import {
   LEGACY_ANCHOR_SKILL_DOMAIN,
   PRE_MERGE_ALIAS_OWNER,
@@ -188,6 +189,110 @@ describe("findMintedSkillIds", () => {
   });
 });
 
+/**
+ * `aliases_retagged` — the offline dry-run for `db:retag:skills --apply`.
+ *
+ * `as_applied` shows a real but TRANSIENT loss: a deprecated skill's aliases stop being
+ * retrievable while its successor carries only its own. The deployment plan orders
+ * `db:retag:skills` as step 2 of the same stage precisely to close it. This variant lets that
+ * remedy be MEASURED offline instead of asserted, which is what turned US-04 from "a taxonomy
+ * ruling is required" into "a step already in the plan closes it" (coverage 3/4 -> 4/4).
+ */
+describe("buildVariant — aliases_retagged", () => {
+  const { corpus, provenance } = buildVariant(merged, "aliases_retagged");
+  const ownerOf = (text: string) => corpus.aliases.filter((a) => a.text === text).map((a) => a.skillId);
+
+  it("moves a deprecated skill's alias onto its successor", () => {
+    // `growth` is deprecated -> `survivor`, and `survivor` has no copy of "growth-only".
+    const withOwn = buildVariant(
+      { ...merged, aliases: [...merged.aliases, alias("growth", "growth-only")] },
+      "aliases_retagged",
+    ).corpus;
+    expect(withOwn.aliases.filter((a) => a.text === "growth-only").map((a) => a.skillId)).toEqual(["survivor"]);
+  });
+
+  it("adopts the successor's domain, so the moved alias is reachable where the successor is", () => {
+    const withOwn = buildVariant(
+      { ...merged, aliases: [...merged.aliases, alias("growth", "growth-only", "some-other-domain")] },
+      "aliases_retagged",
+    ).corpus;
+    const moved = withOwn.aliases.find((a) => a.text === "growth-only")!;
+    expect(moved.domainId).toBe("cnc-machining"); // `survivor`'s domain
+  });
+
+  it("drops the predecessor copy when the terminal already owns that text — ON CONFLICT DO NOTHING", () => {
+    // `pred_a` holds "shared-a" and so does `new`. Moving would duplicate; the runner does not.
+    expect(ownerOf("shared-a")).toEqual(["new"]);
+  });
+
+  it("leaves an alias whose skill is not deprecated exactly where it is", () => {
+    expect(ownerOf("surv")).toEqual(["survivor"]);
+  });
+
+  it("resolves a CHAIN to its terminal, not one hop", () => {
+    const chained: CorpusInput = {
+      skills: [
+        skill("a", "deprecated", { replacedBy: "b", preMergeStatus: "active" }),
+        skill("b", "deprecated", { replacedBy: "c", preMergeStatus: "active" }),
+        skill("c", "active"),
+      ],
+      aliases: [alias("a", "t")],
+      edges: [{ jobDomainId: "jd1", skillId: "c" }],
+    };
+    expect(buildVariant(chained, "aliases_retagged").corpus.aliases[0]!.skillId).toBe("c");
+  });
+
+  it("leaves an alias PUT when the chain dead-ends on a deprecated terminal", () => {
+    // Fail-safe, mirroring the runner's dead-end exclusion. Moving it onto a deprecated
+    // terminal would hide it behind the same status gate the move was meant to escape — and
+    // silently, since both states look like "not retrievable".
+    const deadEnd: CorpusInput = {
+      skills: [
+        skill("a", "deprecated", { replacedBy: "b", preMergeStatus: "active" }),
+        skill("b", "deprecated", { replacedBy: null, preMergeStatus: "active" }),
+      ],
+      aliases: [alias("a", "t")],
+      edges: [],
+    };
+    expect(buildVariant(deadEnd, "aliases_retagged").corpus.aliases[0]!.skillId).toBe("a");
+  });
+
+  it("leaves an alias PUT when the crosswalk cycles", () => {
+    const cyclic: CorpusInput = {
+      skills: [
+        skill("a", "deprecated", { replacedBy: "b", preMergeStatus: "active" }),
+        skill("b", "deprecated", { replacedBy: "a", preMergeStatus: "active" }),
+      ],
+      aliases: [alias("a", "t")],
+      edges: [],
+    };
+    expect(buildVariant(cyclic, "aliases_retagged").corpus.aliases[0]!.skillId).toBe("a");
+  });
+
+  it("changes no skill and no edge — it is an alias move and nothing else", () => {
+    expect(corpus.skills).toEqual(merged.skills);
+    expect(corpus.edges).toEqual(merged.edges);
+    expect(provenance.repointedEdges).toEqual([]);
+    expect(provenance.restoredSkillIds).toEqual([]);
+  });
+
+  it("records every move in provenance, so the forecast names what it assumed", () => {
+    const withOwn = buildVariant(
+      { ...merged, aliases: [...merged.aliases, alias("growth", "growth-only")] },
+      "aliases_retagged",
+    );
+    expect(withOwn.provenance.reassignedAliases).toContainEqual({ text: "growth-only", to: "survivor" });
+  });
+
+  it("never loses an alias text that had nowhere safe to go", () => {
+    // The whole variant is a forecast of a REMEDY. If it could silently drop a text, it would
+    // forecast a recovery that will not happen.
+    const before = new Set(merged.aliases.map((a) => a.text));
+    const after = new Set(corpus.aliases.map((a) => a.text));
+    expect([...before].every((t) => after.has(t))).toBe(true);
+  });
+});
+
 describe("buildVariant — pre_merge", () => {
   const { corpus, provenance } = buildVariant(merged, "pre_merge");
 
@@ -289,7 +394,7 @@ describe("diffCase precedence", () => {
   const mk = (o: Partial<ReplayCaseResult>): ReplayCaseResult => ({
     caseId: "c", path: "path_a_canonical", variant: "as_applied", candidateCount: 5,
     unresolved: false, top1SkillId: "x", top1Score: 0.9, expectedSkillId: "x",
-    negative: false, hit: true, expectedRank: 1, structuralViolations: [], outranked: [], skills: [], ...o,
+    negative: false, coverageOnly: false, hit: true, expectedRank: 1, structuralViolations: [], outranked: [], skills: [], ...o,
   });
 
   it("reports a correctness change ahead of a candidate-set change", () => {
@@ -442,5 +547,73 @@ describe("summaries", () => {
     const a = [run("s1")];
     const b = [{ ...run("s1"), unresolved: true, top1SkillId: null }];
     expect(summarizeAgreement(a, b)).toMatchObject({ bothResolved: 0, onlyAResolved: 1, agreementRate: 0 });
+  });
+
+  /**
+   * The exclusion this replay was missing while two sibling harnesses applied it.
+   *
+   * `unembedded_shipped` cases have an expected skill that is shipped-and-reused-only, with no
+   * locally-authored corpus record — they ask "is this reachable", not "is it ranked first",
+   * and the fixture says so per case. Scoring them here made R@1 move the moment the last four
+   * such queries got vectors, against a denominator nobody could see.
+   */
+  const runCat = (expected: string, category: string) =>
+    replayCase(corpus, "path_a_canonical", {
+      caseId: `c-${category}`, query: v(0.9), jobDomainId: "jd1", legacyDomainId: "d",
+      expectedSkillId: expected, k: 5, category,
+    });
+
+  it("marks an unembedded_shipped case coverage-only", () => {
+    expect(runCat("s1", "unembedded_shipped").coverageOnly).toBe(true);
+  });
+
+  it("leaves an ordinary category scoring", () => {
+    expect(runCat("s1", "paraphrase_latin").coverageOnly).toBe(false);
+  });
+
+  it("treats an omitted category as scoring, not as coverage-only", () => {
+    // Fail SAFE toward the stricter reading: a caller that forgets to pass the category gets
+    // its case measured, not silently dropped out of recall.
+    expect(run("s1").coverageOnly).toBe(false);
+  });
+
+  it("keeps coverage-only cases out of scored / R@1 / MRR and reports them separately", () => {
+    const s = summarizeReplay([run("s1"), runCat("s2", "unembedded_shipped")]);
+    // Two cases; only the ordinary one is scored. Without the exclusion the coverage case's
+    // rank-2 result would drag R@1 to 0.5 — which is exactly what happened in production
+    // reporting.
+    expect(s).toMatchObject({ cases: 2, scored: 1, hits: 1, recallAt1: 1, mrr: 1 });
+    expect(s.coverageOnly).toBe(1);
+    expect(s.coverageReached).toBe(0);
+  });
+
+  it("a coverage-only case that DOES reach its skill is reported as reached", () => {
+    const s = summarizeReplay([runCat("s1", "unembedded_shipped")]);
+    expect(s).toMatchObject({ scored: 0, recallAt1: 0, coverageOnly: 1, coverageReached: 1 });
+  });
+
+  it("a coverage-only case never counts as a false negative", () => {
+    // falseNegatives is derived from the same positives set, so this is the property that
+    // would silently regress if someone widened `positives` again.
+    expect(summarizeReplay([runCat("s_missing", "unembedded_shipped")]).falseNegatives).toBe(0);
+  });
+
+  it("a NEGATIVE case is never reclassified as coverage-only", () => {
+    // A negative has no expected skill to cover, and its false-positive check must stay in
+    // force whatever its category says.
+    const neg = replayCase(corpus, "path_a_canonical", {
+      caseId: "neg", query: v(0.9), jobDomainId: "jd1", legacyDomainId: "d",
+      expectedSkillId: null, k: 5, category: "unembedded_shipped",
+    });
+    expect(neg.negative).toBe(true);
+    expect(neg.coverageOnly).toBe(false);
+  });
+
+  it("uses the SAME category set as the eval harness, not a local copy", () => {
+    // The defect was three modules disagreeing. Pin the shared source so a future local
+    // redefinition here fails rather than drifting.
+    for (const category of COVERAGE_ONLY_CATEGORIES) {
+      expect(runCat("s1", category).coverageOnly).toBe(true);
+    }
   });
 });
