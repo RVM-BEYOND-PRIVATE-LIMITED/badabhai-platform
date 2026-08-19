@@ -16,6 +16,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { OtpRequestIdempotency } from "./otp-request-idempotency.service";
 import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { WorkersRepository } from "../workers/workers.repository";
@@ -26,11 +27,7 @@ import { AccountDeletionService } from "./account-deletion.service";
 import { ConsentNotRevokedGuard } from "./consent.guard";
 import { ConsentRepository } from "../consent/consent.repository";
 import { withConsentAccepted } from "../consent/consent-flag";
-import {
-  WorkerAuthGuard,
-  CurrentWorker,
-  type AuthenticatedWorker,
-} from "./worker-auth.guard";
+import { WorkerAuthGuard, CurrentWorker, type AuthenticatedWorker } from "./worker-auth.guard";
 import { TestLoginGuard } from "./test-login.guard";
 import {
   OtpRequestSchema,
@@ -85,9 +82,22 @@ export class AuthController {
     private readonly pii: PiiCryptoService,
     private readonly accountDeletion: AccountDeletionService,
     private readonly consents: ConsentRepository,
+    private readonly otpIdempotency: OtpRequestIdempotency,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
+  /**
+   * Send a login code.
+   *
+   * `Idempotency-Key` IS HONOURED HERE (#1019) and everything below it — the per-IP cap
+   * included — runs inside that guard. The client retries a transport failure up to three
+   * times under ONE key, and this route used to count every attempt as a fresh request: one
+   * tap could spend three of a per-phone hourly budget of five, send three paid SMS, and
+   * push the platform-wide daily breaker toward the ceiling that 429s every worker on every
+   * device until UTC midnight. The header is OPTIONAL — unlike `/auth/token/refresh`, which
+   * can require it because every caller is our own client; requiring it on the front door
+   * would break callers that never sent one (§3).
+   */
   @Post("otp/request")
   @HttpCode(200)
   async requestOtp(
@@ -95,21 +105,36 @@ export class AuthController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<OtpRequestResponse> {
-    // Per-IP hourly cap BEFORE issuing — a network-level abuse backstop on top of
-    // the per-phone cooldown/cap. Fails closed (429) if Redis is down.
-    //
-    // OTP_MAX_SENDS_PER_IP_PER_HOUR, *not* OTP_MAX_SENDS_PER_HOUR. This used to pass the
-    // latter, which is the per-PHONE SMS budget (5) — a different question wearing a
-    // similar name, and passing it here made one shared network worth five sign-ins an
-    // hour in total. With no reverse proxy in the shipped topology `req.ip` is the NAT
-    // egress address, so under carrier CGNAT that bucket is shared by thousands of
-    // workers. See the config comment for why the two must not be the same number.
-    await this.ipRateLimit.assertWithinHourlyIpCap(
-      "otp_request",
-      req.ip ?? "unknown",
-      this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
-    );
-    return this.auth.requestOtp(dto.phone, ctx);
+    return this.otpIdempotency.runOnce({
+      scope: "otp_request",
+      phoneE164: dto.phone,
+      idempotencyKey: req.header("idempotency-key"),
+      // A duplicate that lands while the first attempt is still sending gets the cooldown it
+      // would have got, without a second send. `success: true` is honest at this point: an
+      // attempt IS in flight, and if it fails the worker asks again after the cooldown.
+      inFlight: () => ({
+        success: true as const,
+        channel: "sms" as const,
+        resend_in_seconds: this.config.OTP_RESEND_COOLDOWN_SECONDS,
+      }),
+      work: async () => {
+        // Per-IP hourly cap BEFORE issuing — a network-level abuse backstop on top of
+        // the per-phone cooldown/cap. Fails closed (429) if Redis is down.
+        //
+        // OTP_MAX_SENDS_PER_IP_PER_HOUR, *not* OTP_MAX_SENDS_PER_HOUR. This used to pass the
+        // latter, which is the per-PHONE SMS budget (5) — a different question wearing a
+        // similar name, and passing it here made one shared network worth five sign-ins an
+        // hour in total. With no reverse proxy in the shipped topology `req.ip` is the NAT
+        // egress address, so under carrier CGNAT that bucket is shared by thousands of
+        // workers. See the config comment for why the two must not be the same number.
+        await this.ipRateLimit.assertWithinHourlyIpCap(
+          "otp_request",
+          req.ip ?? "unknown",
+          this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
+        );
+        return this.auth.requestOtp(dto.phone, ctx);
+      },
+    });
   }
 
   @Post("otp/verify")

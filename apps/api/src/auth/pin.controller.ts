@@ -6,6 +6,7 @@ import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { SERVER_CONFIG } from "../config/config.module";
 import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import { PinService } from "./pin.service";
+import { OtpRequestIdempotency } from "./otp-request-idempotency.service";
 import { WorkerAuthGuard, CurrentWorker, type AuthenticatedWorker } from "./worker-auth.guard";
 import {
   PinSetSchema,
@@ -40,6 +41,7 @@ export class PinController {
   constructor(
     private readonly pin: PinService,
     private readonly ipRateLimit: IpRateLimit,
+    private readonly otpIdempotency: OtpRequestIdempotency,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
@@ -91,13 +93,27 @@ export class PinController {
     // property of the bucket, so two call sites on one scope passing different numbers means
     // the effective limit depends on which route you happen to hit — a limiter whose ceiling
     // moves under you. They share a bucket, so they share OTP_MAX_SENDS_PER_IP_PER_HOUR.
-    await this.ipRateLimit.assertWithinHourlyIpCap(
-      "otp_request",
-      req.ip ?? "unknown",
-      this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
-    );
-    await this.pin.resetRequest(dto.phone, ctx);
-    return { success: true };
+    // #1019 — the SAME transport-retry amplification as /auth/otp/request, on the SAME shared
+    // counters (this route sends through the same OtpService and shares the per-IP bucket), so
+    // it gets the same guard. Without it, a PIN reset on a flaky link spends the worker's
+    // per-phone budget three times over and pushes the global breaker along with it.
+    return this.otpIdempotency.runOnce({
+      scope: "pin_reset_request",
+      phoneE164: dto.phone,
+      idempotencyKey: req.header("idempotency-key"),
+      // This route already answers identically whether or not the number exists (no
+      // enumeration oracle), so the duplicate answer is the same constant the work returns.
+      inFlight: () => ({ success: true as const }),
+      work: async () => {
+        await this.ipRateLimit.assertWithinHourlyIpCap(
+          "otp_request",
+          req.ip ?? "unknown",
+          this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
+        );
+        await this.pin.resetRequest(dto.phone, ctx);
+        return { success: true as const };
+      },
+    });
   }
 
   /**
