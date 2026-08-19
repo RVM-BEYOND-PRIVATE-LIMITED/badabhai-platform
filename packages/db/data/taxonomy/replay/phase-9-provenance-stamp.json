@@ -1,0 +1,555 @@
+{
+  "kind": "embedding-provenance-verification",
+  "target": {
+    "host_class": "SUPABASE (remote)",
+    "database": "postgres"
+  },
+  "table": "skill_alias",
+  "applied": true,
+  "cosine_floor": 0.99999,
+  "summary": {
+    "proven": 76,
+    "mismatch": 0,
+    "noReference": 0,
+    "mock": 0,
+    "models": [
+      "gemini-embedding-001"
+    ],
+    "minProvenCosine": 1
+  },
+  "note": "Proof is same-text/known-model cosine, not assumption. Row ids are reference-vocabulary ids, not worker data.",
+  "verdicts": [
+    {
+      "id": "046812dd-942d-5de5-80b1-54e23aab143b",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "0c6caf0d-9d88-5030-8e47-c238a5620840",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "0ce0f3e6-2ce5-5ebe-829e-a61abc228722",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "0eccffa1-3550-52fc-81cf-0188054a3dd0",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "13a7658c-ccb3-5130-8912-7e134d11fa29",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "1561252c-300b-5aaf-8e21-86888a50dfb6",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "1fb32746-3c69-5d03-867f-5043bbeecefe",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "247c0811-bdc7-5be0-86c9-bbd701177541",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "262d2daa-c081-5f32-8fd6-73507af42a96",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "32771105-874f-5cf0-8ae8-1534b43d6a69",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "34158864-d705-5c6b-86bf-3813016bbecf",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "35bbc45a-ef89-59ee-82b1-5fc7368c3d02",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "3992bba0-8e12-570e-80d0-d014fbe67bce",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "3b26aa78-b01d-534f-8fd7-420d75332b3a",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "3c245350-c442-556b-82a8-94d9e98d73b9",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "4056efa2-8502-5ec6-86fa-dc2d325ae044",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "455a20d5-2695-504a-8379-aefda94a0648",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "46d07419-9c58-5b11-8487-76b1b6aef906",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "48584675-1409-5d1b-846c-27c043213d96",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "4b9511dc-cd94-5204-8b2f-3f0da0050874",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "4d9c4295-96f0-521b-81b8-25473852a819",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "50253caf-6aea-545e-87ad-d5235d63c61c",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "55ab7ce1-44db-54b9-81a6-4204a50a502d",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "67e402ee-4d34-5db8-8802-a48f1e035b53",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "6d7aa428-ad13-53b3-8b33-518694596a87",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "6ea7bfd1-8913-5aca-8e16-a5282705eed3",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "79cf317d-ef25-5ad5-8415-c398a48917b9",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "8683abe4-7f05-5857-8c39-566a7c32ebeb",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "8aac76f6-e914-5e63-80a0-b30da2d8c64e",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "8c7aaafa-7a5d-5776-86bd-5214e007bc69",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "952b0993-68b5-5712-8627-373bfa6a4529",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "968e3db4-a714-5df8-8ffc-80d4eca920c4",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "974064be-4236-54ff-8902-63c2b7cbdf30",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "979c97ac-971c-522a-8640-29c239acb86e",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "9a81cde2-a678-5a30-8a21-711eecb0078b",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "a1cfba29-4c07-58f3-85bd-5d2e109a63cc",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "ab07a99c-15d7-5260-89a7-df041e8d2633",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "abac47c3-c4c5-5d45-8c7f-35f27f8d8b0a",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "b262d01c-e9f8-5c0a-82ae-9f800dcf5668",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "b94e54da-30bd-5ffd-80ef-d03bb92b088c",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "c2ce1247-5f1d-5acc-8f4e-2109f3132cfe",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "c2d57978-384e-565a-8ddb-76b956c56214",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "c76a66f2-f84d-5e99-8196-d5239cb80fa3",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "c7b16f2c-9622-5da0-8387-13520dc8693b",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "d197cbbe-350d-5de3-8fee-f0a37aecfe58",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "d31736ac-3833-5fd7-86de-d9dc6830b24b",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "d7e6de9b-197a-5360-8f05-b71caf446acf",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "db659c0e-e342-5321-8b59-e6a523020468",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "deba3483-7045-53fd-8247-a27aef54e1f9",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "e3fae945-5e25-5cab-870b-d8cd67dd9861",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "e628d8c2-1ed0-5a15-8108-069e77fac360",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "eabfb644-3968-5520-8d5b-8bb5c913a79a",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "eb19708c-70bb-5fe8-8a19-bda976c3d642",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "edbe4f6a-e7ef-59f3-8473-69021279327b",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "ee79ae12-b602-5951-8ed5-5bda1f99cf14",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "f4a62375-e5c9-5b34-878e-45b7dbfca84b",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "f5805ad2-b734-5b38-809b-242fa0593c83",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "f99d8123-a567-5cc7-8074-562ab4a6176c",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "ff0e1497-e6ce-5737-88e2-e5954d9fb5ae",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "ff4b0788-c6ef-53f3-8020-d49ddee26314",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "02776ee2-3322-5846-8538-c04d2a2b19ec",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "03cd8669-def3-5116-83f2-33f023fddeab",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "123538aa-0ce7-5099-8f27-e9686783dad6",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "2de64a29-18d0-518d-85af-bf7604cca68b",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "349834c2-8b58-526e-80d2-6095c7caf494",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "401212eb-e7f2-57ba-853a-7a4f7515fb24",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "4d586220-ece0-53b4-88d1-80f64b69f8c8",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "580d7d5b-4d12-54ee-811c-ff954e880388",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "8b9516c7-04da-5fe1-86ae-2620a105c0cf",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "9f975ef7-983f-544c-8b82-d51bd4b154ee",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "b2dc0226-c221-54ab-8dc3-8cdd4e590486",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "ca33e4ef-96ca-518a-89b7-910369dd48db",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "cf41ab6c-b062-5656-8b8b-06bc83bdda05",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "e150c05b-1fda-5c58-8b5a-9185e3af6383",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "ef865d12-bf02-5b40-8cb5-40a6bd38cce0",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    },
+    {
+      "id": "fdb33062-567d-51a8-8be0-e0fc9738a1c3",
+      "verdict": "PROVEN",
+      "model": "gemini-embedding-001",
+      "cosine": 1,
+      "source": "reference-file"
+    }
+  ]
+}

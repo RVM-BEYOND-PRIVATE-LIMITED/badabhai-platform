@@ -246,7 +246,17 @@ only way to get parity against real traffic rather than a fixture.
 Available: `unresolved_phrase` (`scope`, `phrase`, `domain_id`, `lang`, `count`, `last_seen`) and
 Langfuse tracing.
 
-**D-6 — CLOSED (migration 0078, PR for `feat/s3c-unresolved-phrase-job-domain-id`).**
+**D-6 — CLOSED AND EXECUTED. Migration 0078 merged in #989 (`9bb12992`) and APPLIED TO
+PRODUCTION 2026-08-19, verified object-by-object.**
+
+> **Ordering matters and was got wrong once.** 0078 is APPLY-BEFORE-DEPLOY: the repository
+> names `job_domain_id` in every unresolved INSERT and `ON CONFLICT` target unconditionally,
+> so a database without it fails every unresolved write. The code shipped first and the
+> migration followed, and in that window the interview path silently lost growth signal while
+> `POST /skills/unresolved` and `POST /occupation/unresolved` returned 500. Both halves are now
+> in place, and `pnpm --filter @badabhai/db db:audit:schema-contract` answers the readiness
+> question mechanically instead of on report.
+
 `unresolved_phrase` now models `job_domain_id`, so a canonical-scoped miss records WHICH domain
 it missed in. Path A's failures are no longer invisible in the table built to catch failures,
 and the prerequisite this section named is satisfied. What shipped:

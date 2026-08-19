@@ -40,7 +40,7 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 | `0075`        | Divyanshu | **MERGED** — `job_postings` state for `GET /jobs/search` (#822, #856) |
 | `0076`        | Prakash   | **APPLIED IN PRODUCTION** — canonical Domain→Skill taxonomy, Phase 1 (`fca0ef9c`; verified 2026-08-19) |
 | `0077`        | Prakash   | **APPLIED IN PRODUCTION** — AI cost attribution: three running-total tables (verified 2026-08-19) |
-| `0078`        | Prakash   | **ON `main`, NOT APPLIED IN PRODUCTION** — S3-C / D-6: `unresolved_phrase.job_domain_id`. The code IS deployed; see the note below |
+| `0078`        | Prakash   | **APPLIED IN PRODUCTION** — S3-C / D-6: `unresolved_phrase.job_domain_id` (verified object-by-object 2026-08-19) |
 | `0079`        | Prakash   | Occupation Intelligence — orchestrator, profiling, parse      |
 | `0080`+       | unclaimed | claim in a PR of its own, so the claim is reviewable          |
 
@@ -67,17 +67,28 @@ catastrophic — `identify.service.ts` wraps the call in try/catch and logs "the
 unaffected", so the failure mode is **growth signal silently lost**, not a 500 for the worker. That
 is a fail-soft worth having and not a reason the ordering claim was acceptable.
 
-**NOT moot. An earlier version of this note said `0078` had been applied to production on
-2026-08-19 ahead of the code. That was recorded on report and never verified; it is false.**
-Measured against production on 2026-08-19: `unresolved_phrase` has no `job_domain_id`,
-`unresolved_phrase_scope_uq` is still the four-column form, and
-`unresolved_phrase_one_domain_chk` does not exist. `0076` and `0077` are applied; `0078` is not.
+**APPLIED TO PRODUCTION 2026-08-19, and verified rather than taken on report.** An earlier
+version of this note claimed the same thing a day too early, on report, and it was false: at that
+point the column did not exist while the code that names it was already deployed, so every
+unresolved write was failing (the interview path swallowed it; the two `unresolved` endpoints
+returned 500). That is the whole reason the check below exists.
 
-Meanwhile the code IS deployed — `9bb12992` is an ancestor of `63b84fad`, `a14b10d2` and
-`43ca4bd7`, all deployed successfully that day. So the ordering hazard described above is not
-hypothetical and is not historical: it is the current production state. Every unresolved write is
-failing, the interview path swallows it as designed, and `POST /skills/unresolved` and
-`POST /occupation/unresolved` return 500.
+Verified state after the apply:
+
+| object | state |
+|---|---|
+| `unresolved_phrase.job_domain_id` | `text`, nullable |
+| `unresolved_phrase_scope_uq` | `(scope, phrase, domain_id, job_domain_id, lang) NULLS NOT DISTINCT` |
+| `unresolved_phrase_one_domain_chk` | `CHECK ((domain_id IS NULL) OR (job_domain_id IS NULL))` |
+| `unresolved_phrase_job_domain_id_idx` | btree on the FK column |
+| FK | `job_domain(job_domain_id)`, `ON DELETE NO ACTION` |
+| rows | **9 preserved**, summed `count` 10, `first_seen` and `last_seen` untouched. No row split, none merged |
+
+The write path was then exercised against the real production schema inside a transaction that
+was rolled back — canonical, legacy and occupation shapes all upsert; the same phrase in two
+different job domains produces two DISTINCT rows (the point of the widening); a repeat dedupes and
+increments; both-set is refused by the CHECK; a bogus `job_domain_id` is refused by the FK. Row
+count and summed `count` were identical before and after, so production carries nothing from it.
 
 **Do not take a migration's application on report.** `drizzle.__drizzle_migrations` will not
 settle it either — production shows 76 applied rows against 79 files, because earlier migrations

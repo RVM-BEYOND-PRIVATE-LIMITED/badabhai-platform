@@ -1,0 +1,110 @@
+{
+  "kind": "replay-query-vector-provenance",
+  "purpose": "close the offline Path-A replay's 12.5% reviewed-case gap",
+  "embedding_model": "gemini-embedding-001",
+  "endpoint": "/embeddings/skill-alias (one text per request)",
+  "requests": 11,
+  "all_not_mock": true,
+  "note": "Vectors themselves are derived data and live in the gitignored embed cache; only their digests are recorded here.",
+  "records": [
+    {
+      "case_id": "XD-01",
+      "query": "G code program editing",
+      "scoreable": true,
+      "dimension": 768,
+      "l2_norm": 1,
+      "vector_sha256": "adcf6864427e3216a4df93e31e1a4b84345cf8ae17b4716af7b5cd78575b2d1d",
+      "provenance": "NOT_MOCK"
+    },
+    {
+      "case_id": "XD-02",
+      "query": "fanuc controller",
+      "scoreable": true,
+      "dimension": 768,
+      "l2_norm": 1,
+      "vector_sha256": "66f1aa50d8ecb3b09c30f6f85b3faef2a4cc5d02d29676987096ae7a0a0b955b",
+      "provenance": "NOT_MOCK"
+    },
+    {
+      "case_id": "XD-03",
+      "query": "mortar mixing",
+      "scoreable": true,
+      "dimension": 768,
+      "l2_norm": 1,
+      "vector_sha256": "494a804b251f039377421931499981c8a203e59ca4e4b9154518add8d881d909",
+      "provenance": "NOT_MOCK"
+    },
+    {
+      "case_id": "XD-06",
+      "query": "brick laying",
+      "scoreable": true,
+      "dimension": 768,
+      "l2_norm": 1,
+      "vector_sha256": "e7d28d95d6537f9ef7ea6efb7a53cc9fa223568e034807027c1bb55de89a9b49",
+      "provenance": "NOT_MOCK"
+    },
+    {
+      "case_id": "XD-07",
+      "query": "स्टॉक गिनती",
+      "scoreable": true,
+      "dimension": 768,
+      "l2_norm": 1,
+      "vector_sha256": "5a5a911405f872bfcc8fc64e7ba1908bb32dd3cd4cd4f9397ec1c0c126e4f33e",
+      "provenance": "NOT_MOCK"
+    },
+    {
+      "case_id": "XD-09",
+      "query": "hardness testing of castings",
+      "scoreable": true,
+      "dimension": 768,
+      "l2_norm": 1,
+      "vector_sha256": "a99835ae3050bd645cb4622671a4fa22cff57f4f586c20d58c288fbc6dfc4f29",
+      "provenance": "NOT_MOCK"
+    },
+    {
+      "case_id": "XD-10",
+      "query": "barcode scanning",
+      "scoreable": true,
+      "dimension": 768,
+      "l2_norm": 1,
+      "vector_sha256": "d2d841010c4c44830787e64a0dfd3eb0a8a94d30540beac2a10fd2fcdf2cb257",
+      "provenance": "NOT_MOCK"
+    },
+    {
+      "case_id": "US-01",
+      "query": "fanuc",
+      "scoreable": true,
+      "dimension": 768,
+      "l2_norm": 1,
+      "vector_sha256": "a1b7478dbf51b522a4d9bb9d7caa96ba7d24b3a8741b35b145c367619cff1ca1",
+      "provenance": "NOT_MOCK"
+    },
+    {
+      "case_id": "US-02",
+      "query": "cnc programming",
+      "scoreable": true,
+      "dimension": 768,
+      "l2_norm": 1,
+      "vector_sha256": "120f47f1783ccfca85be36dde92db66f0e4d2c9f72ab4e412de31b53ccb955e0",
+      "provenance": "NOT_MOCK"
+    },
+    {
+      "case_id": "US-03",
+      "query": "tig welding",
+      "scoreable": true,
+      "dimension": 768,
+      "l2_norm": 1,
+      "vector_sha256": "49140f46e8a21c17f921f741ca2c27e494bd20097e8b84d793b829eb64720280",
+      "provenance": "NOT_MOCK"
+    },
+    {
+      "case_id": "US-04",
+      "query": "dimensional inspection",
+      "scoreable": true,
+      "dimension": 768,
+      "l2_norm": 1,
+      "vector_sha256": "36da0d623439ed4e830cdf9600f918e09404db08b1a0e33304c266ab039889a6",
+      "provenance": "NOT_MOCK"
+    }
+  ]
+}
