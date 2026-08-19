@@ -1,13 +1,18 @@
 # Phase 9 — the remaining gates, and exactly who can close each
 
-> **Updated 2026-08-19 (fourth pass).** `0078` is applied and verified, so **S3-C is EXECUTED**,
-> and the S3-C read switch is now wired end to end (#1024) — every remaining S3-D blocker that
-> was engineering work is closed. What remains is two taxonomy judgement calls, one
-> product/trainer gap, two host-only actions, and one production migration.
+> **Updated 2026-08-19 (fifth pass).** `0078` **and `0080`** are applied and verified
+> object-by-object, so the schema contract reads **`ready for the code on main? = YES`** and
+> **S3-C is EXECUTED**. The S3-C read switch is wired end to end (#1024) — every remaining S3-D
+> blocker that was engineering work is closed. What remains is two taxonomy judgement calls, one
+> product/trainer gap, two host-only actions, and two production writes (adopting the five
+> unrecorded journal entries, and the R39 REVOKEs).
 >
-> Everything read-only was run against production. The two production writes made in the third
-> pass — applying `0078` (owner) and stamping 76 `embedding_model` values (proven, never
-> assumed) — are recorded below with their evidence artifacts.
+> Everything read-only was run against production, on cluster `7642734024280108049` — the audit
+> prints that id now, because "applied" and "reports missing" can both be true of two different
+> databases and nothing in the output used to distinguish them.
+>
+> The production writes made by the owner — `0078`, `0080`, and stamping 76 `embedding_model`
+> values (proven, never assumed) — are recorded below with their evidence.
 
 | # | gate | blocked on | state |
 |---|---|---|---|
@@ -19,34 +24,66 @@
 | 5 | TD-07 | **product + trainer** | ⏸ worksheet ready; engineering evidence complete |
 | 6 | R38 residual | **host-only** | 🔴 open — CD cannot fix it (see below) |
 | 7 | Path A miss recording | — | ✅ **CLOSED** (#1024) — `job_domain_id` reaches `unresolved_phrase`; the thresholds' own inputs are now collectable |
-| 8 | **`0080` not applied to production** | **owner — production write** | 🔴 open, and `db:migrate` alone cannot do it — see below |
+| 8 | `0080` applied to production | — | ✅ **APPLIED & VERIFIED** object-by-object, RLS included — see below |
+| 9 | **7 tables keep their Data-API grants** (R39) | **owner — production write** | 🔴 open — found by the new `db:audit:rls` sweep |
 
 ---
 
-## 8. `0080_worker_feedback` is merged, deployed, and NOT applied
+## 8. `0080_worker_feedback` — applied, and verified object-by-object
 
-Found by `db:audit:schema-contract` on 2026-08-19 — the manifest entry was added by another
-workstream within hours of the tool landing, and the tool immediately caught a second unapplied
-migration.
+Applied by the owner on 2026-08-19, out of band like `0076`–`0079`. Verified against the live
+database rather than taken on report — `db:audit:schema-contract` now says
+**`ready for the code on main? = YES`**, on cluster `7642734024280108049`.
 
-`worker_feedback` does not exist in production **in any schema**. Both surfaces that name it do
-so unconditionally, so every worker feedback submission 500s with the typed message lost in the
-response, and `GET /admin/feedback` 500s on first page load. Loud on both, unlike `0078`.
+| object | state |
+|---|---|
+| 6 columns | `id` uuid PK `gen_random_uuid()` · `worker_id` uuid NOT NULL · `category` text NULL · `message` text NOT NULL · `app_build` text NULL · `created_at` timestamptz NOT NULL `now()` |
+| `worker_feedback_message_len_chk` | `char_length(message) BETWEEN 1 AND 4000` |
+| `worker_feedback_app_build_len_chk` | `app_build IS NULL OR char_length BETWEEN 1 AND 64` |
+| `worker_feedback_category_chk` | `category IS NULL OR category IN ('suggestion','problem','other')` |
+| FK | `worker_id → workers(id) ON DELETE CASCADE` |
+| 3 indexes + PK | `worker_id` · `(created_at DESC, id DESC)` · `(category, created_at DESC, id DESC)` |
+| RLS | **enabled + FORCED** |
+| REVOKEs | all four confirmed individually — `anon`, `authenticated`, `service_role`, `PUBLIC`. Sole grantee is `postgres` |
+| rows | 0 — new table, no backfill, as the migration states |
 
-**`db:migrate` on its own will not fix it, and one attempt has already been spent finding that
-out.** `drizzle-kit migrate` replays every unrecorded journal entry in order, and production has
-`0076`–`0079` live-but-unrecorded in front of `0080`: it reaches `0076`'s
-`CREATE TABLE "job_domain"` — no `IF NOT EXISTS` — dies on *already exists*, and rolls back.
-Measured: 81 files, 76 recorded, 5 unrecorded, 4 live, 1 absent, 0 PARTIAL.
+**The `FORCE`-with-no-policies question, answered.** `FORCE` plus zero policies would deny the
+owner too, which would take both surfaces down. It does not, because `postgres` carries
+`rolbypassrls = true` — `has_table_privilege` confirms SELECT and INSERT. And this is not a
+special case: all five sampled spine tables (`workers`, `worker_profiles`, `chat_messages`,
+`unresolved_phrase`, `worker_feedback`) are enabled + forced with **0 policies**, and there are
+zero RLS policies anywhere in the schema. "No policies" is the house pattern, not a gap.
 
-The audit now reports the drift and emits the correct sequence (#1025); the full recovery
-procedure is in `MIGRATIONS.md`.
+**The two keyset indexes match the admin read exactly** — `AdminFeedbackRepository.list` orders
+`created_at DESC, id DESC` with an optional `category` equality, which is the first index and
+the second respectively.
 
-**Everything else on the feedback path is verified and correct** — the write is one transaction
-carrying the row and its `feedback.submitted` event, and the admin keyset read
-(`ORDER BY created_at DESC, id DESC`, optional category filter) matches the two indexes `0080`
-creates exactly. There is no existing feedback data to regress: the table has never existed, and
-nothing else in the schema references it. Applying `0080` is purely additive.
+**The journal is now 5 files behind, all LIVE** (`0076`–`0080`), 0 absent, 0 PARTIAL — confirmed
+by `reconcile-migrations.ts`, which depth-checks columns, types, indexes, constraints and RLS
+rather than trusting the row count. Nothing is broken by this, and the audit reports it as a
+non-fatal note; but **the next new migration will not apply until those five are adopted**, so
+adoption is now a prerequisite of any further schema work. Procedure in `MIGRATIONS.md`.
+
+---
+
+## 9. Seven tables keep their Data-API grants — R39
+
+Found on 2026-08-19 by `db:audit:rls`, a new sweep over **every** public table rather than a
+hand-maintained list. 70 of 77 are fully locked; seven are not: `agency_kyc`,
+`agency_payout_accruals`, `agency_payout_requests`, `agency_profiles`, `employer_profiles`,
+`payer_capabilities`, `payer_member_invites`.
+
+Nothing was watching them: `tests/e2e/rls-spine.e2e.test.ts` is `skipIf`-gated **and** names
+none of the seven.
+
+**Not a live leak — all seven are empty, and with zero policies `anon`/`authenticated`
+(`rolbypassrls=false`) are denied every row.** The exception is `service_role`, which has
+`rolbypassrls = true`: RLS never filters it, so the grant is the only control, and here it is
+open where the other 70 revoke it. Latent while the tables are empty; live the moment KYC or
+payout rows land.
+
+Full entry, with the per-table remediation, in the risks register as **R39**. The fix is a
+migration — and it lands behind the adoption above.
 
 ---
 
