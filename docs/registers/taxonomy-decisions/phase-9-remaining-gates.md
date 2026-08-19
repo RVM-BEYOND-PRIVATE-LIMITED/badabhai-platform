@@ -1,288 +1,213 @@
 # Phase 9 — the remaining gates, and exactly who can close each
 
-> **Updated 2026-08-19 (second pass).** Three of the five gates below CLOSED this pass, by
-> measurement rather than by argument. One new finding outranks all of them and is stated first
-> because it is a live production defect, not a gate.
+> **Updated 2026-08-19 (third pass).** `0078` is applied and verified, so **S3-C is EXECUTED**.
+> Three of the original five gates are now closed by measurement. What remains is two taxonomy
+> judgement calls, one product/trainer gap, and two host-only actions.
 >
-> Everything here was read-only against production. No taxonomy row, edge, embedding, flag or
-> schema object was mutated.
+> Everything read-only was run against production. The two production writes made this pass —
+> applying `0078` (owner) and stamping 76 `embedding_model` values (proven, never assumed) — are
+> recorded below with their evidence artifacts.
 
 | # | gate | blocked on | state |
 |---|---|---|---|
-| **0** | **`0078` is NOT applied to production, and the code that needs it IS deployed** | **owner — one command** | 🔴 **live defect** |
-| 1 | Embedding provenance (the "76 NULL `embedding_model`" rows) | nobody | ✅ **CLOSED — proven `gemini-embedding-001`** |
-| 2 | `cnc-programming` scope decision | product / taxonomy owner | ⏸ quantified against production; option costs corrected |
-| 3 | 11 provider evaluation cases | you — needs a real-call environment | ⏸ runner verified end-to-end; command ready |
-| 4 | 5 TD-01 trainer slots | trade trainer | ⏸ **worksheet ready** — `phase-9-trainer-worksheet.md` |
-| 5 | TD-07 | product + trainer | ⏸ **worksheet ready**, five options costed |
+| 0 | `0078` / S3-C | — | ✅ **APPLIED & VERIFIED** — object-by-object, write path exercised |
+| 1 | Embedding provenance (76 unstamped rows) | — | ✅ **CLOSED** — proven `gemini-embedding-001`, stamped |
+| 2 | `cnc-programming` scope decision | **product / taxonomy owner** | ⏸ quantified against production |
+| 3 | 11 provider evaluation cases | — | ✅ **EXECUTED** — 11 real calls, replay gap closed |
+| 4 | 5 TD-01 trainer slots | **trade trainer** | ⏸ worksheet ready |
+| 5 | TD-07 | **product + trainer** | ⏸ worksheet ready, five options costed |
+| 6 | R38 residual | **host-only** | 🔴 open — CD cannot fix it (see below) |
 
 ---
 
-## 0. Migration `0078` never reached production — and the code did
+## 0. `0078` — applied, and verified rather than assumed
 
-**The state, measured.** `unresolved_phrase` in production has these columns:
+The previous pass found `0078` missing while the code that needs it was already deployed. It is
+now applied. Verified object-by-object rather than by report:
 
-```
-id, phrase, lang, domain_id, count, first_seen, last_seen, status, embedding, scope
-```
-
-No `job_domain_id`. `unresolved_phrase_scope_uq` is still the **four**-column
-`(scope, phrase, domain_id, lang) NULLS NOT DISTINCT`. No `unresolved_phrase_one_domain_chk`.
-`0076` and `0077` are both applied; `0078` alone is not.
-
-**The code IS on the box.** `9bb12992` (S3-C) is an ancestor of `63b84fad`, `a14b10d2` and
-`43ca4bd7`, all of which deployed successfully on 2026-08-19. `SkillsRepository.recordUnresolved`
-names `job_domain_id` in the INSERT column list and the `ON CONFLICT` target **unconditionally**.
-
-**So, right now, in production:**
-
-| path | effect |
+| object | state |
 |---|---|
-| `identify.service.ts:499` — the live worker interview | the write throws; the surrounding try/catch logs *"the interview is unaffected"* and continues. **Growth signal silently lost.** No alert, no error rate, no symptom |
-| `POST /skills/unresolved` | **500** (no catch in the controller) |
-| `POST /occupation/unresolved` | **500** |
+| `unresolved_phrase.job_domain_id` | `text`, nullable |
+| `unresolved_phrase_scope_uq` | `(scope, phrase, domain_id, job_domain_id, lang) **NULLS NOT DISTINCT**` |
+| `unresolved_phrase_one_domain_chk` | `CHECK ((domain_id IS NULL) OR (job_domain_id IS NULL))` |
+| `unresolved_phrase_job_domain_id_idx` | btree on the FK column |
+| FK | `job_domain(job_domain_id)`, `ON DELETE NO ACTION` |
+| rows | **9 preserved**, summed `count` 10, `first_seen`/`last_seen` untouched |
 
-`unresolved_phrase` holds **9 rows** (2 skill-scope, 7 occupation-scope) — the same count as
-when 0078 was authored. Nothing has been recorded since.
+`pnpm --filter @badabhai/db db:audit:schema-contract` → **`ready for the code on main? = YES`**.
 
-**This is the exact hazard PR #995 was raised to document**, and the note was right: the
-ordering requirement is real. What was missing was any way to *ask a database whether it had
-the migration*. `drizzle.__drizzle_migrations` does not answer it usefully — production shows
-**76 applied rows against 79 files**, because earlier migrations were baselined, so the count
-is alarming and meaningless. Object-level presence is the only reliable question.
+**The write path was then exercised against the real production schema**, inside a transaction
+that was rolled back. Row count and summed `count` were identical before and after, so production
+carries nothing from the exercise:
 
-**Now mechanically checkable** — `pnpm --filter @badabhai/db db:audit:schema-contract`,
-read-only, exits non-zero when the target database is behind the code:
+| behaviour | result |
+|---|---|
+| canonical write (`job_domain_id` set) | upserts — the shape that was impossible before 0078 |
+| same phrase, **different** job domain | **distinct row** — the entire point of widening the key |
+| repeat of the same (phrase, domain) | dedupes onto one row, `count` increments |
+| legacy write (`domain_id` set) | unchanged |
+| occupation write (both NULL) | dedupes onto one row — `NULLS NOT DISTINCT` is doing its job |
+| both set | refused by `unresolved_phrase_one_domain_chk` |
+| bogus `job_domain_id` | refused by the FK |
 
-```
-MISSING  0078…  column     unresolved_phrase.job_domain_id
-MISSING  0078…  index      unresolved_phrase_scope_uq        (still the 4-column shape)
-MISSING  0078…  constraint unresolved_phrase_one_domain_chk
-ready for the code on main? = NO
-```
-
-The index entry checks **shape, not existence**: an index of the right name and the old column
-list is the dangerous state, because two canonical misses of the same phrase in different job
-domains would merge into one row with a summed count, and nothing would error.
-
-**The remedy is one command** — additive, no rewrite, sub-millisecond on 9 rows:
-
-```bash
-pnpm --filter @badabhai/db db:migrate      # against production's DATABASE_URL
-pnpm --filter @badabhai/db db:audit:schema-contract   # expect: ready = YES
-```
+The 9 rows carry `last_seen` no later than 2026-08-17, which corroborates the previous pass's
+finding that nothing was recorded during the window when the column was missing.
 
 ---
 
-## 1. Embedding provenance — CLOSED. The 76 rows are `gemini-embedding-001`, proven
+## 1. Embedding provenance — CLOSED, and stamped
 
-**Mock was already ruled out; foreign-model is now ruled out too.** Read-only audit of
-production (`pnpm --filter @badabhai/db db:audit:embeddings`):
+Proven, not assumed: all 76 production texts matched a known-`gemini-embedding-001` reference at
+**cosine ≥ 0.999999978**, against an unrelated-pair control of **0.434–0.783**. Applied with
+`db:verify:embeddings --apply`, which stamps only rows it proves and refuses wholesale on any
+mismatch, mock, or two-model split.
+
+```
+PROVEN 76 (gemini-embedding-001) · worst cosine 1.000000000000 (floor 0.99999)
+MISMATCH 0 · NO_REFERENCE 0 · PROVEN MOCK 0
+stamped 76 row(s). embedded_at left NULL (unknown, and not invented).
+```
+
+Evidence: `packages/db/data/taxonomy/replay/phase-9-provenance-stamp.json`.
+
+**Post-stamp state — both vocabularies now pass the corpus gate:**
 
 | | `skill_alias` | `job_domain_alias` |
 |---|---|---|
-| rows | 98 | 9,121 |
 | embedded | 76 | 9,121 |
-| PROVEN MOCK (recompute, 768 dims @ 1e-6) | **0** | **0** |
-| stamped | 0 | 9,121 — all `gemini-embedding-001` |
-| unstamped | **76** | 0 |
-| …of those, `embedded_at` NULL too | **76** | 0 |
-| dimensions | 768 (uniform) | 768 (uniform) |
-| L2 norm | 1.000000 … 1.000000 | 1.000000 … 1.000000 |
+| stamped | **76** (was 0) | 9,121 |
+| unstamped | **0** (was 76) | 0 |
+| PROVEN MOCK | 0 | 0 |
+| `would --run be allowed?` | **YES** (was NO) | YES |
 
-**The cause is documented in the runner itself, not inferred.** `embed-skill-aliases.ts` carries
-the comment *"`embedding_model` and `embedded_at` have existed since migration 0076 and this
-runner left them NULL"*. Stamping began at `a355a3c8` (#900, 2026-08-17). All 76 rows have
-`embedded_at` NULL as well as `embedding_model` NULL — the pre-#900 signature exactly, with no
-row showing the mixed state (`embedded_at` set, model NULL) that would need a different story.
+No vector was touched — 76 embedded before and after, 98 rows before and after. `embedded_at`
+stays NULL on all 76 on purpose: nobody knows when they were written, and a fabricated timestamp
+would be the same error the whole exercise avoided.
 
-**Foreign-model was a live possibility, not a theoretical one.** The ai-service default was
-`text-embedding-004` at commit `82352313` and became `gemini-embedding-001` at `327b4a2d` — and
-`text-embedding-004` is natively 768-dim while `gemini-embedding-001` is 3072 truncated to 768,
-so **dimension does not discriminate between them**. A recompute cannot see this: both are
-"not mock".
-
-**What settles it.** `taxonomy-embed-cache.ts` records the measured property that the embedder
-is deterministic — *"embedding the text of a stored alias reproduces that alias's stored vector
-at cosine 1.0000"*. So a known-model vector for the same text is a proof, not an inference. All
-76 production texts were compared against the local dev corpus, where the same 295 rows carry an
-explicit `gemini-embedding-001` stamp:
-
-```
-overlap by text        76 / 76
-cosine >= 0.99999      76        (min 0.999999978788, median 1.000000003642)
-unrelated-pair control 0.4340 … 0.7831
-```
-
-Six orders of magnitude of separation between the match population and the control. Corroborated
-independently inside production itself: `job_domain_alias`, written through the same endpoint by
-the sibling runner that always stamped, is uniformly `gemini-embedding-001` at 768 dims and L2 1.
-
-**The plain "stamp backfill" I recommended last pass was the wrong shape, and I was wrong to
-recommend it.** Writing a model name that is merely believed converts *unknown* provenance into
-*asserted* provenance: `corpusBlockReason` stops asking, and the mixed-corpus failure it exists
-to catch becomes permanently invisible. The tool built this pass
-(`pnpm --filter @badabhai/db db:verify:embeddings`) stamps **only rows proven against a
-known-model reference**, refuses wholesale on any mismatch, any mock, or any two-model split,
-and leaves `embedded_at` NULL because nobody knows when these were written and inventing a
-timestamp is the same fabrication.
-
-Verified plan against production (nothing written):
-
-```
-PROVEN        76  (gemini-embedding-001)
-worst cosine  1.000000000000   (floor 0.99999)
-MISMATCH 0 · NO_REFERENCE 0 · PROVEN MOCK 0
-would --apply be allowed? = YES — it would stamp 76 row(s)
-```
-
-**Remaining action: one command, and it is now a formality rather than a judgement call.**
-
-```bash
-pnpm --filter @badabhai/db db:verify:embeddings \
-  --reference-file=<dump of stamped rows> --apply \
-  --json=packages/db/data/taxonomy/replay/phase-9-provenance-stamp.json
-```
-
-Re-embedding (`db:embed:skills --reset-embeddings`, 76 provider calls) is **no longer needed**
-and is now the worse option: it is destructive, and a partial run would drop production below 76
-embedded rows.
+`db:eval:taxonomy --plan` now reports **`would --run be allowed? = YES`**. That refusal had been
+standing since the harness was built.
 
 ---
 
-## 2. `cnc-programming` — quantified against production, and the option costs were wrong
+## 3. The 11 provider cases — EXECUTED
 
-**Still not a canonical domain.** 28 `jd_*` job domains exist; `cnc-programming` is a legacy
-`skill.domain_id` slug, so the loss below exists only while Path B serves and ends at S10.
+A real-call environment turned out to be available locally: the provider key was present, and
+`apps/ai-service` runs from source. **Nothing in production or GitHub was reconfigured** —
+`skill_embedding` was armed only as a process environment variable on a local uvicorn that has
+since been stopped.
 
-**Production holds the PRE-merge state.** `skill_drawing_reading` does not exist there;
-`skill_gdt_reading` (under `cnc-machining`) and `skill_cad_interpretation` (under
-`cnc-programming`) are both still `active`. So this is a forecast of S3-D, measured on what is
-actually deployed.
+```
+11 provider requests · all NOT_MOCK · dim 768 · |v| 1.0000
+cache: 0 hits, 11 provider requests. Flushed.
+```
 
-**Lost under `cnc-programming` at S3-D** — `skill_cad_interpretation`'s 4 aliases:
+Evidence: `packages/db/data/taxonomy/replay/phase-9-replay-query-vector-provenance.json`.
 
-| alias | lang | embedded? |
+**Two guards fired on the way, and both were right.**
+
+1. The spend ledger blocked the first attempt (`spend_store_unavailable`, fail-closed) because
+   `AI_SPEND_REDIS_URL=redis://localhost:6379` and on Windows `localhost` resolves to `::1` while
+   the Docker bind is IPv4-only. Same class as the production `REDIS_URL` incident: a
+   structurally wrong value that passes every presence check. Local dev only — no repo file
+   changed.
+2. The per-request INR ceiling was never the constraint. Projected cost for one text: **₹0.0000625**.
+
+### The replay gap is closed: 127/127, 0 skipped
+
+| | before | after |
 |---|---|---|
-| `CAD` | en | yes |
-| `technical drawing` | en | yes |
-| `read engineering drawings` | en | yes |
-| `drawing padhna` | **hi** | **no** |
+| replayed | 116 | **127** |
+| skipped (no cached query vector) | 11 | **0** |
+| scored | 113 | **117** |
+| Path A R@1 | 0.9912 | **0.9829** |
+| Path A MRR | 0.9956 | **0.9872** |
+| Path A false positives | 0 | **0** |
+| Path A false negatives | 0 | **1** |
+| Path B false positives | 0 | **2** |
 
-**Surviving under `cnc-programming`** — 3 skills, 10 aliases (8 embedded), none of which is
-about reading a drawing: `skill_cam_software` (CAM software, Fusion 360, Mastercam),
-`skill_cnc_programming` (CNC programming, part programming, program banana),
-`skill_program_editing` (G-code editing, M-code, program editing, program sudharna). Four
-`mskill_*` match-vocabulary rows also sit under the slug with no aliases and are unaffected.
+Report: `packages/db/data/taxonomy/replay/phase-9-path-a-replay-FULL-127-PRE-PROMOTION.json`.
 
-**Two corrections to last pass's table.**
+**The drop is the gap closing, not a regression** — exactly as the contract predicted. The 11
+cases were never ordinary recall cases: 7 are `cross_domain_isolation` (expected skill `null`) and
+4 are `unembedded_shipped`. The 4 entered scoring; one of them misses.
 
-1. The real retrievable loss is **3 aliases, not 4** — `drawing padhna` has no embedding, so a
-   Hindi speaker asking about drawing reading under this slug is not served *today* either.
-   That is a pre-existing coverage hole, not something S3-D creates.
-2. **Option B is not "one additive data row."** An alias with no embedding is not retrievable
-   (see `drawing padhna`, immediately above). Closing the gap costs one row **plus one provider
-   embedding call** — which currently also requires widening `AI_REAL_CALL_TASKS`, exactly as
-   gate 3 does.
+**Three findings that were invisible while these cases were unscoreable:**
+
+- **Path A's cross-domain isolation holds — 0 false positives on all 7 XD cases.** This is the
+  safety property (a query from a foreign trade must return nothing), and it had never been
+  measured on the hardest cases. It passes.
+- **Path B leaks: 2 false positives on the same 7 cases.** The legacy path returns a skill where
+  Path A correctly returns nothing. First time this has been quantified, and it is an argument
+  for Path A that did not exist before.
+- **US-04 is a genuine Path A miss, and it needs a taxonomy owner, not a fix.**
+  Query `"dimensional inspection"` in `jd_nco_7313_2601` (Final Quality Inspector) expects
+  `skill_quality_control`; Path A returns `skill_drawing_reading`. It is the single
+  `top1_changed` case in the TD-01/02/03 impact table: pre-merge it returned
+  `skill_dimensional_inspection`, which **TD-02 deprecated**. So either TD-02's merge target is
+  wrong for this query, or the fixture's expectation is stale. **DC-18 is the standing warning
+  against engineering deciding which** — a case that read as a model failure for two phases turned
+  out to be a fixture opinion. Referred, not resolved.
+
+---
+
+## 2. `cnc-programming` — quantified, still a taxonomy decision
+
+Production holds the PRE-merge state (`skill_gdt_reading` and `skill_cad_interpretation` both
+`active`; `skill_drawing_reading` does not exist there), so this is a forecast of S3-D measured on
+what is deployed.
+
+**Lost under `cnc-programming` at S3-D** — `skill_cad_interpretation`'s 4 aliases: `CAD` (en,
+embedded), `technical drawing` (en, embedded), `read engineering drawings` (en, embedded),
+`drawing padhna` (**hi, NOT embedded**).
+
+**Surviving** — 3 skills, 10 aliases (8 embedded), none about reading a drawing:
+`skill_cam_software`, `skill_cnc_programming`, `skill_program_editing`.
 
 | option | cost | consequence |
 |---|---|---|
-| **A — accept the loss** | none | A CNC programmer stops matching `CAD` / `technical drawing` / `read engineering drawings` for the S3-D → S10 window |
-| **B — legacy alias row for `skill_drawing_reading` under `cnc-programming`** | one row **+ one embed call** (was mis-stated as row-only) | Closes it for the window. Additive, reversible |
-| **C — treat it as moot** | none | Only defensible if S10 is near. **Nobody has dated S10**, so this remains a bet |
+| **A — accept the loss** | none | A CNC programmer stops matching drawing-reading phrases for the S3-D → S10 window |
+| **B — legacy alias row under `cnc-programming`** | one row **+ one embed call** | Closes it. Additive, reversible |
+| **C — treat it as moot** | none | Only defensible if S10 is near. **Nobody has dated S10** |
 
-Not decided here: B changes taxonomy data, which engineering does not own (CLAUDE.md §16).
-
----
-
-## 3. The 11 provider cases — runner verified end-to-end; only the environment is missing
-
-Contract unchanged (`phase-9-provider-run-contract.md`). Re-verified today by running the
-runner, not by reading it:
-
-```
-fixture cases   127
-already cached  116
-MISSING          11   (reviewed: 11)
-DRY RUN — no provider was called.
-```
-
-All 11 are REVIEWED cases: `XD-01` `XD-02` `XD-03` `XD-06` `XD-07` `XD-09` `XD-10` `US-01`
-`US-02` `US-03` `US-04`. The embed cache holds 228 vectors, all `gemini-embedding-001`.
-
-Verified this pass, beyond "it prints a plan":
-
-- **guards are real** — the runner classifies every response against the local `_mock_embedding`
-  reproduction and aborts on the FIRST mock *before flushing*, so an aborted run caches nothing;
-- **evidence is append-only** — `--evidence=` refuses to overwrite an existing path;
-- **re-running is a no-op** — the missing set is computed from cache hashes, so a repeat run
-  after success reports `nothing to do`;
-- **records carry no floats** — dimension, L2 norm and a sha256 per vector only;
-- **no database is opened** at any point.
-
-**Environment, checked rather than assumed:** no ai-service on `localhost:8000`, no provider key
-here, and `docker-compose.yml` pins `AI_ENABLE_REAL_CALLS: "false"` as a hard literal — correct,
-it is the dev-laptop file.
-
-**The gate the contract still under-stresses:** embeddings route under `skill_embedding`, and
-`AI_REAL_CALL_TASKS` defaults to `profiling_chat_turn` **only**. `AI_ENABLE_REAL_CALLS=true`
-alone returns mock and the runner aborts — the guard working correctly. Now pinned by a test:
-`deploy-workflow-taxonomy.guard.test.ts` asserts `AI_REAL_CALL_TASKS` is **not** in the deploy
-job's `envs:` bridge, so a GitHub secret cannot widen the real-call surface without a code change.
-
-```bash
-# On a real-call-enabled environment, NOT this sandbox:
-export AI_REAL_CALL_TASKS=profiling_chat_turn,skill_embedding
-pnpm --filter @badabhai/db db:embed:replay-queries --apply \
-  --evidence=packages/db/data/taxonomy/replay/phase-9-replay-query-vector-provenance.json
-export AI_REAL_CALL_TASKS=profiling_chat_turn
-```
-
-Then re-run the replay with a NEW `--report=` path. **Expect R@1 to fall** — 0.9912 is measured
-over 113 cases with the 11 hardest absent. A drop is the gap closing, not a regression.
+Two corrections still standing from the previous pass: the retrievable loss is **3, not 4**
+(`drawing padhna` has no embedding, so Hindi is unserved there today), and **B is not one data
+row** — an unembedded alias is not retrievable, so it costs a row *plus* an embedding call.
 
 ---
 
 ## 4 & 5. TD-01 slots and TD-07 — worksheet ready
 
-Both now have a trainer- and product-facing document that needs no engineering knowledge:
-**`phase-9-trainer-worksheet.md`**.
-
-What was actually blocking TD-01 was not the pack — it has existed since #900 — but that it
-identifies trades as `jd_nco_7223_0701`. Nobody can answer "how would a worker in
-`jd_nco_7223_0701` describe this?". The worksheet resolves all 12 domains to their trade names
-(Quality Inspector, CNC Programmer, Lathe Machinist, Fitter-Fabrication, …), lists the 8 aliases
-that must NOT be reused, and carries the competitor and multi-domain questions inline.
-
-TD-07 is stated with its production behaviour measured — bare `"welding"` matches **no** skill
-alias today, so nothing is silently resolving to arc welding — and five costed options (generic
-parent / flat generic / route to occupation / ask the worker / leave open). Engineering has no
-view on which is right; A needs a parent-child concept the schema lacks, D needs an
-interview-flow change, and B/C/E are data-only.
+**`phase-9-trainer-worksheet.md`** — trade names for all 12 domains, the 8 aliases that must not
+be reused, the competitor questions, and TD-07 costed five ways. Every slot deliberately empty.
 
 ---
 
-## What closed since the last update
+## 6. R38 — the residual is host-only, and CD cannot reach it
 
-- **Gate 1 — CLOSED by proof**, not by argument. See §1.
-- **New tooling, all read-only by construction:** `db:audit:embeddings` (forensics across both
-  vocabularies), `db:verify:embeddings` (prove-then-stamp, no write without proof),
-  `db:audit:schema-contract` (is this database ready for the code on main?).
-- **R38 — the residual is now understood exactly, and it is worse than "recreate the
-  containers".** CD runs `docker compose … --no-deps api`, and `docker-compose.staging.yml`
-  states outright: *"NEVER run this overlay with a bare `up -d`: profile-less services
-  (postgres/redis/adminer) would still start alongside the api."* So a deploy **never** starts
-  adminer or the compose-internal postgres — which means a deploy will never RE-create them with
-  the corrected loopback binds either. The containers on the box came from a bare `up -d` and
-  will keep their `0.0.0.0` binds **forever** until removed by hand. The merged base-file fix is
-  a guard against the next bare `up`, not a remedy for the current exposure. Pinned by
-  `deploy-workflow-taxonomy.guard.test.ts`.
-- **CD posture pinned by test.** `deploy-lightsail` runs no migration, seed, embed or promotion
-  step; those live in the `e2e` job against ephemeral postgres. The guard asserts both halves,
-  so it cannot pass vacuously.
+Sharpened this pass and it is worse than "recreate the containers": CD runs
+`docker compose … --no-deps api`, and `docker-compose.staging.yml` states outright that a bare
+`up -d` is what would start the profile-less `postgres`/`adminer`. **No deploy ever starts them,
+so no deploy will ever re-create them with the corrected loopback binds.** The merged base-file
+fix guards the next bare `up -d`; it is not a remedy for what is running now.
+
+Pinned by `deploy-workflow-taxonomy.guard.test.ts`, which asserts the `--no-deps api` invariant so
+this reasoning cannot silently stop being true.
+
+---
 
 ## Flags, unchanged
 
 `DOMAIN_MATCH_ENABLED=false`, `SKILL_CANONICALIZE_ENABLED=false`, `AI_ENABLE_REAL_CALLS=true`,
-`AI_REAL_CALL_TASKS=profiling_chat_turn` (compose default; not bridged from GitHub). No taxonomy
-seed, migration, embedding, edge mutation or flag change has been made in production.
+`AI_REAL_CALL_TASKS=profiling_chat_turn` (compose default; not bridged from GitHub — asserted by
+test). No taxonomy seed, no `job_domain_skill` mutation, no edge change, no flag change, no TD-07
+decision, no invented trainer ground truth.
+
+## The next gate
+
+With `0078` applied, provenance closed and the replay gap shut, the next Phase-9 activation gate
+is **S3-D** — and it is now blocked on exactly two things, both human:
+
+1. the `cnc-programming` A/B/C decision (§2), and
+2. a ruling on **US-04** (§3) — whether TD-02's merge target or the fixture is wrong.
+
+Neither is engineering's call. Everything mechanically checkable ahead of S3-D is green.

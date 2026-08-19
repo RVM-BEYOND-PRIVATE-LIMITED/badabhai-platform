@@ -66,9 +66,10 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 
-import { sql as dsql } from "drizzle-orm";
+import { and, inArray, isNotNull, isNull, sql as dsql } from "drizzle-orm";
 
 import { createDbClient } from "./client";
+import { skillAliases } from "./schema";
 import { DEFAULT_CACHE_DIR } from "./taxonomy-embed-cache";
 import { classifyEmbedding } from "./taxonomy-retrieval-eval";
 import { hostClass } from "./audit-embedding-provenance";
@@ -341,12 +342,28 @@ async function main(): Promise<void> {
     } else {
       const model = s.models[0] as string;
       const ids = verdicts.filter((v) => v.verdict === "PROVEN").map((v) => v.id);
-      // One statement, one transaction boundary, no per-row partial state. `embedded_at` is
-      // left NULL on purpose — see the header.
-      await db.execute(
-        dsql`UPDATE skill_alias SET embedding_model = ${model}
-             WHERE id::text = ANY(${ids}) AND embedding IS NOT NULL AND embedding_model IS NULL`,
-      );
+      // The typed query builder, NOT a hand-written `ANY(${ids})`. The first version of this
+      // was raw SQL, and drizzle expanded the JS array into a ROW CONSTRUCTOR —
+      // `ANY(($2, $3, … $77))` — which is a syntax error, not an array. It failed cleanly
+      // (single statement, nothing written), but the lesson is that the array-binding rule is
+      // not something to re-derive at the one call site that mutates production.
+      //
+      // Still one statement, so there is no per-row partial state. `embedded_at` stays NULL
+      // on purpose — see the header.
+      await db
+        .update(skillAliases)
+        .set({ embeddingModel: model })
+        .where(
+          and(
+            inArray(skillAliases.id, ids),
+            // Re-asserted at write time, not merely at read time: between the SELECT above and
+            // this UPDATE another process could have stamped a row, and the read's verdict
+            // would then be stale. Narrowing here means the worst case is stamping fewer rows,
+            // never overwriting somebody else's provenance.
+            isNotNull(skillAliases.embedding),
+            isNull(skillAliases.embeddingModel),
+          ),
+        );
       console.log(`\n[${SCRIPT}] stamped ${ids.length} row(s) as ${model}. embedded_at left NULL (unknown, and not invented).`);
     }
 
