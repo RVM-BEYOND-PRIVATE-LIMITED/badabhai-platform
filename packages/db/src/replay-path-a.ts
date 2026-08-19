@@ -76,7 +76,15 @@ import {
 
 config();
 
-const VARIANTS: readonly CorpusVariant[] = ["pre_merge", "as_applied", "edges_repointed"];
+// `aliases_retagged` is LAST on purpose: it is the only variant that models a step which has
+// not run anywhere yet (`db:retag:skills`), so it reads as the forecast it is rather than as
+// another view of the current corpus.
+const VARIANTS: readonly CorpusVariant[] = [
+  "pre_merge",
+  "as_applied",
+  "edges_repointed",
+  "aliases_retagged",
+];
 const PATHS: readonly RetrievalPath[] = ["path_a_canonical", "path_b_legacy"];
 
 function dataPath(...p: string[]): string {

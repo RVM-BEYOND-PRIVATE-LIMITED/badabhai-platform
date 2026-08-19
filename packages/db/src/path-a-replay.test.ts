@@ -189,6 +189,110 @@ describe("findMintedSkillIds", () => {
   });
 });
 
+/**
+ * `aliases_retagged` — the offline dry-run for `db:retag:skills --apply`.
+ *
+ * `as_applied` shows a real but TRANSIENT loss: a deprecated skill's aliases stop being
+ * retrievable while its successor carries only its own. The deployment plan orders
+ * `db:retag:skills` as step 2 of the same stage precisely to close it. This variant lets that
+ * remedy be MEASURED offline instead of asserted, which is what turned US-04 from "a taxonomy
+ * ruling is required" into "a step already in the plan closes it" (coverage 3/4 -> 4/4).
+ */
+describe("buildVariant — aliases_retagged", () => {
+  const { corpus, provenance } = buildVariant(merged, "aliases_retagged");
+  const ownerOf = (text: string) => corpus.aliases.filter((a) => a.text === text).map((a) => a.skillId);
+
+  it("moves a deprecated skill's alias onto its successor", () => {
+    // `growth` is deprecated -> `survivor`, and `survivor` has no copy of "growth-only".
+    const withOwn = buildVariant(
+      { ...merged, aliases: [...merged.aliases, alias("growth", "growth-only")] },
+      "aliases_retagged",
+    ).corpus;
+    expect(withOwn.aliases.filter((a) => a.text === "growth-only").map((a) => a.skillId)).toEqual(["survivor"]);
+  });
+
+  it("adopts the successor's domain, so the moved alias is reachable where the successor is", () => {
+    const withOwn = buildVariant(
+      { ...merged, aliases: [...merged.aliases, alias("growth", "growth-only", "some-other-domain")] },
+      "aliases_retagged",
+    ).corpus;
+    const moved = withOwn.aliases.find((a) => a.text === "growth-only")!;
+    expect(moved.domainId).toBe("cnc-machining"); // `survivor`'s domain
+  });
+
+  it("drops the predecessor copy when the terminal already owns that text — ON CONFLICT DO NOTHING", () => {
+    // `pred_a` holds "shared-a" and so does `new`. Moving would duplicate; the runner does not.
+    expect(ownerOf("shared-a")).toEqual(["new"]);
+  });
+
+  it("leaves an alias whose skill is not deprecated exactly where it is", () => {
+    expect(ownerOf("surv")).toEqual(["survivor"]);
+  });
+
+  it("resolves a CHAIN to its terminal, not one hop", () => {
+    const chained: CorpusInput = {
+      skills: [
+        skill("a", "deprecated", { replacedBy: "b", preMergeStatus: "active" }),
+        skill("b", "deprecated", { replacedBy: "c", preMergeStatus: "active" }),
+        skill("c", "active"),
+      ],
+      aliases: [alias("a", "t")],
+      edges: [{ jobDomainId: "jd1", skillId: "c" }],
+    };
+    expect(buildVariant(chained, "aliases_retagged").corpus.aliases[0]!.skillId).toBe("c");
+  });
+
+  it("leaves an alias PUT when the chain dead-ends on a deprecated terminal", () => {
+    // Fail-safe, mirroring the runner's dead-end exclusion. Moving it onto a deprecated
+    // terminal would hide it behind the same status gate the move was meant to escape — and
+    // silently, since both states look like "not retrievable".
+    const deadEnd: CorpusInput = {
+      skills: [
+        skill("a", "deprecated", { replacedBy: "b", preMergeStatus: "active" }),
+        skill("b", "deprecated", { replacedBy: null, preMergeStatus: "active" }),
+      ],
+      aliases: [alias("a", "t")],
+      edges: [],
+    };
+    expect(buildVariant(deadEnd, "aliases_retagged").corpus.aliases[0]!.skillId).toBe("a");
+  });
+
+  it("leaves an alias PUT when the crosswalk cycles", () => {
+    const cyclic: CorpusInput = {
+      skills: [
+        skill("a", "deprecated", { replacedBy: "b", preMergeStatus: "active" }),
+        skill("b", "deprecated", { replacedBy: "a", preMergeStatus: "active" }),
+      ],
+      aliases: [alias("a", "t")],
+      edges: [],
+    };
+    expect(buildVariant(cyclic, "aliases_retagged").corpus.aliases[0]!.skillId).toBe("a");
+  });
+
+  it("changes no skill and no edge — it is an alias move and nothing else", () => {
+    expect(corpus.skills).toEqual(merged.skills);
+    expect(corpus.edges).toEqual(merged.edges);
+    expect(provenance.repointedEdges).toEqual([]);
+    expect(provenance.restoredSkillIds).toEqual([]);
+  });
+
+  it("records every move in provenance, so the forecast names what it assumed", () => {
+    const withOwn = buildVariant(
+      { ...merged, aliases: [...merged.aliases, alias("growth", "growth-only")] },
+      "aliases_retagged",
+    );
+    expect(withOwn.provenance.reassignedAliases).toContainEqual({ text: "growth-only", to: "survivor" });
+  });
+
+  it("never loses an alias text that had nowhere safe to go", () => {
+    // The whole variant is a forecast of a REMEDY. If it could silently drop a text, it would
+    // forecast a recovery that will not happen.
+    const before = new Set(merged.aliases.map((a) => a.text));
+    const after = new Set(corpus.aliases.map((a) => a.text));
+    expect([...before].every((t) => after.has(t))).toBe(true);
+  });
+});
+
 describe("buildVariant — pre_merge", () => {
   const { corpus, provenance } = buildVariant(merged, "pre_merge");
 

@@ -69,7 +69,7 @@ export const LEGACY_ANCHOR_SKILL_DOMAIN = "cnc-machining";
 
 export type RetrievalPath = "path_a_canonical" | "path_b_legacy";
 
-export type CorpusVariant = "pre_merge" | "as_applied" | "edges_repointed";
+export type CorpusVariant = "pre_merge" | "as_applied" | "edges_repointed" | "aliases_retagged";
 
 /** One alias as retrieval sees it: a text, its owning skill, and that skill's reachability. */
 export interface ReplayAlias {
@@ -227,6 +227,75 @@ export function buildVariant(
         mintedSkillIds: minted,
         restoredSkillIds: [],
         reassignedAliases: [],
+        repointedEdges: [],
+      },
+    };
+  }
+
+  if (variant === "aliases_retagged") {
+    // ── The offline dry-run for `db:retag:skills --apply`, step 2 of the deprecation stage ──
+    //
+    // WHY THIS VARIANT EXISTS. `as_applied` models the deprecations landing and NOTHING else,
+    // so it shows a real but TRANSIENT loss: a deprecated skill's aliases stop being
+    // retrievable while its successor still carries only its own. US-04 is the measured
+    // example — "dimensional inspection" lives on `skill_dimensional_inspection`, which TD-02
+    // deprecates in favour of `skill_quality_control`, whose only aliases are "QC" and
+    // "quality control". The query misses in `as_applied` and the fixture reads as broken.
+    //
+    // It is not broken. `phase-9-s3-deployment-plan.md` orders `db:retag:skills` as step 2 of
+    // the SAME stage, and that runner "MOVES the deprecated skills' aliases to the terminal
+    // skill ... so future canonicalization assigns the successor". This variant applies that
+    // move to the corpus, so the plan's own remedy can be MEASURED before it is run against a
+    // database rather than asserted in prose.
+    //
+    // Chains are resolved to a terminal, exactly as the runner does, and dead ends are
+    // EXCLUDED fail-safe: an alias whose chain terminates on a skill that is itself deprecated
+    // with no successor stays where it is rather than being sent somewhere unreachable.
+    const successorOf = new Map(
+      input.skills.filter((s) => s.replacedBy !== null).map((s) => [s.skillId, s.replacedBy as string]),
+    );
+    const byId = new Map(input.skills.map((s) => [s.skillId, s]));
+    /** Walk to the end of the crosswalk. `null` = a cycle or a dead end; leave the alias put. */
+    const terminalOf = (start: string): string | null => {
+      const seen = new Set<string>([start]);
+      let at = start;
+      for (;;) {
+        const next = successorOf.get(at);
+        if (next === undefined) break;
+        if (seen.has(next)) return null; // cycle
+        seen.add(next);
+        at = next;
+      }
+      if (at === start) return null;
+      const end = byId.get(at);
+      // A terminal that is itself deprecated-without-successor is a dead end. Moving an alias
+      // onto it would hide the alias behind the same status gate it was moved to escape.
+      if (end === undefined || end.status === "deprecated") return null;
+      return at;
+    };
+
+    const domainOf = new Map(input.aliases.map((a) => [a.skillId, a.domainId]));
+    const existing = new Set(input.aliases.map((a) => `${a.skillId} ${a.text}`));
+    const moved: { text: string; to: string }[] = [];
+    const aliases: ReplayAlias[] = [];
+    for (const a of input.aliases) {
+      const to = terminalOf(a.skillId);
+      if (to === null) {
+        aliases.push(a);
+        continue;
+      }
+      // `ON CONFLICT DO NOTHING` in the runner: the terminal already owning this text wins and
+      // the predecessor's copy simply disappears, rather than producing a duplicate.
+      if (existing.has(`${to} ${a.text}`)) continue;
+      moved.push({ text: a.text, to });
+      aliases.push({ ...a, skillId: to, domainId: domainOf.get(to) ?? a.domainId });
+    }
+    return {
+      corpus: { variant, skills: input.skills, aliases, edges: input.edges },
+      provenance: {
+        mintedSkillIds: minted,
+        restoredSkillIds: [],
+        reassignedAliases: moved.sort((x, y) => x.text.localeCompare(y.text)),
         repointedEdges: [],
       },
     };

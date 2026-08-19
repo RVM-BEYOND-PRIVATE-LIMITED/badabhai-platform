@@ -13,7 +13,7 @@
 | 0 | `0078` / S3-C | — | ✅ **APPLIED & VERIFIED** — object-by-object, write path exercised |
 | 1 | Embedding provenance (76 unstamped rows) | — | ✅ **CLOSED** — proven `gemini-embedding-001`, stamped |
 | 2 | `cnc-programming` scope decision | **product / taxonomy owner** | ⏸ quantified against production |
-| 3 | 11 provider evaluation cases | — | ✅ **EXECUTED** — 11 real calls; replay gap closed; harness defect found and fixed |
+| 3 | 11 provider evaluation cases | — | ✅ **EXECUTED**; replay gap closed; harness defect fixed; **US-04 resolved** |
 | 4 | 5 TD-01 trainer slots | **trade trainer** | ⏸ worksheet ready |
 | 5 | TD-07 | **product + trainer** | ⏸ worksheet ready, five options costed |
 | 6 | R38 residual | **host-only** | 🔴 open — CD cannot fix it (see below) |
@@ -158,19 +158,42 @@ said before the defect was found.
   return nothing) and it is the strongest single result of the pass.
 - **Path B leaks: 2 false positives** on those same cases, where Path A returns nothing. First
   time this has been quantified, and it is an argument for Path A that did not exist before.
-- **US-04 is a COVERAGE gap, not a ranking miss** — and it still needs a taxonomy owner.
-  Path A reaches 3 of the 4 shipped-and-reused-only skills; US-04 is the one it does not.
-  Query `"dimensional inspection"` in `jd_nco_7313_2601` expects `skill_quality_control` and
-  Path A returns `skill_drawing_reading`.
+- **US-04 — RESOLVED, and it needs no taxonomy ruling after all.** It is not a stale fixture,
+  not a wrong TD-02 successor, and not a Path-A scope bug. It is the measurable gap between two
+  steps the deployment plan already orders adjacently.
 
-  The fixture's own note explains how it got here: TD-02 re-pointed the case from the dissolved
-  `skill_dimensional_inspection` to `skill_quality_control`, and rescoped it to
-  `jd_nco_7313_2601` because *"`skill_dimensional_inspection`'s old domain `jd_nco_7543_2001` has
-  no `skill_quality_control` edge"*. `skill_quality_control` is **shipped-and-reused-only** — it
-  has no locally-authored `skills.jsonl` record — so the canonical corpus has nothing of its own
-  to retrieve. Whether that is a corpus gap to fill or a fixture expectation to retire is a
-  taxonomy judgement. **DC-18 is the standing warning against engineering deciding which.**
-  Referred, not resolved.
+  The chain, each link checked:
+
+  | | evidence |
+  |---|---|
+  | `skill_dimensional_inspection` holds the alias `"dimensional inspection"` | `SKILL_CORPUS`: aliases `["inspection", "dimensional inspection", "quality check"]` |
+  | TD-02 deprecates it into `skill_quality_control` | corpus `status: "deprecated"`, `replacedBy: "skill_quality_control"` |
+  | the successor never received the alias | `skill_quality_control` aliases are `["QC", "quality control"]` only |
+  | that is BY DESIGN, not an oversight | the TD-02 record: re-homing alias rows is *"the separate, later, explicitly-gated step"* `db:retag:skills` |
+  | which the plan already schedules | `phase-9-s3-deployment-plan.md`: step 1 is the 4 deprecations, **step 2 is `db:retag:skills`** |
+  | and which has not run anywhere | production has **0** rows with `status='deprecated' AND replaced_by IS NOT NULL` |
+
+  **Production today is unaffected**: `skill_dimensional_inspection` is still `active` with its
+  alias embedded, so the query resolves correctly right now. The replay was forecasting the
+  window *after* the deprecations land and *before* the retag runs.
+
+  **Now measurable rather than argued.** A fourth replay variant, `aliases_retagged`, applies
+  what `db:retag:skills --apply` does — move each deprecated skill's aliases to its terminal,
+  resolving chains, excluding dead ends and cycles fail-safe, and dropping a copy the terminal
+  already owns (the runner's `ON CONFLICT DO NOTHING`). Result:
+
+  | variant | Path A coverage | R@1 |
+  |---|---|---|
+  | `as_applied` (deprecations only) | 3 / 4 | 0.9912 |
+  | **`aliases_retagged`** (+ step 2) | **4 / 4** | 0.9912 |
+
+  It moves **8** aliases, including `"dimensional inspection" → skill_quality_control`. Recall
+  does not move; the coverage gap closes. Forecast:
+  `phase-9-path-a-replay-RETAG-FORECAST.json`.
+
+  **The one thing worth an owner's attention** is ordering, not taxonomy: steps 1 and 2 must
+  land together. Between them the corpus is in exactly the state the replay showed, and any
+  measurement taken in that window will read as a regression that is not one.
 
 ---
 
