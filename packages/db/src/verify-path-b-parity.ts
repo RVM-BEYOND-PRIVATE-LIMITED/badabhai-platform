@@ -85,17 +85,17 @@ export function slugDigest(
   rows: readonly { skill_id: string; text: string; embedding_model: string | null }[],
 ): string {
   const lines = rows
-    .map((r) => `${r.skill_id}${r.text}${r.embedding_model ?? ""}`)
+    .map((r) => `${r.skill_id}\u001f${r.text}\u001f${r.embedding_model ?? ""}`)
     .sort();
-  return createHash("sha256").update(lines.join(""), "utf8").digest("hex");
+  return createHash("sha256").update(lines.join("\u001e"), "utf8").digest("hex");
 }
 
 /** One digest over every slug, so "did anything move at all" is a single string compare. */
 export function overallDigest(slugs: readonly SlugParity[]): string {
   const lines = [...slugs]
-    .map((s) => `${s.domainId}${s.candidates}${s.skills}${s.digest}`)
+    .map((s) => `${s.domainId}\u001f${s.candidates}\u001f${s.skills}\u001f${s.digest}`)
     .sort();
-  return createHash("sha256").update(lines.join(""), "utf8").digest("hex");
+  return createHash("sha256").update(lines.join("\u001e"), "utf8").digest("hex");
 }
 
 export interface ParityDrift {
