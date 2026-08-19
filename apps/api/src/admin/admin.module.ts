@@ -79,9 +79,9 @@ import { AdminDashboardController } from "./admin-dashboard.controller";
  * ops read routes behind a dual-accept guard) is DEFERRED — this module does NOT touch the
  * existing ops/InternalService routes or `apps/web`. SSE live-tail is DEFERRED to ADMIN-7.
  * BP-5 adds the DASHBOARD SUMMARY (`AdminDashboardController`/`AdminDashboardService`/
- * `AdminDashboardRepository`): `GET /admin/dashboard/summary`, `read_events`-gated — the same
- * capability the existing `GET /admin/events/metrics` strip declares (ADR-0025 §3.1's
- * dashboard-metrics row). SELECT-ONLY and ID-FREE: platform AI spend from migration 0077's
+ * `AdminDashboardRepository`): `GET /admin/dashboard/summary`, `read_entities`-gated — the same
+ * capability the finance aggregates declare, chosen by the DATA (live system-of-record state +
+ * money; only the cap-breach block reads the spine). SELECT-ONLY and ID-FREE: AI spend from 0077's
  * `platform_ai_cost_totals` (total, by provider, by task type) carrying an explicit
  * `accruing_since` marker — those totals START at 0077 and no backfill has run — plus cap
  * breaches split by `ai.spend_cap_exceeded`'s `reason` and unfiltered volume counts. It has its
@@ -157,11 +157,11 @@ import { AdminDashboardController } from "./admin-dashboard.controller";
     AdminDirectoryRepository,
     AdminDirectoryService,
     // BP-5: the dashboard summary (platform AI spend by provider/task/breach-reason + volume
-    // counts) behind `read_events`, the same capability the existing `GET /admin/events/metrics`
-    // strip declares. SELECT-ONLY, with its OWN read-only repository over
-    // `platform_ai_cost_totals` — `AiCostTotalsRepository` is the single WRITER of that table
-    // and stays unexported from `AiModule`. The cap-breach split reuses `AdminEventsRepository`
-    // so `events` keeps exactly one admin reader.
+    // counts) behind `read_entities`, the same capability the finance aggregates declare.
+    // SELECT-ONLY, with its OWN read-only repository over `platform_ai_cost_totals` —
+    // `AiCostTotalsRepository` is the single WRITER of that table and stays unexported from
+    // `AiModule`. The cap-breach split reuses `AdminEventsRepository` so `events` keeps exactly
+    // one admin reader (build-blocked in `admin-static-guards.test.ts`).
     AdminDashboardRepository,
     AdminDashboardService,
   ],

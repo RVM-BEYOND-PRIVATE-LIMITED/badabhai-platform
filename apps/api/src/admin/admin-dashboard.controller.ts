@@ -13,20 +13,22 @@ import {
  * by task type, cap breaches by reason) and platform volume (workers, profiles, postings,
  * applications, payers, unlocks, résumés).
  *
- * ── WHY `read_events` AND NOT `read_entities` OR A NEW CAPABILITY ────────────────────────
- * This route is the DASHBOARD-METRICS row of ADR-0025 Decision 3.1 ("Read metrics /
- * dashboards"), which is the same allow-set as `read_events` — all four roles — and it is the
- * capability `GET /admin/events/metrics` already declares for the strip this extends. Matching
- * it is what keeps one screen behind one capability: an analyst who can see the funnel and the
- * breach counter can see the spend and the headcount beside them, because they are the same
- * screen answering the same question.
+ * ── WHY `read_entities` AND NOT `read_events` OR A NEW CAPABILITY ────────────────────────
+ * PICKED BY THE DATA IT EXPOSES, not by the shape of the response. Exactly ONE block here —
+ * `cap_breaches` — reads the event spine. Everything else is live system-of-record state
+ * (`workers`, `worker_profiles`, `job_postings`, `applications`, `payers`, `unlocks`,
+ * `generated_resumes`) plus money out of `platform_ai_cost_totals`. That is the documented
+ * meaning of `read_entities` (see `admin-capabilities.ts`): `read_events` is the append-only
+ * audit spine, `read_entities` is live state, and the two are chosen by MEANING precisely
+ * because they narrow independently.
  *
- * `read_entities` was the alternative and is the wrong shade. That capability is documented as
- * "the FACELESS ENTITY PROJECTIONS" — live per-row system-of-record state (this worker, this
- * payer, this posting). Nothing here is per-row: every number is an aggregate over a whole
- * table, and there is no entity to project. The two happen to share the same allow-set today,
- * which is exactly why picking by MEANING rather than by effect matters — the day one of them
- * narrows, every route named for the wrong one moves with it.
+ * The in-repo precedent is decisive: `AdminFinanceController.{summary,ledger,orders}` is also
+ * an aggregate over money tables, also not a per-row projection, and declares `read_entities`.
+ * "Aggregates are not entity projections" would have made finance `read_events` too.
+ *
+ * NOT A PRIVILEGE CHANGE: the two allow-sets are identical today (all four roles), so nothing
+ * a role can do moves. It is naming honesty — the day either capability narrows, a route
+ * carrying the wrong name moves with the wrong one, invisibly.
  *
  * A NEW `read_dashboard` capability is deliberately NOT minted: it would be a new row in the
  * signed ADR-0025 matrix (an ADR amendment) plus a key-parity change in `apps/admin-web`, to
@@ -48,7 +50,7 @@ export class AdminDashboardController {
    * counts; the cost totals and volume counts are all-time by construction.
    */
   @Get("summary")
-  @RequireAdminRole("read_events")
+  @RequireAdminRole("read_entities")
   summary(
     @Query(new ZodValidationPipe(AdminDashboardSummaryQuerySchema))
     query: AdminDashboardSummaryQueryDto,

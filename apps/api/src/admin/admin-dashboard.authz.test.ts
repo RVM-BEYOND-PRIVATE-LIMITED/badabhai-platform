@@ -5,9 +5,10 @@ import { Reflector } from "@nestjs/core";
 import type { AdminRole } from "@badabhai/db";
 import type { AuthenticatedAdmin } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
-import { type AdminCapability } from "./admin-capabilities";
+import { ADMIN_CAPABILITY_MATRIX, type AdminCapability } from "./admin-capabilities";
 import { AdminDashboardController } from "./admin-dashboard.controller";
 import { AdminEventsController } from "./admin-events.controller";
+import { AdminFinanceController } from "./admin-finance.controller";
 import { AdminActionsController } from "./admin-actions.controller";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminKillSwitchController } from "./admin-kill-switch.controller";
@@ -15,10 +16,14 @@ import { AdminKillSwitchController } from "./admin-kill-switch.controller";
 /**
  * Per-ROLE authz for the BP-5 dashboard summary.
  *
- * The property that matters: this route sits at the SAME tier as the dashboard strip it
- * extends. `GET /admin/dashboard/summary` and `GET /admin/events/metrics` are one screen, so
- * they declare one capability — `read_events`, all four roles. If they ever diverge, half the
- * dashboard 403s for a role that can see the other half, which is worse than either answer.
+ * THE CAPABILITY IS `read_entities`, chosen by the DATA the route exposes. One block
+ * (`cap_breaches`) reads the event spine; everything else is live system-of-record state plus
+ * money out of `platform_ai_cost_totals`. That is what `read_entities` is documented to mean,
+ * and it is the capability the closest neighbour — `AdminFinanceController`, also an aggregate
+ * over money tables — already declares. Pinned to that neighbour below rather than to
+ * `GET /admin/events/metrics`: the two capabilities have IDENTICAL allow-sets today, so this is
+ * not a privilege change, and the pin has to be to the route that shares this one's MEANING or
+ * it re-encodes the mistake it is meant to prevent.
  *
  * And the separations that must HOLD: reading how much AI cost never confers turning AI off
  * (`toggle_kill_switch`, super_admin), and reading platform-wide counts never confers seeing
@@ -76,13 +81,26 @@ describe("BP-5 authz — the dashboard summary is the read floor", () => {
     );
   });
 
-  it("declares `read_events` — the SAME capability as GET /admin/events/metrics", () => {
-    expect(declaredCapability(AdminDashboardController, "summary")).toBe("read_events");
-    // Pinned to the neighbouring route rather than to the literal, so the two cannot drift:
-    // they are one screen, and a divergence 403s half of it for somebody.
+  it("declares `read_entities` — the SAME capability as the finance aggregates", () => {
+    expect(declaredCapability(AdminDashboardController, "summary")).toBe("read_entities");
+    // Pinned to the neighbour that shares this route's MEANING: `GET /admin/finance/summary` is
+    // also an aggregate over money tables and also not a per-row projection. If that route's
+    // capability ever moves, this one is asking to move with it.
     expect(declaredCapability(AdminDashboardController, "summary")).toBe(
-      declaredCapability(AdminEventsController, "metrics"),
+      declaredCapability(AdminFinanceController, "summary"),
     );
+  });
+
+  it("the two read capabilities have IDENTICAL allow-sets today — so this is a NAME, not a grant", () => {
+    // The whole reason the choice is arguable is that nothing observable changes: every role
+    // allowed `read_events` is allowed `read_entities`. The day that stops being true, this
+    // assertion fails and somebody has to decide which side the dashboard belongs on — which is
+    // the entire point of naming it by meaning now.
+    expect([...ADMIN_CAPABILITY_MATRIX.read_entities].sort()).toEqual(
+      [...ADMIN_CAPABILITY_MATRIX.read_events].sort(),
+    );
+    // …and the events strip this dashboard sits beside is still `read_events`, unchanged.
+    expect(declaredCapability(AdminEventsController, "metrics")).toBe("read_events");
   });
 
   it("mints NO new capability (an ADR-0025 matrix row is not this PR's to add)", () => {

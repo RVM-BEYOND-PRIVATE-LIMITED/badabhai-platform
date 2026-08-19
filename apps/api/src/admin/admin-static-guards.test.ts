@@ -612,12 +612,17 @@ describe("BP-5 dashboard route — guarded, read-only, and off the cost WRITER",
     expect(guards).toContain(AdminRolesGuard.name);
   });
 
-  it("declares method-level @RequireAdminRole('read_events') — the dashboard-metrics tier", () => {
+  it("declares method-level @RequireAdminRole('read_entities') — live state + money, like finance", () => {
+    // Chosen by the DATA: one block reads the event spine, the rest is live system-of-record
+    // state and `platform_ai_cost_totals`. Same call the finance aggregates make (asserted a
+    // few describes up), and the allow-sets are identical today, so nothing a role can do moves.
     const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminDashboardController) as
       | AdminCapability
       | undefined;
     expect(onClass, "AdminDashboardController must NOT declare a class-level capability").toBeUndefined();
-    expect(Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto.summary as object)).toBe("read_events");
+    expect(Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto.summary as object)).toBe(
+      "read_entities",
+    );
   });
 
   it("the surface is READ-ONLY by construction — the route is a GET", () => {
