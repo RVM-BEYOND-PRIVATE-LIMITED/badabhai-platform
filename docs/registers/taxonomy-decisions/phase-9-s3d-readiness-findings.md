@@ -159,10 +159,11 @@ after; it merely moves to `cnc-machining`.
 
 ---
 
-## 4. TD-07 — seven routes to a silent MIG assignment, five of them live
+## 4. TD-07 — the routes to a silent MIG assignment, and the fields they reach
 
 **Validated by executing the real code**, not by reading it: `signals.detect` in the ai-service,
-then `deriveWorkerSkills` from `packages/match-engine`.
+then `deriveWorkerSkills` from `packages/match-engine`. §4.1 and §4.2 then sweep every route and
+every persisted field, verified at the source.
 
 Two independent bridges converge on the same specific process, and there is **no generic
 `mskill_welder_*` id to land on** — unlike CNC, which has `mskill_cnc_operator_general`:
@@ -213,6 +214,85 @@ The incorrect assignment propagates one hop further than the row it was written 
 "there is no generic welding skill" — and the measured behaviour is not a gap but an **incorrect
 specific assignment that already ships**. Those call for different decisions, and the register's
 framing predates this measurement.
+
+### 4.1 Every route, and the two that change the severity
+
+A full sweep of the entry points, verified at the source rather than inferred. Three bridges
+reach the id, not two — the third is the correct one:
+
+| bridge | at | correct? |
+|---|---|---|
+| `skill_mig_welding → mskill_mig_welder` | `match-skills.ts:473` | **yes** — the worker said MIG |
+| `role_welder → mskill_mig_welder` | `match-skills.ts:404` | no — the role is process-unspecific |
+| `skill_welder_occupation → mskill_mig_welder` | `match-skills.ts:488` | no — **and this is the wide one** |
+
+**The attribute bridge has no gate; the role bridge has four.** `_assign_welding_role`
+(`signals.py:1663-1670`) refuses when a role is already set, when there is a machining signal,
+when a blocker fires, or when no welding-domain skill id is present. `_detect_welding`
+(`signals.py:1609-1621`) has none of that, and its gazetteer maps the bare word **`"welding"`**
+to `skill_welder_occupation` (`lexicon_data/trades.json:349-350`).
+
+**So an explicit denial still produces a MIG Welder row.** The repo already documents half of
+this, in the gazetteer test's own "KNOWN, DELIBERATE LIMITATIONS":
+
+> *Blockers suppress the welder ROLE only; welding SKILL ids are still recorded. A worker who
+> says "welding nahi karta" keeps `skill_welder_occupation`.*
+> — `tests/test_welding_gazetteer.py:52-54`
+
+That was written when the consequence was a skill id. Through the ungated attribute bridge it is
+now `mskill_mig_welder` on `worker_skill`, with the label **"MIG Welder"** shown to a payer. The
+limitation was accepted at one severity and has since acquired another.
+
+**The mainline interview path cannot produce the id at all** — and this narrows the live blast
+radius sharply. `toExtractionOutput` hardcodes `canonical_role_id: null, skills: []`
+(`profile-extraction.processor.ts:1613-1615`), deliberately: *"CANONICAL IDS ARE NOT INVENTED
+HERE."* The only branch that can reach the bridges is the legacy `extractProfile` call at
+`:701`, which fires only when `answerMap.length === 0` — a sessionless "make the profile anyway"
+run, or a pre-cutover session. Everything else in the OIE path drops the signals first.
+
+**Which means the platform asks the question and throws the answer away.** `qp_welding` has a
+`welding_process` item with gas/arc/mig/tig options
+(`packages/db/data/question-packs/packs/qp_welding.json:14-30`) — the exact question that would
+resolve this — and its answer is `target_kind: "rfs"`, so it lands in free text and is discarded
+by the hardcoded `skills: []` above. The schema does have a `target_kind: 'match_skill'` door
+(`schema/question-pack.ts:298`), and **zero authored items use it.**
+
+### 4.2 Every persisted field the id reaches
+
+| field | write | human-visible? |
+|---|---|---|
+| `worker_skill.skill_id` (`source='derived_coarse'`) | `worker-skills.repository.ts:114-135`; batch `backfill-worker-skills.ts:190-208` | internal |
+| `worker_skill.industry_id` | same | internal |
+| `job_reach.matched_skill_id` | `worker-skills.repository.ts:216-234`, `:294-311`; `materialize-job-reach.ts:131,161` | feeds both surfaces below |
+| feed card `matched_skill_label` → **"MIG Welder"** | `match-feed.service.ts:116` | **shown to the WORKER** |
+| feed card `trade_key` → **the raw id** | `match-feed.service.ts:97` | **shown to the WORKER** — see below |
+| payer candidate `matchedSkillLabel` → **"MIG Welder"** | `match-candidates.service.ts:92-93` | **shown to the PAYER** |
+| `job_postings.match_skill_ids` / `reach_skill_ids` | `worker-skills.repository.ts:426-441` | payer picker |
+| `feed.shown_v2` payload `matched_skill_id` | `match-feed.service.ts:128` | internal, permanent on the spine |
+
+**Verified NOT to carry it** — this bounds the exposure, and the boundary is real:
+`worker_profiles.skills` holds `skill_*` corpus ids and validates `mskill_*` out
+(`taxonomy-corpus.ts:123-126`); `worker_profiles.canonical_role_id` holds `role_welder`, the
+bridge *input*; `profiles.raw_profile` and `generated_resumes.source_profile_snapshot` store the
+`DraftProfile`, which has no `mskill_*` field; and `buildResumeRenderInput` therefore cannot
+render it — **the résumé and the masked employer disclosure never say "MIG Welder"**. No admin
+surface reads `worker_skill` at all.
+
+`MATCH_V1_ENABLED` is **default off** and gates only which source the feed / apply / candidate
+list READ from. The write path runs regardless (`profile-extraction.processor.ts:455` is
+explicitly not gated), so the rows accumulate now and become visible when the flag flips.
+
+### 4.3 A separate defect found on the way, and it is not a taxonomy question
+
+`match-feed.service.ts:97` sets `trade_key: row.matchedSkillId` — the **raw id**. The worker app
+string-interpolates that field straight into a card subtitle
+(`applied_jobs_screen.dart:181`, `'${job.tradeKey} · $place'`), on the stated assumption that
+*"V1 feed postings carry no trade_key"* — which the API contradicts.
+
+So with `MATCH_V1_ENABLED` on, a worker sees the literal string `mskill_mig_welder`. The label is
+already on the same card as `matched_skill_label`, so nothing is missing — the two sides simply
+disagree about what `trade_key` contains under V1. Raised as **#1027**; it crosses ownership, it
+needs no taxonomy decision, and it should not wait on one.
 
 ---
 
