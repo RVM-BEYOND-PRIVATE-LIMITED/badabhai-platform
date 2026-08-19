@@ -13,8 +13,29 @@
  *   real provider call). The RVM Hinglish wedge + its aliases are TAX-5, not this seed.
  *
  *   pnpm db:seed:skills
+ *   pnpm db:seed:skills --preserve-existing-status
  *   (DATABASE_URL is read from the environment / repo-root .env, like the other seeds.
  *    Build @badabhai/taxonomy first — `pnpm build` — so the corpus resolves.)
+ *
+ * ===========================================================================
+ * `--preserve-existing-status` — the S3-A flag
+ * ===========================================================================
+ * The stock seeder writes `status: s.status` on conflict, so re-seeding an existing row APPLIES
+ * whatever the corpus now says. That is correct for a fresh environment and wrong for S3-A,
+ * whose entire premise is landing the corpus WITHOUT changing what production currently serves:
+ * four corpus rows are `deprecated`/`provisional` while production has them `active`, and the
+ * stock seeder would flip all four in the same run that adds 98 new skills.
+ *
+ * With the flag, for a row that ALREADY EXISTS the `status` column is omitted from the update
+ * and production's value wins. A NEW row still takes the corpus status — there is nothing to
+ * preserve. Every held row is reported by id, because a silent divergence between corpus and
+ * database is the thing the flag creates and therefore the thing it must make visible.
+ *
+ * PASS 2 is skipped for held rows too, and that is not an optimisation. The CHECK is
+ * `replaced_by IS NULL OR status = 'deprecated'`; writing a pointer onto a row whose status was
+ * preserved as `active` violates it, which would turn a safety flag into a failed migration.
+ *
+ * Default OFF: without it this file behaves exactly as it did before the flag existed.
  */
 import {
   SKILL_CORPUS,
@@ -32,6 +53,29 @@ import { deterministicAliasId as aliasId } from "./skill-alias-id";
 
 // Load the repo-root .env (CWD is packages/db when run via the package script).
 config({ path: "../../.env" });
+
+/**
+ * Which existing rows must keep the status they already have.
+ *
+ * Pure and exported so the rule is testable without a database — the flag's whole job is to NOT
+ * write something, and "we ran it and nothing happened" is indistinguishable from a no-op bug.
+ *
+ * Only rows that ALREADY EXIST are held. A corpus row absent from the database has no status to
+ * preserve, so it takes the corpus's.
+ */
+export function heldSkillIds(
+  corpus: readonly { skillId: string; status: string }[],
+  existing: ReadonlyMap<string, string>,
+): { skillId: string; corpusStatus: string; dbStatus: string }[] {
+  const out: { skillId: string; corpusStatus: string; dbStatus: string }[] = [];
+  for (const s of corpus) {
+    const dbStatus = existing.get(s.skillId);
+    if (dbStatus === undefined) continue;
+    if (dbStatus === s.status) continue; // nothing to hold — they already agree
+    out.push({ skillId: s.skillId, corpusStatus: s.status, dbStatus });
+  }
+  return out.sort((a, b) => a.skillId.localeCompare(b.skillId));
+}
 
 async function main(): Promise<void> {
   if (process.env.NODE_ENV === "production") {
@@ -52,13 +96,35 @@ async function main(): Promise<void> {
     throw new Error(`[seed:skills] wedge aliases invalid:\n  - ${wedgeProblems.join("\n  - ")}`);
   }
 
+  const preserveStatus = process.argv.slice(2).some((a) => a === "--preserve-existing-status");
+
   const now = new Date();
   const { db, sql } = createDbClient(url, { max: 1 });
   try {
     let skillCount = 0;
     let aliasCount = 0;
 
+    // Read BEFORE writing anything: once PASS 1 has run, "what did production have" is gone.
+    const held = new Map<string, { corpusStatus: string; dbStatus: string }>();
+    if (preserveStatus) {
+      const rows = (await db.execute(
+        dsql`SELECT skill_id, status FROM skill`,
+      )) as unknown as { skill_id: string; status: string }[];
+      const existing = new Map(rows.map((r) => [r.skill_id, r.status]));
+      for (const h of heldSkillIds(SKILL_CORPUS as readonly SkillSeed[], existing)) {
+        held.set(h.skillId, { corpusStatus: h.corpusStatus, dbStatus: h.dbStatus });
+      }
+      console.log(
+        `[seed:skills] --preserve-existing-status: ${existing.size} row(s) already in the ` +
+          `database; ${held.size} would have had their status changed and will be HELD.`,
+      );
+      for (const [id, h] of [...held].sort()) {
+        console.log(`  HOLD ${id.padEnd(34)} db=${h.dbStatus.padEnd(12)} corpus=${h.corpusStatus} (not written)`);
+      }
+    }
+
     for (const s of SKILL_CORPUS as readonly SkillSeed[]) {
+      const isHeld = held.has(s.skillId);
       // 1) The canonical skill — upsert on the immutable skill_id (id never changes).
       //    replaced_by handling is SPLIT across the two passes to satisfy both the
       //    self-FK and the CHECK (`replaced_by IS NULL OR status='deprecated'`):
@@ -89,8 +155,14 @@ async function main(): Promise<void> {
             labelHi: s.labelHi,
             domainId: s.domainId,
             source: s.source,
-            status: s.status,
-            ...(clearsPointer ? { replacedBy: null } : {}),
+            // HELD: omit `status` entirely so the existing value survives the update. Labels,
+            // domain and source still propagate — the flag preserves the LIFECYCLE decision,
+            // not the whole row, and holding metadata too would make the corpus unlandable.
+            ...(isHeld ? {} : { status: s.status }),
+            // A held row also keeps its pointer. `clearsPointer` would write NULL, which is
+            // harmless on its own, but pairing "status preserved as active" with a pointer
+            // rewrite is the exact combination the CHECK rejects.
+            ...(clearsPointer && !isHeld ? { replacedBy: null } : {}),
             updatedAt: now,
           },
         });
@@ -142,8 +214,17 @@ async function main(): Promise<void> {
     //    keeps the re-run a no-op. Corpus validation already guaranteed the target
     //    exists and status is 'deprecated' (the DB CHECK backstops it by name).
     let crosswalkCount = 0;
+    let crosswalkHeld = 0;
     for (const s of SKILL_CORPUS as readonly SkillSeed[]) {
       if (s.replacedBy === undefined) continue;
+      // A HELD row kept production's status, which is `active`. The CHECK is
+      // `replaced_by IS NULL OR status = 'deprecated'`, so writing the corpus's pointer here
+      // would fail the constraint and take the whole seed down. Skipping is not a compromise:
+      // the pointer belongs with the deprecation, and S3-D applies both together.
+      if (held.has(s.skillId)) {
+        crosswalkHeld += 1;
+        continue;
+      }
       const updated = await db
         .update(skills)
         .set({ replacedBy: s.replacedBy, updatedAt: now })
@@ -162,12 +243,27 @@ async function main(): Promise<void> {
     console.log(`  aliases = ${aliasCount} (deterministic ids; re-run is a no-op)`);
     console.log(`  wedge   = ${wedgeCount} ratified vernacular aliases (proposed ones stay out)`);
     console.log(`  crosswalk = ${crosswalkCount} replaced_by pointer(s) synced (TAX-9)`);
+    if (preserveStatus) {
+      console.log(
+        `  HELD    = ${held.size} row(s) kept the status production already had; ` +
+          `${crosswalkHeld} replaced_by pointer(s) deliberately NOT written for them.`,
+      );
+      if (held.size > 0) {
+        console.log(
+          `            The corpus and the database now disagree about those ids ON PURPOSE. ` +
+            `S3-D is the stage that reconciles them.`,
+        );
+      }
+    }
   } finally {
     await sql.end({ timeout: 5 });
   }
 }
 
-main().catch((err) => {
-  console.error("[seed:skills] failed:", err);
-  process.exit(1);
-});
+// GUARDED: this module now exports `heldSkillIds`, so importing it must not run the seed.
+if (require.main === module) {
+  main().catch((err) => {
+    console.error("[seed:skills] failed:", err);
+    process.exit(1);
+  });
+}
