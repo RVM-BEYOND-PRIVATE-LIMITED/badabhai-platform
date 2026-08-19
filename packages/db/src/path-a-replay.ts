@@ -275,7 +275,7 @@ export function buildVariant(
     };
 
     const domainOf = new Map(input.aliases.map((a) => [a.skillId, a.domainId]));
-    const existing = new Set(input.aliases.map((a) => `${a.skillId} ${a.text}`));
+    const existing = new Set(input.aliases.map((a) => `${a.skillId}\u0000${a.text}`));
     const moved: { text: string; to: string }[] = [];
     const aliases: ReplayAlias[] = [];
     for (const a of input.aliases) {
@@ -286,7 +286,7 @@ export function buildVariant(
       }
       // `ON CONFLICT DO NOTHING` in the runner: the terminal already owning this text wins and
       // the predecessor's copy simply disappears, rather than producing a duplicate.
-      if (existing.has(`${to} ${a.text}`)) continue;
+      if (existing.has(`${to}\u0000${a.text}`)) continue;
       moved.push({ text: a.text, to });
       aliases.push({ ...a, skillId: to, domainId: domainOf.get(to) ?? a.domainId });
     }
