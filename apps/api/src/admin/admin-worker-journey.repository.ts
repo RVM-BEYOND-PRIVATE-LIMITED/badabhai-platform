@@ -8,7 +8,6 @@ import {
   applications,
   chatMessages,
   chatSessions,
-  events,
   generatedResumes,
   profilingFamilyBindings,
   profilingVoiceAnswers,
@@ -119,80 +118,11 @@ export class AdminWorkerJourneyRepository {
     return rows[0];
   }
 
-  /**
-   * Counts + first/last for the worker-SUBJECT events the funnel reads, in one grouped pass.
-   *
-   * INDEX: `events_subject_idx` on `(subject_type, subject_id)`. All three of these events
-   * are emitted with `subject: {subject_type: "worker", subject_id: <worker>}` — verified at
-   * each emitter — which is precisely why `feed.shown` and `application.submitted` are NOT
-   * here: their subject is the JOB, and the worker sits in the unindexed `actor_id`/payload.
-   */
-  async countWorkerSubjectEvents(
-    workerId: string,
-    eventNames: readonly string[],
-  ): Promise<Array<{ eventName: string; n: number; firstAt: Date | null; lastAt: Date | null }>> {
-    const rows = await this.db
-      .select({
-        eventName: events.eventName,
-        n: count(),
-        firstAt: min(events.occurredAt),
-        lastAt: max(events.occurredAt),
-      })
-      .from(events)
-      .where(
-        and(
-          eq(events.subjectType, "worker"),
-          eq(events.subjectId, workerId),
-          inArray(events.eventName, [...eventNames]),
-        ),
-      )
-      .groupBy(events.eventName);
-
-    return rows.map((r) => ({
-      eventName: r.eventName,
-      n: r.n,
-      firstAt: r.firstAt ?? null,
-      lastAt: r.lastAt ?? null,
-    }));
-  }
-
-  /**
-   * Attributed interview-kit downloads (journey step 7).
-   *
-   * The worker lives in the PAYLOAD, not in `subject_id` — the subject of that event is the
-   * kit. Both halves of the WHERE are written to match `events_interview_kit_worker_idx`
-   * (migration 0079) exactly: the same `event_name` literal the partial index is built on,
-   * and the same `payload->>'worker_id'` expression it indexes. Change either and the query
-   * silently falls back to a sequential scan of the largest table in the system.
-   */
-  async countInterviewKitDownloads(
-    workerId: string,
-  ): Promise<{ n: number; trades: number; firstAt: Date | null; lastAt: Date | null }> {
-    const rows = await this.db
-      .select({
-        n: count(),
-        // The trade slug is a reviewed, PII-free per-trade key (`^[a-z0-9_]+$`, enforced by
-        // the event payload schema) — counted, never returned as a value.
-        trades: sql<number>`count(distinct ${events.payload}->>'trade_key')`,
-        firstAt: min(events.occurredAt),
-        lastAt: max(events.occurredAt),
-      })
-      .from(events)
-      .where(
-        and(
-          eq(events.eventName, "interview_kit.downloaded"),
-          sql`${events.payload}->>'worker_id' = ${workerId}`,
-        ),
-      );
-
-    const r = rows[0];
-    return {
-      n: r?.n ?? 0,
-      trades: Number(r?.trades ?? 0),
-      firstAt: r?.firstAt ?? null,
-      lastAt: r?.lastAt ?? null,
-    };
-  }
+  // The funnel's two `events` reads — `countWorkerSubjectEvents` and
+  // `countInterviewKitDownloads` — deliberately do NOT live here. They are methods on
+  // `AdminEventsRepository`, because `events` has exactly ONE admin reader by design and that
+  // is build-blocked in `admin-static-guards.test.ts`. `AdminWorkerJourneyService` composes
+  // the two repositories; this class stays off the spine entirely.
 
   /**
    * The worker's pack answers, grouped by STATUS. The funnel numerator.

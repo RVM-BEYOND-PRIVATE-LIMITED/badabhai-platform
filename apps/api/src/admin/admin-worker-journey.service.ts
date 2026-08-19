@@ -6,6 +6,7 @@ import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import type { AdminPage } from "./admin-entities.dto";
 import { decodeCursor, encodeCursor } from "./admin-events.cursor";
+import { AdminEventsRepository } from "./admin-events.repository";
 import { AdminWorkerJourneyRepository } from "./admin-worker-journey.repository";
 import { deriveStuckQuestion } from "./admin-worker-journey.stuck";
 import {
@@ -82,6 +83,10 @@ export class AdminWorkerJourneyService {
 
   constructor(
     private readonly repo: AdminWorkerJourneyRepository,
+    // The funnel's two `events` reads. They live on the shared spine repository, not on
+    // `AdminWorkerJourneyRepository`, because `events` has exactly ONE admin reader by design
+    // (build-blocked in `admin-static-guards.test.ts`) — so the COMPOSITION happens here.
+    private readonly eventsRepo: AdminEventsRepository,
     private readonly events: EventsService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
@@ -104,12 +109,12 @@ export class AdminWorkerJourneyService {
 
     const [eventCounts, kit, answerStats, packVersions, sessionCount, resumes, profile, apps] =
       await Promise.all([
-        this.repo.countWorkerSubjectEvents(workerId, [
+        this.eventsRepo.countWorkerSubjectEvents(workerId, [
           AdminWorkerJourneyService.LOGIN_EVENT,
           AdminWorkerJourneyService.TEST_LOGIN_EVENT,
           AdminWorkerJourneyService.SEARCH_EVENT,
         ]),
-        this.repo.countInterviewKitDownloads(workerId),
+        this.eventsRepo.countInterviewKitDownloads(workerId),
         this.repo.packAnswerStatusCounts(workerId),
         this.repo.answeredPackVersions(workerId),
         this.repo.countSessions(workerId),

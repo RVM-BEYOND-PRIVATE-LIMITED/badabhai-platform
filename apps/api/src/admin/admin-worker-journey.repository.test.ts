@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { chatMessages, voiceNotes } from "@badabhai/db";
 import { AdminWorkerJourneyRepository } from "./admin-worker-journey.repository";
+import { AdminEventsRepository } from "./admin-events.repository";
 import { captureQueries, expectColumnsAbsent } from "./testing/query-capture";
 import { encodeCursor } from "./admin-events.cursor";
 
@@ -72,6 +73,16 @@ function expectNoRawText(captured: ReturnType<typeof captureQueries>): void {
 
 const repo = (c: ReturnType<typeof captureQueries>) => new AdminWorkerJourneyRepository(c.db);
 
+/**
+ * The funnel's two `events` reads live on `AdminEventsRepository`, not on the journey
+ * repository — `events` has exactly ONE admin reader by design (build-blocked in
+ * `admin-static-guards.test.ts`). They are exercised HERE anyway, and swept by the same
+ * `expectNoRawText` net as every other funnel read: which class holds a query does not change
+ * what that query is allowed to return, and moving these assertions out with the methods is
+ * how the funnel would quietly lose its PII net.
+ */
+const spineRepo = (c: ReturnType<typeof captureQueries>) => new AdminEventsRepository(c.db);
+
 // ---------------------------------------------------------------------------
 // The guard's own guard.
 // ---------------------------------------------------------------------------
@@ -115,8 +126,8 @@ describe("NO read on this surface projects raw worker text", () => {
     for (const run of [
       (c: ReturnType<typeof captureQueries>) => repo(c).findWorkerCore(WORKER),
       (c: ReturnType<typeof captureQueries>) =>
-        repo(c).countWorkerSubjectEvents(WORKER, ["worker.otp_verified"]),
-      (c: ReturnType<typeof captureQueries>) => repo(c).countInterviewKitDownloads(WORKER),
+        spineRepo(c).countWorkerSubjectEvents(WORKER, ["worker.otp_verified"]),
+      (c: ReturnType<typeof captureQueries>) => spineRepo(c).countInterviewKitDownloads(WORKER),
       (c: ReturnType<typeof captureQueries>) => repo(c).packAnswerStatusCounts(WORKER),
       (c: ReturnType<typeof captureQueries>) => repo(c).answeredPackVersions(WORKER),
       (c: ReturnType<typeof captureQueries>) => repo(c).resumeStats(WORKER),
@@ -192,7 +203,7 @@ describe("predicates match the indexes they were written for", () => {
     // verbatim or the planner cannot prove the partial covers the query, and this becomes a
     // sequential scan of the largest table in the system.
     const c = captureQueries();
-    await repo(c).countInterviewKitDownloads(WORKER);
+    await spineRepo(c).countInterviewKitDownloads(WORKER);
     const sql = c.sql();
     expect(sql).toContain("event_name");
     expect(sql).toMatch(/"payload"\s*->>\s*'worker_id'/i);
@@ -234,7 +245,10 @@ describe("predicates match the indexes they were written for", () => {
 
   it("the worker-subject event read filters on (subject_type, subject_id) — the indexed pair", async () => {
     const c = captureQueries();
-    await repo(c).countWorkerSubjectEvents(WORKER, ["worker.otp_verified", "worker.test_login"]);
+    await spineRepo(c).countWorkerSubjectEvents(WORKER, [
+      "worker.otp_verified",
+      "worker.test_login",
+    ]);
     const sql = c.sql();
     expect(sql).toContain("subject_type");
     expect(sql).toContain("subject_id");

@@ -5,6 +5,7 @@ import type { RequestContext } from "../common/request-context";
 import type { EventsService } from "../events/events.service";
 import { AdminWorkerJourneyService } from "./admin-worker-journey.service";
 import type { AdminWorkerJourneyRepository } from "./admin-worker-journey.repository";
+import type { AdminEventsRepository } from "./admin-events.repository";
 import type {
   AdminJourneyInterviewKitStep,
   AdminJourneyLoginStep,
@@ -40,13 +41,27 @@ const CONFIG = { PROFILING_PACK_LOCALE: "hi-IN" } as unknown as ServerConfig;
 type Repo = AdminWorkerJourneyRepository;
 
 /**
+ * The funnel's two spine reads. They are methods on `AdminEventsRepository` — `events` has
+ * exactly ONE admin reader by design — so they are NOT in `keyof Repo` and `fakeRepo`'s
+ * override type has to name them.
+ *
+ * `Extract` rather than a bare string union: this resolves to `never` if either method is
+ * renamed or removed on the real class, and every `fakeRepo({ countWorkerSubjectEvents: ... })`
+ * below stops compiling. A hand-written union would silently keep accepting a dead key.
+ */
+type JourneySpineRead = Extract<
+  keyof AdminEventsRepository,
+  "countWorkerSubjectEvents" | "countInterviewKitDownloads"
+>;
+
+/**
  * A repository whose every read returns "this worker has done nothing", overridable per test.
  *
  * `countPackItems` RECORDS THE PAIRS IT WAS ASKED FOR — that recording is what makes the
  * denominator test below capable of failing, because an implementation that re-derived the
  * denominator from the currently-active pack would ask for a different pair (or none).
  */
-function fakeRepo(over: Partial<Record<keyof Repo, unknown>> = {}) {
+function fakeRepo(over: Partial<Record<keyof Repo | JourneySpineRead, unknown>> = {}) {
   const askedForPairs: Array<{ packId: string; packVersion: number }> = [];
   // `Object.assign` rather than a spread: spreading `over` (whose values are `unknown`) would
   // widen every mock on `raw` to `unknown` and cost the tests their `.mock.calls` types.
@@ -120,7 +135,18 @@ function fakeRepo(over: Partial<Record<keyof Repo, unknown>> = {}) {
     raw: repo,
     askedForPairs,
     emit,
-    service: new AdminWorkerJourneyService(repo as unknown as Repo, events, CONFIG),
+    // TWO collaborators, ONE double. `countWorkerSubjectEvents`/`countInterviewKitDownloads`
+    // live on `AdminEventsRepository` (the spine has exactly one admin reader), the rest on
+    // `AdminWorkerJourneyRepository`; this object satisfies both, so `over` overrides and
+    // `raw.<method>.mock.calls` keep working regardless of which class owns a read. Nothing is
+    // lost by sharing it: the service is typechecked against the REAL classes, so calling a
+    // spine read off `this.repo` is a compile error, not something a double could hide.
+    service: new AdminWorkerJourneyService(
+      repo as unknown as Repo,
+      repo as unknown as AdminEventsRepository,
+      events,
+      CONFIG,
+    ),
   };
 }
 
@@ -942,6 +968,7 @@ describe("`admin.worker_journey_viewed` — every per-worker read is audited", (
     };
     const strict = new AdminWorkerJourneyService(
       raw as unknown as Repo,
+      raw as unknown as AdminEventsRepository,
       events as unknown as EventsService,
       CONFIG,
     );
