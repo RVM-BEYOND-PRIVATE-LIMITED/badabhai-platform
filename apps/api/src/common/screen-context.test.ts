@@ -1,204 +1,291 @@
 import { describe, it, expect } from "vitest";
-import { WORKER_FEEDBACK_SCREEN_MAX } from "@badabhai/types";
+import {
+  WORKER_APP_SCREEN_TEMPLATES,
+  WORKER_FEEDBACK_SCREEN_MAX,
+  isWorkerAppScreenTemplate,
+} from "@badabhai/types";
 
-import { sanitizeScreenContext } from "./screen-context";
+import { resolveScreenTemplate } from "./screen-context";
 
 /**
- * `sanitizeScreenContext` is the ONLY thing standing between an untrusted client and three
- * sinks that must never hold an identifier: the `worker_feedback` row, the `feedback.submitted`
- * event, and the API log line. So this file is written around two questions, in this order.
+ * `resolveScreenTemplate` is the ONLY thing standing between an untrusted client and three sinks
+ * that must never hold anything the caller composed: the `worker_feedback` row, the
+ * `feedback.submitted` event, and the API log line.
  *
- *  1. DOES IT STRIP IDENTIFIERS? A path is the natural carrier for one — every entity on this
- *     platform is a uuid in a URL — and the whole reason the column stores a PATTERN is that
- *     `/jobs/<uuid>` links a feedback row to one specific job. A normalizer that missed a shape
- *     would put that link on the event spine, where §2 forbids it, and nothing downstream would
- *     notice because the value would still look like a route.
+ * ── WHY THIS SUITE IS SHAPED THE WAY IT IS ───────────────────────────────────────────────
+ * The two predecessors of this function were DENYLISTS, and each was measured leaking. The first
+ * anchored its id checks to whole segments and let `/jobs/id-<uuid>/apply` and `/w/9876543210-ravi`
+ * through verbatim. The second matched id runs anywhere and closed those — and still let
+ * `/u/dGVzdEBleGFtcGxlLmNvbQ` (base64url of an email address) and `/x/AKIAIOSFODNN7EXAMPLE`
+ * through, because no structural rule tells an opaque token from a route word. Both suites were
+ * green. What made them green was that they only ever asked "is THIS shape caught?", which a
+ * denylist can always answer yes to for one more shape.
  *
- *  2. DOES IT REFUSE RATHER THAN THROW? Every rejection here must be a `null`, because the
- *     caller is on the request path of a worker's typed feedback and a throw would cost them a
- *     paragraph over a field they never filled in.
+ * So this file asks three questions instead, in this order:
+ *
+ *  1. IS THE OUTPUT ALWAYS OURS? Every non-null result must be a member of
+ *     `WORKER_APP_SCREEN_TEMPLATES`. That is the §2 property, and unlike "does it strip ids" it
+ *     is decidable for inputs nobody wrote a case for — including the two residuals above, which
+ *     appear here as assertions rather than as a documented gap.
+ *
+ *  2. DOES IT PERMIT THE REAL ROUTES? An allowlist tightened past the app's own route table
+ *     breaks telemetry silently: every screen reports "unknown" and every test stays green. So
+ *     each of the app's screens is asserted to resolve, in both the concrete and the templated
+ *     form a client can send.
+ *
+ *  3. DOES IT REFUSE RATHER THAN THROW? Every rejection must be a `null`, because the caller is
+ *     on the request path of a worker's typed feedback and a throw would cost them a paragraph
+ *     over a field they never filled in.
  */
 
-describe("sanitizeScreenContext — identifiers never survive", () => {
-  it("replaces a uuid segment with :id", () => {
-    expect(sanitizeScreenContext("/jobs/6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply")).toBe(
-      "/jobs/:id/apply",
-    );
-  });
+/** The §2 property, as one assertion: ours, or nothing. */
+function expectFromOurTable(out: string | null, input: unknown): void {
+  if (out === null) return;
+  expect(isWorkerAppScreenTemplate(out), `${String(input)} → ${out}`).toBe(true);
+}
 
-  it("replaces EVERY id in a path, not only the first", () => {
-    // A single-substitution implementation (a non-global replace over the whole string) passes
-    // the test above and leaks the second id — which on this platform is the session id.
-    expect(
-      sanitizeScreenContext(
-        "/workers/6f2c04e0-4f89-41d3-9a0c-0305e82c3301/sessions/11111111-2222-4333-8444-555555555555",
-      ),
-    ).toBe("/workers/:id/sessions/:id");
-  });
-
-  it("replaces an all-numeric segment", () => {
-    // Not every id on a screen is a uuid: page indices and legacy numeric ids are both real,
-    // and `/orders/91723` identifies exactly one thing.
-    expect(sanitizeScreenContext("/orders/91723")).toBe("/orders/:id");
-  });
-
-  it("substitutes a uuid whose version nibble is not one we mint today", () => {
-    // The regex deliberately does not pin `[89ab]`/`4`: a v7 uuid, or one from a client that
-    // generated it loosely, is still an IDENTIFIER. Recognising only today's shapes is how a
-    // normalizer quietly stops working.
-    expect(sanitizeScreenContext("/jobs/018f4c7a-9b21-7c3d-0e5f-0a1b2c3d4e5f")).toBe("/jobs/:id");
-  });
-
-  it("drops the query string — the likeliest place a client parks worker input", () => {
-    expect(sanitizeScreenContext("/search?q=welder%20mumbai&page=2")).toBe("/search");
-  });
-
-  it("drops the fragment as well as the query, in whichever order they appear", () => {
-    // ⚠ NOT AN ORDER ASSERTION, and it used to claim to be one. Each cut keeps the prefix
-    // before its own delimiter, so `#`-then-`?` and `?`-then-`#` produce the same string for
-    // every input — swapping the two lines in the implementation reddens nothing, measured.
-    // What IS worth pinning is that neither delimiter survives whichever comes first.
-    expect(sanitizeScreenContext("/profile#section?tab=skills")).toBe("/profile");
-    expect(sanitizeScreenContext("/profile?tab=skills#section")).toBe("/profile");
+describe("resolveScreenTemplate — the output is one of OUR constants or null, never the caller's", () => {
+  /**
+   * ⚠ THE RESIDUAL THE PREVIOUS IMPLEMENTATION DOCUMENTED AS UNFIXABLE. Its suite asserted
+   * `resolve("/u/dGVzdEBleGFtcGxlLmNvbQ") === "/u/dGVzdEBleGFtcGxlLmNvbQ"` — the leak, pinned as
+   * a fact so it would not be mistaken for a guarantee. It is now null: not because the
+   * recogniser got better at spotting base64, but because nothing outside the table can be
+   * returned at all.
+   */
+  it.each([
+    ["base64url of an email address", "/u/dGVzdEBleGFtcGxlLmNvbQ"],
+    ["an AWS-key-shaped token", "/x/AKIAIOSFODNN7EXAMPLE"],
+    ["a uuid behind a prefix", "/jobs/id-6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply"],
+    ["a uuid with a trailing character", "/jobs/6f2c04e0-4f89-41d3-9a0c-0305e82c3301x/apply"],
+    ["the dash-less uuid form", "/jobs/6f2c04e04f8941d39a0c0305e82c3301/apply"],
+    ["a phone number and a name", "/w/9876543210-ravi"],
+    ["a name and a phone number", "/support/ravi-kumar-9876543210"],
+    ["a grouped 12-digit number", "/AADHAAR/1234-5678-9012"],
+    ["a phone after a scheme-ish colon", "/tel:919876543210"],
+    ["dot-separated worker detail", "/ramesh.kumar.9876543210"],
+    ["an alphanumeric id", "/chat/AbCdEf123456/msg"],
+    ["a long hex-lettered word", "/deadbeefdeadbeef/edit"],
+    ["an all-numeric segment", "/orders/91723"],
+    ["a uuid alone", "/workers/6f2c04e0-4f89-41d3-9a0c-0305e82c3301/profile"],
+    ["two ids in one path", "/workers/6f2c04e0-4f89-41d3-9a0c-0305e82c3301/sessions/1111"],
+    ["a query carrying what the worker searched", "/search?q=welder%20mumbai&page=2"],
+  ])("never echoes %s", (_label, raw) => {
+    const out = resolveScreenTemplate(raw);
+    // The old suite's assertions were "the OUTPUT contains no uuid / no digit run" — a denylist
+    // check on a denylist. This is the whole property instead, and it needs no shape vocabulary.
+    expectFromOurTable(out, raw);
+    expect(out, raw).not.toBe(raw);
   });
 
   /**
-   * ⚠ THE BUG THIS SUITE MISSED, AND THE REASON IT MISSED IT.
-   *
-   * Every case above puts the identifier alone in its segment. The first implementation tested
-   * `^<uuid>$` / `^\d+$` PER SEGMENT, so all of them passed while an id sharing its segment
-   * with one other character went through verbatim — into the row, onto `feedback.submitted`,
-   * and into the API log line. Each input below was executed against the shipped code and came
-   * back unchanged; each is a §2 violation on three sinks at once.
+   * The structural form, over a corpus that mixes real routes, near-misses and hostile values.
+   * It is what keeps holding for shapes nobody has written a case for — the assertion the two
+   * previous designs could not make.
    */
-  describe("an identifier does not have to be the WHOLE segment", () => {
-    it.each([
-      ["a uuid behind a prefix", "/jobs/id-6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply"],
-      ["a uuid with a trailing character", "/jobs/6f2c04e0-4f89-41d3-9a0c-0305e82c3301x/apply"],
-      ["the dash-less uuid form", "/jobs/6f2c04e04f8941d39a0c0305e82c3301/apply"],
-      ["a phone number and a name", "/w/9876543210-ravi"],
-      ["a name and a phone number", "/support/ravi-kumar-9876543210"],
-      ["a grouped 12-digit number", "/AADHAAR/1234-5678-9012"],
-      ["a phone after a scheme-ish colon", "/tel:919876543210"],
-      ["dot-separated worker detail", "/ramesh.kumar.9876543210"],
-      ["an alphanumeric id", "/chat/AbCdEf123456/msg"],
-    ])("substitutes %s", (_label, raw) => {
-      const out = sanitizeScreenContext(raw);
-      expect(out, raw).not.toBeNull();
-      // No uuid, no dash-less hex id, and no digit run long enough to be a number about a
-      // person. The assertion is on the OUTPUT so it keeps holding for shapes nobody has
-      // written a case for.
-      expect(out!, raw).not.toMatch(
-        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
-      );
-      expect(out!, raw).not.toMatch(/[0-9]{4,}/);
-      expect(out!, raw).not.toMatch(/(?=[0-9a-fA-F]*[0-9])[0-9a-fA-F]{16,}/);
-    });
+  it("holds for every input in a mixed corpus, real and hostile alike", () => {
+    const corpus: unknown[] = [
+      ...WORKER_APP_SCREEN_TEMPLATES,
+      "/jobs/detail/6f2c04e0-4f89-41d3-9a0c-0305e82c3301",
+      "/profile/kit/detail/welder",
+      "/i/A1B2C3D4E5F6",
+      "/u/dGVzdEBleGFtcGxlLmNvbQ",
+      "/x/AKIAIOSFODNN7EXAMPLE",
+      "/jobs/../../etc/passwd",
+      "/jobs/%2e%2e%2fadmin",
+      "//evil.example/jobs",
+      "/jobs/<script>alert(1)</script>",
+      "/नौकरी/आवेदन",
+      "/jobs\n/admin",
+      "/JOBS",
+      "/jobs/detail/",
+      "/jobs/detail",
+      "/profile/kit/detail",
+      42,
+      null,
+      undefined,
+      { path: "/jobs" },
+      ["/jobs", "/home"],
+      "",
+      "   ",
+      "/",
+      "//",
+      "/".repeat(500),
+    ];
+    for (const input of corpus) expectFromOurTable(resolveScreenTemplate(input), input);
+  });
+});
 
-    it("substitutes EVERY run in one segment, not only the first", () => {
-      expect(sanitizeScreenContext("/x/9876543210-and-1234567890")).toBe("/x/:id-and-:id");
-    });
+describe("resolveScreenTemplate — every screen the app has still resolves", () => {
+  /**
+   * ⚠ THE FAILURE AN ALLOWLIST INTRODUCES, and the reason half this suite is about what the
+   * resolver PERMITS. A table that refuses a real route does not look broken: the submission
+   * still succeeds, the column holds null, and the admin list says "unknown screen" for a
+   * screen the worker was demonstrably on. Nothing goes red. So every template is asserted to
+   * round-trip, and `screen-template-table.contract.test.ts` asserts the table matches the app.
+   */
+  it.each(WORKER_APP_SCREEN_TEMPLATES.map((t) => [t] as const))(
+    "resolves %s to itself",
+    (template) => {
+      expect(resolveScreenTemplate(template)).toBe(template);
+    },
+  );
 
-    /**
-     * ⚠ THE RESIDUAL, ASSERTED SO IT IS NOT MISTAKEN FOR A GUARANTEE. An opaque token that is
-     * neither hex nor digits is indistinguishable from a route word by any structural rule, so
-     * it survives — and no comment on this field may claim otherwise. Closing this needs an
-     * ALLOWLIST of the client's finite route table, not a longer denylist.
-     */
-    it("does NOT catch an opaque non-hex token — a denylist cannot", () => {
-      expect(sanitizeScreenContext("/u/dGVzdEBleGFtcGxlLmNvbQ")).toBe(
-        "/u/dGVzdEBleGFtcGxlLmNvbQ",
-      );
-    });
-
-    /** A long lowercase word made only of `a`–`f` is hex by charset and is not an id. */
-    it("does not mistake a long hex-lettered WORD for an id", () => {
-      expect(sanitizeScreenContext("/deadbeefdeadbeef/edit")).toBe("/deadbeefdeadbeef/edit");
-    });
+  /**
+   * THE CONCRETE FORM, WHICH IS WHAT THE CLIENT ACTUALLY SENDS. `FeedbackFabOverlay` reads
+   * `router.routerDelegate.currentConfiguration.uri.path` — a real path with real segments in it
+   * — and the Dart normalizer only collapses the ones it recognises as ids. A trade key
+   * (`welder`) is not one, so it arrives verbatim and MUST still land on the kit-detail screen.
+   */
+  it.each([
+    ["a job id", "/jobs/detail/6f2c04e0-4f89-41d3-9a0c-0305e82c3301", "/jobs/detail/:id"],
+    ["a numeric job id", "/jobs/detail/91723", "/jobs/detail/:id"],
+    ["a trade key, which is not an id at all", "/profile/kit/detail/welder", "/profile/kit/detail/:id"],
+    ["a referral code", "/i/A1B2C3D4E5F6", "/i/:id"],
+  ])("resolves a concrete %s to its screen", (_label, raw, expected) => {
+    expect(resolveScreenTemplate(raw)).toBe(expected);
   });
 
-  it("never returns a value containing a uuid or a bare digit run", () => {
-    // The structural version of the assertions above, so it keeps holding for an input shape
-    // nobody has written a case for yet.
-    const inputs = [
-      "/jobs/6f2c04e0-4f89-41d3-9a0c-0305e82c3301",
-      "/a/1/b/22/c/333",
-      "/chat/6f2c04e0-4f89-41d3-9a0c-0305e82c3301?from=/jobs/9",
-      "/workers/6F2C04E0-4F89-41D3-9A0C-0305E82C3301/profile",
-    ];
-    for (const input of inputs) {
-      const out = sanitizeScreenContext(input);
-      expect(out, input).not.toBeNull();
-      expect(out!, input).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
-      expect(out!.split("/"), input).not.toContainEqual(expect.stringMatching(/^\d+$/));
+  /**
+   * THE ALREADY-TEMPLATED FORM. The client normalizes too, and go_router's own parameter names
+   * (`:jobId`, `:tradeKey`, `:code`) differ from the `:id` this table writes. All of them are
+   * just "one segment" to the matcher, so every form a client can plausibly send converges on
+   * the same constant — which is what stops the admin list splitting one screen across three
+   * spellings.
+   */
+  it.each([
+    ["/jobs/detail/:id", "/jobs/detail/:id"],
+    ["/jobs/detail/:jobId", "/jobs/detail/:id"],
+    ["/profile/kit/detail/:tradeKey", "/profile/kit/detail/:id"],
+    ["/i/:code", "/i/:id"],
+  ])("resolves the templated form %s to the same constant", (raw, expected) => {
+    expect(resolveScreenTemplate(raw)).toBe(expected);
+  });
+
+  /**
+   * NO INPUT CAN SATISFY TWO TEMPLATES, so the table's ORDER carries no meaning and the
+   * resolver's first-match loop is not quietly load-bearing. Pinned because a future route like
+   * `/jobs/:id` would overlap `/jobs/search` and make the order decide which screen a report is
+   * filed under — a bug whose only symptom is one screen's feedback appearing under another's.
+   *
+   * The matcher below is a SECOND, deliberately independent implementation. Asking the resolver
+   * itself which templates match would answer "one" by construction (it returns after the first)
+   * and prove nothing.
+   */
+  it("never resolves ambiguously — no two templates can match the same path", () => {
+    const matchesIndependently = (template: string, path: string): boolean => {
+      const t = template.split("/");
+      const p = path.split("/");
+      return (
+        t.length === p.length &&
+        t.every((seg, i) => (seg === ":id" ? p[i]!.length > 0 : seg === p[i]))
+      );
+    };
+    for (const template of WORKER_APP_SCREEN_TEMPLATES) {
+      // A probe of the SHAPE this template accepts: its own literals, a plausible segment in
+      // each wildcard position.
+      const probe = template.split(":id").join("probe-segment");
+      const matching = WORKER_APP_SCREEN_TEMPLATES.filter((candidate) =>
+        matchesIndependently(candidate, probe),
+      );
+      expect(matching, probe).toEqual([template]);
+      expect(resolveScreenTemplate(probe), probe).toBe(template);
     }
   });
 });
 
-describe("sanitizeScreenContext — sanitize, never reject, never throw", () => {
+describe("resolveScreenTemplate — refuse, never reject the feedback, never throw", () => {
   it.each([
     ["a non-string", 42],
     ["null", null],
     ["undefined", undefined],
     ["an object", { path: "/jobs" }],
     ["an array (a repeated field)", ["/jobs", "/home"]],
+    // ⚠ THE ARRAY THAT COERCES INTO A REAL ROUTE, and the only input that makes the `typeof`
+    // guard falsifiable: `String(["/jobs"])` is exactly `"/jobs"`. Replacing the refusal with a
+    // coercion passes every other case in this file — measured — and would let a caller reach a
+    // screen name through a shape the DTO never contemplated. A JSON body is not a query string;
+    // a repeated field is a client we do not ship, so it is `null` here as it is for
+    // `sanitizeAppBuild`.
+    ["a ONE-element array, which String() would turn into a real route", ["/jobs"]],
     ["an empty string", ""],
     ["whitespace only", "   "],
     ["an unrooted path", "jobs/apply"],
     ["a full URL", "https://badabhai.ai/jobs"],
-    // A rooted path by every naive check, and a SCHEME-RELATIVE URL to a host we do not
-    // control — rendered as a link on the admin screen it is an outbound navigation an
-    // attacker chose. The `//` arm of the shared pattern is what refuses it.
+    // A rooted path by every naive check, and a SCHEME-RELATIVE URL to a host we do not control
+    // — rendered as a link on the admin screen it is an outbound navigation an attacker chose.
     ["a scheme-relative URL", "//evil.example/jobs"],
-    ["a doubled slash anywhere", "/jobs//apply"],
+    ["a doubled slash inside a real route", "/jobs//search"],
     ["markup", "/jobs/<script>alert(1)</script>"],
     ["whitespace inside", "/jobs/my job"],
     ["percent-encoding", "/jobs/%2e%2e%2fadmin"],
     ["a newline", "/jobs\n/admin"],
     ["non-ASCII", "/नौकरी/आवेदन"],
+    ["a route from a DIFFERENT app", "/admin/workers"],
+    ["a real route with the wrong case", "/JOBS"],
+    ["a real route with an extra segment", "/jobs/search/extra"],
+    ["a dynamic route missing its segment", "/jobs/detail"],
+    ["a dynamic route with an EMPTY segment", "/jobs/detail/"],
+    ["a prefix of a real route", "/prof"],
+    ["a real route with a suffix", "/jobsy"],
   ])("returns null for %s", (_label, raw) => {
-    expect(sanitizeScreenContext(raw)).toBeNull();
-  });
-
-  /**
-   * The pre-split DoS bound is LOSSY, and the comment that used to sit on it claimed it was
-   * not ("cannot discard anything the check below would have kept"). Pinned here so the false
-   * invariant cannot come back as a justification for raising the multiplier.
-   */
-  it("discards a value past the raw DoS bound even though it would normalize small", () => {
-    const raw = `/orders/${"9".repeat(1300)}`;
-    expect(raw.length).toBeGreaterThan(WORKER_FEEDBACK_SCREEN_MAX * 10);
-    // Its normalized form would be `/orders/:id` — eleven characters, well inside the bound.
-    expect(sanitizeScreenContext(raw)).toBeNull();
-  });
-
-  it("returns null past the bound rather than truncating", () => {
-    // Truncating would produce a route pattern that names a screen nobody can navigate to, and
-    // it would look authoritative on the admin list. Null reads as "unknown screen", which is
-    // the honest answer.
-    expect(sanitizeScreenContext(`/${"a".repeat(WORKER_FEEDBACK_SCREEN_MAX)}`)).toBeNull();
-    expect(sanitizeScreenContext(`/${"a".repeat(WORKER_FEEDBACK_SCREEN_MAX - 1)}`)).not.toBeNull();
-  });
-
-  it("measures the bound AFTER substitution, so an id-heavy path is not lost to its ids", () => {
-    // Four uuid segments is 148 raw characters — over the bound — and 20 once normalized. The
-    // deep screens are exactly the ones a "button kaam nahi kar raha" report is about, so
-    // measuring before substitution would discard the reports that matter most.
-    const raw = "/a/6f2c04e0-4f89-41d3-9a0c-0305e82c3301".repeat(4);
-    expect(raw.length).toBeGreaterThan(WORKER_FEEDBACK_SCREEN_MAX);
-    expect(sanitizeScreenContext(raw)).toBe("/a/:id/a/:id/a/:id/a/:id");
+    expect(resolveScreenTemplate(raw)).toBeNull();
   });
 
   it("NEVER throws, for any of these", () => {
     for (const raw of [undefined, null, 0, NaN, {}, [], "/", "/".repeat(5000), "?", "#"]) {
-      expect(() => sanitizeScreenContext(raw)).not.toThrow();
+      expect(() => resolveScreenTemplate(raw)).not.toThrow();
     }
   });
 
-  it("keeps a plain route unchanged, including its root and a trailing slash", () => {
-    expect(sanitizeScreenContext("/")).toBe("/");
-    expect(sanitizeScreenContext("/home")).toBe("/home");
-    expect(sanitizeScreenContext("/jobs/")).toBe("/jobs/");
-    expect(sanitizeScreenContext("  /settings/notifications  ")).toBe("/settings/notifications");
+  /**
+   * The bound is a DoS guard and it is LOSSY — deliberately. A megabyte body field costs one
+   * length comparison rather than a megabyte of splitting, and the price is that a real route
+   * buried behind 1300 characters of query string reports as "unknown screen" instead of as
+   * itself. Pinned in BOTH directions so nobody raises the multiplier on the theory that the
+   * check cannot change a result: it can, and this is the input where it does.
+   */
+  it("discards a value past the raw DoS bound even though its path alone would resolve", () => {
+    const raw = `/jobs?${"9".repeat(1300)}`;
+    expect(raw.length).toBeGreaterThan(WORKER_FEEDBACK_SCREEN_MAX * 10);
+    expect(resolveScreenTemplate(raw)).toBeNull();
+    // The same route just inside the bound still resolves, so the bound is what refused it.
+    expect(resolveScreenTemplate(`/jobs?${"9".repeat(100)}`)).toBe("/jobs");
+  });
+});
+
+describe("resolveScreenTemplate — the shapes a real client sends", () => {
+  it("drops the query string — the likeliest place a client parks worker input", () => {
+    // And it DROPS rather than refuses, so a worker complaining from the search screen is not
+    // filed under "unknown". Safe because the value returned is the table's constant, not the
+    // trimmed path: `q=welder mumbai` cannot survive into anything.
+    expect(resolveScreenTemplate("/jobs/search?q=welder%20mumbai&page=2")).toBe("/jobs/search");
+  });
+
+  it("drops the fragment as well as the query, in whichever order they appear", () => {
+    // ⚠ NOT AN ORDER ASSERTION. Each cut keeps the prefix before its own delimiter, so `#`-then-
+    // `?` and `?`-then-`#` produce the same string for every input. What is worth pinning is
+    // that neither delimiter survives whichever comes first.
+    expect(resolveScreenTemplate("/profile#section?tab=skills")).toBe("/profile");
+    expect(resolveScreenTemplate("/profile?tab=skills#section")).toBe("/profile");
+  });
+
+  it("tolerates surrounding whitespace and ONE trailing slash", () => {
+    expect(resolveScreenTemplate("  /profile/settings  ")).toBe("/profile/settings");
+    expect(resolveScreenTemplate("/jobs/")).toBe("/jobs");
+    expect(resolveScreenTemplate("/")).toBe("/");
+    // A second slash is an empty segment, not a trailing slash, and it matches nothing.
+    expect(resolveScreenTemplate("/jobs//")).toBeNull();
+  });
+
+  /**
+   * ⚠ THE CASE THE `//` CHECK EXISTS FOR, and the reason it is not dead code under an allowlist.
+   * Every other doubled slash already fails to match — an empty segment equals no literal in the
+   * table. `"//"` is the exception: the trailing-slash trim would fold it into `"/"` and answer a
+   * hostile value with a real screen. Deleting the check turns this assertion red, which is the
+   * only reason it is still there.
+   */
+  it("refuses a bare doubled slash rather than folding it into the root", () => {
+    expect(resolveScreenTemplate("//")).toBeNull();
+    expect(resolveScreenTemplate("/")).toBe("/");
   });
 });

@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { WorkerAppScreenTemplate } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
@@ -20,14 +21,21 @@ export interface SubmitFeedbackResult {
  * build stamp in `screen_context` — both would pass every CHECK, both would land on the event
  * spine, and nothing anywhere would fail. Named fields make the same mistake a compile error.
  *
- * Both arrive ALREADY sanitized (`sanitizeAppBuild` / `sanitizeScreenContext`), so each is a
+ * Both arrive ALREADY sanitized (`sanitizeAppBuild` / `resolveScreenTemplate`), so each is a
  * well-formed value or `null`, and neither is ever a reason for this call to fail.
  */
 export interface SubmitFeedbackClientContext {
   /** `x-app-build` (#966): a commit SHA / build number, or null when absent or malformed. */
   readonly appBuild: string | null;
-  /** The ROUTE PATTERN the worker was on (`/jobs/:id/apply`), or null. Never a concrete path. */
-  readonly screenContext: string | null;
+  /**
+   * WHICH SCREEN of the worker app the feedback was about, or null.
+   *
+   * TYPED AS THE UNION, NOT AS `string`, and that is the point rather than pedantry: the closed
+   * set `resolveScreenTemplate` guarantees is then carried by the compiler all the way to the
+   * event payload, so a caller that reached for a raw path — the exact §2 failure this field has
+   * had twice — does not compile.
+   */
+  readonly screenContext: WorkerAppScreenTemplate | null;
 }
 
 /**
@@ -103,11 +111,12 @@ export class FeedbackService {
           // payload's own note in packages/event-schema for why not even a hash of them rides.
           message_length: messageLength,
           app_build: appBuild,
-          // The ROUTE PATTERN, and it may ride the spine precisely because it is a pattern:
-          // `sanitizeScreenContext` has already replaced every id-shaped segment with `:id`, so
-          // there is nothing here that links this row to a specific job, session or worker.
-          // "Which screen generated this complaint" is exactly the kind of shape question the
-          // audit record exists to answer, alongside the category and the length.
+          // WHICH SCREEN, and it may ride the spine precisely because it cannot be anything
+          // else: `resolveScreenTemplate` returns one of the app's own 28 route constants or
+          // null, so there is nothing here that links this row to a specific job, session or
+          // worker — and nothing here that a caller composed. "Which screen generated this
+          // complaint" is exactly the kind of shape question the audit record exists to answer,
+          // alongside the category and the length.
           screen_context: screenContext,
         } satisfies PayloadInputOf<"feedback.submitted">,
         // The row id is the natural key: one row, one audit record. A client that retried a
@@ -130,8 +139,9 @@ export class FeedbackService {
     this.logger.log(
       `feedback recorded id=${row.id} worker=${workerId.slice(0, 8)}… ` +
         `category=${category ?? "none"} length=${messageLength} build=${appBuild ?? "unknown"} ` +
-        // The route PATTERN is loggable for the same reason it is eventable — it carries no id.
-        // A raw path would not be: it would put an entity id in the log a `message` is kept out of.
+        // The SCREEN NAME is loggable for the same reason it is eventable — it is one of our own
+        // constants, so no caller-chosen byte can be interpolated here. A raw path would not be:
+        // it would put an entity id in the log a `message` is deliberately kept out of.
         `screen=${screenContext ?? "unknown"}`,
     );
     return { id: row.id };

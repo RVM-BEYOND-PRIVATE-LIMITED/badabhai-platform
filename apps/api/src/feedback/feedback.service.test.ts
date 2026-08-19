@@ -14,8 +14,8 @@ import type { RequestContext } from "../common/request-context";
 const WORKER_ID = "11111111-1111-4111-8111-111111111111";
 const FEEDBACK_ID = "ffffffff-0000-4000-8000-000000000001";
 const APP_BUILD = "abc1234";
-/** A NORMALIZED route pattern, as `sanitizeScreenContext` hands it over — never a raw path. */
-const SCREEN = "/jobs/:id/apply";
+/** A SCREEN NAME, as `resolveScreenTemplate` hands it over — one of the app's own constants. */
+const SCREEN = "/jobs/detail/:id";
 const CTX: RequestContext = { requestId: "req-1", correlationId: "corr-1" };
 
 /**
@@ -245,23 +245,23 @@ describe("FeedbackService.submit — the event", () => {
   /**
    * ⚠ THE LOG LINE'S THIRD FIELD, WHICH SHIPPED WITH NO TEST AT ALL. `screen=` is the only
    * client-influenced value this service interpolates into a log, and the raw `dto.screen` —
-   * unvalidated, `z.unknown()`, 128 attacker-chosen characters — is still in scope on the DTO
-   * at that line. Rewriting the interpolation to read `dto.screen` instead of the sanitized
+   * unvalidated, `z.unknown()`, an unbounded attacker-chosen string — is still in scope on the
+   * DTO at that line. Rewriting the interpolation to read `dto.screen` instead of the resolved
    * `client.screenContext` passed 44/44 before this test existed, because the fixture never set
    * `screen` and the privacy assertions above scan only for the message, the name and the phone.
    */
-  it("logs the SANITIZED screen, never the raw one off the DTO", async () => {
+  it("logs the RESOLVED screen, never the raw one off the DTO", async () => {
     const { service, logs } = make();
     await service.submit(
       WORKER_ID,
       // What a client actually posts, and what the edge turned it into. They differ on purpose:
       // if the log read the DTO, the raw path — and its uuid — would appear.
-      dto({ screen: "/jobs/6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply?q=welder" }),
-      { appBuild: APP_BUILD, screenContext: "/jobs/:id/apply" },
+      dto({ screen: "/jobs/detail/6f2c04e0-4f89-41d3-9a0c-0305e82c3301?q=welder" }),
+      { appBuild: APP_BUILD, screenContext: "/jobs/detail/:id" },
       CTX,
     );
     const allLogs = logs.join("\n");
-    expect(allLogs).toContain("screen=/jobs/:id/apply");
+    expect(allLogs).toContain("screen=/jobs/detail/:id");
     expect(allLogs).not.toContain("6f2c04e0-4f89-41d3-9a0c-0305e82c3301");
     expect(allLogs).not.toContain("q=welder");
   });
@@ -317,9 +317,9 @@ describe("FeedbackService.submit — the row and the audit record are one write"
   });
 });
 
-describe("FeedbackService.submit — the screen context is carried, and it is a PATTERN", () => {
-  it("stores and events the route pattern the edge handed over", async () => {
-    // The service does not normalize — `sanitizeScreenContext` already did, at the controller.
+describe("FeedbackService.submit — the screen context is carried, and it is a SCREEN NAME", () => {
+  it("stores and events the screen the edge handed over", async () => {
+    // The service does not resolve — `resolveScreenTemplate` already did, at the controller.
     // What this pins is that the value reaches BOTH sinks: the row (where an admin reads it) and
     // the event (where the shape of the complaint is recorded). A field that landed in only one
     // would leave the spine and the screen disagreeing about which screen a report came from.

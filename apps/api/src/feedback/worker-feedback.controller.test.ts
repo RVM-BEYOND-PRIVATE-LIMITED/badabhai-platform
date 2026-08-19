@@ -42,7 +42,16 @@ function make(opts: { overMinute?: boolean; overHour?: boolean } = {}) {
       WORKER_FEEDBACK_PER_HOUR: PER_HOUR,
     } as never,
   );
-  return { controller, feedback, rateLimit, charged };
+  // Captured so the divergence WARN can be asserted on BOTH counts: that it fires, and that it
+  // carries none of the value that triggered it.
+  const logs: string[] = [];
+  (controller as unknown as { logger: Record<string, (m: string) => void> }).logger = {
+    log: (m) => logs.push(m),
+    warn: (m) => logs.push(m),
+    error: (m) => logs.push(m),
+  };
+
+  return { controller, feedback, rateLimit, charged, logs };
 }
 
 describe("the worker's OWN feedback sink (#997)", () => {
@@ -204,22 +213,22 @@ describe("what the request schema will and will not accept", () => {
   });
 });
 
-describe("the screen context on a submission — normalized at the edge, never trusted", () => {
-  it("normalizes the route BEFORE the service sees it, so no id can reach the row", async () => {
-    // The controller is the ONLY place this happens, and that is deliberate: with the id
-    // stripped here, there is no later layer — repository, event emitter, logger — that could
-    // forget. A concrete job id arriving from an unofficial client dies at this line.
+describe("the screen context on a submission — resolved at the edge, never trusted", () => {
+  it("resolves the route BEFORE the service sees it, so no client byte can reach the row", async () => {
+    // The controller is the ONLY place this happens, and that is deliberate: with the value
+    // replaced by one of our own constants here, there is no later layer — repository, event
+    // emitter, logger — that could forget. A concrete job id from an unofficial client dies here.
     const { controller, feedback } = make();
     await controller.submit(
       WORKER as never,
-      { ...DTO, screen: "/jobs/6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply?src=push#top" },
+      { ...DTO, screen: "/jobs/detail/6f2c04e0-4f89-41d3-9a0c-0305e82c3301?src=push#top" },
       undefined,
       CTX,
     );
     expect(feedback.submit).toHaveBeenCalledWith(
       WORKER.id,
       expect.anything(),
-      { appBuild: null, screenContext: "/jobs/:id/apply" },
+      { appBuild: null, screenContext: "/jobs/detail/:id" },
       CTX,
     );
   });
@@ -237,6 +246,9 @@ describe("the screen context on a submission — normalized at the edge, never t
       "jobs/apply", // not rooted
       "/jobs/<script>alert(1)</script>", // injection primitive on the admin screen
       "/jobs/my job", // whitespace — a label, not a route
+      "/u/dGVzdEBleGFtcGxlLmNvbQ", // base64url of an email — the residual a denylist could not see
+      "/x/AKIAIOSFODNN7EXAMPLE", // an opaque credential-shaped token, likewise
+      "/admin/workers", // a real route, of a DIFFERENT app
       `/${"a".repeat(200)}`, // past the bound
     ]) {
       const { controller, feedback } = make();
@@ -258,7 +270,7 @@ describe("the screen context on a submission — normalized at the edge, never t
     expect(SubmitFeedbackSchema.safeParse({ message: "button kaam nahi kar raha" }).success).toBe(
       true,
     );
-    // ...and it accepts one that DOES send it, without validating it — that is the sanitizer's job.
+    // ...and it accepts one that DOES send it, without validating it — that is the resolver's job.
     expect(
       SubmitFeedbackSchema.safeParse({ message: "button kaam nahi kar raha", screen: "/home" })
         .success,
@@ -267,5 +279,57 @@ describe("the screen context on a submission — normalized at the edge, never t
     expect(
       SubmitFeedbackSchema.safeParse({ message: "hi", screen_context: "/home" }).success,
     ).toBe(false);
+  });
+});
+
+/**
+ * ⚠ THE MAINTENANCE FAILURE AN ALLOWLIST BUYS ITS GUARANTEE WITH, and the surface that makes it
+ * visible in production. A repo test can catch the app and the server's table diverging inside
+ * this repo; it cannot see a client released ahead of the server, or a caller we do not build.
+ * Without this line that case is perfectly silent: the submission succeeds, the column holds
+ * null, and one screen's feedback simply stops existing.
+ */
+describe("the route-table divergence warning", () => {
+  it("warns when a screen ARRIVED and matched nothing", async () => {
+    const { controller, logs } = make();
+    await controller.submit(
+      WORKER as never,
+      { ...DTO, screen: "/jobs/brand-new-screen" } as never,
+      undefined,
+      CTX,
+    );
+    expect(logs.join("\n")).toContain("matched none of the");
+  });
+
+  it("stays SILENT when no screen was sent — the ordinary case is not a signal", async () => {
+    // Every client in a worker's hands today omits the field. A warn per submission would bury
+    // the one that means something under thousands that do not, which is how a signal dies.
+    for (const screen of [undefined, "", "   "]) {
+      const { controller, logs } = make();
+      await controller.submit(WORKER as never, { ...DTO, screen } as never, undefined, CTX);
+      expect(logs, String(screen)).toEqual([]);
+    }
+  });
+
+  it("stays silent for a screen that DID resolve", async () => {
+    const { controller, logs } = make();
+    await controller.submit(WORKER as never, { ...DTO, screen: "/jobs" } as never, undefined, CTX);
+    expect(logs).toEqual([]);
+  });
+
+  /**
+   * ⚠ AND IT LOGS NONE OF THE VALUE. This is the one moment the server KNOWS the string is
+   * unrecognised, which makes it exactly the string §2 keeps out of logs — so "just log it for
+   * diagnosis" would reopen the hole this whole change closed, at the only point where it is
+   * certain to matter. The count is the signal; `router.dart` is where the answer is.
+   */
+  it("logs not one byte of the value that triggered it", async () => {
+    const { controller, logs } = make();
+    const hostile = "/u/dGVzdEBleGFtcGxlLmNvbQ";
+    await controller.submit(WORKER as never, { ...DTO, screen: hostile } as never, undefined, CTX);
+    const all = logs.join("\n");
+    expect(all).toContain("matched none of the");
+    expect(all).not.toContain(hostile);
+    expect(all).not.toContain("dGVzdEBleGFtcGxlLmNvbQ");
   });
 });

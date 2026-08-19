@@ -170,9 +170,9 @@ export default async function FeedbackPage({
             What workers typed into the app&apos;s Feedback button, newest first. This is the one
             screen here that shows a worker&apos;s own words, so a message may contain details they
             chose to include about themselves. Nothing else on the row is identifying — no name or
-            number is looked up, and the screen a message is about is stored as a route pattern
-            with ids stripped out of it, so it says where the worker was rather than what they
-            were looking at.
+            number is looked up, and the screen a message is about is recorded by matching what
+            the app sent against the list of screens the app has, so it says where the worker was
+            rather than what they were looking at.
           </p>
         </div>
       </header>
@@ -357,25 +357,26 @@ export default async function FeedbackPage({
                     </td>
                     <td className="table__meta cell--screen">
                       {f.screen_context ? (
-                        /* The tooltip states what the server DOES, not an absolute. It
-                           substitutes id-shaped values (uuids, long hex, long number runs)
-                           before storing, which is why the column is allowed here at all —
-                           but it is a denylist, so telling an operator the value "can never
-                           identify anyone" would be telling them a stripped value is safe to
-                           trust when a hostile client could still park a token in it. */
+                        /* The tooltip may state the absolute now, because it is true now. The
+                           server matches the client's value against the app's own route table
+                           and stores one of ITS constants, so what an operator reads here came
+                           from our source rather than from a caller. This copy was previously
+                           hedged ("ids are replaced") for the honest reason that the old
+                           normalizer was a denylist and a hostile client could still park a
+                           token in the value. That is no longer the mechanism. */
                         <span
                           className="mono"
-                          title="The route the worker was on. Ids in it — uuids and long number runs — are replaced with :id before it is stored, so it says which SCREEN rather than which job. It is a label, not a lookup key."
+                          title="Which screen of the worker app this is about. The server matches what the app sent against its list of screens and stores that name, so it says which SCREEN and never which job. It is a label, not a lookup key."
                         >
                           {f.screen_context}
                         </span>
                       ) : (
                         // Three different causes — an app older than the field, a client that
-                        // sent nothing, and a value the server refused to normalise — and this
-                        // page can tell them apart from none of them. "We do not know which
-                        // screen" is the only claim the row supports, so it is the one made:
-                        // the same dash the untagged category renders, for the same reason.
-                        <span title="This submission arrived without a screen — an older app build, or a value that could not be normalised.">
+                        // sent nothing, and a value matching no known screen — and this page can
+                        // tell them apart from none of them. "We do not know which screen" is the
+                        // only claim the row supports, so it is the one made: the same dash the
+                        // untagged category renders, for the same reason.
+                        <span title="This submission arrived without a screen — an older app build, or a value that matched none of the app's screens.">
                           —
                         </span>
                       )}

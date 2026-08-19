@@ -621,9 +621,9 @@ timeline's subject filter — the same as `admin.pii_reveal_cap_exceeded` and
 is deliberately NOT made here (CLAUDE.md §6).
 
 **Versioning.** Both are `version: 1` net-new names; nothing existing is mutated (§2 #8). The
-same release widens `feedback.submitted` with an OPTIONAL `screen_context` — a normalized route
-PATTERN, never a path — which stays v1 on the `agency_invite.created` precedent for an additive
-optional field.
+same release widens `feedback.submitted` with an OPTIONAL `screen_context` — one of the worker
+app's own screen constants (`WORKER_APP_SCREEN_TEMPLATES`), never a path — which stays v1 on the
+`agency_invite.created` precedent for an additive optional field.
 
 **Unchanged by this amendment:** the capability matrix (Decision 3 — no capability is minted;
 both reads stay on `read_entities`), the PII-reveal policy (Decision 4), the spine's

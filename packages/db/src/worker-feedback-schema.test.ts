@@ -192,10 +192,13 @@ describe("0080/0081 — the bounds are pinned to @badabhai/types, and this is th
   });
 
   /**
-   * And for the route pattern, in 0081. The drift here is LESS dangerous than the message one
-   * and still worth pinning: `sanitizeScreenContext` returns null past the shared constant, so a
-   * CHECK set BELOW it would be the only thing that could reject — and it would do so as a 23514
-   * inside the same transaction as the event, taking the worker's message with it.
+   * And for the screen name, in 0081. The drift here is LESS dangerous than the message one and
+   * still worth pinning. `resolveScreenTemplate` cannot emit anything over the bound — the
+   * longest screen the app has is 25 characters — so on the request path this CHECK can never
+   * fire. It exists for the writer that bypasses the resolver (a backfill, an ops script), and
+   * a CHECK set BELOW the constant would be the only thing here that could reject a legitimate
+   * value — as a 23514 inside the same transaction as the event, taking the worker's message
+   * with it. See `schema/feedback.ts` for why it is a LENGTH bound and not an IN-list.
    */
   it("caps screen_context at WORKER_FEEDBACK_SCREEN_MAX", () => {
     expect(MIGRATION_0081).toContain(

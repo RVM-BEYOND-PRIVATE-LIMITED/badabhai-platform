@@ -84,7 +84,7 @@ const TAGGED: Row = {
   category: "problem",
   message: "App band ho jata hai. Ramesh, 98765 43210.",
   app_build: "9fd0b09",
-  screen_context: "/jobs/:id/apply",
+  screen_context: "/jobs/detail/:id",
   created_at: "2026-08-19T09:00:00.000Z",
 };
 
@@ -247,10 +247,10 @@ describe("a row", () => {
   });
 
   it("shows WHICH SCREEN the report is about, verbatim", async () => {
-    // The pattern is the whole value of the field: "the apply button is broken" is a bug
+    // The screen name is the whole value of the field: "the job detail page is broken" is a bug
     // report, and "someone said something about something" is not.
     const out = await render();
-    expect(out).toContain("/jobs/:id/apply");
+    expect(out).toContain("/jobs/detail/:id");
     expect(out).toContain("Screen");
     // The class the stylesheet rule below is written against. Asserted HERE because nothing
     // in the toolchain links a className to a rule: the two are checked in separate tests and
@@ -265,7 +265,7 @@ describe("a row", () => {
     stub.page = { items: [UNTAGGED], nextCursor: null };
     const out = await render();
     expect(out).toMatch(/<span title="This submission arrived without a screen[^"]*">\s*—\s*<\/span>/);
-    expect(out).not.toContain("/jobs/:id/apply");
+    expect(out).not.toContain("/jobs/detail/:id");
   });
 
   it("links the row to that worker's JOURNEY — the half a message cannot show", async () => {

@@ -5,8 +5,7 @@ import {
   JOB_POSTING_VERIFICATION_STATUSES,
   WORKER_FEEDBACK_CATEGORIES,
   WORKER_FEEDBACK_APP_BUILD_MAX,
-  WORKER_FEEDBACK_SCREEN_MAX,
-  WORKER_FEEDBACK_SCREEN_PATTERN,
+  WORKER_APP_SCREEN_TEMPLATES,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -3359,11 +3358,10 @@ export type ProfileSubmissionDuplicatedPayload = z.infer<
  * consumer outside the emit path) — a fact, not a property of the shape, and the first replay or
  * projection written against a pinned schema must be given the widened one.
  *
- * WHY A ROUTE PATTERN IS ALLOWED ON THE SPINE AT ALL, when the message is not. `/jobs/:id/apply`
- * has had every id-shaped RUN substituted out by `sanitizeScreenContext` before it reaches here,
- * so it is a label about WHICH SCREEN rather than a link to one job, one application or one
- * worker. A raw path would be an identifier and is refused. ⚠ The refusal is a DENYLIST of id
- * shapes, not a proof: see `WORKER_FEEDBACK_SCREEN_PATTERN` for what it still cannot recognise.
+ * WHY A SCREEN LABEL IS ALLOWED ON THE SPINE AT ALL, when the message is not. The value is one
+ * of the 28 constants in `WORKER_APP_SCREEN_TEMPLATES` and can be nothing else, so it is a label
+ * about WHICH SCREEN rather than a link to one job, one application or one worker — and it
+ * carries no byte any caller chose. A concrete path would be an identifier and is refused.
  */
 export const FeedbackSubmittedPayload = z
   .object({
@@ -3377,29 +3375,29 @@ export const FeedbackSubmittedPayload = z
     /** `x-app-build` (#966): a commit SHA / build number, or null when absent or malformed. */
     app_build: z.string().min(1).max(WORKER_FEEDBACK_APP_BUILD_MAX).nullable(),
     /**
-     * The normalized ROUTE PATTERN the worker was on — `/jobs/:id/apply` — or null when the
-     * client sent nothing or sent something unrecognisable.
+     * WHICH SCREEN of the worker app the feedback was about — one of `WORKER_APP_SCREEN_TEMPLATES`
+     * — or null when the client sent nothing or sent something that matched no screen.
      *
-     * `WORKER_FEEDBACK_SCREEN_PATTERN` is not belt-and-braces over the sanitizer; it is the
-     * spine's own refusal, so a second emitter added later without a normalizer fails HERE
-     * rather than writing an identifier onto the audit trail. It is the SHARED regex
-     * `sanitizeScreenContext` tests against, built from the SAME id-shape sources, so the
-     * request edge and the spine cannot recognise different things — they once did, and a
-     * uuid behind a one-character prefix passed both.
+     * MEMBERSHIP OF A CLOSED SET, WHICH IS STRUCTURAL IN THE WAY THE PREVIOUS REGEX WAS NOT.
+     * This field used to be a bound plus a charset plus a denylist of id shapes, and the comment
+     * here called that "structural" when it was not: a bound and a charset let a hostile client
+     * put 128 characters of its choosing on the audit spine, and no structural rule can tell an
+     * opaque token from a route word (`/u/dGVzdEBleGFtcGxlLmNvbQ` is base64url of an email
+     * address and passed). `z.enum` over the app's own route table admits 28 values and nothing
+     * else, so the strongest claim is now also the true one: NOTHING a caller composes can land
+     * here.
      *
-     * ⚠ IT IS A DENYLIST OF ID SHAPES, NOT A PROOF, and this comment previously called the
-     * property "STRUCTURAL". It refuses uuids, long hex runs, long digit runs and all-numeric
-     * segments anywhere in the value; it cannot refuse an opaque token that looks like a word.
-     * The bound and the charset keep this field small and non-prose; they do not make it
-     * impossible for a hostile client to put 128 characters of its choosing here.
+     * IT IS THE SPINE'S OWN REFUSAL, not belt-and-braces over the resolver. `resolveScreenTemplate`
+     * cannot produce a non-member — the type system stops it — so this arm exists entirely for a
+     * SECOND emitter added later without one, which must fail HERE rather than write an
+     * identifier onto the audit trail. Failing closed is right for that caller and costs the
+     * request-path caller nothing, because the request path cannot reach it.
+     *
+     * The bound and the charset are GONE rather than kept alongside: every member is 25
+     * characters or fewer of `[a-z/:-]`, so re-asserting either would be a second mechanism
+     * guarding a property this one already makes impossible to violate.
      */
-    screen_context: z
-      .string()
-      .min(1)
-      .max(WORKER_FEEDBACK_SCREEN_MAX)
-      .regex(WORKER_FEEDBACK_SCREEN_PATTERN)
-      .nullable()
-      .default(null),
+    screen_context: z.enum(WORKER_APP_SCREEN_TEMPLATES).nullable().default(null),
   })
   .strict();
 export type FeedbackSubmittedPayload = z.infer<typeof FeedbackSubmittedPayload>;

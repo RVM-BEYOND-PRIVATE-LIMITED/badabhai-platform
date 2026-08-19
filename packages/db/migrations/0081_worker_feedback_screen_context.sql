@@ -5,19 +5,29 @@
 -- dropped, nothing is renamed, no shipped column changes meaning, and every existing row stays
 -- valid — the CHECK admits NULL, which is what every pre-existing row has.
 --
--- WHAT IT STORES, AND WHY IT IS NOT A PATH. `screen_context` is a ROUTE PATTERN —
--- `/jobs/:id/apply` — normalized by `sanitizeScreenContext` before it is ever bound. A raw path
--- (`/jobs/6f2c…-uuid/apply`) is an IDENTIFIER: it links a feedback row to one specific job,
--- application or chat session, which is a fact about the worker nobody asked them to disclose,
--- and it rides the `feedback.submitted` event where CLAUDE.md §2 forbids personal data outright.
--- The pattern answers the only question the column exists for — WHICH SCREEN was "button kaam
--- nahi kar raha" about — and answers nothing else.
+-- WHAT IT STORES, AND WHY IT IS NOT A PATH. `screen_context` is one of the worker app's own
+-- route constants — `/jobs/detail/:id` — bound by `resolveScreenTemplate`, which matches the
+-- untrusted client value against the app's finite route table and binds the TABLE'S string, never
+-- the caller's. A raw path (`/jobs/6f2c…-uuid/apply`) is an IDENTIFIER: it links a feedback row to
+-- one specific job, application or chat session, which is a fact about the worker nobody asked
+-- them to disclose, and it rides the `feedback.submitted` event where CLAUDE.md §2 forbids
+-- personal data outright. The screen name answers the only question the column exists for — WHICH
+-- SCREEN was "button kaam nahi kar raha" about — and answers nothing else.
 --
--- THE CHECK IS A LENGTH BOUND ONLY, DELIBERATELY. The charset and the id-substitution live in
--- the sanitizer, which turns anything malformed into NULL and lets the submission through. A
--- CHECK that also refused a malformed value would convert that into a 23514 at INSERT — a 500
--- that costs the worker the paragraph they typed, over a telemetry field they never filled in.
--- The literal tracks WORKER_FEEDBACK_SCREEN_MAX; SQL cannot import, so
+-- THE CHECK IS A LENGTH BOUND ONLY, DELIBERATELY — AND IT STAYED ONE when the request-edge
+-- normalizer became an ALLOWLIST and SQL could therefore have pinned membership
+-- (`screen_context IN ('/', '/login', …)`). That would be strictly stronger and is still the
+-- wrong constraint: the app gaining a screen is routine, and an IN-list makes each such widening
+-- a migration that must land before the code emitting the new constant deploys — get the order
+-- wrong and every INSERT carrying the new screen is a 23514 inside the same transaction as the
+-- event, costing the worker the paragraph they typed over a telemetry field they never filled in.
+-- That is exactly the failure this column must never be able to cause. Membership is enforced
+-- where it costs nobody their message: at the sole writer (`resolveScreenTemplate` returns a
+-- table constant or NULL, and its return type makes anything else a compile error) and at the
+-- spine (`FeedbackSubmittedPayload`'s `z.enum`, which is where a SECOND emitter added later must
+-- fail closed). What is left for SQL is the writer neither reaches — a backfill or an ops script
+-- — and a length bound still stops the column becoming a second free-text channel around the
+-- `message` bound. The literal tracks WORKER_FEEDBACK_SCREEN_MAX; SQL cannot import, so
 -- `worker-feedback-schema.test.ts` asserts the two are equal (the same pairing 0080 set up for
 -- the message and app_build bounds).
 --

@@ -95,21 +95,22 @@ export interface AdminFeedbackListItem {
   /** The `x-app-build` stamp (#966), or null when it was absent or malformed at submit time. */
   app_build: string | null;
   /**
-   * WHICH SCREEN the worker was on, as a ROUTE PATTERN — `/jobs/:id/apply`. Null for a client
-   * that sent nothing, a value that failed normalization, or any row written before the column
-   * existed; all three render as "unknown screen", which is the honest answer.
+   * WHICH SCREEN of the worker app the feedback was about — one of `WORKER_APP_SCREEN_TEMPLATES`
+   * (`/jobs/detail/:id`). Null for a client that sent nothing, a value that matched no screen, or
+   * any row written before the column existed; all three render as "unknown screen", which is the
+   * honest answer.
    *
-   * NEVER a concrete path. `sanitizeScreenContext` substitutes every id-shaped RUN at the edge —
-   * uuids, long hex, long digit runs, all-numeric segments — wherever in the value they sit, so
-   * an entity id cannot ride here and this field says which screen rather than which job. That
-   * is the difference between "the apply button is broken" and a record of what one worker was
-   * browsing, and it is why this field is allowed on a surface where a name is not.
+   * NEVER a concrete path, and now provably so. `resolveScreenTemplate` matches the untrusted
+   * value against the app's finite route table at the edge and stores ITS OWN CONSTANT, so the
+   * value an admin reads is a literal from our source and cannot contain a byte the client chose.
+   * That is the difference between "the apply button is broken" and a record of what one worker
+   * was browsing, and it is why this field is allowed on a surface where a name is not.
    *
-   * ⚠ It is a DENYLIST of id shapes, not a proof, and an earlier version of this comment said
-   * the field "cannot tell an admin WHICH job" as an absolute. An opaque token that is neither
-   * hex nor digits is not distinguishable from a route word; the shipped client cannot produce
-   * one, but this endpoint takes any authenticated caller. Treat the value as a label, never as
-   * a lookup key, and never repeat the absolute claim to an operator.
+   * ⚠ An earlier version of this comment had to be weakened to "a DENYLIST of id shapes, not a
+   * proof", because the field was then normalized by substituting id SHAPES and an opaque token
+   * survived. It is now membership of a closed set, which is a different KIND of guarantee — so
+   * the absolute claim is accurate again. It is still a label, never a lookup key: a screen name
+   * identifies no job, no session and no worker, which is the point.
    */
   screen_context: string | null;
   created_at: Date;

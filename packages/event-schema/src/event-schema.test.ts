@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   WORKER_FEEDBACK_CATEGORIES,
   WORKER_FEEDBACK_APP_BUILD_MAX,
-  WORKER_FEEDBACK_SCREEN_MAX,
+  WORKER_APP_SCREEN_TEMPLATES,
 } from "@badabhai/types";
 import {
   validateEvent,
@@ -3886,12 +3886,12 @@ describe("feedback.submitted (#997) — the SHAPE of a worker's feedback, never 
     expect(() => make({ ...base, message_length: 1.5 })).toThrow(EventValidationException);
   });
 
-  it("accepts the ROUTE PATTERN, and defaults an absent one to null", () => {
+  it("accepts a SCREEN NAME, and defaults an absent one to null", () => {
     // ADDITIVE WIDENING, STILL v1 (the `AgencyInviteCreatedPayload` precedent). The default is
     // what makes an event written before this field re-validate as `screen_context: null`
     // rather than as a missing key — so a consumer never has to tell "we did not know the
     // screen" from "this event predates the field".
-    const withScreen = validateEvent(make({ ...base, screen_context: "/jobs/:id/apply" }));
+    const withScreen = validateEvent(make({ ...base, screen_context: "/jobs/detail/:id" }));
     expect(withScreen.success).toBe(true);
     const without = validateEvent(make(base));
     expect(without.success).toBe(true);
@@ -3901,13 +3901,13 @@ describe("feedback.submitted (#997) — the SHAPE of a worker's feedback, never 
     expect(validateEvent(make({ ...base, screen_context: null })).success).toBe(true);
   });
 
-  it("REJECTS anything that is not a route pattern — a raw path cannot ride the spine", () => {
-    // THE PROPERTY THAT MAKES THIS FIELD PERMISSIBLE AT ALL. A pattern says WHICH SCREEN; a
-    // concrete path says which JOB, which SESSION, which application — an identifier linking
-    // this row to one thing the worker was looking at, which is exactly what §2 keeps off the
-    // events table. `sanitizeScreenContext` substitutes ids at the edge; this regex is what
-    // makes the guarantee structural rather than a matter of the emitter behaving, and it is
-    // the assertion that would catch a SECOND emitter added later without a normalizer.
+  it("REJECTS anything that is not one of the app's screens", () => {
+    // THE PROPERTY THAT MAKES THIS FIELD PERMISSIBLE AT ALL, and it is now MEMBERSHIP rather
+    // than a shape rule. A screen name says WHICH SCREEN; anything else can say which JOB, which
+    // SESSION, which application — an identifier linking this row to one thing the worker was
+    // looking at, which is exactly what §2 keeps off the events table. `resolveScreenTemplate`
+    // cannot produce a non-member (its return type forbids it), so this arm exists entirely to
+    // catch a SECOND emitter added later without one.
     for (const bad of [
       "/jobs/6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply", // a uuid
       "/orders/91723", // a numeric id
@@ -3918,32 +3918,35 @@ describe("feedback.submitted (#997) — the SHAPE of a worker's feedback, never 
       "/jobs/my job", // whitespace
       "/नौकरी", // non-ASCII
       "", // empty
-      `/${"a".repeat(WORKER_FEEDBACK_SCREEN_MAX)}`, // past the bound
-      // ⚠ THE SHAPES THIS BACKSTOP USED TO WAVE THROUGH. It anchored both id arms to a whole
-      // segment, so an id sharing its segment with one other character satisfied it — which
-      // is exactly the second-emitter case the regex exists for, and it was measured passing.
+      // ⚠ THE SHAPES THE PREVIOUS BACKSTOPS WAVED THROUGH, kept as cases because each was
+      // MEASURED passing at the time. The first version anchored its id arms to whole segments,
+      // so an id sharing a segment with one other character satisfied it.
       "/jobs/id-6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply", // a uuid behind a prefix
       "/jobs/6f2c04e04f8941d39a0c0305e82c3301/apply", // the dash-less uuid form
       "/w/9876543210-ravi", // a phone number and a name
       "/AADHAAR/1234-5678-9012", // a grouped 12-digit number
+      // ...and the residual the SECOND version could not see at all: an opaque token is
+      // indistinguishable from a route word by any structural rule. Membership does not care.
+      "/u/dGVzdEBleGFtcGxlLmNvbQ", // base64url of an email address
+      "/x/AKIAIOSFODNN7EXAMPLE", // a credential-shaped token
+      // The old regex-shaped "patterns" a normalizer used to be able to emit. None of them is a
+      // screen this app has, so none of them may ride the spine any more either.
+      "/jobs/:id/apply",
+      "/jobs/id-:id/apply",
+      "/workers/:id/sessions/:id",
+      "/v2/jobs",
+      "/settings/notifications",
     ]) {
       expect(() => make({ ...base, screen_context: bad }), bad).toThrow(EventValidationException);
     }
   });
 
-  it("still ACCEPTS the route patterns the normalizer actually produces", () => {
-    // The other half of the arm above: a backstop tightened until it refuses real output would
-    // turn every deep screen into "unknown screen" on the admin list, silently.
-    for (const good of [
-      "/jobs/:id/apply",
-      "/jobs/id-:id/apply",
-      "/workers/:id/sessions/:id",
-      "/v2/jobs",
-      "/worker_profile",
-      "/settings/notifications",
-      "/a.b/c",
-      "/",
-    ]) {
+  it("ACCEPTS every screen the worker app actually has", () => {
+    // The other half of the arm above, and the one that matters more: a backstop tightened past
+    // the app's own route table would turn real screens into "unknown screen" on the admin list,
+    // silently and forever. Asserted over the whole table rather than a sample, because a
+    // sample is exactly how one entry gets left behind.
+    for (const good of WORKER_APP_SCREEN_TEMPLATES) {
       expect(validateEvent(make({ ...base, screen_context: good })).success, good).toBe(true);
     }
   });

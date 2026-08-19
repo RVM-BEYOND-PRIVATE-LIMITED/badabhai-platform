@@ -54,20 +54,22 @@ export const feedbackItemSchema = z.object({
   /** The `x-app-build` stamp, or null when it was absent or malformed at submit time. */
   app_build: z.string().nullable(),
   /**
-   * WHICH SCREEN the report is about, as a ROUTE PATTERN — `/jobs/:id/apply`, never a
-   * concrete path. The server substitutes every id-shaped segment before it stores the
-   * value, so this field can say "the apply screen" and cannot say WHICH job the worker
-   * was looking at. That distinction is why it is allowed on a surface where a name is not,
-   * and the portal must never treat it as a link or a lookup key.
+   * WHICH SCREEN of the worker app the report is about — `/jobs/detail/:id`, never a concrete
+   * path. The server matches the client's value against the app's finite route table and
+   * stores one of its OWN constants, so this field can say "the job detail screen" and
+   * cannot say WHICH job the worker was looking at. That is why it is allowed on a surface
+   * where a name is not, and the portal must never treat it as a link or a lookup key.
    *
    * Null is a real answer with three causes that are indistinguishable from here — an app
-   * build older than the field, a client that sent nothing, and a value that failed the
-   * server's normalization. All three mean "we do not know which screen", and the page
-   * renders them identically as such rather than guessing between them.
+   * build older than the field, a client that sent nothing, and a value that matched no
+   * screen. All three mean "we do not know which screen", and the page renders them
+   * identically as such rather than guessing between them.
    *
-   * DELIBERATELY UNBOUNDED. The server caps the stored value, and restating that cap here
-   * would only add a way for a longer value to throw the whole page away — the portal's job
-   * is to render what arrived, not to re-adjudicate a bound the writer already enforced.
+   * DELIBERATELY A BARE `string`, NOT THE SERVER'S UNION. The portal's job is to render what
+   * arrived, not to re-adjudicate a closed set the writer already enforced — and pinning the
+   * enum here would mean an app that gained a screen throws `AdminRequestError` and blanks
+   * the WHOLE page until admin-web is redeployed. A value the server vouched for is safe to
+   * display; refusing to display it is the only way this schema could make things worse.
    */
   screen_context: z.string().nullable(),
   created_at: z.string(),

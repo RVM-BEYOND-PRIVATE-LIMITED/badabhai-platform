@@ -280,97 +280,120 @@ export const WORKER_FEEDBACK_MESSAGE_MAX = 4000;
 export const WORKER_FEEDBACK_APP_BUILD_MAX = 64;
 
 /**
- * Ceiling on the normalized SCREEN CONTEXT stored with a feedback row, in characters.
+ * Ceiling on the SCREEN CONTEXT stored with a feedback row, in characters.
  *
- * The stored value is a ROUTE PATTERN (`/jobs/:id/apply`), never the concrete path the worker
- * was on — see `sanitizeScreenContext` for why that distinction is the whole privacy design.
- * 128 is generous for the deepest route the worker app ships and small enough that the column
- * cannot be repurposed as a second free-text channel around the `message` bound.
+ * ⚠ THIS IS NO LONGER THE OPERATIVE LIMIT, and reading it as one is the mistake this note
+ * exists to prevent. The stored value is a member of {@link WORKER_APP_SCREEN_TEMPLATES} —
+ * `resolveScreenTemplate` returns a constant from that table or `null`, never a value derived
+ * from the caller's bytes — so the longest thing that can reach the column is the longest
+ * template (`/profile/settings/devices`, 25 characters). 128 is now a DATABASE-LEVEL BACKSTOP
+ * against a writer that bypasses the resolver entirely (a backfill, an ops script), and a cheap
+ * pre-split DoS bound at the request edge (`raw.length > MAX * 10`).
  *
  * Pinned at the database too (`worker_feedback_screen_context_len_chk`), because SQL cannot
- * import and nothing else stops the request-layer cap and the CHECK drifting apart —
+ * import and nothing else stops the constant and the CHECK drifting apart —
  * `worker-feedback-schema.test.ts` asserts the two are equal, exactly as it does for the other
- * two bounds.
+ * two bounds. See the note on that CHECK in `schema/feedback.ts` for why the constraint stayed a
+ * LENGTH bound rather than being tightened to pin membership.
  */
 export const WORKER_FEEDBACK_SCREEN_MAX = 128;
 
 /**
- * What a stored/evented `screen_context` may look like: a rooted ROUTE PATTERN with NO segment
- * that is an identifier.
+ * EVERY SCREEN THE WORKER APP HAS. The closed set a `screen_context` may be drawn from.
  *
- * ⚠ IT LIVES HERE, WITH THE BOUND, FOR THE SAME REASON `WORKER_FEEDBACK_CATEGORIES` DOES. Two
- * layers pin this shape — `sanitizeScreenContext` in apps/api, which normalizes an untrusted
- * client value, and `FeedbackSubmittedPayload` in packages/event-schema, which is the structural
- * backstop on the audit spine — and a private second copy is exactly how they drift. The drift
- * is silent and one-directional: a payload regex looser than the sanitizer admits, from any
- * FUTURE emitter that forgot to normalize, precisely the value the sanitizer exists to stop.
+ * ── WHY A TABLE AND NOT A PATTERN ────────────────────────────────────────────────────────
+ * `screen_context` arrives from an UNTRUSTED client and lands in three places CLAUDE.md §2
+ * forbids personal data from reaching: the `feedback.submitted` event, the API log line, and the
+ * admin screen. The previous design SANITIZED — it substituted id-SHAPED runs (uuids, long hex,
+ * long digit runs) with `:id` and stored what was left. That is a DENYLIST, and a denylist over
+ * attacker-chosen text cannot make a §2 guarantee. It was measured failing twice:
  *
- * ⚠ AND WHY A CHARSET ALONE IS NOT ENOUGH — the mistake worth recording. `[A-Za-z0-9._:/-]`
- * happily admits `/jobs/6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply`: a uuid is made of exactly
- * those characters. A charset can say "this is not prose"; it cannot say "this is not an
- * identifier", which is the whole property that makes this field permissible on a spine where
- * §2 forbids personal data. Hence the leading negative lookaheads.
+ *     /jobs/id-6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply   passed verbatim (v1, whole-segment)
+ *     /w/9876543210-ravi                                    passed verbatim (v1, whole-segment)
+ *     /u/dGVzdEBleGFtcGxlLmNvbQ                             passed verbatim (v2 — base64url of
+ *                                                           an email address; neither hex nor
+ *                                                           digits, so no id shape sees it)
+ *     /x/AKIAIOSFODNN7EXAMPLE                               passed verbatim (v2)
  *
- * ⚠ AND WHY A WHOLE-SEGMENT CHECK ALONE IS NOT ENOUGH — the mistake this file MADE, measured
- * and recorded so it is not made again. This regex once anchored both id shapes to a whole
- * segment (`/(?:\d+|uuid)(?:/|$)`), and the sanitizer matched it with `^…$` per segment. An
- * identifier sharing its segment with ONE other character therefore passed both layers
- * untouched — every one of these was executed against the shipped code and came back verbatim:
+ * An ALLOWLIST inverts the burden. The worker app's route table is FINITE and KNOWN, so the
+ * server can match against it and return ITS OWN CONSTANT. What reaches the column, the event
+ * and the log is then a literal from this array — no client-supplied byte can land in a §2 sink,
+ * whatever the caller sent. That is a proof rather than a heuristic, and it is the whole reason
+ * this array exists.
  *
- *     /jobs/id-6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply   a uuid behind a prefix
- *     /jobs/6f2c04e04f8941d39a0c0305e82c3301/apply          the dash-less uuid form
- *     /w/9876543210-ravi                                    a phone number and a name
+ * ── WHERE IT COMES FROM ──────────────────────────────────────────────────────────────────
+ * Re-derived from `apps/worker-app/lib/router.dart` — the `Routes` class constants plus the one
+ * inline `GoRoute(path: '/i/:code')`. `screen-template-table.contract.test.ts` in apps/api reads
+ * that Dart file and fails when the app declares a route this table does not resolve, so the
+ * divergence this design's failure mode depends on (the app adds a screen, the server reports
+ * `null` for it forever, nobody notices) reddens CI in the PR that causes it.
  *
- * So the shapes are matched as RUNS, ANYWHERE in the value, not as whole segments:
- *   * a dashed uuid, wherever it sits;
- *   * a hex run of 16+ — the dash-less uuid and every opaque hex token of id length;
- *   * a digit run of 4+ — a phone number, an Aadhaar group, a long numeric id;
- *   * and, still, a segment that is ENTIRELY numeric, however short: `/orders/12` is an id
- *     even though `12` is under the run bound.
+ * ⚠ `:id` IS A WILDCARD POSITION, NOT A CLAIM ABOUT THE VALUE. It matches any single non-empty
+ * segment, and only three routes have one: the referral code, the job id, and the interview-kit
+ * trade key. The trade key is not an identifier and is still collapsed to `:id`, because the
+ * point is not "hide the ids" — it is that NOTHING from the caller is echoed back.
  *
- * ⚠ WHAT THIS STILL DOES NOT CATCH, said plainly rather than left for the next reader to
- * discover: an OPAQUE alphanumeric token that is neither hex nor digits (`/u/dGVzdEBleGFt…`,
- * a base64url blob) is not distinguishable from a route word by any structural rule. The
- * shipped client cannot produce one, but this endpoint takes any authenticated caller. The
- * durable fix is an ALLOWLIST of the client's own finite route table rather than a denylist of
- * id shapes — see the note on `sanitizeScreenContext`. Until that exists, no comment on this
- * field may claim that "no identifier can land here" is absolute; it is not.
+ * ⚠ ORDER IS IRRELEVANT AND MUST STAY SO. The three dynamic templates have disjoint literal
+ * prefixes (`/i`, `/jobs/detail`, `/profile/kit/detail`), so at most one template can match any
+ * input; `screen-context.test.ts` pins that no input resolves ambiguously.
  *
- * ⚠ AND NO EMPTY SEGMENT — the `//` arm, which is not tidiness either. `//evil.example/jobs` is
- * a rooted path by every check above and a SCHEME-RELATIVE URL to a host we do not control;
- * rendered as a link on the admin Feedback screen it is an outbound navigation an attacker
- * chose. `/a//b` is meaningless besides. So a doubled slash is refused anywhere in the value.
- *
- * Deliberately no whitespace, no `%`, no `?`, no `#`, no `<`, no non-ASCII. `:` is admitted only
- * because `:id` is the substitution marker itself.
+ * Frozen because it is a security boundary: a consumer that pushed onto it would widen the set
+ * of values allowed onto the event spine at runtime.
  */
-/** A segment that is ENTIRELY an identifier — matched against `/<seg>(/|end)`. */
-const SCREEN_ID_SEGMENT = "\\d+";
+export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
+  // --- Onboarding and auth (top-level, no bottom nav) ---
+  "/", // Routes.splash
+  "/login", // Routes.phoneLogin
+  "/otp", // Routes.otpVerify
+  "/pin", // Routes.pin
+  "/pin/set", // Routes.setPin
+  "/pin/forgot", // Routes.forgotPin
+  "/consent", // Routes.consent
+  "/name", // Routes.name
+  "/invite", // Routes.invite
+  "/chat", // Routes.chatProfiling
+  "/voice", // Routes.voiceNote
+  "/profiling", // Routes.profilePreview
+  "/building", // Routes.building
+  "/alerts", // Routes.alerts
+  "/feedback", // Routes.feedback
+  // The referral deep link. Declared inline in the route tree rather than as a `Routes`
+  // constant, because nothing in the app navigates to it — the platform delivers it.
+  "/i/:id", // GoRoute(path: '/i/:code')
+  // --- Shell branches (persistent bottom nav) and their sub-routes ---
+  "/jobs", // Routes.jobs
+  "/jobs/search", // Routes.jobSearch
+  "/jobs/detail/:id", // Routes.jobDetail + '/<jobId>'
+  "/resume", // Routes.resume
+  "/resume/edit", // Routes.resumeEdit
+  "/bada-bhai", // Routes.badaBhai
+  "/profile", // Routes.profile
+  "/profile/applied", // Routes.appliedJobs
+  "/profile/kit", // Routes.kit
+  "/profile/kit/detail/:id", // Routes.kitDetail + '/<tradeKey>'
+  "/profile/settings", // Routes.settings
+  "/profile/settings/devices", // Routes.devices
+] as const);
+
+/** One screen of the worker app. The ONLY non-null shape `screen_context` can hold. */
+export type WorkerAppScreenTemplate = (typeof WORKER_APP_SCREEN_TEMPLATES)[number];
+
 /**
- * An identifier SHAPE, matched anywhere in the value. Kept as one source string so the
- * sanitizer's substitution arms and this backstop cannot recognise different things — the
- * drift that let a prefixed uuid through.
+ * Membership as a lookup. Built once — the resolver runs on the request path of a worker's
+ * feedback, and `Array.includes` over the table on every call would be a linear scan for the
+ * common case (a static route, which is 25 of the 28).
  */
-export const SCREEN_ID_RUN_SOURCES = [
-  // A dashed uuid, unconditionally — the shape is unambiguous.
-  "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
-  // A hex run of 16+ — the dash-less uuid form and every opaque hex token of id length. ⚠ The
-  // leading lookahead REQUIRING a digit is not optional: `a`–`f` are hex, so a bare
-  // `[0-9a-fA-F]{16,}` also matches an ordinary long lowercase word made of those letters, and
-  // `/aaaa…` (the existing over-the-bound test case) collapsed to `/:id`. An identifier of 16+
-  // hex characters that contains no digit at all has probability ~(6/16)^16; a route word does
-  // it routinely.
-  "(?:(?=[0-9a-fA-F]*[0-9])[0-9a-fA-F]{16,})",
-  // A digit run of 4+ — a phone number, an Aadhaar group, a long numeric id. Four rather than
-  // five so a grouped `1234-5678-9012` is caught; a route word does not carry four digits.
-  "[0-9]{4,}",
-] as const;
-export const WORKER_FEEDBACK_SCREEN_PATTERN = new RegExp(
-  `^(?!.*\\/\\/)` +
-    `(?!.*\\/(?:${SCREEN_ID_SEGMENT})(?:\\/|$))` +
-    `(?!.*(?:${SCREEN_ID_RUN_SOURCES.join("|")}))` +
-    `\\/[A-Za-z0-9._:\\/-]*$`,
-);
+const WORKER_APP_SCREEN_TEMPLATE_SET: ReadonlySet<string> = new Set(WORKER_APP_SCREEN_TEMPLATES);
+
+/**
+ * Whether a value is one of the app's screens.
+ *
+ * A TYPE GUARD ON PURPOSE. It is what lets `FeedbackSubmittedPayload` narrow, and what makes
+ * "this string came from the table" a fact the compiler carries rather than a comment.
+ */
+export function isWorkerAppScreenTemplate(value: unknown): value is WorkerAppScreenTemplate {
+  return typeof value === "string" && WORKER_APP_SCREEN_TEMPLATE_SET.has(value);
+}
 
 // ---- Branded id helpers (lightweight; not enforced at runtime) ----
 export type Uuid = string;
