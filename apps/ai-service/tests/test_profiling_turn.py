@@ -217,3 +217,52 @@ def test_turn_route_timeout_returns_the_silent_fallback(monkeypatch) -> None:
     body = resp.json()
     assert body["reply_text"] == ""
     assert body["is_mock"] is True
+
+
+def test_the_turn_prompt_requires_an_experience_entry_when_a_job_is_described() -> None:
+    """THE DEFECT THIS PINS (#1016): the experience gate — "Aur koi experience jodna hai?" with
+    Haan/Nahi chips — was never reaching the worker app.
+
+    The gate is deterministic and the API owns it, but it is served on exactly one condition:
+    `LlmTurnService` opens it on the turn the model returns a non-null `experience_entry`. The
+    prompt used to introduce that field as "null on almost every turn", said nothing about it
+    being the ONLY way a job is recorded, and never told the model to leave the loop question
+    alone. Models read that as permission to run the experience stretch conversationally and ask
+    their own gate-shaped question instead — the reported welder session did exactly that
+    ("aur koi kaam jode?"), emitted no `experience_entry`, and returned `phase_a_done` on the
+    worker's "Nahi". The engine's gate therefore never opened, on any session.
+
+    So these three instructions are load-bearing, not decoration: without them the gate is
+    unreachable and the worker's jobs are never structured.
+    """
+    from app.profiling.interview_prompts import interview_system_prompt
+
+    prompt = interview_system_prompt()
+
+    # 1. Filling the field is an obligation on the turn a job completes, not an option.
+    assert "The MOMENT you have those three things" in prompt
+    assert "That is the only way a job is ever recorded." in prompt
+
+    # 2. The loop question belongs to the system. A model that asks it itself either duplicates
+    #    the gate or, having "handled" it, closes Phase A before the gate can ever be served.
+    assert "Do NOT ask whether they have another job" in prompt
+    assert "You do not ask whether the worker wants to add another experience" in prompt
+
+    # 3. The cost of omitting the field is stated, because "null on almost every turn" alone
+    #    reads as "rarely bother" — which is the behaviour that produced the bug.
+    assert "a job that never happened" in prompt
+
+
+def test_the_turn_prompt_still_lets_experience_entry_be_null_on_ordinary_turns() -> None:
+    """The counterweight to the test above, so the fix cannot overcorrect.
+
+    `experience_entry` genuinely IS null on most turns — domain, role and skills questions
+    complete no job — and a prompt that pushed the model to fill it every turn would invent
+    jobs the worker never described. That is the §11 failure in the opposite direction: a
+    fabricated entry becomes a line on a resume an employer will hold them to.
+    """
+    from app.profiling.interview_prompts import interview_system_prompt
+
+    prompt = interview_system_prompt()
+    assert "It is null on turns where no job was just completed" in prompt
+    assert "that is most turns, and that is correct" in prompt
