@@ -90,7 +90,7 @@ export class AdminWorkerJourneyController {
    * One worker's interview sessions, newest first — status, timings, the pinned pack, message
    * and answer counts, and the abandonment signal (`abandoned` + `idle_seconds`).
    *
-   * Keyset-paginated on `(started_at, id)` DESC with a hard page cap; migration 0078 adds the
+   * Keyset-paginated on `(started_at, id)` DESC with a hard page cap; migration 0079 adds the
    * matching index. 404 when the worker does not exist.
    */
   @Get("workers/:id/chat-sessions")

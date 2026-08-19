@@ -36,7 +36,7 @@ import type { AdminStuckQuestionResult } from "./admin-worker-journey.stuck";
  * ══ PAGINATION ═════════════════════════════════════════════════════════════════════════
  * The session list is KEYSET-paginated on `(started_at, id)` DESC with a hard cap, using the
  * shipped `admin-events.cursor` helper — its field is called `occurredAt` and here it
- * carries `started_at`, which IS when the session occurred. Migration 0078 adds the matching
+ * carries `started_at`, which IS when the session occurred. Migration 0079 adds the matching
  * `(worker_id, started_at DESC, id DESC)` index.
  */
 
@@ -106,11 +106,16 @@ export type AdminChatSessionsQueryDto = z.infer<typeof AdminChatSessionsQuerySch
  */
 export const JOURNEY_CAVEATS = [
   /**
-   * `interview_kit.downloaded` only began carrying `worker_id` at migration 0078, and no
+   * `interview_kit.downloaded` only began carrying `worker_id` at migration 0079, and no
    * backfill is possible (the route was anonymous by design). A zero on step 7 means "no
    * ATTRIBUTED download since then", never "this worker never took a kit".
+   *
+   * The number in this name tracks the migration and was `..._0078` until that slot collided
+   * with `0078_unresolved_phrase_job_domain_id` on `main`. Renaming a wire value is normally
+   * forbidden; it is safe exactly here because this enum has never shipped — it is introduced
+   * by the same unmerged PR that carries the migration, and no consumer reads it yet.
    */
-  "interview_kit_attribution_since_0078",
+  "interview_kit_attribution_since_0079",
   /**
    * `session_ai_cost_totals` accrues only from migration 0077 forward, with no backfill. A
    * session older than that has NO row — which is reported as `ai_cost: null`, never as ₹0,
@@ -295,10 +300,10 @@ export interface AdminJourneyPhotoStep extends AdminJourneyStepBase {
 
 /**
  * Step 7 — INTERVIEW KIT. `interview_kit.downloaded` events whose payload `worker_id` is this
- * worker (partial index `events_interview_kit_worker_idx`, migration 0078).
+ * worker (partial index `events_interview_kit_worker_idx`, migration 0079).
  *
  * The route is public and unauthenticated by design, so attribution is OPTIONAL and only
- * exists from 0078 forward, with no backfill possible. `attribution_available` says so on
+ * exists from 0079 forward, with no backfill possible. `attribution_available` says so on
  * every response, and the summary carries the matching caveat — a zero here must never be
  * read as "this worker never took a kit".
  */

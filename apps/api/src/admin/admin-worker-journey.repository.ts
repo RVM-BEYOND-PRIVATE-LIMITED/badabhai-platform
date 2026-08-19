@@ -70,7 +70,7 @@ import {
  *
  * ── BOUNDED + INDEX-BACKED ──────────────────────────────────────────────────────────────
  * Every list is capped. The session list is keyset-paginated on `(started_at, id)` DESC over
- * `chat_sessions_worker_started_idx` (migration 0078). Per-session counts are ONE grouped
+ * `chat_sessions_worker_started_idx` (migration 0079). Per-session counts are ONE grouped
  * query for the whole page, never one query per row.
  */
 @Injectable()
@@ -161,7 +161,7 @@ export class AdminWorkerJourneyRepository {
    *
    * The worker lives in the PAYLOAD, not in `subject_id` — the subject of that event is the
    * kit. Both halves of the WHERE are written to match `events_interview_kit_worker_idx`
-   * (migration 0078) exactly: the same `event_name` literal the partial index is built on,
+   * (migration 0079) exactly: the same `event_name` literal the partial index is built on,
    * and the same `payload->>'worker_id'` expression it indexes. Change either and the query
    * silently falls back to a sequential scan of the largest table in the system.
    */

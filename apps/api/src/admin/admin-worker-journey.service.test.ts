@@ -163,7 +163,7 @@ describe("journey summary — the funnel shape", () => {
   it("always carries the interview-kit attribution caveat (a zero there is not a 'never')", async () => {
     const { service } = fakeRepo();
     const summary = await service.getJourneySummary(ADMIN, WORKER, CTX);
-    expect(summary.caveats).toContain("interview_kit_attribution_since_0078");
+    expect(summary.caveats).toContain("interview_kit_attribution_since_0079");
   });
 });
 
@@ -540,7 +540,7 @@ describe("step 7: interview kit", () => {
     const { service } = fakeRepo();
     const summary = await service.getJourneySummary(ADMIN, WORKER, CTX);
     expect(step(summary, "interview_kit").status).toBe("not_done");
-    expect(summary.caveats).toContain("interview_kit_attribution_since_0078");
+    expect(summary.caveats).toContain("interview_kit_attribution_since_0079");
   });
 });
 

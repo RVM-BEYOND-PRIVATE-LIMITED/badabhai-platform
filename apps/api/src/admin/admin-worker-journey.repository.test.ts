@@ -187,7 +187,7 @@ describe("NO read on this surface projects raw worker text", () => {
 // ---------------------------------------------------------------------------
 
 describe("predicates match the indexes they were written for", () => {
-  it("the kit read carries BOTH halves of `events_interview_kit_worker_idx` (0078)", async () => {
+  it("the kit read carries BOTH halves of `events_interview_kit_worker_idx` (0079)", async () => {
     // PARTIAL on the event name and built on `payload->>'worker_id'`. Both must appear
     // verbatim or the planner cannot prove the partial covers the query, and this becomes a
     // sequential scan of the largest table in the system.

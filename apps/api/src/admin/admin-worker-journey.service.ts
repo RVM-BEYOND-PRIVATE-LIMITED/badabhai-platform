@@ -70,7 +70,7 @@ import {
  * ── HONESTY OVER TIDINESS ───────────────────────────────────────────────────────────────
  * Three measurements on this surface do not exist for all data, and each is reported as
  * MISSING rather than as a confident zero: interview-kit attribution (only from migration
- * 0078), session AI cost (only from 0077), and the stuck question (needs a
+ * 0079), session AI cost (only from 0077), and the stuck question (needs a
  * `conversation_state`). They ride on `caveats`, a closed enum, so the UI can say which.
  */
 @Injectable()
@@ -123,7 +123,7 @@ export class AdminWorkerJourneyService {
     // whole property this denominator has, so it is not collapsible into the batch above.
     const itemCounts = await this.repo.countPackItems(packVersions);
 
-    const caveats: JourneyCaveat[] = ["interview_kit_attribution_since_0078"];
+    const caveats: JourneyCaveat[] = ["interview_kit_attribution_since_0079"];
 
     // ---- step 2: profiling ------------------------------------------------
     const itemCountByPair = new Map(
@@ -271,7 +271,7 @@ export class AdminWorkerJourneyService {
       last_at: kit.lastAt,
       download_count: kit.n,
       trade_count: kit.trades,
-      // TRUE from migration 0078 onward. The caveat above is what says a zero here cannot be
+      // TRUE from migration 0079 onward. The caveat above is what says a zero here cannot be
       // read as "never downloaded" — historical rows carry no worker id and cannot be
       // backfilled, because the route was anonymous by design.
       attribution_available: true,
