@@ -286,7 +286,9 @@ never placed in an event payload, which stays the two-uuid shape).
   (`SessionService.create`), neutral 401 otherwise.
 - `POST /auth/pin/reset/request` + `POST /auth/pin/reset/confirm` — **reuse the existing OTP
   channel** (`AuthService.requestOtp` / `OtpService.verify`); worker resolved by **phone hash**
-  after OTP verify, never a body id; new PIN set + `worker.pin_reset`.
+  after OTP verify, never a body id; new PIN set + `worker.pin_reset`. **Amended by A6 (#994):
+  `confirm` is now 200 with the login-shape session body (was 204), and accepts an optional
+  `device_info` — see "Amendment A6" below.**
 
 Events (all **v1**, registered in [`@badabhai/event-schema`](../../packages/event-schema/src/registry.ts)):
 `worker.pin_set`, `worker.pin_verified`, `worker.pin_verify_failed`, `worker.pin_locked`,
@@ -592,3 +594,71 @@ The durable invariant stands regardless of the guard gate: **any future consent-
 MUST stamp `revokedAt` AND await `sessions.revokeAll` in the same service method, with a
 strict-order test** (tracked as TD69 in the tech-debt register). Together with the explicit
 paths above, this closes the resume surface ahead of the `kPersistentAuth` flip.
+
+## Amendment A6 — the forgot-PIN reset mints and RETURNS a session (#994)
+
+- Status: Accepted · Date: 2026-08-19 · Scope: `apps/api/src/auth/*` (no schema, no new event).
+
+**Problem.** Phase 3 shipped `POST /auth/pin/reset/confirm` as **204 No Content** ("Endpoints +
+events as built", above). That left the client on the refresh token it already held — and the
+whole reason a worker reaches forgot-PIN is that unlock is failing. The dominant cause of *that*
+is a **dead refresh token**: PIN unlock is a refresh-token lookup, and `POST /auth/pin/verify`
+answers a deliberately **neutral** 401 on every failure (no oracle, by design), which the app can
+only render as "PIN sahi nahi". So the recovery path depended on the exact credential that was
+broken. The worker set a new PIN, re-entered it, and was told it was wrong — permanently. #994.
+
+**Decision.** `reset/confirm` returns **200** with the **identical `LoginResponse` body
+`/auth/otp/verify` returns**. A verified OTP is precisely the proof the login path mints on, so
+minting here introduces no new authority — it removes a dependency on broken state. `pin_set` is
+true (the request just wrote it) and `is_new_worker` is false (the worker was resolved before the
+write). Back-compat is preserved at the wire: 204→200 stays 2xx, and the shipped client checks
+only 2xx-ness on this route, so an old build ignores the body and a new build consumes it.
+Precedent: ADR-0031 made the same 204→200 move on `/auth/account/delete/confirm`.
+
+**Mechanism.**
+- `PinResetConfirmSchema` gains an **optional** `device_info` (the same `DeviceInfoSchema`
+  `/auth/otp/verify` accepts). This is **load-bearing, not cosmetic**: `verifyPin` refuses any
+  refresh token that resolves without a `deviceId`, so a reset that minted an **unbound** session
+  would hand the worker a session they could never unlock with the PIN they had just set — the
+  same loop, one cold start later. Omitting it still resets and still returns a session; that
+  worker simply OTPs again on the next cold start, exactly as omitting it on login already behaves.
+- New `AuthService.mintSessionForWorker(worker, ctx, deviceInfo, isNew?)` — the shared mint, now
+  the public seam and the tail of `mintLoginForPhone`. It takes a **resolved worker row**, not a
+  phone: routing the reset back through the phone-based mint would have made create-or-get-by-
+  phone-hash reachable from an endpoint whose contract is "reset an **existing** worker's PIN".
+- **No new event TYPE.** `worker.pin_reset` remains this request's fact and carries the mint's
+  `correlationId`; the registry is untouched. Note that when `device_info` IS sent, this route
+  now also emits the existing `worker.device_registered` (and, on a push-token takeover,
+  `worker.push_token_claimed`) via the shared `DevicesService.registerOnLogin` — events it
+  never emitted before, from names that already exist.
+- **Known gap, deliberately not closed here:** a session is minted with no *session-mint*
+  event. Every other mint is distinguishable on the spine (`worker.otp_verified`,
+  `worker.test_login`, `worker.pin_verified`); this one is inferred from `worker.pin_reset`,
+  so a takeover via a stolen OTP looks like a routine forgot-PIN. Closing it means adding
+  bounded booleans to a `.strict()` v1 payload — a schema change under §3, hence its own
+  decision rather than a rider on this one.
+- `consent_accepted` composes through the shared `withConsentAccepted` helper
+  (`apps/api/src/consent/consent-flag.ts`), which **omits** the field on a read failure. By that
+  point the OTP is spent and the session minted — a consent blip must never 500 a reset that
+  server-side succeeded and cost the worker a code against the daily cap.
+
+**Ordering (load-bearing).** The PIN policy gate (exact length + weak-PIN denylist) now runs
+**before** `OtpService.verify`, so a weak PIN costs a 400 and nothing else. Spending the
+single-use code and only then rejecting the PIN pushed the worker back through the rate-limited
+OTP loop to try a different one — a direct contributor to the "recurring again and again" in the
+report. It is not an oracle: the denylist is public policy about the caller's own input and says
+nothing about the phone or the code. Then OTP verify, then the PIN write, then the mint — so the
+returned `pin_set` is a fact rather than a race.
+
+**Invariants.** No schema change, no new event, no new PII at rest, no guard change (the route is
+deliberately guard-less: the OTP is the credential). The response now carries a live refresh
+token — that is the point of the amendment — and it is asserted to stay out of every emitted
+event. A5 is untouched: this is a fresh login-shape mint after proof of phone ownership, not a
+resume, so it is gated like `verifyOtp` rather than like the resume paths.
+
+**Not the whole of #994.** This makes the reset self-healing regardless of session-store state;
+it does not make sessions stop dying. See [`docs/ops/staging-session-durability.md`](../ops/staging-session-durability.md)
+for where sessions live, what destroys them, and the CD-7 deploy gate that now proves the store
+survived. The client must also consume the returned body for a worker to feel this change
+(Frontend Platform — #998), and the likeliest actual cause of the recurrence is filed there
+too, with the server-side counterpart in #999.

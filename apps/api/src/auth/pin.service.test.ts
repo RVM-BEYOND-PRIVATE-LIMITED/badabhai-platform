@@ -22,6 +22,8 @@ const PHONE = "+919876543210";
 const WORKER = "worker-1";
 const DEVICE = "device-1";
 const REFRESH = "rt_opaque_value";
+/** The refresh token the (doubled) reset mint hands back — distinct from REFRESH. */
+const MINTED_REFRESH = "rt_minted_by_reset";
 const GOOD_PIN = "1357";
 const WRONG_PIN = "2468";
 
@@ -190,6 +192,8 @@ interface BuildOpts {
   otpVerifyThrows?: boolean;
   /** Latest worker_consents row for the A5 consent-on-resume gate. undefined = never consented. */
   consent?: { revokedAt: Date | null };
+  /** #994 — make the post-write session mint fail, to pin the fail-closed ordering. */
+  mintThrows?: boolean;
 }
 
 function build(opts: BuildOpts = {}) {
@@ -211,14 +215,52 @@ function build(opts: BuildOpts = {}) {
   const device = opts.device === undefined ? { id: DEVICE } : opts.device;
   const devices = { findActiveById: vi.fn().mockResolvedValue(device) };
 
-  const workers = { findByPhoneHash: vi.fn().mockResolvedValue({ id: WORKER }) };
+  // Shaped like the row the REAL findByPhoneHash returns — it is a `select()`, i.e. SELECT *,
+  // so it carries the encrypted phone, the phone hash and the name alongside the three fields
+  // the mint reads. The PII columns are here ON PURPOSE: without them the "no phone crosses
+  // the mint seam" assertion below is vacuous (a `{ id, status }` double structurally cannot
+  // leak a phone, so it would pass no matter what resetConfirm did).
+  const workers = {
+    findByPhoneHash: vi.fn().mockResolvedValue({
+      id: WORKER,
+      status: "active",
+      deletionScheduledAt: null,
+      phoneE164: `enc:${PHONE}`, // the at-rest ciphertext envelope
+      phoneHash: "hmac:13",
+      fullName: "enc:worker-name",
+      preferredLanguage: "hi",
+    }),
+  };
 
   const otp = {
     verify: opts.otpVerifyThrows
       ? vi.fn().mockRejectedValue(new UnauthorizedException("Incorrect code"))
       : vi.fn().mockResolvedValue(undefined),
   };
-  const auth = { requestOtp: vi.fn().mockResolvedValue({ success: true }) };
+  const auth = {
+    requestOtp: vi.fn().mockResolvedValue({ success: true }),
+    // #994 — the shared post-verification mint seam. Deterministic login-shape payload; the
+    // point of the double is that resetConfirm RETURNS it and passes the resolved worker +
+    // device_info through, never a phone (a reset must not be able to create an account).
+    mintSessionForWorker: opts.mintThrows
+      ? vi.fn().mockRejectedValue(new Error("redis down"))
+      : vi.fn().mockResolvedValue({
+          access_token: "jwt.reset.value",
+          token_type: "Bearer",
+          expires_in_seconds: 900, // a real ACCESS token TTL, not the 30d session TTL
+          worker_id: WORKER,
+          is_new_worker: false,
+          status: "active",
+          pin_set: true,
+          refresh_token: MINTED_REFRESH,
+          refresh_expires_in_seconds: 7776000,
+          session: {
+            tier: 0,
+            expires_at: "2026-07-27T00:00:00.000Z",
+            requires_otp_after: null,
+          },
+        }),
+  };
   const consents = { findLatestByWorker: vi.fn(async () => opts.consent) };
 
   const svc = new PinService(
@@ -833,13 +875,149 @@ describe("PinService.resetConfirm", () => {
     expect(pins.state.row!.otpCycleCount).toBe(2);
   });
 
-  it("a denylisted new PIN is rejected (400) even after a valid OTP, BEFORE hashing", async () => {
-    const { svc, hasher, pins } = build();
+  it("a denylisted new PIN is rejected (400) BEFORE hashing — and now before the OTP too", async () => {
+    // The name used to say "even after a valid OTP". #994 inverted that: the gate moved
+    // AHEAD of otp.verify so a weak PIN no longer spends the worker's single-use code.
+    // Without the otp.verify assertion this test passes under either ordering.
+    const { svc, hasher, pins, otp } = build();
     await expect(svc.resetConfirm(PHONE, "123456", "1234", ctx)).rejects.toBeInstanceOf(
       BadRequestException,
     );
+    expect(otp.verify).not.toHaveBeenCalled();
     expect(hasher.hash).not.toHaveBeenCalled();
     expect(pins.repo.upsertPin).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // #994 — the reset now RETURNS a session, and the PIN gate runs before the OTP burn.
+  // -------------------------------------------------------------------------
+
+  it("a weak/malformed PIN is rejected BEFORE the single-use OTP is spent", async () => {
+    // THE POINT: burning the OTP and only then rejecting the PIN forced the worker back
+    // through the rate-limited OTP request/send loop to try a different PIN — the
+    // "recurring again and again" in #994. The PIN gate is caller-input policy and can
+    // answer first; it leaks nothing about the phone or the code (same 400 either way).
+    for (const bad of ["1234", "0000", "13"]) {
+      const { svc, otp, workers, pins, auth } = build();
+      await expect(svc.resetConfirm(PHONE, "123456", bad, ctx)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(otp.verify, `${bad} must not spend the OTP`).not.toHaveBeenCalled();
+      expect(workers.findByPhoneHash).not.toHaveBeenCalled();
+      expect(pins.repo.upsertPin).not.toHaveBeenCalled();
+      expect(auth.mintSessionForWorker).not.toHaveBeenCalled();
+    }
+  });
+
+  it("returns a FRESH login-shape session so the reset self-heals a dead refresh token", async () => {
+    // The whole reason a worker reaches forgot-PIN is that unlock is failing, and the
+    // dominant cause is a DEAD refresh token surfaced as /auth/pin/verify's neutral 401
+    // ("PIN sahi nahi"). Returning void left the client on that same dead token, so the
+    // reset could not recover them. The response must carry a NEW credential.
+    const { svc, auth } = build();
+
+    const res = await svc.resetConfirm(PHONE, "123456", "4826", ctx);
+
+    expect(res.refresh_token).toBe(MINTED_REFRESH);
+    expect(res.access_token).toBe("jwt.reset.value");
+    expect(res.worker_id).toBe(WORKER);
+    expect(res.token_type).toBe("Bearer");
+    // The session block is the /auth/otp/verify shape — tier is a NUMBER, not a label
+    // (apps/FLUTTER_ISSUES_TRACKER.json records the crash a String fixture once hid).
+    expect(typeof res.session.tier).toBe("number");
+    expect(res.session.expires_at).toBe("2026-07-27T00:00:00.000Z");
+    // Exactly one mint, and the service passes it straight out — pin_set / is_new_worker
+    // are the MINT's to compute (from pins.findByWorkerId and the isNew argument), so they
+    // are pinned where the service actually controls them, in the two tests below, not by
+    // re-reading this double's canned literals.
+    expect(auth.mintSessionForWorker).toHaveBeenCalledTimes(1);
+  });
+
+  it("mints from a NARROWED worker projection — no account creation, and no PII across the seam", async () => {
+    // Two things at once, both of which were real ways to get this wrong:
+    //  (a) routing through the PHONE-based mint would have made create-or-get-by-phone-hash
+    //      reachable from an endpoint whose contract is "reset an EXISTING worker's PIN";
+    //  (b) passing the resolved row straight through would have handed the mint the encrypted
+    //      phone, the phone hash and the name — structural typing does not strip them, so the
+    //      MintableWorker type alone guarantees nothing at runtime.
+    const { svc, auth, workers } = build();
+
+    await svc.resetConfirm(PHONE, "123456", "4826", ctx);
+
+    const [worker, passedCtx] = auth.mintSessionForWorker.mock.calls[0]!;
+    expect(worker).toEqual({ id: WORKER, status: "active", deletionScheduledAt: null });
+    expect(passedCtx).toBe(ctx);
+    expect(workers.findByPhoneHash).toHaveBeenCalledTimes(1); // resolved ONCE, not re-read
+
+    // The double DOES carry PII (see the workers double in build()), so these can fail.
+    const args = JSON.stringify(auth.mintSessionForWorker.mock.calls[0]);
+    expect(args, "the raw phone reached the mint").not.toContain(PHONE);
+    expect(args, "the phone ciphertext reached the mint").not.toContain("enc:");
+    expect(args, "the phone hash reached the mint").not.toContain("hmac:");
+  });
+
+  it("never claims a reset created the worker (is_new_worker must not be forced true)", async () => {
+    // Asserted on the CALL, not on the double's canned response: the service controls the
+    // 4th argument and nothing else, so this is the only place the regression is visible.
+    // `mintSessionForWorker(worker, ctx, deviceInfo, true)` would report a returning worker
+    // as brand-new and route the app into first-run onboarding.
+    const { svc, auth } = build();
+    await svc.resetConfirm(PHONE, "123456", "4826", ctx);
+    expect(auth.mintSessionForWorker.mock.calls[0]![3]).toBeUndefined();
+  });
+
+  it("passes device_info through, so the minted session is device-BOUND and PIN-unlockable", async () => {
+    // Load-bearing, not cosmetic: verifyPin refuses any refresh token that resolves without
+    // a deviceId. A reset that minted an UNBOUND session would hand the worker a session
+    // they could never unlock with the PIN they just set — the same loop, one cold start later.
+    const deviceInfo = { device_id: "device-abcdef12", platform: "android" as const };
+    const { svc, auth } = build();
+
+    await svc.resetConfirm(PHONE, "123456", "4826", ctx, deviceInfo);
+
+    expect(auth.mintSessionForWorker.mock.calls[0]![2]).toBe(deviceInfo);
+  });
+
+  it("composes consent_accepted, and OMITS it (never 500s) when the consent read fails", async () => {
+    const active = build({ consent: { revokedAt: null } });
+    expect((await active.svc.resetConfirm(PHONE, "123456", "4826", ctx)).consent_accepted).toBe(
+      true,
+    );
+
+    const revoked = build({ consent: { revokedAt: new Date() } });
+    expect((await revoked.svc.resetConfirm(PHONE, "123456", "4826", ctx)).consent_accepted).toBe(
+      false,
+    );
+
+    // The OTP is already spent and the session already minted by the time this read runs —
+    // a blip must not 500 a reset that server-side succeeded and cost the worker their code.
+    const blip = build();
+    blip.consents.findLatestByWorker.mockRejectedValueOnce(new Error("db down"));
+    const res = await blip.svc.resetConfirm(PHONE, "123456", "4826", ctx);
+    expect(res).not.toHaveProperty("consent_accepted");
+    expect(res.refresh_token).toBe(MINTED_REFRESH);
+  });
+
+  it("writes the PIN BEFORE minting, and a mint failure fails the request (no silent 204)", async () => {
+    // Ordering: pin_set in the response must be a fact, not a race. And if the session store
+    // is unreachable the caller gets an error — the same fail-closed posture /auth/otp/verify
+    // has — rather than a success with no credential in it.
+    const { svc, pins } = build({ mintThrows: true });
+
+    await expect(svc.resetConfirm(PHONE, "123456", "4826", ctx)).rejects.toThrow("redis down");
+    expect(pins.repo.upsertPin).toHaveBeenCalled();
+  });
+
+  it("keeps the returned refresh token out of every event (it is a live credential)", async () => {
+    const { svc, emit } = build();
+
+    const res = await svc.resetConfirm(PHONE, "123456", "4826", ctx);
+
+    for (const call of emit.mock.calls) {
+      const json = JSON.stringify(call[0]);
+      expect(json, "an event leaked the minted refresh token").not.toContain(res.refresh_token);
+      expect(json, "an event leaked the minted access token").not.toContain(res.access_token);
+    }
   });
 });
 

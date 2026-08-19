@@ -5,6 +5,32 @@
 #   docker compose up -d         # start postgres + redis (+ adminer)
 #   docker compose down          # stop
 #   docker compose down -v       # stop and DELETE volumes (data loss)
+#
+# NEVER RUN `down -v` (or `down`) AGAINST THE STAGING BOX. Locally it costs you a dev
+# database. There it deletes `badabhai-platform_badabhai_redisdata`, which is the ONLY
+# copy of every worker's session and refresh token — every worker on the platform is
+# force-logged-out the instant it runs, and (because PIN unlock is a refresh-token lookup
+# behind a neutral 401) they see "wrong PIN" for a PIN that is correct. That is #994. To
+# clean up a stray container on the box use `docker rm -f <name>`, never `down`.
+
+# #994 — THE COMPOSE PROJECT NAME IS WHAT NAMESPACES THE VOLUMES, and compose derives it
+# from the directory basename. The live session store on the staging box is
+# `badabhai-platform_badabhai_redisdata` only because the deploy happens to
+# `cd ~/deployments/badabhai-platform`. Rename it, re-clone elsewhere, or deploy from a
+# worktree and compose silently mounts a NEW EMPTY volume — a total, invisible session wipe
+# that deploys green.
+#
+# The deploy therefore pins it EXPLICITLY, with `export COMPOSE_PROJECT_NAME=badabhai-platform`
+# in .github/workflows/ci.yml, and a guard test asserts that export stays there.
+#
+# DELIBERATELY NOT a top-level `name:` key here, for two reasons:
+#   1. `name:` needs Compose v2.3.3+, and this repo's standing rule is that the box's compose
+#      version is UNVERIFIED — the deploy already refuses `--wait` for exactly that reason. An
+#      unsupported key fails at PARSE, i.e. every compose command in the deploy, not just one.
+#   2. It would make the project name directory-INDEPENDENT on the box, so a hand-run
+#      `docker compose down -v` from a scratch clone would stop destroying a scratch project
+#      and start destroying production's session store. The env var scopes the pin to the
+#      deploy, which is the only place that needs it.
 
 services:
   postgres:
@@ -50,7 +76,47 @@ services:
     image: redis:7-alpine
     container_name: badabhai-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    # #994: THIS REDIS IS THE WORKER SESSION STORE, not a cache. `session:<sid>`,
+    # `refresh:<sha256(token)>`, `refresh_family:*`, `worker_sessions:*` and
+    # `worker_families:*` (apps/api/src/auth/session.service.ts) live ONLY here — there is
+    # no Postgres mirror. Lose this keyspace and EVERY worker is force-logged-out at once:
+    # /auth/token/refresh 401s, the app force-reauths, and because PIN unlock is just a
+    # refresh-token lookup behind a neutral 401, the worker sees "PIN sahi nahi" for a PIN
+    # that is perfectly correct. That is the whole of #994. So the flags below are
+    # correctness, not tuning:
+    #
+    #   --appendonly yes       AOF, so a restart replays writes instead of losing every
+    #                          session written since the last RDB snapshot.
+    #   --appendfsync everysec the AOF default, PINNED: `no` would hand durability to the
+    #                          kernel's flush timing, which on an unclean stop is exactly
+    #                          the "sessions from the last few minutes vanished" bug.
+    #   --maxmemory-policy noeviction
+    #                          the default, PINNED because it is load-bearing twice over:
+    #                          an LRU/random policy would let redis evict live refresh
+    #                          tokens under memory pressure (logging workers out with no
+    #                          error anywhere), and BullMQ refuses to run against an
+    #                          evicting instance at all.
+    #
+    # Both added flags are redis 7's compiled-in defaults, so this is BEHAVIOUR-NEUTRAL —
+    # the point is that the session store's durability stops being an inherited default
+    # nobody wrote down and can therefore be asserted. `--save` is deliberately NOT passed:
+    # any --save on the command line REPLACES the built-in snapshot set, so restating it is
+    # the one way to accidentally weaken the RDB copy that backs up the AOF. `maxmemory`
+    # stays 0/unlimited: with noeviction a full redis fails WRITES (no new logins mint),
+    # which is a product call (§16), not a devops one.
+    #
+    # `docker compose down -v`, `docker volume rm ..._badabhai_redisdata`, or bringing this
+    # box up under a different compose project name all defeat every line above — the volume
+    # is the durability, these flags only protect what is in it. The deploy asserts this
+    # config is actually live on the box before it recreates the api (.github/workflows/ci.yml).
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory-policy
+      - noeviction
     # CD-1a: bind the published port to LOOPBACK, never 0.0.0.0. This redis runs with
     # NO password (no `requirepass`), and on the staging box it is the REAL redis
     # (owner decision: box-local, not managed) holding worker sessions, the OTP

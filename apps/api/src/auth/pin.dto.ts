@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { e164PhoneSchema } from "@badabhai/validators";
+import { DeviceInfoSchema } from "./devices.dto";
+import type { LoginResponse } from "./auth.dto";
 
 /**
  * Zod DTOs for the device-bound PIN endpoints (ADR-0026 Phase 3).
@@ -43,13 +45,40 @@ export const PinResetRequestSchema = z.object({
 });
 export type PinResetRequestDto = z.infer<typeof PinResetRequestSchema>;
 
-/** Body of POST /auth/pin/reset/confirm — verify the OTP and set the new PIN. */
+/**
+ * Body of POST /auth/pin/reset/confirm — verify the OTP and set the new PIN.
+ *
+ * `device_info` is ADDITIVE + OPTIONAL (#994) and mirrors {@link OtpVerifySchema}'s field
+ * exactly. It is NOT cosmetic: the reset now mints a session, and PIN unlock is
+ * DEVICE-BOUND — `PinService.verifyPin` refuses any refresh token that resolves without a
+ * `deviceId`. A reset that minted an UNBOUND session would hand the worker a session they
+ * could not later unlock with the PIN they just set, i.e. the same loop this endpoint is
+ * being fixed to break, one cold start later. A client that omits it still resets fine and
+ * still gets a session — it just has to OTP again on the next cold start, exactly as
+ * omitting `device_info` on /auth/otp/verify already behaves.
+ */
 export const PinResetConfirmSchema = z.object({
   phone: e164PhoneSchema,
   otp: z.string().regex(/^\d{4,8}$/, "OTP must be 4-8 digits"),
   pin: pinSchema,
+  device_info: DeviceInfoSchema.optional(),
 });
 export type PinResetConfirmDto = z.infer<typeof PinResetConfirmSchema>;
+
+/**
+ * Response of POST /auth/pin/reset/confirm (#994 — the route was 204 No Content).
+ *
+ * DELIBERATELY the byte-identical {@link LoginResponse} that POST /auth/otp/verify returns,
+ * not a near-miss of it: the client can feed this to the SAME session parser/persist path it
+ * already runs after an OTP login, and a reset therefore recovers a worker whose stored
+ * refresh token is dead. `pin_set` is true (this request just wrote it) and `is_new_worker`
+ * is false (the worker was resolved by phone hash before the write).
+ *
+ * BACK-COMPAT (§10): purely ADDITIVE at the wire. 204→200 keeps the response 2xx, and the
+ * shipped client checks only 2xx-ness on this route (`auth_api.dart: _check`) — an old build
+ * ignores the new body, a new build consumes it.
+ */
+export type PinResetConfirmResponse = LoginResponse;
 
 /**
  * Response of POST /auth/pin/verify on SUCCESS — the SAME login-shape session the OTP path

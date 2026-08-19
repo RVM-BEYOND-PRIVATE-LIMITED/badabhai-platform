@@ -73,7 +73,8 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | GET/PATCH/DELETE | /auth/devices, /auth/devices/me/push-token, /auth/devices/:id | WAG | B | no controller test (service-tested) |
 | POST | /auth/pin/set | WAG | B | |
 | POST | /auth/pin/verify | none (refresh token = credential, ADR-0026) | A | |
-| POST | /auth/pin/reset/request, /reset/confirm | none (IP-capped) | B | |
+| POST | /auth/pin/reset/request | none (IP-capped, shared `otp_request` bucket) | B | |
+| POST | /auth/pin/reset/confirm | none (the verified OTP is the credential) | B | **NOT IP-capped** — bounded by the per-phone send caps + per-code attempt counter in `OtpService`, same posture as `/auth/otp/verify`. **Mints a session** and returns the login-shape body since #994 (ADR-0026 A6) |
 
 ### consent, admin (auth/directory/entities/finance/events/kill-switch/pii-reveal/actions)
 
