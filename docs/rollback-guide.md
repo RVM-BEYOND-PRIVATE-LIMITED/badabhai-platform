@@ -84,10 +84,10 @@ Nothing is reverted in git; the box just points at older, already-built images.
    is the real (Supabase) Postgres, never the compose-internal one.
 
    admin-web is rolled back LAST for the same reason it deploys last: it is the internal
-   admin portal, it is **not reachable from the internet** (nothing opens 3003 in the box's
-   security group and no nginx server block routes to it), so it must never delay restoring
-   the two surfaces real users hit. That `curl` runs *on the box* — it is the only thing
-   that talks to this container.
+   admin portal, it is **not reachable from the internet** (it publishes on `127.0.0.1:3003`
+   only, and no nginx server block routes to it), so it must never delay restoring the two
+   surfaces real users hit. That `curl` runs *on the box* — being loopback-bound is exactly
+   why it is the only thing that can talk to this container.
 
 6. **Verify.** All four `/health` endpoints 200, and `$COMPOSE ps` shows all four
    containers `Up`/`healthy`. api's and ai-service's `/health` check connectivity

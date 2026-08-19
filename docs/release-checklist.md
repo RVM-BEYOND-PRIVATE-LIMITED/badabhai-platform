@@ -93,9 +93,10 @@ broken.
     `http://localhost:${ADMIN_WEB_PORT:-3003}/health`, 15 attempts × 2s ≈ 30s each). Both run
     *after* the api's gate so a broken portal image never delays the api, and neither has a
     `depends_on` edge — the ordering here is the dependency. **`admin-web` is the internal admin
-    portal and is NOT reachable from the internet**: nothing opens 3003 in the box's security
-    group and no nginx server block routes to it, so those `localhost` probes are the only
-    traffic it receives. Exposing it is a separate owner decision requiring an IP allowlist.
+    portal and is NOT reachable from the internet**, behind two independent controls: it is
+    published on `127.0.0.1:3003` only (so an accidentally-opened security-group rule still
+    reaches nothing), and no nginx server block routes to it. Those `localhost` probes are the
+    only traffic it receives. Exposing it is a separate owner decision requiring an IP allowlist.
 10. On any health-gate failure, the job dumps the last 100 lines of that container's logs and
     exits red — the box is left on whatever it was running before (a failed `api up` does not
     tear down a working previous container).

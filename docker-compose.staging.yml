@@ -773,16 +773,43 @@ services:
       #
       # HOST SIDE IS 3003 — owner-confirmed as free on THIS box, not a guess, and it is
       # the app's own port so host and container match (no translation to remember).
-      # It is bound on ALL interfaces like payer-web's rather than loopback-only, purely
-      # for symmetry with the one publish pattern this file already uses; the security
-      # group is what actually keeps it private, and that is the control being relied on.
-      # Making it loopback-only would be a defence-in-depth improvement and a fine
-      # follow-up, but it is NOT what makes this safe today.
+      #
+      # ---- LOOPBACK-BOUND (`127.0.0.1:`), UNLIKE payer-web ABOVE. This is the one place
+      # this block deliberately does NOT copy payer-web, and it is because payer-web's own
+      # comment says WHY it binds every interface: "the entire point of this v1 is
+      # reachability from OUTSIDE the box (real browser traffic), so a loopback bind would
+      # defeat it outright." admin-web's requirement is the exact opposite — it must NOT be
+      # reachable from outside the box — so applying payer-web's stated reasoning to this
+      # service yields `127.0.0.1`, not `0.0.0.0`. The pattern being copied is the
+      # structure, not a binding whose justification does not transfer.
+      #
+      # This follows the CD-1a precedent already in the BASE file rather than inventing
+      # one: redis (`127.0.0.1:6379:6379`) and ai-service (`127.0.0.1:8000:8000`) are both
+      # loopback-bound, and the deploy still health-gates ai-service with
+      # `curl http://localhost:8000/health` — the probe runs ON the box, so loopback is all
+      # it needs. admin-web's `wait_healthy` poll is the identical shape.
+      #
+      # WHY BOTHER, given nothing opens 3003 in the security group: because that security
+      # group is currently the ONLY thing standing between the internet and the most
+      # privileged surface in the platform, and a single console misclick would remove it.
+      # Loopback binding means an accidentally-opened 3003 still reaches nothing. Neither
+      # control is load-bearing alone; this is the cheap one, and it costs nothing —
+      # nothing outside the box legitimately dials this port today.
+      #
+      # NOT A BLOCKER FOR EVER EXPOSING IT (an owner decision needing an IP allowlist): an
+      # nginx running on the host proxies to 127.0.0.1:3003 unchanged, and an nginx running
+      # as a compose service would reach `admin-web:3003` over the compose network without
+      # any published port at all.
       #
       # ADMIN_WEB_PORT survives as an OVERRIDE for a future box, so nothing has to be set
       # for this one. Unset arrives on the box as the empty string and `:-` substitutes on
       # empty as well as on unset, so it resolves to 3003 either way.
-      - "${ADMIN_WEB_PORT:-3003}:3003"
+      #
+      # NOTE for whoever adds the next service here: `published-port-binding-compose.guard`
+      # (apps/api) enforces exactly this rule, but it reads ONLY docker-compose.yml and
+      # docker-compose.e2e.yml — it does NOT read this overlay, so it did not and cannot
+      # check this line. The bind above is a deliberate choice, not a guard-enforced one.
+      - "127.0.0.1:${ADMIN_WEB_PORT:-3003}:3003"
     environment:
       NODE_ENV: production
       PORT: "3003"
