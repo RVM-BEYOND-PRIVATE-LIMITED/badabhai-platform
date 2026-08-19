@@ -28,7 +28,12 @@
  *      retrieval paths filter out.
  *
  * IMMUTABILITY (SG-5): ids are never reused/renamed; `skill` rows are never deleted.
- * GUARDED: refuses NODE_ENV === "production" (prod re-tag is a deliberate, gated step).
+ * GUARDED, DATABASE-AWARE (`ops-guard.ts`): a dry run against ANY target is allowed and
+ *   announced; an `--apply` against a production-like DATABASE_URL — or with
+ *   NODE_ENV=production — is refused unless BOTH the
+ *   `--i-am-authorised-to-write-to-production` flag and `OPS_ALLOW_PRODUCTION=retag` are
+ *   present. The previous guard keyed on NODE_ENV alone, which blocked read-only dry runs
+ *   while permitting a production WRITE whenever that variable happened to be unset.
  *
  * OPERATOR NOTES (from the TAX-9 adversarial review):
  * - `--apply` RE-PLANS from live state — the dry-run report is advisory, not a signed
@@ -57,6 +62,7 @@ import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { createDbClient } from "./client";
 import { jobPostings, skillAliases, skills, workerProfiles } from "./schema";
+import { opsGuard, PRODUCTION_WRITE_ENV } from "./ops-guard";
 import { deterministicAliasId } from "./skill-alias-id";
 
 config({ path: "../../.env" });
@@ -224,13 +230,27 @@ async function planSurface(
 }
 
 async function main(): Promise<void> {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("[retag] refusing to run in production (run is §7-gated ops).");
-  }
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("[retag] DATABASE_URL is not set");
   const aiBase = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
   const apply = process.argv.includes("--apply");
+
+  // DATABASE-AWARE, not NODE_ENV-only. The old guard refused a READ-ONLY dry run whenever a
+  // shell exported NODE_ENV=production — and the obvious workaround, unsetting it, also
+  // unblocked `--apply`. Meanwhile a mutating run against the production database proceeded
+  // happily whenever NODE_ENV was merely unset, which is the default state of a laptop whose
+  // environment points at production. The blast radius is decided by the connection string,
+  // so that is what is classified; NODE_ENV is kept as an independent second tripwire.
+  const verdict = opsGuard({
+    script: "retag",
+    connectionString: url,
+    nodeEnv: process.env.NODE_ENV,
+    allowEnv: process.env[PRODUCTION_WRITE_ENV],
+    argv: process.argv.slice(2),
+    mutating: apply,
+  });
+  if (verdict.warning !== null) console.log(verdict.warning);
+  if (!verdict.allowed) throw new Error(verdict.refusal ?? "[retag] refused");
   const reportPath =
     process.env.RETAG_REPORT_PATH ??
     path.resolve(__dirname, "../../../docs/registers/skill-retag-report.md");
