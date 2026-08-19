@@ -41,7 +41,20 @@ class _CreditsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<CreditsScreenCubit, CreditsScreenState>(
+    return BlocConsumer<CreditsScreenCubit, CreditsScreenState>(
+      listenWhen: (CreditsScreenState p, CreditsScreenState c) =>
+          p.purchased != c.purchased || p.purchaseFailed != c.purchaseFailed,
+      listener: (BuildContext context, CreditsScreenState state) {
+        final ScaffoldMessengerState m = ScaffoldMessenger.of(context)
+          ..clearSnackBars();
+        if (state.purchased) {
+          m.showSnackBar(
+              const SnackBar(content: Text('Credits add ho gaye.')));
+        } else if (state.purchaseFailed) {
+          m.showSnackBar(const SnackBar(
+              content: Text('Purchase nahi hua. Dobara try karein.')));
+        }
+      },
       builder: (BuildContext context, CreditsScreenState state) {
         if (state.status == CreditsScreenStatus.loading ||
             state.status == CreditsScreenStatus.initial) {
@@ -90,18 +103,6 @@ class _CreditsView extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: AppSpacing.s2),
-            // #376 — and say the missing capability out loud, so "where do I
-            // buy?" is answered on the screen instead of read as a bug. Scoped
-            // to this app (which is the true statement) — not a promise about
-            // when or where purchasing will appear.
-            Text(
-              'Buying credits is not available in the app yet.',
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                color: AppColors.textSecondary,
-              ),
-            ),
             const SizedBox(height: AppSpacing.s4),
             BbCard(
               ink: true,
@@ -137,6 +138,34 @@ class _CreditsView extends StatelessWidget {
                 ],
               ),
             ),
+            // Buy credits — packs come from the SERVER pricing catalog
+            // (`GET /payer/pricing/catalog`), never a client-invented price, and
+            // the buy is the MOCK path (`POST /payer/credits`, no real money).
+            // Only shown when the catalog returned packs.
+            if (state.packs.isNotEmpty) ...<Widget>[
+              const SizedBox(height: AppSpacing.s5),
+              Text(
+                'Buy credits',
+                style: AppTypography.display(
+                  size: AppTypography.sizeBase,
+                  weight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.s2),
+              for (final CreditPack pack in state.packs)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.s2),
+                  child: _PackCard(
+                    pack: pack,
+                    busy: state.purchasing == pack.code,
+                    // Freeze the other packs while one purchase is in flight.
+                    locked: state.purchasing != null &&
+                        state.purchasing != pack.code,
+                    onBuy: () =>
+                        context.read<CreditsScreenCubit>().buyPack(pack.code),
+                  ),
+                ),
+            ],
             const SizedBox(height: AppSpacing.s5),
             // #376 follow-up — this section reads `GET /payer/credits/ledger`
             // (pack purchases, unlock debits, grants, refunds), so it is the
@@ -196,6 +225,61 @@ class _CreditsView extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+}
+
+/// One buyable credit pack: credits + the server's ₹ price + a Buy button. The
+/// button shows a spinner for the pack being bought and is disabled for the
+/// others while a purchase is in flight.
+class _PackCard extends StatelessWidget {
+  const _PackCard({
+    required this.pack,
+    required this.busy,
+    required this.locked,
+    required this.onBuy,
+  });
+
+  final CreditPack pack;
+  final bool busy;
+  final bool locked;
+  final VoidCallback onBuy;
+
+  @override
+  Widget build(BuildContext context) {
+    return BbCard(
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  '${pack.credits} unlocks',
+                  style: AppTypography.display(
+                    size: AppTypography.sizeBase,
+                    weight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  '₹${pack.priceInr}',
+                  style: AppTypography.body(
+                    size: AppTypography.sizeSm,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s3),
+          BbButton(
+            label: 'Buy',
+            size: BbButtonSize.sm,
+            loading: busy,
+            onPressed: (busy || locked) ? null : onBuy,
+          ),
+        ],
+      ),
     );
   }
 }
