@@ -55,17 +55,22 @@ broken.
 1. **SSH to the box** as the deploy user, `cd ~/deployments/badabhai-platform`, `git pull origin main`.
 2. **GHCR login** with the ephemeral job `GITHUB_TOKEN` (dies with the run — never a long-lived
    PAT on the box).
-3. **Pin the immutable image tags**: `API_IMAGE`/`AI_SERVICE_IMAGE` both set to
-   `sha-<first 7 chars of github.sha>` (lowercased). Both are exported even for an api-only
-   change — `docker-compose.staging.yml` interpolates the **whole** overlay before filtering by
-   service, so a missing `AI_SERVICE_IMAGE` would fail every command, including `pull api`.
+3. **Pin the immutable image tags**: `API_IMAGE`, `AI_SERVICE_IMAGE`, `PAYER_WEB_IMAGE` and
+   `ADMIN_WEB_IMAGE` all set to `sha-<first 7 chars of github.sha>` (lowercased). **All four**
+   are exported even for an api-only change — `docker-compose.staging.yml` interpolates the
+   **whole** overlay before filtering by service, so a single missing `*_IMAGE` would fail every
+   command, including `pull api`. (Measured, not assumed: with every other variable satisfied,
+   unsetting `ADMIN_WEB_IMAGE` makes `... --profile api config api` — which names admin-web
+   nowhere — exit 1 with "required variable ADMIN_WEB_IMAGE is missing a value".)
 4. **Disk reclaim, before pulling** — `docker image prune -af --filter "until=72h"` (never
    touches an image a running container references, never touches
    `badabhai_pgdata`/`badabhai_redisdata` volumes), escalating to a full `docker image prune -af`
    if free space stays under 4GB after the conservative pass, and hard-failing before any pull if
    still under 2GB. This step exists because deploys **#500/#501/#503 actually died** from disk
    exhaustion mid-pull before it was added — real incidents, not a hypothetical safeguard.
-5. **Pull both images.**
+5. **Pull all four images.** Each pull is independent: a service whose image was never published
+   for this commit is SKIPPED (it keeps running its previous container) and the job fails loudly
+   at the end naming it, rather than one broken build blocking every healthy one.
 6. **Start Redis** (`up -d --no-deps redis`) — box-local, must be started explicitly (it is not
    an `api` dependency the compose graph would otherwise bring up under `--no-deps`).
 7. **Migrations are NOT run here.** `TODO(CD-2, held: 0031 human sign-off + D1)` — this is a real,
@@ -83,6 +88,14 @@ broken.
    instant) rather than waiting out the full poll budget.
 9. **Start `api`, health-gate it** (`GET http://localhost:3001/health`, 30 attempts × 2s ≈ 60s
    budget), same crash short-circuit logic.
+9b. **Start `payer-web`, then `admin-web`, health-gating each** (`GET
+    http://localhost:${PAYER_WEB_PORT:-3333}/health` and
+    `http://localhost:${ADMIN_WEB_PORT:-3003}/health`, 15 attempts × 2s ≈ 30s each). Both run
+    *after* the api's gate so a broken portal image never delays the api, and neither has a
+    `depends_on` edge — the ordering here is the dependency. **`admin-web` is the internal admin
+    portal and is NOT reachable from the internet**: nothing opens 3003 in the box's security
+    group and no nginx server block routes to it, so those `localhost` probes are the only
+    traffic it receives. Exposing it is a separate owner decision requiring an IP allowlist.
 10. On any health-gate failure, the job dumps the last 100 lines of that container's logs and
     exits red — the box is left on whatever it was running before (a failed `api up` does not
     tear down a working previous container).

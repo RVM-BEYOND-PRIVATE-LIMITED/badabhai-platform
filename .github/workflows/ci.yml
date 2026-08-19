@@ -28,7 +28,15 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
       worker-app: ${{ steps.filter.outputs.worker-app }}
       payer-app: ${{ steps.filter.outputs.payer-app }}
+      # NOTE, so neither of these is mistaken for the gate itself: NOTHING currently reads
+      # `needs.changes.outputs.payer-web` or `.admin-web` — both are leftovers of the shape
+      # this job had when each web image was a standalone job, kept because they are the
+      # job's public interface. What actually gates those two image builds is the `gate`
+      # field of their row in the `image-matrix` step below, which reads
+      # `toJSON(steps.filter.outputs)` DIRECTLY and asserts that every `gate` names a filter
+      # that exists. Deleting either line would change nothing; deleting a filter would.
       payer-web: ${{ steps.filter.outputs.payer-web }}
+      admin-web: ${{ steps.filter.outputs.admin-web }}
       sast: ${{ steps.filter.outputs.sast }}
       deps: ${{ steps.filter.outputs.deps }}
       # #965: the value baked into api / ai-service / payer-web as `GIT_COMMIT_SHA` and
@@ -146,6 +154,30 @@ jobs:
               - 'packages/validators/**'
               - 'packages/types/**'
               - '.github/workflows/ci.yml'
+            # apps/admin-web — the INTERNAL admin portal. Same contract as the payer-web
+            # filter directly above, for the same reason: this gates ONLY the admin-web LEG
+            # of `image-gate` (via the `gate` field of that app's row in the `image-matrix`
+            # step). The TS lint/typecheck/test/build for apps/admin-web already runs
+            # UNCONDITIONALLY inside the `node` job (turbo covers the whole workspace, no
+            # path filter), so this filter's one job is "does the Dockerfile still produce
+            # an image?".
+            #
+            # The workspace packages listed are the ones admin-web's Dockerfile ACTUALLY
+            # BUILDS, enumerated from its package.json + every `@badabhai/*` import under
+            # apps/admin-web/src rather than copied from the payer-web block: it depends on
+            # @badabhai/config (the `/shared` subpath — the secure-cookie helper),
+            # @badabhai/pricing (paise/credit formatting) and @badabhai/validators (login +
+            # admin-invite schemas), plus validators' own @badabhai/types dependency. It
+            # happens to be the same four as payer-web; that is a fact about this app, not
+            # an assumption inherited from that one. A change to any of them can break the
+            # image with zero admin-web edits.
+            admin-web:
+              - 'apps/admin-web/**'
+              - 'packages/config/**'
+              - 'packages/pricing/**'
+              - 'packages/validators/**'
+              - 'packages/types/**'
+              - '.github/workflows/ci.yml'
             # SAST (#773). Mirrors the filter security-scan.yml used while the job lived
             # there, plus the two workflow files that now decide whether it runs at all —
             # same reasoning as the e2e and Flutter entries above: a change to the gate
@@ -218,7 +250,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # ---- THE SOURCE OF TRUTH. One row per shipped image; PR 3 adds admin-web here.
+          # ---- THE SOURCE OF TRUTH. One row per shipped image (PR 3 added admin-web).
           #
           # cache-scope `buildkit` for the api is NOT arbitrary: it is the documented default
           # scope of buildx's `type=gha` cache backend, i.e. exactly the scope the api's
@@ -229,8 +261,22 @@ jobs:
           MATRIX_JSON='[
             {"app":"api","context":".","file":"apps/api/Dockerfile","image":"badabhai-api","cache-scope":"buildkit","next-public":false,"gate":""},
             {"app":"ai-service","context":"apps/ai-service","file":"apps/ai-service/Dockerfile","image":"badabhai-ai-service","cache-scope":"ai-service","next-public":false,"gate":"ai-service"},
-            {"app":"payer-web","context":".","file":"apps/payer-web/Dockerfile","image":"badabhai-payer-web","cache-scope":"payer-web","next-public":true,"gate":"payer-web"}
+            {"app":"payer-web","context":".","file":"apps/payer-web/Dockerfile","image":"badabhai-payer-web","cache-scope":"payer-web","next-public":true,"gate":"payer-web"},
+            {"app":"admin-web","context":".","file":"apps/admin-web/Dockerfile","image":"badabhai-admin-web","cache-scope":"admin-web","next-public":false,"gate":"admin-web"}
           ]'
+          # admin-web: `"next-public":false` IS THE SECURITY-RELEVANT FIELD IN THAT ROW, not
+          # an omission. The two `build-args:` lines this switch controls name
+          # PAYER_WEB_NEXT_PUBLIC_API_URL / _SITE_URL *literally* (secrets cannot be indexed
+          # from a matrix — see the note above), so flipping this to `true` would bake the
+          # PAYER portal's origins into the ADMIN portal's bundle. admin-web needs no public
+          # var at all: its only two NEXT_PUBLIC_* reads are in `import "server-only"`
+          # modules with safe fallbacks, and its api origin (ADMIN_API_BASE_URL) is
+          # server-only and read at container START, not baked at build time. If admin-web
+          # ever needs a real public value it gets its OWN ADMIN_WEB_NEXT_PUBLIC_* secrets,
+          # its own ARGs and payer-web's `unset` guard — never a ride on that switch.
+          # `"context":"."` (repo root) because admin-web imports @badabhai/config,
+          # @badabhai/pricing and @badabhai/validators — verified from its package.json and
+          # its imports, the same reason api and payer-web build from the root.
 
           if ! MATRIX="$(printf '%s' "$MATRIX_JSON" | jq -c .)"; then
             echo "::error::the image build matrix is not valid JSON — every image build would be skipped."
@@ -803,8 +849,11 @@ jobs:
   # matrix, because a job `if:` cannot see `matrix`. `changes` emits ONLY the apps whose
   # filter fired, so an unaffected app produces no matrix leg at all — the same skip
   # semantics the two previous jobs had — and when nothing fired the whole job skips, which
-  # `ci-required` treats as fine. WHICH apps are gated is unchanged by this refactor:
-  # ai-service and payer-web, exactly as before; `api` carries an empty `gate` field.
+  # `ci-required` treats as fine. The PR-gated set is ai-service, payer-web and admin-web;
+  # `api` carries an empty `gate` field and has no PR image gate today. Adding admin-web
+  # here did NOT change which JOBS `ci-required` names — `image-gate` was already one of
+  # them — it only added a leg to a job that was already required, which is strictly more
+  # coverage for the same required-check list.
   image-gate:
     name: Image gate (${{ matrix.app }})
     if: needs.changes.outputs.image-gate-matrix != '[]'
@@ -1574,7 +1623,7 @@ jobs:
       #
       # This is deliberately an ASSERTION rather than deriving the deploy from the
       # matrix: each service has a bespoke start order, health URL, port and timeout
-      # (redis -> ai-service -> api -> payer-web), and generating that from data would
+      # (redis -> ai-service -> api -> payer-web -> admin-web), and generating that from data would
       # trade a loud, cheap check for a subtle one on the live production deploy path.
       # Cross-check the sets, fail loudly, keep the ordering explicit and readable.
       #
@@ -1588,7 +1637,7 @@ jobs:
 
           # The services the remote script below actually deploys. KEEP IN STEP with its
           # `pull_image` / `image_present` blocks — that is what this step enforces.
-          DEPLOYS="api ai-service payer-web"
+          DEPLOYS="api ai-service payer-web admin-web"
 
           # `tr -d '\r'` is defensive, not decorative. THIS CHECK CAN BLOCK EVERY DEPLOY,
           # so it must never fail for a reason unrelated to what it is asserting. Caught
@@ -1693,6 +1742,18 @@ jobs:
           # unrelated missing secret. See the service block in docker-compose.staging.yml
           # for the measured proof.
           PAYER_WEB_PORT: ${{ secrets.PAYER_WEB_PORT }}
+          # admin-web's box port — identical contract to PAYER_WEB_PORT above: OPTIONAL, an
+          # OVERRIDE only, and deliberately NOT fail-loud for the same measured reason (a
+          # `:?` in compose fails EVERY command including `pull api`). It does not exist as
+          # a secret today and should not for THIS box: 3003 is owner-confirmed free there
+          # and is the compose default.
+          #
+          # BRIDGED ANYWAY RATHER THAN LEFT OUT, and that is the point of this line: compose
+          # reads `${ADMIN_WEB_PORT:-3003}` and the health poll below reads
+          # `${ADMIN_WEB_PORT:-3003}`. If this name were absent here, creating the secret
+          # later would move the PUBLISHED port while the poll still checked 3003 — a deploy
+          # that fails on a healthy container. One channel, both readers, no drift.
+          ADMIN_WEB_PORT: ${{ secrets.ADMIN_WEB_PORT }}
         with:
           host: ${{ secrets.LIGHTSAIL_HOST }}
           username: ${{ secrets.LIGHTSAIL_USER }}
@@ -1702,7 +1763,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,PAYER_WEB_PORT
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,PAYER_WEB_PORT,ADMIN_WEB_PORT
           script: |
             set -e
             # CD-1: never leave a registry credential (even an expired job token)
@@ -1738,9 +1799,16 @@ jobs:
             # overlay before filtering by service/profile, so docker-compose.staging.yml's
             # `${PAYER_WEB_IMAGE:?}` would fail EVERY command below if it were missing.
             export PAYER_WEB_IMAGE="$(echo "ghcr.io/${{ github.repository }}/badabhai-payer-web:sha-$(echo '${{ github.sha }}' | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
+            # apps/admin-web (the INTERNAL admin portal): same commit, same immutability
+            # rule, and — like the two exports above — NOT optional even for an api-only
+            # concern. Compose interpolates the WHOLE overlay before filtering by service or
+            # profile, so docker-compose.staging.yml's `${ADMIN_WEB_IMAGE:?}` would fail
+            # EVERY command below, `pull api` included, if this export were missing.
+            export ADMIN_WEB_IMAGE="$(echo "ghcr.io/${{ github.repository }}/badabhai-admin-web:sha-$(echo '${{ github.sha }}' | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
             echo "Deploying image: $API_IMAGE"
             echo "Deploying image: $AI_SERVICE_IMAGE"
             echo "Deploying image: $PAYER_WEB_IMAGE"
+            echo "Deploying image: $ADMIN_WEB_IMAGE"
 
             # CD-0: base + staging overlay. The overlay pins NODE_ENV=production and
             # makes every production-required secret a fail-loud ${VAR:?} — a box
@@ -1941,6 +2009,11 @@ jobs:
             # (docker-compose.staging.yml), since it has no base-file counterpart to
             # inherit the profile from.
             pull_image payer-web "$PAYER_WEB_IMAGE" || true
+            # apps/admin-web — same `--profile api` reasoning as payer-web above: it
+            # declares `profiles: ["api"]` directly on its own service block
+            # (docker-compose.staging.yml), having no base-file counterpart to inherit the
+            # profile from.
+            pull_image admin-web "$ADMIN_WEB_IMAGE" || true
 
             # CD-1a: Redis IS box-local (owner decision) — it runs as this compose
             # project's `redis` service, so unlike postgres it MUST start here. The
@@ -2055,6 +2128,41 @@ jobs:
               echo "Waiting for payer-web to become healthy..."
               wait_healthy payer-web "http://localhost:${PAYER_WEB_PORT:-3333}/health" 15 || exit 1
               DEPLOYED_SERVICES="${DEPLOYED_SERVICES}${DEPLOYED_SERVICES:+ }payer-web"
+            fi
+
+            # ---- apps/admin-web (the INTERNAL admin portal), started LAST.
+            #
+            # Ordering, for the same reason payer-web follows the api: no `depends_on` edge
+            # exists (see the service block's own comment), so start order here is what
+            # keeps a broken admin-web from ever preceding — or blocking — the two surfaces
+            # that actually serve users. api and payer-web have already been deployed AND
+            # health-gated by the time this runs, so an admin-web failure below costs
+            # nothing that was already shipped; it still turns THIS JOB red.
+            #
+            # DEPLOYING THIS DOES NOT PUBLISH IT. Nothing in the box's security group opens
+            # 3003 (measured: 3001/8000/3333 all refuse externally; only 80/443 are open,
+            # behind nginx) and no nginx server block routes to admin-web. The `localhost`
+            # in the probe below is the box itself — this poll is the ONLY thing that talks
+            # to this container from outside it. Exposing an admin portal is a separate
+            # owner decision needing an IP allowlist; do not add nginx/DNS/certbot here.
+            #
+            # `:-3003` must match docker-compose.staging.yml's default EXACTLY: the port is
+            # an optional override, so when it is unset this poll has to look at the same
+            # port compose actually published, not at `http://localhost:/health`.
+            # ~30s budget (15 x 2s), same as payer-web — an identical Next.js standalone
+            # server, so the same boot profile.
+            #
+            # /health is unauthenticated BY DESIGN and reveals only `{status, build}` — no
+            # session read, no PII, no upstream call (apps/admin-web/src/app/health/route.ts
+            # and its test pin all three). It is the only route in this portal that answers
+            # without an admin session, and gating the deploy on an authenticated route
+            # would mean putting an admin credential on the box.
+            if image_present admin-web; then
+              $COMPOSE up -d --no-deps admin-web
+              $COMPOSE ps
+              echo "Waiting for admin-web to become healthy..."
+              wait_healthy admin-web "http://localhost:${ADMIN_WEB_PORT:-3003}/health" 15 || exit 1
+              DEPLOYED_SERVICES="${DEPLOYED_SERVICES}${DEPLOYED_SERVICES:+ }admin-web"
             fi
 
             # ---- THE LOUD ENDING. This is the half of the design that makes the tolerance
