@@ -52,6 +52,27 @@ const ADVANCED_PAST: StuckCandidate = {
 /** The tile label that exists ONLY when a question is being named. */
 const NAMED_QUESTION_TILE = "The question on screen when it ended";
 
+/** The label of the tile that answers the servability question, verbatim from the panel. */
+const SERVABILITY_TILE = "Could the engine have served it again?";
+
+/**
+ * The VALUE rendered in the servability tile, or null when that tile is not on the page.
+ *
+ * Pinned to the tile the way `ai-spend-panel.render.test.tsx` pins the accrual date to its own
+ * label. "unknown" reaches this markup from three independent places — this tile's ternary, the
+ * candidates table's servability pill, and the notice body via `servability()` — so a bare
+ * `toContain("unknown")` stays green after the tile's ternary is broken, which is the one thing
+ * it is meant to catch.
+ */
+function servabilityTileValue(out: string): string | null {
+  const m = out.match(
+    new RegExp(
+      `<span class="stat__value">([^<]*)</span><span class="stat__label">${SERVABILITY_TILE.replace("?", "\\?")}</span>`,
+    ),
+  );
+  return m ? m[1]! : null;
+}
+
 function stuck(overrides: Partial<SessionStuck>): SessionStuck {
   return {
     outcome: "resolved",
@@ -161,8 +182,8 @@ describe("stuck panel — the quiet outcomes", () => {
 });
 
 describe("stuck panel — an unknown servability is shown as unknown", () => {
-  it("never renders a null `unservable` as a clean 'no'", () => {
-    const out = html(
+  const out = () =>
+    html(
       <StuckPanel
         stuck={stuck({
           stuck_question: { ...CANDIDATE, unservable: null },
@@ -170,6 +191,17 @@ describe("stuck panel — an unknown servability is shown as unknown", () => {
         })}
       />,
     );
-    expect(out).toContain("unknown");
+
+  it("never renders a null `unservable` as a clean 'no' in the TILE", () => {
+    // The tile specifically, not "the word appears somewhere": `servability()` and the
+    // candidates pill both put "unknown" in this markup independently, so the loose form
+    // survived breaking the very ternary this test is named for.
+    expect(servabilityTileValue(out())).toBe("unknown");
+  });
+
+  it("never renders a null `unservable` as a clean 'no' in the candidates PILL", () => {
+    // Toned `warn`, not muted: null is "the ranking could not judge this leg", which is not
+    // the same fact as "the engine could never have served it again".
+    expect(out()).toContain('<span class="pill pill--warn">unknown</span>');
   });
 });
