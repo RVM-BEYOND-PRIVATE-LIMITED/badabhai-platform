@@ -93,6 +93,8 @@ export const EVENT_DOMAINS = [
   // event); the ONLY identity token here is the opaque `admin_id` (== `admin_users.id`).
   // `admin.action_performed`/`admin.pii_viewed` carry an action/reason CODE + a target/
   // subject id — NEVER a changed value or the revealed PII (CLAUDE.md invariant #2).
+  // `admin.worker_journey_viewed` (Phase 6) is the same posture for a READ: opaque
+  // admin/worker/session ids + a view enum, never a question key or any free text.
   "admin",
   // Skill-canonicalization vocabulary (ADR-0030 / FORK-B-1) — the unresolved-phrase
   // growth queue. PII-FREE & hash-only: the phrase text (already pseudonymized at rest,

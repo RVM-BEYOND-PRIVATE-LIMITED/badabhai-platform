@@ -2313,6 +2313,47 @@ export const AdminPiiViewedPayload = z
   .strict();
 export type AdminPiiViewedPayload = z.infer<typeof AdminPiiViewedPayload>;
 
+/**
+ * WHICH of the two worker-journey reads an admin performed (ADR-0025 Phase 6). A closed enum
+ * so the audit distinguishes "opened the funnel" from "opened one interview session" without
+ * a free-text label.
+ */
+export const ADMIN_JOURNEY_VIEWS = ["journey_summary", "chat_session"] as const;
+export const AdminJourneyView = z.enum(ADMIN_JOURNEY_VIEWS);
+export type AdminJourneyView = z.infer<typeof AdminJourneyView>;
+
+/**
+ * An admin READ one worker's journey (ADR-0025 Phase 6) — the funnel summary or one interview
+ * session in depth.
+ *
+ * ⚠ WHY A READ IS AUDITED AT ALL, WHEN THE OTHER `read_entities` READS ARE NOT. The journey
+ * sits on the same capability and returns the same DATA CLASS as the entity detail (opaque
+ * ids, enums, timestamps, counts, question keys — no PII), but at materially higher
+ * GRANULARITY and it is BEHAVIOURAL rather than a state snapshot: login times and counts,
+ * per-question outcomes across the whole pack corpus, where the interview stalled and under
+ * how much ask pressure, the voice re-record chain, per-session AI spend, idle seconds. That
+ * is a profile of a person's attempt to use the product, and the ruling is that looking at it
+ * must leave a trail naming who looked and at whom — the same reason `admin.pii_viewed`
+ * exists, at a lower stake.
+ *
+ * PII-FREE BY CONSTRUCTION, and narrower than `admin.pii_viewed`: the opaque `admin_id`, the
+ * opaque `subject_id` (the WORKER whose journey was read — resolved server-side, never from a
+ * request body), a view ENUM, and the opaque `chat_session_id` when one session was opened.
+ * NEVER a question key, a status, a count, a reason note, or any free text — WHICH question a
+ * worker stalled on is a fact about that worker and belongs in the response, not on the spine.
+ * `.strict()` is the structural backstop.
+ */
+export const AdminWorkerJourneyViewedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    subject_id: uuidSchema,
+    view: AdminJourneyView,
+    /** The session opened, for `view: "chat_session"`. Null for the funnel summary. */
+    chat_session_id: uuidSchema.nullable().default(null),
+  })
+  .strict();
+export type AdminWorkerJourneyViewedPayload = z.infer<typeof AdminWorkerJourneyViewedPayload>;
+
 /** Which per-admin reveal cap was breached (ADR-0025 ADMIN-3b must-fix #8). Enum-only → no PII. */
 export const ADMIN_PII_REVEAL_CAP_WINDOWS = ["hour", "day"] as const;
 export const AdminPiiRevealCapWindow = z.enum(ADMIN_PII_REVEAL_CAP_WINDOWS);
