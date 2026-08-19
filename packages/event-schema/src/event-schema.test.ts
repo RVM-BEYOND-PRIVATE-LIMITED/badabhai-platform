@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { WORKER_FEEDBACK_CATEGORIES, WORKER_FEEDBACK_APP_BUILD_MAX } from "@badabhai/types";
 import {
   validateEvent,
   createEvent,
@@ -8,6 +9,7 @@ import {
   EVENT_REGISTRY,
   isEventName,
   MAX_VOICE_NOTE_SECONDS,
+  FeedbackSubmittedPayload,
 } from "./index";
 
 const UUID_A = "11111111-1111-4111-8111-111111111111";
@@ -2774,8 +2776,13 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 162 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed + chat.session_abandoned + the duplicate submission + skill.phrase_unresolved_v2 + the admin worker-journey read audit)", () => {
-    expect(EVENT_NAMES).toHaveLength(162);
+  it("exposes all 163 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed + chat.session_abandoned + the duplicate submission + skill.phrase_unresolved_v2 + the admin worker-journey read audit + worker feedback)", () => {
+    expect(EVENT_NAMES).toHaveLength(163);
+    // #997 — the worker addressing the platform in their own words. The only worker-authored
+    // free text on the spine whose system-of-record row is deliberately allowed to hold the
+    // worker's own PII; the EVENT carries the category, the length and the build, never the
+    // words. Its own `describe` block below is what keeps that true.
+    expect(isEventName("feedback.submitted")).toBe(true);
     // S3-C / D-6 — the canonical-scope generation of the skill-miss event. A SECOND
     // registry entry rather than a v1 mutation; see the payload's own note.
     expect(isEventName("skill.phrase_unresolved_v2")).toBe(true);
@@ -3681,5 +3688,100 @@ describe("profile.submission_duplicated (#931) — the countable half of a dupli
   it("rejects a negative elapsed_ms or replay count", () => {
     expect(validateEvent(dupEvent({ ...DUPLICATE, elapsed_ms: -1 })).success).toBe(false);
     expect(validateEvent(dupEvent({ ...DUPLICATE, replays: -1 })).success).toBe(false);
+  });
+});
+
+describe("feedback.submitted (#997) — the SHAPE of a worker's feedback, never the words", () => {
+  const base = {
+    worker_id: UUID_A,
+    feedback_id: UUID_B,
+    category: "problem",
+    message_length: 142,
+    app_build: "abc1234",
+  };
+  const make = (payload: object) =>
+    createEvent({
+      event_name: "feedback.submitted",
+      // The worker addressed us deliberately — this is not a sweep and not telemetry, so the
+      // actor is the worker, and the subject is the same worker (the feedback is about us).
+      actor: { actor_type: "worker", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_A },
+      source: "api",
+      metadata: { environment: "test", service: "api" },
+      payload: payload as never,
+    });
+
+  it("accepts the submitted shape — two ids, a tag, a length and a build", () => {
+    expect(validateEvent(make(base)).success).toBe(true);
+  });
+
+  it("REJECTS the message text riding along (.strict)", () => {
+    // THE ONE FIELD THIS EVENT EXISTS NOT TO CARRY. `message` is unbounded worker free text
+    // and the worker is explicitly invited to say anything, so their own name and phone
+    // number are a likely rather than an unlucky occurrence — and the events table is exactly
+    // where §2 forbids raw PII from landing. The words live in `worker_feedback`, which is
+    // the one table sanctioned to hold them.
+    expect(() => make({ ...base, message: "mera naam Ramesh hai, 9876543210" })).toThrow(
+      EventValidationException,
+    );
+    // ...and under any other name a well-meaning future field might use.
+    expect(() => make({ ...base, message_text: "the app keeps logging me out" })).toThrow(
+      EventValidationException,
+    );
+    expect(() => make({ ...base, message_excerpt: "the app keeps" })).toThrow(
+      EventValidationException,
+    );
+  });
+
+  it("carries NO field that could hold free text at all", () => {
+    // The structural version of the test above, so it keeps holding for a field nobody has
+    // thought of yet: every key in this payload is an id, a closed enum, a bounded count or a
+    // charset-restricted build stamp. If a plain unbounded string ever appears here, the
+    // smuggling tests above stop being the last line of defence and this one says so.
+    const shape = FeedbackSubmittedPayload.shape;
+    expect(Object.keys(shape).sort()).toEqual([
+      "app_build",
+      "category",
+      "feedback_id",
+      "message_length",
+      "worker_id",
+    ]);
+    // `message_length` is the only field named after the message, and it is a number.
+    expect(() => make({ ...base, message_length: "one hundred and forty-two" })).toThrow(
+      EventValidationException,
+    );
+  });
+
+  it("REJECTS any unknown key, not just the tempting ones (.strict)", () => {
+    expect(() => make({ ...base, device_model: "Redmi 9A" })).toThrow(EventValidationException);
+  });
+
+  it("accepts a null category — 'did not tag' is not 'said other'", () => {
+    // The shipped client omits the key entirely when the worker does not tag their feedback.
+    // Coercing that to "other" here would put a lie in the histogram ops reads.
+    expect(validateEvent(make({ ...base, category: null })).success).toBe(true);
+  });
+
+  it("accepts every tag the shipped app can send, and nothing else", () => {
+    // The three tokens are frozen in the worker app; a fourth arriving without a schema change
+    // would report into a value no dashboard counts.
+    for (const category of WORKER_FEEDBACK_CATEGORIES) {
+      expect(validateEvent(make({ ...base, category })).success).toBe(true);
+    }
+    expect(() => make({ ...base, category: "spam" })).toThrow(EventValidationException);
+  });
+
+  it("rejects a negative message length (a length is evidence; a negative one is a bug)", () => {
+    expect(() => make({ ...base, message_length: -1 })).toThrow(EventValidationException);
+    expect(() => make({ ...base, message_length: 1.5 })).toThrow(EventValidationException);
+  });
+
+  it("accepts a null app_build, and rejects one past the header's bound", () => {
+    // Absent or malformed build stamps are sanitized to null at the edge rather than rejecting
+    // the submission — but an over-long one reaching here means that sanitizer was bypassed.
+    expect(validateEvent(make({ ...base, app_build: null })).success).toBe(true);
+    expect(() =>
+      make({ ...base, app_build: "a".repeat(WORKER_FEEDBACK_APP_BUILD_MAX + 1) }),
+    ).toThrow(EventValidationException);
   });
 });

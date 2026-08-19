@@ -3,6 +3,8 @@ import {
   VACANCY_BANDS,
   JOB_POSTING_STATUSES,
   JOB_POSTING_VERIFICATION_STATUSES,
+  WORKER_FEEDBACK_CATEGORIES,
+  WORKER_FEEDBACK_APP_BUILD_MAX,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -3261,3 +3263,42 @@ export const ProfileSubmissionDuplicatedPayload = z
 export type ProfileSubmissionDuplicatedPayload = z.infer<
   typeof ProfileSubmissionDuplicatedPayload
 >;
+
+// ---------------------------------------------------------------------------
+// feedback.* — the worker addressing the platform in their own words (#997).
+// ---------------------------------------------------------------------------
+
+/**
+ * A worker submitted free-text feedback from the app-wide Feedback button (#997).
+ *
+ * THE MESSAGE TEXT IS NEVER CARRIED, and this is the same ruling `job.search_performed` made
+ * about the search term, for the same reason and with less room for argument: `message` is
+ * unbounded worker free text, the worker is explicitly invited to say anything, and their own
+ * name, phone number or employer is a LIKELY rather than an unlucky occurrence. The events
+ * table is exactly where §2 forbids raw PII from landing. Hashing was rejected for the search
+ * term because a short term is dictionary-reversible; here it is rejected for a simpler
+ * reason — a hash of a paragraph answers no question anyone has.
+ *
+ * WHAT IS RECORDED INSTEAD is the SHAPE of the submission: which tag (if any), how long the
+ * message was, which app build it came from, and the row id that lets an operator jump from
+ * the spine to the admin screen where the words legitimately live. That answers the questions
+ * this event exists for — "is feedback volume rising after that release?", "is one build
+ * generating all the problem reports?" — without the spine ever holding what anyone wrote.
+ *
+ * `.strict()` is load-bearing here more than anywhere: a later field carrying the text is the
+ * one mistake that would look exactly like a helpful improvement.
+ */
+export const FeedbackSubmittedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** The `worker_feedback` row. An opaque uuid — the join from the spine to the words. */
+    feedback_id: uuidSchema,
+    /** The worker's optional tag. Null means they did not tag it — never coerced to "other". */
+    category: z.enum(WORKER_FEEDBACK_CATEGORIES).nullable(),
+    /** Characters in the trimmed message, as a coarse volume/effort signal. Never the text. */
+    message_length: z.number().int().nonnegative(),
+    /** `x-app-build` (#966): a commit SHA / build number, or null when absent or malformed. */
+    app_build: z.string().min(1).max(WORKER_FEEDBACK_APP_BUILD_MAX).nullable(),
+  })
+  .strict();
+export type FeedbackSubmittedPayload = z.infer<typeof FeedbackSubmittedPayload>;

@@ -39,6 +39,11 @@ export const NAV: NavSection[] = [
     title: "Operations",
     items: [
       { href: "/workers", label: "Workers", capability: "read_entities" },
+      // Beside Workers rather than at the end of the section: every row on this screen is a
+      // worker speaking, and its Worker column links straight back into the roster above.
+      // `read_entities` mirrors the route's own guard exactly — the nav hides a door it
+      // cannot open, it does not decide who may go through it.
+      { href: "/feedback", label: "Feedback", capability: "read_entities" },
       { href: "/companies", label: "Companies", capability: "read_entities" },
       { href: "/agencies", label: "Agencies", capability: "read_entities" },
       { href: "/jobs", label: "Jobs", capability: "read_entities" },

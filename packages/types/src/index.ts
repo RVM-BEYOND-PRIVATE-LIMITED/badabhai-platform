@@ -244,6 +244,41 @@ export const LANGUAGE_CODES = [
 ] as const;
 export type LanguageCode = (typeof LANGUAGE_CODES)[number];
 
+// ---- Worker app feedback (#997) ----
+
+/**
+ * The coarse, OPTIONAL tag a worker may put on their in-app feedback.
+ *
+ * It lives here rather than in any one consumer because THREE layers pin the same closed set
+ * and a fourth private copy is exactly how they drift: the `worker_feedback_category_chk`
+ * CHECK constraint (packages/db), the `feedback.submitted` payload (packages/event-schema),
+ * and the request DTO (apps/api). The wire tokens are already SHIPPED in the worker app
+ * (`FeedbackCategory.wire`) — they are frozen, and renaming one here would silently reject a
+ * released client.
+ */
+export const WORKER_FEEDBACK_CATEGORIES = ["suggestion", "problem", "other"] as const;
+export type WorkerFeedbackCategory = (typeof WORKER_FEEDBACK_CATEGORIES)[number];
+
+/**
+ * Server-side ceiling on one feedback message, in characters.
+ *
+ * The worker app deliberately imposes NO client cap ("never boxed in"), so this is the ONLY
+ * bound that exists on worker-authored text. 4000 is generous for a complaint typed on a
+ * phone and small enough that the endpoint cannot be used as free blob storage. Pinned at the
+ * database too (`worker_feedback_message_len_chk`), because a DTO is the first line of
+ * defence and not the last — a backfill or an ops script never passes through zod.
+ */
+export const WORKER_FEEDBACK_MESSAGE_MAX = 4000;
+
+/**
+ * Ceiling on the `x-app-build` header value (#966).
+ *
+ * By contract it is a commit SHA or a build number, but it arrives from an UNTRUSTED client,
+ * so it is bounded and charset-restricted before it is stored or evented. It is telemetry:
+ * a malformed stamp is discarded, never a reason to reject the worker's feedback.
+ */
+export const WORKER_FEEDBACK_APP_BUILD_MAX = 64;
+
 // ---- Branded id helpers (lightweight; not enforced at runtime) ----
 export type Uuid = string;
 export type Iso8601 = string;

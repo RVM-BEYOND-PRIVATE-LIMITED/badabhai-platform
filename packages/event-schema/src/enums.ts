@@ -128,6 +128,15 @@ export const EVENT_DOMAINS = [
   // consumer reading the spine. PII-FREE: a sha256 of an already-pseudonymized phrase, a
   // language tag and a count — never the worker's words.
   "occupation",
+  // #997 — worker-authored app feedback, on its way to the admin console. A DISTINCT domain
+  // from `worker` (identity lifecycle: created/otp/name/photo) and from `action` (the
+  // behavioural telemetry sink): this is a worker deliberately ADDRESSING the platform in
+  // their own words, and it is the only domain whose system-of-record row is unbounded free
+  // text. Keeping it separate means a consumer counting feedback volume never has to
+  // subtract lifecycle noise. PII-FREE ON THE SPINE BY CONSTRUCTION: the payload carries a
+  // category, a LENGTH and a build stamp — the words themselves live in `worker_feedback`
+  // and never in an event.
+  "feedback",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;

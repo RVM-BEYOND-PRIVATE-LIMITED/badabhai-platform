@@ -844,6 +844,19 @@ export const EVENT_REGISTRY = {
     domain: "skill",
     payload: p.SkillPhraseUnresolvedV2Payload,
   },
+
+  // #997 — a worker sent free-text feedback from the app-wide Feedback button. The
+  // system-of-record row lives in `worker_feedback` and the WORDS stay there: this payload
+  // carries the category, the message LENGTH and the app build, mirroring how
+  // `job.search_performed` records the shape of a search and never the term. The row id is
+  // carried so an operator can get from a spine trace to the admin screen without a text
+  // search. Emitted inside the same transaction as the insert, so a feedback row without an
+  // audit record cannot exist. v1.
+  "feedback.submitted": {
+    version: 1,
+    domain: "feedback",
+    payload: p.FeedbackSubmittedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

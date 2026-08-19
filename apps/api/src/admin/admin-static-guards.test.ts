@@ -8,6 +8,7 @@ import { AdminActionsController } from "./admin-actions.controller";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminKillSwitchController } from "./admin-kill-switch.controller";
 import { AdminEntitiesController } from "./admin-entities.controller";
+import { AdminFeedbackController } from "./admin-feedback.controller";
 import { AdminFinanceController } from "./admin-finance.controller";
 import { AdminDirectoryController } from "./admin-directory.controller";
 import { AdminDashboardController } from "./admin-dashboard.controller";
@@ -483,6 +484,77 @@ describe("BP-1 entity-read routes — guarded, read-only, and read_entities-scop
     }
     // No unprojected `select()` — that form returns every column, PII included.
     expect(source).not.toMatch(/\.select\(\s*\)/);
+  });
+});
+
+describe("#997 feedback route — guarded, read-only, and read_entities-scoped", () => {
+  const proto = AdminFeedbackController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminFeedbackController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  it("discovers EXACTLY the one list route (no detail read, no export, no write)", () => {
+    // Structural, not conventional. This is the one admin surface carrying worker-authored
+    // free text, so every route added to it widens a PII egress — the assertion exists so
+    // that widening has to be a deliberate edit here, not a side effect of adding a method.
+    expect(routeMethods.sort()).toEqual(["list"]);
+  });
+
+  it("the feedback route carries AdminAuthGuard AND AdminRolesGuard (no open privileged route)", () => {
+    const guards = effectiveGuards(AdminFeedbackController, "list");
+    expect(guards).toContain(AdminAuthGuard.name);
+    expect(guards).toContain(AdminRolesGuard.name);
+  });
+
+  it("the capability is declared at the METHOD level and is exactly read_entities", () => {
+    // Method-level, because a class-level declaration is inherited by every route added
+    // later — including one that should have been gated harder.
+    const onMethod = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto.list as object) as
+      | AdminCapability
+      | undefined;
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminFeedbackController) as
+      | AdminCapability
+      | undefined;
+    expect(onMethod).toBe("read_entities");
+    expect(onClass, "AdminFeedbackController must NOT declare a class-level capability").toBeUndefined();
+  });
+
+  it("the surface is READ-ONLY by construction — the route is a GET", () => {
+    expect(Reflect.getMetadata("method", proto.list as object) as number).toBe(0);
+  });
+
+  it("the repository issues no write against any table (feedback is append-only)", () => {
+    // Feedback is written once, by the worker's own submission, transactionally paired with
+    // its `feedback.submitted` event. A write here would mutate system-of-record state with
+    // no audit trail — and there is nothing to mutate: the table has no status column.
+    const repo = readFileSync(join(ADMIN_DIR, "admin-feedback.repository.ts"), "utf8");
+    expect(repo).not.toMatch(/\.(insert|update|delete)\s*\(/);
+    expect(repo).not.toMatch(/\.select\(\s*\)/); // never an unprojected whole-row read
+  });
+
+  it("the repository never joins `workers` and never searches the message body", () => {
+    // The two ways this read could quietly stop being what it says it is. A join to `workers`
+    // is how an opaque `worker_id` becomes a name; an `ilike` / full-text predicate over
+    // `message` turns an ops screen into "find every worker who typed a phone number".
+    // Comment lines are stripped first: both files NAME the forbidden constructs in prose,
+    // and matching their own documentation would be a test that can never pass.
+    const src = readFileSync(join(ADMIN_DIR, "admin-feedback.repository.ts"), "utf8").replace(
+      /^\s*(\/\/|\*|\/\*).*$/gm,
+      "",
+    );
+    for (const forbidden of ["innerJoin", "leftJoin", "rightJoin", "fullJoin", "workers"]) {
+      expect(src, `admin-feedback.repository must not reference ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
+    for (const search of [/\bilike\b/i, /\bto_tsquery\b/i, /\bsimilar\s+to\b/i]) {
+      expect(src, "admin-feedback.repository must not search the message body").not.toMatch(
+        search,
+      );
+    }
   });
 });
 
