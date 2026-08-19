@@ -202,10 +202,36 @@ describe("VoiceAttempts", () => {
     expect(out).toContain("does not mean the worker was silent");
   });
 
-  it("renders no audio handle and no transcript anywhere", () => {
-    const out = html(<VoiceAttempts rows={[base]} />);
-    for (const forbidden of ["transcript_text", "body_text", "voice_note_id", "<audio"]) {
+  it("renders no audio handle and no transcript, even when the row carries them", () => {
+    /*
+     * ⚠ THE ASSERTION IS ON A ROGUE VALUE, NOT ON A FIELD NAME.
+     *
+     * This test used to loop over the field NAMES — "transcript_text", "voice_note_id" — and
+     * assert the markup did not contain those strings. `SessionVoiceAnswer` has no such fields,
+     * so those substrings were unrepresentable in the input and NO mutation of
+     * `voice-attempts.tsx` could have made it fail. Coverage-shaped theatre.
+     *
+     * A row carrying the values is what a regressed server select list would actually produce,
+     * so that is what goes in — through a cast, because the schema is the reason it cannot
+     * arrive typed — and what must be absent from the markup is the VALUE.
+     */
+    const leaky = {
+      ...base,
+      transcript_text: "मैं वेल्डर हूँ",
+      body_text: "worker said seven years on site",
+      voice_note_id: "vn_9f3c2a10-leaked",
+    } as SessionVoiceAnswer;
+
+    const out = html(<VoiceAttempts rows={[leaky]} />);
+    for (const forbidden of [
+      "मैं वेल्डर हूँ",
+      "worker said seven years on site",
+      "vn_9f3c2a10-leaked",
+    ]) {
       expect(out, forbidden).not.toContain(forbidden);
     }
+    // And nothing to play: `has_clip` is a boolean the server derived, never an addressable
+    // handle, so there is no source an <audio> element could ever be given.
+    expect(out).not.toContain("<audio");
   });
 });
