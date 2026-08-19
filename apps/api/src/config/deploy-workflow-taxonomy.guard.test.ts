@@ -101,15 +101,19 @@ describe("deploy-lightsail — what it is allowed to do to production", () => {
 });
 
 describe("the four Phase-9 flags, as they reach the box", () => {
+  // Regexes are literals rather than built from the flag name. Partly because semgrep's
+  // detect-non-literal-regexp rule is right in general, and partly because a table of three
+  // hardcoded patterns is easier to check by eye than one template that has to be mentally
+  // expanded three times.
   it.each([
-    ["DOMAIN_MATCH_ENABLED"],
-    ["SKILL_CANONICALIZE_ENABLED"],
-    ["AI_ENABLE_REAL_CALLS"],
-  ])("%s is bridged from the environment's secrets", (name) => {
-    expect(DEPLOY).toMatch(new RegExp(`${name}:\\s*\\$\\{\\{\\s*secrets\\.${name}\\s*\\}\\}`));
+    ["DOMAIN_MATCH_ENABLED", /DOMAIN_MATCH_ENABLED:\s*\$\{\{\s*secrets\.DOMAIN_MATCH_ENABLED\s*\}\}/, /envs:[^\n]*\bDOMAIN_MATCH_ENABLED\b/],
+    ["SKILL_CANONICALIZE_ENABLED", /SKILL_CANONICALIZE_ENABLED:\s*\$\{\{\s*secrets\.SKILL_CANONICALIZE_ENABLED\s*\}\}/, /envs:[^\n]*\bSKILL_CANONICALIZE_ENABLED\b/],
+    ["AI_ENABLE_REAL_CALLS", /AI_ENABLE_REAL_CALLS:\s*\$\{\{\s*secrets\.AI_ENABLE_REAL_CALLS\s*\}\}/, /envs:[^\n]*\bAI_ENABLE_REAL_CALLS\b/],
+  ])("%s is bridged from the environment's secrets", (_name, fromSecrets, inEnvs) => {
+    expect(DEPLOY).toMatch(fromSecrets);
     // …and reaches the container: drone-ssh only exports what `envs:` lists, so a job-level
     // `env:` entry alone is invisible on the box. This is the exact defect #798 was.
-    expect(DEPLOY).toMatch(new RegExp(`envs:[^\\n]*\\b${name}\\b`));
+    expect(DEPLOY).toMatch(inEnvs);
   });
 
   it("AI_REAL_CALL_TASKS is NOT bridged — the box always takes the compose default", () => {

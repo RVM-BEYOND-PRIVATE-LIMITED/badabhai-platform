@@ -77,6 +77,10 @@ config();
 
 const SCRIPT = "verify:embeddings";
 
+/** The one vocabulary this script verifies. Named for the evidence record; the queries below
+ *  spell it out literally rather than interpolating, so no table name is ever built at runtime. */
+const TABLE = "skill_alias";
+
 /**
  * Cosine at or above which two vectors are the same vector.
  *
@@ -234,13 +238,13 @@ export function referencesFromFile(
 }
 
 /** Reference vectors from a second database whose rows carry a model stamp. */
-async function referencesFromDatabase(url: string, table: string): Promise<Map<string, ReferenceVector>> {
+async function referencesFromDatabase(url: string): Promise<Map<string, ReferenceVector>> {
   const out = new Map<string, ReferenceVector>();
   const { db, sql } = createDbClient(url, { max: 1 });
   try {
     const rows = (await db.execute(
       dsql`SELECT text, embedding::text AS embedding, embedding_model
-           FROM ${dsql.raw(table)}
+           FROM skill_alias
            WHERE embedding IS NOT NULL AND embedding_model IS NOT NULL`,
     )) as unknown as { text: string; embedding: string; embedding_model: string }[];
     for (const r of rows) {
@@ -260,7 +264,6 @@ async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const apply = argv.includes("--apply");
   const jsonArg = argv.find((a) => a.startsWith("--json="));
-  const table = "skill_alias";
 
   const url = process.env["DATABASE_URL"];
   if (!url) throw new Error(`[${SCRIPT}] DATABASE_URL is not set`);
@@ -272,7 +275,7 @@ async function main(): Promise<void> {
   const refUrl = process.env["REFERENCE_DATABASE_URL"];
   let dbRefCount = 0;
   if (refUrl) {
-    const fromDb = await referencesFromDatabase(refUrl, table);
+    const fromDb = await referencesFromDatabase(refUrl);
     dbRefCount = fromDb.size;
     for (const [k, v] of fromDb) references.set(k, v);
   }
@@ -303,7 +306,7 @@ async function main(): Promise<void> {
 
     const rows = (await db.execute(
       dsql`SELECT id::text AS id, text, embedding::text AS embedding
-           FROM ${dsql.raw(table)}
+           FROM skill_alias
            WHERE embedding IS NOT NULL AND embedding_model IS NULL`,
     )) as unknown as { id: string; text: string; embedding: string }[];
     console.log(`  embedded, unstamped      = ${rows.length}`);
@@ -341,7 +344,7 @@ async function main(): Promise<void> {
       // One statement, one transaction boundary, no per-row partial state. `embedded_at` is
       // left NULL on purpose — see the header.
       await db.execute(
-        dsql`UPDATE ${dsql.raw(table)} SET embedding_model = ${model}
+        dsql`UPDATE skill_alias SET embedding_model = ${model}
              WHERE id::text = ANY(${ids}) AND embedding IS NOT NULL AND embedding_model IS NULL`,
       );
       console.log(`\n[${SCRIPT}] stamped ${ids.length} row(s) as ${model}. embedded_at left NULL (unknown, and not invented).`);
@@ -360,7 +363,7 @@ async function main(): Promise<void> {
           {
             kind: "embedding-provenance-verification",
             target: { host_class: hostClass(url), database: where?.db ?? null },
-            table,
+            table: TABLE,
             applied: apply && blocked === null,
             cosine_floor: PROVEN_COSINE_FLOOR,
             summary: s,

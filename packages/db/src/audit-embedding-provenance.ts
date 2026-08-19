@@ -56,10 +56,28 @@ config();
 
 const SCRIPT = "audit:embeddings";
 
-/** The two vocabularies that carry embeddings. Same columns, same questions, one code path. */
+/**
+ * The two vocabularies that carry embeddings.
+ *
+ * The SELECT is written out per table rather than interpolating the name into one shared
+ * string. The tables are hardcoded here so interpolation would be safe TODAY, but a
+ * `sql.raw(table)` is an invitation for the next person to pass something that is not — and a
+ * scanner cannot tell the two apart, so it either flags this forever or teaches everyone to
+ * wave it through. Two literal queries cost four lines and remove the question.
+ */
 const VOCABULARIES = [
-  { table: "skill_alias", label: "skill_alias (canonicalization vocabulary)" },
-  { table: "job_domain_alias", label: "job_domain_alias (domain-match vocabulary)" },
+  {
+    table: "skill_alias",
+    // `embedding::text` because postgres.js hands vector() back as a string either way; being
+    // explicit means the parse is the ONLY place the wire format is assumed.
+    query: dsql`SELECT id::text AS id, text, embedding::text AS embedding, embedding_model, embedded_at
+                FROM skill_alias`,
+  },
+  {
+    table: "job_domain_alias",
+    query: dsql`SELECT id::text AS id, text, embedding::text AS embedding, embedding_model, embedded_at
+                FROM job_domain_alias`,
+  },
 ] as const;
 
 interface AliasRow {
@@ -209,12 +227,7 @@ async function main(): Promise<void> {
     const audits: VocabularyAudit[] = [];
     const texts = new Map<string, string>();
     for (const v of VOCABULARIES) {
-      // `embedding::text` because postgres.js hands vector() back as a string either way, and
-      // being explicit means the parse below is the ONLY place the wire format is assumed.
-      const rows = (await db.execute(
-        dsql`SELECT id::text AS id, text, embedding::text AS embedding, embedding_model, embedded_at
-             FROM ${dsql.raw(v.table)}`,
-      )) as unknown as AliasRow[];
+      const rows = (await db.execute(v.query)) as unknown as AliasRow[];
       const parsed = rows.map((r) => {
         texts.set(r.id, r.text);
         return {
