@@ -34,6 +34,18 @@
 -- `0081-screen-context-column`, so `pnpm --filter @badabhai/db db:audit:schema-contract` answers
 -- "is this database ready?" rather than anyone taking it on report — the 0078 lesson.
 --
+-- AND THE TWO SURFACES ARE ORDERED AGAINST EACH OTHER TOO, which "DB before code" does not say.
+-- `feedbackItemSchema` in admin-web declares `screen_context` as a REQUIRED key (deliberately —
+-- an absent key means a projection stopped sending the field, and rendering that as "unknown
+-- screen" on every row would hide the column going missing). A required key is also an ordering
+-- constraint: admin-web parsing an API response without it throws `AdminRequestError`, which
+-- `/feedback` renders as a whole-page outage rather than a degraded row.
+--   FORWARD:  apply 0081  →  deploy api  →  deploy admin-web
+--   ROLLBACK: revert admin-web  →  revert api  →  run the SQL below
+-- The deploy matrix builds both surfaces from one commit and does not pin their restart order,
+-- so a same-commit skew is short and self-healing; a PARTIAL ROLLBACK of `api` alone while the
+-- portal stays is the case that is not, and it is the one this note exists for.
+--
 -- ⚠ 0080 IS MERGED BUT NOT APPLIED IN PRODUCTION (see MIGRATIONS.md). This migration ALTERs the
 -- table that one creates, so it is strictly ordered behind it and inherits its journal-drift
 -- problem: `db:migrate` alone still cannot reach either until 0076–0079 are adopted.

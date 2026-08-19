@@ -246,6 +246,38 @@ describe("step presentation — every step renders, `not_done` included", () => 
     expect(describeStepDetail(profiling).join(" ")).toContain("pack version retired");
   });
 
+  /**
+   * ⚠ THE PER-PACK CHIP MUST NOT READ AS PROGRESS — it is the one number on this screen that
+   * can contradict the headline beside it.
+   *
+   * `packs[].answer_count` is all-status; `completed` is settled-only. The server's own fixture
+   * (6 answered / 2 declined / 1 unanswered against 9 items) therefore renders `8 of 9
+   * questions settled` in the headline, and the chip used to render `pack v1: 9 of 9` — "done"
+   * next to "not done", from one response, on one row. `unanswered` has no writer today, which
+   * is precisely why this is pinned now rather than after one appears.
+   */
+  it("states per-pack VOLUME and never a fraction that can outrun the headline", () => {
+    const profiling: JourneyStep = {
+      key: "profiling",
+      order: 2,
+      status: "in_progress",
+      completed: 8,
+      total: 9,
+      first_at: "2026-04-30T00:00:00.000Z",
+      last_at: "2026-05-03T00:00:00.000Z",
+      answered_count: 6,
+      declined_count: 2,
+      unanswered_count: 1,
+      session_count: 1,
+      packs: [{ pack_id: "qp_welding", pack_version: 1, item_count: 9, answer_count: 9 }],
+    };
+    expect(describeStepProgress(profiling)).toBe("8 of 9 questions settled");
+    const chips = describeStepDetail(profiling).join(" ");
+    expect(chips).toContain("pack v1: 9 answer rows against 9 questions");
+    // The exact shape that read as a completed progress bar next to "8 of 9".
+    expect(chips).not.toContain("9 of 9");
+  });
+
   it("photo and profile steps carry no invented count", () => {
     expect(describeStepProgress(photo)).toBeNull();
     expect(describeStepDetail(photo)).toEqual(["none"]);

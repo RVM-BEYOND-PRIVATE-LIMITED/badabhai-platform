@@ -99,10 +99,17 @@ export interface AdminFeedbackListItem {
    * that sent nothing, a value that failed normalization, or any row written before the column
    * existed; all three render as "unknown screen", which is the honest answer.
    *
-   * NEVER a concrete path. `sanitizeScreenContext` replaces every id-shaped segment at the edge,
-   * so this field cannot tell an admin WHICH job the worker was looking at — only which screen.
-   * That is the difference between "the apply button is broken" and a record of what one worker
-   * was browsing, and it is why this field is allowed on a surface where a name is not.
+   * NEVER a concrete path. `sanitizeScreenContext` substitutes every id-shaped RUN at the edge —
+   * uuids, long hex, long digit runs, all-numeric segments — wherever in the value they sit, so
+   * an entity id cannot ride here and this field says which screen rather than which job. That
+   * is the difference between "the apply button is broken" and a record of what one worker was
+   * browsing, and it is why this field is allowed on a surface where a name is not.
+   *
+   * ⚠ It is a DENYLIST of id shapes, not a proof, and an earlier version of this comment said
+   * the field "cannot tell an admin WHICH job" as an absolute. An opaque token that is neither
+   * hex nor digits is not distinguishable from a route word; the shipped client cannot produce
+   * one, but this endpoint takes any authenticated caller. Treat the value as a label, never as
+   * a lookup key, and never repeat the absolute claim to an operator.
    */
   screen_context: string | null;
   created_at: Date;

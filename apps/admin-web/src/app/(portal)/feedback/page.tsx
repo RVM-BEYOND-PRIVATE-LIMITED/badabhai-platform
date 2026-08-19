@@ -171,8 +171,8 @@ export default async function FeedbackPage({
             screen here that shows a worker&apos;s own words, so a message may contain details they
             chose to include about themselves. Nothing else on the row is identifying — no name or
             number is looked up, and the screen a message is about is stored as a route pattern
-            with every id stripped out, so it says where the worker was and never what they were
-            looking at.
+            with ids stripped out of it, so it says where the worker was rather than what they
+            were looking at.
           </p>
         </div>
       </header>
@@ -357,9 +357,15 @@ export default async function FeedbackPage({
                     </td>
                     <td className="table__meta cell--screen">
                       {f.screen_context ? (
+                        /* The tooltip states what the server DOES, not an absolute. It
+                           substitutes id-shaped values (uuids, long hex, long number runs)
+                           before storing, which is why the column is allowed here at all —
+                           but it is a denylist, so telling an operator the value "can never
+                           identify anyone" would be telling them a stripped value is safe to
+                           trust when a hostile client could still park a token in it. */
                         <span
                           className="mono"
-                          title="The route the worker was on. Every id in it is replaced with :id before it is stored, so this says WHICH SCREEN and never which job or which person."
+                          title="The route the worker was on. Ids in it — uuids and long number runs — are replaced with :id before it is stored, so it says which SCREEN rather than which job. It is a label, not a lookup key."
                         >
                           {f.screen_context}
                         </span>

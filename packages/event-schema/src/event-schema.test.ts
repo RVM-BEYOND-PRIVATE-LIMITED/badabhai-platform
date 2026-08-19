@@ -3919,8 +3919,32 @@ describe("feedback.submitted (#997) — the SHAPE of a worker's feedback, never 
       "/नौकरी", // non-ASCII
       "", // empty
       `/${"a".repeat(WORKER_FEEDBACK_SCREEN_MAX)}`, // past the bound
+      // ⚠ THE SHAPES THIS BACKSTOP USED TO WAVE THROUGH. It anchored both id arms to a whole
+      // segment, so an id sharing its segment with one other character satisfied it — which
+      // is exactly the second-emitter case the regex exists for, and it was measured passing.
+      "/jobs/id-6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply", // a uuid behind a prefix
+      "/jobs/6f2c04e04f8941d39a0c0305e82c3301/apply", // the dash-less uuid form
+      "/w/9876543210-ravi", // a phone number and a name
+      "/AADHAAR/1234-5678-9012", // a grouped 12-digit number
     ]) {
       expect(() => make({ ...base, screen_context: bad }), bad).toThrow(EventValidationException);
+    }
+  });
+
+  it("still ACCEPTS the route patterns the normalizer actually produces", () => {
+    // The other half of the arm above: a backstop tightened until it refuses real output would
+    // turn every deep screen into "unknown screen" on the admin list, silently.
+    for (const good of [
+      "/jobs/:id/apply",
+      "/jobs/id-:id/apply",
+      "/workers/:id/sessions/:id",
+      "/v2/jobs",
+      "/worker_profile",
+      "/settings/notifications",
+      "/a.b/c",
+      "/",
+    ]) {
+      expect(validateEvent(make({ ...base, screen_context: good })).success, good).toBe(true);
     }
   });
 

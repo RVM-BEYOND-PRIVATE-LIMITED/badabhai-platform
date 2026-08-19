@@ -3344,19 +3344,26 @@ export type ProfileSubmissionDuplicatedPayload = z.infer<
  * one mistake that would look exactly like a helpful improvement.
  *
  * ── `screen_context` — ADDED LATER, ADDITIVE, STILL v1 ───────────────────────────────────
- * The `AgencyInviteCreatedPayload` precedent (W1 added `medium` and `payload_keys`): an OPTIONAL
- * field is backward-compatible in both directions, so the registry entry stays `version: 1` and
- * every shipped consumer keeps parsing unchanged (invariant #8). `.nullable().default(null)` is
- * the shape — `chat_session_id` on `AdminWorkerJourneyViewedPayload` uses the same one — so rows
- * written before the widening re-validate as `null` rather than as absent, and a consumer never
- * has to tell "we did not know the screen" from "this event predates the field".
+ * The `AgencyInviteCreatedPayload` precedent (W1 added `medium` and `payload_keys`) is what says
+ * a widening like this stays `version: 1`, and the registry entry does (invariant #8).
+ * `.nullable().default(null)` is the shape — `chat_session_id` on
+ * `AdminWorkerJourneyViewedPayload` uses the same one — so rows written before the widening
+ * re-validate as `null` rather than as absent, and a consumer never has to tell "we did not know
+ * the screen" from "this event predates the field".
+ *
+ * ⚠ WHERE THE PRECEDENT STOPS, because half of it does not transfer. `AgencyInviteCreatedPayload`
+ * is a PLAIN `z.object`, so an optional addition there is compatible in BOTH directions: an old
+ * consumer strips the unknown key. THIS payload is `.strict()`, so a consumer pinned to the
+ * pre-widening schema REJECTS the whole event rather than ignoring the new field. Forward
+ * compatibility here rests on there being no read-side parser today (`validateEvent` has no
+ * consumer outside the emit path) — a fact, not a property of the shape, and the first replay or
+ * projection written against a pinned schema must be given the widened one.
  *
  * WHY A ROUTE PATTERN IS ALLOWED ON THE SPINE AT ALL, when the message is not. `/jobs/:id/apply`
- * has had every id-shaped segment substituted out by `sanitizeScreenContext` before it reaches
- * here, so it is a label from a closed-ish set the client's own router defines — it says WHICH
- * SCREEN, and cannot say which job, which application, or which worker. A raw path would be an
- * identifier and would not be allowed; the bound and the charset below are what keep the
- * distinction structural rather than a matter of the emitter behaving.
+ * has had every id-shaped RUN substituted out by `sanitizeScreenContext` before it reaches here,
+ * so it is a label about WHICH SCREEN rather than a link to one job, one application or one
+ * worker. A raw path would be an identifier and is refused. ⚠ The refusal is a DENYLIST of id
+ * shapes, not a proof: see `WORKER_FEEDBACK_SCREEN_PATTERN` for what it still cannot recognise.
  */
 export const FeedbackSubmittedPayload = z
   .object({
@@ -3373,13 +3380,18 @@ export const FeedbackSubmittedPayload = z
      * The normalized ROUTE PATTERN the worker was on — `/jobs/:id/apply` — or null when the
      * client sent nothing or sent something unrecognisable.
      *
-     * `WORKER_FEEDBACK_SCREEN_PATTERN` is not belt-and-braces over the sanitizer; it is what
-     * makes "no identifier ever lands here" STRUCTURAL rather than a matter of the emitter
-     * behaving — the same job `.strict()` does for the message. It is the SHARED regex
-     * `sanitizeScreenContext` tests against, imported rather than re-typed, so the request edge
-     * and the spine cannot drift; and it rejects id-shaped SEGMENTS, not merely a wrong
-     * charset, because a uuid is made entirely of legal path characters and a charset check
-     * would wave one through. A second emitter added later without a normalizer fails here.
+     * `WORKER_FEEDBACK_SCREEN_PATTERN` is not belt-and-braces over the sanitizer; it is the
+     * spine's own refusal, so a second emitter added later without a normalizer fails HERE
+     * rather than writing an identifier onto the audit trail. It is the SHARED regex
+     * `sanitizeScreenContext` tests against, built from the SAME id-shape sources, so the
+     * request edge and the spine cannot recognise different things — they once did, and a
+     * uuid behind a one-character prefix passed both.
+     *
+     * ⚠ IT IS A DENYLIST OF ID SHAPES, NOT A PROOF, and this comment previously called the
+     * property "STRUCTURAL". It refuses uuids, long hex runs, long digit runs and all-numeric
+     * segments anywhere in the value; it cannot refuse an opaque token that looks like a word.
+     * The bound and the charset keep this field small and non-prose; they do not make it
+     * impossible for a hostile client to put 128 characters of its choosing here.
      */
     screen_context: z
       .string()

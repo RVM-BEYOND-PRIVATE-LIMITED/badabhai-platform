@@ -82,11 +82,17 @@ export class WorkerFeedbackController {
     // route becomes null and the submission proceeds; losing a worker's typed feedback over
     // telemetry nobody asked them for is the wrong failure direction.
     //
-    // `screen` is normalized HERE even though the Flutter overlay normalizes before sending. It
-    // is defence in depth and not redundancy: the shipped client is not the only caller this
-    // endpoint can have, and the one that skips normalization is precisely the one whose value
-    // arrives carrying a concrete entity id. Doing it at the edge also means the id can never
-    // reach the row, the event or the log — there is no later layer that could forget.
+    // `screen` is normalized HERE, and ⚠ NO SHIPPED CLIENT SENDS IT YET — the Flutter overlay's
+    // `screen` argument lives on the worker-app branch and nothing on `main` posts one, so every
+    // row written today has `screen_context: null`. The server half is deliberately landed first
+    // so the column, the CHECK and the spine's refusal exist before any producer does.
+    //
+    // Once a client does send it, normalizing again here is defence in depth and not redundancy:
+    // the shipped app is not the only caller this endpoint can have, and the one that skips
+    // normalization is precisely the one whose value arrives carrying a concrete entity id.
+    // Doing it at the edge means no id-SHAPED value reaches the row, the event or the log —
+    // there is no later layer that could forget. What it cannot do is recognise an opaque token
+    // that looks like a route word; see `sanitizeScreenContext` for that residual.
     await this.feedback.submit(
       worker.id,
       dto,

@@ -204,6 +204,28 @@ describe("0080/0081 — the bounds are pinned to @badabhai/types, and this is th
   });
 
   /**
+   * ⚠ AND THE DRIZZLE MODEL, WHICH THE ASSERTION ABOVE DOES NOT REACH. The migration is what
+   * Postgres executes; the MODEL is what `db:generate` diffs to author the NEXT migration. With
+   * only the migration pinned, the pin was two-of-three: changing the model's literal to `4096`
+   * passed all 1219 `packages/db` tests, measured — and the next generated migration would have
+   * carried the wrong bound into SQL with nothing to catch it.
+   *
+   * Read off the model rather than the file text so a reformat cannot break it. Only
+   * `screen_context` is pinned here: `message` and `app_build` have the same gap inherited from
+   * 0080 and closing them is a separate change, not one to smuggle in under this heading.
+   */
+  it("pins the same bound in the DRIZZLE MODEL, not only in the migration", () => {
+    const screenCheck = getTableConfig(workerFeedback).checks.find(
+      (c) => c.name === "worker_feedback_screen_context_len_chk",
+    );
+    expect(screenCheck, "the CHECK must exist on the model").toBeDefined();
+    const rendered = screenCheck!.value.queryChunks
+      .map((chunk) => (typeof chunk === "object" && "value" in chunk ? chunk.value : ""))
+      .join("");
+    expect(rendered).toContain(`BETWEEN 1 AND ${WORKER_FEEDBACK_SCREEN_MAX}`);
+  });
+
+  /**
    * A minimum of 1, not 0. An empty message is not feedback, and letting one land would put a
    * blank row on the admin screen that nobody can act on or explain.
    */

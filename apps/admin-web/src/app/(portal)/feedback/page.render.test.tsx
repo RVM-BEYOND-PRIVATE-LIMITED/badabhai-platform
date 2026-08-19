@@ -360,9 +360,31 @@ describe("the category chips", () => {
   });
 });
 
+/**
+ * ⚠ EVERY ASSERTION IN HERE NARROWS ON A WORKER THE ROWS DO NOT BELONG TO, AND THAT IS THE
+ * POINT — the banner is the ONLY thing on the page that can then name `WORKER_ID`.
+ *
+ * These tests used to render `[TAGGED]`, whose `worker_id` IS the id being filtered on, so the
+ * table's own Worker cell and its own Journey link emitted both strings under assertion and the
+ * banner was proved by nothing. Measured on the original suite: deleting the banner's entire
+ * journey link left 52/52 green, and replacing the banner's `{shortId(workerId)}` with a
+ * literal `"ZZZZZZZZ"` left 52/52 green.
+ *
+ * Rendering an EMPTY page is not the fix either — it swaps one third source for another, the
+ * empty-filtered state's own "Open their journey" button. Rows belonging to someone else keep
+ * the table on screen while leaving the filtered id unsourced anywhere but the banner. It is
+ * also a real state: a stale cursor, or a deletion between two requests.
+ */
 describe("the worker narrowing", () => {
+  /** A row that is NOT the worker being filtered on. */
+  const OTHERS_ROW: Row = {
+    ...TAGGED,
+    id: "ff000000-0003-4a00-8000-000000000003",
+    worker_id: "abcde000-0002-4a00-8000-000000000002",
+  };
+
   beforeEach(() => {
-    stub.page = { items: [TAGGED], nextCursor: null };
+    stub.page = { items: [OTHERS_ROW], nextCursor: null };
   });
 
   it("says WHICH worker is being shown, and offers the way back out", async () => {
@@ -371,6 +393,8 @@ describe("the worker narrowing", () => {
     expect(out).toContain("Showing only what worker");
     expect(out).toContain("5eeded00…");
     expect(out).toContain("Show every worker");
+    // …and it names the FILTERED worker, not whoever happens to be in the first row.
+    expect(out).not.toContain("Showing only what worker <span class=\"mono\">abcde000…");
   });
 
   it("links from the narrowing to that worker's journey", async () => {

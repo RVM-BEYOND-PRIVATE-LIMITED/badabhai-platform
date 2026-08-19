@@ -1,25 +1,38 @@
-import { WORKER_FEEDBACK_SCREEN_MAX, WORKER_FEEDBACK_SCREEN_PATTERN } from "@badabhai/types";
+import {
+  SCREEN_ID_RUN_SOURCES,
+  WORKER_FEEDBACK_SCREEN_MAX,
+  WORKER_FEEDBACK_SCREEN_PATTERN,
+} from "@badabhai/types";
 
 /**
- * Path segments that are IDENTIFIERS rather than route structure.
+ * An identifier appearing ANYWHERE in a segment, not only as the whole of one.
  *
- * Two shapes, and both are what the worker app actually puts in a path: a uuid (every entity id
- * on this platform) and an all-numeric segment (a page index, a legacy numeric id). Anything
- * matching becomes `:id`, so `/jobs/6f2c…/apply` and `/jobs/9a71…/apply` collapse onto the one
- * pattern an operator wants to group by.
+ * ⚠ THIS WAS THE BUG, AND IT IS THE REASON THIS IS A RUN RATHER THAN AN ANCHORED MATCH. The
+ * first version of this file tested `^<uuid>$` and `^\d+$` per segment. An id sharing its
+ * segment with one other character therefore survived untouched, and the value it survived
+ * into is stored, evented and logged — measured, not reasoned:
+ * `/jobs/id-6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply` came back verbatim, as did the
+ * dash-less uuid form and `/w/9876543210-ravi`.
+ *
+ * The shapes come from `SCREEN_ID_RUN_SOURCES` in `@badabhai/types` — the SAME source strings
+ * the spine's backstop pattern is built from, imported rather than re-typed, because the two
+ * recognising different things is precisely how the hole opened. Substitution is GLOBAL: two
+ * ids in one segment are two `:id`s.
  *
  * ⚠ The uuid arm deliberately does NOT pin the version/variant nibbles (`[89ab]`): a client
  * sending a v7 or a non-conforming uuid is still sending an IDENTIFIER, and a normalizer that
  * only recognises the ids we happen to mint today would let tomorrow's through verbatim.
  */
-const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const NUMERIC_SEGMENT = /^\d+$/;
+const ID_RUN = new RegExp(SCREEN_ID_RUN_SOURCES.join("|"), "g");
 
 /**
- * The wire field name. A constant for the same reason header names are: one edit to rename, and
- * a typo is a compile error rather than a field that silently never arrives.
+ * A segment that is ENTIRELY numeric, however short.
+ *
+ * Kept ALONGSIDE the run above rather than folded into it: `/orders/12` is an identifier and
+ * `12` is under the run's digit bound, while a bare `2` inside `/v2/jobs` is a route word. The
+ * distinction is whether the digits are the whole segment.
  */
-export const SCREEN_CONTEXT_FIELD = "screen";
+const NUMERIC_SEGMENT = /^\d+$/;
 
 /**
  * Normalise a client-supplied screen/route value into a ROUTE PATTERN safe to store, to show an
@@ -46,36 +59,62 @@ export const SCREEN_CONTEXT_FIELD = "screen";
  * route string their client got wrong is the wrong failure direction. Fail-closed governs
  * validation, privacy, auth and AI safety (CLAUDE.md §3); a route label is none of those.
  *
- * ── THE CLIENT NORMALIZES TOO, AND THAT IS NOT A REASON TO SKIP THIS ────────────────────
+ * ── THE CLIENT WILL NORMALIZE TOO, AND THAT IS NOT A REASON TO SKIP THIS ────────────────
  * DEFENCE IN DEPTH. The Flutter overlay knows its own route table and can produce a better
- * pattern than any server-side guess, so it normalizes before sending. It is also an untrusted
- * caller: the shipped client is not the only thing that can post to this endpoint, and the one
- * that does not normalize is precisely the one whose value would carry an id.
+ * pattern than any server-side guess, so it is meant to normalize before sending. ⚠ NO SHIPPED
+ * CLIENT SENDS THE FIELD YET — `ApiClient.submitFeedback` gained its `screen` argument on the
+ * worker-app branch and nothing on `main` posts one, so every row this server writes today has
+ * `screen_context: null`. Nothing here may be written as though a producer already existed.
+ *
+ * The client is also an UNTRUSTED caller: the shipped app is not the only thing that can post
+ * to this endpoint, and the one that does not normalize is precisely the one whose value would
+ * carry an id — which is why this runs regardless of what the client did.
+ *
+ * ⚠ AND IT IS A DENYLIST, WHICH IS THE WEAKER POSTURE. It recognises id SHAPES (uuid, long hex,
+ * long digit runs, all-numeric segments) and cannot recognise an opaque token that looks like a
+ * word. The durable design is an ALLOWLIST of the client's own finite route table, matched
+ * server-side, with anything unrecognised becoming `null`. That needs the route table this
+ * server does not yet have; until it does, neither this function nor anything downstream may
+ * claim that "no identifier can land here" is absolute.
  *
  * `raw` is `unknown` because the DTO deliberately does not type it — see `feedback.dto.ts`.
  */
 export function sanitizeScreenContext(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   // A cheap upper bound BEFORE the split, so a hostile megabyte-long body field is one length
-  // comparison rather than a megabyte of segment work. It cannot discard anything the check
-  // below would have kept: substitution shrinks a segment at most 37→4 (a uuid plus its
-  // separator becoming `:id`), so a value that normalizes to ≤128 cannot have started above
-  // ~1184, and 128×10 is comfortably past that.
+  // comparison rather than a megabyte of segment work.
+  //
+  // ⚠ IT IS A DoS BOUND, NOT A LOSSLESS ONE, and an earlier comment here claimed otherwise
+  // ("cannot discard anything the check below would have kept: substitution shrinks a segment
+  // at most 37→4"). Substitution shrinks WITHOUT BOUND — a numeric segment is `\d+` — so
+  // `"/orders/" + "9".repeat(1300)` normalizes to `/orders/:id`, eleven characters, and is
+  // discarded here anyway. Measured. That loss is accepted: `null` reads as "unknown screen",
+  // which is the safe direction for telemetry, and no reader may lean on the old invariant to
+  // raise this multiplier or drop the post-normalization check below.
   if (raw.length > WORKER_FEEDBACK_SCREEN_MAX * 10) return null;
 
-  // Query and fragment first, and `#` before `?`: a fragment may itself contain a `?`, so
-  // cutting the query first on `/a#b?c` would leave `/a#b` — a fragment that survived.
+  // Query and fragment both go. The ORDER of the two cuts is immaterial — each keeps the prefix
+  // before its own delimiter, so either order yields the prefix before whichever comes first —
+  // and an earlier comment here claimed `#` had to precede `?`, which is not true and is not
+  // what the test below proves.
   const withoutFragment = raw.split("#")[0]!;
   const path = withoutFragment.split("?")[0]!.trim();
   if (path.length === 0 || !path.startsWith("/")) return null;
 
   // `/a/b` → ["", "a", "b"]; the leading empty element is the root and is preserved by the
   // join, so a trailing slash survives as a trailing slash rather than being silently trimmed.
+  //
+  // An all-numeric segment collapses whole; anything else has every id-shaped RUN inside it
+  // substituted, so `/jobs/id-<uuid>/apply` becomes `/jobs/id-:id/apply` rather than passing
+  // through as an identifier. `lastIndex` is reset because `ID_RUN` is a global regex reused
+  // across calls and `.replace` leaves it at 0 only by convention.
   const normalized = path
     .split("/")
-    .map((segment) =>
-      UUID_SEGMENT.test(segment) || NUMERIC_SEGMENT.test(segment) ? ":id" : segment,
-    )
+    .map((segment) => {
+      if (NUMERIC_SEGMENT.test(segment)) return ":id";
+      ID_RUN.lastIndex = 0;
+      return segment.replace(ID_RUN, ":id");
+    })
     .join("/");
 
   // Length is checked on the NORMALIZED value: substitution can only shrink a segment, so a

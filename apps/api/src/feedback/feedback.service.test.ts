@@ -242,6 +242,36 @@ describe("FeedbackService.submit — the event", () => {
     expect(allLogs).toContain(`length=${MESSAGE.length}`);
   });
 
+  /**
+   * ⚠ THE LOG LINE'S THIRD FIELD, WHICH SHIPPED WITH NO TEST AT ALL. `screen=` is the only
+   * client-influenced value this service interpolates into a log, and the raw `dto.screen` —
+   * unvalidated, `z.unknown()`, 128 attacker-chosen characters — is still in scope on the DTO
+   * at that line. Rewriting the interpolation to read `dto.screen` instead of the sanitized
+   * `client.screenContext` passed 44/44 before this test existed, because the fixture never set
+   * `screen` and the privacy assertions above scan only for the message, the name and the phone.
+   */
+  it("logs the SANITIZED screen, never the raw one off the DTO", async () => {
+    const { service, logs } = make();
+    await service.submit(
+      WORKER_ID,
+      // What a client actually posts, and what the edge turned it into. They differ on purpose:
+      // if the log read the DTO, the raw path — and its uuid — would appear.
+      dto({ screen: "/jobs/6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply?q=welder" }),
+      { appBuild: APP_BUILD, screenContext: "/jobs/:id/apply" },
+      CTX,
+    );
+    const allLogs = logs.join("\n");
+    expect(allLogs).toContain("screen=/jobs/:id/apply");
+    expect(allLogs).not.toContain("6f2c04e0-4f89-41d3-9a0c-0305e82c3301");
+    expect(allLogs).not.toContain("q=welder");
+  });
+
+  it("logs `unknown` for an absent screen rather than the word undefined", async () => {
+    const { service, logs } = make();
+    await service.submit(WORKER_ID, dto(), { appBuild: null, screenContext: null }, CTX);
+    expect(logs.join("\n")).toContain("screen=unknown");
+  });
+
   it("never logs the FULL worker id — enough to correlate, not enough to be a directory", async () => {
     const { service, logs } = make();
     await service.submit(WORKER_ID, dto(), { appBuild: null, screenContext: null }, CTX);

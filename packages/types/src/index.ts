@@ -309,9 +309,32 @@ export const WORKER_FEEDBACK_SCREEN_MAX = 128;
  * happily admits `/jobs/6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply`: a uuid is made of exactly
  * those characters. A charset can say "this is not prose"; it cannot say "this is not an
  * identifier", which is the whole property that makes this field permissible on a spine where
- * §2 forbids personal data. Hence the leading negative lookahead: no path SEGMENT may be
- * all-numeric or uuid-shaped. Every segment on a rooted path is preceded by `/`, so scanning
- * for `/<id>(/|end)` covers the first segment as well as the rest.
+ * §2 forbids personal data. Hence the leading negative lookaheads.
+ *
+ * ⚠ AND WHY A WHOLE-SEGMENT CHECK ALONE IS NOT ENOUGH — the mistake this file MADE, measured
+ * and recorded so it is not made again. This regex once anchored both id shapes to a whole
+ * segment (`/(?:\d+|uuid)(?:/|$)`), and the sanitizer matched it with `^…$` per segment. An
+ * identifier sharing its segment with ONE other character therefore passed both layers
+ * untouched — every one of these was executed against the shipped code and came back verbatim:
+ *
+ *     /jobs/id-6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply   a uuid behind a prefix
+ *     /jobs/6f2c04e04f8941d39a0c0305e82c3301/apply          the dash-less uuid form
+ *     /w/9876543210-ravi                                    a phone number and a name
+ *
+ * So the shapes are matched as RUNS, ANYWHERE in the value, not as whole segments:
+ *   * a dashed uuid, wherever it sits;
+ *   * a hex run of 16+ — the dash-less uuid and every opaque hex token of id length;
+ *   * a digit run of 4+ — a phone number, an Aadhaar group, a long numeric id;
+ *   * and, still, a segment that is ENTIRELY numeric, however short: `/orders/12` is an id
+ *     even though `12` is under the run bound.
+ *
+ * ⚠ WHAT THIS STILL DOES NOT CATCH, said plainly rather than left for the next reader to
+ * discover: an OPAQUE alphanumeric token that is neither hex nor digits (`/u/dGVzdEBleGFt…`,
+ * a base64url blob) is not distinguishable from a route word by any structural rule. The
+ * shipped client cannot produce one, but this endpoint takes any authenticated caller. The
+ * durable fix is an ALLOWLIST of the client's own finite route table rather than a denylist of
+ * id shapes — see the note on `sanitizeScreenContext`. Until that exists, no comment on this
+ * field may claim that "no identifier can land here" is absolute; it is not.
  *
  * ⚠ AND NO EMPTY SEGMENT — the `//` arm, which is not tidiness either. `//evil.example/jobs` is
  * a rooted path by every check above and a SCHEME-RELATIVE URL to a host we do not control;
@@ -321,10 +344,32 @@ export const WORKER_FEEDBACK_SCREEN_MAX = 128;
  * Deliberately no whitespace, no `%`, no `?`, no `#`, no `<`, no non-ASCII. `:` is admitted only
  * because `:id` is the substitution marker itself.
  */
-const SCREEN_ID_SEGMENT =
-  "\\d+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+/** A segment that is ENTIRELY an identifier — matched against `/<seg>(/|end)`. */
+const SCREEN_ID_SEGMENT = "\\d+";
+/**
+ * An identifier SHAPE, matched anywhere in the value. Kept as one source string so the
+ * sanitizer's substitution arms and this backstop cannot recognise different things — the
+ * drift that let a prefixed uuid through.
+ */
+export const SCREEN_ID_RUN_SOURCES = [
+  // A dashed uuid, unconditionally — the shape is unambiguous.
+  "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+  // A hex run of 16+ — the dash-less uuid form and every opaque hex token of id length. ⚠ The
+  // leading lookahead REQUIRING a digit is not optional: `a`–`f` are hex, so a bare
+  // `[0-9a-fA-F]{16,}` also matches an ordinary long lowercase word made of those letters, and
+  // `/aaaa…` (the existing over-the-bound test case) collapsed to `/:id`. An identifier of 16+
+  // hex characters that contains no digit at all has probability ~(6/16)^16; a route word does
+  // it routinely.
+  "(?:(?=[0-9a-fA-F]*[0-9])[0-9a-fA-F]{16,})",
+  // A digit run of 4+ — a phone number, an Aadhaar group, a long numeric id. Four rather than
+  // five so a grouped `1234-5678-9012` is caught; a route word does not carry four digits.
+  "[0-9]{4,}",
+] as const;
 export const WORKER_FEEDBACK_SCREEN_PATTERN = new RegExp(
-  `^(?!.*\\/\\/)(?!.*\\/(?:${SCREEN_ID_SEGMENT})(?:\\/|$))\\/[A-Za-z0-9._:\\/-]*$`,
+  `^(?!.*\\/\\/)` +
+    `(?!.*\\/(?:${SCREEN_ID_SEGMENT})(?:\\/|$))` +
+    `(?!.*(?:${SCREEN_ID_RUN_SOURCES.join("|")}))` +
+    `\\/[A-Za-z0-9._:\\/-]*$`,
 );
 
 // ---- Branded id helpers (lightweight; not enforced at runtime) ----

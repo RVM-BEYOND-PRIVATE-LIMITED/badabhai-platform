@@ -53,11 +53,68 @@ describe("sanitizeScreenContext — identifiers never survive", () => {
     expect(sanitizeScreenContext("/search?q=welder%20mumbai&page=2")).toBe("/search");
   });
 
-  it("drops the fragment, and does so BEFORE the query split", () => {
-    // `#` first is load-bearing: a fragment may itself contain a `?`, so cutting the query
-    // first on `/a#b?c` leaves `/a#b` — a fragment that survived and a value that then fails
-    // the charset check, turning a perfectly good route into a null.
+  it("drops the fragment as well as the query, in whichever order they appear", () => {
+    // ⚠ NOT AN ORDER ASSERTION, and it used to claim to be one. Each cut keeps the prefix
+    // before its own delimiter, so `#`-then-`?` and `?`-then-`#` produce the same string for
+    // every input — swapping the two lines in the implementation reddens nothing, measured.
+    // What IS worth pinning is that neither delimiter survives whichever comes first.
     expect(sanitizeScreenContext("/profile#section?tab=skills")).toBe("/profile");
+    expect(sanitizeScreenContext("/profile?tab=skills#section")).toBe("/profile");
+  });
+
+  /**
+   * ⚠ THE BUG THIS SUITE MISSED, AND THE REASON IT MISSED IT.
+   *
+   * Every case above puts the identifier alone in its segment. The first implementation tested
+   * `^<uuid>$` / `^\d+$` PER SEGMENT, so all of them passed while an id sharing its segment
+   * with one other character went through verbatim — into the row, onto `feedback.submitted`,
+   * and into the API log line. Each input below was executed against the shipped code and came
+   * back unchanged; each is a §2 violation on three sinks at once.
+   */
+  describe("an identifier does not have to be the WHOLE segment", () => {
+    it.each([
+      ["a uuid behind a prefix", "/jobs/id-6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply"],
+      ["a uuid with a trailing character", "/jobs/6f2c04e0-4f89-41d3-9a0c-0305e82c3301x/apply"],
+      ["the dash-less uuid form", "/jobs/6f2c04e04f8941d39a0c0305e82c3301/apply"],
+      ["a phone number and a name", "/w/9876543210-ravi"],
+      ["a name and a phone number", "/support/ravi-kumar-9876543210"],
+      ["a grouped 12-digit number", "/AADHAAR/1234-5678-9012"],
+      ["a phone after a scheme-ish colon", "/tel:919876543210"],
+      ["dot-separated worker detail", "/ramesh.kumar.9876543210"],
+      ["an alphanumeric id", "/chat/AbCdEf123456/msg"],
+    ])("substitutes %s", (_label, raw) => {
+      const out = sanitizeScreenContext(raw);
+      expect(out, raw).not.toBeNull();
+      // No uuid, no dash-less hex id, and no digit run long enough to be a number about a
+      // person. The assertion is on the OUTPUT so it keeps holding for shapes nobody has
+      // written a case for.
+      expect(out!, raw).not.toMatch(
+        /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+      );
+      expect(out!, raw).not.toMatch(/[0-9]{4,}/);
+      expect(out!, raw).not.toMatch(/(?=[0-9a-fA-F]*[0-9])[0-9a-fA-F]{16,}/);
+    });
+
+    it("substitutes EVERY run in one segment, not only the first", () => {
+      expect(sanitizeScreenContext("/x/9876543210-and-1234567890")).toBe("/x/:id-and-:id");
+    });
+
+    /**
+     * ⚠ THE RESIDUAL, ASSERTED SO IT IS NOT MISTAKEN FOR A GUARANTEE. An opaque token that is
+     * neither hex nor digits is indistinguishable from a route word by any structural rule, so
+     * it survives — and no comment on this field may claim otherwise. Closing this needs an
+     * ALLOWLIST of the client's finite route table, not a longer denylist.
+     */
+    it("does NOT catch an opaque non-hex token — a denylist cannot", () => {
+      expect(sanitizeScreenContext("/u/dGVzdEBleGFtcGxlLmNvbQ")).toBe(
+        "/u/dGVzdEBleGFtcGxlLmNvbQ",
+      );
+    });
+
+    /** A long lowercase word made only of `a`–`f` is hex by charset and is not an id. */
+    it("does not mistake a long hex-lettered WORD for an id", () => {
+      expect(sanitizeScreenContext("/deadbeefdeadbeef/edit")).toBe("/deadbeefdeadbeef/edit");
+    });
   });
 
   it("never returns a value containing a uuid or a bare digit run", () => {
@@ -100,6 +157,18 @@ describe("sanitizeScreenContext — sanitize, never reject, never throw", () => 
     ["a newline", "/jobs\n/admin"],
     ["non-ASCII", "/नौकरी/आवेदन"],
   ])("returns null for %s", (_label, raw) => {
+    expect(sanitizeScreenContext(raw)).toBeNull();
+  });
+
+  /**
+   * The pre-split DoS bound is LOSSY, and the comment that used to sit on it claimed it was
+   * not ("cannot discard anything the check below would have kept"). Pinned here so the false
+   * invariant cannot come back as a justification for raising the multiplier.
+   */
+  it("discards a value past the raw DoS bound even though it would normalize small", () => {
+    const raw = `/orders/${"9".repeat(1300)}`;
+    expect(raw.length).toBeGreaterThan(WORKER_FEEDBACK_SCREEN_MAX * 10);
+    // Its normalized form would be `/orders/:id` — eleven characters, well inside the bound.
     expect(sanitizeScreenContext(raw)).toBeNull();
   });
 

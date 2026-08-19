@@ -39,7 +39,8 @@ stored: `voice_notes.transcript_text`/`transcript_english` and `chat_messages.bo
 the worker's own words *is* the feature. These sit in plaintext behind the RLS+REVOKE
 lockout, and every other rule in this section applies to them **unchanged**: never to an
 LLM unpseudonymized, never into an event (`feedback.submitted` carries `message_length`,
-never the text), never into a log, never into `ai_jobs`/`audit_logs`. A new **structured**
+`category`, `app_build` and a normalized `screen_context` route pattern — never the text),
+never into a log, never into `ai_jobs`/`audit_logs`. A new **structured**
 column holding a phone, a name, an address or an ID token is not covered by this and must
 be encrypted.
 
