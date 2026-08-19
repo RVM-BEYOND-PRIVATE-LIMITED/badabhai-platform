@@ -13,7 +13,7 @@
 | 0 | `0078` / S3-C | — | ✅ **APPLIED & VERIFIED** — object-by-object, write path exercised |
 | 1 | Embedding provenance (76 unstamped rows) | — | ✅ **CLOSED** — proven `gemini-embedding-001`, stamped |
 | 2 | `cnc-programming` scope decision | **product / taxonomy owner** | ⏸ quantified against production |
-| 3 | 11 provider evaluation cases | — | ✅ **EXECUTED** — 11 real calls, replay gap closed |
+| 3 | 11 provider evaluation cases | — | ✅ **EXECUTED** — 11 real calls; replay gap closed; harness defect found and fixed |
 | 4 | 5 TD-01 trainer slots | **trade trainer** | ⏸ worksheet ready |
 | 5 | TD-07 | **product + trainer** | ⏸ worksheet ready, five options costed |
 | 6 | R38 residual | **host-only** | 🔴 open — CD cannot fix it (see below) |
@@ -114,39 +114,63 @@ Evidence: `packages/db/data/taxonomy/replay/phase-9-replay-query-vector-provenan
 
 ### The replay gap is closed: 127/127, 0 skipped
 
-| | before | after |
-|---|---|---|
-| replayed | 116 | **127** |
-| skipped (no cached query vector) | 11 | **0** |
-| scored | 113 | **117** |
-| Path A R@1 | 0.9912 | **0.9829** |
-| Path A MRR | 0.9956 | **0.9872** |
-| Path A false positives | 0 | **0** |
-| Path A false negatives | 0 | **1** |
-| Path B false positives | 0 | **2** |
+**And a harness defect was found in the act of reading the result.** The first full-127 run
+reported R@1 0.9829 over 117 scored, down from 0.9912 over 113. That drop was **not real**.
 
-Report: `packages/db/data/taxonomy/replay/phase-9-path-a-replay-FULL-127-PRE-PROMOTION.json`.
+`taxonomy-retrieval-eval.ts` defines `COVERAGE_ONLY_CATEGORIES = {"unembedded_shipped"}` and
+excludes those cases from Recall/MRR. `taxonomy-alias-experiment.ts` honours it. The fixture says
+so per case — US-04's own note reads *"excluded from headline Recall/MRR — reported as its own
+category"*. But `path-a-replay.ts`'s `summarizeReplay` split only on `negative` and had **no
+notion of coverage-only at all**, so the moment the last four `unembedded_shipped` queries got
+vectors they walked into the recall denominator. Three places agreed; the fourth had never been
+told.
 
-**The drop is the gap closing, not a regression** — exactly as the contract predicted. The 11
-cases were never ordinary recall cases: 7 are `cross_domain_isolation` (expected skill `null`) and
-4 are `unembedded_shipped`. The 4 entered scoring; one of them misses.
+Fixed (`coverageOnly` threaded from the case category, imported from the one shared set rather
+than re-declared) and pinned by 8 tests. Corrected numbers:
 
-**Three findings that were invisible while these cases were unscoreable:**
+| | baseline (116 replayed) | full 127, harness bug | full 127, corrected |
+|---|---|---|---|
+| cases | 116 | 127 | **127** |
+| skipped | 11 | 0 | **0** |
+| scored | 113 | 117 | **113** |
+| hits | 112 | 115 | **112** |
+| **R@1** | 0.9912 | 0.9829 | **0.9912** |
+| MRR | 0.9956 | 0.9872 | **0.9956** |
+| Path A false positives | 0 | 0 | **0** |
+| Path A false negatives | 0 | 1 | **0** |
+| coverage reached (Path A) | — | — | **3 / 4** |
+| coverage reached (Path B) | — | — | **1 / 4** |
 
-- **Path A's cross-domain isolation holds — 0 false positives on all 7 XD cases.** This is the
-  safety property (a query from a foreign trade must return nothing), and it had never been
-  measured on the hardest cases. It passes.
-- **Path B leaks: 2 false positives on the same 7 cases.** The legacy path returns a skill where
-  Path A correctly returns nothing. First time this has been quantified, and it is an argument
-  for Path A that did not exist before.
-- **US-04 is a genuine Path A miss, and it needs a taxonomy owner, not a fix.**
-  Query `"dimensional inspection"` in `jd_nco_7313_2601` (Final Quality Inspector) expects
-  `skill_quality_control`; Path A returns `skill_drawing_reading`. It is the single
-  `top1_changed` case in the TD-01/02/03 impact table: pre-merge it returned
-  `skill_dimensional_inspection`, which **TD-02 deprecated**. So either TD-02's merge target is
-  wrong for this query, or the fixture's expectation is stale. **DC-18 is the standing warning
-  against engineering deciding which** — a case that read as a model failure for two phases turned
-  out to be a fixture opinion. Referred, not resolved.
+**Retrieval quality did not move.** R@1, MRR and hits are identical to the baseline; the extra 11
+cases were never scoring cases. The report now prints `scored` beside R@1, because a recall figure
+whose denominator is invisible is exactly how 113 and 117 came to be compared as if they described
+the same set.
+
+Corrected report: `phase-9-path-a-replay-FULL-127-COVERAGE-CORRECTED.json`.
+The earlier `phase-9-path-a-replay-FULL-127-PRE-PROMOTION.json` is **superseded but retained** —
+evidence is not deleted because it turned out to be wrong; it is the record of what the harness
+said before the defect was found.
+
+**The three genuine findings from the provider run survive the correction:**
+
+- **Path A's cross-domain isolation holds — 0 false positives across all 10 XD cases**, 7 of
+  which had never been scoreable. This is the safety property (a query from a foreign trade must
+  return nothing) and it is the strongest single result of the pass.
+- **Path B leaks: 2 false positives** on those same cases, where Path A returns nothing. First
+  time this has been quantified, and it is an argument for Path A that did not exist before.
+- **US-04 is a COVERAGE gap, not a ranking miss** — and it still needs a taxonomy owner.
+  Path A reaches 3 of the 4 shipped-and-reused-only skills; US-04 is the one it does not.
+  Query `"dimensional inspection"` in `jd_nco_7313_2601` expects `skill_quality_control` and
+  Path A returns `skill_drawing_reading`.
+
+  The fixture's own note explains how it got here: TD-02 re-pointed the case from the dissolved
+  `skill_dimensional_inspection` to `skill_quality_control`, and rescoped it to
+  `jd_nco_7313_2601` because *"`skill_dimensional_inspection`'s old domain `jd_nco_7543_2001` has
+  no `skill_quality_control` edge"*. `skill_quality_control` is **shipped-and-reused-only** — it
+  has no locally-authored `skills.jsonl` record — so the canonical corpus has nothing of its own
+  to retrieve. Whether that is a corpus gap to fill or a fixture expectation to retire is a
+  taxonomy judgement. **DC-18 is the standing warning against engineering deciding which.**
+  Referred, not resolved.
 
 ---
 

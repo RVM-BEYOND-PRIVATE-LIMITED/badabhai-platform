@@ -1,0 +1,170 @@
+{
+  "kind": "path-a-offline-replay",
+  "generated_for_corpus": "authoritative source files on main",
+  "embedding_model": "gemini-embedding-001",
+  "k": 5,
+  "fixture": {
+    "id": "taxonomy-retrieval-v1",
+    "version": 2,
+    "cases": 127
+  },
+  "replayed": 127,
+  "skipped": [],
+  "corpus": {
+    "skills": 147,
+    "aliases": 335,
+    "aliases_with_vector": 303,
+    "edges": 236
+  },
+  "provenance": {
+    "pre_merge": {
+      "mintedSkillIds": [],
+      "restoredSkillIds": [
+        "skill_boring->active",
+        "skill_cad_interpretation->active",
+        "skill_chassis_fitting->provisional",
+        "skill_dimensional_inspection->active",
+        "skill_gdt_reading->active",
+        "skill_go_no_go_gauge_checking->provisional"
+      ],
+      "reassignedAliases": [],
+      "repointedEdges": []
+    },
+    "as_applied": {
+      "mintedSkillIds": [],
+      "restoredSkillIds": [],
+      "reassignedAliases": [],
+      "repointedEdges": []
+    },
+    "edges_repointed": {
+      "mintedSkillIds": [],
+      "restoredSkillIds": [],
+      "reassignedAliases": [],
+      "repointedEdges": []
+    }
+  },
+  "summaries": {
+    "pre_merge|path_a_canonical": {
+      "cases": 127,
+      "resolved": 127,
+      "unresolved": 0,
+      "scored": 113,
+      "hits": 112,
+      "recallAt1": 0.9911504424778761,
+      "mrr": 0.995575221238938,
+      "meanCandidates": 20.653543307086615,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "coverageOnly": 4,
+      "coverageReached": 3
+    },
+    "pre_merge|path_b_legacy": {
+      "cases": 127,
+      "resolved": 127,
+      "unresolved": 0,
+      "scored": 113,
+      "hits": 0,
+      "recallAt1": 0,
+      "mrr": 0,
+      "meanCandidates": 37,
+      "falsePositives": 2,
+      "falseNegatives": 113,
+      "coverageOnly": 4,
+      "coverageReached": 1
+    },
+    "as_applied|path_a_canonical": {
+      "cases": 127,
+      "resolved": 127,
+      "unresolved": 0,
+      "scored": 113,
+      "hits": 112,
+      "recallAt1": 0.9911504424778761,
+      "mrr": 0.995575221238938,
+      "meanCandidates": 20.212598425196852,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "coverageOnly": 4,
+      "coverageReached": 3
+    },
+    "as_applied|path_b_legacy": {
+      "cases": 127,
+      "resolved": 127,
+      "unresolved": 0,
+      "scored": 113,
+      "hits": 0,
+      "recallAt1": 0,
+      "mrr": 0,
+      "meanCandidates": 32,
+      "falsePositives": 2,
+      "falseNegatives": 113,
+      "coverageOnly": 4,
+      "coverageReached": 1
+    },
+    "edges_repointed|path_a_canonical": {
+      "cases": 127,
+      "resolved": 127,
+      "unresolved": 0,
+      "scored": 113,
+      "hits": 112,
+      "recallAt1": 0.9911504424778761,
+      "mrr": 0.995575221238938,
+      "meanCandidates": 20.212598425196852,
+      "falsePositives": 0,
+      "falseNegatives": 0,
+      "coverageOnly": 4,
+      "coverageReached": 3
+    },
+    "edges_repointed|path_b_legacy": {
+      "cases": 127,
+      "resolved": 127,
+      "unresolved": 0,
+      "scored": 113,
+      "hits": 0,
+      "recallAt1": 0,
+      "mrr": 0,
+      "meanCandidates": 32,
+      "falsePositives": 2,
+      "falseNegatives": 113,
+      "coverageOnly": 4,
+      "coverageReached": 1
+    }
+  },
+  "agreement_as_applied": {
+    "cases": 127,
+    "bothResolved": 127,
+    "agreeTop1": 4,
+    "disagreeTop1": 123,
+    "onlyAResolved": 0,
+    "onlyBResolved": 0,
+    "neitherResolved": 0,
+    "agreementRate": 0.031496062992125984
+  },
+  "td01_reachability_probe": {
+    "pre_merge": {
+      "probes": 96,
+      "familyReachable": 96,
+      "familyTop1": 96,
+      "winsInstead": []
+    },
+    "as_applied": {
+      "probes": 96,
+      "familyReachable": 96,
+      "familyTop1": 96,
+      "winsInstead": []
+    },
+    "edges_repointed": {
+      "probes": 96,
+      "familyReachable": 96,
+      "familyTop1": 96,
+      "winsInstead": []
+    }
+  },
+  "td_impact": {
+    "unchanged": 112,
+    "candidates_changed": 14,
+    "top1_changed": 1
+  },
+  "edge_repoint_gain": {
+    "unchanged": 127
+  }
+}

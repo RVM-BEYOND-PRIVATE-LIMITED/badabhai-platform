@@ -9,6 +9,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { COVERAGE_ONLY_CATEGORIES } from "./taxonomy-retrieval-eval";
 import {
   LEGACY_ANCHOR_SKILL_DOMAIN,
   PRE_MERGE_ALIAS_OWNER,
@@ -289,7 +290,7 @@ describe("diffCase precedence", () => {
   const mk = (o: Partial<ReplayCaseResult>): ReplayCaseResult => ({
     caseId: "c", path: "path_a_canonical", variant: "as_applied", candidateCount: 5,
     unresolved: false, top1SkillId: "x", top1Score: 0.9, expectedSkillId: "x",
-    negative: false, hit: true, expectedRank: 1, structuralViolations: [], outranked: [], skills: [], ...o,
+    negative: false, coverageOnly: false, hit: true, expectedRank: 1, structuralViolations: [], outranked: [], skills: [], ...o,
   });
 
   it("reports a correctness change ahead of a candidate-set change", () => {
@@ -442,5 +443,73 @@ describe("summaries", () => {
     const a = [run("s1")];
     const b = [{ ...run("s1"), unresolved: true, top1SkillId: null }];
     expect(summarizeAgreement(a, b)).toMatchObject({ bothResolved: 0, onlyAResolved: 1, agreementRate: 0 });
+  });
+
+  /**
+   * The exclusion this replay was missing while two sibling harnesses applied it.
+   *
+   * `unembedded_shipped` cases have an expected skill that is shipped-and-reused-only, with no
+   * locally-authored corpus record — they ask "is this reachable", not "is it ranked first",
+   * and the fixture says so per case. Scoring them here made R@1 move the moment the last four
+   * such queries got vectors, against a denominator nobody could see.
+   */
+  const runCat = (expected: string, category: string) =>
+    replayCase(corpus, "path_a_canonical", {
+      caseId: `c-${category}`, query: v(0.9), jobDomainId: "jd1", legacyDomainId: "d",
+      expectedSkillId: expected, k: 5, category,
+    });
+
+  it("marks an unembedded_shipped case coverage-only", () => {
+    expect(runCat("s1", "unembedded_shipped").coverageOnly).toBe(true);
+  });
+
+  it("leaves an ordinary category scoring", () => {
+    expect(runCat("s1", "paraphrase_latin").coverageOnly).toBe(false);
+  });
+
+  it("treats an omitted category as scoring, not as coverage-only", () => {
+    // Fail SAFE toward the stricter reading: a caller that forgets to pass the category gets
+    // its case measured, not silently dropped out of recall.
+    expect(run("s1").coverageOnly).toBe(false);
+  });
+
+  it("keeps coverage-only cases out of scored / R@1 / MRR and reports them separately", () => {
+    const s = summarizeReplay([run("s1"), runCat("s2", "unembedded_shipped")]);
+    // Two cases; only the ordinary one is scored. Without the exclusion the coverage case's
+    // rank-2 result would drag R@1 to 0.5 — which is exactly what happened in production
+    // reporting.
+    expect(s).toMatchObject({ cases: 2, scored: 1, hits: 1, recallAt1: 1, mrr: 1 });
+    expect(s.coverageOnly).toBe(1);
+    expect(s.coverageReached).toBe(0);
+  });
+
+  it("a coverage-only case that DOES reach its skill is reported as reached", () => {
+    const s = summarizeReplay([runCat("s1", "unembedded_shipped")]);
+    expect(s).toMatchObject({ scored: 0, recallAt1: 0, coverageOnly: 1, coverageReached: 1 });
+  });
+
+  it("a coverage-only case never counts as a false negative", () => {
+    // falseNegatives is derived from the same positives set, so this is the property that
+    // would silently regress if someone widened `positives` again.
+    expect(summarizeReplay([runCat("s_missing", "unembedded_shipped")]).falseNegatives).toBe(0);
+  });
+
+  it("a NEGATIVE case is never reclassified as coverage-only", () => {
+    // A negative has no expected skill to cover, and its false-positive check must stay in
+    // force whatever its category says.
+    const neg = replayCase(corpus, "path_a_canonical", {
+      caseId: "neg", query: v(0.9), jobDomainId: "jd1", legacyDomainId: "d",
+      expectedSkillId: null, k: 5, category: "unembedded_shipped",
+    });
+    expect(neg.negative).toBe(true);
+    expect(neg.coverageOnly).toBe(false);
+  });
+
+  it("uses the SAME category set as the eval harness, not a local copy", () => {
+    // The defect was three modules disagreeing. Pin the shared source so a future local
+    // redefinition here fails rather than drifting.
+    for (const category of COVERAGE_ONLY_CATEGORIES) {
+      expect(runCat("s1", category).coverageOnly).toBe(true);
+    }
   });
 });
