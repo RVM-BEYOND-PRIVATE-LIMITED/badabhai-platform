@@ -1705,3 +1705,17 @@ textarea.field__input {
 .table--prose td {
   vertical-align: top;
 }
+
+/* ==================================================================
+ * PHASE 6 · A LINK THAT IS THE CURRENT VIEW
+ * The worker-journey session filter is plain links, not a client form — the filter belongs
+ * in the URL so it survives being pasted into an incident thread. `aria-current="page"`
+ * marks the active one for assistive tech; with no rule behind it the state would be
+ * announced and invisible, which is the mirror of the usual bug. Reuses the brand tokens
+ * `.btn--primary` already carries — no new colour is introduced.
+ * ================================================================== */
+.btn[aria-current="page"] {
+  background: var(--brand-tint);
+  color: var(--text-primary);
+  border-color: var(--brand-border);
+}

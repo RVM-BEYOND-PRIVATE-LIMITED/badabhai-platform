@@ -123,6 +123,72 @@ export function formatRupees(n: number): string {
 }
 
 /**
+ * Group an integer digit string the Indian way — last three, then pairs.
+ *
+ * STRING IN, STRING OUT, and that is the whole point: the caller's value came off a
+ * `numeric(16,6)` column and must never touch `Number`. `toLocaleString` would require a
+ * float first, which is exactly the round trip the column type exists to avoid.
+ */
+function groupIndianDigits(digits: string): string {
+  const s = digits.replace(/^0+(?=\d)/, "");
+  if (s.length <= 3) return s;
+  return `${s.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${s.slice(-3)}`;
+}
+
+/** What a value has to look like to be a decimal this function may reformat. */
+const EXACT_DECIMAL = /^-?\d+(?:\.\d+)?$/;
+
+/**
+ * An EXACT decimal ₹ amount that arrived as a STRING — AI spend, and nothing else today.
+ *
+ * ── WHY THIS IS NOT `formatRupees` ──────────────────────────────────────────────────────
+ * `formatRupees` takes a whole-rupee integer and `formatInr` throws on anything else, which
+ * is right for a credit pack. AI spend is not that: `platform_ai_cost_totals.total_cost_inr`
+ * is `numeric(16,6)` and a single embedding call costs a small fraction of a paisa. The API
+ * serialises it verbatim ("12.480000") precisely so a running sum of millions of sub-paisa
+ * calls does not drift through IEEE-754 — so this formatter never parses it either. Every
+ * step below is string surgery: group the integer part, trim the fraction's trailing zeros
+ * (lossless — 12.480000 IS 12.48), and keep a two-decimal minimum so ₹3 reads as money.
+ *
+ * NOTHING IS ROUNDED. A sub-paisa figure renders all six of its places rather than
+ * collapsing to ₹0.00, because "we spent a fraction of a paisa" and "we spent nothing" are
+ * different facts and this console exists to keep them apart.
+ *
+ * A value that is not a plain decimal is returned UNCHANGED rather than coerced or blanked:
+ * it came from the server, this portal does not know what it means, and inventing a ₹ figure
+ * for it would be worse than showing it raw.
+ */
+export function formatExactRupees(value: string): string {
+  if (!EXACT_DECIMAL.test(value)) return value;
+  const negative = value.startsWith("-");
+  const [whole = "0", fraction = ""] = (negative ? value.slice(1) : value).split(".");
+  const trimmed = fraction.replace(/0+$/, "");
+  // A real minus sign (U+2212), for the same reason `formatDelta` uses one: it aligns with
+  // digits in the tabular figures these amounts are set in.
+  return `${negative ? "−" : ""}₹${groupIndianDigits(whole)}.${
+    trimmed.length <= 2 ? trimmed.padEnd(2, "0") : trimmed
+  }`;
+}
+
+/**
+ * A duration in seconds, coarsened for scanning: "45s", "12m", "3h 20m", "2d 4h".
+ *
+ * Used for `idle_seconds` on a chat session — "idle since" is the abandonment signal, and an
+ * operator reads it to answer "did they walk away, or is this live right now?". A negative or
+ * non-finite input renders an em dash rather than a nonsense duration.
+ */
+export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "—";
+  const s = Math.floor(seconds);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${m % 60}m`;
+  return `${Math.floor(h / 24)}d ${h % 24}h`;
+}
+
+/**
  * A signed credit movement: "+25" / "−10".
  *
  * The sign is the whole meaning of a ledger row, so it is always explicit — a bare "25"

@@ -42,6 +42,7 @@ export default async function WorkerDetailPage({
   const apps = await listApplications({ workerId: id, limit: 10 }).catch(() => null);
 
   const timelineHref = `/workers/${worker.id}/timeline`;
+  const journeyHref = `/workers/${worker.id}/journey`;
   const title = (
     <div>
       <p className="page__eyebrow">
@@ -64,6 +65,11 @@ export default async function WorkerDetailPage({
         workerId={worker.id}
         canFlag={can(session.capabilities, "flag_worker")}
         timelineHref={timelineHref}
+        /* This page is already behind `read_entities`, which is what the journey routes
+           declare too — so the link is always offered here. Passed explicitly rather than
+           hardcoded in the header, so the day either capability narrows the control moves
+           with it instead of pointing at a redirect. */
+        journeyHref={can(session.capabilities, "read_entities") ? journeyHref : null}
       />
 
       {worker.deletion_scheduled_at && (

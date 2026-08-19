@@ -4,6 +4,8 @@ import {
   creditReasonLabel,
   formatCount,
   formatDelta,
+  formatDuration,
+  formatExactRupees,
   formatPayBand,
   formatRupees,
   formatRelative,
@@ -192,6 +194,81 @@ describe("money — a ledger row's sign is its meaning", () => {
 
   it("zero renders as +0, never bare", () => {
     expect(formatDelta(0)).toBe("+0");
+  });
+});
+
+describe("formatExactRupees — AI spend is a STRING and never round-trips through a float", () => {
+  /*
+   * `platform_ai_cost_totals.total_cost_inr` is `numeric(16,6)`, serialised verbatim precisely
+   * so a running sum of millions of sub-paisa calls cannot drift through IEEE-754. Every step
+   * of this formatter is string surgery for that reason, which is exactly what makes it worth
+   * pinning: a later "tidy-up" to `Number(value).toLocaleString()` would pass a casual eyeball
+   * on ₹12.48 and quietly lose the sixth decimal place on the figures that need it.
+   */
+
+  it("pads to a two-decimal minimum so a whole amount reads as money", () => {
+    expect(formatExactRupees("0")).toBe("₹0.00");
+    expect(formatExactRupees("3")).toBe("₹3.00");
+    // Trailing zeros are LOSSLESS to trim: 12.480000 IS 12.48.
+    expect(formatExactRupees("12.480000")).toBe("₹12.48");
+  });
+
+  it("keeps every place of a sub-paisa figure rather than rounding it to ₹0.00", () => {
+    // "We spent a fraction of a paisa" and "we spent nothing" are different facts.
+    expect(formatExactRupees("0.000012")).toBe("₹0.000012");
+    expect(formatExactRupees("0.000012")).not.toBe("₹0.00");
+  });
+
+  it("groups the integer part the INDIAN way — last three, then pairs", () => {
+    expect(formatExactRupees("1234567.5")).toBe("₹12,34,567.50");
+    expect(formatExactRupees("12345678.123456")).toBe("₹1,23,45,678.123456");
+    expect(formatExactRupees("999.5")).toBe("₹999.50");
+    // …and a value that arrived zero-padded is not rendered with its padding.
+    expect(formatExactRupees("00012.5")).toBe("₹12.50");
+  });
+
+  it("renders a negative with a real minus sign, outside the ₹", () => {
+    // U+2212, for the same reason `formatDelta` uses one: it aligns with tabular digits.
+    expect(formatExactRupees("-1.5")).toBe("−₹1.50");
+    expect(formatExactRupees("-1.5").charCodeAt(0)).toBe(0x2212);
+    expect(formatExactRupees("-0.5")).toBe("−₹0.50");
+  });
+
+  it("returns a value it does not recognise UNCHANGED — never coerced, never blanked", () => {
+    // It came from the server. Inventing a ₹ figure for something this portal cannot parse
+    // would be worse than showing it raw, and blanking it would hide that it arrived at all.
+    for (const raw of ["", "abc", "1e5", ".5", "1.", "12,50", "₹12.48", "NaN"]) {
+      expect(formatExactRupees(raw), raw).toBe(raw);
+    }
+  });
+});
+
+describe("formatDuration — the idle ladder, and what is NOT a duration", () => {
+  it("steps through seconds, minutes, hours and days", () => {
+    expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(45)).toBe("45s");
+    expect(formatDuration(59)).toBe("59s");
+    expect(formatDuration(60)).toBe("1m");
+    expect(formatDuration(12 * 60)).toBe("12m");
+    expect(formatDuration(59 * 60 + 59)).toBe("59m");
+    expect(formatDuration(60 * 60)).toBe("1h 0m");
+    expect(formatDuration(3 * 3600 + 20 * 60)).toBe("3h 20m");
+    expect(formatDuration(23 * 3600 + 59 * 60)).toBe("23h 59m");
+    expect(formatDuration(24 * 3600)).toBe("1d 0h");
+    expect(formatDuration(2 * 86400 + 4 * 3600)).toBe("2d 4h");
+  });
+
+  it("floors a fractional second rather than printing one", () => {
+    expect(formatDuration(45.9)).toBe("45s");
+  });
+
+  it("renders a dash for a negative or non-finite input, never a nonsense duration", () => {
+    // `idle_seconds` is derived from two clocks; skew makes a negative reachable, and
+    // "−3s idle" on an operations console is noise that reads as a bug in the data.
+    expect(formatDuration(-1)).toBe("—");
+    expect(formatDuration(Number.NaN)).toBe("—");
+    expect(formatDuration(Number.POSITIVE_INFINITY)).toBe("—");
+    expect(formatDuration(-1)).not.toContain("s");
   });
 });
 
