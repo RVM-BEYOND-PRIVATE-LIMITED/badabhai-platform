@@ -32,6 +32,17 @@ in LLM input, event payloads, `ai_jobs`, `audit_logs`, or logs. Raw PII lives on
 lives encrypted in `payers` (TD21, ADR-0019 B-R2). Agency financial KYC (PAN/bank)
 encrypted in `agency_kyc` (ADR-0022 Amdt 2, launch-gated OFF).
 
+**One narrow exception — and it does not license a new column.** Text a human typed
+carries PII by *content*, not by column, and encrypting it destroys the reason it is
+stored: `voice_notes.transcript_text`/`transcript_english` and `chat_messages.body_text`
+(incidental PII — **R12**), and `worker_feedback.message` (#997), where an admin reading
+the worker's own words *is* the feature. These sit in plaintext behind the RLS+REVOKE
+lockout, and every other rule in this section applies to them **unchanged**: never to an
+LLM unpseudonymized, never into an event (`feedback.submitted` carries `message_length`,
+never the text), never into a log, never into `ai_jobs`/`audit_logs`. A new **structured**
+column holding a phone, a name, an address or an ID token is not covered by this and must
+be encrypted.
+
 - [ ] No phone/name/address/employer/ID-doc value reaches **LLM input** — verified for
       this diff. Enforced by [`apps/ai-service/app/pseudonymize.py`](../apps/ai-service/app/pseudonymize.py).
 - [ ] No raw PII in any **event payload** — events carry ids/enums/counts only. Schema:
@@ -41,6 +52,9 @@ encrypted in `agency_kyc` (ADR-0022 Amdt 2, launch-gated OFF).
       `"(encrypted)"` + id (see [`docs/security/phase-1-pii-at-rest-rls-review.md`](security/phase-1-pii-at-rest-rls-review.md)).
 - [ ] Crypto for any new PII column uses [`apps/api/src/common/pii-crypto.service.ts`](../apps/api/src/common/pii-crypto.service.ts)
       / [`apps/api/src/common/crypto.ts`](../apps/api/src/common/crypto.ts) (never plaintext at rest).
+      A human-authored free-text column is the one exception above — tick it only if the
+      diff also shows the length-only event, the id-only logging, and the erasure path
+      (an `ON DELETE cascade` from `workers`, never `SET NULL`).
 - [ ] Privacy-critical paths have an explicit **no-PII test** (event/`ai_jobs`/log
       assertion), per the `bb-security-review` checklist.
 

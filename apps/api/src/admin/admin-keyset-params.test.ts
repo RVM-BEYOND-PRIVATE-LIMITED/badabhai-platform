@@ -5,6 +5,7 @@ import type { Database } from "@badabhai/db";
 import { AdminEntitiesRepository } from "./admin-entities.repository";
 import { AdminEventsRepository } from "./admin-events.repository";
 import { AdminWorkerJourneyRepository } from "./admin-worker-journey.repository";
+import { AdminFeedbackRepository } from "./admin-feedback.repository";
 
 /**
  * REGRESSION GUARD — keyset cursors must bind DRIVER-ENCODABLE parameters.
@@ -120,6 +121,28 @@ describe("BP-1 entity keysets bind encodable parameters", () => {
   it("the timestamp is bound as an ISO string, not a Date object", async () => {
     const m = makeDb();
     await new AdminEntitiesRepository(m.db).listWorkers({}, cursor, 10);
+    expect(m.params).toContain(CURSOR_TS);
+  });
+});
+
+describe("#997 feedback keyset binds encodable parameters", () => {
+  const cursor = { createdAt: CURSOR_TS, id: CURSOR_ID };
+
+  it("list with a cursor", async () => {
+    const m = makeDb();
+    await new AdminFeedbackRepository(m.db).list({}, cursor, 10);
+    expectAllEncodable(m.params, "AdminFeedbackRepository.list");
+  });
+
+  it("a FILTERED page is equally safe (the category clause joins the same WHERE)", async () => {
+    const m = makeDb();
+    await new AdminFeedbackRepository(m.db).list({ category: "problem" }, cursor, 10);
+    expectAllEncodable(m.params, "AdminFeedbackRepository.list (filtered)");
+  });
+
+  it("the timestamp is bound as an ISO string, not a Date object", async () => {
+    const m = makeDb();
+    await new AdminFeedbackRepository(m.db).list({}, cursor, 10);
     expect(m.params).toContain(CURSOR_TS);
   });
 });

@@ -10,6 +10,7 @@ import { AuthController } from "../auth/auth.controller";
 import { ChatController } from "../chat/chat.controller";
 import { ConsentController } from "../consent/consent.controller";
 import { EventsController } from "../events/events.controller";
+import { WorkerFeedbackController } from "../feedback/worker-feedback.controller";
 import { HealthController } from "../health/health.controller";
 import { InterviewKitController } from "../interview-kit/interview-kit.controller";
 import { JobsController } from "../jobs/jobs.controller";
@@ -53,6 +54,7 @@ import { ReferralBonusController } from "../referrals/referral-bonus.controller"
 // read directly from each controller's current @UseGuards, not assumed from the audit.
 import { AdminDirectoryController } from "../admin/admin-directory.controller";
 import { AdminEntitiesController } from "../admin/admin-entities.controller";
+import { AdminFeedbackController } from "../admin/admin-feedback.controller";
 import { AdminFinanceController } from "../admin/admin-finance.controller";
 import { AdminWorkerJourneyController } from "../admin/admin-worker-journey.controller";
 import { AdminKillSwitchController } from "../admin/admin-kill-switch.controller";
@@ -140,6 +142,14 @@ const CONTRACT: ControllerContract[] = [
     name: "WorkerActions",
     ctor: WorkerActionsController,
     routes: { record: [C, W], recordBatch: [C, W] },
+  },
+  // #997 — the worker's OWN feedback sink. Also a separate controller, for the same reason:
+  // a class that can never acquire an ops guard can never be swept into `OPS_ROUTES`.
+  // `[C, W]` is the posture of every other `/workers/me/*` route.
+  {
+    name: "WorkerFeedback",
+    ctor: WorkerFeedbackController,
+    routes: { submit: [C, W] },
   },
   {
     name: "Applications",
@@ -530,6 +540,14 @@ const CONTRACT: ControllerContract[] = [
       listApplications: [A, AR],
     },
   },
+  // #997 — the admin half of worker feedback. Same [A, AR] posture as every other admin read;
+  // what makes it worth its own entry is that it is the ONE non-faceless one, so a guard
+  // quietly dropped here would expose worker-authored free text rather than an opaque id.
+  {
+    name: "AdminFeedback",
+    ctor: AdminFeedbackController,
+    routes: { list: [A, AR] },
+  },
   {
     name: "AdminFinance",
     ctor: AdminFinanceController,
@@ -684,6 +702,9 @@ describe("API authz contract — guards on every controller route", () => {
       { name: "Chat", ctor: ChatController },
       { name: "Profiles", ctor: ProfilesController },
       { name: "Voice", ctor: VoiceController },
+      // #997 — not an AI surface, but it carries the SAME class-level pair and so the same
+      // ordering hazard: `ConsentGuard` reads `req.worker`, which `WorkerAuthGuard` attaches.
+      { name: "WorkerFeedback", ctor: WorkerFeedbackController },
     ]) {
       it(`${name}Controller runs [WorkerAuthGuard, ConsentGuard] in order`, () => {
         expect(guardNames(ctor)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);

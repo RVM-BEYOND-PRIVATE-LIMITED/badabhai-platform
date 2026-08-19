@@ -2,12 +2,15 @@
 
 Every HTTP route in `apps/api` (NestJS) and `apps/ai-service` (FastAPI), with auth, the
 service/tables it touches, external calls, events emitted, queue interaction, test coverage,
-and a criticality class. Compiled by reading all 62 `apps/api` controllers in full and all 10
+and a criticality class. Compiled by reading every `apps/api` controller in full and all 10
 `apps/ai-service` routers in full, cross-checked against frontend/mobile call-site greps for
 the CALLER evidence.
 
-**Totals**: apps/api = 217 routes / 62 controllers. apps/ai-service = 15 routes / 10 routers.
-**232 routes total.**
+**Totals**: apps/api = 221 routes / 65 controllers. apps/ai-service = 15 routes / 10 routers.
+**236 routes total.** Counts re-derived 2026-08-19 (`@Get|@Post|@Put|@Patch|@Delete` decorators
+across every non-test `*.controller.ts`), not carried forward: the original 217/62 was exact when
+this file was written, then `GET /jobs/search` (#856) landed without a row here — added below —
+and #997 adds two more.
 
 > **Counts are a dated snapshot; the route rows are not.** These aggregates were compiled by
 > reading every controller in full at the time of the audit, and several other files in
@@ -33,13 +36,13 @@ the CALLER evidence.
 
 ## Test coverage
 
-apps/api: 46 of 62 controllers have a co-located `*.controller.test.ts`. The 16 without one
-(`admin-actions`, `admin-directory`, `admin-entities`, `admin-events`, `admin-finance`,
-`admin-kill-switch`, `admin-pii-reveal`, `agency-invites`, `agency-jobs`, `agency-workers`,
-`devices`, `resume-disclosure`, `jobs`, `pace`, `referral-bonus`, `skills`) all have adjacent
-`*.service.test.ts`/`*.authz.test.ts`/`*.repository.test.ts` instead — business logic is
-tested, but the HTTP/guard-wiring layer for those 16 is not directly exercised by a
-controller-level test.
+apps/api: 47 of 64 controllers have a co-located `*.controller.test.ts`. The 17 without one
+(`admin-actions`, `admin-directory`, `admin-entities`, `admin-events`, `admin-feedback`,
+`admin-finance`, `admin-kill-switch`, `admin-pii-reveal`, `agency-invites`, `agency-jobs`,
+`agency-workers`, `devices`, `resume-disclosure`, `jobs`, `pace`, `referral-bonus`, `skills`)
+all have adjacent `*.service.test.ts`/`*.authz.test.ts`/`*.repository.test.ts` instead —
+business logic is tested, but the HTTP/guard-wiring layer for those 17 is not directly
+exercised by a controller-level test.
 
 apps/ai-service: 13 of 15 routes have direct test coverage. **Gap**: `POST /profiling/turn`
 has only a unit test on its internal parser (no `TestClient` HTTP-level test), and
@@ -49,10 +52,11 @@ has only a unit test on its internal parser (no `TestClient` HTTP-level test), a
 ## Class-F note (routes with no confirmed caller yet)
 
 Every admin-portal route beyond `/admin/login/*`, `/admin/mfa/verify`, `/admin/logout`,
-`/admin/me`, `/admin/capabilities`, `/admin/kill-switch/status`, and `/admin/events/metrics`
-is fully built, guarded (`AdminAuthGuard` + `AdminRolesGuard` + capability check), and
-service/authz-tested, but has no confirmed `apps/admin-web` caller today. This matches the
-repo's documented "build-ahead-of-UI" pattern (ADMIN-4..8/OBS-4 are explicitly deferred in the
+`/admin/me`, `/admin/capabilities`, `/admin/kill-switch/status`, `/admin/events/metrics` and
+`/admin/feedback` (#997 lands the route and its portal page together) is fully built, guarded
+(`AdminAuthGuard` + `AdminRolesGuard` + capability check), and service/authz-tested, but has
+no confirmed `apps/admin-web` caller today. This matches the repo's documented
+"build-ahead-of-UI" pattern (ADMIN-4..8/OBS-4 are explicitly deferred in the
 routes' own docstrings) — it is not evidence of dead code, and Class F is deliberately kept
 distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 `pause-request`, `agency-invites`' agent-scoped `click`) are similarly built-but-uncalled.
@@ -83,7 +87,7 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | POST | /auth/pin/reset/request | none (IP-capped, shared `otp_request` bucket) | B | |
 | POST | /auth/pin/reset/confirm | none (the verified OTP is the credential) | B | **NOT IP-capped** — bounded by the per-phone send caps + per-code attempt counter in `OtpService`, same posture as `/auth/otp/verify`. **Mints a session** and returns the login-shape body since #994 (ADR-0026 A6) |
 
-### consent, admin (auth/directory/entities/finance/dashboard/events/kill-switch/pii-reveal/actions)
+### consent, admin (auth/directory/entities/finance/dashboard/feedback/events/kill-switch/pii-reveal/actions)
 
 | M | Path | Auth | Role | Class | Notes |
 |---|---|---|---|---|---|
@@ -94,6 +98,7 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | GET | /admin/workers(/:id), /admin/payers(/:id)(/credits), /admin/job-postings(/:id), /admin/applications | AAG+ARG | read_entities | F | built, no confirmed admin-web caller yet |
 | GET | /admin/finance/{summary,ledger,orders} | AAG+ARG | read_entities | F | |
 | GET | /admin/dashboard/summary | AAG+ARG | read_entities | F | BP-5; platform AI spend (`platform_ai_cost_totals`) + volume counts; `windowDays` scopes the cap-breach block only |
+| GET | /admin/feedback | AAG+ARG | read_entities | B | #997; called by admin-web `/feedback`. Worker-authored free text — the one admin read whose rows are not faceless. No name join, no free-text search: `worker_id` only, and `reveal-contact` stays the sole identity egress |
 | GET | /admin/events(/:id/metrics/export/trace) | AAG+ARG | read_events | F/B | metrics called by admin-web |
 | GET | /admin/kill-switch/status | AAG+ARG | toggle_kill_switch | B | called by admin-web |
 | POST | /admin/kill-switch/pause-request | AAG+ARG | toggle_kill_switch | F | no pairing enable action found |
@@ -135,6 +140,7 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | POST | /applications/:jobId/{apply,skip} | WAG,CG | A | event: application.submitted/skipped |
 | GET | /workers/me/applications | WAG,CG | A | |
 | GET | /jobs/:jobId/applicants, /workers/:workerId/applications | ISG | C | |
+| GET | /jobs/search | WAG,CG | A | #856; worker-facing title + city/state search. Declared BEFORE `/jobs/:jobId` — the parameterized route would otherwise swallow it. event: job.search_performed (query text never carried; length/result-count only) |
 | GET | /jobs/:jobId | WAG,CG | A | deliberately no event |
 | POST/GET/PATCH | /job-postings(/:id)(/close/verify/reject/reach/widen) | ISG | B/F | list/get/update/close called by apps/web; verify/reject no confirmed caller |
 | GET/PATCH | /workers/me/notification-prefs, /notifications, /notifications/read | WAG,CG | B | |
@@ -180,7 +186,7 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | POST/GET | /payer/agency/{kyc,earnings,payouts} | PAG,agent,AgencyPayoutsEnabledGuard | B | 404 while `AGENCY_PAYOUTS_ENABLED` off |
 | GET/POST | /ops/agency-kyc/{pending,:payerId/verify,:payerId/reject} | ISG | B | called by apps/web |
 
-### messaging, referrals, interview-kit(s), pace, occupation, skills, events, health, actions
+### messaging, referrals, interview-kit(s), pace, occupation, skills, events, health, actions, feedback
 
 | M | Path | Auth | Class | Notes |
 |---|---|---|---|---|
@@ -196,6 +202,7 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | GET | /health | none | A | |
 | POST | /actions, /actions/batch | ISG | C | |
 | POST | /workers/me/actions, /actions/batch | WAG,CG | A | |
+| POST | /workers/me/feedback | WAG,CG | A | #997; event: feedback.submitted (message LENGTH only, never the text). Per-worker minute cap then hour cap (`WORKER_FEEDBACK_PER_MINUTE`/`_PER_HOUR`). Row + event share one transaction |
 
 ---
 

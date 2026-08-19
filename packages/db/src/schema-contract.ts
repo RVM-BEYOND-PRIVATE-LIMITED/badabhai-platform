@@ -91,6 +91,17 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     failureMode:
       "a row carrying BOTH domain_id and job_domain_id becomes storable. Nothing throws; the row is simply meaningless to both retrieval paths",
   },
+  {
+    id: "0080-worker-feedback-table",
+    migration: "0080_worker_feedback",
+    kind: "table",
+    table: "worker_feedback",
+    requiredBy:
+      "FeedbackRepository.insert on POST /workers/me/feedback, and AdminFeedbackRepository.list " +
+      "on GET /admin/feedback — both name the table unconditionally, neither is behind a flag",
+    failureMode:
+      "every worker feedback submission 500s and the typed message is lost with the response; the admin Feedback screen 500s on first page load. LOUD on both surfaces, unlike 0078",
+  },
 ] as const;
 
 /** What the live database actually has, keyed by requirement id. */

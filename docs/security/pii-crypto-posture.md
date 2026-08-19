@@ -85,3 +85,14 @@ individual rights requests. Bulk crypto-shred is reserved for:
   erasure of hashed values requires deleting the rows that carry them (Tier 1).
 - **Append-only events spine.** Events carry no PII (invariant #2) and are never
   deleted. Crypto-shred does not affect them.
+- **Human-authored free text**, which is stored in **plaintext** and therefore has no
+  key to destroy: `voice_notes.transcript_text`/`transcript_english` and
+  `chat_messages.body_text` (PII there is incidental — **R12**), and
+  `worker_feedback.message` (#997), where it is expected rather than incidental: the
+  worker is writing to us on purpose and may include their own name, employer or
+  number, and an admin has to be able to read it, so putting it under a crypto
+  envelope would defeat the feature rather than protect it. Tier 2 is not a lever on
+  any of these. Tier 1 — deleting the rows, which the `ON DELETE cascade` from
+  `workers` does for `worker_feedback` with no code of its own — is the only erasure
+  path they have. Contained meanwhile by the same RLS+REVOKE lockout as every other
+  spine table; a backend, backup or DB-level read still sees the plaintext.

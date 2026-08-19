@@ -147,6 +147,24 @@ export const serverEnvSchema = z.object({
   // above: a Redis outage rejects (429) rather than uncapping the events table.
   WORKER_ACTIONS_PER_HOUR: z.coerce.number().int().positive().default(500),
   /**
+   * #997 — feedback submissions one AUTHENTICATED worker may send from the app-wide Feedback
+   * button, per fixed UTC MINUTE and per fixed UTC HOUR. Both are applied, minute first.
+   *
+   * TWO BUCKETS BECAUSE THEY ANSWER DIFFERENT QUESTIONS, and one cannot express the other.
+   * The minute cap is the product rule: a human typing a paragraph about a problem cannot
+   * honestly exceed 3 in sixty seconds. The hour cap is the abuse backstop — a scripted client
+   * pacing itself at exactly 3/min stays under the minute rule forever, so without it the write
+   * path into an UNBOUNDED FREE-TEXT column is effectively uncapped. Expressing "3 per minute"
+   * as an hourly number is not equivalent either: 180/hour permits all 180 inside ten seconds,
+   * because `SubjectRateLimit` is a FIXED calendar bucket rather than a sliding window.
+   *
+   * Size both for 2x across their boundary (a caller may legitimately spend the full cap at
+   * :59 and again at :00), and expect no honest client to ever see either. Same fail-closed
+   * idiom as the caps above: a Redis outage rejects (429) rather than uncapping the write.
+   */
+  WORKER_FEEDBACK_PER_MINUTE: z.coerce.number().int().positive().default(3),
+  WORKER_FEEDBACK_PER_HOUR: z.coerce.number().int().positive().default(20),
+  /**
    * PAY-SEC-07 — per-payer hourly cap on the AI job-posting chat. Each message is a PAID LLM
    * call, so this route is a direct spend surface: uncapped, one authenticated payer can bill
    * the platform without limit. Sized for a generous drafting session (a posting takes ~10-20

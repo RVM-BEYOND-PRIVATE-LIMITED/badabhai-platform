@@ -21,9 +21,15 @@
   phone/name ciphertext) + all `ON DELETE CASCADE` PII children — `worker_consents`,
   `worker_devices`, `worker_credentials` (PIN), `worker_profiles`, `chat_sessions`,
   `chat_messages`, `voice_notes`, `generated_resumes`, `worker_answers`, `applications`,
-  `resume_downloads`, `worker_flags` — plus Supabase Storage objects (resume PDFs + archived
-  conversations). `AccountDeletionService.execute` is byte-for-byte the Phase-5 cascade; only
-  its trigger moved (sweep instead of the confirm request).
+  `resume_downloads`, `worker_flags`, `worker_feedback` — plus Supabase Storage objects
+  (resume PDFs + archived conversations). `AccountDeletionService.execute` is byte-for-byte
+  the Phase-5 cascade; only its trigger moved (sweep instead of the confirm request).
+  `worker_feedback` (#997) is the newest child and the one worth naming explicitly: it holds
+  the worker's own free text, which may contain their name, employer or number. It needs no
+  code of its own — `WorkersRepository.hardDelete` deletes the `workers` row and enumerates
+  no children, so a new `ON DELETE cascade` child is covered by this runbook the day it is
+  created. Adding a child with `SET NULL` or `NO ACTION` is what would silently leave PII
+  behind; that is the thing to check on any future table hanging off `workers`.
 - **Retains (PII-free, lawful):** the `events` + `audit_logs` spine (opaque ids, no FK to
   `workers`) and the three billing/intent rows whose worker FK is `SET NULL` on delete —
   `unlocks` (paid contact-unlock), `resume_disclosures`, `invites.inviter_worker_id`. These

@@ -26,7 +26,7 @@ This has already cost the project real work:
 ## Reserved blocks
 
 Numbers are reserved **up front**, per developer, per workstream. Current head:
-**`0079_journey_read_indexes`** (journal has 80 entries, `idx` 0–79).
+**`0080_worker_feedback`** (journal has 81 entries, `idx` 0–80).
 
 | Block         | Owner     | Workstream                                                    |
 | ------------- | --------- | ------------------------------------------------------------- |
@@ -42,7 +42,8 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 | `0077`        | Prakash   | **APPLIED IN PRODUCTION** — AI cost attribution: three running-total tables (verified 2026-08-19) |
 | `0078`        | Prakash   | **APPLIED IN PRODUCTION** — S3-C / D-6: `unresolved_phrase.job_domain_id` (verified object-by-object 2026-08-19) |
 | `0079`        | Prakash   | **CLAIMED** — admin worker-journey read indexes (#992; renumbered from `0078`, see notes below) |
-| `0080`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own |
+| `0080`        | Divyanshu | **CLAIMED** — worker app feedback table (#997); not merged, not applied |
+| `0081`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own |
 
 ### `0079` — renumbered from `0078` after a live collision — 2026-08-19
 
@@ -86,6 +87,70 @@ so an app deployed ahead of this file serves identical JSON off a sequential sca
 apply-before-the-page-carries-real-traffic. Rollback is two `DROP INDEX`es with the app live —
 nothing references an index, and the reads return the same rows, slower. The full reasoning,
 including the `events` write-lock caveat, is in the migration's own header.
+
+### `0080` — additive, APPLY BEFORE DEPLOY, no backfill — 2026-08-19
+
+One new table, `worker_feedback`: the worker taps the app-wide Feedback button (#997), types free
+text, optionally tags it, and it lands here for ops to read in the admin portal.
+
+**Renumbered `0079` → `0080` mid-review**, after `#992` took `0079` while this branch was in flight — the third time the OIE block has been overtaken, and the second collision this file has recorded in one day. REGENERATED, NOT RENAMED (the `0071` rule): the snapshot was deleted and `db:generate` re-run against a tree that already contained `0079_journey_read_indexes`, so `0080_snapshot.json.prevId == 0079_snapshot.json.id` and a second `db:generate` emits nothing. The pre-renumber file was never applied to any database, so nothing needed its `when` pinned. **OIE moves to `0081`.**
+
+**APPLY BEFORE DEPLOY**, and unlike `0077` there is no savepoint softening it.
+`FeedbackRepository.insert` names `worker_feedback` unconditionally on the request path of
+`POST /workers/me/feedback`, and that INSERT shares a transaction with its `feedback.submitted`
+event — deliberately, so a feedback row without an audit record cannot exist. Against a database
+without this file, every submission is a 500 **and the worker's typed message is gone with the
+response**; `GET /admin/feedback` 500s on its first page load. Both failures are loud, which is the
+one respect in which this is easier than `0078`.
+
+Because it is apply-before-deploy, it is registered in `packages/db/src/schema-contract.ts` as
+`0080-worker-feedback-table`. That makes the readiness question answerable rather than reportable —
+the `0078` lesson:
+
+```bash
+pnpm --filter @badabhai/db db:audit:schema-contract   # read-only; exits 1 if the DB is behind
+```
+
+**No backfill, and none is possible.** There is no prior source of worker feedback; this table
+starts the record.
+
+**Time the DDL under a `lock_timeout`.** The single `ADD CONSTRAINT ... FOREIGN KEY` takes
+`SHARE ROW EXCLUSIVE` on `workers`, which conflicts with the `ROW EXCLUSIVE` every ordinary write
+holds. Validation is instant — the table is empty — but the request queues behind any in-flight
+transaction on `workers`, and every writer arriving after it queues behind the request. Same
+guidance as `0073` and `0077`: `SET lock_timeout = '3s';` and retry on `55P03`.
+
+**The RLS tail is hand-appended and matters more here than on any table before it.** drizzle-kit
+models `ENABLE` and neither `FORCE` nor the four `REVOKE`s; without `FORCE` the table owner — the
+only connection the backend uses — walks straight through every policy. `message` is the **one
+column on this spine deliberately allowed to contain a worker's own PII** (their name, their phone
+number, their employer, because the product invites them to say anything), so a permissive default
+here exposes free-text personal data across the whole worker base to every PostgREST role. A
+`db:generate` re-run drops those five statements silently; `packages/db/src/worker-feedback-schema.test.ts`
+is what catches it.
+
+**Privacy, stated once so it is not re-litigated later.** The words live in this table and nowhere
+else. `feedback.submitted` carries `message_length`, never the text — the same ruling
+`job.search_performed` made about the search term — and `FeedbackService` logs an id prefix, a
+category and a length. Erasure needs no code: `WorkersRepository.hardDelete` enumerates no table
+names, so the `ON DELETE cascade` from `workers` **is** the DPDP/DSAR coverage.
+
+**Rollback is one statement, and it is lossy in a way the others were not.**
+
+```sql
+DROP TABLE IF EXISTS "worker_feedback";
+```
+
+No other table has an FK to it, no view or function selects from it, and its own FK and three
+indexes go with it. But it is **not** safe with the app live — there is no savepoint, so both
+endpoints 500 immediately; revert the app first. And unlike `0077`, nothing reconstructs the data:
+the rows *are* the record and the event spine holds only lengths by design. Export before dropping
+if the table is not empty. `worker_feedback` is also listed in `LOCKED_TABLES` in
+`tests/e2e/rls-spine.e2e.test.ts`, which asserts RLS + FORCE + no-grants per **name** — remove that
+entry in the same change that drops the table.
+
+**Event contract:** adds `feedback.submitted` (v1) and a new `"feedback"` event domain. Nothing
+existing changes.
 
 ### `0078` — additive, APPLY BEFORE DEPLOY, no backfill — 2026-08-18
 

@@ -42,6 +42,9 @@ import { AdminDashboardController } from "./admin-dashboard.controller";
 import { AdminWorkerJourneyRepository } from "./admin-worker-journey.repository";
 import { AdminWorkerJourneyService } from "./admin-worker-journey.service";
 import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
+import { AdminFeedbackRepository } from "./admin-feedback.repository";
+import { AdminFeedbackService } from "./admin-feedback.service";
+import { AdminFeedbackController } from "./admin-feedback.controller";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -89,6 +92,14 @@ import { AdminWorkerJourneyController } from "./admin-worker-journey.controller"
  * `accruing_since` marker — those totals START at 0077 and no backfill has run — plus cap
  * breaches split by `ai.spend_cap_exceeded`'s `reason` and unfiltered volume counts. It has its
  * OWN read repository; the WRITER (`AiCostTotalsRepository`) stays unexported from `AiModule`.
+ *
+ * #997 adds the WORKER-FEEDBACK read (`AdminFeedbackController`/`AdminFeedbackService`/
+ * `AdminFeedbackRepository`): `GET /admin/feedback`, `read_entities`-gated, SELECT-ONLY and
+ * keyset-paginated like BP-1. It is the ONE read on this surface that is not faceless — it
+ * projects `message`, the worker's own free text, which #997 rules is fine to store and show
+ * because the worker chose to say it to us. The boundary is unchanged everywhere else: no name,
+ * no phone, no join to `workers`, and no search over the message body (a substring search over
+ * free text is a PII discovery tool). Identity egress remains `reveal-contact` and only that.
  */
 @Module({
   imports: [
@@ -120,6 +131,7 @@ import { AdminWorkerJourneyController } from "./admin-worker-journey.controller"
     AdminDirectoryController,
     AdminDashboardController,
     AdminWorkerJourneyController,
+    AdminFeedbackController,
   ],
   providers: [
     AdminRepository,
@@ -181,6 +193,13 @@ import { AdminWorkerJourneyController } from "./admin-worker-journey.controller"
     // the same single-reader reason BP-5's cap-breach split does.
     AdminWorkerJourneyRepository,
     AdminWorkerJourneyService,
+    // #997: the worker-FEEDBACK read (`read_entities`). SELECT-ONLY, keyset-paginated, and the
+    // ONE non-faceless read on this surface — it projects `message`, the worker's own free text.
+    // Deliberately its own module rather than a ninth entity read, so the faceless contract
+    // stays absolute in the file that declares it. No name/phone, no join to `workers`, and no
+    // search over the message body.
+    AdminFeedbackRepository,
+    AdminFeedbackService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

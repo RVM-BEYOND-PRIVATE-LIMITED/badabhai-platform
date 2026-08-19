@@ -1672,3 +1672,36 @@ textarea.field__input {
   flex-direction: column;
   gap: var(--space-2);
 }
+
+/* ==================================================================
+ * #997 · WORKER FEEDBACK — the one table on this console whose cells hold a sentence.
+ * Two rules, no new tokens: everything below is the existing token layer applied to a
+ * column of prose rather than a column of ids.
+ * ================================================================== */
+
+/* `.table th, .table td` is `white-space: nowrap`, and that is right for every other cell
+   on this surface — an id, an enum, a timestamp — and wrong for exactly one. A worker's
+   message runs to 4000 characters; on a single line it pushes the horizontal scrollbar out
+   to a width where reading a complaint means dragging it past the four columns in front of
+   it. So this cell, and only this cell, wraps.
+
+   NOT clamped and NOT truncated either. An ops console that hides the second half of a
+   worker's complaint behind an ellipsis, with no affordance to recover it, is worse than a
+   tall row — the same ruling `shortId` makes when it keeps the full value in `title`, and
+   the one `.prose__body` makes about a poster's own line breaks. `pre-wrap` for the same
+   reason: the paragraph breaks a worker typed are part of what they wrote.
+
+   The measure is the shared reading token, so this column is bounded by the same 68ch every
+   other block of prose in the portal is, rather than by a number invented here. */
+.table--prose .cell--message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-inline-size: var(--reading-max);
+}
+
+/* A wrapped message makes its row as tall as the paragraph. Centred, the four short cells
+   beside it float in the middle of that height and stop reading as one row; topped, they
+   line up with the message's first line, which is where the eye enters the row. */
+.table--prose td {
+  vertical-align: top;
+}
