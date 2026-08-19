@@ -4,5 +4,8 @@
 #   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d postgres redis
 services:
   postgres:
+    # R38 — LOOPBACK, matching the base file. This override exists for one machine's port
+    # collision; it never needed to be reachable off-host, and the box's `docker compose ps`
+    # showed a 0.0.0.0:5433 bind, so this file has been loaded somewhere it should not have.
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
