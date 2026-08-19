@@ -10,6 +10,7 @@ import { AdminKillSwitchController } from "./admin-kill-switch.controller";
 import { AdminEntitiesController } from "./admin-entities.controller";
 import { AdminFinanceController } from "./admin-finance.controller";
 import { AdminDirectoryController } from "./admin-directory.controller";
+import { AdminDashboardController } from "./admin-dashboard.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { type AdminCapability } from "./admin-capabilities";
@@ -589,5 +590,76 @@ describe("BP-3 administration routes — guarded, read-only, and secret-free", (
     // if the lookup ever gained a rule (a deny-list, a role hierarchy).
     const svc = readFileSync(join(ADMIN_DIR, "admin-directory.service.ts"), "utf8");
     expect(svc).toContain("can(role, capability)");
+  });
+});
+
+describe("BP-5 dashboard route — guarded, read-only, and off the cost WRITER", () => {
+  const proto = AdminDashboardController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminDashboardController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  it("discovers exactly the one summary route", () => {
+    expect(routeMethods.sort()).toEqual(["summary"]);
+  });
+
+  it("the route carries AdminAuthGuard AND AdminRolesGuard", () => {
+    const guards = effectiveGuards(AdminDashboardController, "summary");
+    expect(guards).toContain(AdminAuthGuard.name);
+    expect(guards).toContain(AdminRolesGuard.name);
+  });
+
+  it("declares method-level @RequireAdminRole('read_events') — the dashboard-metrics tier", () => {
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminDashboardController) as
+      | AdminCapability
+      | undefined;
+    expect(onClass, "AdminDashboardController must NOT declare a class-level capability").toBeUndefined();
+    expect(Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto.summary as object)).toBe("read_events");
+  });
+
+  it("the surface is READ-ONLY by construction — the route is a GET", () => {
+    expect(Reflect.getMetadata("method", proto.summary as object) as number).toBe(0);
+  });
+
+  it("the dashboard repository issues no write against any table", () => {
+    const repo = readFileSync(join(ADMIN_DIR, "admin-dashboard.repository.ts"), "utf8");
+    expect(repo).not.toMatch(/\.(insert|update|delete)\s*\(/);
+    expect(repo).not.toMatch(/\.select\(\s*\)/); // never an unprojected whole-row read
+  });
+
+  it("the admin module NEVER imports the AI cost-totals WRITER", () => {
+    // `AiCostTotalsRepository` owns `accrue()` and is deliberately unexported from `AiModule`:
+    // one writer bound to one `ai.cost_recorded` row is the guarantee. Importing it anywhere
+    // under admin/** would put a class that can MOVE a spend total into the admin injector, and
+    // the next person who needs "adjust a number" would find it already wired.
+    //
+    // COMMENTS ARE STRIPPED FIRST. Two files under admin/** NAME the writer in prose — this is
+    // exactly the documentation explaining why they must not use it — and a scan that matched
+    // its own rationale would be a test nobody could ever make pass.
+    const offenders = tsFiles(ADMIN_DIR)
+      .filter((f) => {
+        const code = readFileSync(f, "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+        return /AiCostTotalsRepository|ai-cost-totals\.repository/.test(code);
+      })
+      .map((f) => relative(SRC_DIR, f));
+    expect(offenders, `admin must read the totals through its OWN repository`).toEqual([]);
+  });
+
+  it("the platform total is read from platform_ai_cost_totals, never the worker/session tables", () => {
+    // The bug the three-table design exists to prevent: `worker_ai_cost_totals` cannot see
+    // payer-side spend (`skill_embedding` on a posting write, `job_posting_chat_turn`), so a
+    // total summed from it silently undercounts while looking complete. Asserted on SOURCE as
+    // well as on the rendered FROM clause (admin-dashboard.repository.test.ts) because this
+    // catches a read added later with no shape test of its own.
+    const src = readFileSync(join(ADMIN_DIR, "admin-dashboard.repository.ts"), "utf8").replace(
+      /^\s*(\/\/|\*|\/\*).*$/gm,
+      "",
+    );
+    expect(src).toContain("platformAiCostTotals");
+    expect(src).not.toContain("workerAiCostTotals");
+    expect(src).not.toContain("sessionAiCostTotals");
   });
 });

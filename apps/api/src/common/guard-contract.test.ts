@@ -55,6 +55,7 @@ import { AdminDirectoryController } from "../admin/admin-directory.controller";
 import { AdminEntitiesController } from "../admin/admin-entities.controller";
 import { AdminFinanceController } from "../admin/admin-finance.controller";
 import { AdminKillSwitchController } from "../admin/admin-kill-switch.controller";
+import { AdminDashboardController } from "../admin/admin-dashboard.controller";
 import { DevicesController } from "../auth/devices.controller";
 import { PinController } from "../auth/pin.controller";
 import { ProfilingController } from "../profiling/profiling.controller";
@@ -518,6 +519,15 @@ const CONTRACT: ControllerContract[] = [
     name: "AdminFinance",
     ctor: AdminFinanceController,
     routes: { summary: [A, AR], ledger: [A, AR], orders: [A, AR] },
+  },
+  // BP-5 — the dashboard summary (platform AI spend + volume). Enrolled ON ARRIVAL rather than
+  // in a later sweep: F1 (docs/audit/15_SECURITY_AUDIT.md) exists because 17 controllers were
+  // added without it, and a route that joins the app outside this contract has no regression net
+  // the day someone edits its decorators.
+  {
+    name: "AdminDashboard",
+    ctor: AdminDashboardController,
+    routes: { summary: [A, AR] },
   },
   // super_admin-only via @RequireAdminRole (role scoping isn't this contract's concern — it
   // asserts guard CLASSES, the same [A, AR] every admin controller carries).
