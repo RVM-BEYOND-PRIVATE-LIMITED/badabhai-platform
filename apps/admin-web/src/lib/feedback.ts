@@ -19,7 +19,9 @@ import { qs } from "./entities";
  *     audited reveal on the worker detail screen.
  *   * there is deliberately NO search-by-content filter. The route does not offer one and
  *     this module must never grow a client-side equivalent: a substring search over worker
- *     free text is a PII discovery tool wearing a convenience feature's costume.
+ *     free text is a PII discovery tool wearing a convenience feature's costume. The
+ *     `workerId` filter is not a softening of that — see {@link FeedbackFilters}, which
+ *     records why a lookup on an id the operator already holds is the opposite shape.
  */
 
 /**
@@ -51,6 +53,23 @@ export const feedbackItemSchema = z.object({
   message: z.string(),
   /** The `x-app-build` stamp, or null when it was absent or malformed at submit time. */
   app_build: z.string().nullable(),
+  /**
+   * WHICH SCREEN the report is about, as a ROUTE PATTERN — `/jobs/:id/apply`, never a
+   * concrete path. The server substitutes every id-shaped segment before it stores the
+   * value, so this field can say "the apply screen" and cannot say WHICH job the worker
+   * was looking at. That distinction is why it is allowed on a surface where a name is not,
+   * and the portal must never treat it as a link or a lookup key.
+   *
+   * Null is a real answer with three causes that are indistinguishable from here — an app
+   * build older than the field, a client that sent nothing, and a value that failed the
+   * server's normalization. All three mean "we do not know which screen", and the page
+   * renders them identically as such rather than guessing between them.
+   *
+   * DELIBERATELY UNBOUNDED. The server caps the stored value, and restating that cap here
+   * would only add a way for a longer value to throw the whole page away — the portal's job
+   * is to render what arrived, not to re-adjudicate a bound the writer already enforced.
+   */
+  screen_context: z.string().nullable(),
   created_at: z.string(),
 });
 export type FeedbackItem = z.infer<typeof feedbackItemSchema>;
@@ -80,6 +99,20 @@ export interface FeedbackFilters {
    * `.strict()` schema exists to prevent.
    */
   category?: string;
+  /**
+   * ONE worker's reports. A raw string for the same reason `category` is one: the server's
+   * schema is `.uuid()`, so a hand-edited `?workerId=nope` must travel and earn a 400 that
+   * this page renders as a refusal. Narrowing it here would drop it instead, and show the
+   * WHOLE list under a URL claiming to show one worker's — the same wrong answer wearing a
+   * right one's clothes.
+   *
+   * ── AND IT IS NOT THE SEARCH THIS MODULE REFUSES ──────────────────────────────────────
+   * A substring search over `message` is a DISCOVERY tool: content in, a set of people out.
+   * This is a LOOKUP: an id the operator already holds, from a surface they were already
+   * allowed to read, narrowing a page they could reach by scrolling. It selects rows, it
+   * discovers nobody, and it is why the refusal above stays exactly as absolute as it was.
+   */
+  workerId?: string;
   cursor?: string;
   limit?: number;
 }

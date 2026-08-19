@@ -33,13 +33,15 @@ const stub = vi.hoisted(() => {
     requests: [] as Array<Record<string, unknown>>,
     page: { items: [] as unknown[], nextCursor: null as string | null },
     failure: null as unknown,
+    /** What `/admin/me` reported. Set per test; the REAL `can()` reads it. */
+    capabilities: ["read_entities"] as string[],
   };
 });
 
 vi.mock("../../../lib/auth", () => ({
   requireCapability: async (capability: string) => {
     stub.order.push(`gate:${capability}`);
-    return { adminId: "a-1", role: "ops_admin", capabilities: ["read_entities"] };
+    return { adminId: "a-1", role: "ops_admin", capabilities: stub.capabilities };
   },
 }));
 
@@ -65,6 +67,7 @@ interface Row {
   category: "suggestion" | "problem" | "other" | null;
   message: string;
   app_build: string | null;
+  screen_context: string | null;
   created_at: string;
 }
 
@@ -81,14 +84,17 @@ const TAGGED: Row = {
   category: "problem",
   message: "App band ho jata hai. Ramesh, 98765 43210.",
   app_build: "9fd0b09",
+  screen_context: "/jobs/:id/apply",
   created_at: "2026-08-19T09:00:00.000Z",
 };
 
+/** An older client: no tag, no build stamp, and no screen — all three absent together. */
 const UNTAGGED: Row = {
   ...TAGGED,
   id: "ff000000-0002-4a00-8000-000000000002",
   category: null,
   app_build: null,
+  screen_context: null,
   message: "Aur bhasha add karo.",
 };
 
@@ -97,6 +103,7 @@ beforeEach(() => {
   stub.requests.length = 0;
   stub.page = { items: [], nextCursor: null };
   stub.failure = null;
+  stub.capabilities = ["read_entities"];
 });
 
 const render = async (searchParams: Record<string, string | string[] | undefined> = {}) =>
@@ -114,16 +121,40 @@ describe("the gate", () => {
 describe("the request the page makes", () => {
   it("asks for one short page, unfiltered, by default", async () => {
     await render();
-    expect(stub.requests[0]).toEqual({ category: undefined, cursor: undefined, limit: 25 });
+    expect(stub.requests[0]).toEqual({
+      category: undefined,
+      workerId: undefined,
+      cursor: undefined,
+      limit: 25,
+    });
   });
 
   it("forwards the category and the cursor from the URL", async () => {
     await render({ category: "problem", cursor: "Y3Vyc29y" });
     expect(stub.requests[0]).toEqual({
       category: "problem",
+      workerId: undefined,
       cursor: "Y3Vyc29y",
       limit: 25,
     });
+  });
+
+  it("forwards a worker narrowing from the URL", async () => {
+    await render({ workerId: WORKER_ID });
+    expect(stub.requests[0]).toEqual({
+      category: undefined,
+      workerId: WORKER_ID,
+      cursor: undefined,
+      limit: 25,
+    });
+  });
+
+  it("forwards a workerId that is NOT a uuid rather than silently dropping it", async () => {
+    // Same ruling as the category one below. The server's schema is `.uuid()`, so this earns
+    // an honest 400; dropping it would show every worker's messages under a URL claiming one
+    // worker's, and the operator reading a stranger's complaints would have no way to tell.
+    await render({ workerId: "not-a-uuid" });
+    expect(stub.requests[0]!.workerId).toBe("not-a-uuid");
   });
 
   it("forwards an UNKNOWN category rather than silently dropping it", async () => {
@@ -215,6 +246,47 @@ describe("a row", () => {
     );
   });
 
+  it("shows WHICH SCREEN the report is about, verbatim", async () => {
+    // The pattern is the whole value of the field: "the apply button is broken" is a bug
+    // report, and "someone said something about something" is not.
+    const out = await render();
+    expect(out).toContain("/jobs/:id/apply");
+    expect(out).toContain("Screen");
+    // The class the stylesheet rule below is written against. Asserted HERE because nothing
+    // in the toolchain links a className to a rule: the two are checked in separate tests and
+    // this is the one that pins which name the markup actually emits.
+    expect(out).toContain('class="table__meta cell--screen"');
+  });
+
+  it("renders a missing screen as a dash — never a guessed route", async () => {
+    // The honesty case, and the one an older app build produces on every row it ever sent.
+    // A plausible-looking default here would be indistinguishable from a real one, which is
+    // how an operator ends up debugging a screen the worker was never on.
+    stub.page = { items: [UNTAGGED], nextCursor: null };
+    const out = await render();
+    expect(out).toMatch(/<span title="This submission arrived without a screen[^"]*">\s*—\s*<\/span>/);
+    expect(out).not.toContain("/jobs/:id/apply");
+  });
+
+  it("links the row to that worker's JOURNEY — the half a message cannot show", async () => {
+    // Feedback is words with no behaviour. Reading "the apply button does not work" without
+    // knowing whether they ever reached a job is guessing, and the alternative is copying an
+    // id into another screen by hand.
+    const out = await render();
+    expect(out).toContain(`href="/workers/${WORKER_ID}/journey"`);
+  });
+
+  it("does NOT offer the journey link to an admin who could not open it", async () => {
+    // The link is derived from the session's capabilities, never hardcoded — so the day the
+    // journey routes narrow, the control moves with them instead of becoming a redirect.
+    stub.capabilities = [];
+    const out = await render();
+    expect(out).not.toContain("/journey");
+    // …and the row is otherwise intact: the worker link and the message are still there.
+    expect(out).toContain(`href="/workers/${WORKER_ID}"`);
+    expect(out).toContain(TAGGED.message);
+  });
+
   it("claims newest-first in the caption, and counts the page honestly", async () => {
     stub.page = { items: [TAGGED, UNTAGGED], nextCursor: null };
     const out = await render();
@@ -288,6 +360,81 @@ describe("the category chips", () => {
   });
 });
 
+describe("the worker narrowing", () => {
+  beforeEach(() => {
+    stub.page = { items: [TAGGED], nextCursor: null };
+  });
+
+  it("says WHICH worker is being shown, and offers the way back out", async () => {
+    // A narrowing an operator cannot see is one URL away from being read as the whole list.
+    const out = await render({ workerId: WORKER_ID });
+    expect(out).toContain("Showing only what worker");
+    expect(out).toContain("5eeded00…");
+    expect(out).toContain("Show every worker");
+  });
+
+  it("links from the narrowing to that worker's journey", async () => {
+    const out = await render({ workerId: WORKER_ID });
+    expect(out).toContain(`href="/workers/${WORKER_ID}/journey"`);
+  });
+
+  it("says nothing about a worker when none is selected", async () => {
+    const out = await render();
+    expect(out).not.toContain("Showing only what worker");
+  });
+
+  it("does NOT claim to be showing a worker's messages when nothing was fetched", async () => {
+    // "Showing only what worker X sent" over a refusal or an outage is a sentence about a
+    // list that does not exist — and an operator would read the empty screen under it as an
+    // answer about that worker rather than as a failure.
+    stub.failure = new stub.RequestError(400);
+    const refused = await render({ workerId: "not-a-uuid" });
+    expect(refused).toContain("The server rejected this request");
+    expect(refused).not.toContain("Showing only what worker");
+
+    stub.failure = new TypeError("fetch failed");
+    const down = await render({ workerId: WORKER_ID });
+    expect(down).toContain("Feedback is unavailable");
+    expect(down).not.toContain("Showing only what worker");
+  });
+
+  it("percent-encodes the id it puts back into a path", async () => {
+    // A worker filter reaches this page straight from the address bar, so it is not
+    // guaranteed to be a uuid — an unescaped `#` or `?` in a link would silently point at a
+    // different route than the one the text claims.
+    const out = await render({ workerId: "a#b" });
+    expect(out).toContain('href="/workers/a%23b"');
+  });
+
+  it("a category chip KEEPS the worker narrowing", async () => {
+    // Picking a tag while looking at one worker means "this worker's problems". Widening to
+    // everyone's on a click would hand an operator messages they did not ask to read.
+    const out = await render({ workerId: WORKER_ID });
+    expect(out).toContain(`href="/feedback?category=problem&amp;workerId=${WORKER_ID}"`);
+  });
+
+  it("pages WITHOUT losing the worker narrowing", async () => {
+    // The failure this catches is a second page that quietly shows everyone, under a heading
+    // that still claims one worker.
+    stub.page = { items: [TAGGED], nextCursor: "bmV4dA" };
+    const out = await render({ workerId: WORKER_ID });
+    expect(out).toContain(`href="/feedback?workerId=${WORKER_ID}&amp;cursor=bmV4dA"`);
+  });
+
+  it("keeps the narrowing on the way back from a dead page", async () => {
+    stub.page = { items: [], nextCursor: null };
+    const out = await render({ workerId: WORKER_ID, cursor: "Y3Vyc29y" });
+    expect(out).toContain("Nothing further on this page");
+    expect(out).toContain(`href="/feedback?workerId=${WORKER_ID}"`);
+  });
+
+  it("clears BOTH filters at once when both are set, and says so", async () => {
+    const out = await render({ workerId: WORKER_ID, category: "problem" });
+    expect(out).toContain("Clear filters");
+    expect(out).toContain('href="/feedback"');
+  });
+});
+
 describe("the empty states, which are four different claims", () => {
   it("unfiltered and empty: nothing has been submitted, and the spine is where to check", async () => {
     const out = await render();
@@ -303,6 +450,30 @@ describe("the empty states, which are four different claims", () => {
     expect(out).toContain("No feedback carries this tag");
     expect(out).toContain("Clear filter");
     expect(out).not.toContain("No feedback submitted yet");
+  });
+
+  /**
+   * A worker-narrowed empty page is a THIRD claim, not the tag one with a different filter.
+   * "No feedback carries this tag" under a worker narrowing answers a question nobody asked
+   * and hides the one they did — and silence from one worker is the ordinary case, not a
+   * verdict on their experience, which is the reading the copy has to head off.
+   */
+  it("worker-narrowed and empty: says THIS worker sent nothing, and offers their journey", async () => {
+    const out = await render({ workerId: WORKER_ID });
+    expect(out).toContain("This worker has sent no feedback");
+    expect(out).toContain(`href="/workers/${WORKER_ID}/journey"`);
+    expect(out).not.toContain("No feedback carries this tag");
+    expect(out).not.toContain("No feedback submitted yet");
+  });
+
+  it("worker-narrowed AND tagged, and empty: claims neither of the other two", async () => {
+    // "This worker has sent no feedback" would be flatly false the moment they had written
+    // in untagged, so the way out offered first is dropping the tag rather than the worker.
+    const out = await render({ workerId: WORKER_ID, category: "problem" });
+    expect(out).toContain("Nothing from this worker carries this tag");
+    expect(out).toContain("Drop the tag");
+    expect(out).toContain(`href="/feedback?workerId=${WORKER_ID}"`);
+    expect(out).not.toContain("This worker has sent no feedback");
   });
 
   /**
@@ -417,5 +588,23 @@ describe("the message cell is really exempt from the table's nowrap", () => {
 
   it("tops the short cells beside it, so a tall row still reads as one row", () => {
     expect(ruleFor(".table--prose td")).toMatch(/vertical-align:\s*top/);
+  });
+
+  /**
+   * Same scar, second column. The server accepts a route pattern up to 128 characters, and
+   * under the table's `nowrap` one of those would push the message column off the right edge
+   * — reinstating, through a different cell, exactly the horizontal drag the rule above was
+   * carved out to remove. A class name with no rule behind it renders wrong while passing
+   * every other gate, so the rule is asserted rather than assumed.
+   */
+  it("wraps and bounds the screen cell instead of letting a long route widen the table", () => {
+    // The selector is matched WITH its brace. Without it the lookup is a prefix search, and
+    // renaming the rule to `.cell--screen-unused` — the exact shape of the bug this file
+    // exists to catch — still matched, so the assertion could not fail. Caught by mutating
+    // the rule name and watching this test stay green.
+    const rule = ruleFor(".table--prose .cell--screen {");
+    expect(rule).toMatch(/white-space:\s*normal/);
+    expect(rule).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(rule).toMatch(/max-inline-size:\s*\d+ch/);
   });
 });

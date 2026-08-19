@@ -74,6 +74,7 @@ export default async function DashboardPage({
     metrics,
     health,
     mayReadEvents,
+    mayReadEntities,
     metricsFailed: mayReadEvents && metricsRes.status === "rejected",
     recentFailed: mayReadEvents && recentRes.status === "rejected",
   });
