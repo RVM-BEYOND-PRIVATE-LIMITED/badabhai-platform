@@ -18,9 +18,10 @@ import { SessionService } from "./session.service";
  * optional `worker_id` differs.
  *
  * ── IT IS NOT A GUARD IN THE SECURITY SENSE, AND MUST NEVER BECOME ONE ──────────────────
- * `canActivate` has ONE return statement and it is `true`. There is no branch that can deny
- * a request, deliberately — the moment this file can return false or throw, a public route
- * has silently become a private one and every anonymous worker loses access to the kit.
+ * EVERY `return` in `canActivate` is `return true`, and nothing in it throws. There is no
+ * branch that can deny a request, deliberately — the moment this file can return false or
+ * throw, a public route has silently become a private one and every anonymous worker loses
+ * access to the kit. A source scan in `optional-worker-auth.guard.test.ts` pins that.
  * A route that needs real authentication uses {@link WorkerAuthGuard}; do not "harden" this.
  *
  * ── FAIL-CLOSED ON ATTRIBUTION ──────────────────────────────────────────────────────────
