@@ -329,6 +329,21 @@ export const ProfileExtractionInputSchema = z
     transcript: z.string().min(1).optional(),
     messages: z.array(ConversationMessageSchema).optional(),
     role_family: z.string().optional(), // Phase-1 addition (AI service defaults it)
+    /**
+     * THE S3-C READ SWITCH FOR THIS CALLER — a canonical `jd_*` id that scopes the
+     * TAX-4 canonicalization pass to Path A (`job_domain_skill`) instead of Path B
+     * (the legacy `skill_alias.domain_id` slug).
+     *
+     * A REQUEST FIELD, NOT A FLAG, because that is what the switch is:
+     * `phase-9-s3-deployment-plan.md` defines it as *which field the caller populates*.
+     * Optional and unpopulated by anything today, so every existing extraction is
+     * byte-identical — flipping the switch is adding one field at the call site, and
+     * reverting is removing it, with no deploy-ordered flag to unwind.
+     *
+     * Bounded like every other scope id on the wire (`NearestAliasesDtoSchema`,
+     * `RecordUnresolvedDtoSchema`) so an unbounded string can never reach the ANN scope.
+     */
+    job_domain_id: z.string().min(1).max(64).optional(),
   })
   .refine((d) => Boolean(d.transcript) || (d.messages?.length ?? 0) > 0, {
     message: "Provide either `transcript` or a non-empty `messages` array",

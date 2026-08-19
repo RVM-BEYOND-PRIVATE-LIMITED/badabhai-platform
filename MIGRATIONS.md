@@ -41,9 +41,36 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 | `0076`        | Prakash   | **APPLIED IN PRODUCTION** — canonical Domain→Skill taxonomy, Phase 1 (`fca0ef9c`; verified 2026-08-19) |
 | `0077`        | Prakash   | **APPLIED IN PRODUCTION** — AI cost attribution: three running-total tables (verified 2026-08-19) |
 | `0078`        | Prakash   | **APPLIED IN PRODUCTION** — S3-C / D-6: `unresolved_phrase.job_domain_id` (verified object-by-object 2026-08-19) |
-| `0079`        | Prakash   | **CLAIMED** — admin worker-journey read indexes (#992; renumbered from `0078`, see notes below) |
-| `0080`        | Divyanshu | **CLAIMED** — worker app feedback table (#997); not merged, not applied |
+| `0079`        | Prakash   | **APPLIED IN PRODUCTION** — admin worker-journey read indexes (#992; renumbered from `0078`, see notes below; verified object-by-object 2026-08-19) |
+| `0080`        | Divyanshu | **MERGED, NOT APPLIED** — worker app feedback table (#997, `ac3db91c`). `worker_feedback` is absent from production in every schema; both surfaces 500 until it lands. See the journal-drift note below — `db:migrate` alone cannot apply it |
 | `0081`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own |
+
+### The journal is four files behind reality, and that blocks `db:migrate` — 2026-08-19
+
+**`0076`–`0079` are LIVE in production but UNRECORDED in `drizzle.__drizzle_migrations`.**
+They were applied out of band, so their objects exist and their journal rows do not. `0080` is
+unrecorded *and* absent — genuinely pending.
+
+That combination is why an attempt to apply `0080` with `db:migrate` does nothing:
+`drizzle-kit migrate` replays every unrecorded file **in order**, so it reaches
+`0076`'s `CREATE TABLE "job_domain"` — no `IF NOT EXISTS` — fails on *already exists*, rolls
+back, and never gets to `0080`. This is exactly the state `adopt-migrations.ts` and
+`reconcile-migrations.ts` were written for (`GAP-DB-19`), and `db:audit:schema-contract` now
+reports it rather than emitting a remedy that cannot run.
+
+Measured, read-only, 2026-08-19: 81 files, 76 recorded, 5 unrecorded — four live, one absent,
+zero PARTIAL.
+
+```bash
+npx tsx reconcile-migrations.ts        # per file: RECORDED / LIVE / ABSENT / PARTIAL
+npx tsx adopt-migrations.ts --only 0076_canonical_domain_skill_taxonomy,0077_ai_cost_running_totals,0078_unresolved_phrase_job_domain_id,0079_journey_read_indexes
+npx tsx adopt-migrations.ts --only <the same list> --apply --expect-host <host substring>
+pnpm --filter @badabhai/db db:migrate                  # now reaches 0080
+pnpm --filter @badabhai/db db:audit:schema-contract    # expect READY
+```
+
+`--expect-host` is not optional ceremony: adoption records DDL as done **without running it**,
+so the wrong target writes a false journal row that every later migration inherits.
 
 ### `0079` — renumbered from `0078` after a live collision — 2026-08-19
 

@@ -1138,11 +1138,31 @@ class RetagPlanOutput(BaseModel):
 
 # --- Profile extraction ----------------------------------------------------
 class ProfileExtractionInput(BaseModel):
+    """One extraction request. Mirrors ``ProfileExtractionInputSchema`` in ai-contracts.
+
+    ``job_domain_id`` IS THE S3-C READ SWITCH FOR THIS CALLER, and it is a request field
+    rather than a flag because that is what the switch is: ``phase-9-s3-deployment-plan.md``
+    defines it as *which field the caller populates* — ``job_domain_id`` selects Path A
+    (candidates through ``job_domain_skill``), its absence leaves Path B (the legacy
+    ``skill_alias.domain_id`` slug). There is no feature flag to add here; a caller that
+    sends nothing gets byte-identical behaviour, which is what every caller does today.
+
+    Scoped to the canonicalization pass ONLY. It does not pin, seed or override the
+    ``DOMAIN_MATCH_ENABLED`` RAG classification further down ``/profile/extract`` — that
+    pass decides the worker's trade and must not be handed its own answer.
+    """
+
     worker_ref: str | None = None
     language: str | None = None
     transcript: str | None = None
     messages: list[ConversationMessage] | None = None
     role_family: str = "cnc_vmc"  # Phase-1 addition (optional → backward compatible)
+    # BOUNDED to match the Zod mirror and every other scope id on the wire
+    # (`NearestAliasesDtoSchema`, `RecordUnresolvedDtoSchema`). `min_length=1` matters more
+    # than it looks: `exactly_one_skill_scope` tests PRESENCE, so an empty string would count
+    # as a supplied canonical scope, quietly scope Path A to a domain that owns nothing, and
+    # file every resulting miss under `job_domain_id = ''`.
+    job_domain_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 #: The closed match-status vocabulary. A `Literal`, not a bare `str`, and that matters:

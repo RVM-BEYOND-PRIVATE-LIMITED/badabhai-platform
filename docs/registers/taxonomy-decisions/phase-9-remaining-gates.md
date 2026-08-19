@@ -1,22 +1,52 @@
 # Phase 9 — the remaining gates, and exactly who can close each
 
-> **Updated 2026-08-19 (third pass).** `0078` is applied and verified, so **S3-C is EXECUTED**.
-> Three of the original five gates are now closed by measurement. What remains is two taxonomy
-> judgement calls, one product/trainer gap, and two host-only actions.
+> **Updated 2026-08-19 (fourth pass).** `0078` is applied and verified, so **S3-C is EXECUTED**,
+> and the S3-C read switch is now wired end to end (#1024) — every remaining S3-D blocker that
+> was engineering work is closed. What remains is two taxonomy judgement calls, one
+> product/trainer gap, two host-only actions, and one production migration.
 >
-> Everything read-only was run against production. The two production writes made this pass —
-> applying `0078` (owner) and stamping 76 `embedding_model` values (proven, never assumed) — are
-> recorded below with their evidence artifacts.
+> Everything read-only was run against production. The two production writes made in the third
+> pass — applying `0078` (owner) and stamping 76 `embedding_model` values (proven, never
+> assumed) — are recorded below with their evidence artifacts.
 
 | # | gate | blocked on | state |
 |---|---|---|---|
 | 0 | `0078` / S3-C | — | ✅ **APPLIED & VERIFIED** — object-by-object, write path exercised |
 | 1 | Embedding provenance (76 unstamped rows) | — | ✅ **CLOSED** — proven `gemini-embedding-001`, stamped |
-| 2 | `cnc-programming` scope decision | **product / taxonomy owner** | ⏸ quantified against production |
+| 2 | `cnc-programming` scope decision | **product / taxonomy owner** | ⏸ **decision package complete** — `phase-9-cnc-programming-decision.md` |
 | 3 | 11 provider evaluation cases | — | ✅ **EXECUTED**; replay gap closed; harness defect fixed; **US-04 resolved** |
 | 4 | 5 TD-01 trainer slots | **trade trainer** | ⏸ worksheet ready |
-| 5 | TD-07 | **product + trainer** | ⏸ worksheet ready, five options costed |
+| 5 | TD-07 | **product + trainer** | ⏸ worksheet ready; engineering evidence complete |
 | 6 | R38 residual | **host-only** | 🔴 open — CD cannot fix it (see below) |
+| 7 | Path A miss recording | — | ✅ **CLOSED** (#1024) — `job_domain_id` reaches `unresolved_phrase`; the thresholds' own inputs are now collectable |
+| 8 | **`0080` not applied to production** | **owner — production write** | 🔴 open, and `db:migrate` alone cannot do it — see below |
+
+---
+
+## 8. `0080_worker_feedback` is merged, deployed, and NOT applied
+
+Found by `db:audit:schema-contract` on 2026-08-19 — the manifest entry was added by another
+workstream within hours of the tool landing, and the tool immediately caught a second unapplied
+migration.
+
+`worker_feedback` does not exist in production **in any schema**. Both surfaces that name it do
+so unconditionally, so every worker feedback submission 500s with the typed message lost in the
+response, and `GET /admin/feedback` 500s on first page load. Loud on both, unlike `0078`.
+
+**`db:migrate` on its own will not fix it, and one attempt has already been spent finding that
+out.** `drizzle-kit migrate` replays every unrecorded journal entry in order, and production has
+`0076`–`0079` live-but-unrecorded in front of `0080`: it reaches `0076`'s
+`CREATE TABLE "job_domain"` — no `IF NOT EXISTS` — dies on *already exists*, and rolls back.
+Measured: 81 files, 76 recorded, 5 unrecorded, 4 live, 1 absent, 0 PARTIAL.
+
+The audit now reports the drift and emits the correct sequence (#1025); the full recovery
+procedure is in `MIGRATIONS.md`.
+
+**Everything else on the feedback path is verified and correct** — the write is one transaction
+carrying the row and its `feedback.submitted` event, and the admin keyset read
+(`ORDER BY created_at DESC, id DESC`, optional category filter) matches the two indexes `0080`
+creates exactly. There is no existing feedback data to regress: the table has never existed, and
+nothing else in the schema references it. Applying `0080` is purely additive.
 
 ---
 
@@ -198,6 +228,12 @@ said before the defect was found.
 ---
 
 ## 2. `cnc-programming` — quantified, still a taxonomy decision
+
+> **The full package is now `phase-9-cnc-programming-decision.md`** — one page, costed both
+> ways, with the measurement that reframes it: **no live caller can scope a query to
+> `cnc-programming`.** Every production path hard-codes `cnc-machining` or supplies a `jd_*` id
+> that nothing populates, and `SKILL_CANONICALIZE_DEFAULT_DOMAIN` is not bridged into the deploy
+> at all. The loss is real in the data and unobservable in traffic. The summary below stands.
 
 Production holds the PRE-merge state (`skill_gdt_reading` and `skill_cad_interpretation` both
 `active`; `skill_drawing_reading` does not exist there), so this is a forecast of S3-D measured on

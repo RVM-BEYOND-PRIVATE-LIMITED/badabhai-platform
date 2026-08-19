@@ -2,7 +2,11 @@ import Link from "next/link";
 import { requireSession } from "../../lib/auth";
 import { ROLE_LABELS, can } from "../../lib/auth/capabilities";
 import { getHealth, getMetrics, listEvents } from "../../lib/events";
+import { getDashboardSummary } from "../../lib/dashboard";
 import { EventTable } from "../../components/event-table";
+import { AiSpendPanel } from "../../components/ai-spend-panel";
+import { VolumePanel } from "../../components/volume-panel";
+import { Stat } from "../../components/stat";
 import { buildAdminAttention } from "./attention";
 import {
   formatCount,
@@ -32,6 +36,11 @@ export default async function DashboardPage({
 }) {
   const session = await requireSession();
   const mayReadEvents = can(session.capabilities, "read_events");
+  // The AI-spend and volume blocks are `GET /admin/dashboard/summary`, which the API declares
+  // under `read_entities` (live system-of-record state + money, not the event spine). Gated
+  // in-page rather than at the route, so an operator without it sees a coherent dashboard
+  // instead of a redirect — the rule `requireCapability`'s own doc states.
+  const mayReadEntities = can(session.capabilities, "read_entities");
 
   /**
    * `requireCapability()` bounces an operator here with `?denied=<capability>` (see
@@ -45,15 +54,17 @@ export default async function DashboardPage({
 
   // `allSettled`, not `all`: health is a different service from the events API, and one
   // being down must not blank the whole dashboard. Each region renders its own failure.
-  const [metricsRes, healthRes, recentRes] = await Promise.allSettled([
+  const [metricsRes, healthRes, recentRes, summaryRes] = await Promise.allSettled([
     mayReadEvents ? getMetrics() : Promise.reject(new Error("no capability")),
     getHealth(),
     mayReadEvents ? listEvents({ limit: 8 }) : Promise.reject(new Error("no capability")),
+    mayReadEntities ? getDashboardSummary() : Promise.reject(new Error("no capability")),
   ]);
 
   const metrics = metricsRes.status === "fulfilled" ? metricsRes.value : null;
   const health = healthRes.status === "fulfilled" ? healthRes.value : null;
   const recent = recentRes.status === "fulfilled" ? recentRes.value : null;
+  const summary = summaryRes.status === "fulfilled" ? summaryRes.value : null;
 
   const totalEvents = metrics?.by_event_name.reduce((sum, b) => sum + b.count, 0) ?? 0;
   const breachTotal = metrics?.breaches.reduce((sum, b) => sum + b.count, 0) ?? 0;
@@ -73,7 +84,12 @@ export default async function DashboardPage({
         <div>
           <h1 className="page__title">Dashboard</h1>
           <p className="page__sub">
-            Platform activity over the last {metrics?.window_days ?? "—"} days.
+            {/* TWO DIFFERENT PERIODS ON ONE SCREEN, said out loud. The event aggregates are
+                windowed; AI spend accrues from migration 0077 and volume is live table
+                state. One "over the last N days" caption over all of them would be wrong
+                about two thirds of the page. */}
+            Event activity over the last {metrics?.window_days ?? "—"} days. AI spend and
+            volume below carry their own periods.
           </p>
         </div>
       </header>
@@ -213,6 +229,41 @@ export default async function DashboardPage({
         </section>
       </div>
 
+      {/* ---- AI spend + volume ------------------------------------------
+          `GET /admin/dashboard/summary`, one read behind both panels. Its own
+          `allSettled` slot, so a failure here leaves the funnel, health and activity
+          blocks intact — and says so, rather than rendering an empty section that reads
+          as "the platform has spent nothing and has no users". */}
+      {mayReadEntities ? (
+        summary ? (
+          <>
+            <AiSpendPanel cost={summary.ai_cost} />
+            <VolumePanel volume={summary.volume} />
+          </>
+        ) : (
+          <section className="panel" aria-labelledby="summary-error-heading">
+            <div className="state state--error">
+              <h3 className="state__title" id="summary-error-heading">
+                AI spend and volume could not be loaded
+              </h3>
+              <p className="state__body">
+                The dashboard summary read failed, so those two sections are MISSING rather
+                than empty — do not read their absence as zero spend or zero volume. The
+                figures above come from separate reads and are unaffected. Reload to try
+                again.
+              </p>
+            </div>
+          </section>
+        )
+      ) : (
+        <section className="panel">
+          <p className="empty">
+            AI spend and platform volume need the <code className="code">read_entities</code>{" "}
+            capability, which your role ({ROLE_LABELS[session.role]}) does not have.
+          </p>
+        </section>
+      )}
+
       {/* ---- recent activity -------------------------------------------- */}
       {mayReadEvents && (
         <section className="panel" aria-labelledby="recent-heading">
@@ -251,15 +302,6 @@ export default async function DashboardPage({
           </p>
         </section>
       )}
-    </div>
-  );
-}
-
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "warn" }) {
-  return (
-    <div className={`stat${tone ? ` stat--${tone}` : ""}`}>
-      <span className="stat__value">{value}</span>
-      <span className="stat__label">{label}</span>
     </div>
   );
 }

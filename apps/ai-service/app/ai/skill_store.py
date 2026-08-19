@@ -9,11 +9,15 @@ on its owner connection:
     POST {backend_api_url}/internal/skills/nearest-aliases  -> {candidates: [{skill_id, score}]}
     POST {backend_api_url}/internal/skills/unresolved       -> 204 (+ hash-only event)
 
-PHASE 1.5 SCOPE KEY: the search body carries EXACTLY ONE of ``domain_id`` (legacy
-11-slug skill domain; the api runs the unchanged ``skill_alias.domain_id`` query) or
-``job_domain_id`` (canonical ``jd_*``; the api joins ``job_domain_skill``). Neither/both
-is a 400 api-side, and a refusal here before the request is even sent. The unresolved
-body's ``domain_id`` is NULLABLE — a canonical-scoped miss has no legacy slug to record.
+PHASE 1.5 SCOPE KEY: BOTH bodies carry EXACTLY ONE of ``domain_id`` (legacy 11-slug skill
+domain; the api runs the unchanged ``skill_alias.domain_id`` query) or ``job_domain_id``
+(canonical ``jd_*``; the api joins ``job_domain_skill``). Neither/both is a 400 api-side,
+and a refusal here before the request is even sent.
+
+The unresolved body follows the same rule as of migration 0078, which gave
+``unresolved_phrase`` its own ``job_domain_id`` column and widened the unique index — so a
+canonical-scoped miss is queued under the domain it actually missed in, rather than being
+dropped for want of a legacy slug to name.
 
 AUTH (least privilege — #222 review): the SCOPED ``SKILLS_INTERNAL_TOKEN``
 (``x-skills-internal-token``), guarded api-side by ``SkillsInternalGuard``. Deliberately
@@ -125,33 +129,60 @@ class HttpSkillStore:
             )
             return []
 
-    def record_unresolved(self, phrase: str, domain_id: str | None, lang: str) -> None:
-        # `domain_id` IS NON-NULL ON THIS ROUTE. The api DTO requires it because recording
-        # emits the v1 `skill.phrase_unresolved` event, whose payload declares
-        # `domain_id: string` — and a shipped event schema is not mutable (CLAUDE.md §3).
-        # `canonicalize._safe_record` already skips a None domain, so this is defence in
-        # depth for a direct caller: refuse locally rather than spend a round trip earning a
-        # 400. Writing the `jd_*` id into this LEGACY-slug column is NOT the alternative —
-        # that would mix two id spaces and corrupt every per-domain reader of the queue.
-        # Reopened by the deferred `unresolved_phrase.job_domain_id` migration.
-        if domain_id is None:
+    def record_unresolved(
+        self,
+        phrase: str,
+        domain_id: str | None,
+        lang: str,
+        *,
+        job_domain_id: str | None = None,
+    ) -> None:
+        # EXACTLY ONE SCOPE KEY ON THE WIRE, the same rule the search half follows and the
+        # same rule `RecordUnresolvedDtoSchema` enforces api-side. Both scopes are live now:
+        # migration 0078 gave `unresolved_phrase` a `job_domain_id` column and widened its
+        # unique index, and the api emits `skill.phrase_unresolved_v2` for that scope rather
+        # than relaxing v1's `domain_id: string` (CLAUDE.md §3).
+        #
+        # Refuse locally rather than spend a round trip earning a 400 — and refuse rather
+        # than substitute: writing the `jd_*` id into the LEGACY-slug `domain_id` column
+        # would mix two id spaces and corrupt every per-domain reader of the queue.
+        if not exactly_one_skill_scope(domain_id, job_domain_id):
             logger.info(
-                "skill_store record_unresolved skipped (canonical scope has no queue yet)",
-                extra={"extra": {"scope": "job_domain_id"}},
+                "skill_store record_unresolved refused: need exactly one of "
+                "domain_id / job_domain_id",
+                extra={
+                    "extra": {
+                        "has_domain_id": domain_id is not None,
+                        "has_job_domain_id": job_domain_id is not None,
+                    }
+                },
             )
             return
+        # OMITTED, not sent as null: `RecordUnresolvedDtoSchema` marks both `.optional()`
+        # and refines on `=== undefined`, so an explicit null both fails the string parse
+        # and reads as "supplied" to the refine — a 400 on a body that meant well.
+        scope: dict[str, str | None] = (
+            {"job_domain_id": job_domain_id}
+            if job_domain_id is not None
+            else {"domain_id": domain_id}
+        )
         try:
             resp = self._client.post(
                 f"{self._base}/internal/skills/unresolved",
                 headers=self._headers,
-                json={"phrase": phrase, "domain_id": domain_id, "lang": lang},
+                json={"phrase": phrase, **scope, "lang": lang},
             )
             if resp.status_code >= 300:
                 raise RuntimeError(f"HTTP {resp.status_code}")
         except Exception as exc:  # swallow — a lost queue row must not fail the turn
             logger.warning(
                 "skill_store record_unresolved failed (miss not recorded)",
-                extra={"extra": {"error": type(exc).__name__}},
+                extra={
+                    "extra": {
+                        "error": type(exc).__name__,
+                        "canonical_scope": job_domain_id is not None,
+                    }
+                },
             )
 
 

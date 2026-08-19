@@ -51,7 +51,8 @@ UNRESOLVED = "unresolved"
 class SkillCanonicalStore(Protocol):
     """The DB seam canonicalization reads/writes. Supplied by the caller (the ai-service is
     DB-free). Both methods are DOMAIN-SCOPED — an alias outside the requested scope must never
-    be returned, and an unresolved miss is bucketed by ``(phrase, domain_id, lang)``.
+    be returned, and an unresolved miss is bucketed by phrase, lang, and the ONE scope id it
+    missed under.
 
     PHASE 1.5 — TWO SCOPES, EXACTLY ONE PER CALL. ``job_domain_id`` is KEYWORD-ONLY AND
     DEFAULTED so every pre-existing implementation (and every existing call site) keeps
@@ -93,14 +94,29 @@ class SkillCanonicalStore(Protocol):
         ``canonicalize_skill`` before the embed and again in the HTTP store."""
         ...
 
-    def record_unresolved(self, phrase: str, domain_id: str | None, lang: str) -> None:
+    def record_unresolved(
+        self,
+        phrase: str,
+        domain_id: str | None,
+        lang: str,
+        *,
+        job_domain_id: str | None = None,
+    ) -> None:
         """Upsert ``unresolved_phrase`` (``phrase`` is ALREADY pseudonymized): insert a new
-        row, or on the ``(phrase, domain_id, lang)`` unique key increment ``count`` and bump
-        ``last_seen``. Records the miss for later learning (TAX-5). Stores no raw PII.
+        row, or on the unique key increment ``count`` and bump ``last_seen``. Records the
+        miss for later learning (TAX-5). Stores no raw PII.
 
-        ``domain_id`` IS NULLABLE AND THAT IS THE HONEST ANSWER FOR A CANONICAL-SCOPED MISS
-        — see the call site in :func:`canonicalize_skill` for why no ``jd_*`` id is written
-        here and what the future fix is."""
+        SCOPED BY EXACTLY ONE ID, matching :meth:`nearest_aliases` — a miss is bucketed
+        under the scope it missed IN, because "this phrase is unknown" is only a useful
+        signal alongside "unknown to whom". Legacy misses key on
+        ``(phrase, domain_id, lang)``; canonical misses key on
+        ``(phrase, job_domain_id, lang)``, which migration 0078 made representable by
+        adding the column and widening ``unresolved_phrase_scope_uq`` to include it.
+
+        ``job_domain_id`` is KEYWORD-ONLY AND DEFAULTED for the same reason it is on
+        :meth:`nearest_aliases`: a store written before this parameter existed keeps
+        working untouched, because the legacy path still calls this method with the exact
+        positional signature it always did."""
         ...
 
 
@@ -119,7 +135,14 @@ class NullSkillStore:
     ) -> list[tuple[str, float]]:
         return []
 
-    def record_unresolved(self, phrase: str, domain_id: str | None, lang: str) -> None:
+    def record_unresolved(
+        self,
+        phrase: str,
+        domain_id: str | None,
+        lang: str,
+        *,
+        job_domain_id: str | None = None,
+    ) -> None:
         return None
 
 
@@ -150,36 +173,60 @@ def _safe_nearest(
 
 
 def _safe_record(
-    store: SkillCanonicalStore, phrase: str, domain_id: str | None, lang: str
+    store: SkillCanonicalStore,
+    phrase: str,
+    domain_id: str | None,
+    lang: str,
+    *,
+    job_domain_id: str | None = None,
 ) -> None:
     """The miss upsert, FAIL-SOFT. Losing one growth-queue row is acceptable; failing a
     worker's turn for it is not. ``phrase`` is ALREADY pseudonymized (SG-1) and is never
     logged here — only the exception TYPE is.
 
-    A ``None`` domain SKIPS THE CALL ENTIRELY rather than firing a request that cannot
-    succeed. The api route requires a non-null ``domain_id`` because recording emits the v1
-    ``skill.phrase_unresolved`` event, whose payload declares ``domain_id: string`` — and a
-    shipped event schema is not mutable (CLAUDE.md §3). So a canonical-``job_domain_id``
-    scoped MISS has nowhere to be queued until ``unresolved_phrase`` grows a
-    ``job_domain_id`` column. Posting it anyway would spend a round trip to earn a 400 and
-    a misleading "failed" warning; this logs the real reason instead.
+    BOTH SCOPES QUEUE NOW. A canonical-scoped miss used to be dropped here: the api route
+    required a non-null legacy ``domain_id`` because recording emitted the v1
+    ``skill.phrase_unresolved`` event, whose payload declares ``domain_id: string``, and
+    relaxing a shipped payload is a CLAUDE.md §3 non-negotiable. Migration 0078 plus
+    ``skill.phrase_unresolved_v2`` closed that without touching v1 — the table models
+    ``job_domain_id``, the unique index includes it, and the service picks the payload
+    GENERATION by scope — so the miss now has a home and this function passes the id on.
 
-    Only the MISS path is closed. A canonical-scoped canonicalization that MATCHES is
-    unaffected, and nothing here can block a worker's turn either way.
+    That matters more than one queue row. ``unresolved_phrase`` is the table built to catch
+    retrieval failures, and while this path was closed, flipping the S3-C read switch would
+    have made every Path A miss invisible in the one place that records misses — including
+    to the shadow instrumentation whose abort thresholds are derived from exactly that
+    volume.
+
+    NEITHER id still skips the call: with no scope there is no bucket to record under, and
+    posting anyway would spend a round trip to earn a 400 (the DTO's exactly-one-of refine).
+    Unreachable from :func:`canonicalize_skill`, which refuses that shape before the embed;
+    kept for a direct caller.
+
+    THE LEGACY CALL IS BYTE-IDENTICAL — positional, no kwarg — so a store predating the
+    parameter keeps working, and one asked for a canonical scope raises ``TypeError`` into
+    the same net that absorbs an outage rather than failing a worker's turn.
     """
-    if domain_id is None:
+    if domain_id is None and job_domain_id is None:
         logger.info(
-            "skill miss not queued: canonical-scoped misses have no home in "
-            "unresolved_phrase until it carries job_domain_id",
-            extra={"extra": {"scope": "job_domain_id"}},
+            "skill miss not queued: no scope to record it under",
+            extra={"extra": {"scope": None}},
         )
         return
     try:
-        store.record_unresolved(phrase, domain_id, lang)
+        if job_domain_id is not None:
+            store.record_unresolved(phrase, domain_id, lang, job_domain_id=job_domain_id)
+        else:
+            store.record_unresolved(phrase, domain_id, lang)
     except Exception as exc:
         logger.warning(
             "skill store record_unresolved failed (miss not recorded)",
-            extra={"extra": {"error": type(exc).__name__}},
+            extra={
+                "extra": {
+                    "error": type(exc).__name__,
+                    "canonical_scope": job_domain_id is not None,
+                }
+            },
         )
 
 
@@ -290,38 +337,24 @@ def canonicalize_skill(
     # Miss (no candidate, or top below floor): record the PSEUDONYMIZED text (emb.text, SG-1)
     # for later learning, then return UNRESOLVED. The raw phrase is never stored.
     #
-    # A CANONICAL-SCOPED MISS IS RECORDED WITH domain_id = NULL, AND THAT IS A KNOWN,
-    # DELIBERATE LOSS OF SCOPE — not an oversight. `unresolved_phrase` has NO job_domain_id
-    # column, and its `domain_id` column holds LEGACY 11-slug values; writing a `jd_*` id
-    # into it would put two id spaces in one column, which silently breaks every existing
-    # reader (the TAX-7 growth runner batches OPEN rows *per domain slug*) and is far worse
-    # than a null. `domain_id` is already legally NULL there — the occupation scope records
-    # exactly this way — and the unique index's NULLS NOT DISTINCT still dedupes the row, so
-    # the miss is counted.
+    # THE MISS IS QUEUED UNDER THE SCOPE IT MISSED IN — the legacy slug or the `jd_*` id,
+    # whichever the caller supplied, never both and never a fabricated substitute. Exactly
+    # one of them is non-None here (enforced above), so `_safe_record` sees precisely the
+    # scope this canonicalization ran under.
     #
-    # BUT THE COST IS HIGHER THAN "UN-ATTRIBUTED", AND THE HONEST VERSION IS THIS: the TAX-7
-    # growth runner does not merely fail to cluster these rows, it EXPLICITLY SKIPS THEM —
-    # `growth-cluster.ts` filters `domainId === null` out of its open set and logs
-    # "skipping N open row(s) with NULL domain_id", and it does so only AFTER Phase 1 has
-    # already spent a real embedding on each one. So a canonical-scoped miss is permanently
-    # unprocessable by the growth loop AND burns embed spend on a row that will always be
-    # refused. It is not a lossy bucket; it is a dead-letter queue with a bill.
+    # A `jd_*` id is NOT written into the legacy `domain_id` column, and that remains the
+    # rule this path is careful about: two id spaces in one column would silently break
+    # every per-domain reader of the growth queue (`growth-cluster.ts` batches OPEN rows per
+    # legacy slug). Migration 0078 gave the canonical scope its OWN column instead, and the
+    # api picks `skill.phrase_unresolved_v2` for it rather than relaxing v1.
     #
-    # Impact TODAY is zero: nothing writes `job_postings.job_domain_id`, so no caller reaches
-    # this branch. It becomes real the moment the payer domain picker ships.
-    # REQUIRED FIX, and a hard PREREQUISITE of that picker rather than an open TODO (it needs
-    # a migration, which this task must not create): add a nullable `job_domain_id` column to
-    # `unresolved_phrase`, widen the unique index, teach the growth runner the second scope,
-    # and pass the id here.
-    #
-    # `domain_id` is None here whenever `job_domain_id` was supplied (exactly-one-of, enforced
-    # above). `_safe_record` SKIPS a None domain rather than posting it — the api route
-    # requires non-null because recording emits the v1 `skill.phrase_unresolved` event, and
-    # that payload's `domain_id: string` is not mutable (CLAUDE.md §3). So on the canonical
-    # path the embed is spent and the miss is simply not queued. That is the honest cost of
-    # deferring the migration, and it is bounded: nothing writes `job_postings.job_domain_id`
-    # yet, so no caller reaches this line today.
-    _safe_record(store, emb.text or "", domain_id, lang)
+    # WHAT STILL DOES NOT CONSUME THESE ROWS: `growth-cluster.ts` filters `domainId === null`
+    # out of its open set, and a canonical row's legacy `domain_id` IS null — so the TAX-7
+    # growth loop skips canonical misses today. That is a smaller gap than the one this
+    # closes (the rows now EXIST, are attributed, and are countable by the S3-D shadow), and
+    # teaching the growth runner the second scope is tracked separately: it is a clustering
+    # decision, not a recording one.
+    _safe_record(store, emb.text or "", domain_id, lang, job_domain_id=job_domain_id)
     return SkillCanonicalization(status=UNRESOLVED, ai_metadata=meta)
 
 

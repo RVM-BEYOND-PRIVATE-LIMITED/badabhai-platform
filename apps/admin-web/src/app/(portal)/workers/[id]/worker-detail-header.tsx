@@ -29,11 +29,18 @@ export function WorkerDetailHeader({
   workerId,
   canFlag,
   timelineHref,
+  journeyHref,
 }: {
   title: ReactNode;
   workerId: string;
   canFlag: boolean;
   timelineHref: string;
+  /**
+   * The 7-step funnel + interview sessions for this worker. Rendered only when the operator
+   * has `read_entities` — the same capability the journey API declares — so a control that
+   * would land on a redirect is never offered.
+   */
+  journeyHref: string | null;
 }) {
   const router = useRouter();
   const [reasonCode, setReasonCode] = useState<WorkerFlagReasonCode>(WORKER_FLAG_REASON_CODES[0]);
@@ -49,6 +56,11 @@ export function WorkerDetailHeader({
       <header className="page__head">
         {title}
         <div className="page__actions">
+          {journeyHref && (
+            <Link className="btn btn--ghost" href={journeyHref}>
+              View journey
+            </Link>
+          )}
           <Link className="btn btn--ghost" href={timelineHref}>
             View event timeline
           </Link>
