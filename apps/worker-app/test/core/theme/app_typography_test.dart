@@ -4,12 +4,13 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:badabhai_worker_app/core/theme/app_typography.dart';
 
-/// #350 — the brand-font DELIVERY seam.
+/// The brand-font DELIVERY seam.
 ///
-/// Baloo 2 + Mukta binaries are not in the repo yet, so the shipped default is
-/// still the google_fonts (runtime-fetch) path. What these lock down is that the
-/// bundled path is real and correct the moment the files land: asset families
-/// only, and google_fonts hard-barred from ever reaching the network.
+/// CRASH FIX: the shipped default is now `bundledBrandFonts = true` — google_fonts
+/// is never called, so no runtime fetch can throw (a flaky-link fetch crashed a
+/// real device). These lock down that default path (asset/platform families,
+/// network hard-barred) AND that the legacy google_fonts path, if ever re-enabled,
+/// still bars fetching.
 void main() {
   // Installs the test HttpOverrides, so the one case below that leaves runtime
   // fetching ON fails fast against the mock client instead of actually reaching
@@ -21,9 +22,9 @@ void main() {
   });
 
   tearDown(() {
-    // Restore BOTH globals — this suite drives them on purpose and every other
-    // test in the app reads them.
-    AppTypography.bundledBrandFonts = false;
+    // Restore BOTH globals to the shipped defaults — this suite drives them on
+    // purpose and every other test in the app reads them.
+    AppTypography.bundledBrandFonts = true;
     GoogleFonts.config.allowRuntimeFetching = false;
   });
 
@@ -82,33 +83,32 @@ void main() {
     });
   });
 
-  // These two exercise the google_fonts path, which — with no Baloo2/Mukta
-  // assets to find — rejects its fire-and-forget load future. `testWidgets`
-  // runs under FakeAsync so that rejection is never pumped, which is exactly how
-  // the rest of this app's widget suite already coexists with google_fonts. A
-  // plain `test()` here would fail on the unhandled async error, not on the
-  // assertion.
-  group('bundledBrandFonts = false (today — binaries still missing)', () {
-    testWidgets('falls back to the google_fonts families',
+  // The LEGACY google_fonts path (only reached if someone flips the flag back to
+  // false). It rejects its fire-and-forget load future when the assets are
+  // missing; `testWidgets` runs under FakeAsync so that rejection is never pumped
+  // (how the rest of the widget suite coexists with google_fonts). A plain
+  // `test()` here would fail on the unhandled async error, not the assertion.
+  group('bundledBrandFonts = false (legacy google_fonts path)', () {
+    setUp(() => AppTypography.bundledBrandFonts = false);
+
+    testWidgets('routes through the google_fonts families',
         (WidgetTester tester) async {
-      // Deliberately NOT the asset family name: until the binaries land we keep
-      // asking google_fonts, because forcing allowRuntimeFetching=false with no
-      // assets would hand EVERY worker fallback glyphs, online ones included.
       expect(AppTypography.display().fontFamily, isNot('Anek'));
       expect(AppTypography.display().fontFamilyFallback, contains('AnekLatin'));
       expect(AppTypography.body().fontFamilyFallback, contains('Noto Sans Devanagari'));
     });
 
-    testWidgets('does not touch the runtime-fetch config',
+    testWidgets('STILL bars runtime fetching (crash fix — never the network)',
         (WidgetTester tester) async {
       GoogleFonts.config.allowRuntimeFetching = true;
 
       AppTypography.display();
       AppTypography.body();
 
-      // Only ever tighten. Widget tests across the suite set this to false
-      // themselves; re-enabling it here would put them all on the network.
-      expect(GoogleFonts.config.allowRuntimeFetching, isTrue);
+      // configureFontLoading() now fires unconditionally: even the google_fonts
+      // path must never reach fonts.gstatic.com, whose flaky-link failure crashed
+      // a real device.
+      expect(GoogleFonts.config.allowRuntimeFetching, isFalse);
     });
   });
 

@@ -38,53 +38,53 @@ class AppTypography {
   /// Devanagari fallback for body copy — free system font on budget handsets.
   static const List<String> bodyFallback = <String>['Noto Sans Devanagari'];
 
-  /// #350 — whether the Baloo 2 + Mukta BINARIES ship inside the APK.
+  /// Whether [display]/[body]/[eyebrow] resolve straight off a font FAMILY name
+  /// (a bundled asset or a platform font) instead of going through google_fonts.
   ///
-  /// `false` (today): the binaries are not in the repo, so we go on asking
-  /// google_fonts for them, which fetches over HTTP on first use. That is bad
-  /// for exactly our audience — an APK sideloaded via SHAREit or a first launch
-  /// on 2G renders every headline and body string in the platform fallback and
-  /// reflows mid-flow as the files land — but it is strictly better than the
-  /// alternative available without binaries: forcing
-  /// `allowRuntimeFetching = false` right now would guarantee the fallback for
-  /// EVERY worker, online ones included, and silently drop the locked Desi
-  /// Vernacular Pop type system on the floor.
+  /// `true` (today — CRASH FIX): google_fonts is NEVER called, so no HTTP fetch is
+  /// ever made. This is what actually stops the crash: with `false`, `display()`
+  /// called `GoogleFonts.anekLatin`, whose async font load throws uncaught on a
+  /// device — a `ClientException` when a flaky-link fetch resets, OR (if fetching
+  /// were merely disabled) a "font not found in assets" Exception because the Anek
+  /// binaries are NOT bundled. Either throw, landing during the first frames
+  /// before the crash reporter is ready, aborts the app (Firebase flagged a real
+  /// device). Returning a plain `TextStyle` removes the whole async path:
+  ///  - [bodyFamily] `'Roboto'` is a platform font on Android → real Roboto;
+  ///  - [displayFamily] `'Anek'` is NOT bundled yet → Flutter renders the platform
+  ///    FALLBACK for headlines/buttons/₹ (a silent glyph swap, never a throw).
   ///
-  /// `true`: [display]/[body]/[eyebrow] resolve straight off the bundled asset
-  /// families and google_fonts is never called, so no request is ever made. The
-  /// switch is deliberately the LAST step of the migration — flip it in the same
-  /// commit that adds the files and the pubspec `fonts:` entries, never before,
-  /// or the app renders fallback glyphs for families that do not exist.
+  /// The COST is honest: headlines lose Anek until the binaries ship. That is a
+  /// visual downgrade, but a graceful one — strictly better than crashing our
+  /// low-connectivity audience. The real upgrade (DESIGN_SPEC §3) is to add Anek
+  /// Latin/Devanagari .ttf to assets/fonts/ + declare `family: Anek` in pubspec;
+  /// then this stays `true` and the headlines render true Anek off the asset with
+  /// still no google_fonts call.
   ///
-  /// Mutable (not `const`) so a test can drive BOTH sides of the seam; restore
-  /// it in `tearDown`.
-  ///
-  /// FALSE since the Josh re-skin (2026-08-04): [displayFamily] now names **Anek**,
-  /// which the pubspec does NOT bundle (it still ships the DEAD Baloo 2/Mukta
-  /// binaries). With this TRUE, `display()` asked Flutter for a font family named
-  /// 'Anek' that does not exist, so EVERY headline/button/salary silently rendered
-  /// in the platform fallback — NOT Anek, not even Baloo. Flipping to FALSE routes
-  /// display through `GoogleFonts.anekLatin`, which fetches real Anek at runtime —
-  /// the SAME delivery the kit gallery and apps/payer-web use. Cost: a first launch
-  /// with no network shows the fallback until the file lands (then it is cached),
-  /// which is strictly better than the permanent fallback TRUE produced.
-  ///
-  /// The offline-safe upgrade (DESIGN_SPEC §3 "bundle subsetted Anek, drop the
-  /// google_fonts fetch") is to add Anek Latin/Devanagari .ttf to assets/fonts/,
-  /// declare `family: Anek` in pubspec, drop the dead Baloo 2/Mukta, and flip this
-  /// back to TRUE — in that one commit. Until those binaries exist, FALSE is correct.
-  static bool bundledBrandFonts = false;
+  /// Mutable (not `const`) so a test can drive both sides of the seam; restore it
+  /// in `tearDown`.
+  static bool bundledBrandFonts = true;
 
-  /// #350 — once the binaries are bundled, slam the network door: google_fonts
-  /// must never quietly fetch a family we already ship.
+  /// Slam the network door on google_fonts: it must NEVER fetch a font over HTTP
+  /// at runtime. Call ONCE from `main()` before the first frame.
   ///
-  /// Only ever TIGHTENS the config, never re-enables fetching. Widget tests set
-  /// `allowRuntimeFetching = false` themselves; flipping it back to `true` here
-  /// would put the whole suite on the network. Deliberately NOT memoised — the
-  /// write is idempotent and a one-shot latch would just be hidden state that
-  /// makes the switch un-flippable within a process (tests do flip it).
-  static void _hardenFontLoading() {
-    if (!bundledBrandFonts) return;
+  /// CRASH FIX. This used to fire only once fonts were bundled
+  /// ([bundledBrandFonts]), leaving the runtime fetch ON until then — but that
+  /// fetch is the crash source: on a flaky link
+  /// `google_fonts._httpFetchFontAndSaveToDevice` throws a `ClientException`, and
+  /// when it lands during the FIRST FRAMES (where headlines / PIN cells first
+  /// build) it reaches the crash reporter's async handler BEFORE Crashlytics is
+  /// ready, whose pre-ready branch returns `false` — so the engine aborts. That is
+  /// a fatal crash on a transient, recoverable network error, hitting exactly our
+  /// low-connectivity audience (Firebase Analytics flagged a real device).
+  ///
+  /// Turning fetching OFF removes the whole class: google_fonts still loads a font
+  /// it has ALREADY cached on disk (a worker who fetched Anek before keeps it) and
+  /// any bundled asset family, and otherwise falls back to the platform font — a
+  /// graceful glyph swap, never a network call and never a crash.
+  ///
+  /// Only ever TIGHTENS the config, never re-enables fetching (that would put the
+  /// test suite on the network too). Idempotent.
+  static void configureFontLoading() {
     GoogleFonts.config.allowRuntimeFetching = false;
   }
 
@@ -108,7 +108,7 @@ class AppTypography {
     double height = 1.1,
     double letterSpacing = -0.3,
   }) {
-    _hardenFontLoading();
+    configureFontLoading();
     if (bundledBrandFonts) {
       return TextStyle(
         fontFamily: displayFamily,
@@ -166,7 +166,7 @@ class AppTypography {
     required double height,
     required double letterSpacing,
   }) {
-    _hardenFontLoading();
+    configureFontLoading();
     if (bundledBrandFonts) {
       return TextStyle(
         fontFamily: bodyFamily,
