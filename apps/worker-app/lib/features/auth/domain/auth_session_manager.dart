@@ -148,6 +148,18 @@ class AuthSessionManager extends ChangeNotifier {
   /// Reset to 0 by a successful unlock and by a fresh OTP login.
   int _consecutivePinFailures = 0;
 
+  /// True from a successful forgot-PIN reset until the NEXT unlock attempt
+  /// resolves. The worker double-entered this PIN seconds ago via an OTP-verified
+  /// reset, so if that very next unlock is rejected the PIN cannot be the cause —
+  /// the stored refresh token is DEAD (the norm after the server DB is
+  /// re-created / a session is revoked), and `confirmPinReset` deliberately kept
+  /// that old token when it routed to [AuthStatus.locked]. Rather than trap the
+  /// worker on the keypad (type the PIN you JUST set → "wrong" → forever), the
+  /// first post-reset failure drops the dead session and routes to OTP login.
+  /// In-memory (the reset→unlock happens in one run); cleared as soon as an
+  /// attempt resolves either way. See [unlockWithPin] / [confirmPinReset].
+  bool _pinJustReset = false;
+
   /// After this many consecutive neutral PIN failures, stop blaming the PIN:
   /// drop the unusable session and send the worker to OTP login. Chosen to sit
   /// ABOVE the 3-try client nudge toward "PIN bhool gaye?" (so a worker who
@@ -401,6 +413,17 @@ class AuthSessionManager extends ChangeNotifier {
       // worker on the login screen where they choose to request one. It also
       // mirrors what the server already does on its own ladder (force_otp).
       if (failure.code == AuthErrorCode.pinVerifyFailed) {
+        // JUST RESET → a rejection is a DEAD TOKEN, not a wrong PIN. The worker
+        // double-entered this PIN seconds ago via an OTP-verified reset, so
+        // don't make them fail 5 times (or restart, which resets the counter)
+        // to escape the trap `confirmPinReset` leaves when it keeps the old
+        // token — drop it and route to OTP login on the FIRST failure.
+        if (_pinJustReset) {
+          _pinJustReset = false;
+          _consecutivePinFailures = 0;
+          await _wipeAndLogOut();
+          throw const AuthFailure(AuthErrorCode.reauthRequired);
+        }
         _consecutivePinFailures++;
         if (_consecutivePinFailures >= _maxPinFailuresBeforeReauth) {
           _consecutivePinFailures = 0;
@@ -410,9 +433,10 @@ class AuthSessionManager extends ChangeNotifier {
       }
       rethrow;
     }
-    // A verified PIN proves the session was alive — clear the trap counter so a
-    // later genuine typo starts from zero.
+    // A verified PIN proves the session was alive — clear the trap counter (and
+    // the post-reset flag) so a later genuine typo starts from zero.
     _consecutivePinFailures = 0;
+    _pinJustReset = false;
     _captureSessionView(result.tokens); // F5
     // GAP A: persist the rotated tokens so the next cold start stays on the fast
     // path with the freshest refresh token.
@@ -468,9 +492,16 @@ class AuthSessionManager extends ChangeNotifier {
     _pinSet = true;
     if (_persistentAuthEnabled) await _tokenStore.writePinSet(true);
     final String? refresh = await _tokenStore.readRefreshToken();
-    _setStatus((refresh != null && refresh.isNotEmpty)
-        ? AuthStatus.locked
-        : AuthStatus.loggedOut);
+    if (refresh != null && refresh.isNotEmpty) {
+      // Keep the fast path (unlock with the new PIN) when the token is alive, but
+      // arm the dead-token escape: the very next unlock proves whether that token
+      // still works. If it doesn't, [unlockWithPin] routes to OTP instead of
+      // looping "wrong PIN" on a PIN the worker just set.
+      _pinJustReset = true;
+      _setStatus(AuthStatus.locked);
+    } else {
+      _setStatus(AuthStatus.loggedOut);
+    }
   }
 
   // --- Lifecycle re-lock ----------------------------------------------------

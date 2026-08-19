@@ -526,6 +526,44 @@ void main() {
       }
       expect(manager.status, AuthStatus.locked);
     });
+
+    test('after a forgot-PIN reset, the FIRST rejection escapes to OTP — a dead '
+        'token is not a wrong PIN, so no 5-fail grind and no keypad trap',
+        () async {
+      // A dead token survives the reset (the norm after a server DB re-create):
+      // confirmPinReset sets the new PIN server-side but returns no session, so
+      // the app keeps this token and returns to `locked`.
+      await store.writeRefreshToken('refresh-but-dead');
+      await manager.bootstrap();
+      await manager.confirmPinReset('+919999999999', '123456', '4242');
+      expect(manager.status, AuthStatus.locked);
+
+      // The worker types the PIN they JUST set; the backend still 401s (dead
+      // token). It must NOT read as "wrong PIN" and loop — the FIRST failure
+      // drops the dead session and routes to OTP login.
+      api.throwOnPinVerify = const AuthFailure(AuthErrorCode.pinVerifyFailed);
+      await expectLater(
+        manager.unlockWithPin('4242'),
+        throwsA(isA<AuthFailure>().having(
+            (AuthFailure f) => f.code, 'code', AuthErrorCode.reauthRequired)),
+      );
+      expect(manager.status, AuthStatus.loggedOut);
+      expect(await store.readRefreshToken(), isNull);
+    });
+
+    test('after a reset, a LIVE token still unlocks on the new PIN — the common '
+        'forgot-PIN case takes no needless OTP', () async {
+      await store.writeRefreshToken('refresh-1');
+      await manager.bootstrap();
+      await manager.confirmPinReset('+919999999999', '123456', '4242');
+      expect(manager.status, AuthStatus.locked);
+
+      // Token is alive → the new PIN verifies → authenticated; the post-reset
+      // escape did NOT fire.
+      api.throwOnPinVerify = null;
+      await manager.unlockWithPin('4242');
+      expect(manager.status, AuthStatus.authenticated);
+    });
   });
 
   group('relock (lifecycle)', () {
