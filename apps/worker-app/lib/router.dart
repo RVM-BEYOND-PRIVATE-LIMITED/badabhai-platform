@@ -25,6 +25,7 @@ import 'features/kit/presentation/kit_detail_screen.dart';
 import 'features/kit/presentation/kit_screen.dart';
 import 'features/notifications/presentation/notifications_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
+import 'features/feedback/presentation/feedback_screen.dart';
 import 'features/invite/presentation/invite_screen.dart';
 import 'features/job_search/presentation/job_search_screen.dart';
 import 'features/applications/presentation/applied_jobs_screen.dart';
@@ -106,6 +107,10 @@ class Routes {
   static const String settings = '/profile/settings'; // (no bar)
   static const String appliedJobs =
       '/profile/applied'; // (no bar) — pushed from Profile, back → Profile
+
+  /// App-wide feedback page — pushed FULL-SCREEN from the floating Feedback
+  /// button that rides every non-auth screen (see [FeedbackFabOverlay]).
+  static const String feedback = '/feedback'; // (no bar)
 }
 
 /// Root navigator — onboarding routes and every "no bar" full-screen route render
@@ -395,6 +400,13 @@ GoRouter _buildRouter() {
       GoRoute(
         path: Routes.invite,
         builder: (_, __) => const InviteScreen(),
+      ),
+      // App-wide feedback page (CEO request) — pushed full-screen from the
+      // floating Feedback button on every non-auth screen. Root navigator so the
+      // push from any tab covers the shell; FeedbackScreen's BbAppBar has back.
+      GoRoute(
+        path: Routes.feedback,
+        builder: (_, __) => const FeedbackScreen(),
       ),
       GoRoute(
         path: Routes.profilePreview,
