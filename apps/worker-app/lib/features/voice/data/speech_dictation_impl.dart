@@ -142,6 +142,13 @@ class RealSpeechDictation implements SpeechDictation {
         },
         onSoundLevelChange: (double level) => _onSoundLevel?.call(level),
         listenOptions: SpeechListenOptions(
+          // DICTATION, not the default confirmation. `ListenMode.confirmation`
+          // is a SHORT-COMMAND mode: the engine endpoints hard after the first
+          // phrase, so a worker speaking three sentences was finalised down to a
+          // single word ("me"). Dictation mode tunes the recogniser for
+          // sentences/paragraphs (relaxed endpointing) — the actual fix for the
+          // "only hears one word" report. MUST stay dictation; do not drop it.
+          listenMode: ListenMode.dictation,
           // Partial results fill the composer live as the worker speaks.
           partialResults: true,
           // PREFER ON-DEVICE recognition so the worker's spoken answers are NOT
