@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import type { ServerConfig } from "@badabhai/config";
+import type { PayloadInputOf } from "@badabhai/event-schema";
+import { SERVER_CONFIG } from "../config/config.module";
+import type { RequestContext } from "../common/request-context";
+import { EventsService } from "../events/events.service";
 import type { AdminPage } from "./admin-entities.dto";
 import { decodeCursor, encodeCursor } from "./admin-events.cursor";
 import { AdminWorkerJourneyRepository } from "./admin-worker-journey.repository";
@@ -36,10 +41,31 @@ import {
  * progress bar moves for a worker who did nothing. The answer rows are the only durable
  * record of what that worker was actually asked.
  *
- * ── NO EVENTS ───────────────────────────────────────────────────────────────────────────
- * A read is not a state change, so this emits nothing — the same posture as the other admin
- * read services. The privileged read that IS audited is the PII reveal, which lives behind
- * its own capability and its own default-off flag; that asymmetry is deliberate.
+ * ── ONE EVENT, AND IT IS AN AUDIT OF A READ ─────────────────────────────────────────────
+ * The other admin READ services emit nothing, because a read is not a state change. This one
+ * emits `admin.worker_journey_viewed` on the summary and on the session detail, and the
+ * asymmetry is deliberate: those reads return an entity snapshot, this one returns a
+ * BEHAVIOURAL profile of one person's attempt to use the product — login times, per-question
+ * outcomes across the corpus, where they stalled and under how much ask pressure, the voice
+ * re-record chain, per-session spend, idle seconds. Same data class, materially higher
+ * granularity, so looking must leave a trail naming who looked and at whom.
+ *
+ * THREE PROPERTIES OF THE EMISSION, each a decision:
+ *
+ *  - AFTER the 404 check, BEFORE the read completes. Auditing an unknown id would fill the
+ *    spine with rows for entities that do not exist and turn the audit stream into an
+ *    enumeration oracle; auditing after the response is built would lose the row whenever the
+ *    read then failed.
+ *  - AWAITED AND FAIL-CLOSED. An emit failure propagates and the caller gets an error instead
+ *    of the data — the same discipline `AdminPiiRevealService` applies to its audit-before-
+ *    decrypt. A trail that is best-effort is not a control; it is a log line. The cost is one
+ *    `events` insert per page view on a low-volume internal surface.
+ *  - PII-FREE. Opaque admin/worker/session ids and a view enum. Never a question key: WHICH
+ *    question a worker stalled on belongs in the response, not on the audit spine.
+ *
+ * `listChatSessions` is deliberately NOT audited: it is a per-worker index of session ids,
+ * timings and statuses, which is the entity-detail data class, and the two reads it leads to
+ * are both audited themselves.
  *
  * ── HONESTY OVER TIDINESS ───────────────────────────────────────────────────────────────
  * Three measurements on this surface do not exist for all data, and each is reported as
@@ -54,15 +80,27 @@ export class AdminWorkerJourneyService {
   private static readonly TEST_LOGIN_EVENT = "worker.test_login";
   private static readonly SEARCH_EVENT = "job.search_performed";
 
-  constructor(private readonly repo: AdminWorkerJourneyRepository) {}
+  constructor(
+    private readonly repo: AdminWorkerJourneyRepository,
+    private readonly events: EventsService,
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
+  ) {}
 
   // =========================================================================
   // GET /admin/workers/:id/journey-summary
   // =========================================================================
 
-  async getJourneySummary(workerId: string): Promise<AdminWorkerJourneySummary> {
+  async getJourneySummary(
+    adminId: string,
+    workerId: string,
+    ctx: RequestContext,
+  ): Promise<AdminWorkerJourneySummary> {
     const worker = await this.repo.findWorkerCore(workerId);
     if (!worker) throw new NotFoundException("Worker not found");
+
+    // AUDIT BEFORE THE READ, awaited and fail-closed — see the class header. After the 404 so
+    // an unknown id leaves no row (and so the stream is not an enumeration oracle).
+    await this.auditJourneyRead(adminId, workerId, "journey_summary", null, ctx);
 
     const [eventCounts, kit, answerStats, packVersions, sessionCount, resumes, profile, apps] =
       await Promise.all([
@@ -309,9 +347,17 @@ export class AdminWorkerJourneyService {
   // GET /admin/chat-sessions/:id
   // =========================================================================
 
-  async getChatSession(sessionId: string): Promise<AdminChatSessionDetail> {
+  async getChatSession(
+    adminId: string,
+    sessionId: string,
+    ctx: RequestContext,
+  ): Promise<AdminChatSessionDetail> {
     const session = await this.repo.findSession(sessionId);
     if (!session) throw new NotFoundException("Chat session not found");
+
+    // The audited SUBJECT is the WORKER, read off the session row — never a caller-supplied
+    // id. An audit keyed on the session alone would not answer "who has been looked at".
+    await this.auditJourneyRead(adminId, session.workerId, "chat_session", sessionId, ctx);
 
     const [answers, voiceAnswers, jobs, aiCost, settledKeys, packVersions, messageCounts] =
       await Promise.all([
@@ -324,15 +370,41 @@ export class AdminWorkerJourneyService {
         this.repo.countMessagesBySession([sessionId]),
       ]);
 
-    // The session's OWN pin is folded in: a session can be abandoned before a single answer
-    // or clip lands, and its pinned pack is then the only record of which interview it was.
+    // ---- which packs' items can name this session's questions -------------
+    //
+    // THREE SOURCES, IN PRECEDENCE ORDER, because `deriveStuckQuestion` takes the FIRST item
+    // it sees for a key:
+    //
+    //  1. the pairs the session's own answers + voice attempts STAMP — durable, exact;
+    //  2. the session's own PIN — a session abandoned before a single answer or clip has no
+    //     stamped pair at all, and the pin is then the only record of which interview it was;
+    //  3. the CURRENTLY ACTIVE universal pack — a last resort, and the fix for the population
+    //     this feature cares about most.
+    //
+    // ⚠ WHY (3) IS NEEDED. `chat_sessions.pack_id` pins the OCCUPATION pack ONLY; the
+    // universal tail is resolved fresh every turn and never pinned. So in a text-mode session
+    // that died in the universal block with nothing universal settled, sources 1 and 2 cover
+    // NONE of the universal keys in `ask_counts` — every one of them resolves to no item and
+    // the ranking is blind on the two legs that need `is_mandatory`/`display_order`.
+    //
+    // ⚠ AND WHY IT IS LAST. It is today's ACTIVE version, not necessarily the one that ran, so
+    // for an old session it is an approximation — which is exactly why it may not displace a
+    // pair the session actually stamped, and why `stuck.unresolved_count` still reports
+    // whatever it did not cover. (The profiling DENOMINATOR deliberately does NOT do this: the
+    // same substitution there would move a finished worker's progress bar on every reseed.)
     const pairs = [...packVersions];
-    if (session.packId !== null && session.packVersion !== null) {
-      const key = `${session.packId}:${session.packVersion}`;
+    const addPair = (packId: string, packVersion: number): void => {
+      const key = `${packId}:${packVersion}`;
       if (!pairs.some((p) => `${p.packId}:${p.packVersion}` === key)) {
-        pairs.push({ packId: session.packId, packVersion: session.packVersion });
+        pairs.push({ packId, packVersion });
       }
+    };
+    if (session.packId !== null && session.packVersion !== null) {
+      addPair(session.packId, session.packVersion);
     }
+    const universal = await this.repo.findActiveUniversalPack(this.config.PROFILING_PACK_LOCALE);
+    if (universal) addPair(universal.packId, universal.packVersion);
+
     const items = await this.repo.listPackItems(pairs);
 
     const stuck = deriveStuckQuestion({
@@ -347,6 +419,10 @@ export class AdminWorkerJourneyService {
     const caveats: JourneyCaveat[] = [];
     if (aiCost === null) caveats.push("ai_cost_not_recorded");
     if (stuck.outcome === "no_conversation_state") caveats.push("no_conversation_state");
+    // The ranking's blindness is REPORTED, never absorbed: an unresolvable key is judged on
+    // neither servability nor engine position, so an operator must be able to see that some
+    // of the ordering rests on nothing.
+    if (stuck.unresolved_count > 0) caveats.push("stuck_items_unresolved");
 
     const base = AdminWorkerJourneyService.toListItem(
       session,
@@ -369,6 +445,37 @@ export class AdminWorkerJourneyService {
   // =========================================================================
   // Helpers
   // =========================================================================
+
+  /**
+   * Record that `adminId` read `workerId`'s journey. AWAITED; a failure PROPAGATES.
+   *
+   * The payload is opaque ids + a closed enum, and that is the whole contract: no question
+   * key, no status, no count, no free text (`.strict()` on the payload schema is the
+   * structural backstop). The ACTOR is the session admin the guard resolved; the SUBJECT is
+   * the worker — for the session read, taken off the session ROW rather than from the path,
+   * so the trail cannot be pointed at a worker the caller names.
+   */
+  private async auditJourneyRead(
+    adminId: string,
+    workerId: string,
+    view: "journey_summary" | "chat_session",
+    chatSessionId: string | null,
+    ctx: RequestContext,
+  ): Promise<void> {
+    await this.events.emit({
+      event_name: "admin.worker_journey_viewed",
+      actor: { actor_type: "admin", actor_id: adminId },
+      subject: { subject_type: "worker", subject_id: workerId },
+      payload: {
+        admin_id: adminId,
+        subject_id: workerId,
+        view,
+        chat_session_id: chatSessionId,
+      } satisfies PayloadInputOf<"admin.worker_journey_viewed">,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+  }
 
   private static toListItem(
     row: {

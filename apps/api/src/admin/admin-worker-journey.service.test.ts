@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { NotFoundException } from "@nestjs/common";
+import type { ServerConfig } from "@badabhai/config";
+import type { RequestContext } from "../common/request-context";
+import type { EventsService } from "../events/events.service";
 import { AdminWorkerJourneyService } from "./admin-worker-journey.service";
 import type { AdminWorkerJourneyRepository } from "./admin-worker-journey.repository";
 import type {
@@ -24,7 +27,15 @@ import type {
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
 const SESSION = "22222222-2222-4222-8222-222222222222";
+const ADMIN = "33333333-3333-4333-8333-333333333333";
 const CREATED = new Date("2026-01-01T00:00:00.000Z");
+
+const CTX: RequestContext = {
+  correlationId: "corr-1",
+  requestId: "req-1",
+} as unknown as RequestContext;
+
+const CONFIG = { PROFILING_PACK_LOCALE: "hi-IN" } as unknown as ServerConfig;
 
 type Repo = AdminWorkerJourneyRepository;
 
@@ -92,13 +103,24 @@ function fakeRepo(over: Partial<Record<keyof Repo, unknown>> = {}) {
     listSettledKeys: vi.fn(async () => []),
     sessionPackVersions: vi.fn(async () => []),
     listPackItems: vi.fn(async () => []),
+    // The universal pack is never PINNED on a session, so the detail read resolves the active
+    // one as a last resort. Default: none configured, which is the pre-fix behaviour.
+    findActiveUniversalPack: vi.fn(
+      async (_locale: string): Promise<{ packId: string; packVersion: number } | null> => null,
+    ),
   };
   Object.assign(repo, over);
+  // The parameter is DECLARED even though it is ignored: without it `mock.calls[0]` types as
+  // the empty tuple and the "what exactly did it put on the spine" assertions below cannot be
+  // written at all (the same reason `countWorkerSubjectEvents` above declares its two).
+  const emit = vi.fn(async (_params: Record<string, unknown>) => ({ event_id: "e-1" }));
+  const events = { emit } as unknown as EventsService;
   return {
     repo: repo as unknown as Repo,
     raw: repo,
     askedForPairs,
-    service: new AdminWorkerJourneyService(repo as unknown as Repo),
+    emit,
+    service: new AdminWorkerJourneyService(repo as unknown as Repo, events, CONFIG),
   };
 }
 
@@ -118,14 +140,14 @@ function step<K extends AdminJourneyStep["key"]>(
 describe("journey summary — the funnel shape", () => {
   it("404s for an unknown worker rather than returning an empty funnel", async () => {
     const { service, raw } = fakeRepo({ findWorkerCore: vi.fn(async () => undefined) });
-    await expect(service.getJourneySummary(WORKER)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getJourneySummary(ADMIN, WORKER, CTX)).rejects.toBeInstanceOf(NotFoundException);
     // ...and it does not go on to run the eight other reads for a worker that does not exist.
     expect(raw.packAnswerStatusCounts).not.toHaveBeenCalled();
   });
 
   it("always returns ALL SEVEN steps in order — a step that never happened is `not_done`, never absent", async () => {
     const { service } = fakeRepo();
-    const summary = await service.getJourneySummary(WORKER);
+    const summary = await service.getJourneySummary(ADMIN, WORKER, CTX);
     expect(summary.steps.map((s) => s.key)).toEqual([
       "login",
       "profiling",
@@ -140,7 +162,7 @@ describe("journey summary — the funnel shape", () => {
 
   it("always carries the interview-kit attribution caveat (a zero there is not a 'never')", async () => {
     const { service } = fakeRepo();
-    const summary = await service.getJourneySummary(WORKER);
+    const summary = await service.getJourneySummary(ADMIN, WORKER, CTX);
     expect(summary.caveats).toContain("interview_kit_attribution_since_0078");
   });
 });
@@ -161,7 +183,7 @@ describe("step 1: login", () => {
       ]),
     });
 
-    const login = step(await service.getJourneySummary(WORKER), "login") as AdminJourneyLoginStep;
+    const login = step(await service.getJourneySummary(ADMIN, WORKER, CTX), "login") as AdminJourneyLoginStep;
     expect(login.otp_verified_count).toBe(4);
     expect(login.completed).toBe(4);
     expect(login.first_at).toEqual(first);
@@ -174,7 +196,7 @@ describe("step 1: login", () => {
 
   it("asks for exactly the three worker-SUBJECT event names (never feed.shown/application.submitted)", async () => {
     const { service, raw } = fakeRepo();
-    await service.getJourneySummary(WORKER);
+    await service.getJourneySummary(ADMIN, WORKER, CTX);
     const names = raw.countWorkerSubjectEvents.mock.calls[0]![1];
     // Those two events' subject is the JOB, so a per-worker count off them is unindexed.
     expect(names).toEqual(["worker.otp_verified", "worker.test_login", "job.search_performed"]);
@@ -191,7 +213,7 @@ describe("step 1: login", () => {
         { eventName: "worker.test_login", n: 1, firstAt: CREATED, lastAt: CREATED },
       ]),
     });
-    const login = step(await service.getJourneySummary(WORKER), "login") as AdminJourneyLoginStep;
+    const login = step(await service.getJourneySummary(ADMIN, WORKER, CTX), "login") as AdminJourneyLoginStep;
     expect(login.status).toBe("done");
     expect(login.otp_verified_count).toBe(0);
     expect(login.test_login_count).toBe(1);
@@ -249,7 +271,7 @@ describe("step 2: profiling — the denominator comes from the ANSWERS' OWN pack
     });
 
     const profiling = step(
-      await service.getJourneySummary(WORKER),
+      await service.getJourneySummary(ADMIN, WORKER, CTX),
       "profiling",
     ) as AdminJourneyProfilingStep;
 
@@ -278,7 +300,7 @@ describe("step 2: profiling — the denominator comes from the ANSWERS' OWN pack
       ]),
     });
     const profiling = step(
-      await service.getJourneySummary(WORKER),
+      await service.getJourneySummary(ADMIN, WORKER, CTX),
       "profiling",
     ) as AdminJourneyProfilingStep;
     expect(profiling.packs).toEqual([
@@ -299,7 +321,7 @@ describe("step 2: profiling — the denominator comes from the ANSWERS' OWN pack
         { status: "answered", n: 8, firstAt: CREATED, lastAt: CREATED },
       ]),
     });
-    const summary = await service.getJourneySummary(WORKER);
+    const summary = await service.getJourneySummary(ADMIN, WORKER, CTX);
     expect(summary.caveats).toContain("pack_version_retired");
     // ...and the total is null, not 0: `8 of 0` is a missing denominator wearing a progress bar.
     expect(step(summary, "profiling").total).toBeNull();
@@ -320,7 +342,7 @@ describe("step 2: profiling — the denominator comes from the ANSWERS' OWN pack
       ]),
     });
     const profiling = step(
-      await service.getJourneySummary(WORKER),
+      await service.getJourneySummary(ADMIN, WORKER, CTX),
       "profiling",
     ) as AdminJourneyProfilingStep;
     expect(profiling.answered_count).toBe(6);
@@ -339,7 +361,7 @@ describe("step 2: profiling — the denominator comes from the ANSWERS' OWN pack
       answeredPackVersions: vi.fn(async () => []),
       packAnswerStatusCounts: vi.fn(async () => []),
     });
-    const profiling = step(await service.getJourneySummary(WORKER), "profiling");
+    const profiling = step(await service.getJourneySummary(ADMIN, WORKER, CTX), "profiling");
     expect(profiling.status).toBe("not_done");
     expect(profiling.completed).toBe(0);
     expect(profiling.total).toBeNull();
@@ -357,7 +379,7 @@ describe("step 3: resume", () => {
       resumeStats: vi.fn(async () => ({ n: 2, rendered: 1, firstAt: at, lastAt: at })),
     });
     const resume = step(
-      await service.getJourneySummary(WORKER),
+      await service.getJourneySummary(ADMIN, WORKER, CTX),
       "resume",
     ) as AdminJourneyResumeStep;
     expect(resume.status).toBe("done");
@@ -370,7 +392,7 @@ describe("step 3: resume", () => {
 
   it("is `not_done` with no rows", async () => {
     const { service } = fakeRepo();
-    expect(step(await service.getJourneySummary(WORKER), "resume").status).toBe("not_done");
+    expect(step(await service.getJourneySummary(ADMIN, WORKER, CTX), "resume").status).toBe("not_done");
   });
 });
 
@@ -396,7 +418,7 @@ describe("step 4: profile confirmed", () => {
         })),
       });
       const profile = step(
-        await service.getJourneySummary(WORKER),
+        await service.getJourneySummary(ADMIN, WORKER, CTX),
         "profile_confirmed",
       ) as AdminJourneyProfileStep;
       expect(profile.status).toBe(expected);
@@ -416,7 +438,7 @@ describe("step 4: profile confirmed", () => {
       })),
     });
     const profile = step(
-      await service.getJourneySummary(WORKER),
+      await service.getJourneySummary(ADMIN, WORKER, CTX),
       "profile_confirmed",
     ) as AdminJourneyProfileStep;
     expect(profile.confirmed_at).toEqual(confirmedAt);
@@ -429,7 +451,7 @@ describe("step 6: photo", () => {
     const { service } = fakeRepo({
       findWorkerCore: vi.fn(async () => ({ id: WORKER, hasPhoto: true, createdAt: CREATED })),
     });
-    const photo = step(await service.getJourneySummary(WORKER), "photo") as AdminJourneyPhotoStep;
+    const photo = step(await service.getJourneySummary(ADMIN, WORKER, CTX), "photo") as AdminJourneyPhotoStep;
     expect(photo.has_photo).toBe(true);
     expect(photo.status).toBe("done");
     // No timestamp is invented: `workers` has no per-column stamp, and `updated_at` moves for
@@ -453,7 +475,7 @@ describe("step 5: job search / apply", () => {
       ]),
     });
     const s = step(
-      await service.getJourneySummary(WORKER),
+      await service.getJourneySummary(ADMIN, WORKER, CTX),
       "job_search_apply",
     ) as AdminJourneySearchApplyStep;
     // Deliberately NARROWER than AdminWorkerDetail.application_count, which counts both: a
@@ -472,7 +494,7 @@ describe("step 5: job search / apply", () => {
       ]),
     });
     const s = step(
-      await service.getJourneySummary(WORKER),
+      await service.getJourneySummary(ADMIN, WORKER, CTX),
       "job_search_apply",
     ) as AdminJourneySearchApplyStep;
     expect(s.search_count).toBe(7);
@@ -483,7 +505,7 @@ describe("step 5: job search / apply", () => {
 
   it("neither searched nor applied ⇒ not_done", async () => {
     const { service } = fakeRepo();
-    expect(step(await service.getJourneySummary(WORKER), "job_search_apply").status).toBe(
+    expect(step(await service.getJourneySummary(ADMIN, WORKER, CTX), "job_search_apply").status).toBe(
       "not_done",
     );
   });
@@ -505,7 +527,7 @@ describe("step 7: interview kit", () => {
       })),
     });
     const kit = step(
-      await service.getJourneySummary(WORKER),
+      await service.getJourneySummary(ADMIN, WORKER, CTX),
       "interview_kit",
     ) as AdminJourneyInterviewKitStep;
     expect(kit.download_count).toBe(5);
@@ -516,7 +538,7 @@ describe("step 7: interview kit", () => {
 
   it("a zero download count still ships the caveat — it is not evidence of 'never downloaded'", async () => {
     const { service } = fakeRepo();
-    const summary = await service.getJourneySummary(WORKER);
+    const summary = await service.getJourneySummary(ADMIN, WORKER, CTX);
     expect(step(summary, "interview_kit").status).toBe("not_done");
     expect(summary.caveats).toContain("interview_kit_attribution_since_0078");
   });
@@ -620,7 +642,7 @@ const sessionDetailRow = (over: Partial<Record<string, unknown>> = {}) => ({
 describe("chat-session detail", () => {
   it("404s for an unknown session", async () => {
     const { service } = fakeRepo();
-    await expect(service.getChatSession(SESSION)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.getChatSession(ADMIN, SESSION, CTX)).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it("reports AI cost as NULL plus a caveat when nothing was recorded — never as ₹0", async () => {
@@ -630,7 +652,7 @@ describe("chat-session detail", () => {
       findSession: vi.fn(async () => sessionDetailRow()),
       sessionAiCost: vi.fn(async () => null),
     });
-    const detail = await service.getChatSession(SESSION);
+    const detail = await service.getChatSession(ADMIN, SESSION, CTX);
     expect(detail.ai_cost).toBeNull();
     expect(detail.caveats).toContain("ai_cost_not_recorded");
   });
@@ -647,7 +669,7 @@ describe("chat-session detail", () => {
       findSession: vi.fn(async () => sessionDetailRow()),
       sessionAiCost: vi.fn(async () => cost),
     });
-    const detail = await service.getChatSession(SESSION);
+    const detail = await service.getChatSession(ADMIN, SESSION, CTX);
     // The column is numeric(16,6) precisely so a running sum does not drift; parsing to a
     // float at the last step would throw that away.
     expect(detail.ai_cost).toEqual(cost);
@@ -670,6 +692,8 @@ describe("chat-session detail", () => {
           packVersion: 1,
           displayOrder: 0,
           maxAsks: 2,
+          isMandatory: false,
+          isCore: true,
         },
         {
           questionKey: "salary_expected",
@@ -677,10 +701,12 @@ describe("chat-session detail", () => {
           packVersion: 1,
           displayOrder: 1,
           maxAsks: 2,
+          isMandatory: false,
+          isCore: false,
         },
       ]),
     });
-    const detail = await service.getChatSession(SESSION);
+    const detail = await service.getChatSession(ADMIN, SESSION, CTX);
     expect(detail.stuck.outcome).toBe("resolved");
     expect(detail.stuck.stuck_question?.question_key).toBe("salary_expected");
     expect(detail.stuck.asked_count).toBe(2);
@@ -691,7 +717,7 @@ describe("chat-session detail", () => {
     const { service } = fakeRepo({
       findSession: vi.fn(async () => sessionDetailRow({ hasConversationState: false })),
     });
-    const detail = await service.getChatSession(SESSION);
+    const detail = await service.getChatSession(ADMIN, SESSION, CTX);
     expect(detail.stuck.outcome).toBe("no_conversation_state");
     expect(detail.stuck.stuck_question).toBeNull();
     expect(detail.caveats).toContain("no_conversation_state");
@@ -704,7 +730,7 @@ describe("chat-session detail", () => {
       findSession: vi.fn(async () => sessionDetailRow({ packId: "qp_welding", packVersion: 4 })),
       sessionPackVersions: vi.fn(async () => []),
     });
-    await service.getChatSession(SESSION);
+    await service.getChatSession(ADMIN, SESSION, CTX);
     expect(raw.listPackItems).toHaveBeenCalledWith([{ packId: "qp_welding", packVersion: 4 }]);
   });
 
@@ -716,10 +742,219 @@ describe("chat-session detail", () => {
         { packId: "qp_universal", packVersion: 3 },
       ]),
     });
-    await service.getChatSession(SESSION);
+    await service.getChatSession(ADMIN, SESSION, CTX);
     expect(raw.listPackItems).toHaveBeenCalledWith([
       { packId: "qp_welding", packVersion: 1 },
       { packId: "qp_universal", packVersion: 3 },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The universal tail — never pinned, so it has to be resolved.
+// ---------------------------------------------------------------------------
+
+describe("the UNIVERSAL pack is resolved for the detail read (it is never pinned)", () => {
+  /**
+   * ⚠ THE POPULATION THIS EXISTS FOR. `chat_sessions.pack_id` is the OCCUPATION pin only. In a
+   * text-mode session that died in the universal block with nothing universal settled and no
+   * voice clip recorded, the session stamps NO universal pair — so every universal key in
+   * `ask_counts` resolved to no item, and the ranking was blind on exactly the questions it
+   * most needed to judge.
+   */
+  it("appends the ACTIVE universal pack to the pairs it loads items for", async () => {
+    const { service, raw } = fakeRepo({
+      findSession: vi.fn(async () => sessionDetailRow({ packId: "qp_welding", packVersion: 1 })),
+      sessionPackVersions: vi.fn(async () => [{ packId: "qp_welding", packVersion: 1 }]),
+      findActiveUniversalPack: vi.fn(async () => ({ packId: "qp_universal", packVersion: 7 })),
+    });
+    await service.getChatSession(ADMIN, SESSION, CTX);
+    expect(raw.findActiveUniversalPack).toHaveBeenCalledWith("hi-IN");
+    // LAST, deliberately: `deriveStuckQuestion` takes the first item it sees for a key, so a
+    // pair the session actually stamped must never be displaced by today's active version.
+    expect(raw.listPackItems).toHaveBeenCalledWith([
+      { packId: "qp_welding", packVersion: 1 },
+      { packId: "qp_universal", packVersion: 7 },
+    ]);
+  });
+
+  it("does not duplicate it when the session already stamped that exact version", async () => {
+    const { service, raw } = fakeRepo({
+      findSession: vi.fn(async () => sessionDetailRow({ packId: null, packVersion: null })),
+      sessionPackVersions: vi.fn(async () => [{ packId: "qp_universal", packVersion: 7 }]),
+      findActiveUniversalPack: vi.fn(async () => ({ packId: "qp_universal", packVersion: 7 })),
+    });
+    await service.getChatSession(ADMIN, SESSION, CTX);
+    expect(raw.listPackItems).toHaveBeenCalledWith([{ packId: "qp_universal", packVersion: 7 }]);
+  });
+
+  it("survives there being no active universal pack at all (no crash, just fewer items)", async () => {
+    const { service, raw } = fakeRepo({
+      findSession: vi.fn(async () => sessionDetailRow({ packId: "qp_welding", packVersion: 1 })),
+      sessionPackVersions: vi.fn(async () => []),
+      findActiveUniversalPack: vi.fn(async () => null),
+    });
+    await service.getChatSession(ADMIN, SESSION, CTX);
+    expect(raw.listPackItems).toHaveBeenCalledWith([{ packId: "qp_welding", packVersion: 1 }]);
+  });
+
+  it("raises `stuck_items_unresolved` when a key still resolves to no item", async () => {
+    // Honest reporting rather than a confident ranking: an unresolvable key is judged on
+    // neither servability nor engine position, and an operator must be able to see that.
+    const { service } = fakeRepo({
+      findSession: vi.fn(async () =>
+        sessionDetailRow({ askCounts: { orphan_key: 1, known_key: 1 } }),
+      ),
+      listPackItems: vi.fn(async () => [
+        {
+          questionKey: "known_key",
+          packId: "qp_welding",
+          packVersion: 1,
+          displayOrder: 0,
+          maxAsks: 2,
+          isMandatory: true,
+          isCore: true,
+        },
+      ]),
+    });
+    const detail = await service.getChatSession(ADMIN, SESSION, CTX);
+    expect(detail.stuck.unresolved_count).toBe(1);
+    expect(detail.caveats).toContain("stuck_items_unresolved");
+  });
+
+  it("raises NO such caveat when every key resolved", async () => {
+    const { service } = fakeRepo({
+      findSession: vi.fn(async () => sessionDetailRow({ askCounts: { known_key: 1 } })),
+      listPackItems: vi.fn(async () => [
+        {
+          questionKey: "known_key",
+          packId: "qp_welding",
+          packVersion: 1,
+          displayOrder: 0,
+          maxAsks: 2,
+          isMandatory: true,
+          isCore: true,
+        },
+      ]),
+    });
+    const detail = await service.getChatSession(ADMIN, SESSION, CTX);
+    expect(detail.stuck.unresolved_count).toBe(0);
+    expect(detail.caveats).not.toContain("stuck_items_unresolved");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The audit event — a read that leaves a trail.
+// ---------------------------------------------------------------------------
+
+describe("`admin.worker_journey_viewed` — every per-worker read is audited", () => {
+  it("the summary read emits it with the SESSION admin as actor and the worker as subject", async () => {
+    const { service, emit } = fakeRepo();
+    await service.getJourneySummary(ADMIN, WORKER, CTX);
+    expect(emit).toHaveBeenCalledTimes(1);
+    expect(emit.mock.calls[0]![0]).toEqual({
+      event_name: "admin.worker_journey_viewed",
+      actor: { actor_type: "admin", actor_id: ADMIN },
+      subject: { subject_type: "worker", subject_id: WORKER },
+      payload: {
+        admin_id: ADMIN,
+        subject_id: WORKER,
+        view: "journey_summary",
+        chat_session_id: null,
+      },
+      correlationId: "corr-1",
+      requestId: "req-1",
+    });
+  });
+
+  it("the session read emits it with the worker read OFF THE SESSION ROW, not the path", async () => {
+    // The path carries a SESSION id. If the subject were derived from anything the caller
+    // supplies, the trail could be pointed at a worker the caller names.
+    const otherWorker = "44444444-4444-4444-8444-444444444444";
+    const { service, emit } = fakeRepo({
+      findSession: vi.fn(async () => sessionDetailRow({ workerId: otherWorker })),
+    });
+    await service.getChatSession(ADMIN, SESSION, CTX);
+    expect(emit).toHaveBeenCalledTimes(1);
+    const params = emit.mock.calls[0]![0];
+    expect(params.subject).toEqual({ subject_type: "worker", subject_id: otherWorker });
+    expect(params.payload).toEqual({
+      admin_id: ADMIN,
+      subject_id: otherWorker,
+      view: "chat_session",
+      chat_session_id: SESSION,
+    });
+  });
+
+  it("carries NO question key, status, count or free text — ids and one enum only", async () => {
+    // WHICH question a worker stalled on is a fact about that worker; it belongs in the
+    // response to the authenticated admin, never on the append-only spine.
+    const { service, emit } = fakeRepo({
+      findSession: vi.fn(async () =>
+        sessionDetailRow({
+          askCounts: { salary_expected: 2 },
+          answerStatuses: { salary_expected: "unanswered" },
+        }),
+      ),
+    });
+    await service.getChatSession(ADMIN, SESSION, CTX);
+    const payload = emit.mock.calls[0]![0].payload as Record<string, unknown>;
+    expect(Object.keys(payload).sort()).toEqual(
+      ["admin_id", "chat_session_id", "subject_id", "view"].sort(),
+    );
+    expect(JSON.stringify(payload)).not.toContain("salary_expected");
+  });
+
+  it("is emitted AFTER the 404 check — an unknown id leaves no audit row", async () => {
+    // Auditing an unknown id fills the spine with rows for entities that do not exist and
+    // makes the audit stream itself an enumeration oracle.
+    const unknownWorker = fakeRepo({ findWorkerCore: vi.fn(async () => undefined) });
+    await expect(
+      unknownWorker.service.getJourneySummary(ADMIN, WORKER, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(unknownWorker.emit).not.toHaveBeenCalled();
+
+    const unknownSession = fakeRepo();
+    await expect(
+      unknownSession.service.getChatSession(ADMIN, SESSION, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(unknownSession.emit).not.toHaveBeenCalled();
+  });
+
+  it("is emitted BEFORE the read runs — a failing read still leaves the trail", async () => {
+    const { service, emit } = fakeRepo({
+      packAnswerStatusCounts: vi.fn(async () => {
+        throw new Error("db down");
+      }),
+    });
+    await expect(service.getJourneySummary(ADMIN, WORKER, CTX)).rejects.toThrow("db down");
+    expect(emit).toHaveBeenCalledTimes(1);
+  });
+
+  it("FAILS CLOSED: an emit failure means no data is returned", async () => {
+    // A trail that is best-effort is not a control. This is the same discipline
+    // AdminPiiRevealService applies to its audit-before-decrypt.
+    const { raw } = fakeRepo();
+    const events = {
+      emit: vi.fn(async () => {
+        throw new Error("spine unreachable");
+      }),
+    };
+    const strict = new AdminWorkerJourneyService(
+      raw as unknown as Repo,
+      events as unknown as EventsService,
+      CONFIG,
+    );
+    await expect(strict.getJourneySummary(ADMIN, WORKER, CTX)).rejects.toThrow(
+      "spine unreachable",
+    );
+    // ...and the read never ran.
+    expect(raw.packAnswerStatusCounts).not.toHaveBeenCalled();
+  });
+
+  it("the session LIST is deliberately NOT audited (entity-detail data class)", async () => {
+    const { service, emit } = fakeRepo({ listSessions: vi.fn(async () => []) });
+    await service.listChatSessions(WORKER, { limit: 20 });
+    expect(emit).not.toHaveBeenCalled();
   });
 });

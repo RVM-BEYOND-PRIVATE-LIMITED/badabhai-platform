@@ -173,9 +173,12 @@ import { AdminWorkerJourneyController } from "./admin-worker-journey.controller"
     // explicit column projections, keyset-paginated. It returns NO transcript text of any
     // kind: `chat_messages.body_text` and `voice_notes.transcript_text` are stored unmasked
     // and are deliberately outside this surface's projection (see the DTO header).
+    // It is the ONE read service here that emits: `admin.worker_journey_viewed` (PII-free,
+    // awaited, fail-closed) on both per-worker reads, because the journey is a behavioural
+    // profile rather than an entity snapshot — hence EventsService in its constructor.
     //
-    // Its three event-spine reads live on `AdminEventsRepository`, not here, for the same
-    // single-reader reason BP-5's cap-breach split does.
+    // Its event-spine reads live on `AdminEventsRepository`, not on its own repository, for
+    // the same single-reader reason BP-5's cap-breach split does.
     AdminWorkerJourneyRepository,
     AdminWorkerJourneyService,
   ],

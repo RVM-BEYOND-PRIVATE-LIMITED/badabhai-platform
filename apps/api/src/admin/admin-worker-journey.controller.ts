@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query, UseGuards } from "@nestjs/common";
+import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
-import { AdminAuthGuard } from "./admin-auth.guard";
+import { AdminAuthGuard, CurrentAdmin, type AuthenticatedAdmin } from "./admin-auth.guard";
 import { AdminRolesGuard, RequireAdminRole } from "./admin-roles.guard";
 import { AdminWorkerJourneyService } from "./admin-worker-journey.service";
 import {
@@ -19,28 +20,39 @@ import {
  * worker, which steps they finished and — for the AI profiling interview — exactly which
  * question they stalled on and how far through they got. That is what these three routes are.
  *
- * ══ RBAC: `read_entities`, DELIBERATELY — NOT A NEW CAPABILITY ══════════════════════════
+ * ══ RBAC: `read_entities` (OWNER RULING), PLUS AN AUDIT EVENT ═══════════════════════════
  *
- * Three reasons, in order of weight:
+ * ⚠ FIRST, THE HONEST STATEMENT OF WHAT THIS AGGREGATES. This is the SAME DATA CLASS as the
+ * entity detail — opaque ids, enums, timestamps, counts, question KEYS; no name, no phone, no
+ * transcript — but it is materially MORE of it, and it is BEHAVIOURAL rather than a state
+ * snapshot. `GET /admin/workers/:id` returns ~13 scalars about a worker's current state. The
+ * journey adds: how many times they logged in and when; the outcome of each question across a
+ * 132-key corpus (including `salary_expected`, `education`, `language_spoken`); exactly where
+ * the interview stalled, with the ask pressure and servability that led to it; the voice
+ * re-record chain; per-session AI spend; idle seconds; search/apply/skip counts; kit
+ * downloads. That is a profile of one person's attempt to use the product. Anyone reading
+ * this header to decide whether some LATER field belongs here should weigh it against that,
+ * not against "it's only the same data as the detail page".
  *
- *  1. IT IS THE SAME DATA CLASS. `read_entities` is documented as "the FACELESS entity
- *     projections... live system-of-record state", as against `read_events`, "the append-only
- *     audit spine". The journey is a per-entity projection of live state — ids, enums,
- *     timestamps, counts, question KEYS — assembled from the same `workers`/`applications`/
- *     `generated_resumes`/`worker_profiles` rows `GET /admin/workers/:id` already serves. It
- *     counts a few events on the way, but it returns none of them, so it is not a spine read.
- *     A worker's journey tells you strictly less about them than their entity detail does.
+ * IT STILL SITS ON `read_entities` — all four admin roles, analyst included — and that is a
+ * ruling, taken with the aggregation above on the table. Two mechanical facts back it:
  *
- *  2. `ADMIN_CAPABILITIES` IS PINNED TO A SIGNED ADR. The matrix-drift test transcribes
+ *  1. `ADMIN_CAPABILITIES` IS PINNED TO A SIGNED ADR. The matrix-drift test transcribes
  *     ADR-0025 Decision 3.1 verbatim and fails CI on any added or removed capability. Minting
  *     one is an ADR amendment — an Architect decision, not a backend one — and inventing a
  *     capability that appears in the code and not in the ADR is exactly the drift that test
  *     was written to catch.
  *
- *  3. A NEW CAPABILITY WOULD REACH INTO FRONTEND-OWNED CODE. `apps/admin-web` carries an
+ *  2. A NEW CAPABILITY WOULD REACH INTO FRONTEND-OWNED CODE. `apps/admin-web` carries an
  *     exhaustive `CAPABILITY_LABELS: Record<AdminCapability, string>` with a key-parity test.
  *     A backend-only PR cannot complete that half, and a half-added capability renders as a
  *     permission nobody can name.
+ *
+ * AND THE COMPENSATING CONTROL: both per-worker reads emit `admin.worker_journey_viewed`
+ * (PII-free — opaque admin/worker/session ids + a view enum), awaited and fail-closed, so
+ * every look at a worker's journey is non-repudiably recorded on the spine the way every PII
+ * reveal is. Access being broad is exactly why the trail has to exist. See the SERVICE header
+ * for the emission's ordering and failure posture.
  *
  * NO TRANSCRIPT CAPABILITY IS ADDED HERE, and none is needed: this surface returns no
  * `body_text` and no `transcript_text` (see the DTO header). If a transcript read is ever
@@ -61,14 +73,17 @@ export class AdminWorkerJourneyController {
    * not happened reports `not_done` rather than being omitted.
    *
    * 404 when the worker does not exist. The worker id comes from the PATH and is validated as
-   * a uuid; the ADMIN is resolved from the session by the guard, never from the request.
+   * a uuid; the ADMIN is resolved from the session by the guard, never from the request — and
+   * it is that session id, not anything the caller sends, that goes on the audit event.
    */
   @Get("workers/:id/journey-summary")
   @RequireAdminRole("read_entities")
   getJourneySummary(
+    @CurrentAdmin() admin: AuthenticatedAdmin,
     @Param(new ZodValidationPipe(AdminJourneyParamsSchema)) params: AdminJourneyParamsDto,
+    @Ctx() ctx: RequestContext,
   ) {
-    return this.service.getJourneySummary(params.id);
+    return this.service.getJourneySummary(admin.id, params.id, ctx);
   }
 
   /**
@@ -97,12 +112,15 @@ export class AdminWorkerJourneyController {
    * 404 when the session does not exist. Scoped by session id rather than nested under the
    * worker because a session id is globally unique and the row carries its own `worker_id`,
    * which the response returns — so an operator can always see whose session they opened.
+   * That same `worker_id`, read off the row, is the audit event's subject.
    */
   @Get("chat-sessions/:id")
   @RequireAdminRole("read_entities")
   getChatSession(
+    @CurrentAdmin() admin: AuthenticatedAdmin,
     @Param(new ZodValidationPipe(AdminJourneyParamsSchema)) params: AdminJourneyParamsDto,
+    @Ctx() ctx: RequestContext,
   ) {
-    return this.service.getChatSession(params.id);
+    return this.service.getChatSession(admin.id, params.id, ctx);
   }
 }
