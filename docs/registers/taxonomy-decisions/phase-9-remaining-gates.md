@@ -176,7 +176,11 @@ closed as a side effect of a deployment stage. Nothing in S3-C touched it.
 - **D-6 / S3-C — CLOSED.** Migration 0078: `unresolved_phrase.job_domain_id`, the unique index
   widened to five columns, `unresolved_phrase_one_domain_chk`, and
   `skill.phrase_unresolved_v2`. A canonical-scoped miss can now be recorded, so Path A's failures
-  are no longer invisible in the table built to catch failures. **Not applied to production.**
+  are no longer invisible in the table built to catch failures. **Migration APPLIED to production
+  2026-08-19** (owner), ahead of the code reaching the box — which is the required order: the
+  repository names `job_domain_id` in every unresolved INSERT, so a database without `0078` fails
+  every such write, including the occupation path that runs in live interviews. No taxonomy data,
+  corpus, edge or flag changed with it.
 - **R38 — code fixed, residual open.** `adminer`, `postgres`, the proxy harness and the e2e
   remap are loopback-bound in the base compose file and pinned by a guard test. The containers
   already running on the box keep their old binds until recreated, and the Lightsail security

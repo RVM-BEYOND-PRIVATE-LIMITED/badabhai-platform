@@ -41,6 +41,14 @@
 --
 -- ADDITIVE, REVERSIBLE, NO BACKFILL, NO ROW REWRITE. A nullable column with no DEFAULT is
 -- catalogue-only on PG11+.
+--
+-- APPLY THIS BEFORE DEPLOYING THE CODE THAT CARRIES IT. `SkillsRepository.recordUnresolved`
+-- names `job_domain_id` in the INSERT list and in the ON CONFLICT target UNCONDITIONALLY — a
+-- legacy or occupation miss binds NULL for it, but the column must exist. Against a database
+-- without this migration EVERY unresolved write fails (42703, or 42P10 on the conflict target,
+-- which has to name the widened index's exact five columns), including the occupation path that
+-- runs on every below-floor trade phrase in a live interview. That path is fail-soft — the
+-- interview is unaffected and the loss is growth signal — but it is still loss.
 -- ===========================================================================
 
 DROP INDEX "unresolved_phrase_scope_uq";--> statement-breakpoint
