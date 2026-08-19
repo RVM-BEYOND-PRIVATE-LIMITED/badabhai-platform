@@ -46,6 +46,11 @@ class _VoiceWaveVisualizerState extends State<VoiceWaveVisualizer> {
   /// Per-bar DRAWN amplitude (0..1) — each glides toward its own target.
   List<double> _bars = <double>[];
 
+  /// STATIC centre-weighted envelope per bar (raised-cosine²) — depends only on
+  /// the bar count, so it is precomputed on resize instead of recomputing a
+  /// `cos()` for every bar every frame. Pure efficiency; the shape is unchanged.
+  List<double> _env = <double>[];
+
   /// Eased overall level — attack fast, release slow (an audio-meter feel).
   double _level = 0;
 
@@ -58,12 +63,20 @@ class _VoiceWaveVisualizerState extends State<VoiceWaveVisualizer> {
   Ticker? _ticker;
   Duration _last = Duration.zero;
 
-  // Overall-level ease (per frame).
-  static const double _lvlAttack = 0.30;
-  static const double _lvlRelease = 0.12;
-  // Per-bar glide (per frame) — the independent low-pass that buys the smoothness.
-  static const double _barAttack = 0.26;
-  static const double _barRelease = 0.14;
+  // Smoothing TIME CONSTANTS (seconds), applied dt-based so the feel is identical
+  // at 60 / 90 / 120 Hz — a fixed per-frame alpha eased at different real speeds
+  // per device and snapped on each sparse RMS step. Attack is short enough to feel
+  // live, long enough to GLIDE across the recogniser's coarse ~10-15 Hz RMS
+  // updates instead of stepping; release is slow for the smooth fall (water, not
+  // a meter). `1 - exp(-dt/tau)` reaches ~90% of a step in ~2.3·tau.
+  static const double _lvlAttackTau = 0.06; // ~140ms to 90% — live but glides
+  static const double _lvlReleaseTau = 0.32; // ~740ms — long, smooth fall
+  static const double _barAttackTau = 0.07;
+  static const double _barReleaseTau = 0.34;
+  // Continuous traveling ripple: even when the envelope is steady between RMS
+  // samples the crest keeps flowing across the strip, so nothing ever looks
+  // frozen or stepped. Speed in rad/s.
+  static const double _flowSpeed = 4.2;
 
   @override
   void initState() {
@@ -76,7 +89,18 @@ class _VoiceWaveVisualizerState extends State<VoiceWaveVisualizer> {
   void _fit(double width) {
     if (width <= 0) return;
     final int n = ((width + _gap) / (_barW + _gap)).floor().clamp(0, 512);
-    if (n != _bars.length) _bars = List<double>.filled(n, 0);
+    if (n == _bars.length) return;
+    _bars = List<double>.filled(n, 0);
+    // Precompute the static centre-tallest envelope (raised-cosine²) once per
+    // size — it never changes frame-to-frame, so the per-bar `cos()` is lifted
+    // out of the hot tick loop.
+    _env = List<double>.filled(n, 0);
+    final double centre = (n - 1) / 2;
+    for (int i = 0; i < n; i++) {
+      final double dist = centre == 0 ? 0 : (i - centre) / centre; // -1..1
+      final double e = math.cos(dist * math.pi / 2).clamp(0.0, 1.0);
+      _env[i] = e * e;
+    }
   }
 
   void _onTick(Duration elapsed) {
@@ -86,32 +110,38 @@ class _VoiceWaveVisualizerState extends State<VoiceWaveVisualizer> {
       _rev.value++;
       return;
     }
-    // Frame delta (seconds) so the flow speed is stable across refresh rates.
+    // Frame delta (seconds), CAPPED so a dropped/slow frame eases by a bounded
+    // step instead of lurching. Drives both the flow and the dt-based smoothing,
+    // so the motion is identical across 60 / 90 / 120 Hz.
     final double dt =
         ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0, 1 / 30);
     _last = elapsed;
 
+    // dt-based exponential smoothing toward the live level: k = 1 - e^(-dt/tau).
+    // A fixed per-frame alpha (the old code) snapped on each sparse RMS step and
+    // ran at a different real speed per refresh rate; this glides at a fixed
+    // time constant regardless of frame rate.
     final double target = widget.level.value.clamp(0.0, 1.0);
-    _level += (target - _level) * (target > _level ? _lvlAttack : _lvlRelease);
-    _phase += dt * 5.0; // gentle flow (~5 rad/s)
+    final double lvlTau = target > _level ? _lvlAttackTau : _lvlReleaseTau;
+    _level += (target - _level) * (1 - math.exp(-dt / lvlTau));
 
-    final double centre = (n - 1) / 2;
+    _phase += dt * _flowSpeed;
+
     for (int i = 0; i < n; i++) {
-      final double dist = centre == 0 ? 0 : (i - centre) / centre; // -1..1
-      // Centre-tallest envelope (raised cosine, squared for a tighter hump).
-      final double env = math.cos(dist * math.pi / 2).clamp(0.0, 1.0);
-      final double env2 = env * env;
-      // Gentle crest flow — two soft sines; kept to ~25% and level-scaled, so
-      // silence is flat dots and the central peak never drifts.
+      // Continuous traveling ripple — two sines at different spatial/temporal
+      // frequencies give a water-like crest that keeps flowing across the strip
+      // even when the envelope holds steady between the recogniser's coarse RMS
+      // samples. Normalized 0..1 and level-scaled, so silence stays flat dots.
       final double flow = 0.5 +
           0.5 *
-              (0.6 * math.sin(_phase - i * 0.45) +
-                  0.4 * math.sin(_phase * 0.6 + i * 0.22));
-      final double barTarget = env2 * _level * (0.75 + 0.25 * flow);
-      // The key to Gemini smoothness: each bar GLIDES to its own target.
+              (0.6 * math.sin(_phase - i * 0.42) +
+                  0.4 * math.sin(_phase * 0.63 + i * 0.19));
+      final double barTarget = _env[i] * _level * (0.68 + 0.32 * flow);
+      // Each bar low-passes toward its OWN target, dt-based — the independent
+      // glide that carries the smoothness (no per-frame snap, no jitter).
       final double cur = _bars[i];
-      _bars[i] =
-          cur + (barTarget - cur) * (barTarget > cur ? _barAttack : _barRelease);
+      final double barTau = barTarget > cur ? _barAttackTau : _barReleaseTau;
+      _bars[i] = cur + (barTarget - cur) * (1 - math.exp(-dt / barTau));
     }
     _rev.value++;
   }
