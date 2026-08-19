@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { AdminEventsRepository } from "./admin-events.repository";
+import { captureQueries } from "./testing/query-capture";
 
 /**
  * SELECT-ONLY guarantee for the ADMIN-2 event-spine repository (ADR-0025 must-fix #3 / CLAUDE.md
@@ -35,5 +36,43 @@ describe("AdminEventsRepository is SELECT-ONLY over `events` (spine immutability
     // Drizzle reads use `.select(`; assert that is the ONLY db-call verb present.
     expect(SRC).toContain(".select(");
     expect(SRC).toMatch(/\bcount\(\*\)/); // aggregations are count-only
+  });
+});
+
+describe("countByPayloadField — the BP-5 cap-breach split", () => {
+  it("filters on the INDEXED event_name and a windowed occurred_at", async () => {
+    const c = captureQueries();
+    await new AdminEventsRepository(c.db).countByPayloadField(
+      "ai.spend_cap_exceeded",
+      "reason",
+      new Date("2026-08-01T00:00:00.000Z"),
+    );
+    // `events_event_name_idx` is what keeps this off the full spine — `events` is the largest
+    // table in the system, and an unindexed group-by over it is not a dashboard query.
+    expect(c.sql()).toContain('"events"."event_name"');
+    expect(c.sql()).toContain('"events"."occurred_at"');
+    expect(c.params).toContain("ai.spend_cap_exceeded");
+  });
+
+  it("groups by the payload field as a BOUND PARAMETER, never interpolated text", async () => {
+    const c = captureQueries();
+    await new AdminEventsRepository(c.db).countByPayloadField(
+      "ai.spend_cap_exceeded",
+      "reason",
+      new Date(0),
+    );
+    // `->>` takes a text operand, so the field name travels as a parameter. If it were spliced
+    // into the SQL string, this key would appear in the statement text instead.
+    expect(c.params).toContain("reason");
+    expect(c.sql()).not.toContain("'reason'");
+    expect(c.sql()).toContain('"events"."payload"->>');
+  });
+
+  it("a payload with no such field groups under 'unknown' rather than being dropped", async () => {
+    const c = captureQueries();
+    await new AdminEventsRepository(c.db).countByPayloadField("x", "reason", new Date(0));
+    // A breach whose reason did not serialize is still a breach; a silently-omitted bucket is
+    // how "silence means zero" starts.
+    expect(c.sql()).toMatch(/coalesce\("events"\."payload"->>\$\d+, 'unknown'\)/);
   });
 });

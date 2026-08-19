@@ -177,6 +177,40 @@ export class AdminEventsRepository {
   }
 
   /**
+   * ONE event name's rows in the window, grouped by a payload FIELD (BP-5).
+   *
+   * WHY IT IS HERE AND NOT IN THE DASHBOARD REPOSITORY. `events` has exactly one admin reader by
+   * design — this class — and the dashboard's cap-breach split is a read of `events`. Giving the
+   * dashboard its own `from(events)` would make two, and the property this file's header states
+   * ("no admin file issues update/delete against the spine", enforced by a source scan over
+   * admin/**) is far easier to keep true of one class than of every class that grows an
+   * aggregate. The dashboard SERVICE stays separate — see `AdminDashboardService` — because that
+   * is where the cross-table composition would have contaminated `AdminEventsService`.
+   *
+   * INDEX-BACKED AND BOUNDED IN THE ONLY WAY THAT MATTERS: `event_name = ?` uses
+   * `events_event_name_idx`, which is what keeps this off the full spine. `field` is a
+   * CALLER-SUPPLIED KEY, never request input — the one call site passes the literal `"reason"`.
+   * It is interpolated as a bound parameter (`->>` takes a text operand), so it cannot be a
+   * SQL-injection seam even if that ever changed.
+   *
+   * A payload missing the field groups under `NULL` and is reported as the literal
+   * `"unknown"` rather than dropped: a breach whose reason did not serialize is still a breach,
+   * and a silently-omitted bucket is how "silence means zero" starts.
+   */
+  async countByPayloadField(eventName: string, field: string, since: Date): Promise<CountBucket[]> {
+    const rows = await this.db
+      .select({
+        key: sql<string>`coalesce(${events.payload}->>${field}, 'unknown')`,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(events)
+      .where(and(eq(events.eventName, eventName), gte(events.occurredAt, since)))
+      .groupBy(sql`coalesce(${events.payload}->>${field}, 'unknown')`)
+      .orderBy(desc(sql`count(*)`), sql`coalesce(${events.payload}->>${field}, 'unknown')`);
+    return rows.map((r) => ({ key: r.key, count: Number(r.count) }));
+  }
+
+  /**
    * Distinct count of one event name within the window AND its distinct-subject count — the
    * latter is the k-anon witness (how many distinct workers/subjects a funnel stage covers).
    * Uses events_event_name_idx + events_occurred_at_idx.
