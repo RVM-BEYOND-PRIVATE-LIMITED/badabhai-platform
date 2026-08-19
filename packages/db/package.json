@@ -83,6 +83,7 @@
     "db:verify:embeddings": "tsx src/verify-embedding-provenance.ts",
     "db:audit:schema-contract": "tsx src/audit-schema-contract.ts",
     "db:verify:path-b-parity": "tsx src/verify-path-b-parity.ts",
+    "db:verify:unresolved-write": "tsx src/verify-unresolved-write.ts",
     "db:rollback:s3d": "tsx src/s3d-rollback.ts",
     "db:report:s3d-shadow": "tsx src/s3d-shadow-report.ts"
   },
