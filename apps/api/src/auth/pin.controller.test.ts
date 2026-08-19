@@ -69,3 +69,38 @@ describe("PinController.resetRequest — per-IP cap (security Finding 2)", () =>
     expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("otp_request", "unknown", 20);
   });
 });
+
+describe("PinController.resetConfirm — returns the minted session (#994)", () => {
+  it("is 200 with a body, not 204 — a reset that returns nothing cannot re-credential the app", () => {
+    // The status is the contract here: 204 is the shape that CAUSED #994 (the client stayed
+    // on its dead refresh token). Asserted by reflection, like the ADR-0031 change to
+    // /auth/account/delete/confirm, so a silently re-added @HttpCode(204) fails the build.
+    expect(
+      Reflect.getMetadata("__httpCode__", PinController.prototype.resetConfirm as object),
+    ).toBe(200);
+  });
+
+  it("returns the service's session payload unchanged and forwards device_info", () => {
+    // The controller is HTTP only — no re-shaping, no consent compose, no mint. And
+    // device_info must reach the service: without it the minted session is unbound, and the
+    // very next PIN unlock rejects it (pin.service verifyPin requires a resolved deviceId).
+    const { controller, pin } = make();
+    const minted = { access_token: "a", refresh_token: "r", worker_id: "w-1" };
+    (pin.resetConfirm as ReturnType<typeof vi.fn>).mockResolvedValueOnce(minted);
+    const deviceInfo = { device_id: "device-abcdef12", platform: "android" as const };
+
+    const promise = controller.resetConfirm(
+      { phone: PHONE, otp: "123456", pin: "4826", device_info: deviceInfo } as never,
+      CTX,
+    );
+
+    expect(pin.resetConfirm).toHaveBeenCalledWith(PHONE, "123456", "4826", CTX, deviceInfo);
+    return expect(promise).resolves.toBe(minted);
+  });
+
+  it("forwards an ABSENT device_info as undefined (still resets, just unbound)", () => {
+    const { controller, pin } = make();
+    void controller.resetConfirm({ phone: PHONE, otp: "123456", pin: "4826" } as never, CTX);
+    expect(pin.resetConfirm).toHaveBeenCalledWith(PHONE, "123456", "4826", CTX, undefined);
+  });
+});

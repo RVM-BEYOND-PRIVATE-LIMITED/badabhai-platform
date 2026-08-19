@@ -16,6 +16,7 @@ import {
   type PinVerifyDto,
   type PinResetRequestDto,
   type PinResetConfirmDto,
+  type PinResetConfirmResponse,
   type PinVerifyResponse,
 } from "./pin.dto";
 
@@ -28,6 +29,8 @@ import {
  *   credential (the access JWT may have expired). Returns the login-shape session on success,
  *   a NEUTRAL 401 on every failure (the service throws it — no oracle).
  * - POST /auth/pin/reset/request|confirm — OTP-gated reset reusing the existing OTP path.
+ *   `confirm` returns the SAME login-shape session /auth/otp/verify does (#994), so a reset
+ *   recovers a worker whose stored refresh token is dead instead of leaving them on it.
  *
  * Identity for /verify is always derived from the refresh token server-side (the SIM-swap
  * defense); a new/unknown device has no trusted refresh token ⇒ the worker must OTP.
@@ -97,13 +100,23 @@ export class PinController {
     return { success: true };
   }
 
-  /** Confirm a PIN reset — verify the OTP and set the new PIN. 204 No Content. */
+  /**
+   * Confirm a PIN reset — verify the OTP, set the new PIN, and return a FRESH login-shape
+   * session (#994). 200, was 204 No Content.
+   *
+   * The session is the point, not a convenience: a worker only reaches forgot-PIN because
+   * unlock is failing, and the dominant cause of that is a DEAD refresh token (a wiped
+   * session store), which /auth/pin/verify can only report as its neutral "wrong PIN" 401.
+   * Returning 204 left the client on that same dead token, so the reset could not recover
+   * them — they re-entered the PIN they had just set and were told it was wrong, forever.
+   * See PinService.resetConfirm for the ordering guarantees.
+   */
   @Post("reset/confirm")
-  @HttpCode(204)
-  async resetConfirm(
+  @HttpCode(200)
+  resetConfirm(
     @Body(new ZodValidationPipe(PinResetConfirmSchema)) dto: PinResetConfirmDto,
     @Ctx() ctx: RequestContext,
-  ): Promise<void> {
-    await this.pin.resetConfirm(dto.phone, dto.otp, dto.pin, ctx);
+  ): Promise<PinResetConfirmResponse> {
+    return this.pin.resetConfirm(dto.phone, dto.otp, dto.pin, ctx, dto.device_info);
   }
 }

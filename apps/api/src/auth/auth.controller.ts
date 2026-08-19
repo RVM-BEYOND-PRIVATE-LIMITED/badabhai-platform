@@ -25,6 +25,7 @@ import { SessionService } from "./session.service";
 import { AccountDeletionService } from "./account-deletion.service";
 import { ConsentNotRevokedGuard } from "./consent.guard";
 import { ConsentRepository } from "../consent/consent.repository";
+import { withConsentAccepted } from "../consent/consent-flag";
 import {
   WorkerAuthGuard,
   CurrentWorker,
@@ -118,7 +119,7 @@ export class AuthController {
     @Ctx() ctx: RequestContext,
   ): Promise<LoginResponse> {
     const login = await this.auth.verifyOtp(dto.phone, dto.otp, ctx, dto.device_info);
-    return this.withConsentFlag(login);
+    return withConsentAccepted(this.consents, login);
   }
 
   /**
@@ -164,28 +165,7 @@ export class AuthController {
       this.config.TEST_LOGIN_MAX_PER_DAY,
     );
     const login = await this.auth.testLogin(dto.phone, ctx);
-    return this.withConsentFlag(login);
-  }
-
-  /**
-   * TD62 — compose the ADDITIVE consent_accepted signal onto a minted login
-   * (§6's server gate — ConsentGuard — is unchanged and still authoritative).
-   * Same pattern as the A5 check in tokenRefresh below: ACTIVE = a latest row
-   * exists and is not revoked. No event changes; the boolean is never PII.
-   * Review F1: at this point the session is already MINTED — a consent-read blip
-   * must not 500 a login that server-side succeeded (the worker would burn
-   * another OTP against the TD60 daily cap to recover). On failure the field is
-   * OMITTED: the app's tri-state treats absent as unknown/pass-through.
-   */
-  private async withConsentFlag(
-    login: Omit<LoginResponse, "consent_accepted">,
-  ): Promise<LoginResponse> {
-    try {
-      const latest = await this.consents.findLatestByWorker(login.worker_id);
-      return { ...login, consent_accepted: latest != null && latest.revokedAt === null };
-    } catch {
-      return { ...login };
-    }
+    return withConsentAccepted(this.consents, login);
   }
 
   /**

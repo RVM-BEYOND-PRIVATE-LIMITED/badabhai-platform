@@ -290,7 +290,98 @@ pull_image payer-web "$PAYER_WEB_IMAGE" || true
 #
 # UNCONDITIONAL: redis is a stock upstream image with no per-commit tag, so
 # it has no build leg that could be missing.
+#
+# CD-7 (#994) PRE-FLIGHT: REFUSE TO DEPLOY INTO A DIFFERENT COMPOSE PROJECT.
+#
+# The project name is what NAMESPACES the volumes, and compose derives it from the
+# directory basename. Rename ~/deployments/badabhai-platform, re-clone it elsewhere, or
+# deploy from a worktree, and the very next `up` mounts a BRAND-NEW EMPTY volume: every
+# worker's session and refresh token gone, deploy green. That is the invisible-wipe vector
+# behind #994.
+#
+# This deliberately does NOT pin the name (no COMPOSE_PROJECT_NAME, no top-level `name:`
+# key). Pinning requires KNOWING the live project label, and if the box's real label were
+# anything else, the pin would ITSELF perform the wipe on its first run — the cure causing
+# the disease. Compose's own resolution stays authoritative; we only assert it still points
+# at the container that is actually running.
+#
+# `container_name: badabhai-redis` is fixed in docker-compose.yml, so `docker ps` finds the
+# live one regardless of project, while `$COMPOSE ps -q redis` finds it only if THIS
+# invocation resolves the SAME project. The two disagreeing is exactly the drift, caught
+# BEFORE `up` can create anything. Both flags predate compose v2, so this adds no version
+# risk (the box's version is unverified — see the `--wait` note above).
+if [ -n "$(docker ps -q -f name='^badabhai-redis$' || true)" ] \
+   && [ -z "$($COMPOSE ps -q redis 2>/dev/null || true)" ]; then
+  echo "::error::a badabhai-redis container is running, but this compose invocation cannot see it — the compose project name has DRIFTED (the deploy directory was renamed, re-cloned, or is a worktree). Deploying now would mount a NEW EMPTY session store and force-log-out every worker. Refusing. See docs/ops/staging-session-durability.md."
+  exit 1
+fi
+
 $COMPOSE up -d --no-deps redis
+
+# CD-7 (#994): PROVE THE SESSION STORE SURVIVED. This redis is not a cache — `session:*`,
+# `refresh:*`, `refresh_family:*`, `worker_sessions:*` and `worker_families:*` live ONLY
+# here, with no Postgres mirror, so an emptied or re-namespaced keyspace force-logs-out
+# every worker on the platform at once and surfaces to them as "PIN sahi nahi" for a PIN
+# that is correct.
+#
+# Nothing detected that before this block. The ONLY redis assertion anywhere — in the
+# compose healthcheck and in the api's /health — is PING, and PING PONGs perfectly happily
+# at a brand-new empty keyspace. A wipe deployed GREEN.
+#
+# Redis needs a moment after a recreate (AOF load answers -LOADING to GET/SET), and `up -d`
+# above is deliberately not `--wait`. Bounded wait, so a transient not-ready is never
+# misreported below as a durability failure.
+REDIS_CLI="$COMPOSE exec -T redis redis-cli"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if [ "$($REDIS_CLI PING 2>/dev/null | tr -d '\r')" = "PONG" ]; then break; fi
+  sleep 2
+done
+
+# Two config assertions HARD-FAIL, deliberately, and deliberately HERE: they run after redis
+# is up but BEFORE the api is recreated, so a red job leaves the PREVIOUS api serving (the
+# same fail-before-you-touch-containers shape as the CD-6 disk guard above). Never deploy new
+# code onto a store that will not keep what it is handed.
+#
+# UNREADABLE and WRONG are reported differently on purpose. A pipeline's exit status is the
+# LAST command's, so a failed `compose exec` would otherwise yield an empty string and be
+# announced as "appendonly is ''" — an operator reads that as a broken session store when
+# docker merely hiccuped. `exec -T` because the ssh session has no TTY; `tr -d '\r'` because
+# redis-cli writes CRLF; CONFIG GET prints the name then the value, hence `tail -n1`.
+AOF="$($REDIS_CLI CONFIG GET appendonly 2>/dev/null | tr -d '\r' | tail -n1)"
+if [ -z "$AOF" ]; then
+  echo "::error::could not read redis config (container not answering after 20s) — this is a DOCKER problem, not necessarily a durability one. Refusing to deploy onto an unverifiable session store."
+  exit 1
+fi
+if [ "$AOF" != "yes" ]; then
+  echo "::error::redis appendonly is '$AOF', not 'yes' — worker sessions would not survive a restart. Refusing to deploy onto it."
+  exit 1
+fi
+EVICT="$($REDIS_CLI CONFIG GET maxmemory-policy 2>/dev/null | tr -d '\r' | tail -n1)"
+if [ "$EVICT" != "noeviction" ]; then
+  echo "::error::redis maxmemory-policy is '$EVICT', not 'noeviction' — live refresh tokens could be evicted under memory pressure, and BullMQ refuses to run against an evicting instance. Refusing to deploy onto it."
+  exit 1
+fi
+
+# The CANARY is the actual survival test, and it is a WARNING, not a failure: by the time it
+# reads empty the sessions are already gone, and failing the job would only add an outage to
+# a logout. Written with no TTL (a TTL would expire and manufacture a false wipe alarm),
+# under a key in no app namespace. The first deploy after this lands legitimately reports
+# MISSING once — that is the baseline being written, not an incident. Every command here is
+# `|| true`: under `set -e` a bare redis-cli that exits non-zero (e.g. -LOADING during an AOF
+# replay) would kill the deploy, which is precisely what this comment says it must never do.
+PREV_CANARY="$($REDIS_CLI GET deploy:canary 2>/dev/null | tr -d '\r' || true)"
+if [ -z "$PREV_CANARY" ]; then
+  echo "::warning::redis deploy canary MISSING — this keyspace did NOT survive since the last deploy (new/empty volume, a rename of the deploy directory, or a flush). EVERY worker session was destroyed; workers will see 'wrong PIN' until they re-login by OTP. See docs/ops/staging-session-durability.md."
+else
+  echo "redis keyspace survived; canary from the previous deploy: ${PREV_CANARY}"
+fi
+$REDIS_CLI SET deploy:canary "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null || true
+# Observability, not a gate: DBSIZE and the live worker-session lineage count give an
+# at-a-glance "did this deploy cost anyone their session" in the job log.
+# KEEP THE `| wc -l` — without it this prints every `worker_families:<uuid>` KEY, i.e. a list
+# of worker ids, into a CI log. The count is the whole point.
+echo "redis DBSIZE: $($REDIS_CLI DBSIZE 2>/dev/null | tr -d '\r' || true)"
+echo "worker session lineages: $($REDIS_CLI --scan --pattern 'worker_families:*' 2>/dev/null | wc -l || true)"
 
 # TODO(CD-2, held: 0031 human sign-off + D1): migrations-in-pipeline would
 # run HERE — after the image pull, BEFORE the new code boots (CLAUDE.md §2

@@ -91,7 +91,7 @@ No `redis-cli`-wrapping script — operated entirely through Docker Compose + th
 |---|---|
 | `pnpm db:up` (despite the name, starts **both** Postgres and Redis) | `docker compose up -d postgres redis` |
 | `pnpm db:down` | Stops containers, **keeps volumes** |
-| `docker compose down -v` | Stop **and delete** volumes — deliberately not wrapped in any pnpm script |
+| `docker compose down -v` | Stop **and delete** volumes — deliberately not wrapped in any pnpm script. **LOCAL ONLY.** On the staging box this deletes `badabhai-platform_badabhai_redisdata`, the only copy of every worker's session/refresh token, and force-logs-out the entire platform instantly (they see "wrong PIN" — #994). To remove a stray container there use `docker rm -f <name>`, never `down`. See [staging session durability](../ops/staging-session-durability.md) |
 | Loopback bind | Redis bound `127.0.0.1:6379:6379` in the **base** compose file (not an overlay) specifically because compose `ports` merge by union-of-keys, not override |
 
 `infra/redis/README.md` is stale Phase-1 placeholder text ("BullMQ workers ... introduced when AI jobs move from inline to background") — `apps/api/package.json` already depends on `@nestjs/bullmq`/`bullmq` today.

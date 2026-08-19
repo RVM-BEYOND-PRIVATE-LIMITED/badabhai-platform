@@ -21,7 +21,9 @@ import { DevicesRepository } from "./devices.repository";
 import { PinHasher } from "./pin-hasher.service";
 import { PinRepository } from "./pin.repository";
 import { ConsentRepository } from "../consent/consent.repository";
-import type { PinVerifyResponse } from "./pin.dto";
+import { withConsentAccepted } from "../consent/consent-flag";
+import type { DeviceInfoDto } from "./devices.dto";
+import type { PinResetConfirmResponse, PinVerifyResponse } from "./pin.dto";
 
 /** Minimal typed view of the Redis commands the PIN throttle needs (ioredis at runtime). */
 interface RedisThrottleClient {
@@ -110,17 +112,41 @@ export class PinService {
   /**
    * Confirm a PIN reset: verify the OTP via the EXISTING OtpService.verify (throws 401/429 on
    * a bad/expired code — same neutral behavior as login), then set the new PIN (denylist +
-   * hash + upsert, which clears the throttle + otp_cycle_count) and emit `worker.pin_reset`.
-   * The worker is resolved from the phone the verified OTP proves ownership of — never a body
-   * worker_id.
+   * hash + upsert, which clears the throttle + otp_cycle_count), emit `worker.pin_reset`, and
+   * MINT A FRESH LOGIN-SHAPE SESSION. The worker is resolved from the phone the verified OTP
+   * proves ownership of — never a body worker_id.
+   *
+   * #994 — WHY THIS RETURNS A SESSION (it used to return void / 204). A reset left the client
+   * sitting on its OLD refresh token. That is fine while the token is alive, but the whole
+   * reason a worker reaches this endpoint is that PIN unlock is failing — and the dominant
+   * cause of that is a DEAD refresh token (a wiped/re-created session store), surfaced through
+   * /auth/pin/verify's deliberately-neutral 401 as "PIN sahi nahi". So the recovery path
+   * depended on the very credential that was broken: the worker set a new PIN, re-entered it,
+   * and got "wrong PIN" again — the loop in #994. Minting here makes the reset self-healing
+   * regardless of store state, and it is safe to do so because a verified OTP is exactly the
+   * proof /auth/otp/verify mints on.
+   *
+   * ORDERING is load-bearing:
+   *   1. PIN POLICY (format + denylist) is checked BEFORE the OTP is consumed, so a weak PIN
+   *      costs a 400 and nothing else. Consuming the single-use OTP and THEN rejecting the PIN
+   *      forced the worker back through the rate-limited request/send loop to try again —
+   *      exactly the "recurring again and again" the issue reports. Same 400, no oracle: the
+   *      denylist is public policy about the CALLER'S OWN input and says nothing about the
+   *      phone or the code.
+   *   2. OTP verify — a bad code throws before any credential row is touched.
+   *   3. writePin BEFORE the mint, so the returned `pin_set` is true rather than a race.
    */
   async resetConfirm(
     phone: string,
     otp: string,
     newPin: string,
     ctx: RequestContext,
-  ): Promise<void> {
-    // Verify the OTP FIRST — a bad code throws before we touch any credential row.
+    deviceInfo?: DeviceInfoDto,
+  ): Promise<PinResetConfirmResponse> {
+    // (1) Reject a weak/malformed PIN before the one-time code is spent (see ORDERING above).
+    this.assertPinPolicy(newPin);
+
+    // (2) Verify the OTP — a bad code throws before we touch any credential row.
     await this.otp.verify(phone, otp);
 
     // The verified OTP proves phone ownership; resolve the worker by phone HASH (the raw
@@ -132,7 +158,63 @@ export class PinService {
       throw new BadRequestException("PIN reset could not be completed");
     }
 
+    // (3) Write the new PIN + emit worker.pin_reset (the audit fact for this request).
     await this.writePin(worker.id, newPin, "worker.pin_reset", ctx);
+
+    // Mint through the SHARED seam /auth/otp/verify uses — same optional trusted-device
+    // registration, same session shape, no forked mint logic. The worker row resolved above
+    // is handed in, so this path never create-or-gets by phone hash: a PIN RESET must never
+    // be able to bring an account into existence. No second outcome event either —
+    // worker.pin_reset above IS this request's fact, and it shares the mint's correlationId.
+    //
+    // NARROWED explicitly, not spread: `worker` is a full SELECT * row carrying the encrypted
+    // phone and the phone hash, and structural typing would hand both to the mint unnoticed.
+    //
+    // A mint failure here is a genuine 5xx (the session store is unreachable — the very
+    // condition #994 is about), but it leaves a SPLIT STATE: the new PIN is already written
+    // and the OTP already spent. Logged with a distinct PII-free marker so support can tell
+    // "the reset did nothing" from "the reset worked, only the session could not be minted" —
+    // in the latter the worker's NEW PIN is live and a plain OTP login recovers them.
+    let login: Omit<PinResetConfirmResponse, "consent_accepted">;
+    try {
+      login = await this.auth.mintSessionForWorker(
+        {
+          id: worker.id,
+          status: worker.status,
+          deletionScheduledAt: worker.deletionScheduledAt ?? null,
+        },
+        ctx,
+        deviceInfo,
+      );
+    } catch (err) {
+      this.logger.error(
+        `pin reset WROTE THE NEW PIN but could not mint a session worker=${worker.id}; the new PIN is live — the worker recovers with a plain OTP login (errorType: ${
+          err instanceof Error ? err.name : "unknown"
+        })`,
+      );
+      throw err;
+    }
+
+    // TD62 — the ADDITIVE consent signal, composed by the SHARED helper: the session is
+    // already minted and the OTP already spent, so a consent-read blip OMITS the field
+    // rather than 500-ing a reset that server-side succeeded.
+    return withConsentAccepted(this.consents, login);
+  }
+
+  /**
+   * The PIN policy gate — exact configured length + the weak-PIN denylist. Extracted from
+   * {@link writePin} so {@link resetConfirm} can run it BEFORE spending the OTP (#994) while
+   * writePin still runs it for every write (a caller that skips the gate cannot store a weak
+   * PIN). Idempotent and side-effect free, so running it twice on the reset path is free.
+   * The PIN itself is NEVER echoed back or logged.
+   */
+  private assertPinPolicy(pin: string): void {
+    if (!this.hasher.isCorrectFormat(pin)) {
+      throw new BadRequestException(`PIN must be exactly ${this.config.PIN_LENGTH} digits`);
+    }
+    if (this.hasher.isWeakPin(pin)) {
+      throw new BadRequestException("PIN is too easy to guess; choose a less common PIN");
+    }
   }
 
   /** Shared PIN write: format + denylist gate → hash → upsert (clears throttle) → emit. */
@@ -142,13 +224,7 @@ export class PinService {
     eventName: "worker.pin_set" | "worker.pin_reset",
     ctx: RequestContext,
   ): Promise<void> {
-    if (!this.hasher.isCorrectFormat(pin)) {
-      throw new BadRequestException(`PIN must be exactly ${this.config.PIN_LENGTH} digits`);
-    }
-    if (this.hasher.isWeakPin(pin)) {
-      // Reject easily-guessed PINs. The PIN itself is NEVER echoed back or logged.
-      throw new BadRequestException("PIN is too easy to guess; choose a less common PIN");
-    }
+    this.assertPinPolicy(pin);
 
     const { pinHash, pepperVersion } = this.hasher.hash(pin);
     await this.pins.upsertPin(workerId, pinHash, pepperVersion);
