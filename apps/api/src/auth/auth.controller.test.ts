@@ -10,6 +10,8 @@ import type { Request } from "express";
 import type { ServerConfig } from "@badabhai/config";
 import { OtpSendFailedException } from "../common/otp-send-failure";
 import { AuthController } from "./auth.controller";
+import { createHash } from "node:crypto";
+import { OtpRequestIdempotency } from "./otp-request-idempotency.service";
 import type { AuthService } from "./auth.service";
 import type { SessionService } from "./session.service";
 import type { OtpService } from "./otp.service";
@@ -42,25 +44,39 @@ function make() {
   const MINTED = {
     access: { token: "fresh", expiresInSeconds: 3600 },
     refresh: { token: "rt_new", expiresInSeconds: 7776000 },
-    session: { tier: 1, expiresAtMs: Date.UTC(2026, 6, 27), requiresOtpAfterMs: Date.UTC(2026, 8, 25) },
+    session: {
+      tier: 1,
+      expiresAtMs: Date.UTC(2026, 6, 27),
+      requiresOtpAfterMs: Date.UTC(2026, 8, 25),
+    },
   };
   const sessions = {
     refresh: vi.fn(async () => ({ token: "fresh", expiresInSeconds: 3600 })),
     revoke: vi.fn(async () => undefined),
     refreshByToken: vi.fn(async () => ({ ok: true, minted: MINTED })),
-    resolveRefreshToken: vi.fn(async () => ({ workerId: WORKER.id, sid: WORKER.sid, familyId: "fam-1" })),
+    resolveRefreshToken: vi.fn(async () => ({
+      workerId: WORKER.id,
+      sid: WORKER.sid,
+      familyId: "fam-1",
+    })),
     revokeAll: vi.fn(async () => 2),
-    describe: vi.fn(async () => ({ tier: 1, expiresAtMs: Date.UTC(2026, 6, 27), requiresOtpAfterMs: null })),
+    describe: vi.fn(async () => ({
+      tier: 1,
+      expiresAtMs: Date.UTC(2026, 6, 27),
+      requiresOtpAfterMs: null,
+    })),
   };
   const workers = {
     // SELECT * — the account-delete step-up path needs the encrypted phone to send the OTP.
     findById: vi.fn(async () => ({ id: WORKER.id, status: "active", phoneE164: "ENC(+91999)" })),
     // ADR-0031 — GET /auth/me's EXPLICIT-projection read: status + the deletion marker only.
     // The absence of PII keys here is the point (see the /auth/me tests below).
-    findSelfView: vi.fn(async (): Promise<{ status: string; deletionScheduledAt: Date | null } | undefined> => ({
-      status: "active",
-      deletionScheduledAt: null,
-    })),
+    findSelfView: vi.fn(
+      async (): Promise<{ status: string; deletionScheduledAt: Date | null } | undefined> => ({
+        status: "active",
+        deletionScheduledAt: null,
+      }),
+    ),
   };
   const ipRateLimit = {
     assertWithinHourlyIpCap: vi.fn(async () => undefined),
@@ -83,6 +99,13 @@ function make() {
   // a per-phone SMS budget vs a per-network abuse backstop — and the controller passing
   // the per-phone one to the per-IP limiter is the defect these values expose. Equal
   // numbers would let that regression pass unnoticed.
+  // #1019 — the Idempotency-Key seam. A PASS-THROUGH double here: these cases send no
+  // `Idempotency-Key`, which is exactly the path where `runOnce` must run the work unchanged,
+  // so every existing assertion below keeps testing the handler and not the seam. The seam's
+  // own behaviour is tested in otp-request-idempotency.service.test.ts.
+  const otpIdempotency = {
+    runOnce: vi.fn(async (o: { work: () => Promise<unknown> }) => o.work()),
+  };
   const config = {
     OTP_MAX_SENDS_PER_HOUR: 5,
     OTP_MAX_SENDS_PER_IP_PER_HOUR: 20,
@@ -97,6 +120,7 @@ function make() {
     pii as unknown as PiiCryptoService,
     accountDeletion as unknown as AccountDeletionService,
     consents as unknown as ConsentRepository,
+    otpIdempotency as unknown as OtpRequestIdempotency,
     config,
   );
   return {
@@ -114,11 +138,18 @@ function make() {
 }
 
 const reqWith = (overrides: Partial<Request> = {}): Request =>
-  ({ ip: "1.2.3.4", header: (k: string) => (k === "authorization" ? "Bearer tok" : undefined), ...overrides }) as unknown as Request;
+  ({
+    ip: "1.2.3.4",
+    header: (k: string) => (k === "authorization" ? "Bearer tok" : undefined),
+    ...overrides,
+  }) as unknown as Request;
 
 /** A request carrying the required Idempotency-Key header for POST /auth/token/refresh. */
 const reqIdem = (): Request =>
-  ({ ip: "1.2.3.4", header: (k: string) => (k === "idempotency-key" ? "idem-1" : undefined) }) as unknown as Request;
+  ({
+    ip: "1.2.3.4",
+    header: (k: string) => (k === "idempotency-key" ? "idem-1" : undefined),
+  }) as unknown as Request;
 
 describe("AuthController — consent-on-resume (A5 · ADR-0026 amendment)", () => {
   it("token/refresh: REVOKED consent → 403 and the token is NOT rotated", async () => {
@@ -142,7 +173,9 @@ describe("AuthController — consent-on-resume (A5 · ADR-0026 amendment)", () =
 
   it("token/refresh: ACTIVE consent (revokedAt null) is ALLOWED", async () => {
     const { controller, sessions, consents } = make();
-    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ revokedAt: null });
+    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      revokedAt: null,
+    });
     await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
     expect(sessions.refreshByToken).toHaveBeenCalled();
   });
@@ -173,8 +206,7 @@ describe("AuthController", () => {
     // worker saw was indistinguishable from the platform being down.
     const { controller, ipRateLimit, config } = make();
     await controller.requestOtp({ phone: "+91999" } as never, reqWith(), CTX);
-    const cap = (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mock
-      .calls[0]![2];
+    const cap = (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mock.calls[0]![2];
     expect(cap).toBe(config.OTP_MAX_SENDS_PER_IP_PER_HOUR);
     expect(cap).not.toBe(config.OTP_MAX_SENDS_PER_HOUR);
   });
@@ -184,7 +216,9 @@ describe("AuthController", () => {
     (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new ConflictException("cap"),
     );
-    await expect(controller.requestOtp({ phone: "+91999" } as never, reqWith(), CTX)).rejects.toBeTruthy();
+    await expect(
+      controller.requestOtp({ phone: "+91999" } as never, reqWith(), CTX),
+    ).rejects.toBeTruthy();
     expect(auth.requestOtp).not.toHaveBeenCalled();
   });
 
@@ -255,7 +289,9 @@ describe("AuthController", () => {
     (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new ConflictException("cap"),
     );
-    await expect(controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX)).rejects.toBeTruthy();
+    await expect(
+      controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX),
+    ).rejects.toBeTruthy();
     expect(auth.testLogin).not.toHaveBeenCalled();
   });
 
@@ -264,7 +300,9 @@ describe("AuthController", () => {
     (ipRateLimit.assertWithinGlobalDailyCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new ConflictException("global cap"),
     );
-    await expect(controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX)).rejects.toBeTruthy();
+    await expect(
+      controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX),
+    ).rejects.toBeTruthy();
     expect(auth.testLogin).not.toHaveBeenCalled();
   });
 
@@ -349,11 +387,7 @@ describe("AuthController", () => {
     // (findById's row carries phoneE164: "ENC(+91999)" — it must not reach the wire).
     const serialized = JSON.stringify(res);
     expect(serialized).not.toMatch(/phone|full_?name|hash|ENC\(|\+91/i);
-    expect(Object.keys(res).sort()).toEqual([
-      "deletion_scheduled_for",
-      "status",
-      "worker_id",
-    ]);
+    expect(Object.keys(res).sort()).toEqual(["deletion_scheduled_for", "status", "worker_id"]);
   });
 
   it("me never FABRICATES a date: a worker row that vanished mid-session → status fallback, no field", async () => {
@@ -461,7 +495,9 @@ describe("AuthController", () => {
   it("accountDeleteRequest 401s when the token worker row is gone (no oracle, fail closed)", async () => {
     const { controller, workers, auth } = make();
     (workers.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
-    await expect(controller.accountDeleteRequest(WORKER, CTX)).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(controller.accountDeleteRequest(WORKER, CTX)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
     expect(auth.issueAndSendWithSignals).not.toHaveBeenCalled();
   });
 
@@ -492,7 +528,9 @@ describe("AuthController", () => {
 
   it("accountDeleteConfirm schedules NOTHING when the OTP verify throws (fail closed)", async () => {
     const { controller, otp, accountDeletion } = make();
-    (otp.verify as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new UnauthorizedException("bad otp"));
+    (otp.verify as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new UnauthorizedException("bad otp"),
+    );
     await expect(
       controller.accountDeleteConfirm(WORKER, { otp: "000000" } as never, CTX),
     ).rejects.toBeInstanceOf(UnauthorizedException);
@@ -566,7 +604,9 @@ describe("AuthController", () => {
 
   it("accountDeleteCancel is idempotent: still { success: true } when nothing was pending (no oracle)", async () => {
     const { controller, accountDeletion } = make();
-    (accountDeletion.cancel as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ cancelled: false });
+    (accountDeletion.cancel as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      cancelled: false,
+    });
     const res = await controller.accountDeleteCancel(WORKER, CTX);
     expect(res).toEqual({ success: true });
   });
@@ -584,3 +624,106 @@ describe("AuthController", () => {
 // account-deletion.module.boot.test.ts: all three deletion routes (request/confirm/cancel)
 // carry @UseGuards(WorkerAuthGuard), so an unauthenticated request is rejected by the guard
 // before any handler body runs. Cancel deliberately carries NO ConsentGuard (ADR-0031).
+
+/**
+ * #1019 — the route wiring, with the REAL seam rather than a pass-through double.
+ *
+ * The seam's own semantics are covered in `otp-request-idempotency.service.test.ts`. What can
+ * only be asserted HERE is placement: the per-IP cap has to run INSIDE the guarded work, not in
+ * front of it. It is one of the four counters the retry ladder was burning, and under carrier
+ * CGNAT its bucket is shared by thousands of workers — so a dedupe that started after it would
+ * still let one worker's flaky connection eat a whole network's hourly budget.
+ */
+describe("#1019 — POST /auth/otp/request honours Idempotency-Key", () => {
+  function withRealSeam() {
+    const store = new Map<string, string>();
+    const redis = {
+      set: async (k: string, v: string, _m: string, _t: number, nx?: string) => {
+        if (nx === "NX" && store.has(k)) return null;
+        store.set(k, v);
+        return "OK";
+      },
+      get: async (k: string) => store.get(k) ?? null,
+    };
+    const queue = {
+      get client() {
+        return Promise.resolve(redis);
+      },
+    };
+    // Real digests, not length-based fakes: a fake that collides distinct keys would make the
+    // fresh-key case below pass for the wrong reason.
+    const pii = {
+      hashPhone: (p: string) => createHash("sha256").update(p).digest("hex"),
+      hmac: (v: string) => createHash("sha256").update(v).digest("hex"),
+    } as unknown as PiiCryptoService;
+    const seam = new OtpRequestIdempotency(pii, queue as never);
+
+    const auth = {
+      requestOtp: vi.fn(async () => ({
+        success: true as const,
+        channel: "sms" as const,
+        resend_in_seconds: 30,
+      })),
+    };
+    const ipRateLimit = { assertWithinHourlyIpCap: vi.fn(async () => undefined) };
+    const config = {
+      OTP_MAX_SENDS_PER_IP_PER_HOUR: 20,
+      OTP_RESEND_COOLDOWN_SECONDS: 30,
+    } as ServerConfig;
+
+    const controller = new AuthController(
+      auth as unknown as AuthService,
+      {} as unknown as SessionService,
+      {} as unknown as WorkersRepository,
+      ipRateLimit as unknown as IpRateLimit,
+      {} as unknown as OtpService,
+      {} as unknown as PiiCryptoService,
+      {} as unknown as AccountDeletionService,
+      {} as unknown as ConsentRepository,
+      seam,
+      config,
+    );
+    return { controller, auth, ipRateLimit };
+  }
+
+  const withKey = (key: string) =>
+    reqWith({ header: ((k: string) => (k === "idempotency-key" ? key : undefined)) as never });
+
+  it("sends once and caps once across the client's three transport retries", async () => {
+    const { controller, auth, ipRateLimit } = withRealSeam();
+    const req = withKey("k-1");
+
+    const a = await controller.requestOtp({ phone: "+919876543210" } as never, req, CTX);
+    const b = await controller.requestOtp({ phone: "+919876543210" } as never, req, CTX);
+    const c = await controller.requestOtp({ phone: "+919876543210" } as never, req, CTX);
+
+    // The whole defect: this used to be 3 — three counted sends, three paid SMS.
+    expect(auth.requestOtp).toHaveBeenCalledTimes(1);
+    // And the per-IP bucket — shared across a whole CGNAT egress — is charged once, not thrice.
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledTimes(1);
+    expect([a, b, c]).toEqual([
+      { success: true, channel: "sms", resend_in_seconds: 30 },
+      { success: true, channel: "sms", resend_in_seconds: 30 },
+      { success: true, channel: "sms", resend_in_seconds: 30 },
+    ]);
+  });
+
+  it("still sends for a genuine resend, which carries a fresh key", async () => {
+    const { controller, auth } = withRealSeam();
+
+    await controller.requestOtp({ phone: "+919876543210" } as never, withKey("k-1"), CTX);
+    await controller.requestOtp({ phone: "+919876543210" } as never, withKey("k-2"), CTX);
+
+    expect(auth.requestOtp).toHaveBeenCalledTimes(2);
+  });
+
+  it("is unchanged for a caller that sends no header at all (§3)", async () => {
+    const { controller, auth, ipRateLimit } = withRealSeam();
+
+    await controller.requestOtp({ phone: "+919876543210" } as never, reqWith(), CTX);
+    await controller.requestOtp({ phone: "+919876543210" } as never, reqWith(), CTX);
+
+    expect(auth.requestOtp).toHaveBeenCalledTimes(2);
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledTimes(2);
+  });
+});
