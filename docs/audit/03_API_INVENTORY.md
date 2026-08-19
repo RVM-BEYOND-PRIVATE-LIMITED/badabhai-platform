@@ -9,6 +9,13 @@ the CALLER evidence.
 **Totals**: apps/api = 217 routes / 62 controllers. apps/ai-service = 15 routes / 10 routers.
 **232 routes total.**
 
+> **Counts are a dated snapshot; the route rows are not.** These aggregates were compiled by
+> reading every controller in full at the time of the audit, and several other files in
+> `docs/audit/` cross-reference them. Routes added since are listed in the tables below (they are
+> the useful part of this register) WITHOUT bumping the totals, because a count moved here and
+> not in the files that quote it is worse than a count that is openly a snapshot. Added after the
+> snapshot: `GET /admin/dashboard/summary` (BP-5).
+
 ## Criticality classes
 
 - **A** — Critical production (core worker/payer/admin auth and product flows)
@@ -75,7 +82,7 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | POST | /auth/pin/verify | none (refresh token = credential, ADR-0026) | A | |
 | POST | /auth/pin/reset/request, /reset/confirm | none (IP-capped) | B | |
 
-### consent, admin (auth/directory/entities/finance/events/kill-switch/pii-reveal/actions)
+### consent, admin (auth/directory/entities/finance/dashboard/events/kill-switch/pii-reveal/actions)
 
 | M | Path | Auth | Role | Class | Notes |
 |---|---|---|---|---|---|
@@ -85,6 +92,7 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | GET | /admin/admins, /admin/capabilities | AAG+ARG | manage_admins / read_entities | F/B | capabilities called by admin-web |
 | GET | /admin/workers(/:id), /admin/payers(/:id)(/credits), /admin/job-postings(/:id), /admin/applications | AAG+ARG | read_entities | F | built, no confirmed admin-web caller yet |
 | GET | /admin/finance/{summary,ledger,orders} | AAG+ARG | read_entities | F | |
+| GET | /admin/dashboard/summary | AAG+ARG | read_entities | F | BP-5; platform AI spend (`platform_ai_cost_totals`) + volume counts; `windowDays` scopes the cap-breach block only |
 | GET | /admin/events(/:id/metrics/export/trace) | AAG+ARG | read_events | F/B | metrics called by admin-web |
 | GET | /admin/kill-switch/status | AAG+ARG | toggle_kill_switch | B | called by admin-web |
 | POST | /admin/kill-switch/pause-request | AAG+ARG | toggle_kill_switch | F | no pairing enable action found |
