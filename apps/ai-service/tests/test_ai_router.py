@@ -216,6 +216,47 @@ def test_a_real_call_that_FAILED_still_reports_its_cost():
 def test_provider_inference():
     assert provider_for_model("gemini-flash-lite") == "google"
     assert provider_for_model("claude-haiku") == "anthropic"
+    # Regression guard for the other two label rules, so a new branch that shadowed
+    # one of them would be caught here rather than at a cost dashboard.
+    assert provider_for_model("vertex-gemini-pro") == "google"
+    assert provider_for_model("anthropic/claude-haiku-4-5") == "anthropic"
+    assert provider_for_model("gpt-4o-mini") == "openai"
+    assert provider_for_model("openai/o3") == "openai"
+
+
+def test_sarvam_models_are_attributed_to_sarvam_not_unknown():
+    """The three CONFIGURED Sarvam model ids must label as "sarvam".
+
+    Read off ``Settings`` rather than hardcoded, so this fails if a default model id
+    is swapped to a family the rule does not cover — the exact way Sarvam's spend
+    silently became "unknown" in the first place. `platform_ai_cost_totals` is keyed
+    on (provider, task_type), so a wrong label here is money filed under the wrong
+    name, permanently (the totals are a running sum with no backfill).
+    """
+    settings = Settings()
+    assert provider_for_model(settings.sarvam_stt_model) == "sarvam"
+    assert provider_for_model(settings.sarvam_tts_model) == "sarvam"
+    assert provider_for_model(settings.sarvam_translate_model) == "sarvam"
+
+
+def test_sarvam_families_match_across_versions_and_case():
+    # The version suffix moves; the family name is what identifies the vendor.
+    assert provider_for_model("saarika:v2.5") == "sarvam"
+    assert provider_for_model("saaras:v3") == "sarvam"  # the STT swap config.py names
+    assert provider_for_model("bulbul:v3") == "sarvam"
+    assert provider_for_model("mayura:v1") == "sarvam"
+    assert provider_for_model("sarvam-m") == "sarvam"
+    # Same case-handling as every other rule: the input is lowercased first.
+    assert provider_for_model("Saarika:V2.5") == "sarvam"
+    assert provider_for_model("SARVAM-M") == "sarvam"
+
+
+def test_unknown_stays_the_honest_fallback():
+    # A model no rule recognises must still be "unknown" — the Sarvam branch only
+    # claims Sarvam's own families, it does not widen the catch-all.
+    assert provider_for_model("llama-3.1-70b") == "unknown"
+    assert provider_for_model("mistral-large") == "unknown"
+    assert provider_for_model("") == "unknown"
 
 
 def test_hard_cost_ceiling_refuses_expensive_real_call():
