@@ -314,6 +314,124 @@ describe("SessionService.refreshByToken — REUSE DETECTION", () => {
   });
 });
 
+// ===========================================================================
+// #999 — the honest retry that used to be treated as theft
+// ===========================================================================
+describe("#999 — an honest retry under ONE idempotency key never trips reuse detection", () => {
+  it("returns the SAME mint for every attempt in the client's retry ladder", () => {
+    // THE REGRESSION, stated as the client actually behaves. AuthedClient._doRefresh mints
+    // ONE key and retries under it up to 3 times (15s timeout, 300ms × attempt backoff), so
+    // its last attempt lands at t≈30.9s. With a 30s grace that attempt missed the cache by
+    // under a second, fell through to `rec.used`, and destroyed the whole family — logging
+    // out a worker whose token was never compromised.
+    //
+    // The grace is a TTL, so this asserts the CONFIGURED window rather than sleeping 31s:
+    // the value has to exceed the ladder, and 30 did not.
+    const grace = Reflect.get(SessionService, "IDEM_GRACE_SECONDS") as number;
+    const CLIENT_WORST_CASE_SECONDS = 30.9; // 15 + 0.3 + 15 + 0.6
+    expect(
+      grace,
+      "IDEM_GRACE_SECONDS must outlast the shipped client's retry ladder (~30.9s), or its " +
+        "last honest retry is read as token theft and the refresh family is destroyed",
+    ).toBeGreaterThan(CLIENT_WORST_CASE_SECONDS);
+  });
+
+  it("a repeat under the SAME key returns the cached mint — no rotation, no reuse flag", async () => {
+    const { svc, emit } = setup();
+    const created = await svc.create("worker-1");
+
+    const first = await svc.refreshByToken(created.refresh.token, "idem-same");
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    // The client never saw the response and retries under the key it already minted.
+    const retry = await svc.refreshByToken(created.refresh.token, "idem-same");
+    expect(retry.ok).toBe(true);
+    if (!retry.ok) return;
+
+    // The SAME pair — not a second rotation, which would strand one of the two tokens.
+    expect(retry.minted.refresh.token).toBe(first.minted.refresh.token);
+    expect(retry.minted.access.token).toBe(first.minted.access.token);
+    expect(
+      emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name),
+      "an honest retry must not be recorded as a security event",
+    ).not.toContain("worker.refresh_reuse_detected");
+  });
+
+  it("keeps the rotation lock SHORT — it is a mutex, not the retry window", async () => {
+    // These shared one constant before #999. Widening the grace to cover the client ladder
+    // would have widened the lock too, turning a rotation that DIES mid-flight into a 180s
+    // dead window in which every retry fails closed. The success path deletes the lock, so
+    // its TTL only ever matters on a crash.
+    const lock = Reflect.get(SessionService, "ROTATION_LOCK_SECONDS") as number;
+    const grace = Reflect.get(SessionService, "IDEM_GRACE_SECONDS") as number;
+    expect(lock).toBe(30);
+    expect(lock, "the lock must not inherit the widened grace").toBeLessThan(grace);
+
+    const { svc, redis } = setup();
+    const created = await svc.create("worker-1");
+    await svc.refreshByToken(created.refresh.token, "idem-lock");
+    const lockSet = redis.calls.find(
+      (c) => c[0] === "set" && String(c[1]).startsWith("refresh_lock:"),
+    );
+    expect(lockSet, "no rotation lock was taken").toBeDefined();
+    expect(lockSet![5], "the lock was armed with the wrong TTL").toBe(30);
+  });
+});
+
+describe("#999 — reuse detection still fails CLOSED, but says which kind it looks like", () => {
+  /** Drive a lineage into the reuse branch, returning the warn spy. */
+  async function reuseWith(consumeSuccessor: boolean) {
+    const { svc, redis, emit } = setup();
+    const warn = vi.spyOn(
+      (svc as unknown as { logger: { warn: (m: string) => void } }).logger,
+      "warn",
+    );
+    const created = await svc.create("worker-1");
+    const first = await svc.refreshByToken(created.refresh.token, "idem-1");
+    if (!first.ok) throw new Error("setup rotation failed");
+    if (consumeSuccessor) {
+      // A second party consumed the NEW pair — two holders of one lineage, i.e. theft.
+      const second = await svc.refreshByToken(first.minted.refresh.token, "idem-2");
+      expect(second.ok).toBe(true);
+    }
+    const replay = await svc.refreshByToken(created.refresh.token, "idem-replay");
+    return { replay, warn, redis, emit, created, first };
+  }
+
+  it("successor still UNUSED is logged as the honest-retry shape — and STILL revokes", async () => {
+    const { replay, warn, redis, emit, created } = await reuseWith(false);
+
+    // Posture is UNCHANGED on purpose: telling the two apart is a guess about intent, and a
+    // guess must not decide whether a possibly-stolen token keeps working. That call is an
+    // ADR-0026 change and belongs to the owner (#999), not to this branch.
+    expect(replay).toEqual({ ok: false, reason: "reuse_detected" });
+    expect(redis.store.has(`refresh:${sha256Hex(created.refresh.token)}`)).toBe(false);
+    expect(
+      emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name),
+    ).toContain("worker.refresh_reuse_detected");
+
+    const line = warn.mock.calls.map(String).find((l) => l.includes("refresh reuse detected"));
+    expect(line, "no reuse diagnostic was logged").toBeDefined();
+    expect(line).toContain("shape=successor_unused");
+  });
+
+  it("successor already CONSUMED is logged as the theft shape", async () => {
+    const { replay, warn } = await reuseWith(true);
+    expect(replay).toEqual({ ok: false, reason: "reuse_detected" });
+    const line = warn.mock.calls.map(String).find((l) => l.includes("refresh reuse detected"));
+    expect(line).toContain("shape=successor_consumed");
+  });
+
+  it("the diagnostic is PII-free and carries no token value", async () => {
+    const { warn, created, first } = await reuseWith(false);
+    const line = warn.mock.calls.map(String).find((l) => l.includes("refresh reuse detected"))!;
+    expect(line).not.toContain(created.refresh.token);
+    expect(line).not.toContain(first.minted.refresh.token);
+    expect(line).not.toContain("+91");
+  });
+});
+
 describe("SessionService.refreshByToken — IDEMPOTENCY GRACE", () => {
   it("the same idem key replays the SAME minted result, NO rotation, NO reuse flag", async () => {
     const { svc, redis, emit } = setup();
