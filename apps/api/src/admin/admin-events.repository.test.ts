@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { AdminEventsRepository } from "./admin-events.repository";
+import {
+  ADMIN_PAYLOAD_GROUP_FIELDS,
+  AdminEventsRepository,
+  type AdminPayloadGroupField,
+} from "./admin-events.repository";
 import { captureQueries } from "./testing/query-capture";
 
 /**
@@ -54,18 +58,45 @@ describe("countByPayloadField — the BP-5 cap-breach split", () => {
     expect(c.params).toContain("ai.spend_cap_exceeded");
   });
 
-  it("groups by the payload field as a BOUND PARAMETER, never interpolated text", async () => {
+  /**
+   * THE SHAPE OF THE BUG THIS SUITE NOW PINS (2026-08-19). The key started life as
+   * `payload->>${field}` with `field` BOUND. Drizzle renders each `Param` occurrence as its own
+   * placeholder, so the SELECT list got `$1`, GROUP BY `$4`, ORDER BY `$5`; Postgres matches a
+   * GROUP BY expression structurally, `Param(1) != Param(4)`, and every request 500'd with
+   * `column "events.payload" must appear in the GROUP BY clause`. A shape test CANNOT see that —
+   * `captureQueries` never executes SQL — which is why `admin-dashboard.db.test.ts` now runs the
+   * query for real. What IS assertable here is the property the fix rests on: all three clauses
+   * render the IDENTICAL text.
+   */
+  const KEY_EXPR = `coalesce("events"."payload"->>'reason', 'unknown')`;
+
+  it("renders the SAME key expression in SELECT, GROUP BY and ORDER BY (byte-identical)", async () => {
     const c = captureQueries();
     await new AdminEventsRepository(c.db).countByPayloadField(
       "ai.spend_cap_exceeded",
       "reason",
       new Date(0),
     );
-    // `->>` takes a text operand, so the field name travels as a parameter. If it were spliced
-    // into the SQL string, this key would appear in the statement text instead.
-    expect(c.params).toContain("reason");
-    expect(c.sql()).not.toContain("'reason'");
-    expect(c.sql()).toContain('"events"."payload"->>');
+    // Three renders, one text. Re-introduce a bound `field` and these stop matching each other
+    // (they become `$1`/`$4`/`$5`), which is exactly the Postgres failure.
+    expect(c.statements.filter((s) => s === KEY_EXPR)).toHaveLength(3);
+  });
+
+  it("carries the payload KEY as a literal — the value never travels as a parameter", async () => {
+    const c = captureQueries();
+    await new AdminEventsRepository(c.db).countByPayloadField(
+      "ai.spend_cap_exceeded",
+      "reason",
+      new Date(0),
+    );
+    // The literal form is what every other `->>` in this codebase uses (notifications,
+    // posting-plans, ai-jobs): literal key, value as the param. Here there is no value.
+    expect(c.sql()).toContain(KEY_EXPR);
+    expect(c.params).not.toContain("reason");
+    // …and no placeholder anywhere inside the key expression.
+    expect(c.sql()).not.toMatch(/"events"\."payload"->>\$\d+/);
+    // The event NAME is still bound — only the key is a literal.
+    expect(c.params).toContain("ai.spend_cap_exceeded");
   });
 
   it("a payload with no such field groups under 'unknown' rather than being dropped", async () => {
@@ -73,6 +104,26 @@ describe("countByPayloadField — the BP-5 cap-breach split", () => {
     await new AdminEventsRepository(c.db).countByPayloadField("x", "reason", new Date(0));
     // A breach whose reason did not serialize is still a breach; a silently-omitted bucket is
     // how "silence means zero" starts.
-    expect(c.sql()).toMatch(/coalesce\("events"\."payload"->>\$\d+, 'unknown'\)/);
+    expect(c.sql()).toContain(`, 'unknown')`);
+  });
+
+  it("FAILS CLOSED on a field outside the closed set — nothing else may reach sql.raw", async () => {
+    const c = captureQueries();
+    // The compile-time union is erased at runtime, so the runtime check is the real gate. The
+    // cast is how a caller arriving through `any`/JS interop would look. `rejects`, not
+    // `toThrow`: the method is async, so the guard surfaces as a rejected promise.
+    await expect(
+      new AdminEventsRepository(c.db).countByPayloadField(
+        "x",
+        "worker_id'||(select 1)||'" as AdminPayloadGroupField,
+        new Date(0),
+      ),
+    ).rejects.toThrow(/unsupported payload group field/);
+    // Nothing was built — the rogue key never reached the query builder at all.
+    expect(c.statements).toEqual([]);
+  });
+
+  it("the closed set is exactly the one field the dashboard needs", () => {
+    expect([...ADMIN_PAYLOAD_GROUP_FIELDS]).toEqual(["reason"]);
   });
 });

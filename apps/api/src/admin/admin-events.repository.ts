@@ -32,6 +32,19 @@ export interface DayBucket {
 }
 
 /**
+ * The payload keys {@link AdminEventsRepository.countByPayloadField} may group by — a CLOSED
+ * set, exported so a caller cannot widen it by passing a string.
+ *
+ * WHY THIS LIST EXISTS AT ALL. The grouping key is rendered as a SQL LITERAL, not a bound
+ * parameter (see the method header for the Postgres reason), so this array IS the entire
+ * injection surface of that read. Enumerating it here makes the surface reviewable in one
+ * place, and the runtime membership check in `payloadKeyExpr` makes it fail closed rather than
+ * relying on the compile-time union alone.
+ */
+export const ADMIN_PAYLOAD_GROUP_FIELDS = ["reason"] as const;
+export type AdminPayloadGroupField = (typeof ADMIN_PAYLOAD_GROUP_FIELDS)[number];
+
+/**
  * SELECT-ONLY data access over the `events` spine for the Admin Ops Portal (ADR-0025 ADMIN-2).
  *
  * SPINE IMMUTABILITY (ADR-0025 must-fix #3, CLAUDE.md invariant #1): this repository issues
@@ -177,6 +190,44 @@ export class AdminEventsRepository {
   }
 
   /**
+   * The grouping key for {@link countByPayloadField}: `coalesce(payload->>'<field>', 'unknown')`,
+   * built ONCE so the SELECT, GROUP BY and ORDER BY all render the same text.
+   *
+   * ── WHY THE KEY IS A LITERAL AND NOT A BOUND PARAMETER (BUGFIX, 2026-08-19) ─────────────
+   * The first version of this passed `field` as a parameter — `payload->>${field}` — and it
+   * 500'd EVERY request, measured against a real Postgres:
+   *
+   *     ERROR: column "events.payload" must appear in the GROUP BY clause or be used in an
+   *     aggregate function
+   *
+   * Drizzle renders each occurrence of a `Param` as its own placeholder, so the same expression
+   * came out as `$1` in the SELECT list, `$4` in GROUP BY and `$5` in ORDER BY. Postgres matches
+   * a GROUP BY expression STRUCTURALLY, and `Param(paramid=1)` is not equal to `Param(paramid=4)`
+   * — so the projected expression was never recognised as grouped, and the `events.payload` Var
+   * inside it was therefore ungrouped. Reusing one `SQL` object does not help: the placeholder
+   * index is assigned per render, not per object. Rendering the key as a literal removes the
+   * `Param` entirely; all three clauses become the identical `Const`-bearing expression, which
+   * is what Postgres's structural match needs. It is also what every other `->>` in this
+   * codebase does (`notifications`, `posting-plans`, `ai-jobs`): literal key, value as the param.
+   *
+   * ── WHY THAT IS NOT AN INJECTION SEAM ───────────────────────────────────────────────────
+   * `field` is typed to the CLOSED {@link ADMIN_PAYLOAD_GROUP_FIELDS} union and re-checked
+   * against it at runtime here, so the only string that can ever reach `sql.raw` is one of the
+   * literals in that array. Traced end to end: the sole caller is
+   * `AdminDashboardService.summary`, which passes `AdminDashboardService.CAP_BREACH_FIELD` — a
+   * `static readonly` constant, `"reason"`. No request DTO, query string, body or path parameter
+   * reaches this argument, and the runtime check fails closed if one ever tries.
+   */
+  private static payloadKeyExpr(field: AdminPayloadGroupField): SQL<string> {
+    // The compile-time union is erased at runtime, so re-assert it: a caller arriving through
+    // `any`, JS interop or a future `as` cast must not be able to reach `sql.raw`.
+    if (!(ADMIN_PAYLOAD_GROUP_FIELDS as readonly string[]).includes(field)) {
+      throw new Error("countByPayloadField: unsupported payload group field");
+    }
+    return sql<string>`coalesce(${events.payload}->>${sql.raw(`'${field}'`)}, 'unknown')`;
+  }
+
+  /**
    * ONE event name's rows in the window, grouped by a payload FIELD (BP-5).
    *
    * WHY IT IS HERE AND NOT IN THE DASHBOARD REPOSITORY. `events` has exactly one admin reader by
@@ -184,29 +235,31 @@ export class AdminEventsRepository {
    * dashboard its own `from(events)` would make two, and the property this file's header states
    * ("no admin file issues update/delete against the spine", enforced by a source scan over
    * admin/**) is far easier to keep true of one class than of every class that grows an
-   * aggregate. The dashboard SERVICE stays separate — see `AdminDashboardService` — because that
-   * is where the cross-table composition would have contaminated `AdminEventsService`.
+   * aggregate. The single-reader half is a build-blocker too (`admin-static-guards.test.ts`).
+   * The dashboard SERVICE stays separate — see `AdminDashboardService` — because that is where
+   * the cross-table composition would have contaminated `AdminEventsService`.
    *
    * INDEX-BACKED AND BOUNDED IN THE ONLY WAY THAT MATTERS: `event_name = ?` uses
-   * `events_event_name_idx`, which is what keeps this off the full spine. `field` is a
-   * CALLER-SUPPLIED KEY, never request input — the one call site passes the literal `"reason"`.
-   * It is interpolated as a bound parameter (`->>` takes a text operand), so it cannot be a
-   * SQL-injection seam even if that ever changed.
+   * `events_event_name_idx`, which is what keeps this off the full spine. The event NAME and the
+   * window bound are still bound parameters; only the payload KEY is a literal, for the
+   * GROUP-BY reason in {@link payloadKeyExpr}.
    *
    * A payload missing the field groups under `NULL` and is reported as the literal
    * `"unknown"` rather than dropped: a breach whose reason did not serialize is still a breach,
    * and a silently-omitted bucket is how "silence means zero" starts.
    */
-  async countByPayloadField(eventName: string, field: string, since: Date): Promise<CountBucket[]> {
+  async countByPayloadField(
+    eventName: string,
+    field: AdminPayloadGroupField,
+    since: Date,
+  ): Promise<CountBucket[]> {
+    const key = AdminEventsRepository.payloadKeyExpr(field);
     const rows = await this.db
-      .select({
-        key: sql<string>`coalesce(${events.payload}->>${field}, 'unknown')`,
-        count: sql<number>`count(*)::int`,
-      })
+      .select({ key, count: sql<number>`count(*)::int` })
       .from(events)
       .where(and(eq(events.eventName, eventName), gte(events.occurredAt, since)))
-      .groupBy(sql`coalesce(${events.payload}->>${field}, 'unknown')`)
-      .orderBy(desc(sql`count(*)`), sql`coalesce(${events.payload}->>${field}, 'unknown')`);
+      .groupBy(key)
+      .orderBy(desc(sql`count(*)`), key);
     return rows.map((r) => ({ key: r.key, count: Number(r.count) }));
   }
 
