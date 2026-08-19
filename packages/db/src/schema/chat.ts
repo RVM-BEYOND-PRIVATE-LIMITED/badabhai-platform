@@ -81,6 +81,25 @@ export const chatSessions = pgTable(
   },
   (t) => [
     index("chat_sessions_worker_id_idx").on(t.workerId),
+    // THE ADMIN JOURNEY'S SESSION LIST (migration 0079). `GET /admin/workers/:id/chat-sessions`
+    // is keyset-paginated as `WHERE worker_id = $1 ORDER BY started_at DESC, id DESC` — the
+    // plain worker index above serves the FILTER and leaves the sort, exactly the shape
+    // `chat_messages_session_created_idx` was added to remove one table over.
+    //
+    // `.desc().nullsFirst()` IS LOAD-BEARING, for the reason that index's comment spells out:
+    // Postgres reads a bare `ORDER BY started_at DESC` as DESC NULLS FIRST, pathkeys compare
+    // `nulls_first` STRICTLY, and drizzle's `.desc()` alone emits NULLS LAST — which does not
+    // satisfy the ordering, so the planner keeps the Sort and the index buys only the filter.
+    // Both columns are NOT NULL, so this changes no result, only the plan.
+    //
+    // A worker has few sessions, so this is cheap insurance rather than a hot-path rescue —
+    // but "few" is a property of today's product, not of the schema, and a resumable voice
+    // form is exactly the feature that makes it stop being true.
+    index("chat_sessions_worker_started_idx").on(
+      t.workerId,
+      t.startedAt.desc().nullsFirst(),
+      t.id.desc().nullsFirst(),
+    ),
     // Pinned together or not at all. Half a pin names an interview nobody can reproduce.
     check(
       "chat_sessions_pack_pin_chk",

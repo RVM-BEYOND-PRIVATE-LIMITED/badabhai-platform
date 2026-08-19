@@ -1,0 +1,117 @@
+-- ===========================================================================
+-- 0079 — ADMIN WORKER-JOURNEY READ PATH: two indexes, nothing else
+--
+-- Backing for `GET /admin/workers/:id/journey-summary` and
+-- `GET /admin/workers/:id/chat-sessions`. No table, no column, no constraint, no data
+-- change — two CREATE INDEX statements and that is the entire migration.
+--
+-- FULLY ADDITIVE AND FULLY REVERSIBLE. Nothing is dropped, nothing is renamed, no shipped
+-- column changes meaning, and no existing read or write changes result. An index changes
+-- which PLAN Postgres picks, never which rows it returns.
+--
+-- ORDER: this is NOT apply-before-deploy. Both queries are CORRECT without these indexes —
+-- they are merely slow — so an app deployed ahead of this file serves the same JSON off a
+-- sequential scan. It IS apply-before-the-page-is-used-in-anger: see the timing note.
+--
+-- ---------------------------------------------------------------------------------------
+-- RENUMBERED FROM 0078 — 2026-08-19. This file was minted as `0078_journey_read_indexes`
+-- while `0078_unresolved_phrase_job_domain_id` was minted concurrently on another branch;
+-- that one merged to `main` first, so this one moved to the next free slot exactly as
+-- MIGRATIONS.md rule 2 requires. It was REGENERATED, not renamed: a drizzle snapshot chains
+-- to its predecessor by `prevId`, so a renamed `0078_snapshot.json` would still have chained
+-- off `0077` and the next `db:generate` would have diffed against a schema that skipped
+-- `0078_unresolved_phrase_job_domain_id` entirely. The `0071` renumber (see MIGRATIONS.md)
+-- set that precedent for the same reason.
+--
+-- The journal `when` deliberately does NOT carry the pre-renumber value. `0071` pinned its
+-- old timestamp because its pre-renumber file had already been applied to a live database
+-- and drizzle's migrator is timestamp-driven (`created_at < folderMillis`) — re-running its
+-- `CREATE TABLE` would have killed the chain. That reasoning does not transfer here, and
+-- inverts: these two statements are `CREATE INDEX IF NOT EXISTS`, so re-running them against
+-- a database that already has the indexes is a no-op, whereas pinning the old `when`
+-- (1787058904704) would place this entry BEFORE `0078_unresolved_phrase_job_domain_id`
+-- (1787061158602) and make any database that applied `0078` skip this file forever.
+--
+-- ---------------------------------------------------------------------------------------
+-- 1. chat_sessions_worker_started_idx  (worker_id, started_at DESC, id DESC)
+--
+-- The session list reads `WHERE worker_id = $1 ORDER BY started_at DESC, id DESC LIMIT n`
+-- (keyset). `chat_sessions_worker_id_idx` serves the FILTER and leaves the sort behind, the
+-- same shape `chat_messages_session_created_idx` (0067) was added to remove one table over.
+--
+-- ⚠ `DESC NULLS FIRST` on both trailing columns is LOAD-BEARING, not cosmetic. Postgres
+-- reads a bare `ORDER BY started_at DESC` as DESC NULLS FIRST, and pathkeys compare
+-- `nulls_first` STRICTLY — an index built DESC NULLS LAST does not satisfy that ordering, so
+-- the planner keeps the Sort and the index buys only the filter. Both columns are NOT NULL,
+-- so this changes no result, only the plan. Do not "tidy" it away.
+--
+-- ---------------------------------------------------------------------------------------
+-- 2. events_interview_kit_worker_idx  ((payload->>'worker_id')) WHERE event_name = ...
+--
+-- `interview_kit.downloaded` now carries an OPTIONAL `worker_id` in its payload (additive
+-- widen, still v1). It is in the payload rather than in `subject_id` because the subject of
+-- that event is the KIT — per-trade and PII-free — and conditionally re-pointing the subject
+-- at a worker whenever a session token happened to be present would break every consumer
+-- filtering `subject_type = 'interview_kit'`.
+--
+-- So journey step 7 has to ask a jsonb question of `events`, which is the largest table in
+-- the system and has NO payload index of any kind. Unindexed, one operator opening one
+-- worker's journey page sequentially scans the whole spine.
+--
+-- PARTIAL on the event name, for two reasons. It keeps the index the size of the DOWNLOAD
+-- rows rather than of the spine; and it makes the index MATCHABLE — the funnel query carries
+-- the identical `event_name = 'interview_kit.downloaded'` predicate, so the planner can prove
+-- the partial covers it. A non-partial expression index would be both larger and, for this
+-- query, no more useful.
+--
+-- §2 (PII): the indexed expression is an opaque internal UUID, or NULL for an anonymous
+-- download. An index stores the indexed VALUES, so this holds ids and nothing else — the
+-- same standard `ai_jobs_extraction_session_idx` (0047_milky_spectrum) is held to. No name, phone, employer
+-- or free text is placed in an index here or anywhere else.
+--
+-- ---------------------------------------------------------------------------------------
+-- `IF NOT EXISTS` IS RE-APPENDED BY HAND. `db:generate` emits both statements bare —
+-- verified on the regeneration that produced this file, not assumed — and the guard is not
+-- decoration on this migration:
+--   * the TIMING note below tells an operator to build `events`' index CONCURRENTLY outside
+--     the migration and let this statement no-op. Without the guard that instruction raises
+--     42P07 and stops the chain.
+--   * the pre-renumber `0078_journey_read_indexes` was applied BY HAND to a live database
+--     before this renumber existed. Both indexes are already present there under the same
+--     names, and this file's fresh `when` means drizzle WILL run it. The guard is what makes
+--     that safe.
+-- Anyone regenerating this migration must re-append it, exactly as `0037`/`0067`/`0072`/
+-- `0076`/`0078` re-append `NULLS NOT DISTINCT` for the same reason.
+--
+-- ---------------------------------------------------------------------------------------
+-- TIMING (the DDL itself). Plain `CREATE INDEX` takes SHARE on the table, which BLOCKS
+-- writes for the duration of the build. `chat_sessions` is small and fast. `events` is not:
+-- the build must scan the whole table to find the qualifying rows even though it stores only
+-- those, so on a large spine this can hold the write lock for a while — and every event
+-- emitted platform-wide queues behind it.
+--
+-- `CREATE INDEX CONCURRENTLY` is the usual answer and CANNOT be used here: drizzle wraps each
+-- migration in a transaction and CONCURRENTLY may not run inside one. So, as 0073/0077
+-- established for their own lock-taking DDL, this is guidance rather than a blocker — run it
+-- under `SET lock_timeout = '3s';` and retry on 55P03 (lock_not_available) rather than letting
+-- the whole platform's event emission stall behind a long-running reader. On a big `events`
+-- table, prefer applying it in a maintenance window, or create it CONCURRENTLY by hand
+-- OUTSIDE the migration and let this statement's `IF NOT EXISTS` no-op.
+--
+-- BACKFILL: NONE, and none is possible. Every `interview_kit.downloaded` row written before
+-- this ships has no `worker_id` in its payload, and there is nothing to reconstruct one from
+-- (the route was anonymous by design). Journey step 7 therefore reads "no attributed
+-- download SINCE this shipped", never "this worker never took a kit" — the API surfaces that
+-- as an explicit caveat rather than as a confident zero.
+--
+-- RLS: unchanged. An index carries no policy and neither table's posture is touched.
+--
+-- ROLLBACK. Drop them, in any order, with the app LIVE. Nothing references an index: no FK,
+-- no view, no constraint, no code path names one. The two reads keep returning identical
+-- rows and get slower, which is exactly the state before this file.
+--   DROP INDEX IF EXISTS "chat_sessions_worker_started_idx";
+--   DROP INDEX IF EXISTS "events_interview_kit_worker_idx";
+-- (Use `DROP INDEX CONCURRENTLY` outside a transaction on a busy `events`.)
+-- ===========================================================================
+CREATE INDEX IF NOT EXISTS "chat_sessions_worker_started_idx" ON "chat_sessions" USING btree ("worker_id","started_at" DESC NULLS FIRST,"id" DESC NULLS FIRST);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "events_interview_kit_worker_idx" ON "events" USING btree (("payload"->>'worker_id')) WHERE "events"."event_name" = 'interview_kit.downloaded';
