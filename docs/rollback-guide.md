@@ -6,6 +6,14 @@ R46) — the file was deleted in the 2026-08-05 docs purge (`eb151468`) but is s
 4 times by the currently-running `deploy-lightsail` job. This is the box-side rollback
 procedure only; it does not cover a bad database migration (see **Migrations** below).
 
+> **Where the deploy body lives (#994).** `deploy-lightsail`'s ssh step now only connects,
+> `git pull`s, and runs [`scripts/deploy/staging-deploy.sh`](../scripts/deploy/staging-deploy.sh) —
+> the image pins, disk reclaim, pulls, and health gates this guide refers to are all in that
+> file, comments and all. It was extracted because the inline version had reached ~97% of
+> GitHub's ~21 KB step-input ceiling, and crossing that ceiling makes the whole workflow
+> unparseable: no CI run is created at all, so every PR touching `ci.yml` is blocked with no
+> stated reason. Read and edit the deploy there.
+
 ## When to use this
 
 `deploy-lightsail` went green but the newly-deployed code is behaving badly in a way CI
@@ -35,10 +43,11 @@ Nothing is reverted in git; the box just points at older, already-built images.
      so a recent-enough rollback target is likely already local and needs no re-pull.
 
 3. **Export ALL THREE image variables — never just one or two.** `docker-compose.staging.yml`
-   interpolates the *whole* file before filtering by service, so a compose command that
+   interpolates the _whole_ file before filtering by service, so a compose command that
    only sets `API_IMAGE` still fails on the ai-service's `${AI_SERVICE_IMAGE:?}` gate (and,
    as of GAP-XC-06, payer-web's `${PAYER_WEB_IMAGE:?}` gate too), even for an api-only
    rollback:
+
    ```bash
    cd ~/deployments/badabhai-platform
    SHORT_SHA=<the previous good commit's first 7 chars>
@@ -46,6 +55,7 @@ Nothing is reverted in git; the box just points at older, already-built images.
    export AI_SERVICE_IMAGE="ghcr.io/<owner>/badabhai-platform/badabhai-ai-service:sha-${SHORT_SHA}"
    export PAYER_WEB_IMAGE="ghcr.io/<owner>/badabhai-platform/badabhai-payer-web:sha-${SHORT_SHA}"
    ```
+
    `PAYER_WEB_PORT` is deliberately NOT in that list: it is `${PAYER_WEB_PORT:-3333}`
    (defaulted, not fail-loud), precisely so a missing box-specific port can never brick an
    api-only rollback the way the image gates above would. 3333 is the current box's free
@@ -53,14 +63,16 @@ Nothing is reverted in git; the box just points at older, already-built images.
    3333 is unavailable.
 
 4. **Log into GHCR** (the package is private; an expired/missing login 401s the pull):
+
    ```bash
    echo "<a GHCR-scoped token with packages:read>" | docker login ghcr.io -u <github-actor> --password-stdin
    ```
 
 5. **Run the same compose sequence the deploy job runs, in the same order** — the
-   ordering is load-bearing (ai-service starts and health-gates *before* the api, so a
+   ordering is load-bearing (ai-service starts and health-gates _before_ the api, so a
    bad rollback target for either service never serves a request with the other half
    missing):
+
    ```bash
    COMPOSE="docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api"
    $COMPOSE pull api
@@ -74,6 +86,7 @@ Nothing is reverted in git; the box just points at older, already-built images.
    $COMPOSE up -d --no-deps payer-web
    curl -sf "http://localhost:${PAYER_WEB_PORT:-3333}/health"  # must return 200
    ```
+
    `--no-deps` on every `up` is deliberate: it is what keeps the compose-internal
    throwaway Postgres/Adminer from ever starting on this box — staging's `DATABASE_URL`
    is the real (Supabase) Postgres, never the compose-internal one.
@@ -82,7 +95,7 @@ Nothing is reverted in git; the box just points at older, already-built images.
    containers `Up`/`healthy`. api's and ai-service's `/health` check connectivity
    (`SELECT 1` + Redis `PING`); payer-web's `/health` is a bare liveness probe
    (`apps/payer-web/src/app/health/route.ts` — no upstream call). None of the three
-   proves the rolled-back code is *correct*, only that it booted.
+   proves the rolled-back code is _correct_, only that it booted.
 
 7. **Log out of GHCR** when done (`docker logout ghcr.io`) — never leave a registry
    credential on the box, matching the deploy job's own `trap ... EXIT` discipline.
@@ -94,6 +107,7 @@ sign-off + the prod-vs-staging environment answer) — they require a human to r
 `pnpm db:migrate` manually, and that has already happened separately from any deploy.
 **Rolling back the code does not roll back the database.** If the bad deploy's commit
 included a migration:
+
 - An additive migration (new column/table) is almost always safe to leave applied while
   rolling back the code — the old code simply ignores the new column/table.
 - A destructive or renaming migration is NOT safely undone by a code rollback alone —
@@ -112,7 +126,7 @@ locally-cached image.
 ## What this guide does not cover
 
 Rolling back a `staging-cd.yml` deploy (a different, `workflow_dispatch`-only pipeline
-for a *persistent* staging host — see that workflow's own header comments); provisioning
+for a _persistent_ staging host — see that workflow's own header comments); provisioning
 a new box from scratch; anything about `apps/web`/`apps/admin-web` — see
 `docs/operations/COMMANDS.md` (BL-1): neither is deployed anywhere as of this writing.
 `apps/payer-web` IS now deployed by this same `deploy-lightsail` job (GAP-XC-06, #920) —

@@ -68,7 +68,28 @@ export function uncommented(block: string): string {
     .join("\n");
 }
 
-const DEPLOY = jobBlock(CI, "deploy-lightsail");
+/**
+ * THE DEPLOY IS NOW TWO FILES, AND THIS GUARD MUST SEE BOTH (#994).
+ *
+ * The job block no longer contains the deploy's commands: they live in
+ * scripts/deploy/staging-deploy.sh, because the inline `script:` had reached ~97% of GitHub's
+ * ~21 KB step-input ceiling — past which the whole workflow silently stops parsing and every
+ * PR touching ci.yml is blocked with no stated reason.
+ *
+ * Concatenating is not a convenience here, it is the correctness fix. The four `not.toMatch`
+ * assertions below — never migrate, never seed, never embed, never promote — would ALL have
+ * started passing vacuously the moment the commands moved out of the job block, and this guard
+ * would have gone quietly decorative while still reporting green. A guard that stops covering
+ * the thing it names is worse than no guard.
+ *
+ * The `envs:`/`env:` bridge assertions still resolve against the YAML half, and the command
+ * assertions against the script half; searching the concatenation satisfies both without
+ * caring which file a given line ended up in.
+ */
+const DEPLOY = [
+  jobBlock(CI, "deploy-lightsail"),
+  readFileSync(join(ROOT, "scripts", "deploy", "staging-deploy.sh"), "utf8"),
+].join("\n");
 
 describe("deploy-lightsail — what it is allowed to do to production", () => {
   it("runs in the production GitHub Environment", () => {
