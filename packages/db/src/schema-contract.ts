@@ -137,6 +137,84 @@ export function contractBlockReason(results: readonly ContractResult[]): string 
 }
 
 /**
+ * ===========================================================================
+ * THE SECOND QUESTION: can the remedy actually run?
+ * ===========================================================================
+ * `contractBlockReason` above tells an operator to run `db:migrate`. On 2026-08-19 that
+ * instruction was WRONG on production, and wrong in the direction that wastes a maintenance
+ * window: `worker_feedback` was missing, the operator ran the migrate, and 0080 never applied
+ * — because `drizzle-kit migrate` replays every journal entry the database has not recorded,
+ * IN ORDER, and the four before it (0076-0079) were unrecorded-but-already-live. It reached
+ * `CREATE TABLE "job_domain"`, died on "already exists", and rolled back before 0080.
+ *
+ * So the audit now answers both halves. The row COUNT is still meaningless (this file's header
+ * says so, and baselining is why) — but per-file HASH MEMBERSHIP is not, and it is exactly
+ * what the migrator branches on.
+ *
+ * This function deliberately does NOT decide whether an unrecorded migration is live or
+ * genuinely pending. It cannot: the manifest covers only apply-before-deploy objects, so
+ * silence about a migration is not evidence about it. `reconcile-migrations.ts` answers that
+ * question at depth and `adopt-migrations.ts` acts on it; this only reports that the two
+ * states exist and that one of them makes the naive remedy fail.
+ */
+export interface JournalEntry {
+  /** The migration filename stem, e.g. `0080_worker_feedback`. */
+  readonly tag: string;
+  /** sha256 of the file's contents — the key `drizzle.__drizzle_migrations` stores. */
+  readonly hash: string;
+}
+
+export interface MigrationDrift {
+  /** Journal entries with no row in the database, in journal order. */
+  readonly unrecorded: readonly string[];
+  /** Unrecorded AND the contract observed their objects missing — genuinely pending. */
+  readonly pending: readonly string[];
+  /** Unrecorded and NOT known-missing. `db:migrate` will replay their DDL first. */
+  readonly unclassified: readonly string[];
+  /** True when `db:migrate` on its own reaches the pending set. */
+  readonly migrateAloneIsSafe: boolean;
+}
+
+export function migrationDrift(
+  journal: readonly JournalEntry[],
+  recordedHashes: ReadonlySet<string>,
+  missingMigrations: readonly string[],
+): MigrationDrift {
+  const missing = new Set(missingMigrations);
+  const unrecorded = journal.filter((e) => !recordedHashes.has(e.hash)).map((e) => e.tag);
+  const pending = unrecorded.filter((t) => missing.has(t));
+  const unclassified = unrecorded.filter((t) => !missing.has(t));
+  return { unrecorded, pending, unclassified, migrateAloneIsSafe: unclassified.length === 0 };
+}
+
+/**
+ * The operator's next commands, in order. Returned as lines rather than printed so the
+ * decision is testable and the runner stays a reporter.
+ *
+ * A NOTE ON THE `--expect-host` LINE: `adopt-migrations.ts` requires it alongside `--apply`
+ * precisely because adoption records DDL as done WITHOUT running it, so pointing it at the
+ * wrong environment writes a lie into that environment's journal and every later migration
+ * inherits it. Left as a placeholder here on purpose — this file must not guess a host.
+ */
+export function driftRemedy(drift: MigrationDrift): string[] {
+  if (drift.unrecorded.length === 0) return [];
+  if (drift.migrateAloneIsSafe) {
+    return ["pnpm --filter @badabhai/db db:migrate   (against THIS database)"];
+  }
+  return [
+    "db:migrate ALONE WILL NOT REACH THE PENDING MIGRATION(S). drizzle replays every",
+    `unrecorded file in order, so it re-runs ${drift.unclassified[0]} first and aborts on`,
+    '"already exists" if that migration is in fact live. Classify, adopt, then migrate:',
+    "",
+    "  npx tsx reconcile-migrations.ts        # per file: RECORDED / LIVE / ABSENT / PARTIAL",
+    `  npx tsx adopt-migrations.ts --only ${drift.unclassified.join(",")}`,
+    "  npx tsx adopt-migrations.ts --only <the LIVE ones> --apply --expect-host <host substring>",
+    "  pnpm --filter @badabhai/db db:migrate",
+    "  pnpm --filter @badabhai/db db:audit:schema-contract   # expect READY",
+  ];
+}
+
+/**
  * The unique index must be present AND have the widened column list; an index of the right
  * name and the wrong shape is the more dangerous state, because `ON CONFLICT` fails loudly on
  * a mismatch but a silently-narrow key merges rows.
