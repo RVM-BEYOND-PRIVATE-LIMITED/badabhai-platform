@@ -462,20 +462,25 @@ describe("chat session detail — GET /admin/chat-sessions/:id", () => {
     expect(chatSessionDetailSchema.safeParse(wrong).success).toBe(false);
   });
 
-  it("REJECTS an answer row carrying a VALUE — this surface serves none", () => {
+  it("STRIPS an answer row's VALUE — this surface serves none, and none can reach a view", () => {
     /*
      * Not a hypothetical schema nicety. `worker_pack_answer.answer_text` is the worker's own
      * words; the API's select lists exclude it and a server-side static guard blocks the
-     * column. If one ever arrives, the honest outcome is a FAILED read handed back to
-     * backend — not a portal that quietly accepts and renders it.
+     * column.
+     *
+     * STRIPPED, not rejected — and deliberately so. `.strict()` here would fail the whole read
+     * on ANY additive server field, against this repo's open-set convention, and a blank page
+     * is a worse outcome than a parsed one with the value dropped. What the assertion pins is
+     * that the key cannot survive the parse into a component's props; a later
+     * `.passthrough()` would silently undo that, which is the regression worth catching.
      */
-    const wrong = {
+    const regressed = {
       ...REAL_SESSION_DETAIL,
       answers: [{ ...REAL_SESSION_DETAIL.answers[0], answer_text: "मैं वेल्डर हूँ" }],
     };
-    const parsed = chatSessionDetailSchema.parse(wrong);
-    // Zod strips unknown keys by default, so the value cannot reach a component even if the
-    // server regressed. Pinned, because a later `.passthrough()` would silently undo it.
+    const parsed = chatSessionDetailSchema.parse(regressed);
     expect(Object.keys(parsed.answers[0]!)).not.toContain("answer_text");
+    // The VALUE, not just the key — nothing the worker said survives anywhere in the parse.
+    expect(JSON.stringify(parsed)).not.toContain("मैं वेल्डर हूँ");
   });
 });
