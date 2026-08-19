@@ -70,6 +70,29 @@ describe("Admin spine-immutability build-blocker (must-fix #3)", () => {
     ).toEqual([]);
   });
 
+  it("EXACTLY ONE non-test file under admin/** reads the spine (the single-reader invariant)", () => {
+    // The invariant `AdminEventsRepository`'s header and `AdminEventsService`'s header both
+    // state — "`events` has exactly one admin reader" — had no build-blocker until now: the
+    // scan above enforces IMMUTABILITY (`update(events)`/`delete(events)`), not single-reader,
+    // so the property rested on a comment. It is what makes the immutability scan cheap to keep
+    // true (one class to audit, not every class that grows an aggregate), and BP-5 is exactly
+    // the pressure that would have broken it — the dashboard wanted its own `from(events)`.
+    //
+    // COMMENTS ARE STRIPPED FIRST: three files under admin/** discuss `from(events)` in prose
+    // (this is the documentation explaining why they must not do it), and a scan that matched
+    // its own rationale would be a test nobody could make pass.
+    const readers = tsFiles(ADMIN_DIR)
+      .filter((f) => {
+        const code = readFileSync(f, "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+        return /\.from\s*\(\s*events\s*\)/.test(code);
+      })
+      .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"));
+    expect(
+      readers,
+      `exactly one admin file may read \`events\`. Readers: ${readers.join(", ")}`,
+    ).toEqual(["admin/admin-events.repository.ts"]);
+  });
+
   it("the admin repository never references the `events` table (select-only on admin_users)", () => {
     // The admin repository touches admin_users ONLY — it must not import or query `events`.
     const repo = readFileSync(join(ADMIN_DIR, "admin.repository.ts"), "utf8");
