@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/error/failure_mapper.dart';
+import 'package:badabhai_worker_app/core/error/failure_reason.dart';
 
 void main() {
   group('mapError', () {
@@ -16,6 +17,18 @@ void main() {
 
     test('401 -> UnauthorizedFailure', () {
       expect(mapError(ApiException(401, 'x')), isA<UnauthorizedFailure>());
+    });
+
+    // #1013 — a 400 used to fall into the ServerFailure arm and render "Server
+    // error (400). Thodi der baad try karein.", which sends the worker away to
+    // retry a request the server will refuse identically forever.
+    test('400 -> InvalidRequestFailure, and its copy NEVER says to wait', () {
+      final Failure f = mapError(ApiException(400, 'message is too long'));
+      expect(f, isA<InvalidRequestFailure>());
+      expect(f, isNot(isA<ServerFailure>()));
+      expect(failureReason(f).reason, isNot(contains('Thodi der baad')));
+      // And still PII-safe: the server body is not forwarded.
+      expect(f.message, isNot(contains('too long')));
     });
 
     test('429 -> RateLimitedFailure (per-IP download cap)', () {

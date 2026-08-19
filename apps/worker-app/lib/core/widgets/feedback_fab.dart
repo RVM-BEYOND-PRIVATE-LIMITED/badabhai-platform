@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/auth/domain/auth_session_manager.dart';
 import '../../router.dart';
+import '../di/locator.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
@@ -26,12 +28,45 @@ const List<String> _kHiddenPrefixes = <String>[
 ];
 
 /// Whether the floating Feedback button should show on [path].
-bool showFeedbackOn(String path) {
+///
+/// [consentAccepted] is the router's TRI-STATE consent signal, and ONLY when the
+/// gate is live (see [feedbackConsentSignal]) — otherwise null.
+///
+/// A DEFINITIVE `false` hides the button EVERYWHERE. That is not a policy choice
+/// about who may send feedback; it is the same rule the rest of this file already
+/// states — a dead button is worse than no button. `_authRedirect`
+/// (`router.dart`) bounces any push to `/feedback` straight back to `/consent`
+/// while consent is false, so the worker taps Feedback and NOTHING VISIBLY
+/// HAPPENS AT ALL: no screen, no error, no explanation. (In that state /consent
+/// is the only reachable route anyway, so this hides the button on exactly one
+/// screen — the one where it is dead.)
+///
+/// `null` — the tri-state unknown, i.e. an older server that never sent the field
+/// — deliberately still SHOWS it: the worker may well have consented, the push
+/// is not redirected, and the screen handles the server's own 403 with something
+/// they can act on. Hiding on unknown would delete feedback for every worker on
+/// an older API to avoid an error that may never come.
+bool showFeedbackOn(String path, {bool? consentAccepted}) {
+  if (consentAccepted == false) return false;
   if (path == _kSplash) return false;
   for (final String p in _kHiddenPrefixes) {
     if (path == p || path.startsWith('$p/')) return false;
   }
   return true;
+}
+
+/// The consent signal to hand [showFeedbackOn], read off [auth] — or null when
+/// the router's consent gate is not live and so cannot swallow the push.
+///
+/// It is live only under the exact conditions `_authRedirect` requires before it
+/// will redirect at all: the auth graph is wired, [AuthSessionManager.bootstrap]
+/// has resolved, persistent-auth is ON, and the worker is authenticated. Any
+/// other state and the redirect returns null (or routes on status, to a screen
+/// where the button is already hidden by path), so the button is left alone.
+bool? feedbackConsentSignal(AuthSessionManager? auth) {
+  if (auth == null || !auth.isReady || !auth.persistentAuthEnabled) return null;
+  if (auth.status != AuthStatus.authenticated) return null;
+  return auth.consentAccepted;
 }
 
 /// Distance the button floats ABOVE the safe-area bottom — enough to clear the
@@ -67,13 +102,26 @@ class FeedbackFabOverlay extends StatefulWidget {
 }
 
 class _FeedbackFabOverlayState extends State<FeedbackFabOverlay> {
+  /// The auth manager when the graph is wired; null under the legacy widget
+  /// tests that pump the app without `initAuthLocator` — in which case the
+  /// consent gate is inert and the button behaves exactly as it always did.
+  AuthSessionManager? _auth;
+
   late String _path = _currentPath();
+  late bool? _consentAccepted = feedbackConsentSignal(_auth);
   bool _scheduled = false;
 
   @override
   void initState() {
     super.initState();
+    _auth = locator.isRegistered<AuthSessionManager>()
+        ? locator<AuthSessionManager>()
+        : null;
+    _consentAccepted = feedbackConsentSignal(_auth);
     widget.router.routerDelegate.addListener(_onNavigation);
+    // Consent can flip WITHOUT the path changing (`markConsentAccepted` on a
+    // successful submit), and the button has to come back when it does.
+    _auth?.addListener(_onNavigation);
   }
 
   @override
@@ -89,6 +137,7 @@ class _FeedbackFabOverlayState extends State<FeedbackFabOverlay> {
   @override
   void dispose() {
     widget.router.routerDelegate.removeListener(_onNavigation);
+    _auth?.removeListener(_onNavigation);
     super.dispose();
   }
 
@@ -107,7 +156,13 @@ class _FeedbackFabOverlayState extends State<FeedbackFabOverlay> {
       _scheduled = false;
       if (!mounted) return;
       final String p = _currentPath();
-      if (p != _path) setState(() => _path = p);
+      final bool? consent = feedbackConsentSignal(_auth);
+      if (p != _path || consent != _consentAccepted) {
+        setState(() {
+          _path = p;
+          _consentAccepted = consent;
+        });
+      }
     });
   }
 
@@ -117,12 +172,17 @@ class _FeedbackFabOverlayState extends State<FeedbackFabOverlay> {
     return Stack(
       children: <Widget>[
         widget.child,
-        if (showFeedbackOn(_path) && !keyboardOpen)
+        if (showFeedbackOn(_path, consentAccepted: _consentAccepted) &&
+            !keyboardOpen)
           Positioned(
             left: AppSpacing.gutter,
             bottom: MediaQuery.of(context).padding.bottom + _kBottomInset,
             child: _FeedbackButton(
-              onTap: () => widget.router.push(Routes.feedback),
+              // The route the worker is ON when they tap — the whole answer to
+              // "which button kaam nahi kar raha". Travels as `extra` (in-memory,
+              // never in the URL) and is normalized into a route PATTERN at the
+              // wire boundary, so no identifier leaves the device.
+              onTap: () => widget.router.push(Routes.feedback, extra: _path),
             ),
           ),
       ],

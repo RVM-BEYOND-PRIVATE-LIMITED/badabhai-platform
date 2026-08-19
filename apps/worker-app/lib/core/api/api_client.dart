@@ -452,18 +452,25 @@ class ApiClient {
   /// (a fixed enum wire token) and [message] is the worker's own words. The
   /// response is only `{ ok: true }`, so nothing is parsed back.
   ///
+  /// [screen] is the ROUTE PATTERN the worker was on when they tapped Feedback
+  /// (`/jobs/:id/apply`), already normalized by [normalizeScreenContext] — never a
+  /// concrete path, so it carries no identifier. OPTIONAL on the wire: the key is
+  /// omitted when it is null, which is what every already-released build sends.
+  ///
   /// BACKEND: the endpoint is owned by the API/admin team (raised separately) —
   /// this is the client half of the contract.
   Future<void> submitFeedback({
     required String authToken,
     required String message,
     String? category,
+    String? screen,
   }) async {
     await _post(
       '/workers/me/feedback',
       <String, dynamic>{
         'message': message,
         if (category != null) 'category': category,
+        if (screen != null) 'screen': screen,
       },
       authToken: authToken,
     );

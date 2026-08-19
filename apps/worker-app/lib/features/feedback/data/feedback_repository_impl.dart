@@ -4,6 +4,7 @@ import '../../../core/error/failure_mapper.dart';
 import '../../../core/session/session_repository.dart';
 import '../domain/feedback_category.dart';
 import '../domain/feedback_repository.dart';
+import '../domain/screen_context.dart';
 
 /// Real feedback repository (follows the auth/name/chat real-repo pattern: ctor
 /// takes the [ApiClient] + [SessionRepository], not a hardcoded mock).
@@ -21,6 +22,7 @@ class FeedbackRepositoryImpl implements FeedbackRepository {
   Future<void> submit({
     required String message,
     FeedbackCategory? category,
+    String? screen,
   }) async {
     final String? token = _session.sessionToken;
     if (token == null) {
@@ -31,6 +33,10 @@ class FeedbackRepositoryImpl implements FeedbackRepository {
         authToken: token,
         message: message,
         category: category?.wire,
+        // THE wire boundary for the screen context: normalize here, not at the
+        // call site, so every caller present and future gets a route PATTERN and
+        // no identifier can reach the endpoint by way of a screen that forgot.
+        screen: normalizeScreenContext(screen),
       );
     } catch (error) {
       throw mapError(error);

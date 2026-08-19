@@ -225,9 +225,23 @@ class DictationController extends ChangeNotifier {
     _level.value = 0;
   }
 
+  /// DECLARED BEHAVIOUR CHANGE (was: the recogniser kept running). Disposing
+  /// while dictation is live now STOPS the device recogniser.
+  ///
+  /// Backing out of a screen mid-dictation used to leave the mic open with no
+  /// owner: the controller was gone, nothing could ever stop it, and the only
+  /// cue the worker had — the waveform — went with the screen. That is a hot mic
+  /// the worker cannot see, which is the wrong thing to leave behind on any
+  /// surface and unacceptable on a second one. Best-effort and never throwing,
+  /// exactly like [stop]'s background leg.
   @override
   void dispose() {
     _disposed = true;
+    _accepting = false;
+    if (_dictating) {
+      _dictating = false;
+      unawaited(_stopRecogniser());
+    }
     _level.dispose();
     super.dispose();
   }

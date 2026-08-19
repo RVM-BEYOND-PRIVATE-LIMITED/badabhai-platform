@@ -361,4 +361,37 @@ void main() {
           reason: 'a carried-over floor would read the new ambient as speech');
     });
   });
+
+  /// A HOT MIC MUST NOT OUTLIVE ITS SCREEN.
+  ///
+  /// Backing out mid-dictation used to leave the device recogniser running with
+  /// no owner: the controller was gone, nothing could ever stop it, and the only
+  /// cue the worker had — the waveform — went with the screen. Tolerable-looking
+  /// on one screen; not something to replicate onto a second one.
+  ///
+  /// These build their OWN controller because the suite's tearDown disposes the
+  /// shared one, and a ChangeNotifier disposed twice asserts.
+  group('dispose', () {
+    test('disposing mid-dictation STOPS the device recogniser', () async {
+      final FakeDictation own = FakeDictation();
+      final DictationController owned = DictationController(speech: own);
+      await owned.start();
+      expect(own.listening, isTrue);
+
+      owned.dispose();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(own.stopCalls, 1);
+      expect(own.listening, isFalse);
+    });
+
+    test('disposing when nothing was listening asks the recogniser for nothing',
+        () async {
+      final FakeDictation own = FakeDictation();
+      DictationController(speech: own).dispose();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(own.stopCalls, 0);
+    });
+  });
 }

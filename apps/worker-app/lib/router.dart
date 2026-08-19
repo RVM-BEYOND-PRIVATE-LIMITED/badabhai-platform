@@ -406,7 +406,13 @@ GoRouter _buildRouter() {
       // push from any tab covers the shell; FeedbackScreen's BbAppBar has back.
       GoRoute(
         path: Routes.feedback,
-        builder: (_, __) => const FeedbackScreen(),
+        // `extra` carries the route the worker was ON when they tapped the
+        // floating button — the one thing an admin reading "button kaam nahi kar
+        // raha" cannot otherwise recover. In-memory only (it survives neither a
+        // deep link nor state restoration), which is exactly right for OPTIONAL
+        // telemetry: absent, the feedback still sends.
+        builder: (BuildContext context, GoRouterState state) =>
+            FeedbackScreen(fromRoute: state.extra is String ? state.extra as String : null),
       ),
       GoRoute(
         path: Routes.profilePreview,

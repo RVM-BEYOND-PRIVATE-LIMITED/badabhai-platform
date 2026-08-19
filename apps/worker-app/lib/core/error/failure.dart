@@ -37,6 +37,27 @@ class ServerFailure extends Failure {
   List<Object?> get props => <Object?>[message, statusCode];
 }
 
+/// HTTP 400 — the server READ the request and refused what was in it.
+///
+/// DISTINCT from [ServerFailure] because the difference is the only thing the
+/// worker can act on. A 5xx is transient: "thodi der baad try karein" is true
+/// advice. A 400 is the server's considered answer about THIS content, so the
+/// same request will be refused identically forever — and telling a worker to
+/// wait is telling them to wait for nothing (#1013: a >4000-character feedback
+/// message rendered as "Server error (400). Thodi der baad try karein.").
+///
+/// So the copy asks them to CHANGE something, which is the only thing that can
+/// work. It is deliberately generic: a server body may carry detail or PII and
+/// [mapError] never forwards one, so a screen that knows what its own 400 means
+/// (feedback: the message is too long) says so itself.
+class InvalidRequestFailure extends Failure {
+  const InvalidRequestFailure([
+    super.message =
+        'Jo bheja gaya wo server ne accept nahi kiya. Thoda badal kar dobara '
+        'bhejein.',
+  ]);
+}
+
 /// HTTP 401 — the session is gone; the worker must log in again.
 class UnauthorizedFailure extends Failure {
   const UnauthorizedFailure([super.message = 'Please log in again.']);
