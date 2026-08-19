@@ -69,20 +69,68 @@ every extraction takes the legacy branch and is byte-identical. That one field I
 this caller, which is the property the plan wants: there is no flag to unwind, and reverting is
 deleting a field rather than re-sequencing a deploy.
 
-**The remaining sequencing question is a real one, and it is not engineering's.** For the
-worker path there is no obvious value to put in that field: a worker has no job domain at
-extraction time — `match_job_domain` is what *computes* one, and it runs after the canonicalize
-pass. Two candidate producers exist and they differ in kind:
+### 1.2 What should populate it — the recommendation, and why it is neither of the obvious two
 
-- **reorder in-request** — move the RAG match ahead of the canonicalize pass and feed its
-  result in. Mechanically feasible (the query is built from `rich.skills` / `rich.machines` /
-  `canonical_role_id`, all available earlier), but it makes canonicalization depend on a
-  same-request classification that can itself be `unmatched_*`.
-- **use the previously persisted match** — `worker_profiles.job_domain_id` from an earlier
-  extraction. Stable and cheap, but absent on a first extraction and stale by construction.
+An earlier pass framed this as a choice between reordering the in-request RAG match and reading
+the previously persisted one. **Both are wrong, and tracing the code says so plainly.**
 
-Both change what a worker's skills are canonicalized *against*, so the choice is a taxonomy
-decision rather than a wiring one. It is listed as such in the decision set.
+**There is a third source, and it already outranks the classifier by explicit design.** The OIE
+interview pins the worker's occupation, and `profile-extraction.processor.ts:337-339` chooses it
+over anything a classifier produced:
+
+> *THE PIN TAKES PRECEDENCE over anything a classifier produced, and carries two things
+> `JobDomainMatch` structurally cannot.*
+
+The pin is an `OccupationPin` read straight off the conversation state at
+`profile-extraction.processor.ts:756` — so it exists **before** any AI call, is **deterministic**
+(the worker's own confirmed trade, `matched_lexical` or `matched_worker_confirmed`, not a model
+guess), already crosses the wire to the ai-service on `/profile/parse`, and is validated against
+the catalogue by `isSelectableDomain` before it is persisted. It costs nothing to obtain.
+
+**It is also the only thing that has ever populated the column in production.** Every
+`worker_profiles` row carrying a `job_domain_id` got it from the pin — `matched_lexical`, 2 of 2,
+with zero rows from the RAG classifier (which is consistent: `DOMAIN_MATCH_ENABLED=false`).
+
+So the ranking is not close:
+
+| candidate | verdict |
+|---|---|
+| **the occupation pin** | deterministic, pre-extraction, already on the wire, already outranks the classifier, 2/2 of production's real values |
+| in-request RAG reorder | makes canonicalization depend on a same-request classification that can be `unmatched_*` — and the pin beats it anyway, by the code's own rule |
+| persisted prior match | the same value one extraction late, absent on a first extraction, and stale by construction |
+
+### 1.3 The blocker this exposes, which is bigger than the wiring
+
+**The pin and the canonicalize pass are on opposite branches, and always have been.**
+
+`/profile/extract` — the only route that canonicalizes — is called from exactly one place:
+`profile-extraction.processor.ts:701`, inside `if (answerMap.length === 0)`. That branch
+hardcodes `pin: null` (`:711`) and never reads `state?.occupation`, because it is the branch for
+"no deterministic record". The OIE branch, which has the pin, calls `/profile/parse` instead —
+and `toExtractionOutput` hardcodes `skills: []`, deliberately: *"CANONICAL IDS ARE NOT INVENTED
+HERE."*
+
+> **The path that has a domain does not canonicalize. The path that canonicalizes has no domain.**
+
+Measured on production, and small enough to be honest about: of 7 `chat_sessions`, 3 carry a pin
+and 4 have an empty answer map — and **0 have both**. The legacy branch has never yet co-occurred
+with a pinned occupation. n=7, so read that as directional, not conclusive; the *structure* holds
+regardless of n, because the two branches are selected by mutually exclusive conditions on the
+same value.
+
+**So the question to answer is not "which value goes in the field".** It is *should the OIE path
+canonicalize at all* — today it does not, on purpose. If the answer is yes, the domain is already
+sitting there for free. If no, the worker-side switch has nothing to switch, and Path A on this
+caller stays theoretical no matter what is wired.
+
+That is a taxonomy/product decision, and it is the one that unblocks S3-C for the worker path.
+
+**One caveat worth keeping visible.** `answerMap.length === 0` is reachable with a *non-null*
+session — "an interview that collected nothing" — so a session that pinned an occupation and then
+collected no answers would take the legacy branch WITH a pin available in `state`, which the
+branch currently discards. Wiring that one case is a two-line change and `state` is already in
+scope. It is deliberately **not** done here: it would populate `job_domain_id`, and populating
+that field IS flipping the read switch.
 
 ---
 
@@ -232,16 +280,51 @@ when a blocker fires, or when no welding-domain skill id is present. `_detect_we
 (`signals.py:1609-1621`) has none of that, and its gazetteer maps the bare word **`"welding"`**
 to `skill_welder_occupation` (`lexicon_data/trades.json:349-350`).
 
-**So an explicit denial still produces a MIG Welder row.** The repo already documents half of
-this, in the gazetteer test's own "KNOWN, DELIBERATE LIMITATIONS":
+**CORRECTION — and the measurement is more interesting than the docstring.** An earlier revision
+of this section asserted, from `tests/test_welding_gazetteer.py:52-54`, that *"a worker who says
+'welding nahi karta' keeps `skill_welder_occupation`"*. **That is no longer true, and it was
+asserted from prose rather than measured.** Running `signals.detect` on the phrase shows the
+skill is NOT emitted: `_apply_negation` masks the welding token before `_detect_welding` ever
+sees it (`signals.py:1884-1885` — the detectors read `masked`, not the raw text). The docstring
+predates that masking and is stale.
 
-> *Blockers suppress the welder ROLE only; welding SKILL ids are still recorded. A worker who
-> says "welding nahi karta" keeps `skill_welder_occupation`.*
-> — `tests/test_welding_gazetteer.py:52-54`
+What the measurement shows instead is a **language asymmetry**, which is a sharper finding:
 
-That was written when the consequence was a skill id. Through the ungated attribute bridge it is
-now `mskill_mig_welder` on `worker_skill`, with the label **"MIG Welder"** shown to a payer. The
-limitation was accepted at one severity and has since acquired another.
+| phrase | negation masked? | reaches `mskill_mig_welder`? | role assigned |
+|---|---|---|---|
+| `welding nahi karta` | **yes** | no | — |
+| `welding nahin karta hu` | **yes** | no | — |
+| `kabhi welding nahi kiya` | **yes** | no | — |
+| `welding karna nahi aata` | **yes** | no | — |
+| **`i don't do welding`** | no | **YES** | **`role_welder`** |
+| `i do not do welding` | no | **YES** | — |
+| `no welding experience` | no | **YES** | — |
+| `never did welding` | no | **YES** | — |
+| `welding rod supply karta hu` | no | **YES** | — |
+| `welding machine repair karta hu` | no | **YES** | — |
+| **`welding shop me helper tha`** | no | **YES** | **`role_welder`** |
+| `pehle welding karta tha, ab CNC lathe chalata hu` | no | **YES** | `role_cnc_operator` |
+
+**8 of 12 non-welder phrases still reach `mskill_mig_welder`.** The negation handling is
+Hindi-shaped — it catches post-verb `nahi`/`nahin` forms and nothing English.
+
+**Two distinct defects, and the second is the worse one:**
+
+1. **`_detect_welding` is ungated** — every phrase the masking does not catch yields
+   `skill_welder_occupation`, and the ungated attribute bridge turns that into
+   `mskill_mig_welder` unconditionally. This is the TD-07 question proper: should a welding
+   *mention* imply a welding *process*?
+2. **The role blocker misses two shapes, so the GATED bridge fails too.** Measured with
+   `welding_role_blocked` directly: `"i don't do welding"` → **`blocked=False`**, and
+   `"welding shop me helper tha"` → **`blocked=False`**. The apostrophe form is in
+   `_WELDING_NEGATION` yet does not fire, and "shop me helper" is not in the blocker list at
+   all. So an **explicit English denial is assigned `role_welder`** — both bridges firing on a
+   worker who said they do not weld.
+
+Defect 2 is not a policy question under any reading — no product decision makes `role_welder`
+correct for *"i don't do welding"*. It is left unfixed here only because the remedy is a
+vocabulary edit to `lexicon_data/trades.json`, which is trainer-owned material and mirrored in
+`packages/profiling-lexicon`. It should not wait on the TD-07 decision.
 
 **The mainline interview path cannot produce the id at all** — and this narrows the live blast
 radius sharply. `toExtractionOutput` hardcodes `canonical_role_id: null, skills: []`
