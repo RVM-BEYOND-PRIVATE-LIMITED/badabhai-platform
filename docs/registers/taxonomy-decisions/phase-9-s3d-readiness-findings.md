@@ -29,6 +29,28 @@ migration 0078, `skill.phrase_unresolved_v2` — is S3-C-ready. Every pin is *up
 |---|---|---|
 | 1 | `profile.py:295,309` | passes `settings.skill_canonicalize_default_domain` (`"cnc-machining"`) as the positional `domain_id`. Blocked at the contract: `ProfileExtractionInput` has **no `job_domain_id` field at all** |
 | 2 | `profile.py:358-404` | the SAME request resolves a real `jd_*` via `match_job_domain` — but **after** the canonicalize pass, and only returns it. Classic "resolves the domain, then does not use it" |
+| 3 | `profile.py:365-372` | never passes `pinned_job_domain_id`, which `domain_match.match_domain` already accepts |
+| 4 | `job-postings.service.ts:45,142` | the ternary is switch-ready, but both CREATE paths pass literal `null` and **nothing anywhere writes `job_postings.job_domain_id`** — no DTO field, no backfill. 100% legacy today |
+| 5 | `skill_store.py:123-152` | **see below — this one is circular** |
+
+### Caller 5 is the one that blocks threshold derivation
+
+`HttpSkillStore.record_unresolved` has **no `job_domain_id` parameter at all**, matching its
+Protocol. `_safe_record` hard-returns when `domain_id is None`, and `canonicalize_skill` calls it
+with the legacy id only. The API side accepts `job_domain_id` on that exact route — migration
+0078 shipped for it — but nothing upstream can send one.
+
+**So flipping the switch would silently drop every Path A MISS** before it reaches the queue
+built to catch misses.
+
+That closes a loop the plan does not currently acknowledge: S3-C's abort thresholds are to be
+derived from shadow data about Path A's failures, and the recording path for those failures
+discards them. **The `unresolved_phrase` volume signal cannot be collected until this caller
+carries `job_domain_id`** — so it is not merely one of five pins, it is a prerequisite of the
+instrumentation the plan gates S3-D on.
+
+This is also why the 0078 work landed one layer short of useful: the column, the widened key,
+the CHECK and the v2 event are all in place and correct, and the producer cannot populate them.
 
 **What this means for sequencing.** The switch cannot be exercised for the worker path until
 `ProfileExtractionInput` carries a `job_domain_id` and the resolve happens *before* the
