@@ -341,7 +341,12 @@ export default async function ChatSessionDetailPage({
               </thead>
               <tbody>
                 {session.answers.map((a) => (
-                  <tr key={`${a.question_key}:${a.answered_at}`}>
+                  /* KEYED ON (pack, version, question) — the row's real identity. The
+                     projection carries no id, and `question_key` alone is NOT unique within
+                     a session: `wpa_worker_question_uq` is `(worker, pack, question_key)`, so
+                     the same key answered under the occupation pack and under the universal
+                     one is two legitimate rows. */
+                  <tr key={`${a.pack_id}:${a.pack_version}:${a.question_key}`}>
                     <th className="table__rowhead mono" scope="row">
                       {a.question_key}
                     </th>
