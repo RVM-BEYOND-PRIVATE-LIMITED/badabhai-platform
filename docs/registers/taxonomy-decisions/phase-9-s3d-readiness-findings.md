@@ -23,40 +23,66 @@ caller would not follow the switch" does not mean "it reads the wrong flag" — 
 keyword-only `job_domain_id`, and the entire NestJS path — DTO, controller, service, repository,
 migration 0078, `skill.phrase_unresolved_v2` — is S3-C-ready. Every pin is *upstream* of it.
 
-**Five live-path callers are pinned**, not one. The most consequential:
+**Five live-path callers were pinned**, not one — pin 5 has since been removed (§1.1). The most
+consequential:
 
 | # | where | why it cannot follow the switch |
 |---|---|---|
-| 1 | `profile.py:295,309` | passes `settings.skill_canonicalize_default_domain` (`"cnc-machining"`) as the positional `domain_id`. Blocked at the contract: `ProfileExtractionInput` has **no `job_domain_id` field at all** |
+| 1 | `profile.py:295,309` | passed `settings.skill_canonicalize_default_domain` (`"cnc-machining"`) as the positional `domain_id`, blocked at the contract because `ProfileExtractionInput` had **no `job_domain_id` field at all**. **Unpinned** — the field exists and the router honours it; what remains is choosing what to put in it (§1.1) |
 | 2 | `profile.py:358-404` | the SAME request resolves a real `jd_*` via `match_job_domain` — but **after** the canonicalize pass, and only returns it. Classic "resolves the domain, then does not use it" |
 | 3 | `profile.py:365-372` | never passes `pinned_job_domain_id`, which `domain_match.match_domain` already accepts |
 | 4 | `job-postings.service.ts:45,142` | the ternary is switch-ready, but both CREATE paths pass literal `null` and **nothing anywhere writes `job_postings.job_domain_id`** — no DTO field, no backfill. 100% legacy today |
-| 5 | `skill_store.py:123-152` | **see below — this one is circular** |
+| 5 | `skill_store.py:123-152` | **was circular — CLOSED, see below** |
 
-### Caller 5 is the one that blocks threshold derivation
+### 1.1 Caller 5 was the one that blocked threshold derivation — and it is now wired
 
-`HttpSkillStore.record_unresolved` has **no `job_domain_id` parameter at all**, matching its
-Protocol. `_safe_record` hard-returns when `domain_id is None`, and `canonicalize_skill` calls it
-with the legacy id only. The API side accepts `job_domain_id` on that exact route — migration
-0078 shipped for it — but nothing upstream can send one.
+**As found.** `HttpSkillStore.record_unresolved` had **no `job_domain_id` parameter at all**,
+matching its Protocol. `_safe_record` hard-returned when `domain_id is None`, and
+`canonicalize_skill` called it with the legacy id only. The API side accepted `job_domain_id`
+on that exact route — migration 0078 shipped for it — but nothing upstream could send one.
 
-**So flipping the switch would silently drop every Path A MISS** before it reaches the queue
-built to catch misses.
+**So flipping the switch would have silently dropped every Path A MISS** before it reached the
+queue built to catch misses. That closed a loop the plan does not acknowledge: S3-C's abort
+thresholds are to be derived from shadow data about Path A's failures, and the recording path
+for those failures discarded them. It was not one of five pins — it was a prerequisite of the
+instrumentation the plan gates S3-D on. It is also why the 0078 work landed one layer short of
+useful: the column, the widened key, the CHECK and the v2 event were all in place and correct,
+and no producer could populate them.
 
-That closes a loop the plan does not currently acknowledge: S3-C's abort thresholds are to be
-derived from shadow data about Path A's failures, and the recording path for those failures
-discards them. **The `unresolved_phrase` volume signal cannot be collected until this caller
-carries `job_domain_id`** — so it is not merely one of five pins, it is a prerequisite of the
-instrumentation the plan gates S3-D on.
+**As fixed.** The scope now travels end to end and the seam is symmetric — both store methods
+take the same keyword-only `job_domain_id`, defaulted, so a store predating the parameter keeps
+working and one asked for a canonical scope degrades like an outage rather than 500-ing a
+worker's turn:
 
-This is also why the 0078 work landed one layer short of useful: the column, the widened key,
-the CHECK and the v2 event are all in place and correct, and the producer cannot populate them.
+```
+ProfileExtractionInput.job_domain_id   (new, optional, bounded 1..64)
+  → profile.py picks EXACTLY ONE scope for the pass
+    → canonicalize_labels(job_domain_id=…)
+      → canonicalize_skill → _safe_record(job_domain_id=…)
+        → HttpSkillStore.record_unresolved → POST /internal/skills/unresolved
+          → unresolved_phrase.job_domain_id + skill.phrase_unresolved_v2
+```
 
-**What this means for sequencing.** The switch cannot be exercised for the worker path until
-`ProfileExtractionInput` carries a `job_domain_id` and the resolve happens *before* the
-canonicalize pass, not after. That is a contract change plus a reordering — engineering-safe,
-additive, and not yet done. It is the honest reason S3-D's "everything is tied to the switch"
-property does not hold today.
+**What is deliberately NOT in it.** Nothing populates `ProfileExtractionInput.job_domain_id`
+— `profile-extraction.processor.ts:701` still sends `{worker_ref, transcript, messages}`, so
+every extraction takes the legacy branch and is byte-identical. That one field IS the flip for
+this caller, which is the property the plan wants: there is no flag to unwind, and reverting is
+deleting a field rather than re-sequencing a deploy.
+
+**The remaining sequencing question is a real one, and it is not engineering's.** For the
+worker path there is no obvious value to put in that field: a worker has no job domain at
+extraction time — `match_job_domain` is what *computes* one, and it runs after the canonicalize
+pass. Two candidate producers exist and they differ in kind:
+
+- **reorder in-request** — move the RAG match ahead of the canonicalize pass and feed its
+  result in. Mechanically feasible (the query is built from `rich.skills` / `rich.machines` /
+  `canonical_role_id`, all available earlier), but it makes canonicalization depend on a
+  same-request classification that can itself be `unmatched_*`.
+- **use the previously persisted match** — `worker_profiles.job_domain_id` from an earlier
+  extraction. Stable and cheap, but absent on a first extraction and stale by construction.
+
+Both change what a worker's skills are canonicalized *against*, so the choice is a taxonomy
+decision rather than a wiring one. It is listed as such in the decision set.
 
 ---
 
@@ -178,7 +204,7 @@ framing predates this measurement.
 | 1 | no S3-D rollback | ✅ **built** — `db:rollback:s3d`, capture/restore, 18 tests |
 | 2 | `--preserve-existing-status` missing | ✅ **built** — 14 tests, merged |
 | 3 | abort thresholds uninstrumented | ▲ **instrument built** — `db:report:s3d-shadow`. Thresholds still un-set, deliberately |
-| 4 | worker/profile caller has no switch | ⏸ **scoped** — §1. Contract change + reordering, engineering-safe, not done |
+| 4 | worker/profile caller has no switch | ✅ **wired** — §1.1. Contract field + router propagation + the miss path, end to end. Nothing populates it, which is the flip |
 | 5 | retag guard keys on `NODE_ENV` | ✅ **fixed** — `ops-guard.ts`, database-aware, 25 tests |
 
 **The shadow's headline number is the one to read first**: Path A returns nothing for **65 of 123**

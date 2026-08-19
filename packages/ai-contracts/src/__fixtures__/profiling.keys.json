@@ -52,7 +52,15 @@
     "pseudonymization_metadata"
   ],
 
-  "ProfileExtractionInput": ["worker_ref", "language", "transcript", "messages", "role_family"],
+  "_ProfileExtractionInput": "`job_domain_id` is the S3-C read switch for this caller — supplying it scopes the canonicalization pass to Path A (job_domain_skill); omitting it leaves the legacy Path B slug. A request field rather than a flag, because the plan defines the switch as which field the caller populates.",
+  "ProfileExtractionInput": [
+    "worker_ref",
+    "language",
+    "transcript",
+    "messages",
+    "role_family",
+    "job_domain_id"
+  ],
 
   "_ProfileExtractionOutput": "`job_domain_match` is null when the RAG pass DID NOT RUN (flag off, or a blocked extraction), which is deliberately distinct from a pass that ran and returned an unmatched status. The persistence side writes nothing in the first case and records the reason in the second.",
   "ProfileExtractionOutput": [

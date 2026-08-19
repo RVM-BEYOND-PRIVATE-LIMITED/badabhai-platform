@@ -107,14 +107,25 @@ class TaxonomyStore:
         rows.sort(key=lambda r: r[1], reverse=True)
         return rows[:k]
 
-    def record_unresolved(self, phrase, domain_id, lang):
-        self.unresolved.append({"phrase": phrase, "domain_id": domain_id, "lang": lang})
+    def record_unresolved(self, phrase, domain_id, lang, *, job_domain_id=None):
+        self.unresolved.append(
+            {
+                "phrase": phrase,
+                "domain_id": domain_id,
+                "lang": lang,
+                "job_domain_id": job_domain_id,
+            }
+        )
 
 
 class PrePhase15Store:
-    """A store written BEFORE the cutover: `nearest_aliases` has NO `job_domain_id`
-    parameter. Passing the kwarg to it is a `TypeError` — which is precisely why the legacy
-    path must not pass it, and why the canonical path must degrade instead of exploding."""
+    """A store written BEFORE the cutover: NEITHER method has a `job_domain_id` parameter.
+    Passing the kwarg to either is a `TypeError` — which is precisely why the legacy path
+    must not pass it, and why the canonical path must degrade instead of exploding.
+
+    Both methods are deliberately left un-widened. `record_unresolved` grew the same
+    keyword-only parameter as `nearest_aliases` when the canonical miss path opened, so the
+    rollout hazard is now present on both halves of the seam and both need the same net."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str | None, int]] = []
@@ -135,7 +146,7 @@ class ExplodingStore:
     def nearest_aliases(self, domain_id, query_vector, k, *, job_domain_id=None):
         raise RuntimeError("db is on fire")
 
-    def record_unresolved(self, phrase, domain_id, lang):
+    def record_unresolved(self, phrase, domain_id, lang, *, job_domain_id=None):
         raise RuntimeError("still on fire")
 
 
@@ -145,7 +156,7 @@ class ForbiddenStore:
     def nearest_aliases(self, domain_id, query_vector, k, *, job_domain_id=None):
         raise AssertionError("the store must not be reached on this path")
 
-    def record_unresolved(self, phrase, domain_id, lang):
+    def record_unresolved(self, phrase, domain_id, lang, *, job_domain_id=None):
         raise AssertionError("nothing may be recorded on this path")
 
 
@@ -265,8 +276,15 @@ def test_the_legacy_miss_still_records_its_slug():
     res = canonicalize_skill("astrophysics lecturer", LEGACY_DOMAIN, store, _settings())
 
     assert res.status == "unresolved"
+    # The WHOLE row, `job_domain_id` included: the legacy path must reach the store with the
+    # canonical scope absent, not merely with the right slug present.
     assert store.unresolved == [
-        {"phrase": "astrophysics lecturer", "domain_id": LEGACY_DOMAIN, "lang": "en"}
+        {
+            "phrase": "astrophysics lecturer",
+            "domain_id": LEGACY_DOMAIN,
+            "lang": "en",
+            "job_domain_id": None,
+        }
     ]
 
 
@@ -414,28 +432,27 @@ def test_canonicalize_labels_refuses_every_label_when_unscoped(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 4. THE MISS: a canonical-scoped miss records a NULL domain, never a jd_* id
+# 4. THE MISS: each scope queues under ITS OWN id, and never under the other's
 # ---------------------------------------------------------------------------
-def test_a_canonical_scoped_miss_is_not_queued_at_all_and_still_returns_unresolved():
-    """THIS TEST WAS INVERTED, and the inversion is the ruling landing.
+def test_a_canonical_scoped_miss_is_queued_under_its_job_domain_id():
+    """THIS TEST HAS BEEN INVERTED TWICE, and both inversions were the schema catching up.
 
-    It used to assert the miss was recorded with `domain_id=None`. That required the v1
-    `skill.phrase_unresolved` payload to accept a null `domain_id`, i.e. mutating a shipped
-    event schema — a CLAUDE.md §3 non-negotiable. The Architect ruled: keep v1 intact and
-    close the path instead.
+    Originally it asserted the miss was recorded with `domain_id=None`. That required the v1
+    `skill.phrase_unresolved` payload to accept a null `domain_id` — mutating a shipped event
+    schema, a CLAUDE.md §3 non-negotiable — so it was inverted to assert the miss was NOT
+    queued at all, and its docstring named the exact condition that would reopen it: a
+    `job_domain_id` column on `unresolved_phrase` plus an additive event payload.
 
-    So a canonical-scoped miss is now NOT QUEUED. The two rejected alternatives are worth
-    naming, because "not queued" sounds like the lazy option and is not: writing `jd_welding`
-    into the LEGACY-slug `domain_id` column would put two id spaces in one column and corrupt
-    every per-domain reader of the growth queue; and writing the row with a null domain would
-    write it and THEN fail event validation, leaving a queued phrase with no event.
+    BOTH SHIPPED. Migration 0078 added the column, widened `unresolved_phrase_scope_uq` to
+    include it, and added `unresolved_phrase_one_domain_chk`; the api emits
+    `skill.phrase_unresolved_v2` for the canonical scope, which is a second registry entry
+    rather than a relaxed v1. So the miss is queued again — under its OWN id this time,
+    which is what the first version could not express.
 
-    The embed is still paid for and the result is still UNRESOLVED — the caller sees exactly
-    what it saw before. Only the growth-queue side effect is missing, and it is missing
-    LOUDLY (an INFO log naming the reason), not silently.
-
-    Reopened by: adding `job_domain_id` to `unresolved_phrase` + an ADDITIVE optional field
-    on the event payload (additive is not a mutation). Hard prerequisite of the payer picker.
+    The two alternatives that stayed rejected: writing `jd_welding` into the LEGACY-slug
+    `domain_id` column (two id spaces in one column, corrupting every per-domain reader of
+    the growth queue), and writing the row with both nulls (the CHECK constraint now makes
+    that unrepresentable at the table).
     """
     store = TaxonomyStore()
     store.seed_canonical("skill_mig_welding", JOB_DOMAIN, "MIG welding")
@@ -446,11 +463,45 @@ def test_a_canonical_scoped_miss_is_not_queued_at_all_and_still_returns_unresolv
 
     assert res.status == "unresolved" and res.skill_id is None
     assert res.ai_metadata is not None  # the embed was still paid for (#745)
-    assert store.unresolved == [], "a canonical-scoped miss has no queue to land in yet"
+    assert len(store.unresolved) == 1
+    row = store.unresolved[0]
+    assert row["job_domain_id"] == JOB_DOMAIN
+    # THE ID-SPACE GUARD, and the reason this is a separate assertion from the one above:
+    # recording the miss and recording it in the RIGHT column are two different successes,
+    # and only the second one keeps the growth queue readable.
+    assert row["domain_id"] is None, "a jd_* id must never reach the legacy slug column"
+
+
+def test_the_canonical_miss_the_shadow_needs_is_the_one_this_path_records():
+    """WHY THE ABOVE IS A BLOCKER AND NOT A NICETY, pinned as behaviour rather than prose.
+
+    `unresolved_phrase` is the table built to catch retrieval failures, and Path A's
+    empty-rate is the first abort signal in the S3-D plan. While this path was closed, a
+    Path A miss produced NOTHING anywhere — so flipping the read switch would have hidden
+    exactly the failures the switch is watched for, and the thresholds derived from that
+    volume would have been derived from silence.
+
+    A miss under a domain that owns no matching alias must therefore produce a row carrying
+    the domain it missed in — that pair, not merely a row, is the signal.
+    """
+    store = TaxonomyStore()
+    # A canonical domain with a linked skill, queried for something unrelated: the exact
+    # shape of a Path A miss in a domain whose vocabulary is still thin.
+    store.seed_canonical("skill_mig_welding", JOB_DOMAIN, "MIG welding")
+
+    canonicalize_labels(
+        ["underwater basket weaving", "competitive napping"],
+        None,
+        store,
+        _settings(),
+        job_domain_id=JOB_DOMAIN,
+    )
+
+    assert [r["job_domain_id"] for r in store.unresolved] == [JOB_DOMAIN, JOB_DOMAIN]
 
 
 def test_a_LEGACY_scoped_miss_is_still_queued_exactly_as_before():
-    """The regression pin for the half that did NOT change. Closing the canonical miss path
+    """The regression pin for the half that did NOT change. Opening the canonical miss path
     must not touch the legacy one, which is the only one reachable in production today."""
     store = TaxonomyStore()
     store.seed_legacy("skill_mig_welding", LEGACY_DOMAIN, "MIG welding")
@@ -462,13 +513,15 @@ def test_a_LEGACY_scoped_miss_is_still_queued_exactly_as_before():
     row = store.unresolved[0]
     assert row["domain_id"] == LEGACY_DOMAIN
     assert row["lang"] == "en"
+    assert row["job_domain_id"] is None
     assert "jd_" not in str(row), "a jd_* id must never be written into the legacy slug column"
 
 
 def test_a_legacy_scoped_miss_records_the_masked_text_not_the_raw_phrase():
     """SG-1. An employer name MASKS without blocking, which is the only input that can tell
-    `emb.text` and the raw `phrase` apart. Moved onto the LEGACY scope because the canonical
-    scope no longer records at all — the property still needs a live path to be pinned on."""
+    `emb.text` and the raw `phrase` apart. Pinned on the LEGACY scope because that is the one
+    reachable in production today; the property is scope-independent — `emb.text` is what
+    `_safe_record` receives on both paths."""
     store = TaxonomyStore()
     store.seed_legacy("skill_mig_welding", LEGACY_DOMAIN, "MIG welding")
 
@@ -503,7 +556,12 @@ def test_a_pre_phase_1_5_store_asked_for_a_canonical_scope_degrades_instead_of_r
     res = canonicalize_skill("MIG welding", None, store, _settings(), job_domain_id=JOB_DOMAIN)
 
     assert res.status == "unresolved"
-    assert store.calls == []  # it never accepted the call
+    assert store.calls == []  # it never accepted the search
+    # AND THE SAME MUST HOLD FOR THE MISS. `record_unresolved` grew the same keyword-only
+    # parameter, so an out-of-date store now has TWO ways to raise `TypeError` on the
+    # canonical path — the second one arrives after the embed is already paid for, which
+    # is exactly when a 500 would be least excusable.
+    assert store.unresolved == []
 
 
 def test_a_blocked_phrase_under_a_canonical_scope_is_unresolved_and_records_nothing(monkeypatch):
@@ -600,20 +658,54 @@ def test_the_store_refuses_to_search_with_both_scopes(monkeypatch):
     assert _FakeClient.calls == []
 
 
-def test_the_unresolved_post_refuses_a_null_domain_locally_and_spends_no_round_trip(monkeypatch):
-    """INVERTED alongside the schema ruling. The api route requires a non-null `domain_id`
-    (the v1 event payload declares `string`), so posting null would earn a 400 and log a
-    misleading "failed" warning. The store refuses locally instead — defence in depth behind
-    `_safe_record`, which already skips this case."""
+def test_the_unresolved_post_refuses_when_NEITHER_scope_is_supplied(monkeypatch):
+    """No scope means no bucket. `RecordUnresolvedDtoSchema`'s exactly-one-of refine would
+    400 the body and `unresolved_phrase_one_domain_chk` would refuse the row, so posting it
+    buys a round trip and a misleading "failed" warning. Refuse locally instead — defence in
+    depth behind `_safe_record`, which already skips this case."""
     store = _use_fake_client(monkeypatch, _FakeResponse(204))
 
     store.record_unresolved("[EMPLOYER_1] polish work", None, "en")
 
-    assert _FakeClient.calls == [], "no HTTP call should be made for a null domain"
+    assert _FakeClient.calls == [], "no HTTP call should be made with no scope"
+
+
+def test_the_unresolved_post_refuses_when_BOTH_scopes_are_supplied(monkeypatch):
+    """The mirror of the search half's both-scopes refusal, and the arm that actually
+    protects the data: two ids would leave the api choosing which one the row means, and
+    the table's CHECK forbids the pair outright."""
+    store = _use_fake_client(monkeypatch, _FakeResponse(204))
+
+    store.record_unresolved(
+        "[EMPLOYER_1] polish work", LEGACY_DOMAIN, "en", job_domain_id=JOB_DOMAIN
+    )
+
+    assert _FakeClient.calls == []
+
+
+def test_the_canonical_unresolved_body_carries_job_domain_id_and_omits_domain_id(monkeypatch):
+    """OMITTED, not null — and here that distinction is load-bearing twice over.
+    `RecordUnresolvedDtoSchema` types both scope keys `z.string().optional()`, so an explicit
+    `null` fails the string parse; and its refine tests `=== undefined`, so a null would also
+    read as "supplied" and trip the exactly-one-of rule. Either way a well-meant body 400s."""
+    store = _use_fake_client(monkeypatch, _FakeResponse(204))
+
+    store.record_unresolved("[EMPLOYER_1] polish work", None, "en", job_domain_id=JOB_DOMAIN)
+
+    url, req = _FakeClient.calls[0]
+    assert url.endswith("/internal/skills/unresolved")
+    assert req["json"] == {
+        "phrase": "[EMPLOYER_1] polish work",
+        "job_domain_id": JOB_DOMAIN,
+        "lang": "en",
+    }
+    assert "domain_id" not in req["json"]
 
 
 def test_the_unresolved_post_still_sends_a_legacy_domain_unchanged(monkeypatch):
-    """The regression pin: refusing null must not disturb the path that actually runs."""
+    """The regression pin: opening the canonical arm must not disturb the path that actually
+    runs. Key ORDER is asserted, not just membership — the legacy body must be identical to
+    the one this route has always received."""
     store = _use_fake_client(monkeypatch, _FakeResponse(204))
 
     store.record_unresolved("[EMPLOYER_1] polish work", LEGACY_DOMAIN, "en")
@@ -625,6 +717,7 @@ def test_the_unresolved_post_still_sends_a_legacy_domain_unchanged(monkeypatch):
         "domain_id": LEGACY_DOMAIN,
         "lang": "en",
     }
+    assert list(req["json"].keys()) == ["phrase", "domain_id", "lang"]
 
 
 # ---------------------------------------------------------------------------
