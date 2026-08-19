@@ -22,6 +22,7 @@ import {
   driftRemedy,
   evaluateContract,
   migrationDrift,
+  rlsLocked,
   uniqueIndexMatches,
   type JournalEntry,
   type PresenceMap,
@@ -128,6 +129,26 @@ async function main(): Promise<void> {
                WHERE table_name = ${r.table} AND column_name = ${r.object ?? ""}) AS ok`,
         )) as unknown as { ok: boolean }[];
         presence[r.id] = row?.ok === true;
+      } else if (r.kind === "rls") {
+        // Three facts in one probe. `pg_class` carries ENABLE/FORCE; the grants live in
+        // `information_schema`, which reports the OWNER's rows too — harmless, because
+        // `rlsLocked` only looks for the Data-API roles and FORCE is what handles the owner.
+        const [row] = (await db.execute(
+          dsql`SELECT c.relrowsecurity AS enabled, c.relforcerowsecurity AS forced
+               FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE c.relname = ${r.table} AND n.nspname = 'public'`,
+        )) as unknown as { enabled: boolean; forced: boolean }[];
+        const grants = (await db.execute(
+          dsql`SELECT DISTINCT grantee FROM information_schema.role_table_grants
+               WHERE table_name = ${r.table} AND table_schema = 'public'`,
+        )) as unknown as { grantee: string }[];
+        presence[r.id] =
+          row !== undefined &&
+          rlsLocked({
+            enabled: row.enabled === true,
+            forced: row.forced === true,
+            grantedRoles: grants.map((g) => g.grantee),
+          });
       } else if (r.kind === "constraint") {
         const [row] = (await db.execute(
           dsql`SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conname = ${r.object ?? ""}) AS ok`,

@@ -39,8 +39,8 @@ export interface SchemaRequirement {
   readonly id: string;
   /** The migration that introduces it. */
   readonly migration: string;
-  /** `table` | `column` | `constraint` | `index`. */
-  readonly kind: "table" | "column" | "constraint" | "index";
+  /** `table` | `column` | `constraint` | `index` | `rls`. */
+  readonly kind: "table" | "column" | "constraint" | "index" | "rls";
   readonly table: string;
   /** Column name for `column`, constraint/index name otherwise. Unused for `table`. */
   readonly object?: string;
@@ -102,10 +102,49 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     failureMode:
       "every worker feedback submission 500s and the typed message is lost with the response; the admin Feedback screen 500s on first page load. LOUD on both surfaces, unlike 0078",
   },
+  {
+    id: "0080-worker-feedback-rls",
+    migration: "0080_worker_feedback",
+    kind: "rls",
+    table: "worker_feedback",
+    requiredBy:
+      "the RLS tail is HAND-APPENDED in the migration — drizzle-kit models ENABLE and neither " +
+      "FORCE nor the four REVOKEs — so it is exactly the part a hand-run apply or a regenerate " +
+      "drops, and nothing in ordinary CI notices: tests/e2e/rls-spine.e2e.test.ts is skipIf-gated",
+    failureMode:
+      "SILENT, and the worst kind on this table: `worker_feedback.message` is the one column on " +
+      "the spine deliberately allowed to hold a worker's own free-text PII. Without FORCE the " +
+      "owner — the only connection the backend uses — bypasses every policy, and without the " +
+      "REVOKEs every PostgREST role can read it. Both surfaces keep working, so nothing reports it",
+  },
 ] as const;
 
 /** What the live database actually has, keyed by requirement id. */
 export type PresenceMap = Readonly<Record<string, boolean>>;
+
+/** The Data-API roles a spine table must never grant to. The owner is handled by FORCE. */
+export const DATA_API_ROLES = ["anon", "authenticated", "service_role", "PUBLIC"] as const;
+
+/**
+ * Is this table actually locked?
+ *
+ * THREE CONDITIONS, ALL REQUIRED, and the reason the middle one is not redundant: `ENABLE ROW
+ * LEVEL SECURITY` alone is decorative here, because the table OWNER bypasses every policy and
+ * the owner is the only connection the backend uses. `FORCE` is what makes the lock apply to
+ * the one role that matters. The REVOKEs then handle the roles that never see a policy at all.
+ *
+ * Case-insensitive on the role name because `PUBLIC` is spelled that way in DDL and lowercased
+ * in the catalog — matching only one spelling would let the broadest grant of all through.
+ */
+export function rlsLocked(state: {
+  enabled: boolean;
+  forced: boolean;
+  grantedRoles: readonly string[];
+}): boolean {
+  if (!state.enabled || !state.forced) return false;
+  const granted = new Set(state.grantedRoles.map((r) => r.toLowerCase()));
+  return !DATA_API_ROLES.some((r) => granted.has(r.toLowerCase()));
+}
 
 export interface ContractResult {
   readonly requirement: SchemaRequirement;
