@@ -92,7 +92,12 @@ function dataPath(...p: string[]): string {
 }
 
 /** Alias vectors, keyed by text. Model-pinned: a foreign stamp is fatal, not a warning. */
-function loadVectors(file: string): Map<string, number[]> {
+/**
+ * Exported so the S3-D shadow report reads the SAME corpus this replay does. A second loader
+ * would be a second definition of "what Path A can see", which is the duplicate-rule defect
+ * this phase has now found four times.
+ */
+export function loadVectors(file: string): Map<string, number[]> {
   const out = new Map<string, number[]>();
   const foreign = new Set<string>();
   for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
@@ -139,7 +144,7 @@ const sha = (t: string) => createHash("sha256").update(t, "utf8").digest("hex");
  * production. `SKILL_CORPUS DOES NOT GROW` is a boundary in the seeder, not in retrieval:
  * `skill_alias` ends up holding both.
  */
-function loadCorpusInput(vectors: Map<string, number[]>): CorpusInput {
+export function loadCorpusInput(vectors: Map<string, number[]>): CorpusInput {
   const skills: ReplaySkill[] = SKILL_CORPUS.map((s) => ({
     skillId: s.skillId,
     status: s.status,
@@ -507,4 +512,8 @@ function main(): void {
   console.log(`\n[replay:path-a] done — nothing was written to any database, no provider was called.`);
 }
 
-main();
+// GUARDED: this module now exports `loadVectors` / `loadCorpusInput`, so importing either must
+// not run the whole replay.
+if (require.main === module) {
+  main();
+}

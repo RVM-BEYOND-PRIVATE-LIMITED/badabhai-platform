@@ -50,6 +50,7 @@ import { existsSync, writeFileSync } from "node:fs";
 import { sql as dsql } from "drizzle-orm";
 
 import { createDbClient } from "./client";
+import { hostClass } from "./ops-guard";
 import { classifyEmbedding, corpusBlockReason, type ProvenanceReport } from "./taxonomy-retrieval-eval";
 
 config();
@@ -108,18 +109,13 @@ export interface VocabularyAudit {
   unstampedIds: string[];
 }
 
-/** Coarse enough to be safe in any log, specific enough to prevent a wrong-database mistake. */
-export function hostClass(connectionString: string): string {
-  let host: string;
-  try {
-    host = new URL(connectionString).hostname;
-  } catch {
-    return "UNPARSEABLE";
-  }
-  if (/^(localhost|127\.0\.0\.1|::1)$/i.test(host)) return "LOCAL DOCKER";
-  if (/supabase/i.test(host)) return "SUPABASE (remote)";
-  return "OTHER-REMOTE";
-}
+/**
+ * Re-exported from `ops-guard`, which owns the classification now.
+ *
+ * It used to be defined here, and `ops-guard` would have been the second copy — the same
+ * duplicate-rule shape as the COVERAGE_ONLY_CATEGORIES defect. One definition, imported.
+ */
+export { hostClass };
 
 /** L2 norm, to the precision the report prints. */
 export function l2Norm(v: readonly number[]): number {
