@@ -41,7 +41,7 @@ const STEP_TITLES: Record<JourneyStepKey, string> = {
 /** What the step actually measures — the thing an operator needs to read the count correctly. */
 const STEP_BLURBS: Record<JourneyStepKey, string> = {
   login: "A worker record cannot exist without a completed OTP verify, so this step is always done — what matters is when, and how often.",
-  profiling: "Questions settled against the pack versions this worker's own answers stamp — never against whatever pack is active today.",
+  profiling: "Questions settled against both packs the interview runs — this worker's own trade pack, taken from the versions their answers stamp, plus the universal tail every worker is asked. The same total the worker's own progress bar showed them.",
   resume: "Résumé rows for this worker. The PDF render is a second, independently failing leg.",
   profile_confirmed: "The worker has seen their extracted profile and confirmed it. Extracting or extracted is progress, not completion.",
   job_search_apply: "Applying is the step. Searching and skipping are real engagement, but they are the step before.",
@@ -221,8 +221,13 @@ export function describeJourneyCaveat(code: string): CaveatView {
       };
     case "pack_version_retired":
       return {
-        title: "A pack version was retired under this worker's answers",
-        body: "At least one pack version they answered under has no question items left, so the profiling denominator is an undercount and the progress figure is not trustworthy.",
+        // WIDENED, because the server widened what it fires on. The code now covers three
+        // ways the corpus can stop accounting for a worker's answers — a whole pack version
+        // with no items left, a single question dropped by a re-seed, and a re-interview that
+        // settles one question under two packs. Naming only the first would tell an operator
+        // something specific and, two thirds of the time, false.
+        title: "The question packs no longer account for all of this worker's answers",
+        body: "A pack version they answered under has lost its questions, or a question was retired from under them, or they were re-interviewed and one question settled under two packs. Either way the profiling total no longer describes the answers counted against it, so read the progress figure as approximate — the answered and declined counts beside it are exact.",
       };
     case "stuck_items_unresolved":
       return {

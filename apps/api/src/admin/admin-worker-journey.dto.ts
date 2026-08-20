@@ -129,9 +129,19 @@ export const JOURNEY_CAVEATS = [
    */
   "no_conversation_state",
   /**
-   * The worker has `worker_pack_answer` rows whose `(pack_id, pack_version)` no longer has
-   * any `question_pack_item` rows — a pack version retired out from under the answers. The
-   * profiling denominator is then an UNDERCOUNT, so the progress bar is not trustworthy.
+   * THE PACK CORPUS NO LONGER ACCOUNTS FOR THIS WORKER'S ANSWERS, so the profiling denominator
+   * has stopped describing its own numerator and the progress figure is approximate.
+   *
+   * ONE CAVEAT, THREE WAYS IN — deliberately not three codes, because they are one fact and a
+   * reader can act on it identically:
+   *
+   *  - a `(pack_id, pack_version)` the worker's rows stamp has no `question_pack_item` rows
+   *    left (the original meaning: a version retired out from under the answers);
+   *  - a SETTLED answer whose `question_key` no contributing pack still owns — the same
+   *    retirement one question at a time, which a re-seed that drops a question produces;
+   *  - `completed` had to be CLAMPED to `total`. A re-interview under a second trade stamps
+   *    the universal answers again under the new occupation pack, so one question yields two
+   *    rows against a denominator that counts it once.
    */
   "pack_version_retired",
   /**
@@ -202,18 +212,31 @@ export interface AdminJourneyLoginStep extends AdminJourneyStepBase {
  * NUMERATOR (`completed`): the worker's own `worker_pack_answer` rows in a SETTLED status —
  * `SETTLED_ANSWER_STATUSES`, i.e. `answered` + `declined`. `unanswered` is excluded, because a
  * question that was served and left unanswered is not progress; it is the absence of it.
- * DENOMINATOR: `question_pack_item` counts for exactly the `(pack_id, pack_version)` pairs
- * those rows STAMP THEMSELVES WITH — never "the currently active pack".
+ *
+ * DENOMINATOR (`total`): `question_pack_item` counts for BOTH packs the interview runs — the
+ * occupation pack, taken from the `(pack_id, pack_version)` pairs the worker's own rows stamp,
+ * and the universal tail, which nothing stamps and nothing pins. This is the same sum the
+ * engine shows the WORKER (`progressOf` in `next-question.ts` is
+ * `occupation.items.length + universal.items.length`), so the two screens now agree.
  *
  * ⚠ `completed` IS NOT `sum(packs[].answer_count)` — see `answer_count` below.
  *
- * ⚠ WHY THAT DISTINCTION IS LOAD-BEARING. The interview merges TWO packs, an occupation pack
- * and a universal one, and only the occupation pack is pinned on `chat_sessions.pack_id`. The
- * universal pack is resolved fresh from whatever is `active` at the time. So re-deriving the
- * denominator from the active packs silently changes a finished worker's total the moment a
- * pack is re-seeded — the progress bar moves for a worker who did nothing. Each answer row
- * carries its own `pack_id` + `pack_version`, which is the only record of what that worker
- * was actually asked; that is what this counts.
+ * ⚠ AND `completed` MAY BE LESS THAN `answered_count + declined_count`. It is capped at
+ * `total`: a retired question, or a re-interview that stamps the universal answers a second
+ * time under a new occupation pack, gives a worker more settled ROWS than the corpus has
+ * QUESTIONS, and `13 of 12` is a bug on the screen whatever caused it. When the cap bites,
+ * `pack_version_retired` is on the response saying so, and the uncapped figures stay on
+ * `answered_count` / `declined_count`.
+ *
+ * ⚠ WHY THE UNIVERSAL HALF CANNOT COME FROM THE ANSWER ROWS. `packAnswerRowFor` takes ONE
+ * `packId` per call and both callers pass the SESSION'S pack — which is the OCCUPATION pin —
+ * so a universal answer is stored with `pack_id = 'qp_welding'`. Counting only the stamped
+ * pairs therefore dropped the universal pack's eight questions out of every worker's total:
+ * measured on the verification database, 17 of 21 `(worker, pack)` groups reported MORE
+ * settled answers than their stamped pack has items, the modal reading being `12 of 6` with
+ * status `done` — and the questions the worker never reached were not representable at all.
+ * The fix is in this read path; re-stamping the rows would collide on
+ * `wpa_worker_question_uq` `(worker_id, pack_id, question_key)`.
  */
 export interface AdminJourneyProfilingStep extends AdminJourneyStepBase {
   key: "profiling";
@@ -228,7 +251,20 @@ export interface AdminJourneyProfilingStep extends AdminJourneyStepBase {
   unanswered_count: number;
   /** How many interview sessions this worker has, whatever their status. */
   session_count: number;
-  /** One row per pack version this worker's answers actually stamp. */
+  /**
+   * One row per pack version this worker's answers actually STAMP.
+   *
+   * ⚠ THIS IS NOT THE DENOMINATOR'S PACK LIST, and the gap is not an oversight. `total` also
+   * counts the universal tail, which appears here for nobody: no answer row names it (see the
+   * step header), so a row for it could only claim `answer_count: 0` against questions the
+   * worker demonstrably answered. Sending a row that is wrong about the worker in order to
+   * make two lists match would be the worse trade.
+   *
+   * The visible consequence is that one row can carry more answers than its pack has items —
+   * `12 answer rows against 6 questions` for a welder who also answered six universal
+   * questions. That is a true statement about the STAMP. It is not a progress reading, which
+   * is why the portal renders these as volume rather than as a fraction.
+   */
   packs: AdminJourneyPackProgress[];
 }
 

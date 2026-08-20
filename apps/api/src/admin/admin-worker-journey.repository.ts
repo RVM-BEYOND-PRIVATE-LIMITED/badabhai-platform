@@ -1,5 +1,19 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, asc, count, countDistinct, desc, eq, inArray, lt, max, min, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  countDistinct,
+  desc,
+  eq,
+  inArray,
+  lt,
+  max,
+  min,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
 import type { ChatSessionStatus } from "@badabhai/types";
 import {
@@ -155,12 +169,17 @@ export class AdminWorkerJourneyRepository {
   /**
    * The `(pack_id, pack_version)` pairs THE WORKER'S OWN ANSWERS STAMP, with a count each.
    *
-   * ⚠ THIS IS THE DENOMINATOR'S ONLY SOURCE, and the reason is in the DTO header: the
-   * interview merges an occupation pack AND a universal pack, only the occupation one is
-   * pinned on `chat_sessions`, and the universal one is resolved fresh from whatever is
-   * `active`. Deriving the total from "the currently active pack" therefore moves a finished
-   * worker's denominator whenever a pack is re-seeded. Every answer row stamps the pack
-   * version that actually asked it; nothing else does.
+   * ⚠ THE DURABLE HALF OF THE DENOMINATOR, AND — MEASURED — NOT ALL OF IT. Every answer row
+   * stamps a pack version, so this is the only record of which OCCUPATION pack actually asked
+   * this worker, and it must never be replaced by "whatever is active today": that would move
+   * a finished worker's total on every re-seed.
+   *
+   * It does not name the UNIVERSAL pack, though, and the reason is a property of the writer
+   * rather than of this query. `packAnswerRowFor` takes ONE `packId` per call and both of its
+   * callers pass the SESSION'S pack — which is the occupation pin — so a universal answer is
+   * written with `pack_id = 'qp_welding'`. On the verification database 17 of 21
+   * `(worker, pack)` groups therefore held MORE answers than their stamped pack has items.
+   * {@link findActiveUniversalPack} supplies the missing half; see the service header.
    *
    * Ordered + capped so the fan-out below is bounded and deterministic.
    */
@@ -225,6 +244,71 @@ export class AdminWorkerJourneyRepository {
       packVersion: r.packVersion,
       itemCount: r.itemCount,
     }));
+  }
+
+  /**
+   * How many of this worker's SETTLED question keys no contributing pack still owns.
+   *
+   * ⚠ THE ONE THING THE DENOMINATOR CANNOT SEE ABOUT ITSELF. `countPackItems` says how many
+   * questions the contributing packs hold; it cannot say whether the worker's answers are
+   * answers to THOSE questions. A pack re-seed that drops a question leaves the worker holding
+   * a settled row for a key that has ceased to exist, and the summary then reads "10 of 14"
+   * while really meaning "8 of the current 14, plus 2 questions nobody asks any more".
+   *
+   * That is the same class as a whole pack version losing its items — the corpus moved under
+   * the answers, so the denominator no longer describes the numerator — and the caller raises
+   * the SAME `pack_version_retired` caveat for it rather than inventing a second one.
+   *
+   * A COUNT, NOT THE KEYS. The keys are already published elsewhere on this surface, but the
+   * summary has nowhere to put them and pulling them here would be fetching a value with no
+   * reader — the rule `voice_note_id` and `error_message` are held to one file over.
+   *
+   * Zero pairs ⇒ zero, and that is exact rather than a guard: the caller derives its pairs
+   * from `answeredPackVersions`, which is empty only when the worker has no answer rows at
+   * all, so there are no settled keys to be outside anything.
+   *
+   * INDEXES: `wpa_worker_question_uq` leads on `worker_id` for the outer scan;
+   * `qpi_pack_idx` on `(pack_id, pack_version)` bounds each `NOT EXISTS` probe to one pack.
+   */
+  async countSettledKeysOutsidePacks(
+    workerId: string,
+    pairs: ReadonlyArray<{ packId: string; packVersion: number }>,
+  ): Promise<number> {
+    if (pairs.length === 0) return 0;
+    const clauses = pairs
+      .slice(0, ADMIN_JOURNEY_PACK_PAIRS_MAX)
+      .map((p) =>
+        and(
+          eq(questionPackItems.packId, p.packId),
+          eq(questionPackItems.packVersion, p.packVersion),
+        ),
+      )
+      .filter((c): c is SQL => c !== undefined);
+
+    // CORRELATED ON `question_key` ALONE — deliberately NOT on the answer's own stamped pack.
+    // The stamp is exactly what is wrong (a universal answer carries the occupation pack's
+    // id), so joining on it would report every universal answer as retired.
+    const owned = this.db
+      .select({ one: sql`1` })
+      .from(questionPackItems)
+      .where(
+        and(
+          eq(questionPackItems.questionKey, workerPackAnswers.questionKey),
+          clauses.length === 1 ? clauses[0] : or(...clauses),
+        ),
+      );
+
+    const rows = await this.db
+      .select({ n: countDistinct(workerPackAnswers.questionKey) })
+      .from(workerPackAnswers)
+      .where(
+        and(
+          eq(workerPackAnswers.workerId, workerId),
+          inArray(workerPackAnswers.status, [...SETTLED_ANSWER_STATUSES]),
+          notExists(owned),
+        ),
+      );
+    return rows[0]?.n ?? 0;
   }
 
   /** How many interview sessions this worker has, whatever their status. */
@@ -833,9 +917,16 @@ export class AdminWorkerJourneyRepository {
    * ⚠ AND IT IS THE *CURRENT* ACTIVE VERSION, WHICH IS AN APPROXIMATION FOR AN OLD SESSION.
    * That is why it is used ONLY as a LAST resort — the caller puts the session's own stamped
    * pairs first, and `deriveStuckQuestion` takes the first item it sees for a key — and why
-   * the result still reports `unresolved_count` for whatever this does not cover. It is
-   * deliberately NOT used for the profiling DENOMINATOR, where the same substitution would
-   * silently move a finished worker's progress bar on every reseed (see the DTO header).
+   * the result still reports `unresolved_count` for whatever this does not cover.
+   *
+   * ⚠ THE PROFILING DENOMINATOR NOW USES IT TOO, under the same last-resort rule, and this
+   * comment used to say the opposite. The objection it recorded is real — substituting the
+   * active pack moves a finished worker's bar on a re-seed — but it was an argument for
+   * preferring durable evidence, not for pretending the universal tail was never asked.
+   * Because no writer stamps the universal pack, "prefer durable evidence" resolved to
+   * OMITTING eight questions from every worker's total, which is how `completed 12, total 6`
+   * came to be the modal reading. The service adds this pair only when the worker's own rows
+   * name no universal pack of their own; see its header for the full rule.
    */
   async findActiveUniversalPack(
     locale: string,
