@@ -24,6 +24,19 @@ import { describe, expect, it } from "vitest";
 const ROOT = join(__dirname, "..", "..", "..", "..");
 const BASE = readFileSync(join(ROOT, "docker-compose.yml"), "utf8");
 const E2E = readFileSync(join(ROOT, "docker-compose.e2e.yml"), "utf8");
+/**
+ * THE OVERLAY THAT ACTUALLY RUNS ON THE BOX, and until 2026-08-20 the one file this guard did
+ * not read. `docker-compose.staging.yml` said so itself, in a comment next to a loopback bind:
+ * "it reads ONLY docker-compose.yml and docker-compose.e2e.yml — it does NOT read this overlay,
+ * so it did not and cannot check this line. The bind above is a deliberate choice, not a
+ * guard-enforced one." A correct bind that nothing enforces is one edit from being wrong, and
+ * R38 is the entry that exists because eleven characters went unreviewed.
+ *
+ * The merge caveat in the header cuts the other way here and is worth stating plainly: an
+ * overlay cannot NARROW a base bind, but it can ADD a published port of its own — `payer-web`
+ * and `admin-web` exist only in this file. So both files need the sweep, for opposite reasons.
+ */
+const STAGING = readFileSync(join(ROOT, "docker-compose.staging.yml"), "utf8");
 
 /**
  * Host ports that are ALLOWED to bind every interface, each with the reason.
@@ -32,31 +45,64 @@ const E2E = readFileSync(join(ROOT, "docker-compose.e2e.yml"), "utf8");
  */
 const INTENTIONALLY_PUBLIC: Readonly<Record<string, string>> = {
   "3001": "the api itself — this is the service the box exists to serve",
+  "3333":
+    "payer-web (staging overlay) — the entire point of the v1 is reachability from OUTSIDE " +
+    "the box for real browser traffic, so a loopback bind would defeat it outright",
 };
 
-/** Every published-port entry in a compose file, as written. */
+/**
+ * Every published-port entry in a compose file, as written — including the interpolated form
+ * the staging overlay uses (`"${PAYER_WEB_PORT:-3333}:3002"`).
+ *
+ * The `${VAR:-default}` shape matters and is not cosmetic. A reader that only recognises a bare
+ * leading digit skips those lines entirely, so the sweep would report ZERO offenders on a file
+ * whose binds are all interpolated — passing loudly while checking nothing. The default is what
+ * the box actually gets (the deploy sets neither variable), so the default is what is checked.
+ */
 function publishedPorts(yaml: string): string[] {
   return yaml
     .split("\n")
     .map((l) => l.trim())
-    .filter((l) => /^- "(\d|127\.0\.0\.1:)/.test(l))
-    .map((l) => l.replace(/^- "/, "").replace(/".*$/, ""));
+    .filter((l) => /^- "(\d|127\.0\.0\.1:|\$\{)/.test(l))
+    .map((l) => l.replace(/^- "/, "").replace(/".*$/, ""))
+    .filter((e) => /:\d+$/.test(e));
 }
 
-describe("R38 — published-port bindings in the base compose file", () => {
+/** `${PAYER_WEB_PORT:-3333}:3002` -> `3333`; a literal host port is returned unchanged. */
+export function resolveHostPort(entry: string): string {
+  const withoutTarget = entry.replace(/:\d+$/, "");
+  const hostPart = withoutTarget.startsWith("127.0.0.1:")
+    ? withoutTarget.slice("127.0.0.1:".length)
+    : withoutTarget;
+  return /^\$\{[A-Z_0-9]+:-([0-9]+)\}$/.exec(hostPart)?.[1] ?? hostPart;
+}
+
+describe.each([
+  ["docker-compose.yml", BASE],
+  ["docker-compose.staging.yml", STAGING],
+])("R38 — published-port bindings in %s", (file, yaml) => {
   it("binds every port to 127.0.0.1 except the explicitly-public allowlist", () => {
     const offenders: string[] = [];
-    for (const entry of publishedPorts(BASE)) {
+    for (const entry of publishedPorts(yaml)) {
       if (entry.startsWith("127.0.0.1:")) continue;
-      const hostPort = entry.split(":")[0] ?? "";
-      if (INTENTIONALLY_PUBLIC[hostPort] === undefined) offenders.push(entry);
+      if (INTENTIONALLY_PUBLIC[resolveHostPort(entry)] === undefined) offenders.push(entry);
     }
     expect(
       offenders,
-      `these publish on 0.0.0.0 with no recorded reason: ${offenders.join(", ")}. ` +
+      `${file}: these publish on 0.0.0.0 with no recorded reason: ${offenders.join(", ")}. ` +
         "Either bind 127.0.0.1 or add the port to INTENTIONALLY_PUBLIC with a justification.",
     ).toEqual([]);
   });
+
+  it("finds ports at all — a sweep that reads nothing passes vacuously", () => {
+    // The failure this catches is the one that would have hidden the staging overlay for
+    // another month: a reader that skips `${VAR:-3333}` reports zero offenders on a file full
+    // of them, and zero offenders is what success looks like.
+    expect(publishedPorts(yaml).length).toBeGreaterThan(0);
+  });
+});
+
+describe("R38 — published-port bindings in the base compose file", () => {
 
   /**
    * The four R38 named specifically. Pinned individually as well as by the sweep above, so a
@@ -87,6 +133,20 @@ describe("R38 — published-port bindings in the base compose file", () => {
     // 0.0.0.0:5433 bind, which means this override was loaded somewhere it should not be.
     expect(E2E).toContain('- "127.0.0.1:5433:5432"');
     expect(E2E).not.toContain('- "5433:5432"');
+  });
+
+  it("keeps the staging admin-web loopback-bound, defaults included", () => {
+    // admin-web is the internal ops console. It exists only in the overlay, so the base-file
+    // assertions above never saw it, and the overlay's own comment said no guard could.
+    expect(STAGING).toContain('- "127.0.0.1:${ADMIN_WEB_PORT:-3003}:3003"');
+    expect(STAGING).not.toContain('- "${ADMIN_WEB_PORT:-3003}:3003"');
+  });
+
+  it("resolves an interpolated host port to the default the box actually gets", () => {
+    expect(resolveHostPort("${PAYER_WEB_PORT:-3333}:3002")).toBe("3333");
+    expect(resolveHostPort("127.0.0.1:${ADMIN_WEB_PORT:-3003}:3003")).toBe("3003");
+    expect(resolveHostPort("3001:3001")).toBe("3001");
+    expect(resolveHostPort("127.0.0.1:5432:5432")).toBe("5432");
   });
 
   it("the api stays public, and says why", () => {
