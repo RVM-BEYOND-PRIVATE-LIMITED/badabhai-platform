@@ -27,6 +27,9 @@ const row = (o: Partial<CoverageRow> = {}): CoverageRow => ({
   scoped: 4,
   notCanonicalizing: 8,
   sessionlessJobs: 2,
+  oieWithAnyPin: 3,
+  oieWithMatchedPin: 2,
+  oieScoped: 1,
   ...o,
 });
 
@@ -148,5 +151,73 @@ describe("the queries", () => {
   it("requires a domain to be selectable AND active, matching the processor's wall", () => {
     expect(COVERAGE_SQL).toContain("d.selectable = true");
     expect(COVERAGE_SQL).toContain("d.status = 'active'");
+  });
+});
+
+/**
+ * The O1 projection.
+ *
+ * O2's number answers *"how much of the canonicalizing branch gets Path A"*. On production that
+ * is 0.00%, which says O1 is urgent but not what O1 would BUY — "48 sessions go somewhere O2
+ * cannot reach" is a ceiling, and an OIE session with no usable pin is no more reachable by O1
+ * than by O2. These pin the difference between the ceiling and the projection.
+ */
+describe("O1 projection — what the restructure would actually add", () => {
+  it("counts only OIE sessions with a usable pin, not the whole branch", () => {
+    const f = fractions(row({ notCanonicalizing: 8, oieWithAnyPin: 3, oieWithMatchedPin: 2, oieScoped: 1 }));
+    expect(f.lostToTheOtherBranch).toBe(8); // the ceiling
+    expect(f.o1Adds).toBe(1); // the projection
+  });
+
+  it("adds to O2 without overlapping it — the branches are disjoint by construction", () => {
+    // `answer_map` empty or not partitions every session, so the union is a plain sum. If this
+    // ever needed an overlap term, the predicate would have stopped partitioning and both
+    // numbers would be wrong in the same direction.
+    const r = row({ canonicalizing: 10, notCanonicalizing: 8, sessionlessJobs: 2, scoped: 4, oieScoped: 3 });
+    expect(fractions(r).o1PlusO2OfAll).toBeCloseTo(7 / 20, 10);
+    expect(fractions(r).ofAll).toBeCloseTo(4 / 20, 10);
+  });
+
+  it("reports what NEITHER option reaches, so the ceiling is never read as 100%", () => {
+    // The sessionless jobs are the honest remainder: no state to scope from, so no restructure
+    // of the processor's branches can help them.
+    const r = row({ canonicalizing: 10, notCanonicalizing: 8, sessionlessJobs: 2, scoped: 4, oieScoped: 3 });
+    expect(fractions(r).unreachableByEither).toBe(20 - 4 - 3);
+  });
+
+  it("THE PRODUCTION SHAPE: O2 at zero does not imply O1 is worth anything", () => {
+    // Measured 2026-08-20/21: 54 canonicalizing sessions, 0 with a pin; 48 OIE; 18 sessionless.
+    // If the OIE branch also has no usable pin, O1 buys exactly as much as O2 does — nothing —
+    // and the design's premise fails. That is the case this asserts is REPORTABLE, not the case
+    // it asserts is true.
+    const r = row({
+      canonicalizing: 54, withAnyPin: 0, withMatchedPin: 0, scoped: 0,
+      notCanonicalizing: 48, sessionlessJobs: 18,
+      oieWithAnyPin: 0, oieWithMatchedPin: 0, oieScoped: 0,
+    });
+    const f = fractions(r);
+    expect(f.o1Adds).toBe(0);
+    expect(f.o1PlusO2OfAll).toBe(0);
+    expect(f.unreachableByEither).toBe(120);
+    expect(render(r).join("\n")).toContain("what O1 would ADD");
+  });
+
+  it("the report prints the projection next to the coverage, never instead of it", () => {
+    const text = render(row()).join("\n");
+    expect(text).toContain("O2 coverage of ALL extractions");
+    expect(text).toContain("O1 PROJECTION");
+    expect(text).toContain("O2 + O1 coverage of ALL extractions");
+    expect(text).toContain("reachable by NEITHER");
+  });
+
+  it("asks the OIE branch the SAME three questions, from the same SQL", () => {
+    // Two definitions of "usable pin" would make the comparison meaningless, so the O1 filters
+    // reuse the same `$1` status list and the same selectable-domain EXISTS clause.
+    const oie = COVERAGE_SQL.slice(COVERAGE_SQL.indexOf("oie_with_any_pin"));
+    expect(oie).toContain("pin_status = ANY($1::text[])");
+    expect(oie).toContain("d.selectable = true");
+    expect(oie).toContain("d.status = 'active'");
+    // ...and against `has_answers`, not `NOT has_answers` — the other branch.
+    expect(COVERAGE_SQL).toContain("WHERE has_answers AND jsonb_typeof(pin) = 'object'");
   });
 });
