@@ -56,6 +56,47 @@ export type TaskCostBucket = z.infer<typeof taskCostBucketSchema>;
 const capBreachBucketSchema = z.object({ reason: z.string(), count: z.number() });
 export type CapBreachBucket = z.infer<typeof capBreachBucketSchema>;
 
+/**
+ * What a finished profile costs — the SAME accrual window the ₹ figures beside it cover.
+ *
+ * ── THIS BLOCK IS A RATIO, AND BOTH HALVES CAN BE WRONG WITHOUT CHANGING ITS SHAPE ───────
+ * `profiling_cost_inr` is the PROFILING SLICE of platform spend, not `total_cost_inr` — a
+ * résumé is rendered from a profile that already exists and must never be billed to producing
+ * one. `profiles_extracted_or_confirmed` is scoped to `since`, which the API sets to the same
+ * value as `accruing_since`. Swap either and the payload still parses; only the number moves.
+ * The portal therefore renders `profiling_task_types` verbatim and compares `since` against
+ * `accruing_since` rather than assuming they agree — see `describeCostPerProfile`.
+ *
+ * `since` is a `Date` on the DTO and an ISO string on the wire, like every other date here.
+ */
+const costPerProfileSchema = z.object({
+  /** The lower bound BOTH halves are scoped to. The API sets it from `accruing_since`. */
+  since: z.string(),
+  /**
+   * Which task types the numerator summed. `z.string()` for the same reason `task_type` is —
+   * the API's `PROFILING_TASK_TYPES` can gain a member (voice profiling is the named case),
+   * and an enum here would reject the whole response the day it does.
+   */
+  profiling_task_types: z.array(z.string()),
+  profiling_cost_inr: z.string(),
+  profiling_calls: z.number(),
+  profiling_real_calls: z.number(),
+  profiles_extracted_or_confirmed: z.number(),
+  /**
+   * NULLABLE, and the null is load-bearing: spend in the window with no completed profile
+   * means every interview is still running or was abandoned. `"0.000000"` in its place would
+   * say profiling is free — a measurement nobody took.
+   */
+  cost_per_profile_inr: z.string().nullable(),
+  /** Stable code: WHAT this average is. Keyed off, never parsed as prose. */
+  basis: z.string(),
+  /** Stable code: what the window edges do to it. */
+  window_caveat: z.string(),
+  /** Stable code: what DPDP erasure does to it. */
+  erasure_caveat: z.string(),
+});
+export type CostPerProfile = z.infer<typeof costPerProfileSchema>;
+
 /** Exported so tests can parse a captured payload through the REAL schema, not around it. */
 export const aiCostSummarySchema = z.object({
   /** Null ⇒ nothing has ever accrued. NOT "the platform has spent ₹0 in its lifetime". */
@@ -76,6 +117,29 @@ export const aiCostSummarySchema = z.object({
   real_calls: z.number(),
   by_provider: z.array(providerCostBucketSchema),
   by_task_type: z.array(taskCostBucketSchema),
+  /**
+   * NULLABLE *AND* OPTIONAL, and all three of those states are different answers.
+   *
+   * `null` is the server saying "no profiling task type has ever accrued, so there is no window
+   * for a profile count to cover" — a real answer, and the one that renders the block absent.
+   *
+   * MISSING is a version skew: this portal is newer than the API it is talking to. An earlier
+   * revision made the key REQUIRED so that skew would fail the parse, on the reasoning that
+   * quietly dropping the block is pixel-identical to "nothing has accrued" and therefore a false
+   * claim about a platform that is spending money. That objection is right and is answered a
+   * better way. The blast radius was not: `aiCostSummarySchema` is nested inside
+   * `dashboardSummarySchema`, so a missing key failed the WHOLE dashboard read — AI spend,
+   * volume, funnel, every panel — and admin-web and the API come up as separate containers, so a
+   * rolling deploy makes that window real. Taking an operations console down over one analytics
+   * block, at the exact moment someone is watching a deploy, is the worse failure.
+   *
+   * So it parses, and `describeCostPerProfile` returns a distinct `unsupported` state that says
+   * on screen which of the two it is. The block is still never silently absent; it just no
+   * longer takes eleven unrelated panels with it. (Fail-closed, §3, is a rule about validation,
+   * privacy and auth boundaries — not a licence to fail a read of eleven correct panels because
+   * a twelfth is absent.)
+   */
+  per_profile: costPerProfileSchema.nullable().optional(),
   cap_breaches: z.object({
     window_days: z.number(),
     total: z.number(),

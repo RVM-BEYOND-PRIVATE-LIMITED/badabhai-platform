@@ -78,6 +78,22 @@ const REAL_AI_COST = {
     },
     { task_type: "stt_transcription", total_cost_inr: "4.000000", call_count: 16, real_call_count: 16 },
   ],
+  // `since` is the first PROFILING accrual — at or after `accruing_since` above, and a
+  // SEPARATE field: the table-wide minimum can belong to a task type the numerator excludes.
+  // Here they coincide. `profiling_cost_inr` is the profiling SLICE (19.75 of 23.75), not the
+  // total.
+  per_profile: {
+    since: "2026-08-17T01:00:00.000Z",
+    profiling_task_types: ["profiling_chat_turn", "profile_extraction", "profile_parse"],
+    profiling_cost_inr: "19.750000",
+    profiling_calls: 140,
+    profiling_real_calls: 130,
+    profiles_extracted_or_confirmed: 25,
+    cost_per_profile_inr: "0.790000",
+    basis: "profiling_spend_per_completed_profile_incl_abandoned_interviews",
+    window_caveat: "interviews_straddling_the_accrual_bound_are_split",
+    erasure_caveat: "erased_workers_leave_the_count_but_not_the_spend",
+  },
   cap_breaches: {
     window_days: 30,
     total: 3,
@@ -194,6 +210,9 @@ describe("ai_cost — the honesty markers are REQUIRED, not decoration", () => {
       real_calls: 0,
       by_provider: [],
       by_task_type: [],
+      // The API nulls this in lockstep: no accrual bound means no window for a profile count
+      // to cover, so there is no ratio rather than a ratio over zero.
+      per_profile: null,
     });
     expect(parsed.success).toBe(true);
   });
@@ -220,6 +239,115 @@ describe("ai_cost — the honesty markers are REQUIRED, not decoration", () => {
     expect(
       aiCostSummarySchema.safeParse({ ...REAL_AI_COST, caveat: "some_future_code" }).success,
     ).toBe(true);
+  });
+});
+
+describe("ai_cost — per_profile has THREE states and the portal tells them apart", () => {
+  /*
+   * The three are different answers and none may be collapsed into another.
+   *
+   *   null   — "no profiling task type has ever accrued, so there is no window" — a real
+   *            answer the portal renders as an absent block.
+   *   absent — a VERSION SKEW: this portal is newer than the API it is talking to.
+   *   present — a measurement.
+   *
+   * An earlier contract made the key REQUIRED so a skew would fail the parse, on the reasoning
+   * that a silently-dropped block is pixel-identical to the null case and therefore a false
+   * statement about a platform that IS spending money. That objection is right; failing the
+   * parse is the wrong remedy. `aiCostSummarySchema` is nested inside `dashboardSummarySchema`,
+   * so a missing key failed the WHOLE dashboard read — every panel, not this block — and
+   * admin-web and the API come up as separate containers, which makes that a live state during
+   * any rolling deploy. It parses now, and `describeCostPerProfile` returns a distinct
+   * `unsupported` state that says on screen which of the two absences it is.
+   */
+  it("parses the captured per_profile block", () => {
+    expect(aiCostSummarySchema.safeParse(REAL_AI_COST).success).toBe(true);
+  });
+
+  it("ACCEPTS a payload with the per_profile key MISSING — one block must not fail the page", () => {
+    const { per_profile: _omitted, ...without } = REAL_AI_COST;
+    const parsed = aiCostSummarySchema.safeParse(without);
+    expect(parsed.success).toBe(true);
+    // …and it is `undefined`, NOT coerced to null: the renderer distinguishes them.
+    expect(parsed.success && parsed.data.per_profile).toBeUndefined();
+  });
+
+  it("ACCEPTS per_profile: null — 'no window, so no ratio' is a real answer", () => {
+    const parsed = aiCostSummarySchema.safeParse({ ...REAL_AI_COST, per_profile: null });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.per_profile).toBeNull();
+  });
+
+  it("still REJECTS a malformed per_profile block — optional is not permissive", () => {
+    // The key may be absent; a PRESENT one must be the shape the renderer was written against.
+    const wrong = { ...REAL_AI_COST, per_profile: { since: "2026-08-17T01:00:00.000Z" } };
+    expect(aiCostSummarySchema.safeParse(wrong).success).toBe(false);
+  });
+
+  it("REJECTS a per_profile block missing `erasure_caveat` — the third caveat is not optional", () => {
+    const { erasure_caveat: _omitted, ...perProfile } = REAL_AI_COST.per_profile;
+    expect(
+      aiCostSummarySchema.safeParse({ ...REAL_AI_COST, per_profile: perProfile }).success,
+    ).toBe(false);
+  });
+
+  it("ACCEPTS cost_per_profile_inr: null — no profile finished is not ₹0", () => {
+    const parsed = aiCostSummarySchema.safeParse({
+      ...REAL_AI_COST,
+      per_profile: {
+        ...REAL_AI_COST.per_profile,
+        profiles_extracted_or_confirmed: 0,
+        cost_per_profile_inr: null,
+      },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("REJECTS cost_per_profile_inr sent as a number — the ratio is an exact decimal too", () => {
+    const wrong = {
+      ...REAL_AI_COST,
+      per_profile: { ...REAL_AI_COST.per_profile, cost_per_profile_inr: 0.79 },
+    };
+    expect(aiCostSummarySchema.safeParse(wrong).success).toBe(false);
+  });
+
+  it("REJECTS a per_profile block missing `since` — the two halves lose their shared bound", () => {
+    const { since: _omitted, ...perProfile } = REAL_AI_COST.per_profile;
+    expect(aiCostSummarySchema.safeParse({ ...REAL_AI_COST, per_profile: perProfile }).success).toBe(
+      false,
+    );
+  });
+
+  it("REJECTS a per_profile block missing `profiling_task_types` — the split is the audit", () => {
+    const { profiling_task_types: _omitted, ...perProfile } = REAL_AI_COST.per_profile;
+    expect(aiCostSummarySchema.safeParse({ ...REAL_AI_COST, per_profile: perProfile }).success).toBe(
+      false,
+    );
+  });
+
+  it("accepts a profiling task type this build has never seen", () => {
+    // The API's own DTO names the case: the day voice profiling accrues, `stt_transcription`
+    // flips into this list. An enum here would blank the page on that deploy.
+    const parsed = aiCostSummarySchema.safeParse({
+      ...REAL_AI_COST,
+      per_profile: {
+        ...REAL_AI_COST.per_profile,
+        profiling_task_types: [...REAL_AI_COST.per_profile.profiling_task_types, "stt_transcription"],
+      },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts an unrecognised basis / window_caveat code — a new caveat is not an outage", () => {
+    const parsed = aiCostSummarySchema.safeParse({
+      ...REAL_AI_COST,
+      per_profile: {
+        ...REAL_AI_COST.per_profile,
+        basis: "some_future_basis",
+        window_caveat: "some_future_caveat",
+      },
+    });
+    expect(parsed.success).toBe(true);
   });
 });
 

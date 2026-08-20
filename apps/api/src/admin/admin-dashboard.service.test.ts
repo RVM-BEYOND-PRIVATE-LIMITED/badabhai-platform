@@ -6,12 +6,17 @@ import {
   AI_COST_CAVEAT_SINCE_0077,
   ADMIN_DASHBOARD_WINDOW_DAYS_DEFAULT,
   CAP_BREACH_SCOPE_PROFILE_EXTRACTION,
+  COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
+  COST_PER_PROFILE_ERASURE_BIAS,
+  COST_PER_PROFILE_WINDOW_EDGE_SKEW,
   DASHBOARD_JOB_POSTING_STATUSES,
   DASHBOARD_OTHER_BUCKET,
   DASHBOARD_PAYER_ROLES,
   DASHBOARD_PAYER_STATUSES,
   DASHBOARD_PROFILE_STATUSES,
   DASHBOARD_WORKER_STATUSES,
+  PROFILE_COMPLETED_STATUSES,
+  PROFILING_TASK_TYPES,
 } from "./admin-dashboard.dto";
 
 /**
@@ -75,8 +80,18 @@ const PROVIDER_ROWS = [
 ];
 
 interface Overrides {
+  /** The TABLE-WIDE accrual bound — `min(first_recorded_at)` over every task type. */
   since?: Date | null;
+  /**
+   * The PROFILING bound — `min(first_recorded_at)` over the profiling task types only, and a
+   * SEPARATE knob from `since` on purpose. The two are the same instant only when the first
+   * money the platform ever spent was profiling money; when anything else accrued first this
+   * one is later, and every test that conflates them stops being able to see the difference.
+   */
+  profilingSince?: Date | null;
   totalCostInr?: string;
+  profilingCostInr?: string;
+  profilesCompleted?: number;
   workerStatuses?: AdminKeyCount[];
   profileStatuses?: AdminKeyCount[];
   postingStatuses?: AdminKeyCount[];
@@ -85,7 +100,28 @@ interface Overrides {
   breaches?: AdminKeyCount[];
 }
 
-function makeService(over: Overrides = {}): AdminDashboardService {
+/**
+ * What the service actually ASKED the repository for. The arguments are half the contract here:
+ * "the profile count is scoped to the bound the response DISPLAYS" is a claim about a parameter,
+ * and it is unassertable from the returned numbers alone.
+ */
+interface Asked {
+  profilingTaskTypes: readonly string[] | null;
+  profileCountSince: Date | null;
+  profileCountStatuses: readonly string[] | null;
+  profileCountCalls: number;
+}
+
+function blankAsked(): Asked {
+  return {
+    profilingTaskTypes: null,
+    profileCountSince: null,
+    profileCountStatuses: null,
+    profileCountCalls: 0,
+  };
+}
+
+function makeService(over: Overrides = {}, asked: Asked = blankAsked()): AdminDashboardService {
   const repo = {
     platformCostTotals: async () => ({
       totalCostInr: over.totalCostInr ?? "22.750000",
@@ -107,7 +143,32 @@ function makeService(over: Overrides = {}): AdminDashboardService {
         call_count: 12,
         real_call_count: 12,
       },
+      {
+        // The trap: in the TOTAL and never in the profiling numerator. A résumé is rendered
+        // FROM a profile that already exists, so it produced none.
+        task_type: "resume_generation",
+        total_cost_inr: "3.000000",
+        call_count: 12,
+        real_call_count: 12,
+      },
     ],
+    profilingCostSubtotal: async (taskTypes: readonly string[]) => {
+      asked.profilingTaskTypes = taskTypes;
+      return {
+        totalCostInr: over.profilingCostInr ?? "19.750000",
+        callCount: 140,
+        realCallCount: 130,
+        // Defaults to the table-wide bound so the ordinary fixture is the coinciding case;
+        // `profilingSince` is what pulls them apart.
+        since: over.profilingSince === undefined ? ACCRUAL_START : over.profilingSince,
+      };
+    },
+    countCurrentProfilesCompletedSince: async (since: Date, statuses: readonly string[]) => {
+      asked.profileCountSince = since;
+      asked.profileCountStatuses = statuses;
+      asked.profileCountCalls += 1;
+      return over.profilesCompleted ?? 5;
+    },
     countWorkersByStatus: async () => over.workerStatuses ?? [{ key: "active", count: 7 }],
     countWorkersPendingDeletion: async () => 2,
     countCurrentProfilesByStatus: async () =>
@@ -194,6 +255,222 @@ describe("AI cost — the provider split", () => {
   });
 });
 
+describe("AI cost — what a finished profile costs", () => {
+  it("divides the PROFILING subtotal, never the platform total (the resume_generation trap)", async () => {
+    // ₹19.75 of profiling spend over 5 profiles = ₹3.95. The platform total is ₹22.75, which
+    // over the same 5 would read ₹4.55 — a 15% overstatement made of résumé rendering, work
+    // that produced no profile at all. Both are plausible numbers on screen.
+    const out = await makeService({ profilingCostInr: "19.750000", profilesCompleted: 5 }).summary(
+      DTO,
+    );
+    const perProfile = out.ai_cost.per_profile!;
+    expect(perProfile.profiling_cost_inr).toBe("19.750000");
+    expect(perProfile.cost_per_profile_inr).toBe("3.950000");
+    // The figure the total would have produced must NOT be what shipped.
+    expect(perProfile.cost_per_profile_inr).not.toBe("4.550000");
+    expect(perProfile.profiling_cost_inr).not.toBe(out.ai_cost.total_cost_inr);
+  });
+
+  it("asks for exactly the profiling task types — and resume_generation is not one", async () => {
+    const asked = blankAsked();
+    await makeService({}, asked).summary(DTO);
+    expect(asked.profilingTaskTypes).toEqual(PROFILING_TASK_TYPES);
+    expect(asked.profilingTaskTypes).toEqual([
+      "profiling_chat_turn",
+      "profile_extraction",
+      "profile_parse",
+    ]);
+    expect(asked.profilingTaskTypes).not.toContain("resume_generation");
+    // …and the response says which set it used, so the split is auditable from the wire.
+    const out = await makeService().summary(DTO);
+    expect(out.ai_cost.per_profile!.profiling_task_types).toEqual(PROFILING_TASK_TYPES);
+  });
+
+  it("scopes the profile count to the NUMERATOR's bound, not the table-wide one", async () => {
+    /*
+     * THE ASSERTION THIS BLOCK EXISTS FOR, and the previous version of it could not fail.
+     *
+     * It read `expect(asked.profileCountSince).toEqual(out.ai_cost.accruing_since)` — two
+     * aliases of ONE variable, because the service passed `costTotals.since` to both. That
+     * pinned the wrong invariant: the numerator is FILTERED to the profiling task types, so the
+     * window it actually covers starts at the first PROFILING accrual, which is later than the
+     * table-wide minimum whenever a résumé or a payer-side embedding was paid for first.
+     *
+     * Measured against the local verification database before the fix: a `job_posting_chat_turn`
+     * row at 2020-01-01 and profiling spend from 2026-08-19 gave a denominator of 22 against a
+     * numerator covering 1 of them — ₹0.454545 reported where the truth was ₹10.000000. Nothing
+     * about the response's shape changed.
+     *
+     * The bounds are pulled APART here so the assertion has something to be wrong about.
+     */
+    const PROFILING_START = new Date("2026-08-18T12:00:00.000Z");
+    const asked = blankAsked();
+    const out = await makeService({ profilingSince: PROFILING_START }, asked).summary(DTO);
+
+    expect(asked.profileCountSince).toEqual(PROFILING_START);
+    expect(out.ai_cost.per_profile!.since).toEqual(PROFILING_START);
+    // …and explicitly NOT the bound the section displays, which is earlier here.
+    expect(out.ai_cost.accruing_since).toEqual(ACCRUAL_START);
+    expect(asked.profileCountSince).not.toEqual(out.ai_cost.accruing_since);
+    // Nor the cap-breach window, which is a rolling `windowDays` back from NOW. Compared as a
+    // distance rather than "is it old", so the assertion does not depend on when it is run.
+    const breachWindowStart =
+      Date.now() - ADMIN_DASHBOARD_WINDOW_DAYS_DEFAULT * 24 * 60 * 60 * 1000;
+    expect(Math.abs(asked.profileCountSince!.getTime() - breachWindowStart)).toBeGreaterThan(
+      60_000,
+    );
+  });
+
+  it("uses the ONE bound for both halves — the count's is the block's own `since`", async () => {
+    // Whatever that bound is, the two halves must share it: the field the portal dates both
+    // tiles from has to be the field the count was actually filtered by.
+    for (const profilingSince of [ACCRUAL_START, new Date("2026-08-21T00:00:00.000Z")]) {
+      const asked = blankAsked();
+      const out = await makeService({ profilingSince }, asked).summary(DTO);
+      expect(asked.profileCountSince).toEqual(out.ai_cost.per_profile!.since);
+    }
+  });
+
+  it("counts `extracted`/`confirmed`, and the field name says so", async () => {
+    const asked = blankAsked();
+    const out = await makeService({ profilesCompleted: 7 }, asked).summary(DTO);
+    expect(asked.profileCountStatuses).toEqual(PROFILE_COMPLETED_STATUSES);
+    expect(asked.profileCountStatuses).toEqual(["extracted", "confirmed"]);
+    // `extracting` means an extraction IN FLIGHT — a `<> 'draft'` predicate would count it.
+    expect(asked.profileCountStatuses).not.toContain("extracting");
+    expect(out.ai_cost.per_profile!.profiles_extracted_or_confirmed).toBe(7);
+  });
+
+  it("a ZERO denominator yields a NULL average, not ₹0.00", async () => {
+    // Spend in the window and no completed profile means every interview is still in flight or
+    // was abandoned. `0.000000` would read as "profiles are free" — the strongest claim
+    // available and the wrong one.
+    const out = await makeService({ profilesCompleted: 0 }).summary(DTO);
+    const perProfile = out.ai_cost.per_profile!;
+    expect(perProfile).not.toBeNull();
+    expect(perProfile.profiles_extracted_or_confirmed).toBe(0);
+    expect(perProfile.cost_per_profile_inr).toBeNull();
+    // The spend that bought nothing is still reported — it did happen.
+    expect(perProfile.profiling_cost_inr).toBe("19.750000");
+  });
+
+  it("an empty table removes the whole block — not a zero, and not a query", async () => {
+    const asked = blankAsked();
+    const out = await makeService(
+      { since: null, profilingSince: null, totalCostInr: "0" },
+      asked,
+    ).summary(DTO);
+    // No window, so there is no "profiles in the same period" to count and nothing to divide.
+    expect(out.ai_cost.per_profile).toBeNull();
+    // …and the count is not even ISSUED: a count over all time would be the wrong number
+    // rather than an unused one, and issuing it invites someone to start using it.
+    expect(asked.profileCountCalls).toBe(0);
+    // The rest of the cost section is unaffected — a genuine zero is still a zero.
+    expect(out.ai_cost.total_cost_inr).toBe("0");
+    expect(out.ai_cost.accruing_since).toBeNull();
+  });
+
+  it("SPEND WITH NO PROFILING IN IT removes the block too — never ₹0.00 over real profiles", async () => {
+    /*
+     * THE STATE THE LOCAL VERIFICATION DATABASE WAS ACTUALLY IN, and the one the previous
+     * contract got wrong. Its cost table held a single `resume_generation` row, so
+     * `accruing_since` was set — by a NON-profiling task type — while the profiling numerator
+     * was empty. The old guard covered only a zero DENOMINATOR, so the service divided ₹0 by a
+     * real profile count and shipped `"0.000000"`, which the portal rendered as a confident
+     * ₹0.00 average with no caveat firing anywhere: `profiling_calls - profiling_real_calls`
+     * is 0 in that state, so even the mock-posture sentence was suppressed.
+     *
+     * Production sat in exactly this state for the whole interval between the first accrual
+     * after migration 0077 and the first profiling call, and returns to it whenever the
+     * profiling task types are re-targeted — which has already happened once (`profile_parse`
+     * replaced twelve per-turn ones).
+     */
+    const asked = blankAsked();
+    const out = await makeService(
+      { profilingSince: null, profilingCostInr: "0", profilesCompleted: 12 },
+      asked,
+    ).summary(DTO);
+    expect(out.ai_cost.per_profile).toBeNull();
+    expect(asked.profileCountCalls).toBe(0);
+    // The SECTION still reports its own bound and its own money — only the ratio is absent.
+    expect(out.ai_cost.accruing_since).toEqual(ACCRUAL_START);
+    expect(out.ai_cost.total_cost_inr).toBe("22.750000");
+  });
+
+  it("never renders a positive average as ₹0.000000 — rounding may not make spend free", async () => {
+    /*
+     * `toFixed(6)` rounds, and a true quotient under ₹0.0000005 rounds to all zeros — which
+     * `formatExactRupees` then shows as ₹0.00 while its own header promises that "we spent a
+     * fraction of a paisa" and "we spent nothing" stay different facts. Rounding is accepted
+     * everywhere else in this expression; the ONE rounding that flips the qualitative claim
+     * from "small" to "free" is not.
+     */
+    const out = await makeService({
+      profilingCostInr: "0.000001",
+      profilesCompleted: 3,
+    }).summary(DTO);
+    const average = out.ai_cost.per_profile!.cost_per_profile_inr!;
+    expect(Number(average)).toBeGreaterThan(0);
+    expect(average).not.toBe("0.000000");
+    expect(average).toBe("0.000001");
+  });
+
+  it("a numerator that IS zero still renders zero — a measured zero is not a rounded one", async () => {
+    // Every profiling call mocked (`real_call=False` is priced at ₹0.0 at source) or a
+    // free-tier model. The spend genuinely is ₹0, the calls are on the wire beside it, and
+    // suppressing that would hide a fact about the table rather than protect anyone.
+    const out = await makeService({
+      profilingCostInr: "0",
+      profilesCompleted: 4,
+    }).summary(DTO);
+    expect(out.ai_cost.per_profile!.cost_per_profile_inr).toBe("0.000000");
+  });
+
+  it("carries the call counts the average is over, and both in-band caveat codes", async () => {
+    const out = await makeService().summary(DTO);
+    const perProfile = out.ai_cost.per_profile!;
+    expect(perProfile.profiling_calls).toBe(140);
+    expect(perProfile.profiling_real_calls).toBe(130);
+    // The numerator includes abandoned interviews; the denominator counts finished profiles.
+    // The figure is exactly right for forecasting PROFILES and too large for forecasting
+    // WORKERS, and the number cannot say which reading it is — so the codes ship beside it.
+    expect(perProfile.basis).toBe(COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED);
+    expect(perProfile.window_caveat).toBe(COST_PER_PROFILE_WINDOW_EDGE_SKEW);
+    // The third caveat: DPDP erasure takes the profile out of the count and leaves the money
+    // in the total, so this average drifts upward permanently and the drift accumulates.
+    expect(perProfile.erasure_caveat).toBe(COST_PER_PROFILE_ERASURE_BIAS);
+    // STABLE machine codes, not prose — the portal keys captions off them.
+    expect(COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED).toBe(
+      "profiling_spend_per_completed_profile_incl_abandoned_interviews",
+    );
+    expect(COST_PER_PROFILE_WINDOW_EDGE_SKEW).toBe(
+      "interviews_straddling_the_accrual_bound_are_split",
+    );
+    expect(COST_PER_PROFILE_ERASURE_BIAS).toBe("erased_workers_leave_the_count_but_not_the_spend");
+  });
+
+  it("₹ stays an exact decimal STRING on both halves of the ratio", async () => {
+    const out = await makeService().summary(DTO);
+    const perProfile = out.ai_cost.per_profile!;
+    expect(typeof perProfile.profiling_cost_inr).toBe("string");
+    expect(typeof perProfile.cost_per_profile_inr).toBe("string");
+    // Six places, the scale `numeric(16,6)` stores — not a bare JS float's rendering.
+    expect(perProfile.cost_per_profile_inr).toMatch(/^\d+\.\d{6}$/);
+  });
+
+  it("the classification lists are non-empty — an empty IN list is a runtime error", () => {
+    // `inArray(col, [])` THROWS in drizzle, so an emptied constant would take the whole endpoint
+    // down rather than merely reporting a wrong number. Both lists are derived by filtering a
+    // Record, which is exactly the shape that can silently become empty.
+    expect(PROFILING_TASK_TYPES.length).toBeGreaterThan(0);
+    expect(PROFILE_COMPLETED_STATUSES.length).toBeGreaterThan(0);
+    // Every entry must be a real member of the enum it partitions.
+    for (const status of PROFILE_COMPLETED_STATUSES) {
+      expect(DASHBOARD_PROFILE_STATUSES).toContain(status);
+    }
+  });
+});
+
 describe("AI cost — cap breaches by reason", () => {
   it("splits the breach count by reason and totals it from those buckets", async () => {
     const out = await makeService().summary(DTO);
@@ -235,7 +512,9 @@ describe("AI cost — cap breaches by reason", () => {
     const out = await makeService({
       breaches: [{ key: "some_future_reason", count: 3 }],
     }).summary(DTO);
-    expect(out.ai_cost.cap_breaches.by_reason).toEqual([{ reason: "some_future_reason", count: 3 }]);
+    expect(out.ai_cost.cap_breaches.by_reason).toEqual([
+      { reason: "some_future_reason", count: 3 },
+    ]);
   });
 });
 

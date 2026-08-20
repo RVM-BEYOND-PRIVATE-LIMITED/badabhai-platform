@@ -752,6 +752,11 @@ h3 {
   font-size: var(--text-xl);
   font-weight: var(--weight-bold);
   line-height: 1.1;
+  /* `.stats` tracks have a FIXED 11rem minimum, so an over-long value does not widen its
+     track — it spills out of the card. AI spend is `numeric(16,6)` and renders every place
+     it has rather than rounding (see `formatExactRupees`), so "₹1,23,456.789012" is a
+     reachable value, not a hypothetical. Wrap it instead. */
+  overflow-wrap: break-word;
 }
 .stat__label {
   font-size: var(--text-sm);
@@ -1335,6 +1340,21 @@ h3 {
   font-weight: var(--ui-kpi-weight);
   letter-spacing: var(--ui-kpi-tracking);
   font-variant-numeric: tabular-nums slashed-zero;
+}
+/* An ABSENT statistic must not look like a measured one — the rule
+   `.funnel__distinct.is-suppressed` already states for a funnel row, applied to a tile.
+   The KPI face is reserved for figures: a sentence set in it ("No profile finished yet")
+   reads as a number that happens to be words, and it is set at the KPI size precisely
+   where the card has the least room. Declared AFTER the rule above because both are
+   single-class selectors — an earlier `.stat__value--absent` would lose the tie on
+   `font-size` and inherit the 30px KPI ramp it exists to escape. */
+.stat__value--absent {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  font-style: italic;
+  font-weight: var(--weight-regular);
+  letter-spacing: normal;
+  color: var(--text-muted);
 }
 .table {
   font-size: var(--ui-td-size);
