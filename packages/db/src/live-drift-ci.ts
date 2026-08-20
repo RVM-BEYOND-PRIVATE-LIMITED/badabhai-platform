@@ -299,6 +299,41 @@ async function main(): Promise<void> {
   const routines = declaredRoutines(migrationsDir);
   const declared = declaredTables();
 
+  // CAPTURE, WHICH IS NOT JUDGEMENT, AND SITS BEFORE THE GUARD FOR THAT REASON.
+  //
+  // The design doc states one thing this mode does not prove: "the SQL that turns a real
+  // database into a catalog is only exercised by running it." Everything else is proved from
+  // `expectedFreshCatalog()` and mutations of it, which exercises the VERDICT and never the
+  // READ. `--catalog-out` was supposed to close that on the first container run — but it sits
+  // after the target guard, so it can only ever run somewhere the gate already accepts, which
+  // is nowhere yet.
+  //
+  // Capture is read-only and says nothing about whether the schema is correct, so the guard's
+  // argument — "this question is only meaningful about a database built solely from these
+  // migrations" — does not apply to it. Judgement stays guarded; recording does not. A captured
+  // production catalog can then be judged with `--from-json`, which is how the gate gets
+  // exercised against a production-LIKE state without ever being pointed at production.
+  const captureOnly = arg("--capture-only");
+  if (captureOnly !== undefined) {
+    const url = process.env["DATABASE_URL"];
+    if (!url) throw new Error(`[${SCRIPT}] DATABASE_URL is not set`);
+    if (existsSync(captureOnly)) {
+      console.error(`  refusing to overwrite ${captureOnly} — evidence is never replaced.`);
+      process.exit(1);
+    }
+    const seen = await readCatalog(url);
+    writeFileSync(captureOnly, `${JSON.stringify(seen, null, 2)}
+`, "utf8");
+    console.log(`[${SCRIPT}] CAPTURE ONLY — no verdict was reached.`);
+    console.log(`  target      ${hostClass(url)}`);
+    console.log(`  tables      ${seen.tables.length}`);
+    console.log(`  columns     ${seen.tables.reduce((n, t) => n + t.columns.length, 0)}`);
+    console.log(`  routines    ${seen.triggers.length} trigger(s), ${seen.functions.length} function(s), ${seen.eventTriggers.length} event trigger(s)`);
+    console.log(`  recorded to ${captureOnly}`);
+    console.log(`  Judge it with --from-json=${captureOnly}. Capturing is not passing.`);
+    return;
+  }
+
   const fromJson = arg("--from-json");
   let catalog: LiveCatalog;
   let target: TargetClass;
