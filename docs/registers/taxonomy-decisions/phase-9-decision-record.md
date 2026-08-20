@@ -22,7 +22,7 @@
 | 2 | TD-07 | **T4 now, T1 at the first real welder.** | **shipped** |
 | 3 | TD-01 seeding | **D2 — seed + embed, then promote**, trainer cases handled as specified. | sequenced; awaiting owner run |
 | 4 | `EVAL_COVERED` | **E1 — keep the stricter promotion gate.** | **shipped**; 6 cases await a trainer |
-| 5 | OIE canonicalization | **O2 now, O1 as the eventual proper fix.** | shipped, default-off |
+| 5 | OIE canonicalization | **O2 now, O1 as the eventual proper fix.** | **shipped**; measured 0% coverage — O1 is now the whole fix |
 | 6 | four unmodelled tables | **Keep and model them. Do not drop.** | shipped (declaration) |
 
 Two constraints applied across all six:
@@ -120,6 +120,67 @@ hatch and is now, for the first time, reachable.
 
 ---
 
+## 5 — OIE canonicalization: O2 shipped, and it measured 0%
+
+**What changed.** The processor's legacy `/profile/extract` branch — the only route that
+canonicalizes — now derives a canonical `jd_*` scope from the session's occupation pin and puts
+it on the wire as `ProfileExtractionInput.job_domain_id`.
+
+**What sending it does.** `job_domain_id` is not a flag, it *is* the S3-C read switch for this
+caller: supplying it moves the TAX-4 canonicalization pass from Path B (`skill_alias.domain_id`,
+the configured legacy slug) to Path A (`job_domain_skill`).
+
+**What it does today: nothing.** The pass sits behind `skill_canonicalize_enabled`, `False` by
+default and OFF in production, so the field rides the request and is never read. This arms the
+switch; the taxonomy flag is what activates it, and that flag is untouched.
+
+**Three refusals, all failing to "no scope"** — which is the pre-existing behaviour, so each
+refusal is a no-op rather than a degradation: an absent or `unmatched_*` pin (five of the seven
+statuses are unmatched, and the schema **defaults** to one, so a pin object is not a confirmed
+trade); a domain that is no longer `selectable`/`active`; and a failure of the validation query
+itself.
+
+### The measurement, and it reorders the decision
+
+`db:report:oie-canonicalize-coverage` — new, read-only, SELECTs only — measured production on
+2026-08-20. **n=92 sessions, not the n=7 the readiness findings quoted.**
+
+| | sessions |
+|---|---|
+| `conversation_state IS NULL` — canonicalizes, nothing to scope | **48** |
+| answer map present — takes the OIE branch, **never canonicalizes** | **44** (32 of them carry a pin) |
+| **empty answer map AND a pin** — the population O2 covers | **0** |
+| extraction jobs with no session at all | 18 |
+
+```
+O2 coverage of the canonicalizing path : 0.00%
+O2 coverage of ALL extractions         : 0.00%
+```
+
+**The two populations are perfectly disjoint, and structurally so.** Every session that carries
+a pin also carries an answer map: an interview that pins an occupation then goes on to collect
+answers. The "pinned then collected nothing" case the wiring was for has occurred **0 times in
+92**. The readiness findings called n=7 directional; at n=92 it is the shape of the data.
+
+**So O1 is where all the coverage is** — 44 sessions, every one of the 32 that carry a pin. O2
+reaches none of them, because they are on the branch that does not canonicalize at all.
+
+**This is O2 working as chosen, not failing.** It was preferred to O1 precisely because *"its
+incompleteness is measurable rather than assumed"*, and the recommendation named this outcome in
+advance: *"if it covers little, O1 is the priority and O2 was still the right way to find that
+out."* The number is now in hand instead of being an inference, the scope-derivation and its
+three refusals are the parts O1 will reuse, and shipping it cost zero behaviour change.
+
+**O1's trigger is therefore now, not "eventually".** It moves the canonicalize pass out of the
+branch it sits in, which is a control-flow change on the hot profiling path and needs the
+extraction suite pinned *before* the move. That is the next engineering step on this decision,
+and it is not started.
+
+**Rollback.** Delete the two lines at the call site; the helper and its refusals become dead
+code, and the request returns to its exact three keys.
+
+---
+
 ## Owner actions still outstanding
 
 Nothing on this row list has been executed. Each is a production mutation.
@@ -137,3 +198,4 @@ Nothing on this row list has been executed. Each is a production mutation.
 |---|---|
 | 2026-08-20 | Record opened. Ruling on all six recorded; TD-07 T4 shipped. |
 | 2026-08-20 | `EVAL_COVERED` E1 shipped, with the trainer pack for the six skills it demotes. |
+| 2026-08-20 | OIE O2 shipped with its coverage report. Measured **0.00%** on n=92 — the covered population is empty and structurally so, and O1 now carries the whole decision. |

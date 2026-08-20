@@ -89,6 +89,7 @@
     "db:verify:rls-lock": "tsx src/verify-rls-lock.ts",
     "db:rollback:s3d": "tsx src/s3d-rollback.ts",
     "db:report:s3d-shadow": "tsx src/s3d-shadow-report.ts",
+    "db:report:oie-canonicalize-coverage": "tsx src/oie-canonicalize-coverage.ts",
     "db:audit:live-drift": "tsx src/audit-live-drift.ts",
     "db:export:alias-vectors": "tsx src/export-alias-vectors.ts"
   },

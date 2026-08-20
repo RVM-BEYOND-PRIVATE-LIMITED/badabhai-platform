@@ -130,6 +130,48 @@ function outageCodeOf(code: string | null | undefined): string | null {
 }
 
 /**
+ * The occupation-pin statuses that actually assert a trade — OIE O2.
+ *
+ * `OccupationPin.match_status` spans SEVEN values, five of which are `unmatched_*`. The pin
+ * object still exists on those: the interview ran, the retrieval failed, and the schema
+ * DEFAULTS the field to `unmatched_degraded`. So "a pin is present" is not "the worker has a
+ * confirmed trade", and scoping a canonicalization pass on an unmatched pin would narrow
+ * retrieval to a domain nobody established.
+ *
+ * ENUMERATED, not `startsWith("matched_")`, so a new status has to be classified deliberately.
+ * `occupationPinScopesCanonicalization` is pinned against the full contract enum in the tests —
+ * add a status without deciding which side it falls on and that test fails.
+ */
+const OCCUPATION_MATCHED_STATUSES: ReadonlySet<string> = new Set([
+  "matched_auto",
+  "matched_llm",
+  "matched_lexical",
+  "matched_worker_confirmed",
+]);
+
+/**
+ * OIE O2 — should this pin scope the canonicalization pass to Path A?
+ *
+ * Exported for the test that checks it partitions the contract's status enum exhaustively.
+ */
+export function occupationPinScopesCanonicalization(pin: OccupationPin | null): boolean {
+  return pin !== null && OCCUPATION_MATCHED_STATUSES.has(pin.match_status);
+}
+
+/**
+ * The occupation pin off a conversation state, or null.
+ *
+ * ONE parse convention for both branches. `conversation_state.occupation` is persisted JSON, so
+ * every read of it is untrusted input and goes through the schema; the two branches doing that
+ * differently is how they would end up disagreeing about what "has a pin" means — which is the
+ * exact distinction O2 hangs on.
+ */
+function readOccupationPin(raw: unknown): OccupationPin | null {
+  const parsed = OccupationPinSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
  * Does this Phase C overlay actually carry model-derived values?
  *
  * WHY PRESENCE IS NOT ENOUGH: the ai-service answers three of its own degrades with a healthy
@@ -727,10 +769,36 @@ export class ProfileExtractionProcessor extends WorkerHost {
     if (answerMap.length === 0) {
       // No deterministic record: a pre-cutover session, or an interview that collected nothing.
       // The legacy route is unchanged and still live.
+      //
+      // OIE O2 (owner ruling 2026-08-20) — THE ONE PLACE THE S3-C SWITCH CAN BE POPULATED
+      // TODAY, and the whole reason it is only partial coverage.
+      //
+      // `/profile/extract` is the only route that canonicalizes, and it is called from here
+      // alone. The OIE branch below has the worker's confirmed trade but calls `/profile/parse`,
+      // which deliberately invents no canonical ids. So the path that HAS a domain does not
+      // canonicalize, and the path that canonicalizes has no domain — a structural split, not a
+      // wiring gap, and O1 (moving the pass out of its branch) is the eventual fix.
+      //
+      // The seam between them is this branch's own reachability: `answerMap.length === 0` is
+      // true for a NON-NULL session too — "an interview that collected nothing" — so a session
+      // that pinned an occupation and then collected no answers lands here WITH a pin in
+      // `state`, which this branch used to discard. That is the fraction O2 covers.
+      //
+      // MEASURABLE, WHICH IS WHY O2 WAS CHOSEN OVER O3. `db:report:oie-canonicalize-coverage`
+      // reads exactly this predicate off production and reports the fraction, so "how much of
+      // the OIE path canonicalizes under Path A" stops being an assumption. If it turns out to
+      // cover most traffic, O1 is routine cleanup; if it covers little, O1 is the priority —
+      // and O2 is what tells you which.
+      const legacyPin = readOccupationPin(state?.occupation);
+      const canonicalScope = await this.canonicalScopeForPin(legacyPin, job.aiJobId);
       const legacyRequest = {
         worker_ref: job.workerId,
         transcript,
         messages: [...messages],
+        // OMITTED, never `undefined`-with-intent: `job_domain_id` absent leaves the pass on
+        // Path B under the configured slug, byte-identical to every extraction to date. One
+        // key appears, or the request is exactly what it always was.
+        ...(canonicalScope === null ? {} : { job_domain_id: canonicalScope }),
       };
       const legacy = await this.ai.extractProfile(legacyRequest, {
         requestId: job.requestId,
@@ -783,14 +851,14 @@ export class ProfileExtractionProcessor extends WorkerHost {
       return { ...f, enum: values ? [...values] : null };
     });
 
-    const occupation = OccupationPinSchema.safeParse(state?.occupation);
+    const occupation = readOccupationPin(state?.occupation);
     // Hoisted so the 0083 trace can record WHAT WAS ASKED, not only what came back.
     const parseRequest = {
       schema_version: "oie.v1" as const,
       // PSEUDONYMOUS. The worker's real id is the correlation key on our side of the wire and
       // never crosses it — the same discipline `/profile/extract` already used.
       worker_ref: job.workerId,
-      occupation: occupation.success ? occupation.data : null,
+      occupation,
       answer_map: answerMap,
       transcript: lines,
       target_fields: targets,
@@ -879,7 +947,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
     const interview = await this.interviewOverlay(
       job,
       lines,
-      occupation.success ? occupation.data : null,
+      occupation,
     );
 
     const projection = projectProfile(answerMap, gated.accepted, { split: splitToolsEquipment });
@@ -889,7 +957,7 @@ export class ProfileExtractionProcessor extends WorkerHost {
     );
     return {
       result: toExtractionOutput(projection, interview),
-      pin: occupation.success ? occupation.data : null,
+      pin: occupation,
       // THE LINE THAT WAS MISSING. `projectProfile` has computed this array on every interview
       // since V2 shipped; `toExtractionOutput` reads `projection.draft` and nothing else, so the
       // attributes were computed and dropped on the floor. A live 13-turn welding interview
@@ -1119,6 +1187,66 @@ export class ProfileExtractionProcessor extends WorkerHost {
    * exactly one thing — `isSelectableDomain`, the last hallucination wall — and merging
    * them would mean a conditional in every line of both.
    */
+  /**
+   * OIE O2 — the canonical `jd_*` scope for this extraction's canonicalization pass, or null.
+   *
+   * WHAT SENDING IT DOES, STATED PLAINLY. `job_domain_id` is not a flag, it IS the S3-C read
+   * switch for this caller: supplying it moves the TAX-4 canonicalization pass from Path B
+   * (`skill_alias.domain_id`, the configured legacy slug) to Path A (`job_domain_skill`).
+   * Omitting it leaves that pass exactly as it has always been.
+   *
+   * WHAT IT DOES TODAY: nothing. The pass sits behind `skill_canonicalize_enabled`, which is
+   * `False` by default and OFF in production, so the field rides the request and is never read.
+   * This arms the switch; the taxonomy flag is still what activates it, and that flag is
+   * deliberately untouched.
+   *
+   * THREE REFUSALS, all failing to "no scope" — which is the pre-existing behaviour, so every
+   * refusal is a no-op rather than a degradation:
+   *
+   *   1. No pin, or an unmatched one. Five of the seven `OccupationPin` statuses are
+   *      `unmatched_*` and the schema DEFAULTS to one of them, so a present pin is not a
+   *      confirmed trade. See `occupationPinScopesCanonicalization`.
+   *   2. The domain is no longer selectable. The catalogue moves between the interview and this
+   *      job; scoping to a deprecated domain would narrow retrieval to a set with no active
+   *      edges, and every label would come back unresolved — a SILENT recall loss, which is
+   *      worse than the honest Path B answer. Same `isSelectableDomain` wall
+   *      `resolvePinnedDomain` uses, applied one step earlier because this one is on the wire.
+   *   3. The validation query itself failed. Identical posture to `resolvePinnedDomain`: this
+   *      method exists to improve an extraction, so it must never be a way to break one.
+   *
+   * Never throws.
+   */
+  private async canonicalScopeForPin(
+    pin: OccupationPin | null,
+    aiJobId: string,
+  ): Promise<string | null> {
+    if (!occupationPinScopesCanonicalization(pin)) return null;
+    try {
+      if (!(await this.skills.isSelectableDomain(pin!.job_domain_id))) {
+        this.logger.warn(
+          `extraction job ${aiJobId} carried a pinned job_domain that is no longer selectable; ` +
+            `canonicalizing on the LEGACY scope rather than a domain with no active edges`,
+        );
+        return null;
+      }
+    } catch (err) {
+      const cls = err instanceof Error ? err.name : "UnknownError";
+      this.logger.warn(
+        `extraction job ${aiJobId} could not validate the pinned job_domain (${cls}); ` +
+          `canonicalizing on the LEGACY scope (a scope is never worth the extraction)`,
+      );
+      return null;
+    }
+    // Opaque ids only, never transcript or PII (no-PII-in-logs). This line is how an operator
+    // sees the switch fire on a specific job; the FRACTION comes from
+    // `db:report:oie-canonicalize-coverage`, which reads the same predicate off the database.
+    this.logger.log(
+      `extraction job ${aiJobId} canonicalizing under the CANONICAL scope ` +
+        `${pin!.job_domain_id} (${pin!.match_status}) — Path A`,
+    );
+    return pin!.job_domain_id;
+  }
+
   private async resolvePinnedDomain(
     pin: OccupationPin,
     aiJobId: string,
