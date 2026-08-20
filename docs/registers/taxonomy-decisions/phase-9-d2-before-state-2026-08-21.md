@@ -1,6 +1,14 @@
 # D2 — the complete before-state, captured 2026-08-21
 
-> **Read-only throughout. NOTHING WAS WRITTEN. D2 has not been executed.**
+> **Read-only throughout. NOTHING WAS WRITTEN BY THIS PAGE.**
+>
+> ✅ **SUPERSEDED BY THE RUN — D2 steps 0 and 1 were executed on 2026-08-21.** This page is now
+> the *before* half of that subtraction and keeps its value as exactly that; the *after* half,
+> and the reason step 2 stopped, live in
+> [`phase-9-d2-seed-embed-promote-runbook.md`](./phase-9-d2-seed-embed-promote-runbook.md)
+> under "What actually happened". Every prediction below held: `new=16 changed=0 held=4
+> aliases=41 crosswalk=0`, and the four `active→deprecated` changes stayed absent under
+> `--preserve-existing-status`.
 >
 > Owner instruction: *"Then run D2 Step 0 only as a dry-run/plan: verify the expected 4
 > active→deprecated changes and 4 crosswalk changes; verify `--preserve-existing-status`

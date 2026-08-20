@@ -3,8 +3,12 @@
 > **Owner ruling 2026-08-20: D2**, re-read as *seed + embed, **then** promote*.
 > ([`phase-9-decision-record.md`](./phase-9-decision-record.md) §3.)
 >
-> **NOTHING HERE HAS BEEN RUN.** This page exists so that when it is run, it is run once, in
-> order, with a recorded before/after — not assembled from memory at the console.
+> **EXECUTED 2026-08-21, and it stopped part-way — on purpose.** Steps **0 and 1 are DONE**
+> against production, each with a recorded before/after (below). **Step 2 (embed) is BLOCKED**
+> by infrastructure and wrote nothing: the ai-service's spend ledger could not reach Redis, so
+> it failed closed and refused every real call. Steps 3 and 4 are consequently not reachable —
+> a skill with no vector cannot pass `FULLY_EMBEDDED`. **No flag was touched; no promotion was
+> attempted.**
 >
 > **Revised 2026-08-20 after every step was dry-run against production.** Two things changed and
 > both matter: the authorisation blocker is cleared, and **the step order was wrong** — see
@@ -231,6 +235,38 @@ OPS_ALLOW_PRODUCTION=embed:skills \
 **This one spends money and calls a provider.** It is the step that actually moves coverage: an
 alias with no vector is not a candidate no matter what its skill's status says.
 
+### ⛔ THE PREREQUISITE THIS PAGE WAS MISSING — and it is what stopped the run
+
+Starting the ai-service is **not sufficient**. The real embed path goes through the TD68
+**SpendLedger**, whose backend is Redis, and *"with Redis unreachable returns
+`spend_store_unavailable` (fail closed)"*. On 2026-08-21 Docker was not running on the
+workstation, so Redis was not either, and the run ended:
+
+```
+[embed:skills] done — embedded=0 blocked=0 providerErrors=0 budgetStopped=true
+               estCostInr=0.000000 model=gemini-embedding-001 mock=false
+[embed:skills] BUDGET STOP — remaining rows left NULL; re-run to resume.
+```
+
+**`budgetStopped=true` here does NOT mean a cap was hit.** The caps were nowhere near: 200
+INR/day and 1000 INR cumulative, against a projection of **~0.012 INR for the entire 260-alias
+run** (984 tokens at 0.0125 INR/1k). The ledger simply could not be *reached*, and a spend
+guardrail that cannot read its own counter must refuse — which is the correct behaviour and the
+reason nothing was half-written. Verified after the fact: `aliases_embedded` still **76**,
+`PROVEN MOCK (recompute) = 0`. **No spend, no partial state, no mock vector.**
+
+So the prerequisite list for step 2 is:
+
+| | |
+|---|---|
+| the ai-service is up | `uvicorn app.main:app` — health must return 200 |
+| **its spend-ledger Redis is reachable** | else every real call fails closed, silently reading as "budget stop" |
+| real calls are enabled **for this task** | `real_call_enabled_for("skill_embedding")` — master flag + key + `skill_embedding` in `AI_REAL_CALL_TASKS`; an empty allowlist blocks everything |
+| the model matches what is already in the table | `gemini-embedding-001` @ 768 — a second model splits the vector space and `FULLY_EMBEDDED` then refuses those skills at step 3 |
+
+**Check the first three BEFORE the apply, not after.** All four were verified green on
+2026-08-21 except the Redis one, which is the one that was never written down.
+
 **The plan is the count to trust, and it is now runnable at any point.** Measured 2026-08-20,
 *before* steps 0 and 1: `aliases needing embedding = 22, distinct skills covered = 16`. After
 step 0 (+41) and step 1 (+197) the plan should report roughly **260**. Re-run the plan
@@ -315,9 +351,82 @@ irreversible ones happen under one authorisation with a recorded before/after.
 
 ---
 
+## What actually happened, 2026-08-21
+
+Executed under the owner's explicit approval, in the order this page defines. Every figure is a
+count read from the live database before and after each step — not a corpus projection.
+
+### Preconditions, all six green before anything was written
+
+| # | result |
+|---|---|
+| P1 schema-contract | **READY** |
+| P2 RLS | **78/78 locked, 0 deviating** |
+| P3 journal | **87/87, 0 orphans** — `0085` and `0086` were reconciled immediately before this run |
+| P4 Path-B parity | digest **`d7f6cd4ec713ae52…`**, 76 candidate rows, 10 legacy slugs |
+| P5 corpus quality | **PASS**, 0 structural problems, 3 advisories (unchanged, never enforced) |
+| P6 Step-0 plan | `new=16 changed=0 held=4 aliases=41 crosswalk=0` — exactly as predicted |
+
+### The mutations
+
+| | before | after Step 0 | after Step 1 |
+|---|---|---|---|
+| `skill` | 51 | **67** (+16) | **165** (+98) |
+| — active | 51 | 52 | **52** |
+| — provisional | 0 | 15 | 111 |
+| — deprecated | 0 | 0 | 2 |
+| `skill_alias` | 98 | **139** (+41) | **336** (+197) |
+| — with a vector | 76 | 76 | **76** |
+| `job_domain_skill` | 0 | 0 | **236** |
+| domains with edges | 0 | 0 | **28** |
+| `replaced_by` pointers | 0 | 0 | 2 |
+
+Step 1 wrote **531 rows**, matching its dry run statement for statement (28 domains, 98 skills,
+197 aliases, 236 edges = 145 required + 91 preferred).
+
+### The two numbers the runbook did not predict, and why they are correct
+
+`skills_deprecated` 0 → **2** and `replaced_by` 0 → **2** were not in the plan. Measured rather
+than assumed: both rows — `skill_chassis_fitting` and `skill_go_no_go_gauge_checking` — were
+**created by Step 1 today**, arriving already deprecated with a pointer at their replacement.
+They are corpus content, not a mutation of anything live. The proof is arithmetic and was
+checked directly: `active` stayed at **52** across Step 1, and **51 skills predate today** —
+exactly the original production set, none of it touched.
+
+### The protection that mattered held
+
+The four skills the corpus wants deprecated are still `active` with no crosswalk pointer:
+`skill_boring`, `skill_cad_interpretation`, `skill_dimensional_inspection`, `skill_gdt_reading`.
+`--preserve-existing-status` was passed on every write. Deprecating them remains an S3-D
+decision that has not been taken.
+
+### Path B did not move
+
+Re-run after Step 1: digest **`d7f6cd4ec713ae52…`**, 76 candidate rows, and all ten per-slug
+digests byte-identical to the before. 98 new skills, 197 new aliases and 236 new edges changed
+the path serving traffic today **not at all** — which is the safety property this sequence exists
+to preserve.
+
+### Where it stopped
+
+Step 2 is blocked; see the prerequisite section above. **Steps 3 and 4 are not reachable from
+here** and were not attempted:
+
+- `skills_with_a_vector` is **33**, unchanged since before D2 — so **all 114 skills created today
+  have no vector at all**, and not one of the 111 provisional skills can pass `FULLY_EMBEDDED`.
+- Six more would be held by `EVAL_COVERED` regardless: the trainer pack is deliberately empty
+  pending the trade trainer, and `--waive` is not the answer to that.
+
+**The 111 provisional skills now on production are NOT an argument for promotion.** They are
+the corpus that steps 0 and 1 just seeded, all unembedded. Promotion moves status; retrieval
+needs status *and* a vector.
+
+---
+
 ## Change log
 
 | date | what |
 |---|---|
 | 2026-08-20 | Written. Not run. |
 | 2026-08-20 | **Every step dry-run against production; still not run.** Four corrections. (1) **Step 0 added** — `db:seed:skills` is MANDATORY and FIRST, not the optional aside this page called it: `seed:domain-skills` refuses by name until four shipped skills exist, and 16 of the corpus's 49 are missing from production. (2) The authorisation note was **wrong** — the old `NODE_ENV` guard did fire, from the repo-root environment file, and refused everything including dry runs; the real defect was that the protection lived in a gitignored line. All four runners now gate on `opsGuard`. (3) Before-state **measured**: 51 skills all active, **0 provisional**, 98 aliases of which 22 unembedded, 0 edges — so "1 of 111 provisional has an embedded alias" was a corpus projection, and the live answer is that there is nothing to promote yet at all. (4) `db:seed:skills --plan` added, because the mandatory first step was the only one of the five that could not be previewed. |
+| 2026-08-21 | **RUN. Steps 0 and 1 executed against production** under owner approval; before/after recorded above. **Step 2 blocked** — the ai-service's spend-ledger Redis was unreachable, so it failed closed and embedded nothing (`budgetStopped=true` with `estCostInr=0.000000`, caps nowhere near: ~0.012 INR projected against 200/day). That prerequisite was missing from this page and is now written down. Steps 3-4 not reachable: 0 of 111 provisional skills carry a vector. Path-B digest unchanged; RLS 78/78; schema contract READY; no flag touched. |
