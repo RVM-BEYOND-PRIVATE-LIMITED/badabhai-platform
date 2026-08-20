@@ -571,21 +571,40 @@ class AuthApi {
     _check(res, _AuthEndpoint.pinResetRequest);
   }
 
-  /// POST /auth/pin/reset/confirm {phone, otp, pin} → 204. Idempotent; no
-  /// bearer — proves the OTP and sets the NEW PIN in one step. 401 → bad/expired
-  /// OTP, 400 → weak/format PIN, 429 → rate-limited.
-  Future<void> pinResetConfirm(
+  /// POST /auth/pin/reset/confirm {phone, otp, pin, device_info?} → **200** with
+  /// the SAME login-shape body /auth/otp/verify returns (ADR-0026 Amendment A6).
+  /// Idempotent; no bearer — proves the OTP and sets the NEW PIN in one step, and
+  /// now mints a LIVE session so the reset is self-healing. 401 → bad/expired OTP,
+  /// 400 → weak/format PIN, 429 → rate-limited.
+  ///
+  /// Sends `device_info` (the same block [otpVerify] sends) — WITHOUT it the minted
+  /// session is `did`-less and the very next PIN unlock rejects it (the trusted-
+  /// device gate never passes), so the worker resets their PIN and is told it is
+  /// wrong one cold start later (#998).
+  Future<OtpVerifyResult> pinResetConfirm(
     String phoneE164,
     String otp,
     String pin,
   ) async {
+    final Map<String, dynamic> body = <String, dynamic>{
+      'phone': phoneE164,
+      'otp': otp,
+      'pin': pin,
+    };
+    final Map<String, dynamic>? deviceInfo = await _buildDeviceInfo();
+    if (deviceInfo != null) body['device_info'] = deviceInfo;
+
     final AuthResponse res = await _client.send(
       HttpMethod.post,
       '/auth/pin/reset/confirm',
-      body: <String, dynamic>{'phone': phoneE164, 'otp': otp, 'pin': pin},
+      body: body,
       idempotent: true,
     );
     _check(res, _AuthEndpoint.pinResetConfirm);
+    // Tolerant parse (same as otpVerify): an older server that still answers 204
+    // yields an empty body → default/empty tokens, and confirmPinReset falls back
+    // to the legacy locked path (see there) rather than crashing.
+    return OtpVerifyResult.fromJson(res.body);
   }
 
   /// PATCH /auth/devices/me/push-token (bearer) {push_token} → {push_token_target}.

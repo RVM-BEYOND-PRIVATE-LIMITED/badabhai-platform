@@ -144,13 +144,24 @@ class MockAuthApi extends AuthApi {
   }
 
   @override
-  Future<void> pinResetConfirm(String phoneE164, String otp, String pin) async {
+  Future<OtpVerifyResult> pinResetConfirm(
+      String phoneE164, String otp, String pin) async {
     await _delay();
-    // Canned success — mirrors POST /auth/pin/reset/confirm → 204. The reset
-    // leaves the persisted refresh token intact so the worker can unlock with
-    // the new PIN; flip the in-process pin_set flag accordingly.
+    // A6/#998: the reset now returns a LIVE login-shape session (same as
+    // otpVerify), so the app authenticates straight through instead of dropping to
+    // `locked`. Mint via the shared helper; pin_set is true (just set) and the
+    // worker is not new (they are resetting an existing PIN).
     _pinSet = true;
+    final AuthTokens tokens = await _mintMockTokens();
+    await _tokenStore.writeWorkerId('mock-worker-0001');
     await _tokenStore.writePinSet(true);
+    return OtpVerifyResult(
+      workerId: 'mock-worker-0001',
+      isNewUser: false,
+      pinSet: true,
+      tokens: tokens,
+      consentAccepted: true,
+    );
   }
 
   @override
