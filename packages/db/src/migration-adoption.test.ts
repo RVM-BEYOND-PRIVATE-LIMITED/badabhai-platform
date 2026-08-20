@@ -23,9 +23,12 @@ import {
   splitTopLevel,
   vacuous,
   verifyAgainst,
+  EFFECT_VERIFIERS,
+  effectVerifierFor,
   type Expect,
   type LiveCatalog,
 } from "./migration-adoption";
+import { DATA_API_ROLES, R39_TABLES } from "./schema-contract";
 
 const MIGRATIONS = join(__dirname, "..", "migrations");
 const read = (tag: string): string => readFileSync(join(MIGRATIONS, `${tag}.sql`), "utf8");
@@ -292,5 +295,83 @@ describe("the five migrations awaiting adoption (0076–0080)", () => {
   it.each(TAGS)("%s is REFUSED against a database missing its objects", (tag) => {
     // The property that matters most: adoption cannot mark a genuinely-absent migration applied.
     expect(adoptionProblems(read(tag), emptyCatalog).length).toBeGreaterThan(0);
+  });
+});
+
+describe("effect verifiers — the one narrow way past the dynamic-SQL refusal", () => {
+  const TAG = "0082_rls_lock_seven_tables";
+
+  /** A catalog in which 0082 IS applied: all seven locked, nothing granted. */
+  function locked(): LiveCatalog {
+    return {
+      tables: new Set(R39_TABLES.map((t) => t.table)),
+      columns: new Map(),
+      indexes: new Set(),
+      constraints: new Set(),
+      rlsEnabled: new Set(R39_TABLES.map((t) => t.table)),
+      rlsForced: new Set(R39_TABLES.map((t) => t.table)),
+      grants: new Set(),
+    };
+  }
+
+  it("registers 0082, and the registration checks a non-zero number of facts", () => {
+    // Property 3 in the header: a verifier that asserts nothing would reproduce the exact
+    // "nothing to check counted as everything checked" defect `vacuous` exists to prevent.
+    const v = effectVerifierFor(TAG);
+    expect(v).toBeDefined();
+    expect(v!.assertions).toBeGreaterThan(0);
+    expect(v!.assertions).toBe(R39_TABLES.length * (2 + DATA_API_ROLES.length));
+  });
+
+  it("registers NOTHING else — the hatch is per-migration, not a general relaxation", () => {
+    expect(EFFECT_VERIFIERS.map((v) => v.tag)).toEqual([TAG]);
+  });
+
+  it("still refuses dynamic SQL when the migration has no verifier", () => {
+    const sql = `DO $$ BEGIN EXECUTE 'ALTER TABLE x ENABLE ROW LEVEL SECURITY'; END $$;`;
+    expect(adoptionProblems(sql, emptyCatalog, "0099_not_registered").join(" ")).toContain("dynamic SQL");
+  });
+
+  it("adopts 0082 against a database where all seven are actually locked", () => {
+    expect(adoptionProblems(read(TAG), locked(), TAG)).toEqual([]);
+  });
+
+  it("REFUSES 0082 when the tables are absent — 42 facts, none of them satisfied", () => {
+    // The runbook property: adoption cannot mark a migration applied whose effects are not there.
+    const problems = adoptionProblems(read(TAG), emptyCatalog, TAG);
+    expect(problems.length).toBeGreaterThanOrEqual(R39_TABLES.length);
+    expect(problems.join(" ")).toContain("table MISSING");
+  });
+
+  it("REFUSES 0082 when a single Data-API grant survives on a single table", () => {
+    // The R39 failure mode itself: everything looks applied except the one control that matters.
+    const live = locked();
+    const grants = new Set(live.grants);
+    grants.add("payer_capabilities:service_role");
+    const problems = adoptionProblems(read(TAG), { ...live, grants }, TAG);
+    expect(problems).toContain("payer_capabilities: service_role still holds a privilege — the REVOKE did not take");
+  });
+
+  it("REFUSES 0082 when RLS is enabled but not FORCED", () => {
+    // ENABLE alone is decorative here: the owner is the only backend connection.
+    const live = locked();
+    const forced = new Set(live.rlsForced);
+    forced.delete("agency_kyc");
+    const problems = adoptionProblems(read(TAG), { ...live, rlsForced: forced }, TAG);
+    expect(problems.join(" ")).toContain("agency_kyc: RLS is not FORCED");
+  });
+
+  it("covers the four GAP-DB-21 tables the static parse can never reach", () => {
+    // Section B's tables appear ONLY inside the DO block, so `parseMigration` cannot see them.
+    // If the verifier did not name them, adopting 0082 would assert nothing about four of seven.
+    const parsed = parseMigration(read(TAG));
+    const unmodelled = R39_TABLES.filter((t) => t.cls === "unmodelled").map((t) => t.table);
+    for (const t of unmodelled) {
+      expect([...parsed.rlsForced]).not.toContain(t);
+      const live = locked();
+      const forced = new Set(live.rlsForced);
+      forced.delete(t);
+      expect(adoptionProblems(read(TAG), { ...live, rlsForced: forced }, TAG).join(" ")).toContain(t);
+    }
   });
 });

@@ -87,7 +87,8 @@
     "db:verify:unresolved-write": "tsx src/verify-unresolved-write.ts",
     "db:verify:rls-lock": "tsx src/verify-rls-lock.ts",
     "db:rollback:s3d": "tsx src/s3d-rollback.ts",
-    "db:report:s3d-shadow": "tsx src/s3d-shadow-report.ts"
+    "db:report:s3d-shadow": "tsx src/s3d-shadow-report.ts",
+    "db:audit:live-drift": "tsx src/audit-live-drift.ts"
   },
   "dependencies": {
     "@badabhai/ai-contracts": "workspace:*",
