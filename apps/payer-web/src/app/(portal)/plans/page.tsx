@@ -86,8 +86,7 @@ export default async function PlansPage() {
                   </span>
                 }
                 icon="stack"
-                delta="Concurrent allowance (from the pricing config)."
-                deltaDir="flat"
+                caption="Concurrent allowance (from the pricing config)."
               />
               <StatTile
                 label="Applicant quota used"
@@ -97,8 +96,7 @@ export default async function PlansPage() {
                   </span>
                 }
                 icon="users-three"
-                delta={<Link href="/postings">Top up applicant quota →</Link>}
-                deltaDir="flat"
+                caption={<Link href="/postings">Top up applicant quota →</Link>}
               />
             </div>
 

@@ -117,6 +117,12 @@ export interface StatTileProps extends HTMLAttributes<HTMLDivElement> {
   /** @default 'up' */
   deltaDir?: "up" | "down" | "flat";
   /**
+   * A NEUTRAL supporting caption under the value (e.g. `'1 credit each'`, a unit price). This is
+   * NOT a trend — it carries no arrow and no up/down/flat colour. Use it instead of overloading
+   * `delta`/`deltaDir="flat"` for context that isn't a change over time.
+   */
+  caption?: ReactNode;
+  /**
    * When set, the WHOLE tile becomes ONE accessible interactive link to `href` (stretched-link;
    * see {@link CardProps.href}). Backward-compatible: omit `href` and the tile renders EXACTLY
    * as before (no `<a>` is added).
@@ -132,6 +138,7 @@ export function StatTile({
   icon,
   delta,
   deltaDir = "up",
+  caption,
   href,
   ariaLabel,
   className = "",
@@ -152,6 +159,7 @@ export function StatTile({
         )}
       </div>
       <div className="bb-stat__value">{value}</div>
+      {caption != null && <div className="bb-stat__caption">{caption}</div>}
       {delta != null && (
         <div className={`bb-stat__delta bb-stat__delta--${deltaDir}`}>
           <i className={`ph-bold ph-${arrow}`} aria-hidden="true" />

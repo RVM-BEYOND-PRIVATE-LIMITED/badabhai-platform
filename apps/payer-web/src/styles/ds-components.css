@@ -302,6 +302,8 @@
 .bb-stat__label { font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text-muted); }
 .bb-stat__icon { width: 36px; height: 36px; border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: var(--text-lg); background: var(--brand-tint); color: var(--brand-press); flex: none; }
 .bb-stat__value { font-family: var(--font-mono); font-weight: var(--weight-bold); font-size: var(--text-3xl); color: var(--text-primary); letter-spacing: -0.02em; margin-top: var(--space-3); font-variant-numeric: tabular-nums; line-height: 1; }
+/* Neutral supporting caption under the value — NOT a trend (no arrow, no up/down colour). */
+.bb-stat__caption { color: var(--text-muted); font-size: var(--text-sm); margin-top: var(--space-2); }
 .bb-stat__delta { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--text-sm); font-weight: var(--weight-semibold); margin-top: var(--space-2); }
 .bb-stat__delta--up { color: var(--success); }
 .bb-stat__delta--down { color: var(--danger); }
