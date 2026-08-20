@@ -44,9 +44,12 @@ async function main(): Promise<void> {
         console.log(`── ${t}: DOES NOT EXIST\n`);
         continue;
       }
-      const [{ n }] = await sql<{ n: string }[]>`SELECT count(*)::text n FROM ${sql(t)}`.catch(
-        () => [{ n: "?" }],
+      // `noUncheckedIndexedAccess` is on: destructuring row 0 of a possibly-empty result would
+      // bind `undefined`. A count query that returned nothing is not a count of zero.
+      const counted = await sql<{ n: string }[]>`SELECT count(*)::text n FROM ${sql(t)}`.catch(
+        (): { n: string }[] => [],
       );
+      const n = counted[0]?.n ?? "?";
       const idx = await sql<{ indexname: string }[]>`
         SELECT indexname FROM pg_indexes WHERE schemaname='public' AND tablename=${t}`;
       const fks = await sql<{ def: string }[]>`
