@@ -131,8 +131,18 @@ export function listPayers(f: PayerFilters = {}) {
   return adminFetch(`/admin/payers${qs(f)}`, { schema: payersPageSchema });
 }
 
-export function getPayer(id: string) {
-  return adminFetch(`/admin/payers/${encodeURIComponent(id)}`, { schema: payerDetailSchema });
+/**
+ * `faceless` is for callers that need the ROW but not the NAME — the timeline page, which reads
+ * only `id` and `role`. It suppresses the name server-side, so the read costs nothing against
+ * the admin's name-egress budget and writes no `admin.identity_viewed` audit row. Ask for it
+ * whenever the name is not rendered: the budget is shared, and a page that spends it without
+ * showing a name takes it from a page that would have.
+ */
+export function getPayer(id: string, opts: { faceless?: boolean } = {}) {
+  return adminFetch(
+    `/admin/payers/${encodeURIComponent(id)}${opts.faceless ? "?faceless=1" : ""}`,
+    { schema: payerDetailSchema },
+  );
 }
 
 // ---------------------------------------------------------------------------
