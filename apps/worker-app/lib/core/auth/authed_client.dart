@@ -288,6 +288,19 @@ class AuthedClient {
       return;
     }
 
+    // Reuse a PERSISTED idempotency key across calls (#998). A fresh key every
+    // _doRefresh is guaranteed to miss the server's dedupe window, so a rotation
+    // whose response was lost is retried later with a new key, re-presents an
+    // already-`used` token, and reuse-detection destroys the whole refresh family
+    // — a per-worker, ~daily force-logout the app renders as "PIN sahi nahi".
+    // Mint + persist ONE only when none is on file; reuse it until the rotation
+    // lands. (The server durability counterpart is #999.)
+    String? idempotencyKey = await _tokenStore.readRefreshIdempotencyKey();
+    if (idempotencyKey == null || idempotencyKey.isEmpty) {
+      idempotencyKey = _uuid.v4();
+      await _tokenStore.writeRefreshIdempotencyKey(idempotencyKey);
+    }
+
     AuthResponse res;
     try {
       res = await _attempt(
@@ -295,18 +308,20 @@ class AuthedClient {
         '/auth/token/refresh',
         body: <String, dynamic>{'refresh_token': refreshToken},
         authed: false,
-        // Refresh is naturally idempotent on the wire; reuse one key for its own
-        // bounded transport retries.
-        idempotencyKey: _uuid.v4(),
+        idempotencyKey: idempotencyKey,
       );
     } on AuthFailure {
-      // Pure transport failure — leave the persisted refresh token intact so a
-      // later call can retry; do NOT force reauth on a flaky network.
+      // Pure transport failure — leave BOTH the persisted refresh token AND the
+      // idempotency key intact so a later call retries with the SAME key (the
+      // whole point); do NOT force reauth on a flaky network.
       rethrow;
     }
 
     if (res.isSuccess) {
       await _persistTokens(res.body);
+      // The rotation is durably persisted → the key has done its job; drop it so
+      // the NEXT rotation starts a fresh one.
+      await _tokenStore.clearRefreshIdempotencyKey();
       return;
     }
 
