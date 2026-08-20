@@ -3,6 +3,7 @@ import { Logger } from "@nestjs/common";
 import { describe, it, expect, vi } from "vitest";
 import {
   DraftProfileSchema,
+  OCCUPATION_MATCH_STATUSES,
   WorkerProfileDraftSchema,
   type DraftProfile,
 } from "@badabhai/ai-contracts";
@@ -10,7 +11,10 @@ import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { fakeAiCostTotals } from "../ai/ai-cost-totals.fake";
 import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
-import { ProfileExtractionProcessor } from "./profile-extraction.processor";
+import {
+  ProfileExtractionProcessor,
+  occupationPinScopesCanonicalization,
+} from "./profile-extraction.processor";
 import type { ProfileExtractionJobData } from "../queue/queue.constants";
 
 const JOB = {
@@ -2261,5 +2265,129 @@ describe("the interview overlay (Phase C)", () => {
       .map((c) => c[0] as { event_name: string; payload: { ai_call_id?: string } })
       .filter((e) => e.event_name === "ai.cost_recorded");
     expect(costs.some((e) => e.payload.ai_call_id === meta.ai_call_id)).toBe(true);
+  });
+});
+
+// ===========================================================================
+// OIE O2 — the legacy branch scopes canonicalization to Path A when it has a pin
+// (owner ruling 2026-08-20; O1, moving the pass out of its branch, is the eventual fix)
+// ===========================================================================
+//
+// THE STRUCTURAL SPLIT THIS WORKS AROUND. `/profile/extract` is the only route that
+// canonicalizes and is called from exactly one place — the `answerMap.length === 0` branch,
+// which used to hardcode no domain. The OIE branch HAS the worker's confirmed trade but calls
+// `/profile/parse`, which invents no canonical ids on purpose. So the path with a domain does
+// not canonicalize and the path that canonicalizes had no domain.
+//
+// The seam is that `answerMap.length === 0` is reachable with a NON-NULL session — an interview
+// that pinned an occupation and then collected nothing — and that session's pin was discarded.
+// That is exactly the fraction O2 covers, and why its coverage is partial and measurable rather
+// than complete.
+describe("OIE O2 — the canonical scope on the legacy extract branch", () => {
+  const pinnedNoAnswers = (over: Record<string, unknown> = {}) => ({
+    answer_map: [],
+    occupation: { ...PIN, ...over },
+  });
+
+  it("puts the pinned jd_* on the wire when the pin is MATCHED", async () => {
+    const { proc, ai, skills } = make({ conversationState: pinnedNoAnswers() });
+    await proc.process(makeJob());
+    expect(ai.parseProfile).not.toHaveBeenCalled(); // still the legacy branch
+    expect(ai.extractProfile).toHaveBeenCalledOnce();
+    expect(ai.extractProfile.mock.calls[0]![0]).toMatchObject({
+      job_domain_id: PIN.job_domain_id,
+    });
+    // Validated against the catalogue BEFORE it goes on the wire — the same wall
+    // `resolvePinnedDomain` applies after, moved one step earlier because this one is a request.
+    expect(skills.isSelectableDomain).toHaveBeenCalledWith(PIN.job_domain_id);
+  });
+
+  it("OMITS the key entirely with no session — the request is byte-identical to before", async () => {
+    // The property that makes this deployable with nothing else changing: an extraction with no
+    // pin must produce the same three keys it always has, not a fourth one holding undefined.
+    const { proc, ai } = make();
+    await proc.process(makeJob());
+    const sent = ai.extractProfile.mock.calls[0]![0] as Record<string, unknown>;
+    expect("job_domain_id" in sent).toBe(false);
+    expect(Object.keys(sent).sort()).toEqual(["messages", "transcript", "worker_ref"]);
+  });
+
+  it.each([
+    "unmatched_below_floor",
+    "unmatched_llm_declined",
+    "unmatched_degraded",
+  ])("refuses to scope on an %s pin", async (match_status) => {
+    // A pin OBJECT is not a confirmed trade. Five of the seven statuses are `unmatched_*` and
+    // `OccupationPinSchema` DEFAULTS the field to one of them, so "occupation is present" would
+    // have scoped retrieval to a domain nobody established.
+    const { proc, ai, skills } = make({ conversationState: pinnedNoAnswers({ match_status }) });
+    await proc.process(makeJob());
+    expect("job_domain_id" in (ai.extractProfile.mock.calls[0]![0] as object)).toBe(false);
+    expect(skills.isSelectableDomain).not.toHaveBeenCalled(); // refused before the query
+  });
+
+  it("falls back to the LEGACY scope when the domain is no longer selectable", async () => {
+    // The catalogue moves between the interview and this job. Scoping to a deprecated domain
+    // would narrow Path A to a set with no active edges and every label would return
+    // unresolved — a SILENT recall loss, strictly worse than the honest Path B answer.
+    const { proc, ai } = make({
+      conversationState: pinnedNoAnswers(),
+      domainSelectable: false,
+    });
+    const res = await proc.process(makeJob());
+    expect(res).toEqual({ profile_id: PROFILE });
+    expect("job_domain_id" in (ai.extractProfile.mock.calls[0]![0] as object)).toBe(false);
+  });
+
+  it("falls back to the LEGACY scope when the validation query itself fails", async () => {
+    // Same posture as `resolvePinnedDomain`: this exists to improve an extraction, so it must
+    // never become a way to break one.
+    const { proc, ai } = make({
+      conversationState: pinnedNoAnswers(),
+      domainCheckThrows: true,
+    });
+    const res = await proc.process(makeJob());
+    expect(res).toEqual({ profile_id: PROFILE });
+    expect("job_domain_id" in (ai.extractProfile.mock.calls[0]![0] as object)).toBe(false);
+  });
+
+  it("refuses to scope on a MALFORMED occupation, without failing the job", async () => {
+    // `conversation_state.occupation` is persisted JSON and therefore untrusted input.
+    const { proc, ai } = make({
+      conversationState: { answer_map: [], occupation: { job_domain_id: 42 } },
+    });
+    const res = await proc.process(makeJob());
+    expect(res).toEqual({ profile_id: PROFILE });
+    expect("job_domain_id" in (ai.extractProfile.mock.calls[0]![0] as object)).toBe(false);
+  });
+
+  it("does not scope the OIE branch — that one does not canonicalize at all", async () => {
+    // The other half of the split, asserted so a future edit cannot quietly "fix" it by
+    // sending a scope to a route that invents no ids. That is O1's job, and O1 moves the PASS.
+    const { proc, ai } = make(withMap()); // a real answer map AND a pin
+    await proc.process(makeJob());
+    expect(ai.parseProfile).toHaveBeenCalledOnce();
+    expect(ai.extractProfile).not.toHaveBeenCalled();
+  });
+
+  it("classifies every status the contract defines", () => {
+    // The predicate is an ENUMERATED set, not a `startsWith("matched_")` test, so a new status
+    // must be classified deliberately. This is what makes that true: add one to
+    // OCCUPATION_MATCH_STATUSES without deciding which side it falls on and this fails.
+    const pin = (match_status: string) =>
+      ({ ...PIN, match_status }) as unknown as Parameters<
+        typeof occupationPinScopesCanonicalization
+      >[0];
+    const scoping = OCCUPATION_MATCH_STATUSES.filter((st) =>
+      occupationPinScopesCanonicalization(pin(st)),
+    );
+    expect([...scoping].sort()).toEqual([
+      "matched_auto",
+      "matched_lexical",
+      "matched_llm",
+      "matched_worker_confirmed",
+    ]);
+    expect(scoping).toHaveLength(OCCUPATION_MATCH_STATUSES.length - 3);
+    expect(occupationPinScopesCanonicalization(null)).toBe(false);
   });
 });
