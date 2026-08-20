@@ -1,0 +1,517 @@
+{
+  "kind": "e1-eval-coverage-trainer-pack",
+  "generated_against": "committed corpus source files and retrieval-v2.jsonl (no database)",
+  "why_now": "E1 (owner ruling 2026-08-20) made EVAL_COVERED count only REVIEWED cases. These skills were covered solely by a mechanical corpus_alias case and are now blocked from promotion.",
+  "ground_truth_status": "NOT AUTHORED. Every paraphrase slot has an empty query and awaits a trainer.",
+  "gate_state": {
+    "fixture_cases": 127,
+    "covered_by_reviewed": 59,
+    "demoted": 6,
+    "blocks_live_promotions": 0,
+    "blocks_live_promotions_why": "all demoted skills belong to the 98-skill growth corpus, which is 0% seeded; production holds the disjoint wedge corpus"
+  },
+  "competitors_available": false,
+  "slots_awaiting_trainer": 12,
+  "entries": [
+    {
+      "skill_id": "skill_earthing_and_bonding",
+      "label_en": "Earthing and bonding",
+      "label_hi": "अर्थिंग",
+      "status": "provisional",
+      "domains": [
+        "jd_nco_7411_0100",
+        "jd_nco_7412_0200"
+      ],
+      "existing_aliases": [
+        {
+          "text": "earthing work",
+          "lang": "en"
+        },
+        {
+          "text": "अर्थ पिट",
+          "lang": "hi"
+        }
+      ],
+      "competing_skills": [],
+      "proposed_cases": [
+        {
+          "case_id": "MX-earthing_and_bondi-1",
+          "query": "earthing work",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7411_0100",
+          "expected_skill_id": "skill_earthing_and_bonding",
+          "provenance": "corpus_alias:skill_earthing_and_bonding/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-earthing_and_bondi-2",
+          "query": "अर्थ पिट",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_nco_7411_0100",
+          "expected_skill_id": "skill_earthing_and_bonding",
+          "provenance": "corpus_alias:skill_earthing_and_bonding/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-earthing_and_bondi-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7411_0100",
+          "expected_skill_id": "skill_earthing_and_bonding",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-earthing_and_bondi-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7411_0100",
+          "expected_skill_id": "skill_earthing_and_bonding",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Earthing and bonding\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Only 2 alias(es) exist. Decide whether that is genuinely the whole vocabulary for this skill, or whether the paraphrase case is about to measure a gap in the corpus rather than a gap in retrieval.",
+        "Reachable in 2 domains (jd_nco_7411_0100, jd_nco_7412_0200). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ],
+      "existing_mechanical": [
+        {
+          "case_id": "DC-09",
+          "query": "earthing work",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7411_0100",
+          "expected_skill_id": "skill_earthing_and_bonding",
+          "provenance": "corpus_alias:skill_earthing_and_bonding/en"
+        },
+        {
+          "case_id": "DC-19",
+          "query": "अर्थ पिट",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_nco_7411_0100",
+          "expected_skill_id": "skill_earthing_and_bonding",
+          "provenance": "corpus_alias:skill_earthing_and_bonding/hi"
+        }
+      ]
+    },
+    {
+      "skill_id": "skill_order_picking_and_packing",
+      "label_en": "Order picking and packing",
+      "label_hi": "ऑर्डर पिकिंग",
+      "status": "provisional",
+      "domains": [
+        "jd_nco_4321_0601"
+      ],
+      "existing_aliases": [
+        {
+          "text": "order picking",
+          "lang": "en"
+        },
+        {
+          "text": "ऑर्डर तैयार करना",
+          "lang": "hi"
+        }
+      ],
+      "competing_skills": [],
+      "proposed_cases": [
+        {
+          "case_id": "MX-order_picking_and_-1",
+          "query": "order picking",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_4321_0601",
+          "expected_skill_id": "skill_order_picking_and_packing",
+          "provenance": "corpus_alias:skill_order_picking_and_packing/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-order_picking_and_-2",
+          "query": "ऑर्डर तैयार करना",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_nco_4321_0601",
+          "expected_skill_id": "skill_order_picking_and_packing",
+          "provenance": "corpus_alias:skill_order_picking_and_packing/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-order_picking_and_-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_4321_0601",
+          "expected_skill_id": "skill_order_picking_and_packing",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-order_picking_and_-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_4321_0601",
+          "expected_skill_id": "skill_order_picking_and_packing",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Order picking and packing\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Only 2 alias(es) exist. Decide whether that is genuinely the whole vocabulary for this skill, or whether the paraphrase case is about to measure a gap in the corpus rather than a gap in retrieval."
+      ],
+      "existing_mechanical": [
+        {
+          "case_id": "EX-HI-09",
+          "query": "ऑर्डर तैयार करना",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_nco_4321_0601",
+          "expected_skill_id": "skill_order_picking_and_packing",
+          "provenance": "corpus_alias:skill_order_picking_and_packing/hi"
+        }
+      ]
+    },
+    {
+      "skill_id": "skill_pipe_support_and_clamping",
+      "label_en": "Pipe support and clamping",
+      "label_hi": "पाइप क्लैंपिंग",
+      "status": "provisional",
+      "domains": [
+        "jd_nco_7126_0301"
+      ],
+      "existing_aliases": [
+        {
+          "text": "pipe clamping",
+          "lang": "en"
+        },
+        {
+          "text": "सपोर्ट लगाना",
+          "lang": "hi"
+        }
+      ],
+      "competing_skills": [],
+      "proposed_cases": [
+        {
+          "case_id": "MX-pipe_support_and_c-1",
+          "query": "pipe clamping",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7126_0301",
+          "expected_skill_id": "skill_pipe_support_and_clamping",
+          "provenance": "corpus_alias:skill_pipe_support_and_clamping/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-pipe_support_and_c-2",
+          "query": "सपोर्ट लगाना",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_nco_7126_0301",
+          "expected_skill_id": "skill_pipe_support_and_clamping",
+          "provenance": "corpus_alias:skill_pipe_support_and_clamping/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-pipe_support_and_c-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7126_0301",
+          "expected_skill_id": "skill_pipe_support_and_clamping",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-pipe_support_and_c-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7126_0301",
+          "expected_skill_id": "skill_pipe_support_and_clamping",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Pipe support and clamping\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Only 2 alias(es) exist. Decide whether that is genuinely the whole vocabulary for this skill, or whether the paraphrase case is about to measure a gap in the corpus rather than a gap in retrieval."
+      ],
+      "existing_mechanical": [
+        {
+          "case_id": "DC-07",
+          "query": "pipe clamping",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7126_0301",
+          "expected_skill_id": "skill_pipe_support_and_clamping",
+          "provenance": "corpus_alias:skill_pipe_support_and_clamping/en"
+        }
+      ]
+    },
+    {
+      "skill_id": "skill_punching_machine_operation",
+      "label_en": "Punching machine operation",
+      "label_hi": "पंचिंग मशीन चलाना",
+      "status": "provisional",
+      "domains": [
+        "jd_nco_7223_2400"
+      ],
+      "existing_aliases": [
+        {
+          "text": "punching operation",
+          "lang": "en"
+        },
+        {
+          "text": "पंच मशीन",
+          "lang": "hi"
+        }
+      ],
+      "competing_skills": [],
+      "proposed_cases": [
+        {
+          "case_id": "MX-punching_machine_o-1",
+          "query": "punching operation",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_2400",
+          "expected_skill_id": "skill_punching_machine_operation",
+          "provenance": "corpus_alias:skill_punching_machine_operation/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-punching_machine_o-2",
+          "query": "पंच मशीन",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_nco_7223_2400",
+          "expected_skill_id": "skill_punching_machine_operation",
+          "provenance": "corpus_alias:skill_punching_machine_operation/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-punching_machine_o-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7223_2400",
+          "expected_skill_id": "skill_punching_machine_operation",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-punching_machine_o-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7223_2400",
+          "expected_skill_id": "skill_punching_machine_operation",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Punching machine operation\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Only 2 alias(es) exist. Decide whether that is genuinely the whole vocabulary for this skill, or whether the paraphrase case is about to measure a gap in the corpus rather than a gap in retrieval."
+      ],
+      "existing_mechanical": [
+        {
+          "case_id": "DC-02",
+          "query": "punching operation",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7223_2400",
+          "expected_skill_id": "skill_punching_machine_operation",
+          "provenance": "corpus_alias:skill_punching_machine_operation/en"
+        }
+      ]
+    },
+    {
+      "skill_id": "skill_structural_fit_up_and_tacking",
+      "label_en": "Structural fit-up and tacking",
+      "label_hi": "फिट-अप और टैकिंग",
+      "status": "provisional",
+      "domains": [
+        "jd_nco_7224_0102"
+      ],
+      "existing_aliases": [
+        {
+          "text": "fit up and tack",
+          "lang": "en"
+        },
+        {
+          "text": "टैक वेल्ड",
+          "lang": "hi"
+        }
+      ],
+      "competing_skills": [],
+      "proposed_cases": [
+        {
+          "case_id": "MX-structural_fit_up_-1",
+          "query": "fit up and tack",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7224_0102",
+          "expected_skill_id": "skill_structural_fit_up_and_tacking",
+          "provenance": "corpus_alias:skill_structural_fit_up_and_tacking/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-structural_fit_up_-2",
+          "query": "टैक वेल्ड",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_nco_7224_0102",
+          "expected_skill_id": "skill_structural_fit_up_and_tacking",
+          "provenance": "corpus_alias:skill_structural_fit_up_and_tacking/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-structural_fit_up_-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7224_0102",
+          "expected_skill_id": "skill_structural_fit_up_and_tacking",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-structural_fit_up_-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7224_0102",
+          "expected_skill_id": "skill_structural_fit_up_and_tacking",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Structural fit-up and tacking\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Only 2 alias(es) exist. Decide whether that is genuinely the whole vocabulary for this skill, or whether the paraphrase case is about to measure a gap in the corpus rather than a gap in retrieval."
+      ],
+      "existing_mechanical": [
+        {
+          "case_id": "DC-03",
+          "query": "fit up and tack",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7224_0102",
+          "expected_skill_id": "skill_structural_fit_up_and_tacking",
+          "provenance": "corpus_alias:skill_structural_fit_up_and_tacking/en"
+        }
+      ]
+    },
+    {
+      "skill_id": "skill_suspension_and_steering_repair",
+      "label_en": "Suspension and steering repair",
+      "label_hi": "सस्पेंशन स्टीयरिंग मरम्मत",
+      "status": "provisional",
+      "domains": [
+        "jd_nco_7231_0400",
+        "jd_nco_7231_0100"
+      ],
+      "existing_aliases": [
+        {
+          "text": "suspension repair",
+          "lang": "en"
+        },
+        {
+          "text": "स्टीयरिंग ठीक करना",
+          "lang": "hi"
+        }
+      ],
+      "competing_skills": [],
+      "proposed_cases": [
+        {
+          "case_id": "MX-suspension_and_ste-1",
+          "query": "suspension repair",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7231_0400",
+          "expected_skill_id": "skill_suspension_and_steering_repair",
+          "provenance": "corpus_alias:skill_suspension_and_steering_repair/en",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "MX-suspension_and_ste-2",
+          "query": "स्टीयरिंग ठीक करना",
+          "lang": "hi",
+          "category": "devanagari_alias",
+          "job_domain_id": "jd_nco_7231_0400",
+          "expected_skill_id": "skill_suspension_and_steering_repair",
+          "provenance": "corpus_alias:skill_suspension_and_steering_repair/hi",
+          "review_status": "mechanical",
+          "notes": "Generated: the query is this skill's own alias. Tautologically correct and therefore weak evidence — it proves reachability, not retrieval quality."
+        },
+        {
+          "case_id": "PR-suspension_and_ste-1",
+          "query": "",
+          "lang": "en",
+          "category": "paraphrase_latin",
+          "job_domain_id": "jd_nco_7231_0400",
+          "expected_skill_id": "skill_suspension_and_steering_repair",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        },
+        {
+          "case_id": "PR-suspension_and_ste-2",
+          "query": "",
+          "lang": "hi",
+          "category": "devanagari_paraphrase",
+          "job_domain_id": "jd_nco_7231_0400",
+          "expected_skill_id": "skill_suspension_and_steering_repair",
+          "provenance": "pending_reviewer_authorship",
+          "review_status": "pending_review",
+          "notes": "SLOT — write how a worker would describe this WITHOUT using an existing alias verbatim, then set review_status to \"reviewed\". Left blank on purpose: a paraphrase written by the same process that scores it measures nothing."
+        }
+      ],
+      "evidence_needed": [
+        "Confirm \"Suspension and steering repair\" is the phrase a worker or supervisor would actually use. If the catalogue label is jargon, the alias set is what needs fixing, not the fixture.",
+        "Only 2 alias(es) exist. Decide whether that is genuinely the whole vocabulary for this skill, or whether the paraphrase case is about to measure a gap in the corpus rather than a gap in retrieval.",
+        "Reachable in 2 domains (jd_nco_7231_0400, jd_nco_7231_0100). Confirm the skill means the same thing in each; if not, it needs one case per domain."
+      ],
+      "existing_mechanical": [
+        {
+          "case_id": "DC-08",
+          "query": "suspension repair",
+          "lang": "en",
+          "category": "exact_alias",
+          "job_domain_id": "jd_nco_7231_0400",
+          "expected_skill_id": "skill_suspension_and_steering_repair",
+          "provenance": "corpus_alias:skill_suspension_and_steering_repair/en"
+        }
+      ]
+    }
+  ],
+  "missing": []
+}

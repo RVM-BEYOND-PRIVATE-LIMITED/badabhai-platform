@@ -52,7 +52,7 @@ import { join } from "node:path";
 import { createEmbedCache, DEFAULT_CACHE_DIR } from "./taxonomy-embed-cache";
 import { classifyEmbedding } from "./taxonomy-retrieval-eval";
 import { EMBEDDING_MODEL } from "./taxonomy-alias-experiment";
-import { isScoreable, loadEvalFixture } from "./taxonomy-eval-fixture";
+import { isScoreable, reviewStatusOf, loadEvalFixture } from "./taxonomy-eval-fixture";
 import { argFlag, argValue } from "./match-v1-cli";
 
 config();
@@ -83,10 +83,13 @@ async function main(): Promise<void> {
   console.log(`[embed:replay-queries] model ${EMBEDDING_MODEL}`);
   console.log(`  fixture cases          ${fixture.cases.length}`);
   console.log(`  already cached         ${fixture.cases.length - missing.length}`);
-  console.log(`  MISSING                ${missing.length}  (reviewed: ${missing.filter(isScoreable).length})`);
+  // `isScoreable` is TRUE for a mechanical case too, so this counted all 39 `corpus_alias:*`
+  // cases as "reviewed". Report the status itself, not a predicate about a different question.
+  const reviewedMissing = missing.filter((c) => reviewStatusOf(c) === "reviewed").length;
+  console.log(`  MISSING                ${missing.length}  (reviewed: ${reviewedMissing}, unscoreable: ${missing.filter((c) => !isScoreable(c)).length})`);
   console.log(`  provider requests      ${missing.length}  (one text per request on this endpoint)`);
   for (const c of missing) {
-    console.log(`     ${c.case_id.padEnd(8)} ${isScoreable(c) ? "REVIEWED  " : "mechanical"} ${c.job_domain_id.padEnd(18)} ${JSON.stringify(c.query)}`);
+    console.log(`     ${c.case_id.padEnd(8)} ${reviewStatusOf(c).padEnd(14)} ${c.job_domain_id.padEnd(18)} ${JSON.stringify(c.query)}`);
   }
   if (missing.length === 0) {
     console.log("  nothing to do.");
