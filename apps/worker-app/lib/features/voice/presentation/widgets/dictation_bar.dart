@@ -70,31 +70,72 @@ class DictationBar extends StatelessWidget {
         // An explicit `label`, not the tooltip alone: a tooltip is published as a
         // semantics TOOLTIP, needs a long-press to be seen, and leaves an
         // icon-only control with no NAME for a worker who cannot read the glyph.
-        Semantics(
+        //
+        // `container` + `excludeSemantics` + `onTap` is what actually NAMES the
+        // button, and it was measured. A bare `Semantics(label:)` around an
+        // [IconButton] does not: the button is its own semantics boundary, so
+        // the tree came out as a labelled node with no button flag and no tap
+        // action, wrapping a button whose own label was still empty — two focus
+        // stops for one control, and the one the worker lands on is the nameless
+        // one. This collapses both into a single named, tappable button node.
+        _NamedIconButton(
           label: kStopLabel,
-          child: IconButton(
-            tooltip: kStopLabel,
-            onPressed: onStop,
-            icon: const Icon(
-              Icons.stop_circle_rounded,
-              color: AppColors.textSecondary,
-              size: 30,
-            ),
+          onPressed: onStop,
+          icon: const Icon(
+            Icons.stop_circle_rounded,
+            color: AppColors.textSecondary,
+            size: 30,
           ),
         ),
-        Semantics(
+        _NamedIconButton(
           label: kSendLabel,
-          child: IconButton(
-            tooltip: kSendLabel,
-            onPressed: onSend,
-            icon: const Icon(
-              Icons.send_rounded,
-              color: AppColors.blue,
-              size: 24,
-            ),
+          onPressed: onSend,
+          icon: const Icon(
+            Icons.send_rounded,
+            color: AppColors.blue,
+            size: 24,
           ),
         ),
       ],
+    );
+  }
+}
+
+/// An icon-only [IconButton] that a screen reader can actually NAME: ONE
+/// semantics node carrying [label], the button flag and the tap action.
+///
+/// The naive shape — `Semantics(label: …, child: IconButton(…))` — does not
+/// produce that, because [IconButton] introduces its own semantics boundary; the
+/// label lands on a separate, non-interactive parent node and the button keeps
+/// an empty name. [SemanticsProperties.excludeSemantics] drops the button's own
+/// (nameless) node and [SemanticsProperties.onTap] re-publishes the action it
+/// carried; the [IconButton] still handles the real pointer tap, because
+/// excluding semantics does not touch hit testing.
+class _NamedIconButton extends StatelessWidget {
+  const _NamedIconButton({
+    required this.label,
+    required this.onPressed,
+    required this.icon,
+  });
+
+  /// The Hinglish name — the tooltip AND the accessible name.
+  final String label;
+  final VoidCallback onPressed;
+  final Widget icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      onTap: onPressed,
+      child: IconButton(
+        tooltip: label,
+        onPressed: onPressed,
+        icon: icon,
+      ),
     );
   }
 }

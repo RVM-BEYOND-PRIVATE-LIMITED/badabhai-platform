@@ -51,10 +51,21 @@ const Key kFeedbackVoiceControlKey = ValueKey<String>('feedbackVoiceControl');
 /// The waveform slot in the listening strip.
 const Key kFeedbackVoiceWaveKey = ValueKey<String>('feedbackVoiceWave');
 
-/// Side of the square voice control, and therefore the width the message box
-/// reserves for it. Comfortably past the 48dp worker touch floor
+/// The voice control's WIDTH, and its MINIMUM height — therefore also the column
+/// the message box reserves for it. Comfortably past the 48dp worker touch floor
 /// ([AppSpacing.tap]) because it holds an icon AND its caption.
+///
+/// A floor on the height, not a fixed square: the caption is real text and grows
+/// with the worker's text-size setting, so a hard box made the control overflow
+/// itself at large type. The width stays exactly this, because the field's
+/// `contentPadding` reserves it — widen the control and the worker's own text
+/// starts running underneath it.
 const double _kVoiceControlSide = 60;
+
+/// Width the listening strip RESERVES for the waveform. Fixed, so the strip's
+/// text can never squeeze the "the mic is live" cue out of existence — which is
+/// what an [Expanded] waveform beside an unflexed label did at large text sizes.
+const double _kVoiceWaveWidth = 72;
 
 /// The app-wide feedback page (opened by the floating "Feedback" button on every
 /// non-auth screen).
@@ -355,60 +366,73 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       // budget viewport with the keyboard up — about 284dp of body — the voice
       // control is on screen without scrolling. The chips are optional and the
       // hint is prose; the box is the job, so the box goes first.
-      body: ListView(
+      //
+      // NOT a ListView. A lazy list only BUILDS what is near the viewport, and
+      // the prose above the box grows with the worker's text-size setting: at
+      // the accessibility scales this audience actually uses (measured: 2.0 on
+      // 360x640 with the keyboard up, and 2.0 on a 320x480 handset) the box fell
+      // past the cache extent and the mic was never built at all — not off
+      // screen, ABSENT, the exact defect this screen moved the mic to fix. There
+      // are eight children here and one of them is the job, so there is nothing
+      // to virtualise and everything to lose: this scroller builds them all.
+      body: SingleChildScrollView(
         controller: _scroll,
-        children: <Widget>[
-          const SizedBox(height: AppSpacing.s2),
-          Text(
-            'Aapko kya accha laga, ya kya theek karna chahiye? Khul kar likhein.',
-            style: AppTypography.body(
-              size: AppTypography.sizeMd,
-              color: AppColors.textSecondary,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            const SizedBox(height: AppSpacing.s2),
+            Text(
+              'Aapko kya accha laga, ya kya theek karna chahiye? Khul kar '
+              'likhein.',
+              style: AppTypography.body(
+                size: AppTypography.sizeMd,
+                color: AppColors.textSecondary,
+              ),
             ),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          Text('AAPKI BAAT',
-              style: AppTypography.eyebrow(color: AppColors.textMuted)),
-          const SizedBox(height: AppSpacing.s2),
-          _messageBox(),
-          const SizedBox(height: AppSpacing.s2),
-          if (_remaining <= kFeedbackCounterShowsWithin)
-            Align(alignment: Alignment.centerRight, child: _counter()),
-          Text(
-            // Points at the control by the word printed ON it, because "mic" is
-            // a glyph a worker may not read and "upar" is where it now is.
-            'Likhna mushkil ho to box ke "$kFeedbackSpeakLabel" par tap karke '
-            'boliye — aapki baat yahin likhi jayegi.',
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              color: AppColors.textMuted,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s5),
-          Text('KIS BAARE MEIN? (OPTIONAL)',
-              style: AppTypography.eyebrow(color: AppColors.textMuted)),
-          const SizedBox(height: AppSpacing.s2),
-          Wrap(
-            spacing: AppSpacing.s2,
-            runSpacing: AppSpacing.s2,
-            children: <Widget>[
-              for (final FeedbackCategory c in FeedbackCategory.values)
-                BbChip(
-                  label: c.label,
-                  selected: _category == c,
-                  // Optional + toggleable: tapping the selected chip clears it,
-                  // so the worker is never forced into a bucket.
-                  onTap: () => setState(
-                      () => _category = _category == c ? null : c),
-                ),
-            ],
-          ),
-          if (_blocked != null) ...<Widget>[
             const SizedBox(height: AppSpacing.s3),
-            _blockedPanel(_blocked!),
+            Text('AAPKI BAAT',
+                style: AppTypography.eyebrow(color: AppColors.textMuted)),
+            const SizedBox(height: AppSpacing.s2),
+            _messageBox(),
+            const SizedBox(height: AppSpacing.s2),
+            if (_remaining <= kFeedbackCounterShowsWithin)
+              Align(alignment: Alignment.centerRight, child: _counter()),
+            Text(
+              // Points at the control by the word printed ON it, because "mic"
+              // is a glyph a worker may not read and "upar" is where it now is.
+              'Likhna mushkil ho to box ke "$kFeedbackSpeakLabel" par tap karke '
+              'boliye — aapki baat yahin likhi jayegi.',
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: AppColors.textMuted,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s5),
+            Text('KIS BAARE MEIN? (OPTIONAL)',
+                style: AppTypography.eyebrow(color: AppColors.textMuted)),
+            const SizedBox(height: AppSpacing.s2),
+            Wrap(
+              spacing: AppSpacing.s2,
+              runSpacing: AppSpacing.s2,
+              children: <Widget>[
+                for (final FeedbackCategory c in FeedbackCategory.values)
+                  BbChip(
+                    label: c.label,
+                    selected: _category == c,
+                    // Optional + toggleable: tapping the selected chip clears
+                    // it, so the worker is never forced into a bucket.
+                    onTap: () => setState(
+                        () => _category = _category == c ? null : c),
+                  ),
+              ],
+            ),
+            if (_blocked != null) ...<Widget>[
+              const SizedBox(height: AppSpacing.s3),
+              _blockedPanel(_blocked!),
+            ],
+            const SizedBox(height: AppSpacing.s4),
           ],
-          const SizedBox(height: AppSpacing.s4),
-        ],
+        ),
       ),
     );
   }
@@ -522,10 +546,20 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
           key: kFeedbackVoiceControlKey,
           onTap: onTap,
           borderRadius: BorderRadius.circular(AppRadii.sm),
-          child: SizedBox(
-            width: _kVoiceControlSide,
-            height: _kVoiceControlSide,
+          // The side is a FLOOR on the height, not a fixed box. The caption is
+          // real text and grows with the worker's text-size setting: at 2.0 the
+          // icon + caption measured 62dp inside a hard 60dp square and the
+          // control painted an overflow stripe over itself. The WIDTH stays
+          // pinned, because it is the column the field's `contentPadding`
+          // reserves — grow that and the worker's text runs under the mic.
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              minWidth: _kVoiceControlSide,
+              maxWidth: _kVoiceControlSide,
+              minHeight: _kVoiceControlSide,
+            ),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
                 Icon(
@@ -580,24 +614,33 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         ),
         child: Row(
           children: <Widget>[
-            Text(
-              kFeedbackListeningLabel,
-              style: AppTypography.body(
-                size: AppTypography.sizeSm,
-                weight: FontWeight.w700,
-                color: AppColors.blue,
+            // The LABEL flexes and the WAVE's column is reserved, not the other
+            // way round. With the label non-flexible it took the whole row as
+            // soon as the worker's text-size setting grew it: measured at 1.5x
+            // on 360dp the waveform was laid out 0dp wide and the row painted an
+            // overflow stripe instead — the one cue that says the mic is live,
+            // gone for exactly the workers most likely to have turned text up.
+            Expanded(
+              child: Text(
+                kFeedbackListeningLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.body(
+                  size: AppTypography.sizeSm,
+                  weight: FontWeight.w700,
+                  color: AppColors.blue,
+                ),
               ),
             ),
             const SizedBox(width: AppSpacing.s3),
-            Expanded(
-              child: SizedBox(
-                key: kFeedbackVoiceWaveKey,
-                // A SLIM strip on purpose. It is a cue, not a control (the stop
-                // is the box's own trailing button), and every dp it takes pushes
-                // that stop closer to the fold on a 640dp-tall phone.
-                height: 28,
-                child: VoiceWaveVisualizer(level: _dictation.level),
-              ),
+            SizedBox(
+              key: kFeedbackVoiceWaveKey,
+              width: _kVoiceWaveWidth,
+              // A SLIM strip on purpose. It is a cue, not a control (the stop
+              // is the box's own trailing button), and every dp it takes pushes
+              // that stop closer to the fold on a 640dp-tall phone.
+              height: 28,
+              child: VoiceWaveVisualizer(level: _dictation.level),
             ),
           ],
         ),

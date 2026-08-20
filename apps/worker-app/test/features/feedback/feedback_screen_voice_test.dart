@@ -43,9 +43,17 @@ class _MockFeedbackRepository extends Mock implements FeedbackRepository {}
 /// A typical budget Android phone, in logical pixels at dpr 1.
 const Size _kBudgetPhone = Size(360, 640);
 
+/// The SMALLEST viewport still worth shipping to — an entry-level Android that
+/// is very much still in a worker's pocket.
+const Size _kSmallPhone = Size(320, 480);
+
 /// How much of that screen a soft keyboard eats. Deliberately generous: the
 /// keyboard is the state the worker is IN while they write a report.
 const double _kKeyboardInset = 300;
+
+/// The same bite out of [_kSmallPhone] — a soft keyboard takes roughly the same
+/// FRACTION of the screen, not the same number of pixels.
+const double _kSmallKeyboardInset = 220;
 
 /// A finder for the recognised text sitting in the box.
 String _fieldText(WidgetTester tester) =>
@@ -80,18 +88,25 @@ void main() {
   /// Pumps /home → pushes the feedback screen, so `context.pop()` has somewhere
   /// to land and a push to /consent has a route to reach.
   ///
-  /// [keyboard] raises a soft keyboard of [_kKeyboardInset] before the first
+  /// [keyboard] raises a soft keyboard of [keyboardInset] before the first
   /// frame — the state a worker writing a report is actually in.
+  ///
+  /// [device] and [textScale] default to the budget phone at the platform's own
+  /// type size; the group that varies them is the one that proved this layout
+  /// does not quietly stop existing on a smaller screen or at the text size a
+  /// worker who struggles to read has turned on.
   Future<GoRouter> pump(
     WidgetTester tester, {
     String? fromRoute,
     bool keyboard = false,
+    Size device = _kBudgetPhone,
+    double keyboardInset = _kKeyboardInset,
+    double textScale = 1.0,
   }) async {
-    tester.view.physicalSize = _kBudgetPhone;
+    tester.view.physicalSize = device;
     tester.view.devicePixelRatio = 1.0;
     if (keyboard) {
-      tester.view.viewInsets =
-          const FakeViewPadding(bottom: _kKeyboardInset);
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboardInset);
     }
     addTearDown(tester.view.reset);
     final GoRouter router = GoRouter(
@@ -140,8 +155,17 @@ void main() {
         ),
       ],
     );
-    await tester.pumpWidget(
-        MaterialApp.router(theme: AppTheme.light(), routerConfig: router));
+    await tester.pumpWidget(MaterialApp.router(
+      theme: AppTheme.light(),
+      routerConfig: router,
+      // Below MaterialApp's own MediaQuery, so this is the size the worker's
+      // system setting actually delivers. Identity at 1.0.
+      builder: (BuildContext context, Widget? child) => MediaQuery(
+        data: MediaQuery.of(context)
+            .copyWith(textScaler: TextScaler.linear(textScale)),
+        child: child!,
+      ),
+    ));
     await tester.tap(find.text('OPEN'));
     await tester.pumpAndSettle();
     return router;
@@ -246,6 +270,84 @@ void main() {
           reason: 'a worker must always be able to STOP the mic');
       expect(find.text(kFeedbackStopLabel), findsOneWidget);
       expect(find.text(kFeedbackSpeakLabel), findsNothing);
+    });
+  });
+
+  /// SMALLER SCREEN, BIGGER TEXT — the two settings that turn a control which
+  /// "fits" into one that does not exist.
+  ///
+  /// A worker who cannot read well is exactly the worker this screen built a mic
+  /// for, and exactly the worker who has turned Android's font size up. MEASURED
+  /// before this group existed: the body was a lazy [ListView], the prose above
+  /// the box grows with the text-size setting, and at 2.0x the box fell past the
+  /// cache extent — built-at-all = 0 on a 360x640 with the keyboard up AND on a
+  /// 320x480 either way. Not below the fold: ABSENT. That is the same defect
+  /// that moved the mic into the box in the first place, one accessibility
+  /// setting away, and the screen's own hint still pointed at it.
+  group('the mic survives a small screen and large text', () {
+    for (final ({Size size, double keyboard, String name}) device
+        in <({Size size, double keyboard, String name})>[
+      (size: _kBudgetPhone, keyboard: _kKeyboardInset, name: '360x640'),
+      (size: _kSmallPhone, keyboard: _kSmallKeyboardInset, name: '320x480'),
+    ]) {
+      for (final double scale in <double>[1.0, 1.5, 2.0]) {
+        testWidgets('${device.name} at ${scale}x text, keyboard up', (
+          WidgetTester tester,
+        ) async {
+          await pump(
+            tester,
+            keyboard: true,
+            device: device.size,
+            keyboardInset: device.keyboard,
+            textScale: scale,
+          );
+
+          // A control that paints an overflow stripe over itself is not a
+          // control. (The caption is real text: at 2.0x the icon and the word
+          // together measured 62dp inside a hard 60dp square.)
+          expect(tester.takeException(), isNull,
+              reason: 'the layout must not overflow at ${scale}x text');
+
+          expect(voiceControl.hitTestable(), findsOneWidget,
+              reason: 'the mic must EXIST on ${device.name} at ${scale}x text');
+
+          final Rect mic = tester.getRect(voiceControl);
+          final double fold = device.size.height - device.keyboard;
+          expect(mic.bottom, lessThanOrEqualTo(fold),
+              reason: 'the whole control must clear the keyboard line ($fold)');
+          expect(mic.top, greaterThanOrEqualTo(0.0));
+          expect(mic.width, greaterThanOrEqualTo(AppSpacing.tap));
+          expect(mic.height, greaterThanOrEqualTo(AppSpacing.tap));
+
+          // And it is a real control, not just a rectangle in the right place.
+          await tester.tap(voiceControl);
+          await tester.pump();
+          await tester.pump();
+          expect(speech.listenCalls, 1);
+        });
+      }
+    }
+
+    testWidgets('the listening cue keeps a VISIBLE waveform at 2.0x text', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, device: _kSmallPhone, textScale: 2.0);
+      await startDictation(tester);
+
+      // The strip is a Row of "Sun rahe hain…" and the waveform. With the label
+      // unflexed it took the whole row the moment the text size grew: measured
+      // at 1.5x the waveform was laid out 0dp wide and the row overflowed — the
+      // one cue that says the mic is LIVE, deleted for the workers most likely
+      // to have turned the text up.
+      expect(tester.takeException(), isNull);
+      final Rect wave = tester.getRect(find.byKey(kFeedbackVoiceWaveKey));
+      expect(wave.width, greaterThanOrEqualTo(AppSpacing.tap),
+          reason: 'a waveform squeezed to nothing tells the worker nothing');
+      expect(wave.bottom, lessThanOrEqualTo(_kSmallPhone.height));
+      // And the stop is still reachable underneath it.
+      expect(voiceControl.hitTestable(), findsOneWidget);
+      expect(tester.getRect(voiceControl).bottom,
+          lessThanOrEqualTo(_kSmallPhone.height));
     });
   });
 
