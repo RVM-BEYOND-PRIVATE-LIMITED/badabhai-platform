@@ -125,6 +125,164 @@ a confusing test failure three minutes later.
 
 ---
 
+## The four questions, answered — 2026-08-21
+
+The owner's instruction was: *"First address the four design questions in the proposal and prove
+the gate against fresh DB + production-like DB states. Then open a follow-up PR for review."*
+Two of the four turn out to be answerable from evidence rather than from preference, and one of
+them assumed a conflict that does not exist.
+
+### Q3 — does CI's database really classify as `LOCAL DOCKER`? **YES. Executed.**
+
+This was flagged as *"the one assumption that has not been executed"*, and it did not need a CI
+run: the URL is a literal in the workflow.
+
+```
+.github/workflows/ci.yml:1016
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/badabhai_test
+```
+
+`hostClass` matches `localhost` and returns `LOCAL DOCKER`, which `isCiSafeTarget` accepts.
+
+**A test now reads that literal out of `ci.yml` and asserts it**, rather than restating it — a
+copy would keep agreeing with itself after somebody changed the workflow. The same test drives
+the other direction: a Supabase URL in the same position is refused, so the guard is what stops
+a mis-pointed job rather than the absence of one.
+
+### Q4 — do undeclared routines couple this gate to #1110? **NO. The conflict does not exist.**
+
+The worry was that *"#1110's eventual resolution has to include declaring whatever stays"*. It
+does not, because **this gate only ever sees a fresh database**, and #1110's routines are absent
+there by definition — they are undeclared, so no migration creates them.
+
+Every outcome of #1110 leaves the fresh-database view unchanged:
+
+| #1110 decides | fresh CI database | gate |
+|---|---|---|
+| drop them | still none | green |
+| declare them in a migration | the migration creates them **and** declares them | green — the two move together by construction |
+| leave them undeclared | still none | green, and the gate never sees the production-only state |
+
+Two tests pin this, including the declare-them case. One caveat found while writing them, and
+worth stating because it is the only real work the declare path would create: an **event
+trigger** has no `CREATE FUNCTION` for `declaredRoutines` to match, so `ensure_rls` would still
+report as undeclared even after being declared. That is a parser gap in `declaredRoutines`, not a
+reason to keep the rule out — and it is cheap to fix when and if #1110 goes that way.
+
+### Q1 — blocking, or non-blocking for a period? **Non-blocking for a COUNT of runs, not a week.**
+
+*"A week of non-blocking runs"* measures the calendar, not the gate. A quiet week proves nothing
+and a busy one over-proves it. **Land it with `continue-on-error: true` and flip it to blocking
+in a second, one-line PR once it has been observed green on at least 10 real CI runs**, at least
+one of which included a migration.
+
+The flip must be a PR rather than a date, so that the evidence is attached to the change that
+relies on it.
+
+What has changed since the question was asked: the read is no longer unproven either (below), so
+the residual risk is narrower than it was — it is now specifically *"this combination, on a fresh
+CI database"*, which only CI can answer.
+
+### Q2 — is `e2e` the right job? **Yes, for now. Revisit only on evidence.**
+
+`e2e` is the only job with a migrated database, and a dedicated job means a second Postgres
+service to keep in sync with it. The argument against is discovery latency: a drift failure
+surfaces late in a slow job.
+
+That argument optimises the wrong case. A drift failure should be rare — it means somebody
+changed the schema out of band — and paying a permanent second-service cost to find a rare
+failure three minutes sooner is a bad trade. **Keep it in `e2e`, placed before the suites so
+drift is reported as drift rather than as a confusing test failure.** If drift failures turn out
+to be frequent enough that the latency is felt, that frequency is itself the finding, and the
+job can be split then.
+
+---
+
+## Proving the gate against both states
+
+The proposal's stated gap was precise: *"the SQL that turns a real database into a catalog is
+only exercised by running it."* Everything proved so far ran off `expectedFreshCatalog()` and
+mutations of it — which exercises the **verdict** and never the **read**.
+
+`--catalog-out` was meant to close that on the first container run. It could not: it sits
+**after** the target guard, so it can only run somewhere the gate already accepts, which is
+nowhere yet. A chicken-and-egg the design did not notice.
+
+### `--capture-only=<path>` — recording is not judging
+
+Capture is read-only and says nothing about whether a schema is correct, so the guard's argument
+— *"this question is only meaningful about a database built solely from these migrations"* —
+does not apply to it. **Judgement stays guarded; recording does not.** It renders no verdict,
+exits 0, and says so.
+
+**The read is now executed, against production, read-only:**
+
+```
+db:audit:live-drift:ci --capture-only=<path>
+  target      SUPABASE (remote)
+  tables      78
+  columns     835
+  routines    2 trigger(s), 3 function(s), 7 event trigger(s)
+  CAPTURE ONLY — no verdict was reached.
+```
+
+Those counts **corroborate independently**: 78 tables is what `db:audit:rls` locks, and
+2 triggers / 3 functions / 7 event triggers is exactly what `db:audit:undeclared-routines`
+reports through completely different SQL. Two unrelated queries agreeing is the strongest
+evidence available short of a container.
+
+### The production-like judgement
+
+Feeding that captured catalog back through `--from-json` exercises the gate against a
+production-like state without ever pointing it at production:
+
+```
+db:audit:live-drift:ci --from-json=<the captured catalog>     ->  exit 1
+
+  5 problem(s):
+    UNDECLARED tables (1)         _delete_forensics
+    UNDECLARED columns (8)        audit_logs.actor_member_id, audit_logs.actor_user_id,
+                                  audit_logs.payer_id, job_postings.posted_by_member_id,
+                                  jobs.posted_by_member_id, payers.metadata,
+                                  payers.payer_type, payers.verification_status
+    UNDECLARED triggers (2)       _t_log_del_worker_profiles, _t_log_del_workers
+    UNDECLARED functions (3)      _log_delete, is_active_payer_member, rls_auto_enable
+    UNDECLARED event triggers (7) ensure_rls + the six supabase_admin platform triggers
+```
+
+**This is the gate working, not an alarm.** Every line is a real difference between production
+and this repository, and it is precisely why the gate refuses production as a *target*: a
+production database legitimately carries objects the repo does not declare, and reporting them
+as a verdict would make the job permanently red.
+
+Two things worth carrying out of it:
+
+- **The 8 undeclared COLUMNS are a class GAP-DB-21 did not cover.** That register was about four
+  undeclared *tables*; these are undeclared *columns on declared tables*, on `audit_logs`,
+  `job_postings`, `jobs` and `payers`. They are not new drift — `db:audit:live-drift` has been
+  reporting the same shape — but they had not been enumerated in one place before, and the
+  `payers` four (`metadata`, `payer_type`, `verification_status`) look like the same
+  payer-onboarding lineage as the GAP-DB-21 tables.
+- **The six `supabase_admin` event triggers appear here and would never appear in CI**, because a
+  plain Postgres container has no Supabase platform. That asymmetry is the reason the fresh-
+  database question and the production question have to be different commands.
+
+### What is now proved, and what is still not
+
+| | proved by |
+|---|---|
+| the verdict, clean | `expectedFreshCatalog()` judged CLEAN |
+| the verdict, red — 7 ways | seven mutations of that catalog, each caught |
+| the verdict, green again | an eighth case: declaring a routine turns it back green |
+| the target guard | refuses production before any query; exit 2 |
+| **the catalog READ** | **`--capture-only` against production: 78/835/2/3/7, corroborated by two other tools** |
+| **a production-like judgement** | **exit 1, five categories, every one real** |
+| Q3's classification | a test that reads the literal out of `ci.yml` |
+| Q4's independence | two tests, including the declare-them case |
+| **the combination, on a fresh CI database** | **still nothing. Only CI can answer it — which is what Q1's non-blocking period is for.** |
+
+---
+
 ## Relationship to the other audits
 
 | tool | question | where it runs |
@@ -145,3 +303,4 @@ is meaningful.
 | date | what |
 |---|---|
 | 2026-08-20 | Designed and implemented. Not wired into CI — the YAML above is a proposal. |
+| 2026-08-21 | **All four questions answered, and the read proved.** Q3 executed — CI's `DATABASE_URL` is `localhost`, so `LOCAL DOCKER`, now pinned by a test that reads `ci.yml` rather than restating it. Q4 dissolved — the gate only sees a fresh database, so every #1110 outcome leaves it green; two tests, including the declare-them case, which surfaced one real gap (`declaredRoutines` cannot match an event trigger). Q1 — non-blocking for a COUNT of runs (>=10, one with a migration), not a week; the flip is a one-line PR so the evidence attaches to it. Q2 — keep it in `e2e`; a second Postgres service to find a rare failure three minutes sooner is a bad trade. **`--capture-only` added** because `--catalog-out` sat behind the guard and so could never run anywhere: the catalog SQL has now been executed against production read-only (78 tables / 835 columns / 2 triggers / 3 functions / 7 event triggers, corroborated by `db:audit:rls` and `db:audit:undeclared-routines`), and judging that captured catalog exits 1 with five real categories — including **8 undeclared COLUMNS**, a class GAP-DB-21 did not cover. Still unproved: the combination on a fresh CI database, which only CI can answer. |

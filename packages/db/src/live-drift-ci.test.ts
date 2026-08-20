@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { declaredTables } from "./audit-live-drift";
+import { declaredRoutines, declaredTables } from "./audit-live-drift";
 import {
   CI_SAFE_TARGETS,
   bareName,
@@ -22,6 +22,8 @@ import {
   render,
   type LiveCatalog,
 } from "./live-drift-ci";
+import { hostClass } from "./ops-guard";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const MIGRATIONS = join(__dirname, "..", "migrations");
@@ -192,5 +194,78 @@ describe("bareName", () => {
     // migration declares only the trigger's own name.
     expect(bareName("workers._t_log_del_workers")).toBe("_t_log_del_workers");
     expect(bareName("ensure_rls")).toBe("ensure_rls");
+  });
+});
+
+/**
+ * Design question 3, converted from an assumption into a test.
+ *
+ * The proposal listed four things to argue about before this lands, and flagged one of them as
+ * *"the one assumption that has not been executed"*: does CI's own `DATABASE_URL` classify as
+ * `LOCAL DOCKER`? If it does not, the step exits 2 — the safe direction, mis-configured rather
+ * than silently passing, but a permanently red job nobody can fix from the gate's side.
+ *
+ * It is answerable without running anything: the URL is a literal in the workflow. Reading it
+ * from the file rather than restating it here is the point — a copy would keep agreeing with
+ * itself after someone changed the workflow.
+ */
+describe("design Q3 — CI's own DATABASE_URL classifies as a target this mode accepts", () => {
+  const ciYml = readFileSync(join(__dirname, "..", "..", "..", ".github", "workflows", "ci.yml"), "utf8");
+
+  it("the e2e job's DATABASE_URL is present and points at localhost", () => {
+    const urls = [...ciYml.matchAll(/DATABASE_URL:\s*(postgres(?:ql)?:\/\/\S+)/g)].map((m) => m[1]!);
+    expect(urls.length, "no literal DATABASE_URL found in ci.yml — has the job changed?").toBeGreaterThan(0);
+    for (const u of urls) {
+      expect(hostClass(u)).toBe("LOCAL DOCKER");
+      expect(isCiSafeTarget(hostClass(u))).toBe(true);
+    }
+  });
+
+  it("...and a Supabase URL in the same position would be REFUSED, not silently judged", () => {
+    // The other half of the same question. The guard must be what stops a mis-pointed job,
+    // not the absence of one.
+    const prod = "postgresql://postgres.abc:pw@aws-1-ap-south-1.pooler.supabase.com:5432/postgres";
+    expect(isCiSafeTarget(hostClass(prod))).toBe(false);
+  });
+});
+
+/**
+ * Design question 4, and the conflict it assumed turns out not to exist.
+ *
+ * *"Undeclared routines are currently a failure... it means #1110's eventual resolution has to
+ * include declaring whatever stays."* That reads as a coupling, and it is worth checking rather
+ * than accepting, because the gate only ever sees a FRESH database.
+ *
+ * A fresh database has none of #1110's routines — they are undeclared, so no migration creates
+ * them there. Whatever #1110 decides, the CI gate's fresh-database view is unaffected: declare
+ * them and the gate expects what the migration builds; drop them and there was nothing there
+ * anyway. The gate cannot see the production-only state at all, which is exactly why it refuses
+ * production.
+ */
+describe("design Q4 — the fresh-database view is independent of #1110's outcome", () => {
+  it("a freshly migrated database has no undeclared routine, so the rule is free today", () => {
+    const fresh = expectedFreshCatalog(JOURNAL);
+    const v = ciVerdict(fresh, DECLARED, declaredRoutines(join(__dirname, "..", "migrations")), JOURNAL);
+    expect(v.undeclaredTriggers).toEqual([]);
+    expect(v.undeclaredFunctions).toEqual([]);
+    expect(v.undeclaredEventTriggers).toEqual([]);
+  });
+
+  it("...and stays free if #1110 DECLARES them, because then they are declared", () => {
+    // The case the question worried about: `ensure_rls` and friends land in a migration. The
+    // fresh database then HAS them and the repo DECLARES them, so the gate stays green — the
+    // two move together by construction.
+    const fresh = expectedFreshCatalog(JOURNAL);
+    const withRoutines = {
+      ...fresh,
+      functions: ["rls_auto_enable"],
+      eventTriggers: ["ensure_rls"],
+    };
+    const declaredToo = { triggers: new Set<string>(), functions: new Set(["rls_auto_enable"]) };
+    const v = ciVerdict(withRoutines, DECLARED, declaredToo, JOURNAL);
+    expect(v.undeclaredFunctions).toEqual([]);
+    // An event trigger is not a function and has no CREATE FUNCTION to match, so it is still
+    // reported — which is correct and is the one thing declaring them would have to handle.
+    expect(v.undeclaredEventTriggers).toEqual(["ensure_rls"]);
   });
 });
