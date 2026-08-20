@@ -1113,7 +1113,7 @@ describe("#1132 — /auth/otp/verify device-first cap, ahead of the idempotency 
     } as unknown as PiiCryptoService;
 
     const ipRateLimit = new IpRateLimit(pii, queue as never);
-    const seam = new OtpRequestIdempotency(pii, queue as never);
+    const seam = new OtpRequestIdempotency(pii, new RequestIdempotency(pii, queue as never));
 
     const auth = {
       verifyOtp: vi.fn(async () => ({ access_token: "at", refresh_token: "rt", pin_set: false })),
