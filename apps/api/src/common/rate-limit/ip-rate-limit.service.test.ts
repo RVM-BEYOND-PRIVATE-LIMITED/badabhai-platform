@@ -28,7 +28,14 @@ function setup(opts: { incrResults?: number[] | Error[]; clientThrows?: boolean 
   };
   // Simulate hashIp: deterministic, and (like the real HMAC) does NOT echo the
   // raw IP — so we can assert the raw IP never reaches the Redis key.
-  const pii = { hashIp: vi.fn((_ip: string) => "d3adb33fcafef00dd3adb33fcafef00dd3adb33fcafef00d") };
+  //
+  // `hmac` is the device-id side of the same rule (#1035), and it returns a DIFFERENT constant
+  // on purpose: with one shared value the namespace assertions below would still pass if the
+  // two kinds collapsed into a single bucket, which is the exact mistake they exist to catch.
+  const pii = {
+    hashIp: vi.fn((_ip: string) => "d3adb33fcafef00dd3adb33fcafef00dd3adb33fcafef00d"),
+    hmac: vi.fn((_value: string) => "beefcafe1234567890abcdefbeefcafe1234567890abcdef"),
+  };
   const svc = new IpRateLimit(
     pii as unknown as PiiCryptoService,
     queue as unknown as Queue,
@@ -71,5 +78,109 @@ describe("IpRateLimit.assertWithinHourlyIpCap", () => {
   it("FAILS CLOSED with 429 when INCR throws mid-flight", async () => {
     const { svc } = setup({ incrResults: [new Error("READONLY")] });
     await expect429(svc.assertWithinHourlyIpCap("resume_download", IP, 20));
+  });
+});
+
+const DEVICE = "3f7c1b9a-0d4e-4c62-9a11-77b2c5e8d013";
+
+describe("IpRateLimit.assertWithinHourlySenderCap — keyed on the handset (#1035)", () => {
+  it("allows a device within cap, and re-asserts the TTL like every other bucket", async () => {
+    const { svc, redis } = setup({ incrResults: [1] });
+    await expect(
+      svc.assertWithinHourlySenderCap("otp_request", { kind: "device", value: DEVICE }, 20),
+    ).resolves.toBeUndefined();
+    expect(redis.incr).toHaveBeenCalledTimes(1);
+    expect(redis.expire).toHaveBeenCalledTimes(1);
+  });
+
+  it("429s a device over cap", async () => {
+    const { svc } = setup({ incrResults: [21] });
+    await expect429(
+      svc.assertWithinHourlySenderCap("otp_request", { kind: "device", value: DEVICE }, 20),
+    );
+  });
+
+  it("NEVER uses the raw device id as the key — it HMACs first (§2)", async () => {
+    // The same posture `worker_devices.device_hash` already takes for this identifier: it is a
+    // stable pseudonymous handle for one person's handset, so it does not go into a key raw.
+    const { svc, redis, pii } = setup({ incrResults: [1] });
+    await svc.assertWithinHourlySenderCap("otp_request", { kind: "device", value: DEVICE }, 20);
+    expect(pii.hmac).toHaveBeenCalledWith(DEVICE);
+    const key = redis.incr.mock.calls[0]![0];
+    expect(key).not.toContain(DEVICE);
+    expect(key).toMatch(/^ratelimit:dev:otp_request:[0-9a-f]{32}:\d{10}$/);
+  });
+
+  it("BOUNDS the key whatever the caller sends — 32 hex chars, always", async () => {
+    // This header is unauthenticated and Node accepts a ~16KB block. `request-sender` refuses
+    // an over-long value before this point, but the truncation here is the second, unconditional
+    // guarantee: the width of a key we write is never the caller's choice.
+    const { svc, redis, pii } = setup({ incrResults: [1] });
+    pii.hmac.mockReturnValueOnce("f".repeat(512));
+    await svc.assertWithinHourlySenderCap(
+      "otp_request",
+      { kind: "device", value: "a".repeat(256) },
+      20,
+    );
+    expect(redis.incr.mock.calls[0]![0]).toMatch(/^ratelimit:dev:otp_request:f{32}:\d{10}$/);
+  });
+
+  it("THE NAMESPACE SPLIT: a device and an address never share a bucket", async () => {
+    // Both hashes are 32 hex chars, so a shared namespace would put a device-id hash and an
+    // address hash in one key with nothing to say which was which — and one device could then
+    // spend a whole network's allowance, or inherit one.
+    const { svc, redis } = setup({ incrResults: [1] });
+    await svc.assertWithinHourlySenderCap("otp_request", { kind: "device", value: DEVICE }, 20);
+    await svc.assertWithinHourlySenderCap("otp_request", { kind: "ip", value: IP }, 20);
+    const [deviceKey, ipKey] = redis.incr.mock.calls.map((c) => c[0]);
+    expect(deviceKey).toContain("ratelimit:dev:");
+    expect(ipKey).toContain("ratelimit:ip:");
+    expect(deviceKey).not.toBe(ipKey);
+  });
+
+  it("the ip kind writes the SAME key assertWithinHourlyIpCap always did", async () => {
+    // Load-bearing across the deploy that ships this: live buckets keep counting instead of
+    // every network silently getting a fresh allowance the moment the new build boots.
+    const a = setup({ incrResults: [1] });
+    await a.svc.assertWithinHourlySenderCap("otp_request", { kind: "ip", value: IP }, 20);
+    const b = setup({ incrResults: [1] });
+    await b.svc.assertWithinHourlyIpCap("otp_request", IP, 20);
+    expect(a.redis.incr.mock.calls[0]![0]).toBe(b.redis.incr.mock.calls[0]![0]);
+  });
+
+  it("assertWithinHourlyIpCap still hashes with hashIp, not hmac — no behaviour moved", async () => {
+    const { svc, pii } = setup({ incrResults: [1] });
+    await svc.assertWithinHourlyIpCap("resume_download", IP, 20);
+    expect(pii.hashIp).toHaveBeenCalledWith(IP);
+    expect(pii.hmac).not.toHaveBeenCalled();
+  });
+
+  it("FAILS CLOSED for a device too — a Redis outage cannot uncap the send path", async () => {
+    const { svc } = setup({ clientThrows: true });
+    await expect429(
+      svc.assertWithinHourlySenderCap("otp_request", { kind: "device", value: DEVICE }, 20),
+    );
+  });
+
+  it("the 429 wording is IDENTICAL for both kinds — no oracle for a prober", async () => {
+    // A different message would tell a caller whether their device id was accepted as one.
+    const device = setup({ incrResults: [21] });
+    const ip = setup({ incrResults: [21] });
+    const [d, i] = await Promise.all([
+      device.svc
+        .assertWithinHourlySenderCap("otp_request", { kind: "device", value: DEVICE }, 20)
+        .catch((e: HttpException) => e),
+      ip.svc
+        .assertWithinHourlySenderCap("otp_request", { kind: "ip", value: IP }, 20)
+        .catch((e: HttpException) => e),
+    ]);
+    expect((d as HttpException).message).toBe((i as HttpException).message);
+    expect((d as HttpException).getStatus()).toBe((i as HttpException).getStatus());
+  });
+
+  it("an empty ip value still buckets as 'unknown' rather than the empty string", async () => {
+    const { svc, pii } = setup({ incrResults: [1] });
+    await svc.assertWithinHourlySenderCap("otp_request", { kind: "ip", value: "" }, 20);
+    expect(pii.hashIp).toHaveBeenCalledWith("unknown");
   });
 });

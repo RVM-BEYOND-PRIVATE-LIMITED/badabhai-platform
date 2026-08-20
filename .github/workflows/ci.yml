@@ -932,10 +932,17 @@ jobs:
       NODE_ENV: test
       API_PORT: "3001"
       RUN_E2E: "1"
-      # The per-IP OTP cap (OTP_MAX_SENDS_PER_IP_PER_HOUR, default 20). Every e2e test logs
-      # in from the SAME CI IP, so the whole suite shares one hourly budget — raise it here
-      # so the cap (a production abuse backstop, meaningless for a single shared CI IP)
-      # doesn't 429 the suite. Real deployments keep the default; this only affects CI.
+      # The per-SENDER OTP cap (#1035). The e2e client sends no `X-Device-Id`, so every test
+      # falls back to the ADDRESS bucket and the whole suite shares one hourly budget from the
+      # SAME CI IP — raise it here so a production abuse backstop, meaningless for a single
+      # shared CI runner, doesn't 429 the suite. Real deployments keep the default.
+      #
+      # MUST BE RAISED ALONGSIDE the per-IP one below. Since #1035 the fallback bucket is
+      # capped at the per-DEVICE knob, so leaving this at its default of 20 would 429 the suite
+      # on the 21st login however high the per-IP ceiling was set.
+      OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: "1000"
+      # The per-NETWORK flood ceiling ABOVE that sender gate (default 1000). Same reasoning:
+      # one shared CI IP for the whole suite.
       OTP_MAX_SENDS_PER_IP_PER_HOUR: "1000"
       # The per-PHONE hourly SMS budget — a DIFFERENT limit from the one above, which is
       # why both are raised. One CI run reuses phones across the suite.

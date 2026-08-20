@@ -18,6 +18,7 @@ import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { OtpRequestIdempotency } from "./otp-request-idempotency.service";
 import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
+import { senderOf } from "../common/rate-limit/request-sender";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { AuthService } from "./auth.service";
@@ -118,17 +119,28 @@ export class AuthController {
         resend_in_seconds: this.config.OTP_RESEND_COOLDOWN_SECONDS,
       }),
       work: async () => {
-        // Per-IP hourly cap BEFORE issuing — a network-level abuse backstop on top of
-        // the per-phone cooldown/cap. Fails closed (429) if Redis is down.
+        // TWO CAPS BEFORE ISSUING, and the ORDER is deliberate (#1035).
         //
-        // OTP_MAX_SENDS_PER_IP_PER_HOUR, *not* OTP_MAX_SENDS_PER_HOUR. This used to pass the
-        // latter, which is the per-PHONE SMS budget (5) — a different question wearing a
-        // similar name, and passing it here made one shared network worth five sign-ins an
-        // hour in total. With no reverse proxy in the shipped topology `req.ip` is the NAT
-        // egress address, so under carrier CGNAT that bucket is shared by thousands of
-        // workers. See the config comment for why the two must not be the same number.
-        await this.ipRateLimit.assertWithinHourlyIpCap(
+        // FIRST, THE SENDER — the handset that asked, via `X-Device-Id`, falling back to the
+        // address for a client that sends none. This is the gate that is supposed to trip:
+        // it separates two workers standing on one factory wifi, which is the thing the
+        // address cannot do. Keyed on the address it was the NAT egress bucket, so a handful
+        // of legitimate sign-ins locked out everyone else behind the same CGNAT pool and
+        // changing your phone number did not help, because the number was never the key.
+        //
+        // SECOND, THE NETWORK — a crude flood ceiling, ~50× the sender cap, that a real
+        // shared wifi must never reach. Its own scope (`otp_request_net`) so it cannot
+        // collide with the address bucket the fallback above still writes.
+        //
+        // Sender first so a device that has already spent its allowance does NOT also charge
+        // the bucket its neighbours share. Both fail closed (429) if Redis is down.
+        await this.ipRateLimit.assertWithinHourlySenderCap(
           "otp_request",
+          senderOf(req),
+          this.config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
+        );
+        await this.ipRateLimit.assertWithinHourlyIpCap(
+          "otp_request_net",
           req.ip ?? "unknown",
           this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
         );
@@ -176,12 +188,17 @@ export class AuthController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<LoginResponse> {
-    // Same knob as /auth/otp/request above, and for the same reason: this is a per-IP
-    // question, not a per-phone SMS budget. Its own bucket (`test_login` scope), so it
-    // never competes with real sign-ins — and the GLOBAL daily ceiling below, not this,
-    // is what actually bounds the seam.
-    await this.ipRateLimit.assertWithinHourlyIpCap(
+    // The SAME sender-then-network pair as /auth/otp/request above, and for the same reason:
+    // these are per-CALLER questions, not a per-phone SMS budget. Their own buckets
+    // (`test_login` / `test_login_net`), so the seam never competes with real sign-ins — and
+    // the GLOBAL daily ceiling below, not either of these, is what actually bounds it.
+    await this.ipRateLimit.assertWithinHourlySenderCap(
       "test_login",
+      senderOf(req),
+      this.config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
+    );
+    await this.ipRateLimit.assertWithinHourlyIpCap(
+      "test_login_net",
       req.ip ?? "unknown",
       this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
     );
