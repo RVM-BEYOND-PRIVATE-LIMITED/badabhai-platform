@@ -294,7 +294,8 @@ class _AskingView extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Expanded(
-                child: Text(q.prompt, style: AppTypography.display(size: 22)),
+                child: Text(q.prompt,
+                    style: AppTypography.display(size: AppTypography.sizeXl)),
               ),
               // ≥48px touch target (owner ruling on the whole screen).
               IconButton(
@@ -327,7 +328,8 @@ class _AskingView extends StatelessWidget {
           const SizedBox(height: AppSpacing.s4),
           Text(
             _kMicFootnote,
-            style: AppTypography.body(size: 13, color: AppColors.textMuted),
+            style: AppTypography.body(
+                size: AppTypography.sizeXs, color: AppColors.textMuted),
           ),
         ],
       ),
@@ -404,22 +406,25 @@ class _WhyTextState extends State<_WhyText> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        InkWell(
-          onTap: () => setState(() => _open = !_open),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: AppSpacing.s2),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                const Icon(Icons.info_outline,
-                    size: 18, color: AppColors.blue),
-                const SizedBox(width: AppSpacing.s2),
-                Text(_kWhyLabel,
-                    style: AppTypography.body(
-                        size: 14, color: AppColors.blue)),
-                Icon(_open ? Icons.expand_less : Icons.expand_more,
-                    size: 18, color: AppColors.blue),
-              ],
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+          child: InkWell(
+            onTap: () => setState(() => _open = !_open),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.s2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  const Icon(Icons.info_outline,
+                      size: 18, color: AppColors.blue),
+                  const SizedBox(width: AppSpacing.s2),
+                  Text(_kWhyLabel,
+                      style: AppTypography.body(
+                          size: 14, color: AppColors.blue)),
+                  Icon(_open ? Icons.expand_less : Icons.expand_more,
+                      size: 18, color: AppColors.blue),
+                ],
+              ),
             ),
           ),
         ),

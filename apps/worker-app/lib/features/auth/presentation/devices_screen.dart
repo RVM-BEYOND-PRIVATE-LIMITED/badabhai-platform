@@ -7,6 +7,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_blue_header.dart';
+import '../../../core/widgets/bb_spinner.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import 'cubit/devices_cubit.dart';
 
@@ -73,8 +74,10 @@ class _DevicesView extends StatelessWidget {
                     itemCount: state.devices.length,
                     separatorBuilder: (_, __) =>
                         const SizedBox(height: AppSpacing.s3),
-                    itemBuilder: (BuildContext context, int i) =>
-                        _DeviceTile(device: state.devices[i]),
+                    itemBuilder: (BuildContext context, int i) => _DeviceTile(
+                      device: state.devices[i],
+                      revokingId: state.revokingId,
+                    ),
                   ),
                   };
                 },
@@ -88,13 +91,20 @@ class _DevicesView extends StatelessWidget {
 }
 
 class _DeviceTile extends StatelessWidget {
-  const _DeviceTile({required this.device});
+  const _DeviceTile({required this.device, this.revokingId});
 
   final AuthDevice device;
+
+  /// Id of the device whose revoke is in flight (from DevicesState). When it
+  /// matches this device the action shows a spinner; when any revoke is in
+  /// flight every tile's action is disabled to block duplicate taps.
+  final String? revokingId;
 
   @override
   Widget build(BuildContext context) {
     final String label = _deviceLabel(device);
+    final bool isRevoking = revokingId == device.id;
+    final bool revokeBlocked = revokingId != null;
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surfaceCard,
@@ -156,12 +166,22 @@ class _DeviceTile extends StatelessWidget {
             ),
           ),
           if (!device.isCurrent)
-            TextButton(
-              style:
-                  TextButton.styleFrom(foregroundColor: AppColors.danger),
-              onPressed: () => _confirmRevoke(context, device),
-              child: const Text('Hatayein'),
-            ),
+            isRevoking
+                ? const Padding(
+                    padding:
+                        EdgeInsets.symmetric(horizontal: AppSpacing.s3),
+                    child: BbSpinner(size: 24),
+                  )
+                : TextButton(
+                    style: TextButton.styleFrom(
+                        foregroundColor: AppColors.danger),
+                    // Disabled while any revoke is in flight so a second tile
+                    // cannot fire a duplicate revoke.
+                    onPressed: revokeBlocked
+                        ? null
+                        : () => _confirmRevoke(context, device),
+                    child: const Text('Hatayein'),
+                  ),
         ],
       ),
     );

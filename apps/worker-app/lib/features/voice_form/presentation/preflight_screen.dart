@@ -226,7 +226,7 @@ class _PreflightScreenState extends State<PreflightScreen> {
           ),
           const SizedBox(height: AppSpacing.s4),
           Text(title,
-              style: AppTypography.display(size: 22),
+              style: AppTypography.display(size: AppTypography.sizeXl),
               textAlign: TextAlign.center),
           const SizedBox(height: AppSpacing.s2),
           Text(

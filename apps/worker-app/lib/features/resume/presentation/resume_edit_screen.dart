@@ -418,7 +418,7 @@ class _ToggleField extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.s3),
-          BbToggle(value: value, onChanged: onChanged),
+          BbToggle(value: value, onChanged: onChanged, semanticLabel: label),
         ],
       ),
     );

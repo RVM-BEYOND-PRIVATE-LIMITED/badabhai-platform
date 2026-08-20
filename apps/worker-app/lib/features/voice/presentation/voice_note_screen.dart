@@ -343,14 +343,27 @@ class _RecordingView extends StatelessWidget {
                 // approaches, so the record state shows real progress rather than
                 // a bare/indeterminate spinner. The mono clock reads out the same.
                 Positioned.fill(
-                  child: CircularProgressIndicator(
-                    value: maxSeconds > 0
-                        ? (elapsedSeconds / maxSeconds).clamp(0.0, 1.0)
-                        : 0.0,
-                    strokeWidth: 4,
-                    backgroundColor: AppColors.dangerTint,
-                    valueColor:
-                        const AlwaysStoppedAnimation<Color>(AppColors.danger),
+                  // Tween the ring between per-second ticks so it sweeps
+                  // continuously instead of snapping once a second. Each tick
+                  // moves `end`, and TweenAnimationBuilder animates from the
+                  // current value to it over one second on a linear curve.
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween<double>(
+                      begin: 0.0,
+                      end: maxSeconds > 0
+                          ? (elapsedSeconds / maxSeconds).clamp(0.0, 1.0)
+                          : 0.0,
+                    ),
+                    duration: const Duration(seconds: 1),
+                    curve: Curves.linear,
+                    builder: (BuildContext context, double value, Widget? _) =>
+                        CircularProgressIndicator(
+                      value: value,
+                      strokeWidth: 4,
+                      backgroundColor: AppColors.dangerTint,
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                          AppColors.danger),
+                    ),
                   ),
                 ),
                 Container(

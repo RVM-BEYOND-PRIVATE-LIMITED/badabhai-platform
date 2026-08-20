@@ -215,6 +215,8 @@ class _ProfileTabView extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text(headline,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: AppTypography.display(
                       size: AppTypography.sizeXl,
                       weight: FontWeight.w800,

@@ -64,7 +64,7 @@ class BbAppBar extends StatelessWidget implements PreferredSizeWidget {
             )
           : null,
       leadingWidth: showLogo ? 52 : null,
-      title: Text(title),
+      title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
       actions: actions,
     );
   }

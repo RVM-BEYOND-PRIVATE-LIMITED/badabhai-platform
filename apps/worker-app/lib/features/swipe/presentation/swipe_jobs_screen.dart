@@ -186,8 +186,11 @@ class _FeedViewState extends State<_FeedView> {
             child: ListView.builder(
               // AlwaysScrollable so a short list can still be pulled to refresh.
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.only(
-                  top: AppSpacing.s2, bottom: AppSpacing.s4),
+              // Clear the bottom gesture-nav inset so the last card isn't hidden.
+              padding: EdgeInsets.only(
+                  top: AppSpacing.s2,
+                  bottom:
+                      AppSpacing.s4 + MediaQuery.of(context).padding.bottom),
               itemCount: jobs.length,
               itemBuilder: (BuildContext context, int index) {
                 final FeedItem item = jobs[index];
@@ -262,7 +265,7 @@ class _FeedViewState extends State<_FeedView> {
                   children: <Widget>[
                     Text('Kaam milega.',
                         style: AppTypography.display(
-                            size: 22,
+                            size: AppTypography.sizeXl,
                             weight: FontWeight.w800,
                             color: AppColors.haldi)),
                     const SizedBox(height: 2),
@@ -276,7 +279,7 @@ class _FeedViewState extends State<_FeedView> {
               // Alerts moved off the bottom nav into a header bell (kit 4-tab
               // set) — surface it here so notifications stay reachable from the
               // feed, not only the Resume tab.
-              const BbAlertsAction(),
+              const BbAlertsAction(color: AppColors.onBlue),
               IconButton(
                 tooltip: 'Filter jobs',
                 icon: const Icon(Icons.tune, color: AppColors.onBlue),

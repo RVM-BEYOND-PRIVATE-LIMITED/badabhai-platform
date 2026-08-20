@@ -325,7 +325,7 @@ class _JobSearchViewState extends State<_JobSearchView> {
         return _fillSliver(_emptyView(state));
       case JobSearchStatus.results:
       case JobSearchStatus.loadingMore:
-        return _resultsSliver(state);
+        return _resultsSliver(context, state);
     }
   }
 
@@ -334,11 +334,14 @@ class _JobSearchViewState extends State<_JobSearchView> {
   Widget _fillSliver(Widget child) =>
       SliverFillRemaining(hasScrollBody: false, child: child);
 
-  Widget _resultsSliver(JobSearchState state) {
+  Widget _resultsSliver(BuildContext context, JobSearchState state) {
     final bool showTrailing = state.status == JobSearchStatus.loadingMore;
     final int count = state.items.length + (showTrailing ? 1 : 0);
     return SliverPadding(
-      padding: const EdgeInsets.only(top: AppSpacing.s2, bottom: AppSpacing.s4),
+      // Clear the bottom gesture-nav inset so the last result isn't hidden.
+      padding: EdgeInsets.only(
+          top: AppSpacing.s2,
+          bottom: AppSpacing.s4 + MediaQuery.of(context).padding.bottom),
       sliver: SliverList(
         delegate: SliverChildBuilderDelegate(
           (BuildContext context, int index) {

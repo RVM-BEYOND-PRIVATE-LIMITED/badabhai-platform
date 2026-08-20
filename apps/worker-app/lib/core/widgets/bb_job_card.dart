@@ -213,6 +213,8 @@ class _HeaderRow extends StatelessWidget {
   // in body-strong, not the big Anek display voice (which is for the detail).
   Text _titleText(String title) => Text(
         title,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
         style: AppTypography.body(
           size: 15,
           weight: FontWeight.w700,

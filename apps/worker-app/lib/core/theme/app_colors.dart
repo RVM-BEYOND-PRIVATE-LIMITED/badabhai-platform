@@ -96,6 +96,7 @@ class AppColors {
   static const Color ink800 = Color(0xFF232D42);
   static const Color ink700 = Color(0xFF333E58);
   static const Color ink600 = Color(0xFF475069); // secondary text
+  static const Color ink550 = Color(0xFF667085); // muted text — AA ~4.95:1 on white
   static const Color ink500 = Color(0xFF8A92A6); // muted text
   static const Color ink400 = Color(0xFFA8AFBF);
   static const Color ink300 = Color(0xFFC5CEDF); // disabled
@@ -117,8 +118,8 @@ class AppColors {
   // text
   static const Color textPrimary = ink900;
   static const Color textSecondary = ink600;
-  static const Color textMuted = ink500;
-  static const Color textFaint = ink500;
+  static const Color textMuted = ink550;
+  static const Color textFaint = ink550;
   static const Color textInverse = paper1;
   static const Color textBrand = blue;
   static const Color textOnBrand = blue; // text on haldi is ALWAYS deep blue
