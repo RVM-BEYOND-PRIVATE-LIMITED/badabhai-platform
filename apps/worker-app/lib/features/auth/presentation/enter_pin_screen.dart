@@ -8,6 +8,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_blue_header.dart';
+import '../../../core/widgets/bb_scroll_safe_body.dart';
 import '../../../core/widgets/bb_spinner.dart';
 import '../../../router.dart';
 import 'cubit/enter_pin_cubit.dart';
@@ -131,7 +132,10 @@ class _EnterPinViewState extends State<_EnterPinView> {
               Expanded(
                 child: SafeArea(
                   top: false,
-                  child: Padding(
+                  // Scroll-safe: the keypad body centres when there is room and
+                  // scrolls (never a RenderFlex overflow) on a short handset or
+                  // at a large accessibility text scale.
+                  child: BbScrollSafeBody(
                     padding: const EdgeInsets.symmetric(
                         horizontal: AppSpacing.gutter),
                     child: Column(

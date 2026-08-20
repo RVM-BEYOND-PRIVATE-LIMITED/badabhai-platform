@@ -6,6 +6,7 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_blue_header.dart';
+import '../../../core/widgets/bb_scroll_safe_body.dart';
 import '../../../core/widgets/bb_spinner.dart';
 import '../../../router.dart';
 import '../domain/weak_pin.dart';
@@ -249,49 +250,37 @@ class _SetPinViewState extends State<_SetPinView> {
                   top: false,
                   // Scroll-safe centring: the body sits centred when there is
                   // room and scrolls (never overflows) on a short screen.
-                  child: LayoutBuilder(
-                    builder: (BuildContext context, BoxConstraints constraints) {
-                      return SingleChildScrollView(
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                              minHeight: constraints.maxHeight),
-                          child: IntrinsicHeight(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.gutter),
-                              child: Column(
-                                children: <Widget>[
-                                  const Spacer(flex: 1),
-                                  BbPinView(
-                                    length: kPinLength,
-                                    filled: _buffer.length,
-                                  ),
-                                  const SizedBox(height: AppSpacing.s6),
-                                  // During the processing beat the keypad is
-                                  // swapped for a loader so the worker sees the
-                                  // step is advancing, not that nothing happened.
-                                  if (_processing)
-                                    const Padding(
-                                      padding: EdgeInsets.symmetric(
-                                          vertical: AppSpacing.s6),
-                                      child: BbSpinner(
-                                        caption: 'PIN set kar rahe hain…',
-                                      ),
-                                    )
-                                  else
-                                    BbPinKeypad(
-                                      enabled: !state.isSubmitting,
-                                      onDigit: _onDigit,
-                                      onBackspace: _onBackspace,
-                                    ),
-                                  const Spacer(flex: 2),
-                                ],
-                              ),
-                            ),
-                          ),
+                  child: BbScrollSafeBody(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.gutter),
+                    child: Column(
+                      children: <Widget>[
+                        const Spacer(flex: 1),
+                        BbPinView(
+                          length: kPinLength,
+                          filled: _buffer.length,
                         ),
-                      );
-                    },
+                        const SizedBox(height: AppSpacing.s6),
+                        // During the processing beat the keypad is swapped for a
+                        // loader so the worker sees the step is advancing, not
+                        // that nothing happened.
+                        if (_processing)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(
+                                vertical: AppSpacing.s6),
+                            child: BbSpinner(
+                              caption: 'PIN set kar rahe hain…',
+                            ),
+                          )
+                        else
+                          BbPinKeypad(
+                            enabled: !state.isSubmitting,
+                            onDigit: _onDigit,
+                            onBackspace: _onBackspace,
+                          ),
+                        const Spacer(flex: 2),
+                      ],
+                    ),
                   ),
                 ),
               ),
