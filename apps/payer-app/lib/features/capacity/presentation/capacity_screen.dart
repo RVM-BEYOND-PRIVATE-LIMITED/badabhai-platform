@@ -170,7 +170,7 @@ class _AllowanceCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppRadii.pill),
             child: LinearProgressIndicator(
               value: cap.usage.clamp(0, 1),
-              minHeight: 8,
+              minHeight: AppSpacing.s2,
               backgroundColor: AppColors.ink700,
               valueColor: AlwaysStoppedAnimation<Color>(
                 cap.atCapacity ? AppColors.warning : AppColors.green300,

@@ -41,7 +41,18 @@ class BbButton extends StatelessWidget {
     this.iconRight,
     this.loading = false,
     this.buttonKey,
-  });
+  }) : assert(
+          size != BbButtonSize.sm ||
+              (variant != BbButtonVariant.primary &&
+                  variant != BbButtonVariant.brand &&
+                  variant != BbButtonVariant.navy &&
+                  variant != BbButtonVariant.success &&
+                  variant != BbButtonVariant.danger),
+          'BbButtonSize.sm (36px, AppSpacing.controlSm) drops a loud action '
+          'below the sacred 48px tap floor (AppSpacing.tap). Use md/lg for the '
+          'primary/brand/navy/success/danger CTAs; sm is reserved for the quiet '
+          'secondary/tonal/ghost variants only (#1082).',
+        );
 
   final String label;
   final VoidCallback? onPressed;

@@ -9,11 +9,13 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/name_mask.dart';
+import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_stamp_celebration.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import 'cubit/reveal_cubit.dart';
@@ -173,21 +175,33 @@ class _RealReveal extends StatelessWidget {
     final Applicant applicant = args.applicant!;
     return BlocBuilder<RevealCubit, RevealState>(
       builder: (BuildContext context, RevealState state) {
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.gutter,
-            AppSpacing.s2,
-            AppSpacing.gutter,
-            AppSpacing.s6,
-          ),
+        return Stack(
           children: <Widget>[
-            _header(),
-            const SizedBox(height: AppSpacing.s4),
-            _identityCard(applicant),
-            const SizedBox(height: AppSpacing.s4),
-            _relayCard(context, state),
-            const SizedBox(height: AppSpacing.s4),
-            _resumeRow(context, state),
+            ListView(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.gutter,
+                AppSpacing.s2,
+                AppSpacing.gutter,
+                AppSpacing.s6,
+              ),
+              children: <Widget>[
+                _header(),
+                const SizedBox(height: AppSpacing.s4),
+                _identityCard(applicant),
+                const SizedBox(height: AppSpacing.s4),
+                _relayCard(context, state),
+                const SizedBox(height: AppSpacing.s4),
+                _resumeRow(context, state),
+              ],
+            ),
+            // #1077 — the "stamp" beat for the paid conversion moment: a green
+            // seal lands once when the unlock reveal resolves to a relay handle.
+            // Ignores pointer + auto-fades so it stays brief and never blocks the
+            // relay/résumé actions beneath it.
+            if (state.status == RevealStatus.ready)
+              const Positioned.fill(
+                child: BbStampCelebration(icon: Icons.lock_open),
+              ),
           ],
         );
       },
@@ -270,16 +284,19 @@ class _RealReveal extends StatelessWidget {
   }
 
   Widget _relayCard(BuildContext context, RevealState state) {
+    final Widget card;
+    final String phase;
     if (state.status == RevealStatus.loading ||
         state.status == RevealStatus.initial) {
-      return const BbCard(
+      phase = 'loading';
+      card = const BbCard(
         padding: EdgeInsets.all(AppSpacing.s6),
         child: Center(child: BbStatusView.loading()),
       );
-    }
-    if (state.status == RevealStatus.unavailable ||
+    } else if (state.status == RevealStatus.unavailable ||
         state.status == RevealStatus.error) {
-      return BbCard(
+      phase = 'closed';
+      card = BbCard(
         child: Row(
           children: <Widget>[
             const Icon(Icons.info_outline, color: AppColors.textMuted),
@@ -296,51 +313,58 @@ class _RealReveal extends StatelessWidget {
           ],
         ),
       );
-    }
-
-    final String handle = state.relayHandle ?? '';
-    return BbCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          _sectionLabel('Contact relay'),
-          const SizedBox(height: AppSpacing.s2),
-          Row(
-            children: <Widget>[
-              BbBadge(state.channelLabel, tone: BbBadgeTone.neutral),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.s3,
-                    vertical: AppSpacing.s2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceSunken,
-                    borderRadius: BorderRadius.circular(AppRadii.pill),
-                  ),
-                  child: Text(
-                    handle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.mono(
-                      size: AppTypography.sizeBase,
-                      weight: FontWeight.w700,
+    } else {
+      phase = 'ready';
+      final String handle = state.relayHandle ?? '';
+      card = BbCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            _sectionLabel('Contact relay'),
+            const SizedBox(height: AppSpacing.s2),
+            Row(
+              children: <Widget>[
+                BbBadge(state.channelLabel, tone: BbBadgeTone.neutral),
+                const SizedBox(width: AppSpacing.s2),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.s3,
+                      vertical: AppSpacing.s2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.surfaceSunken,
+                      borderRadius: BorderRadius.circular(AppRadii.pill),
+                    ),
+                    child: Text(
+                      handle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.mono(
+                        size: AppTypography.sizeBase,
+                        weight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.s4),
-          BbButton(
-            label: 'Contact via relay',
-            iconLeft: Icons.chat_bubble_outline,
-            block: true,
-            onPressed: () => _contactViaRelay(context, handle),
-          ),
-        ],
-      ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.s4),
+            BbButton(
+              label: 'Contact via relay',
+              iconLeft: Icons.chat_bubble_outline,
+              block: true,
+              onPressed: () => _contactViaRelay(context, handle),
+            ),
+          ],
+        ),
+      );
+    }
+    // #1078 — ease the loading→ready/closed relay status swap instead of a hard
+    // cut on the network round trip. KeyedSubtree gives each phase a distinct
+    // key so the switcher actually animates between them.
+    return BbAnimatedSwitcher(
+      child: KeyedSubtree(key: ValueKey<String>(phase), child: card),
     );
   }
 
