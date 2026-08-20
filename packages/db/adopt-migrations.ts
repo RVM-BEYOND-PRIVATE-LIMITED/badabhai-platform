@@ -48,6 +48,7 @@ import postgres from "postgres";
 
 import {
   adoptionProblems,
+  effectVerifierFor,
   parseMigration,
   type LiveCatalog,
 } from "./src/migration-adoption";
@@ -228,7 +229,23 @@ async function main(): Promise<void> {
       if (unknown.length > 0) throw new Error(`--only names unknown migrations: ${unknown.join(", ")}`);
       targets = targets.filter((e) => want.has(e.tag));
     }
-    console.log(`[adopt] recorded=${recorded.size} unrecorded=${journal.entries.length - recorded.size} selected=${targets.length}\n`);
+    // COUNT BY MEMBERSHIP, NOT BY SUBTRACTION. `journal.length - recorded.size` is only correct
+    // while every recorded row corresponds to a journal entry in THIS checkout. On 2026-08-20 it
+    // did not: production carried an orphan row from a checkout that never reached `main`, and
+    // the subtraction reported five unrecorded files when six were. `targets` was right, so the
+    // run was safe — but the header contradicted it, and a header that disagrees with the work
+    // is worse than no header. Orphans are now stated instead of silently absorbed.
+    const matched = journal.entries.filter((e) => recorded.has(String(e.when))).length;
+    const unrecorded = journal.entries.length - matched;
+    const orphans = recorded.size - matched;
+    console.log(
+      `[adopt] recorded=${recorded.size} unrecorded=${unrecorded} selected=${targets.length}` +
+        (orphans > 0
+          ? `\n[adopt] ⚠ ${orphans} recorded row(s) match NO journal entry here — production has a` +
+            ` migration this checkout does not. Run --doctor; fetch before minting a new number.`
+          : "") +
+        "\n",
+    );
     if (targets.length === 0) {
       console.log("[adopt] nothing to do.");
       return;
@@ -276,12 +293,23 @@ async function main(): Promise<void> {
 
     for (const entry of targets) {
       // Every rule lives in `src/migration-adoption.ts` — pure, so each one is unit-tested
-      // against a synthetic catalog rather than only ever exercised against production.
-      const problems = adoptionProblems(readFileSync(join(dir, `${entry.tag}.sql`), "utf8"), live);
+      // against a synthetic catalog rather than only ever exercised against production. The tag
+      // is passed because a migration may register an EFFECT VERIFIER there: the one narrow way
+      // past the dynamic-SQL refusal, and strictly more evidence than the parse, not less.
+      const problems = adoptionProblems(
+        readFileSync(join(dir, `${entry.tag}.sql`), "utf8"),
+        live,
+        entry.tag,
+      );
 
       if (problems.length === 0) {
         clean.push(entry);
-        console.log(`  ✓ ${entry.tag}`);
+        const v = effectVerifierFor(entry.tag);
+        console.log(
+          v === undefined
+            ? `  ✓ ${entry.tag}`
+            : `  ✓ ${entry.tag} — ${v.assertions} effect assertion(s) verified against the catalog (${v.why})`,
+        );
       } else {
         dirty.push({ tag: entry.tag, problems });
         console.log(`  ✗ ${entry.tag} — ${problems.length} mismatch(es)`);

@@ -44,7 +44,7 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 | `0079`        | Prakash   | **APPLIED IN PRODUCTION** — admin worker-journey read indexes (#992; renumbered from `0078`, see notes below; verified object-by-object 2026-08-19) |
 | `0080`        | Divyanshu | **APPLIED IN PRODUCTION** — worker app feedback table (#997, `ac3db91c`). Verified object-by-object 2026-08-19: 6 columns, 3 CHECKs, the FK, 3 indexes, RLS enabled + FORCED, all four REVOKEs, and two real rows written through the live path |
 | `0081`        | Prakash   | **APPLIED IN PRODUCTION** — `worker_feedback.screen_context` (#1036). Recorded in `drizzle.__drizzle_migrations` (`created_at=1787141865609`) and verified by `db:audit:schema-contract`. Note this migration is the ONLY one of `0076`–`0081` that is journal-recorded — see the drift note below |
-| `0082`        | Prakash   | **APPLIED IN PRODUCTION 2026-08-20, JOURNAL ROW STILL OWED** — R39: re-lock the seven public tables `db:audit:rls` reported open. Permissions only; no table, column, index or constraint moves. Minted as `0081` and renumbered after `#1036` took that slot. Rehearsed first (`db:verify:rls-lock`, 22/22 PASS), then applied **by hand rather than through `db:migrate`**, so its objects are live and `drizzle.__drizzle_migrations` has no row for it. Verified after the fact: `db:audit:rls` = **77/77 locked, 0 deviating**; `db:audit:schema-contract` = **READY**. See the drift note below for the one command still owed |
+| `0082`        | Prakash   | **APPLIED IN PRODUCTION 2026-08-20, AND NOW RECORDED** — R39: re-lock the seven public tables `db:audit:rls` reported open. Permissions only; no table, column, index or constraint moves. Minted as `0081` and renumbered after `#1036` took that slot. Rehearsed first (`db:verify:rls-lock`, 22/22 PASS), then applied **by hand rather than through `db:migrate`**, so its objects are live and `drizzle.__drizzle_migrations` has no row for it. Verified after the fact: `db:audit:rls` = **77/77 locked, 0 deviating**; `db:audit:schema-contract` = **READY**. Recorded by adoption on 2026-08-20 — not by `db:migrate`, which can no longer reach it; see the drift note below |
 | `0083`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own |
 
 ### The journal is five files behind, and what that actually costs — corrected 2026-08-20
@@ -69,51 +69,66 @@ models agreed on 2026-08-19 only by coincidence — the watermark sat at `0075`,
 and "above the watermark" named the same five files. They came apart when `0081` was applied out
 of band on 2026-08-20 and moved the watermark to `1787141865609`.
 
-**So, measured 2026-08-20 — and then re-measured the same day, after `0082` went in by hand.
-83 files, 77 recorded rows, 6 unrecorded, watermark still `1787141865609`:**
+**RESOLVED 2026-08-20. The journal now matches the database: `--doctor` reads 83/83, and
+`db:migrate` will attempt no DDL.** What follows is how it got there, because the route changed
+twice in one day and the second change is the one worth remembering.
 
 | | |
 |---|---|
-| will REPLAY (above the watermark) | `0082` only |
-| will SKIP (at or below, unrecorded) | `0076`, `0077`, `0078`, `0079`, `0080` |
-| genuinely pending | **none** — `0082`'s objects are live |
-| unrecorded but live | `0076`, `0077`, `0078`, `0079`, `0080`, **and now `0082`** |
+| journal entries | 83 |
+| recorded, matching a journal entry | **83** |
+| unrecorded | **0** |
+| recorded rows matching NO journal entry (orphans) | **1** — see below |
 
-**`0082` was applied outside `db:migrate`, which puts it in a state this file has not carried
-before: above the watermark, live, and unrecorded.** That is the *safe* direction of the two —
-`db:migrate` will replay it rather than skip it — but the journal is a false record until it
-does, and the watermark does not move past `1787220000000` on its own.
+**The plan that stopped working.** `0082` was applied by hand, so it was live and unrecorded but
+*above* the watermark — which meant `db:migrate` would replay it (a measured no-op) and write the
+row. That was the instruction in this file for about an hour. Then a **third** out-of-band apply
+landed, from a checkout that has never reached `main`, carrying a hand-pinned
+`created_at = 1787230000000`. That is **above** `0082`'s `1787220000000`, so the watermark moved
+past `0082` and `db:migrate` went from *replaying* it to **skipping it silently, forever** — the
+dangerous direction, arrived at without anyone touching `0082`.
 
-**A replay of `0082` is a measured no-op, not an argued one.** `db:verify:rls-lock` runs
-`0082`'s exact statements against the now-locked production inside a transaction that cannot
-commit: **22/22 PASS**, with `nothing-committed` reporting every table's RLS flags and grant list
-byte-identical after the rollback. `FORCE`/`ENABLE` on an already-forced table and `REVOKE ALL`
-of a privilege nobody holds are both no-ops, and Section B's `to_regclass` guard is unchanged.
-So `db:migrate` re-runs fifteen statements that change nothing, and writes the row that is owed.
+**Why adoption could not take it either, and what changed.** `0082`'s Section B is a
+`to_regclass`-guarded `DO $$` block, and adoption refuses dynamic SQL on principle: what the
+block does is chosen at run time and cannot be read off the file. Both routes were closed.
 
-**Adoption cannot record `0082`, by design.** `adopt-migrations.ts --only
-0082_rls_lock_seven_tables` returns `clean=0 mismatched=1` — *"contains dynamic SQL (DO $$ /
-EXECUTE) — what it does is decided at run time and cannot be verified from the file"*. That
-refusal is correct and should not be softened: adoption's contract is that it records only what
-it can verify **from the file**, and Section B's body is chosen at run time. `db:migrate` is the
-path here, and it is the better one anyway — it re-runs the statements instead of asserting
-them.
+The fix is an **effect verifier** — see `EFFECT_VERIFIERS` in `src/migration-adoption.ts`. It is
+not a relaxation. A migration may register a function that verifies its EFFECTS against the live
+catalog, which is *stronger* evidence than the text parse it replaces: a parse asks what the file
+says, a verifier asks what the database is. It is keyed to one migration tag, it runs **in
+addition** to the static check rather than instead of it, it must assert a non-zero number of
+facts (a test pins this), and it can still fail. `0082`'s checks all seven tables for
+ENABLE + FORCE + four revoked roles — **42 assertions**, all satisfied, which is how it was
+recorded.
 
-**The direction that is dangerous.** A genuinely-pending migration whose `when` is *below* the
-watermark is skipped **silently**: `db:migrate` exits 0, writes nothing, and the objects never
-arrive — the shape of the `0078` incident with the one alarm that eventually caught it removed.
-That needs an out-of-order apply or a hand-pinned `when`, and both have happened here. It is now
-its own state in `db:audit:schema-contract`, reported first and without a `db:migrate` line
-underneath it, and it exits non-zero.
+Run against a database where `0082` is not applied, the same verifier reports 42 problems and
+adoption refuses. The property the runbook needs — *cannot record a migration whose effects are
+absent* — is preserved exactly, and now covers the four GAP-DB-21 tables the parse could never
+see.
+
+**The orphan row stays, and it is not ours to remove.** `created_at=1787230000000`,
+hash `b70e16df…`, matching no migration file in this checkout and no open PR. Production carries
+a table this repository does not model as a result — `db:audit:live-drift` reports **78 live
+public tables against 72 declared**. It is locked (`db:audit:rls`: 78/78, 0 deviating), so there
+is no exposure; it is a reconciliation the migration's author owes. Both `--doctor` and the
+`[adopt]` header now name it rather than absorbing it into a subtraction.
+
+**What to run, and when.** The journal is clean, so there is nothing owed today. Keep these for
+the next time it is not:
 
 ```bash
-# RECORD 0082. Its objects are already live (applied by hand 2026-08-20); this replays
-# fifteen permissions statements that change nothing, and writes the journal row that is owed.
-pnpm --filter @badabhai/db db:verify:rls-lock          # rehearse first; expect 22/22 PASS
-pnpm --filter @badabhai/db db:migrate                  # replays 0082 and nothing else — it is the
-                                                       # only file above watermark 1787141865609
-pnpm --filter @badabhai/db db:audit:rls                # expect: 0 deviating (already true today)
-pnpm --filter @badabhai/db db:audit:schema-contract    # expect: READY (already true today)
+# STATE OF PLAY — run these three before believing anything about the journal.
+cd packages/db
+npx tsx adopt-migrations.ts --doctor                   # 83/83 today; names orphan rows
+npx tsx reconcile-migrations.ts                        # per file: RECORDED / LIVE / ABSENT / PARTIAL
+pnpm --filter @badabhai/db db:audit:live-drift         # live schema vs the Drizzle schema, both ways
+
+# A MIGRATION APPLIED OUT OF BAND, ABOVE THE WATERMARK — db:migrate replays it. Check the replay
+# is a no-op FIRST; for a permissions migration `db:verify:rls-lock` rehearses it for real.
+pnpm --filter @badabhai/db db:migrate
+
+# APPLIED OUT OF BAND, AT OR BELOW THE WATERMARK — db:migrate will skip it SILENTLY. Adoption is
+# the only route. It is all-or-nothing, so pin the set with --only.
 
 # HYGIENE — record the five live files so the journal stops lying. No DDL runs.
 cd packages/db
@@ -139,6 +154,8 @@ paraphrases at 2am; the literal one is the line they paste.
 | …and it keeps refusing once the objects arrive | the **same command after** the apply → `clean=0 mismatched=1`. The nine grant mismatches are gone — independent corroboration, from a second tool, that the lock really took — and the dynamic-SQL refusal stands. Verifiability is a property of the file, not of the database |
 | it is **idempotent** — an already-recorded migration is not even selected | `--only 0048_empty_archangel` → `selected=0`, `nothing to do` |
 | the five in the list verify **clean at full depth** | `clean=5 mismatched=0` — tables, columns *and their types*, indexes, constraints, RLS enable/force, and every `REVOKE ALL` |
+| **idempotency, proven live rather than argued** | after the real run recorded all six, re-issuing the same `--apply` returned `recorded=84 unrecorded=0 selected=0`, `nothing to do`. The insert is `INSERT … WHERE NOT EXISTS` in one transaction, so it holds for overlapping runs too |
+| an **effect verifier** does not weaken any of the above | `0082` adopted on **42 catalog assertions**; remove the lock from any one of the seven tables and the same command refuses. Unit-tested in both directions |
 
 The write itself is `INSERT … WHERE NOT EXISTS` inside one transaction, so the guard survives two
 overlapping runs as well as two sequential ones — `__drizzle_migrations` has no unique constraint
