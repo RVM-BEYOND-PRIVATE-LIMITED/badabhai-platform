@@ -63,6 +63,15 @@ bool _isIdSegment(String segment) =>
 /// the only question this field exists for — WHICH SCREEN was "button kaam nahi
 /// kar raha" about — and answers nothing else.
 ///
+/// ── WHERE THIS INTENTIONALLY LEADS THE SERVER TWIN ─────────────────────────
+/// The pre-bound below is measured against the CUT path; the server's
+/// `screen-context.ts` measures it against the RAW value and so still turns
+/// `/jobs?<1275 chars>` into "unknown screen". That is a bug on that side and the
+/// backend change must mirror this. It costs nothing today — every value this
+/// app produces is already cut, short, and accepted by the server verbatim
+/// (round-tripped, no client output is ever nulled server-side) — but a
+/// non-Flutter caller POSTing a full location string hits it.
+///
 /// ── THE SERVER NORMALIZES AGAIN, AND THAT IS NOT A REASON TO SKIP THIS ──────
 /// DEFENCE IN DEPTH, in both directions. This app knows its own route table and
 /// can produce a better pattern than any server-side guess; the server treats
@@ -77,16 +86,6 @@ bool _isIdSegment(String segment) =>
 /// stored as NULL, never a 400).
 String? normalizeScreenContext(String? raw) {
   if (raw == null) return null;
-  // A cheap upper bound BEFORE the split, so a hostile megabyte-long value is one
-  // length comparison rather than a megabyte of segment work. It cannot discard
-  // anything the checks below would keep: substitution only ever SHRINKS a segment
-  // (37 → 4 for a uuid plus its separator), so a value that normalizes to <= 128
-  // cannot have started above ~1184 — comfortably inside 128 * 10.
-  //
-  // PERFORMANCE ONLY, and measured as such: removing it leaves every result
-  // identical (the post-substitution bound rejects the same values), so no test
-  // can see it and none pretends to.
-  if (raw.length > kWorkerFeedbackScreenMax * 10) return null;
 
   // BOTH the fragment and the query go, and both cuts have to exist. They are the
   // two parts of a route a client is likeliest to park state in (`?q=<what the
@@ -96,8 +95,30 @@ String? normalizeScreenContext(String? raw) {
   // null. (The server takes them in this same order; with both cuts present the
   // order itself does not change any result, since whichever marker comes first
   // truncates the value either way.)
-  final String withoutFragment = raw.split('#').first;
-  final String path = withoutFragment.split('?').first.trim();
+  //
+  // `indexOf` + `substring` rather than `split`, so a hostile megabyte-long value
+  // is one scan and one copy of the part we keep, never a list of every segment
+  // between the separators.
+  final int hash = raw.indexOf('#');
+  final String withoutFragment = hash < 0 ? raw : raw.substring(0, hash);
+  final int query = withoutFragment.indexOf('?');
+  final String path =
+      (query < 0 ? withoutFragment : withoutFragment.substring(0, query)).trim();
+
+  // A cheap upper bound BEFORE the per-segment work, so a hostile value is one
+  // length comparison rather than a megabyte of substitution.
+  //
+  // Applied to the CUT path and not to `raw`, which is what makes the claim below
+  // true. Against `raw` it was not a performance guard at all: the query cut and
+  // the trim are unbounded shrinks that happen after it, so `/jobs?<1275 chars>`
+  // — an ordinary short route with a long query string — was discarded as an
+  // unknown screen while `/jobs` was the answer. Measured, both directions.
+  //
+  // From here it cannot discard anything the checks below would keep: substitution
+  // only ever SHRINKS a segment (37 → 4 for a uuid plus its separator), so a value
+  // that normalizes to <= 128 cannot have started above ~1184 — comfortably inside
+  // 128 * 10.
+  if (path.length > kWorkerFeedbackScreenMax * 10) return null;
   // An EARLY EXIT, not the guarantee: the charset arm below anchors on `^/`, so
   // an empty or unrooted value ends as null with or without this line (measured —
   // deleting it leaves the suite green). It stays because it mirrors the server's

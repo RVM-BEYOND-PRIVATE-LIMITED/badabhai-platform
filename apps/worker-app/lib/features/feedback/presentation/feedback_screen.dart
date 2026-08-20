@@ -82,6 +82,10 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
   bool _hasText = false;
 
+  /// The character counter is currently on screen (within
+  /// [kFeedbackCounterShowsWithin] of the cap) — see [_onTextChanged].
+  bool _nearCap = false;
+
   /// The last NON-TRANSIENT refusal, held on screen instead of thrown into a
   /// snackbar. Null when there is nothing the worker has to act on.
   ///
@@ -95,11 +99,19 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
   FeedbackRepository get _repo => locator<FeedbackRepository>();
 
+  /// Drives the ListView, so a refusal panel appended at the bottom can be
+  /// scrolled INTO VIEW instead of being created below the fold.
+  final ScrollController _scroll = ScrollController();
+
   @override
   void initState() {
     super.initState();
-    _dictation = DictationController(onNotice: _showTransientNotice)
-      ..addListener(_onDictationChanged);
+    _dictation = DictationController(
+      onNotice: _showTransientNotice,
+      // Backgrounding the app, or another surface taking the shared recogniser,
+      // ends dictation with no Stop button left to tap — land the words anyway.
+      onInterrupted: _landDictation,
+    )..addListener(_onDictationChanged);
     _controller.addListener(_onTextChanged);
   }
 
@@ -111,13 +123,28 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     _controller
       ..removeListener(_onTextChanged)
       ..dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
-  /// The counter has to move on EVERY keystroke near the cap, so this rebuilds
-  /// whenever the length changes — not only when the field crosses empty.
-  void _onTextChanged() =>
-      setState(() => _hasText = _controller.text.trim().isNotEmpty);
+  /// Rebuild only when something VISIBLE changes: the send button crossing
+  /// empty, or the counter — which is on screen only near the cap.
+  ///
+  /// An unconditional `setState` here rebuilt the whole ListView (the unbounded
+  /// TextField and the chip Wrap included) on every keystroke, to drive a
+  /// counter that is invisible for the first 3,700 characters. On the low-end
+  /// devices this product targets that is per-keystroke jank on the one screen
+  /// whose entire job is accepting a paragraph.
+  void _onTextChanged() {
+    final bool has = _controller.text.trim().isNotEmpty;
+    final bool nearCap = _remaining <= kFeedbackCounterShowsWithin;
+    if (has != _hasText || nearCap || _nearCap) {
+      setState(() {
+        _hasText = has;
+        _nearCap = nearCap;
+      });
+    }
+  }
 
   /// The dictation controller flipped the waveform on/off — repaint the field row.
   void _onDictationChanged() {
@@ -126,17 +153,43 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
 
   /// Tap the MIC: start voice-to-text. Anything already typed is PRESERVED —
   /// recognised words append onto it — so the mic never eats a half-typed report.
-  Future<void> _startDictation() =>
-      _dictation.start(initialText: _controller.text);
+  ///
+  /// The keyboard is dismissed and the box goes read-only for the duration (see
+  /// the field's `readOnly`), because the recognised block REPLACES the field's
+  /// contents when it lands: anything typed while the mic ran would be destroyed
+  /// by that assignment, silently.
+  Future<void> _startDictation() {
+    if (_sending) return Future<void>.value();
+    FocusScope.of(context).unfocus();
+    return _dictation.start(initialText: _controller.text);
+  }
 
   /// Tap Stop: end listening and drop the recognised words into the SAME box, so
   /// the worker reads them and can fix them before sending. Nothing is sent here.
-  void _stopDictation() => _landDictation(_dictation.stop());
+  void _stopDictation() {
+    final String heard = _dictation.stop();
+    if (heard.isEmpty) {
+      // The mic ran and produced NOTHING (too quiet, too loud a workshop, no
+      // local model). Saying so is the whole point of this screen: silently
+      // dropping the waveform reads as "the app is broken".
+      _showTransientNotice(kVoiceToTextUnavailable);
+      return;
+    }
+    _landDictation(heard);
+  }
 
   /// Send from the listening row: end listening, land the words, and submit in
   /// one tap — the chat composer's second control, behaving the same way.
   void _sendFromDictation() {
-    _landDictation(_dictation.stopForSend());
+    final String heard = _dictation.stopForSend();
+    if (heard.isEmpty) {
+      // Nothing was recognised, so there is nothing to send. Without this the
+      // worker tapped the primary control and the app did not react AT ALL:
+      // [_submit] returned on the empty field, no snackbar, no busy state.
+      _showTransientNotice(kVoiceToTextUnavailable);
+      return;
+    }
+    _landDictation(heard);
     unawaited(_submit());
   }
 
@@ -163,7 +216,13 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     // lose the words still sitting in the recogniser.
     if (_dictation.dictating) _landDictation(_dictation.stopForSend());
     final String text = _controller.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty) {
+      // Bhejein stays enabled while the mic is live (the words are in the
+      // recogniser, not the field), so it is reachable with nothing to send.
+      // Say so rather than absorbing the tap.
+      _showTransientNotice(kVoiceToTextUnavailable);
+      return;
+    }
     setState(() {
       _sending = true;
       _blocked = null; // a fresh attempt clears the last refusal
@@ -193,6 +252,12 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         _sending = false;
         _blocked = actionable ? failure : null;
       });
+      // The panel is the LAST child of the list, below a box that has grown to
+      // fit the worker's message — for anything past a few lines it is created
+      // entirely off screen. Since the snackbar is deliberately suppressed for
+      // these two, not scrolling to it means the worker taps Bhejein and NOTHING
+      // visibly happens: the exact dead end this screen exists to remove.
+      if (actionable) _revealBlockedPanel();
       if (!actionable) {
         ScaffoldMessenger.of(context)
           ..clearSnackBars()
@@ -200,6 +265,19 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
               SnackBar(content: Text(failureReason(failure).reason)));
       }
     }
+  }
+
+  /// Bring the refusal panel on screen after the frame that creates it. It is the
+  /// last thing in the list, so the bottom is where it is.
+  void _revealBlockedPanel() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      unawaited(_scroll.animateTo(
+        _scroll.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      ));
+    });
   }
 
   /// A transient, honest snackbar for the dictation failure paths (mic denied, no
@@ -235,6 +313,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         onPressed: canSend ? _submit : null,
       ),
       body: ListView(
+        controller: _scroll,
         children: <Widget>[
           const SizedBox(height: AppSpacing.s2),
           Text(
@@ -294,6 +373,14 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
             keyboardType: TextInputType.multiline,
             textCapitalization: TextCapitalization.sentences,
             autofocus: true,
+            // While the mic runs the box is READ-ONLY. The recognised block is
+            // assigned over the field wholesale when it lands, built on the text
+            // snapshotted at the moment the mic started — so anything typed in
+            // between would be destroyed without a word. The chat composer never
+            // hits this because it SWAPS the field out for the waveform; this
+            // screen keeps the field visible (the worker wants to see what they
+            // already wrote), so it has to stop accepting edits instead.
+            readOnly: _dictation.listening,
             style: AppTypography.body(size: AppTypography.sizeMd),
             decoration: InputDecoration(
               hintText: 'Yahan likhein…',

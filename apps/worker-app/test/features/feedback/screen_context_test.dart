@@ -89,11 +89,53 @@ void main() {
       );
     });
 
-    test('the fragment is dropped, and BEFORE the query split', () {
-      // `#` first is load-bearing: a fragment may itself contain a `?`, so
-      // cutting the query first on `/a#b?c` leaves `/a#b` — a fragment that
-      // survived, and a value that then fails the charset check.
+    test('BOTH the fragment and the query are dropped, in either order', () {
+      // What is load-bearing is that BOTH cuts exist — not their order. Measured:
+      // swapping them changes no result, because each cut keeps the prefix before
+      // its marker, so whichever marker comes FIRST truncates the value either
+      // way. The test that used to sit here asserted the order was load-bearing
+      // and passed under both orders, which is a test that cannot fail.
       expect(normalizeScreenContext('/profile#section?tab=skills'), '/profile');
+      expect(normalizeScreenContext('/a#b?c'), '/a');
+      expect(normalizeScreenContext('/a?b#c'), '/a');
+      expect(normalizeScreenContext('/a#b?c#d'), '/a');
+      expect(normalizeScreenContext('/a?b#c?d'), '/a');
+    });
+
+    test('a long query string does not cost the route its name', () {
+      // The pre-bound is measured against the CUT path, not the raw value. Held
+      // against `raw` it discarded ordinary short routes: the query cut and the
+      // trim are unbounded shrinks that run after it, so a 1281-character
+      // `/jobs?<...>` normalized to null — "unknown screen" for a worker who was
+      // plainly on /jobs.
+      expect(normalizeScreenContext('/jobs?${'x' * 1275}'), '/jobs');
+      expect(normalizeScreenContext('/jobs#${'x' * 1275}'), '/jobs');
+      expect(normalizeScreenContext('/search?q=${'a' * 1400}'), '/search');
+      expect(normalizeScreenContext('/jobs${' ' * 1300}'), '/jobs');
+      // The bound still exists, on the part that survives the cuts.
+      expect(normalizeScreenContext('/${'a' * 1300}'), isNull);
+    });
+
+    test('the charset is exactly what the server pattern admits', () {
+      // A BACKSTOP for `_kScreenCharset`. Widening it is the drift that happens
+      // the first time a route needs one of these, and it costs data on the
+      // SERVER side (the value is stored NULL), which no client test would ever
+      // see. Every one of these is a legal RFC 3986 path character that the
+      // shared `WORKER_FEEDBACK_SCREEN_PATTERN` nonetheless refuses.
+      const List<String> refused = <String>[
+        '/jobs/~me', '/jobs/@me', '/jobs/a+b', '/jobs/a,b', '/jobs/a;b',
+        r'/jobs/a$b', "/jobs/a'b", '/jobs/a(b', '/jobs/a)b', '/jobs/a*b',
+        '/jobs/a=b', '/jobs/a!b', '/jobs/a&b', '/jobs/a[b', '/jobs/a]b',
+        '/jobs/a^b', '/jobs/a`b', '/jobs/a{b', '/jobs/a}b', '/jobs/a|b',
+        r'/jobs/a\b', '/jobs/a%20b', '/jobs/a b', '/jobs/a"b', '/jobs/a<b',
+        '/jobs/a>b',
+      ];
+      for (final String input in refused) {
+        expect(normalizeScreenContext(input), isNull, reason: input);
+      }
+      // ...and the ones it DOES admit stay admitted.
+      expect(normalizeScreenContext('/a.b/C_d-e'), '/a.b/C_d-e');
+      expect(normalizeScreenContext('/jobs/:id/apply'), '/jobs/:id/apply');
     });
 
     test('no output ever contains a uuid or a bare digit run', () {

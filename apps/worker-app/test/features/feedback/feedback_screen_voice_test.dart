@@ -19,6 +19,7 @@ import 'package:badabhai_worker_app/features/feedback/domain/feedback_limits.dar
 import 'package:badabhai_worker_app/features/feedback/domain/feedback_repository.dart';
 import 'package:badabhai_worker_app/features/feedback/presentation/feedback_screen.dart';
 import 'package:badabhai_worker_app/features/voice/domain/speech_dictation.dart';
+import 'package:badabhai_worker_app/features/voice/presentation/dictation_controller.dart';
 import 'package:badabhai_worker_app/features/voice/presentation/widgets/dictation_bar.dart';
 
 // The SAME hand double the controller's own suite drives, on purpose: a second
@@ -429,6 +430,74 @@ void main() {
 
       verify(() => repo.submit(
           message: 'seedha likha', category: null, screen: null)).called(1);
+    });
+  });
+
+  /// The two ways this screen could still hand a worker nothing: swallow the
+  /// words they typed, or absorb a tap on the primary control.
+  group('voice — no silent losses, no dead controls', () {
+    testWidgets('the box stops accepting edits while the mic is live', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+      await tester.enterText(find.byType(TextField), 'Search kaam nahi');
+      await tester.pump();
+      await revealVoiceRow(tester);
+      await startDictation(tester);
+
+      // The recognised block is assigned over the field WHOLESALE, built on the
+      // text snapshotted when the mic started — so anything typed in between
+      // would be destroyed without a word. The field goes read-only instead.
+      expect(tester.widget<TextField>(find.byType(TextField)).readOnly, isTrue);
+      await tester.enterText(find.byType(TextField), 'Search kaam nahi kar raha');
+      await tester.pump();
+      expect(_fieldText(tester), 'Search kaam nahi');
+
+      speech.hear('button dabane par', isFinal: true);
+      await tester.tap(find.byTooltip(DictationBar.kStopLabel));
+      await tester.pump();
+      await tester.pump();
+
+      expect(_fieldText(tester), 'Search kaam nahi button dabane par');
+      expect(tester.widget<TextField>(find.byType(TextField)).readOnly, isFalse);
+    });
+
+    testWidgets('Stop with nothing heard says so instead of going quiet', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+      await revealVoiceRow(tester);
+      await startDictation(tester);
+
+      // Too quiet, too loud a workshop, or no local model: the mic ran and
+      // produced nothing. Dropping the waveform in silence reads as a broken app.
+      await tester.tap(find.byTooltip(DictationBar.kStopLabel));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text(kVoiceToTextUnavailable), findsOneWidget);
+    });
+
+    testWidgets('Send with nothing heard notices, and posts nothing', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+      await revealVoiceRow(tester);
+      await startDictation(tester);
+
+      // Before: this landed an empty string, [_submit] returned on the empty
+      // field, and the worker got NO snackbar, no busy state, no reaction at all
+      // from the primary control — the dead control this screen exists to remove.
+      await tester.tap(find.byTooltip(DictationBar.kSendLabel));
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text(kVoiceToTextUnavailable), findsOneWidget);
+      verifyNever(() => repo.submit(
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+          ));
     });
   });
 }

@@ -28,16 +28,42 @@ class FeedbackRepositoryImpl implements FeedbackRepository {
     if (token == null) {
       throw const UnauthorizedFailure();
     }
+    // THE wire boundary for the screen context: normalize here, not at the call
+    // site, so every caller present and future gets a route PATTERN and no
+    // identifier can reach the endpoint by way of a screen that forgot.
+    final String? normalized = normalizeScreenContext(screen);
     try {
       await _api.submitFeedback(
         authToken: token,
         message: message,
         category: category?.wire,
-        // THE wire boundary for the screen context: normalize here, not at the
-        // call site, so every caller present and future gets a route PATTERN and
-        // no identifier can reach the endpoint by way of a screen that forgot.
-        screen: normalizeScreenContext(screen),
+        screen: normalized,
       );
+    } on ApiException catch (error) {
+      // `screen` is a NEW key on a DTO the server declares `.strict()`, so an API
+      // that predates it answers 400 `unrecognized_keys` — measured against the
+      // deployed schema. The worker cannot act on that: the screen renders it as
+      // the persistent "change what you sent" panel, and nothing they can type
+      // removes the key. Their whole report would be unsendable until the API
+      // ships.
+      //
+      // So the OPTIONAL field degrades like one. This is telemetry the worker
+      // never filled in; it is never worth their paragraph. Retried once without
+      // it, and only when there was one to drop — a 400 with no `screen` in the
+      // body is the server's answer about the MESSAGE and is surfaced as-is.
+      if (error.statusCode == 400 && normalized != null) {
+        try {
+          await _api.submitFeedback(
+            authToken: token,
+            message: message,
+            category: category?.wire,
+          );
+          return;
+        } catch (retried) {
+          throw mapError(retried);
+        }
+      }
+      throw mapError(error);
     } catch (error) {
       throw mapError(error);
     }

@@ -170,8 +170,13 @@ class _ChatViewState extends State<_ChatView> {
   @override
   void initState() {
     super.initState();
-    _dictation = DictationController(onNotice: _showComposerNotice)
-      ..addListener(_onDictationChanged);
+    _dictation = DictationController(
+      onNotice: _showComposerNotice,
+      // The app going to the background, or the feedback screen taking the
+      // shared recogniser, ends dictation with no Stop left to tap — land the
+      // words in the composer instead of dropping the worker's answer.
+      onInterrupted: _landDictation,
+    )..addListener(_onDictationChanged);
     // Manual scroll back near the bottom dismisses the pill.
     _scroll.addListener(_onScroll);
   }
@@ -383,7 +388,18 @@ class _ChatViewState extends State<_ChatView> {
   /// the trailing button becomes Send.
   void _stopDictation() {
     final String text = _dictation.stop();
-    if (text.isEmpty) return;
+    if (text.isEmpty) {
+      // The mic ran and heard nothing — say so. Dropping the waveform in silence
+      // reads as a broken app on the surface where the worker is answering.
+      _showComposerNotice(kVoiceToTextUnavailable);
+      return;
+    }
+    _landDictation(text);
+  }
+
+  /// Put recognised [text] in the composer with the caret at the end.
+  void _landDictation(String text) {
+    if (text.isEmpty || !mounted) return;
     setState(() {
       _controller.value = TextEditingValue(
         text: text,
@@ -397,7 +413,10 @@ class _ChatViewState extends State<_ChatView> {
   /// the idle composer.
   void _sendFromDictation() {
     final String text = _dictation.stopForSend();
-    if (text.isEmpty) return;
+    if (text.isEmpty) {
+      _showComposerNotice(kVoiceToTextUnavailable);
+      return;
+    }
     _sendText(text);
     _controller.clear();
   }

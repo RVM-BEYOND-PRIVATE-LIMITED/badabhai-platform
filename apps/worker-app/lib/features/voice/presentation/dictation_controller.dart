@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
+import 'package:flutter/widgets.dart'
+    show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
@@ -11,6 +13,26 @@ import '../domain/speech_dictation.dart';
 /// unexpected error). Typing always stays available.
 const String kVoiceToTextUnavailable =
     'Awaaz text mein nahi badal payi. Dobara boliye ya type kijiye.';
+
+/// The controller that currently OWNS the shared recogniser.
+///
+/// [SpeechDictation] is a registered LAZY SINGLETON (`locator.dart`) with exactly
+/// ONE result sink and ONE sound-level sink. Two live controllers — the chat
+/// composer and the feedback screen, which the floating Feedback button can stack
+/// on top of a chat mid-dictation — are therefore two owners of ONE session, and
+/// nothing in the recogniser distinguishes them: a second `listen()` REBINDS the
+/// sinks onto the newcomer, and a `stop()` from either ends the one session.
+///
+/// Measured before this existed: the interview's dictated answer was delivered
+/// into the feedback box and POSTed as the worker's report, and backing out of
+/// feedback then stopped the mic under a chat screen still painting a waveform,
+/// so every further word was lost with no cue at all.
+///
+/// So ownership is explicit. A controller that takes the recogniser stands the
+/// previous owner DOWN (which hands that screen its words back through
+/// [DictationController.onInterrupted] instead of losing them), and only the
+/// owner may stop the device.
+DictationController? _owner;
 
 /// Drives TAP-TO-TALK: the device's own recogniser ([SpeechDictation]) feeding a
 /// live waveform and, on Stop, a block of recognised text for the caller's field.
@@ -31,21 +53,39 @@ const String kVoiceToTextUnavailable =
 /// the adaptive noise floor — are documented at their fields. They are load-
 /// bearing: get them wrong and dictated words are duplicated, lost, or refilled
 /// into a box the worker just cleared.
-class DictationController extends ChangeNotifier {
+class DictationController extends ChangeNotifier with WidgetsBindingObserver {
   /// [speech] is a test/reuse seam; when null the registered [SpeechDictation]
   /// is resolved from the locator at use time — and its ABSENCE is tolerated
   /// (dictation simply does nothing), never a crash.
   ///
   /// [onNotice] receives honest, PII-free failure copy for the caller to surface
   /// however that screen surfaces notices (the chat composer uses a snackbar).
-  DictationController({SpeechDictation? speech, this.onNotice})
-    : _injected = speech;
+  ///
+  /// [onInterrupted] receives the words heard so far when something OTHER than
+  /// the worker ended dictation.
+  DictationController({
+    SpeechDictation? speech,
+    this.onNotice,
+    this.onInterrupted,
+  }) : _injected = speech {
+    WidgetsBinding.instance.addObserver(this);
+  }
 
   final SpeechDictation? _injected;
 
   /// Called with worker-facing copy when the mic is denied or the recogniser
   /// cannot start. Never carries PII.
   final ValueChanged<String>? onNotice;
+
+  /// Called with the words heard so far when dictation was ended by something
+  /// other than the worker — the app went to the BACKGROUND, or another surface
+  /// took the shared recogniser (see [_owner]).
+  ///
+  /// The host lands them in its field exactly as it would on Stop. Without this
+  /// the words are simply gone: the waveform (and with it the Stop control) is
+  /// down, so there is no longer anything for the worker to tap to get them.
+  /// This is the worker's own text — it is handed to the host, never logged.
+  final ValueChanged<String>? onInterrupted;
 
   /// Mic units above the ambient [_floor] that still count as quiet — the
   /// squelch that keeps a fan/room tone off the bars. (Android RMS scale.)
@@ -168,6 +208,22 @@ class DictationController extends ChangeNotifier {
         _hideWave();
         return;
       }
+      // TAKE OVER the shared recogniser. The previous owner is stood down FIRST
+      // (it gets its words back and stops painting a waveform it no longer
+      // drives), and its session is ENDED before this one begins — otherwise the
+      // in-flight utterance keeps streaming into whichever sink was bound last,
+      // which is how the interview's answer ended up in the feedback box.
+      final DictationController? previous = _owner;
+      if (previous != null && previous != this) {
+        previous._standDown();
+        await speech.stop();
+        if (_disposed) return;
+        if (_stopRequested) {
+          _hideWave();
+          return;
+        }
+      }
+      _owner = this;
       // Preserve anything already typed; recognised words append onto it.
       _base = initialText.trimRight();
       _lastHeard = '';
@@ -177,8 +233,18 @@ class DictationController extends ChangeNotifier {
         onSoundLevel: _onSoundLevel, // live amplitude -> the waveform
         localeId: localeId,
       );
-      if (_disposed) return;
+      // The mic is LIVE from here, so record that BEFORE any bail-out. Returning
+      // early on `_disposed` used to leave `_dictating` false, which made
+      // [dispose]'s `if (_dictating)` skip the stop — a mic nothing could ever
+      // stop again, re-armed forever by the impl's own restart loop.
       _dictating = true;
+      if (_disposed || _stopRequested) {
+        _dictating = false;
+        _releaseOwnership();
+        unawaited(_stopRecogniser());
+        _hideWave();
+        return;
+      }
       _notify();
     } catch (_) {
       if (!_disposed) {
@@ -222,7 +288,49 @@ class DictationController extends ChangeNotifier {
     _accepting = false;
     _base = '';
     _lastHeard = '';
-    _level.value = 0;
+    if (!_disposed) _level.value = 0;
+  }
+
+  /// Give up the shared recogniser WITHOUT stopping it — another controller is
+  /// taking the session over. Hands this screen's words back through
+  /// [onInterrupted] so they land in its field instead of vanishing, and drops
+  /// the waveform, because from here this controller no longer drives the mic.
+  void _standDown() {
+    final String heard = text;
+    _accepting = false;
+    _dictating = false;
+    _base = '';
+    _lastHeard = '';
+    if (!_disposed) {
+      _level.value = 0;
+      if (_listening) {
+        _listening = false;
+        _notify();
+      }
+    }
+    if (heard.isNotEmpty) onInterrupted?.call(heard);
+  }
+
+  /// Release the claim on the shared recogniser, but only if this controller
+  /// still holds it — a later owner's claim must never be cleared by an earlier
+  /// controller tearing itself down.
+  void _releaseOwnership() {
+    if (identical(_owner, this)) _owner = null;
+  }
+
+  /// The app went to the BACKGROUND with the mic live.
+  ///
+  /// Nothing else stops it: [RealSpeechDictation]'s restart loop is gated only on
+  /// its own "want listening" flag, so the platform's idle timeout re-acquires
+  /// the mic on a loop while the app is off screen — with the waveform, the only
+  /// cue the worker has, no longer visible. The words heard so far are handed
+  /// back through [onInterrupted] so returning to the screen finds them in the
+  /// field rather than lost.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed || !_dictating) return;
+    final String heard = _finish();
+    if (heard.isNotEmpty) onInterrupted?.call(heard);
   }
 
   /// DECLARED BEHAVIOUR CHANGE (was: the recogniser kept running). Disposing
@@ -238,8 +346,14 @@ class DictationController extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _accepting = false;
+    WidgetsBinding.instance.removeObserver(this);
+    // ONLY the owner stops the device. A controller that was stood down by a
+    // newer surface (see [_owner]) must not reach across and end the session
+    // that surface is now driving — which is exactly what backing out of the
+    // feedback screen did to a chat interview still holding the mic.
     if (_dictating) {
       _dictating = false;
+      _releaseOwnership();
       unawaited(_stopRecogniser());
     }
     _level.dispose();
@@ -253,6 +367,7 @@ class DictationController extends ChangeNotifier {
     discard();
     _dictating = false;
     _listening = false;
+    _releaseOwnership();
     unawaited(_stopRecogniser());
     _notify();
     return heard;
@@ -310,6 +425,10 @@ class DictationController extends ChangeNotifier {
   /// RMS scale (~ -2..12); other platforms may want [kWaveSquelch]/[kWaveSpan]
   /// adjusted.
   void _onSoundLevel(double raw) {
+    // The shared singleton still holds this closure until some other controller
+    // rebinds it, so a sample can arrive after [dispose] has already disposed
+    // [_level] — writing it then throws "used after being disposed".
+    if (_disposed) return;
     if (!_floorSeeded) {
       // Seed ABOVE the first sample so the floor can only settle DOWNWARD onto
       // ambient — which it does fast (the 0.5 drop below). Seeding AT the first
@@ -333,8 +452,9 @@ class DictationController extends ChangeNotifier {
     // Stop accepting recognised words the moment dictation ends — a trailing
     // final the recogniser flushes afterwards must not re-fill the composer.
     _accepting = false;
+    if (_disposed) return; // [_level] is already disposed; writing it throws
     _level.value = 0;
-    if (!_disposed && _listening) {
+    if (_listening) {
       _listening = false;
       _notify();
     }

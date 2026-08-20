@@ -97,6 +97,108 @@ void main() {
     );
   });
 
+  /// `screen` is a NEW key on a DTO the server declares `.strict()`. Measured
+  /// against the schema deployed on origin/main today, a body carrying it comes
+  /// back `400 unrecognized_keys` — and the screen renders a 400 as the
+  /// PERSISTENT "change what you sent" panel, which nothing the worker types can
+  /// clear. Every FAB-originated report would be unsendable until the API ships.
+  ///
+  /// So the optional field degrades like one, and the worker's paragraph is never
+  /// the thing that is lost.
+  group('an API that does not know `screen` yet', () {
+    test('a 400 on the screen-carrying body retries once WITHOUT it', () async {
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+          )).thenThrow(ApiException(400, "Unrecognized key(s): 'screen'"));
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+          )).thenAnswer((_) async {});
+
+      await repo.submit(message: 'meri baat', screen: '/jobs');
+
+      verify(() => api.submitFeedback(
+            authToken: 'tok',
+            message: 'meri baat',
+            category: null,
+            screen: '/jobs',
+          )).called(1);
+      verify(() => api.submitFeedback(
+            authToken: 'tok',
+            message: 'meri baat',
+            category: null,
+          )).called(1);
+    });
+
+    test('a 400 with NO screen to drop is the server answering about the message',
+        () async {
+      // Not every 400 is the unknown key. With nothing to retry without, the
+      // refusal is surfaced as-is rather than posted a second time.
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+          )).thenThrow(ApiException(400, 'message is too long'));
+
+      await expectLater(
+        repo.submit(message: 'x'),
+        throwsA(isA<InvalidRequestFailure>()),
+      );
+      // Posted ONCE. A blind retry would double-file the worker's report.
+      verify(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+          )).called(1);
+    });
+
+    test('a retry that also fails surfaces the failure, never a false success',
+        () async {
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+          )).thenThrow(ApiException(400, "Unrecognized key(s): 'screen'"));
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+          )).thenThrow(ApiException(403, 'consent required'));
+
+      await expectLater(
+        repo.submit(message: 'meri baat', screen: '/jobs'),
+        throwsA(isA<ConsentRequiredFailure>()),
+      );
+    });
+
+    test('a NON-400 refusal is never retried', () async {
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+          )).thenThrow(ApiException(429, 'slow down'));
+
+      await expectLater(
+        repo.submit(message: 'meri baat', screen: '/jobs'),
+        throwsA(isA<RateLimitedFailure>()),
+      );
+      verify(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+          )).called(1);
+    });
+  });
+
   test('no session token is a 401-shaped failure, never an anonymous post',
       () async {
     final FeedbackRepositoryImpl anon =

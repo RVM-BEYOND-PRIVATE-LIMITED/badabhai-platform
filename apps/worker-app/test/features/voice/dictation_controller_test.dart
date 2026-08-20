@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/widgets.dart' show AppLifecycleState;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:badabhai_worker_app/core/error/failure.dart';
@@ -21,6 +22,11 @@ class FakeDictation implements SpeechDictation {
   /// When set, [initialize] waits on it — lets a test stop dictation while the
   /// start leg is still in flight.
   Completer<bool>? initGate;
+
+  /// When set, [listen] waits on it AFTER the mic has gone hot — the real
+  /// plugin's start takes hundreds of ms, and disposing inside that window is
+  /// what used to strand a running recogniser with no owner.
+  Completer<void>? listenGate;
 
   void Function(DictationResult result)? onResult;
   void Function(double level)? onSoundLevel;
@@ -46,10 +52,11 @@ class FakeDictation implements SpeechDictation {
     String? localeId,
   }) async {
     listenCalls++;
-    listening = true;
+    listening = true; // the mic is hot from here
     this.onResult = onResult;
     this.onSoundLevel = onSoundLevel;
     this.localeId = localeId;
+    if (listenGate != null) await listenGate!.future;
   }
 
   @override
@@ -392,6 +399,153 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(own.stopCalls, 0);
+    });
+
+    test('disposing INSIDE the listen() await still stops the mic', () async {
+      // The mic goes hot inside `listen()`. Bailing out of the continuation on
+      // `_disposed` before recording that left `dispose`'s `if (_dictating)`
+      // false, so nothing ever stopped it — and the impl's restart loop re-arms
+      // on every idle timeout, so it stayed hot for the life of the process with
+      // no controller left that could stop it and no cue to the worker.
+      final FakeDictation own = FakeDictation();
+      final DictationController owned = DictationController(speech: own);
+      own.listenGate = Completer<void>();
+
+      final Future<void> starting = owned.start();
+      await Future<void>.delayed(Duration.zero);
+      owned.dispose(); // back arrow before the recogniser finished starting
+      own.listenGate!.complete();
+      await starting;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(own.stopCalls, 1, reason: 'the mic must not outlive the screen');
+      expect(own.listening, isFalse);
+    });
+
+    test('an amplitude sample after dispose is dropped, not thrown', () async {
+      // The shared singleton still holds the disposed controller's sound-level
+      // closure until another controller rebinds it, so a sample can land after
+      // `_level` was disposed. Writing it threw a red screen in debug/profile.
+      final FakeDictation own = FakeDictation();
+      final DictationController owned = DictationController(speech: own);
+      await owned.start();
+      for (int i = 0; i < 11; i++) {
+        own.sample(5.0);
+      }
+      owned.dispose();
+
+      expect(() => own.sample(12.0), returnsNormally);
+    });
+  });
+
+  /// ONE recogniser, TWO surfaces. [SpeechDictation] is a registered lazy
+  /// SINGLETON with a single result sink, and the floating Feedback button can
+  /// stack the feedback screen on top of a chat that is mid-dictation. Measured
+  /// before ownership existed: the interview answer was delivered into the
+  /// feedback box and POSTed as the worker's report, and backing out of feedback
+  /// then stopped the mic under a chat still painting a waveform.
+  group('two surfaces, one shared recogniser', () {
+    test('a takeover stands the previous owner down and returns its words',
+        () async {
+      final FakeDictation shared = FakeDictation();
+      final List<String> chatLanded = <String>[];
+      final DictationController chat = DictationController(
+        speech: shared,
+        onInterrupted: chatLanded.add,
+      );
+      final DictationController feedback = DictationController(speech: shared);
+      addTearDown(chat.dispose);
+      addTearDown(feedback.dispose);
+
+      await chat.start();
+      shared.hear('mera naam Ramesh hai');
+      await feedback.start();
+
+      // The chat screen is told, and gets its words back to land in its field.
+      expect(chatLanded, <String>['mera naam Ramesh hai']);
+      expect(chat.listening, isFalse,
+          reason: 'no waveform over a mic it no longer drives');
+      expect(chat.dictating, isFalse);
+      // The old session is ENDED before the new one starts, so the in-flight
+      // utterance cannot keep streaming into the newcomer's field.
+      expect(shared.stopCalls, 1);
+      expect(feedback.text, isEmpty);
+    });
+
+    test('disposing the new owner does not reach across to the old controller',
+        () async {
+      final FakeDictation shared = FakeDictation();
+      final DictationController chat = DictationController(speech: shared);
+      final DictationController feedback = DictationController(speech: shared);
+      addTearDown(chat.dispose);
+
+      await chat.start();
+      await feedback.start();
+      final int stopsBefore = shared.stopCalls;
+      feedback.dispose(); // worker pops back to chat
+      await Future<void>.delayed(Duration.zero);
+
+      // Feedback owned the session, so stopping it is correct — what must NOT
+      // happen is chat being left as a live-looking waveform over a dead mic.
+      expect(shared.stopCalls, stopsBefore + 1);
+      expect(chat.listening, isFalse);
+      expect(chat.dictating, isFalse);
+    });
+
+    test('a stood-down controller never stops the session it no longer owns',
+        () async {
+      final FakeDictation shared = FakeDictation();
+      final DictationController chat = DictationController(speech: shared);
+      final DictationController feedback = DictationController(speech: shared);
+      addTearDown(feedback.dispose);
+
+      await chat.start();
+      await feedback.start();
+      final int stopsBefore = shared.stopCalls;
+
+      chat.dispose(); // the chat screen is finally popped
+      await Future<void>.delayed(Duration.zero);
+
+      expect(shared.stopCalls, stopsBefore,
+          reason: 'feedback is still dictating — its mic must survive');
+      expect(shared.listening, isTrue);
+    });
+  });
+
+  /// Nothing else stops the mic when the app leaves the foreground: the impl's
+  /// restart loop is gated only on its own want-listening flag, so the platform
+  /// idle timeout re-acquires the mic on a loop with the waveform — the worker's
+  /// only cue — off screen.
+  group('app lifecycle', () {
+    test('backgrounding stops the mic and hands back the words', () async {
+      final FakeDictation own = FakeDictation();
+      final List<String> landed = <String>[];
+      final DictationController owned =
+          DictationController(speech: own, onInterrupted: landed.add);
+      addTearDown(owned.dispose);
+
+      await owned.start();
+      own.hear('mera naam Ramesh hai', isFinal: true);
+      owned.didChangeAppLifecycleState(AppLifecycleState.paused);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(own.stopCalls, 1);
+      expect(own.listening, isFalse);
+      expect(owned.listening, isFalse);
+      expect(landed, <String>['mera naam Ramesh hai']);
+    });
+
+    test('resuming does not stop a live session', () async {
+      final FakeDictation own = FakeDictation();
+      final DictationController owned = DictationController(speech: own);
+      addTearDown(owned.dispose);
+
+      await owned.start();
+      owned.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(own.stopCalls, 0);
+      expect(own.listening, isTrue);
     });
   });
 }
