@@ -83,6 +83,12 @@ while :; do
   CHIPS=$(printf '%s' "$R" | jf '(j.suggested_followups||[]).join("  |  ")')
   [ -n "$CHIPS" ] && printf '     [ %s ]\n' "$CHIPS"
 
+  # SC2016 below is a false positive, and the single quotes are REQUIRED rather than an
+  # oversight: this argument is a JavaScript template literal evaluated by `jf` (node), so
+  # `${j.progress}` et al must reach node UNEXPANDED. Double-quoting would have the shell
+  # substitute its own (empty) variables and hand node a broken expression. One code, one
+  # line — the reason lives here because shellcheck rejects trailing prose on a directive.
+  # shellcheck disable=SC2016
   META=$(printf '%s' "$R" | jf '`q=${j.asked_question_id??"-"} kind=${j.question_kind??"-"} ${j.progress?`progress=${j.progress.answered}/${j.progress.total}`:""} ${j.occupation_label?`occupation=${j.occupation_label}`:""}`')
   printf '     %s\n' "$META"
 

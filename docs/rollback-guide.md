@@ -126,6 +126,23 @@ included a migration:
   stop and get a second opinion (Backend Platform / database-architect) before rolling
   back code that expects a schema the database no longer has, or vice versa.
 
+## A compose change to a service the deploy does not start is NOT rolled back — because it was never applied
+
+Rolling back changes the **image** a container runs. It does not change how a container is
+**configured**, because that is fixed when the container is created. So a `ports:`, `volumes:`
+or `container_name:` edit only takes effect on the box if something recreates that container —
+and this deploy recreates exactly five services (`redis`, `ai-service`, `api`, `payer-web`,
+`admin-web`). **`postgres` and `adminer` are never started, stopped or recreated by it.**
+
+Measured 2026-08-19: `badabhai-postgres` was still `Up` on `0.0.0.0:5432->5432/tcp` weeks after
+R38 (`ffdc84db`) loopback-bound it in `docker-compose.yml`. Correct file, unchanged box.
+
+Neither container is the application's database — staging's `DATABASE_URL` points at Supabase —
+so nothing is rolled back by leaving them alone, and nothing is lost by removing them. Closing
+it is a **manual box action requiring owner authorization**, never a merge: see
+[`docs/release-checklist.md`](./release-checklist.md) ("A compose change to a service the deploy
+does not start NEVER reaches the box") for the exact commands.
+
 ## Disk
 
 `deploy-lightsail` prunes Docker images older than 72h before every pull (`docker image
