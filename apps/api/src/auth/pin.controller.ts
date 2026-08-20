@@ -5,7 +5,9 @@ import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { SERVER_CONFIG } from "../config/config.module";
 import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
+import { senderOf } from "../common/rate-limit/request-sender";
 import { PinService } from "./pin.service";
+import { OtpRequestIdempotency } from "./otp-request-idempotency.service";
 import { WorkerAuthGuard, CurrentWorker, type AuthenticatedWorker } from "./worker-auth.guard";
 import {
   PinSetSchema,
@@ -40,6 +42,7 @@ export class PinController {
   constructor(
     private readonly pin: PinService,
     private readonly ipRateLimit: IpRateLimit,
+    private readonly otpIdempotency: OtpRequestIdempotency,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
@@ -83,21 +86,48 @@ export class PinController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<{ success: true }> {
-    // Per-IP hourly cap BEFORE the send — the SAME backstop auth.controller requestOtp uses,
-    // sharing the "otp_request" scope so PIN-reset + login draw from ONE per-IP SMS budget.
-    // Fails closed (429) if Redis is down. (Finding 2: this path bypassed the per-IP cap.)
+    // The per-caller caps BEFORE the send — the SAME pair auth.controller requestOtp uses,
+    // sharing the "otp_request" / "otp_request_net" scopes so PIN-reset + login draw from ONE
+    // SMS budget per sender and per network. Fails closed (429) if Redis is down.
+    // (Finding 2: this path bypassed the per-IP cap.)
     //
-    // MUST stay the same knob as auth.controller's requestOtp. The cap is an ARGUMENT, not a
+    // #1035 — keyed on the HANDSET (`X-Device-Id`), not the NAT egress address, for the same
+    // reason as the login route: a forgot-PIN worker on a shared factory wifi was locked out
+    // by strangers' sign-ins, and this is the route they reach for when they already cannot
+    // get in. The reasoning in full is in `request-sender.ts`.
+    //
+    // MUST stay the same knobs as auth.controller's requestOtp. A cap is an ARGUMENT, not a
     // property of the bucket, so two call sites on one scope passing different numbers means
     // the effective limit depends on which route you happen to hit — a limiter whose ceiling
-    // moves under you. They share a bucket, so they share OTP_MAX_SENDS_PER_IP_PER_HOUR.
-    await this.ipRateLimit.assertWithinHourlyIpCap(
-      "otp_request",
-      req.ip ?? "unknown",
-      this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
-    );
-    await this.pin.resetRequest(dto.phone, ctx);
-    return { success: true };
+    // moves under you. They share the buckets, so they share the knobs.
+    // #1019 — the SAME transport-retry amplification as /auth/otp/request, on the SAME shared
+    // counters (this route sends through the same OtpService and shares the per-IP bucket), so
+    // it gets the same guard. Without it, a PIN reset on a flaky link spends the worker's
+    // per-phone budget three times over and pushes the global breaker along with it.
+    return this.otpIdempotency.runOnce({
+      scope: "pin_reset_request",
+      phoneE164: dto.phone,
+      idempotencyKey: req.header("idempotency-key"),
+      // This route already answers identically whether or not the number exists (no
+      // enumeration oracle), so the duplicate answer is the same constant the work returns.
+      inFlight: () => ({ success: true as const }),
+      work: async () => {
+        // Sender first, then the network ceiling — the ordering rationale is at the
+        // /auth/otp/request call site this mirrors.
+        await this.ipRateLimit.assertWithinHourlySenderCap(
+          "otp_request",
+          senderOf(req),
+          this.config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
+        );
+        await this.ipRateLimit.assertWithinHourlyIpCap(
+          "otp_request_net",
+          req.ip ?? "unknown",
+          this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
+        );
+        await this.pin.resetRequest(dto.phone, ctx);
+        return { success: true as const };
+      },
+    });
   }
 
   /**

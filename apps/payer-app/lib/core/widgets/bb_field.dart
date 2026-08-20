@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show TextInputFormatter;
 
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
@@ -30,6 +31,8 @@ class BbField extends StatelessWidget {
     this.readOnly = false,
     this.fieldKey,
     this.autofillHints,
+    this.prefixText,
+    this.inputFormatters,
   });
 
   final String? label;
@@ -40,6 +43,15 @@ class BbField extends StatelessWidget {
   final bool mono;
   final bool readOnly;
   final Key? fieldKey;
+
+  /// Fixed leading chrome inside the field (e.g. `+91` on the phone input). The
+  /// controller then holds only what the user types after it, so the prefix can
+  /// never be edited or lost. Null for ordinary fields.
+  final String? prefixText;
+
+  /// Input formatters (e.g. digits-only + length cap on the phone field). Null
+  /// leaves the field unconstrained.
+  final List<TextInputFormatter>? inputFormatters;
 
   /// OS autofill hints (e.g. `[AutofillHints.oneTimeCode]` on an OTP field so the
   /// keyboard can surface the code). Null for ordinary fields.
@@ -67,6 +79,7 @@ class BbField extends StatelessWidget {
           readOnly: readOnly,
           keyboardType: keyboardType,
           autofillHints: autofillHints,
+          inputFormatters: inputFormatters,
           style: mono
               ? AppTypography.mono(size: AppTypography.sizeBase, weight: FontWeight.w600)
               : AppTypography.body(size: AppTypography.sizeBase),
@@ -75,6 +88,13 @@ class BbField extends StatelessWidget {
             prefixIcon: icon == null
                 ? null
                 : Icon(icon, size: 20, color: AppColors.textMuted),
+            prefixText: prefixText,
+            prefixStyle: prefixText == null
+                ? null
+                : AppTypography.mono(
+                    size: AppTypography.sizeBase,
+                    weight: FontWeight.w600,
+                  ),
             focusedBorder: _kFocusBorder,
           ),
         ),

@@ -8,7 +8,7 @@ import type { AdminPage } from "./admin-entities.dto";
 import { decodeCursor, encodeCursor } from "./admin-events.cursor";
 import { AdminEventsRepository } from "./admin-events.repository";
 import { AdminWorkerJourneyRepository } from "./admin-worker-journey.repository";
-import { deriveStuckQuestion } from "./admin-worker-journey.stuck";
+import { deriveStuckQuestion, SETTLED_ANSWER_STATUSES } from "./admin-worker-journey.stuck";
 import {
   type AdminChatSessionDetail,
   type AdminChatSessionListItem,
@@ -34,13 +34,42 @@ import {
  * the denominator" and "is this measurement trustworthy" decision is made in this file.
  *
  * ── THE ONE RULE WORTH RESTATING: THE PROFILING DENOMINATOR ─────────────────────────────
- * It is summed over the `(pack_id, pack_version)` pairs the WORKER'S OWN ANSWER ROWS stamp —
- * never over "the currently active pack". The interview merges an occupation pack and a
- * universal one; only the occupation pack is pinned on `chat_sessions`, and the universal
- * pack is resolved fresh from whatever is `active` at the time. Re-deriving from the active
- * pack therefore changes a FINISHED worker's total the next time a pack is re-seeded — the
- * progress bar moves for a worker who did nothing. The answer rows are the only durable
- * record of what that worker was actually asked.
+ * Every interview runs TWO packs — the worker's occupation pack and the universal tail — and
+ * the denominator is the item count of BOTH, which is exactly what the engine's own
+ * `progressOf` computes for the bar the WORKER sees:
+ *
+ *     const allItems = [...(packs.occupation?.items ?? []), ...packs.universal.items];
+ *     const total = items.length;                              // next-question.ts
+ *
+ * The two packs are established from DIFFERENT sources, because only one of them leaves a
+ * durable record:
+ *
+ *  1. THE PAIRS THE WORKER'S OWN ANSWER ROWS STAMP. Every row carries the `pack_id` +
+ *     `pack_version` that asked it, so this is evidence rather than inference, and it must
+ *     never be replaced by "whatever is active today" — that moves a FINISHED worker's total
+ *     on the next re-seed, for a worker who did nothing.
+ *  2. THE CURRENTLY ACTIVE UNIVERSAL PACK, added ONLY when (1) names no universal pack of its
+ *     own. Nothing pins the universal version: `chat_sessions.pack_id` is the occupation pin
+ *     (`resolvePacks` sets it from `occupation?.pack_id`), `conversation_state`'s frozen
+ *     contract carries that same single pair, and `resolvePacks` re-resolves the universal
+ *     pack fresh every turn via `loadUniversal(now)`. For an old session it is therefore an
+ *     APPROXIMATION — and it is the one available, because there is no durable record at all.
+ *
+ * ⚠ WHY (2) EXISTS, AND WHY THIS FILE ONCE ARGUED AGAINST IT. `packAnswerRowFor` takes ONE
+ * `packId` per call and both callers pass the SESSION'S pack, so a universal answer is stored
+ * with `pack_id = 'qp_welding'`. Source (1) can therefore never name the universal pack, and
+ * "prefer durable evidence" resolved in practice to dropping eight questions out of every
+ * worker's total: MEASURED on the verification database, 17 of 21 `(worker, pack)` groups
+ * reported more settled answers than their stamped pack has items — `completed 12, total 6`,
+ * status `done`, with the two questions the worker never reached (`current_city`,
+ * `salary_expected`) not even representable in the denominator. That is the exact signal this
+ * screen exists to show. A denominator that drifts on a re-seed is an approximation; one
+ * smaller than its own numerator is wrong.
+ *
+ * ⚠ THE FIX IS IN THE READ PATH ONLY. Re-stamping the historical rows is a data migration
+ * against `wpa_worker_question_uq` — `(worker_id, pack_id, question_key)` — so moving a
+ * universal answer to its real pack collides with any row already there, and it buys this
+ * read nothing it cannot compute.
  *
  * ── ONE EVENT, AND IT IS AN AUDIT OF A READ ─────────────────────────────────────────────
  * The other admin READ services emit nothing, because a read is not a state change. This one
@@ -107,26 +136,49 @@ export class AdminWorkerJourneyService {
     // an unknown id leaves no row (and so the stream is not an enumeration oracle).
     await this.auditJourneyRead(adminId, workerId, "journey_summary", null, ctx);
 
-    const [eventCounts, kit, answerStats, packVersions, sessionCount, resumes, profile, apps] =
-      await Promise.all([
-        this.eventsRepo.countWorkerSubjectEvents(workerId, [
-          AdminWorkerJourneyService.LOGIN_EVENT,
-          AdminWorkerJourneyService.TEST_LOGIN_EVENT,
-          AdminWorkerJourneyService.SEARCH_EVENT,
-        ]),
-        this.eventsRepo.countInterviewKitDownloads(workerId),
-        this.repo.packAnswerStatusCounts(workerId),
-        this.repo.answeredPackVersions(workerId),
-        this.repo.countSessions(workerId),
-        this.repo.resumeStats(workerId),
-        this.repo.currentProfile(workerId),
-        this.repo.applicationActionCounts(workerId),
-      ]);
+    const [
+      eventCounts,
+      kit,
+      answerStats,
+      packVersions,
+      sessionCount,
+      resumes,
+      profile,
+      apps,
+      activeUniversal,
+    ] = await Promise.all([
+      this.eventsRepo.countWorkerSubjectEvents(workerId, [
+        AdminWorkerJourneyService.LOGIN_EVENT,
+        AdminWorkerJourneyService.TEST_LOGIN_EVENT,
+        AdminWorkerJourneyService.SEARCH_EVENT,
+      ]),
+      this.eventsRepo.countInterviewKitDownloads(workerId),
+      this.repo.packAnswerStatusCounts(workerId),
+      this.repo.answeredPackVersions(workerId),
+      this.repo.countSessions(workerId),
+      this.repo.resumeStats(workerId),
+      this.repo.currentProfile(workerId),
+      this.repo.applicationActionCounts(workerId),
+      // Batched with the rest: it depends on nothing, and the universal tail is asked of every
+      // worker whatever their trade, so it is never a speculative read.
+      this.repo.findActiveUniversalPack(this.config.PROFILING_PACK_LOCALE),
+    ]);
 
-    // The item counts are a SECOND round trip because their WHERE clause is built from the
-    // first one's result — the pairs the worker's own answers stamp. That dependency is the
-    // whole property this denominator has, so it is not collapsible into the batch above.
-    const itemCounts = await this.repo.countPackItems(packVersions);
+    // WHICH PACKS THIS WORKER'S INTERVIEW RAN — see the class header for the two sources and
+    // why the second one is a last resort rather than a preference.
+    const denominatorPairs = AdminWorkerJourneyService.denominatorPairs(
+      packVersions,
+      activeUniversal,
+    );
+
+    // A SECOND round trip because both WHERE clauses are built from the first batch's result.
+    // That dependency is the whole property this denominator has, so it is not collapsible
+    // into the batch above; the two reads inside it are independent and run together.
+    const [itemCounts, orphanKeyCount, settledKeyCount] = await Promise.all([
+      this.repo.countPackItems(denominatorPairs),
+      this.repo.countSettledKeysOutsidePacks(workerId, denominatorPairs),
+      this.repo.countSettledKeysInPacks(workerId, denominatorPairs),
+    ]);
 
     const caveats: JourneyCaveat[] = ["interview_kit_attribution_since_0079"];
 
@@ -134,22 +186,88 @@ export class AdminWorkerJourneyService {
     const itemCountByPair = new Map(
       itemCounts.map((c) => [`${c.packId}:${c.packVersion}`, c.itemCount]),
     );
+    // ⚠ BUILT FROM THE STAMPED PAIRS, NOT FROM `denominatorPairs`. These rows describe what the
+    // worker's answers SAY, and the universal pack is in the denominator precisely because no
+    // answer row says it — so a row for it would have to claim `answer_count: 0` for questions
+    // this worker demonstrably answered. See `AdminJourneyPackProgress`.
     const packs: AdminJourneyPackProgress[] = packVersions.map((p) => ({
       pack_id: p.packId,
       pack_version: p.packVersion,
       item_count: itemCountByPair.get(`${p.packId}:${p.packVersion}`) ?? 0,
       answer_count: p.answerCount,
     }));
-    // A pack version the worker answered under that has NO items left has been retired out
-    // from under those answers, so the denominator is an undercount. Say so rather than
-    // rendering a progress bar nobody can trust.
-    if (packs.some((p) => p.item_count === 0)) caveats.push("pack_version_retired");
 
     const answeredCount = AdminWorkerJourneyService.statCount(answerStats, "answered");
     const declinedCount = AdminWorkerJourneyService.statCount(answerStats, "declined");
     const unansweredCount = AdminWorkerJourneyService.statCount(answerStats, "unanswered");
-    const settledTotal = answeredCount + declinedCount + unansweredCount;
-    const packTotal = packs.reduce((sum, p) => sum + p.item_count, 0);
+    // THE NUMERATOR IS THE SETTLED SET, AND IT IS DERIVED FROM THE CONSTANT rather than summed
+    // by hand. `unanswered` is NOT settled: `isSettled` in `answer-map.ts` says so, and both
+    // `countAnswersBySession` and `listSettledKeys` already filter to exactly
+    // SETTLED_ANSWER_STATUSES. This was the FOURTH reader and it drifted — it added
+    // `unansweredCount` to a local literally named `settledTotal`, overstating
+    // `steps[profiling].completed` by the unanswered count and letting `status` read `done` for
+    // a worker who settled nothing.
+    //
+    // Deriving from the constant is the point of the fix. The bug was inert only because
+    // `packAnswerRowFor` cannot currently emit `unanswered` (it returns null for that record) —
+    // a property of today's flush, not of the schema, which permits the third value and arms
+    // this for any future writer. A fifth reader written as a hand-rolled sum would drift the
+    // same way; one written over this constant cannot.
+    const settledRowTotal = SETTLED_ANSWER_STATUSES.reduce(
+      (sum, status) => sum + AdminWorkerJourneyService.statCount(answerStats, status),
+      0,
+    );
+    // SUMMED OVER `denominatorPairs`, i.e. over every row `countPackItems` returned — NOT over
+    // `packs`, which is the stamped subset and is missing the universal tail by construction.
+    const packTotal = itemCounts.reduce((sum, c) => sum + c.itemCount, 0);
+
+    /**
+     * ⚠ THE NUMERATOR AND THE DENOMINATOR MUST BE THE SAME UNIT OVER THE SAME SET, and getting
+     * that wrong is how this screen told us every worker was `done` in the first place.
+     *
+     * `packTotal` counts QUESTIONS. So `completed` counts DISTINCT SETTLED QUESTION KEYS THE
+     * CONTRIBUTING PACKS OWN — {@link AdminWorkerJourneyRepository.countSettledKeysInPacks} —
+     * and NOT answer rows. The two are the same number for a worker interviewed once and come
+     * apart on a RE-INTERVIEW under a second trade: `wpa_worker_question_uq` is per pack, so the
+     * universal answers are stamped again under the new occupation pack and one question yields
+     * two rows.
+     *
+     * MEASURED on a worker seeded in that shape: the row count was 20 over 14 distinct questions
+     * against a denominator of 19, and capping it at the denominator reported `19 of 19` →
+     * `done` for someone who had never answered `current_city` or `salary_expected`. The cap did
+     * not rescue the wrong unit, it manufactured the same false `done` this change exists to
+     * remove.
+     *
+     * ⚠ NO CLAMP, and its absence is load-bearing rather than an omission.
+     * `qpi_pack_question_uq` is `(pack_id, pack_version, question_key)`, so `packTotal` is at
+     * least the number of distinct keys the contributing pairs own, and this counts a SUBSET of
+     * exactly those keys. `completed > total` is unrepresentable, so a `Math.min` here could
+     * never fire — and a guard that cannot fire is a line that makes the next reader believe a
+     * check happened.
+     *
+     * The uncapped ROW counts stay on `answered_count` / `declined_count`, where nothing
+     * reconciles them, and the caveat below fires when they disagree with this.
+     */
+    const completed = settledKeyCount;
+
+    // THE PACK CORPUS NO LONGER ACCOUNTS FOR THIS WORKER'S ANSWERS — one caveat, three ways in,
+    // because they are one fact: the denominator has stopped describing the numerator.
+    if (
+      // A stamped version with no items left — retired out from under the answers wholesale.
+      packs.some((p) => p.item_count === 0) ||
+      // A settled key no contributing pack owns — the same retirement, one question at a time,
+      // and the only one of the three that is otherwise SILENT (it undercounts without ever
+      // pushing the numerator past the denominator).
+      orphanKeyCount > 0 ||
+      // ROWS ≠ QUESTIONS: the worker holds more settled answer rows than the distinct questions
+      // they account for, which is a re-interview (or a cause this list has not met). The
+      // progress figure is still honest — `completed` counts questions — but `answered_count`
+      // beside it will not reconcile with it, and an operator reading both deserves to be told
+      // why rather than left to assume one of them is broken.
+      settledRowTotal !== completed
+    ) {
+      caveats.push("pack_version_retired");
+    }
 
     // ---- step 1: login ----------------------------------------------------
     const login = AdminWorkerJourneyService.eventStat(
@@ -187,15 +305,24 @@ export class AdminWorkerJourneyService {
     const profilingStep: AdminJourneyProfilingStep = {
       key: "profiling",
       order: 2,
-      status: AdminWorkerJourneyService.progressStatus(settledTotal, packTotal),
-      completed: settledTotal,
+      status: AdminWorkerJourneyService.progressStatus(completed, packTotal),
+      completed,
       // Null rather than 0 when nothing is known: `x of 0` is not a progress bar, it is a
       // missing denominator wearing one.
       total: packTotal > 0 ? packTotal : null,
+      // ⚠ ALL-STATUS ON PURPOSE, and deliberately NOT narrowed to the settled set with the
+      // numerator above. These two answer a different question — "when did this worker touch
+      // profiling at all" — and an unanswered row is a touch. Filtering them would report a
+      // worker who opened the interview and settled nothing as having never been there.
       first_at: AdminWorkerJourneyService.earliest(answerStats.map((s) => s.firstAt)),
       last_at: AdminWorkerJourneyService.latest(answerStats.map((s) => s.lastAt)),
       answered_count: answeredCount,
       declined_count: declinedCount,
+      // The EXCLUDED bucket, and making it visible is this field's whole job: once unanswered
+      // rows exist, `completed !== sum(packs[].answer_count)`, because `answer_count` is also
+      // all-status per its DTO. That is correct, not a rounding error — and it is the trap for
+      // a UI author who re-derives the headline number by summing the per-pack rows. Read
+      // `completed` for progress; read these three for the breakdown.
       unanswered_count: unansweredCount,
       session_count: sessionCount,
       packs,
@@ -518,6 +645,36 @@ export class AdminWorkerJourneyService {
       answer_count: answerCount,
       abandoned: row.status === "abandoned",
     };
+  }
+
+  /**
+   * The `(pack_id, pack_version)` pairs the profiling denominator is summed over.
+   *
+   * THE STAMPED PAIRS ALWAYS, plus the active universal pack under two conditions — and each
+   * condition is the durable-evidence rule doing its job rather than a special case:
+   *
+   *  - THE WORKER HAS AT LEAST ONE ANSWER ROW. With none there is no evidence any interview
+   *    ran, and `total` stays null. Handing a worker who never started one a denominator of 8
+   *    would be `x of 0`'s mistake in the other direction: a number that describes the corpus
+   *    rather than this person.
+   *  - THE STAMPED PAIRS NAME NO UNIVERSAL PACK. If a row already stamps `qp_universal`, that
+   *    is a durable record of the version the worker actually met, and today's active version
+   *    must not displace or supplement it. No writer produces such a row TODAY (see the class
+   *    header), which is exactly why the guard is written now: a later fix to
+   *    `packAnswerRowFor` would otherwise start adding v2's items on top of the v1 items the
+   *    worker's rows already account for.
+   *
+   * MATCHED ON `packId`, NOT ON THE PAIR. A stamped `qp_universal:1` beside an active
+   * `qp_universal:2` is the same tail at two versions, and counting both would double it.
+   */
+  private static denominatorPairs(
+    stamped: ReadonlyArray<{ packId: string; packVersion: number }>,
+    activeUniversal: { packId: string; packVersion: number } | null,
+  ): Array<{ packId: string; packVersion: number }> {
+    const pairs = stamped.map((p) => ({ packId: p.packId, packVersion: p.packVersion }));
+    if (pairs.length === 0 || activeUniversal === null) return pairs;
+    if (pairs.some((p) => p.packId === activeUniversal.packId)) return pairs;
+    return [...pairs, activeUniversal];
   }
 
   /** `completed`/`total` → a funnel status. `total === 0` is "unknown", never "complete". */

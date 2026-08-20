@@ -11,6 +11,7 @@ import { StorageModule } from "../storage/storage.module";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 import { OtpService } from "./otp.service";
+import { OtpRequestIdempotency } from "./otp-request-idempotency.service";
 import { SessionService } from "./session.service";
 import { AccountDeletionService } from "./account-deletion.service";
 import { ErasureAuditRepository } from "./erasure-audit.repository";
@@ -72,6 +73,13 @@ import { PinHasher } from "./pin-hasher.service";
   providers: [
     AuthService,
     OtpService,
+    // #1019 — the Idempotency-Key seam in front of the two OTP SEND routes the worker app
+    // retries on a flaky link: /auth/otp/request and /auth/pin/reset/request. NOT
+    // /auth/account/delete/request, which reaches the same counters but is authenticated,
+    // deliberate and low-volume — raised separately rather than widened here. Composes
+    // PiiCryptoService (phone hashing for the key namespace) + the BullMQ queue, the same
+    // Redis client OtpService and SessionService already use; both are reachable here.
+    OtpRequestIdempotency,
     SessionService,
     AccountDeletionService,
     // TD58 (#712) — the write-only `audit_logs` record proving what each store erased. Reaches

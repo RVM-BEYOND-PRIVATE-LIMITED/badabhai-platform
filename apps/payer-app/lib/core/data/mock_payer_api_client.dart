@@ -776,6 +776,24 @@ class MockPayerApiClient implements PayerApiClient {
       _creditLedger.take(limit).toList(growable: false);
 
   @override
+  Future<List<CreditPack>> fetchCreditPacks() async => const <CreditPack>[
+        CreditPack(code: 'starter', credits: 50, priceInr: 499),
+        CreditPack(code: 'growth', credits: 200, priceInr: 1499),
+        CreditPack(code: 'scale', credits: 500, priceInr: 2999),
+      ];
+
+  @override
+  Future<int> buyCreditPack(String code) async {
+    const Map<String, int> grants = <String, int>{
+      'starter': 50,
+      'growth': 200,
+      'scale': 500,
+    };
+    _credits += grants[code] ?? 0;
+    return _credits;
+  }
+
+  @override
   Future<int> unlockCandidate(int candidateId) async {
     if (!_unlocked.contains(candidateId) && _credits > 0) {
       _unlocked.add(candidateId);

@@ -41,7 +41,7 @@ const STEP_TITLES: Record<JourneyStepKey, string> = {
 /** What the step actually measures — the thing an operator needs to read the count correctly. */
 const STEP_BLURBS: Record<JourneyStepKey, string> = {
   login: "A worker record cannot exist without a completed OTP verify, so this step is always done — what matters is when, and how often.",
-  profiling: "Questions settled against the pack versions this worker's own answers stamp — never against whatever pack is active today.",
+  profiling: "Questions settled against both packs the interview runs — this worker's own trade pack, taken from the versions their answers stamp, plus the universal tail every worker is asked. The same total the worker's own progress bar showed them.",
   resume: "Résumé rows for this worker. The PDF render is a second, independently failing leg.",
   profile_confirmed: "The worker has seen their extracted profile and confirmed it. Extracting or extracted is progress, not completion.",
   job_search_apply: "Applying is the step. Searching and skipping are real engagement, but they are the step before.",
@@ -135,11 +135,28 @@ export function describeStepDetail(step: JourneyStep): string[] {
       if (step.unanswered_count > 0) {
         chips.push(`${step.unanswered_count} left unanswered`);
       }
+      /**
+       * ⚠ VOLUME, NOT PROGRESS — and it is worded that way because `x of y` here CONTRADICTS
+       * the headline.
+       *
+       * `packs[].answer_count` is ALL-STATUS (see `AdminJourneyPackProgress`), while the
+       * step's `completed` counts only the SETTLED ones. The two are the same number today
+       * and stop being it the moment an `unanswered` row exists. Measured against the API's
+       * own fixture — one pack, `item_count` 9, `answer_count` 9, statuses 6/2/1:
+       *
+       *     headline  "8 of 9 questions settled"   pill: in progress
+       *     chip      "pack v1: 9 of 9"            ← reads as finished, on the same row
+       *
+       * With a single pack — the common case — the chip IS the headline re-derived by summing,
+       * which is exactly what the DTO says must not be done. So the denominator is dropped and
+       * the numerator is named for what it counts. Progress is read off the headline, which is
+       * the only place that knows which rows settled.
+       */
       for (const pack of step.packs) {
         chips.push(
           pack.item_count === 0
-            ? `pack v${pack.pack_version}: ${pack.answer_count} answered, pack version retired`
-            : `pack v${pack.pack_version}: ${pack.answer_count} of ${pack.item_count}`,
+            ? `pack v${pack.pack_version}: ${plural(pack.answer_count, "answer row", "answer rows")}, pack version retired`
+            : `pack v${pack.pack_version}: ${plural(pack.answer_count, "answer row", "answer rows")} against ${plural(pack.item_count, "question", "questions")}`,
         );
       }
       return chips;
@@ -204,8 +221,13 @@ export function describeJourneyCaveat(code: string): CaveatView {
       };
     case "pack_version_retired":
       return {
-        title: "A pack version was retired under this worker's answers",
-        body: "At least one pack version they answered under has no question items left, so the profiling denominator is an undercount and the progress figure is not trustworthy.",
+        // WIDENED, because the server widened what it fires on. The code now covers three
+        // ways the corpus can stop accounting for a worker's answers — a whole pack version
+        // with no items left, a single question dropped by a re-seed, and a re-interview that
+        // settles one question under two packs. Naming only the first would tell an operator
+        // something specific and, two thirds of the time, false.
+        title: "The question packs no longer account for all of this worker's answers",
+        body: "A pack version they answered under has lost its questions, or a question was retired from under them, or they were re-interviewed and one question settled under two packs. The progress figure counts questions, so it stays readable — but it will not reconcile with the answered and declined counts beside it, which count answer rows and are exact as such.",
       };
     case "stuck_items_unresolved":
       return {

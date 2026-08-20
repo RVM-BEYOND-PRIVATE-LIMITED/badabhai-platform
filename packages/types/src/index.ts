@@ -279,6 +279,122 @@ export const WORKER_FEEDBACK_MESSAGE_MAX = 4000;
  */
 export const WORKER_FEEDBACK_APP_BUILD_MAX = 64;
 
+/**
+ * Ceiling on the SCREEN CONTEXT stored with a feedback row, in characters.
+ *
+ * ⚠ THIS IS NO LONGER THE OPERATIVE LIMIT, and reading it as one is the mistake this note
+ * exists to prevent. The stored value is a member of {@link WORKER_APP_SCREEN_TEMPLATES} —
+ * `resolveScreenTemplate` returns a constant from that table or `null`, never a value derived
+ * from the caller's bytes — so the longest thing that can reach the column is the longest
+ * template (`/profile/settings/devices`, 25 characters). 128 is now a DATABASE-LEVEL BACKSTOP
+ * against a writer that bypasses the resolver entirely (a backfill, an ops script), and a cheap
+ * pre-split DoS bound at the request edge (`raw.length > MAX * 10`).
+ *
+ * Pinned at the database too (`worker_feedback_screen_context_len_chk`), because SQL cannot
+ * import and nothing else stops the constant and the CHECK drifting apart —
+ * `worker-feedback-schema.test.ts` asserts the two are equal, exactly as it does for the other
+ * two bounds. See the note on that CHECK in `schema/feedback.ts` for why the constraint stayed a
+ * LENGTH bound rather than being tightened to pin membership.
+ */
+export const WORKER_FEEDBACK_SCREEN_MAX = 128;
+
+/**
+ * EVERY SCREEN THE WORKER APP HAS. The closed set a `screen_context` may be drawn from.
+ *
+ * ── WHY A TABLE AND NOT A PATTERN ────────────────────────────────────────────────────────
+ * `screen_context` arrives from an UNTRUSTED client and lands in three places CLAUDE.md §2
+ * forbids personal data from reaching: the `feedback.submitted` event, the API log line, and the
+ * admin screen. The previous design SANITIZED — it substituted id-SHAPED runs (uuids, long hex,
+ * long digit runs) with `:id` and stored what was left. That is a DENYLIST, and a denylist over
+ * attacker-chosen text cannot make a §2 guarantee. It was measured failing twice:
+ *
+ *     /jobs/id-6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply   passed verbatim (v1, whole-segment)
+ *     /w/9876543210-ravi                                    passed verbatim (v1, whole-segment)
+ *     /u/dGVzdEBleGFtcGxlLmNvbQ                             passed verbatim (v2 — base64url of
+ *                                                           an email address; neither hex nor
+ *                                                           digits, so no id shape sees it)
+ *     /x/AKIAIOSFODNN7EXAMPLE                               passed verbatim (v2)
+ *
+ * An ALLOWLIST inverts the burden. The worker app's route table is FINITE and KNOWN, so the
+ * server can match against it and return ITS OWN CONSTANT. What reaches the column, the event
+ * and the log is then a literal from this array — no client-supplied byte can land in a §2 sink,
+ * whatever the caller sent. That is a proof rather than a heuristic, and it is the whole reason
+ * this array exists.
+ *
+ * ── WHERE IT COMES FROM ──────────────────────────────────────────────────────────────────
+ * Re-derived from `apps/worker-app/lib/router.dart` — the `Routes` class constants plus the one
+ * inline `GoRoute(path: '/i/:code')`. `screen-template-table.contract.test.ts` in apps/api reads
+ * that Dart file and fails when the app declares a route this table does not resolve, so the
+ * divergence this design's failure mode depends on (the app adds a screen, the server reports
+ * `null` for it forever, nobody notices) reddens CI in the PR that causes it.
+ *
+ * ⚠ `:id` IS A WILDCARD POSITION, NOT A CLAIM ABOUT THE VALUE. It matches any single non-empty
+ * segment, and only three routes have one: the referral code, the job id, and the interview-kit
+ * trade key. The trade key is not an identifier and is still collapsed to `:id`, because the
+ * point is not "hide the ids" — it is that NOTHING from the caller is echoed back.
+ *
+ * ⚠ ORDER IS IRRELEVANT AND MUST STAY SO. The three dynamic templates have disjoint literal
+ * prefixes (`/i`, `/jobs/detail`, `/profile/kit/detail`), so at most one template can match any
+ * input; `screen-context.test.ts` pins that no input resolves ambiguously.
+ *
+ * Frozen because it is a security boundary: a consumer that pushed onto it would widen the set
+ * of values allowed onto the event spine at runtime.
+ */
+export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
+  // --- Onboarding and auth (top-level, no bottom nav) ---
+  "/", // Routes.splash
+  "/login", // Routes.phoneLogin
+  "/otp", // Routes.otpVerify
+  "/pin", // Routes.pin
+  "/pin/set", // Routes.setPin
+  "/pin/forgot", // Routes.forgotPin
+  "/consent", // Routes.consent
+  "/name", // Routes.name
+  "/invite", // Routes.invite
+  "/chat", // Routes.chatProfiling
+  "/voice", // Routes.voiceNote
+  "/profiling", // Routes.profilePreview
+  "/building", // Routes.building
+  "/alerts", // Routes.alerts
+  "/feedback", // Routes.feedback
+  // The referral deep link. Declared inline in the route tree rather than as a `Routes`
+  // constant, because nothing in the app navigates to it — the platform delivers it.
+  "/i/:id", // GoRoute(path: '/i/:code')
+  // --- Shell branches (persistent bottom nav) and their sub-routes ---
+  "/jobs", // Routes.jobs
+  "/jobs/search", // Routes.jobSearch
+  "/jobs/detail/:id", // Routes.jobDetail + '/<jobId>'
+  "/resume", // Routes.resume
+  "/resume/edit", // Routes.resumeEdit
+  "/bada-bhai", // Routes.badaBhai
+  "/profile", // Routes.profile
+  "/profile/applied", // Routes.appliedJobs
+  "/profile/kit", // Routes.kit
+  "/profile/kit/detail/:id", // Routes.kitDetail + '/<tradeKey>'
+  "/profile/settings", // Routes.settings
+  "/profile/settings/devices", // Routes.devices
+] as const);
+
+/** One screen of the worker app. The ONLY non-null shape `screen_context` can hold. */
+export type WorkerAppScreenTemplate = (typeof WORKER_APP_SCREEN_TEMPLATES)[number];
+
+/**
+ * Membership as a lookup. Built once — the resolver runs on the request path of a worker's
+ * feedback, and `Array.includes` over the table on every call would be a linear scan for the
+ * common case (a static route, which is 25 of the 28).
+ */
+const WORKER_APP_SCREEN_TEMPLATE_SET: ReadonlySet<string> = new Set(WORKER_APP_SCREEN_TEMPLATES);
+
+/**
+ * Whether a value is one of the app's screens.
+ *
+ * A TYPE GUARD ON PURPOSE. It is what lets `FeedbackSubmittedPayload` narrow, and what makes
+ * "this string came from the table" a fact the compiler carries rather than a comment.
+ */
+export function isWorkerAppScreenTemplate(value: unknown): value is WorkerAppScreenTemplate {
+  return typeof value === "string" && WORKER_APP_SCREEN_TEMPLATE_SET.has(value);
+}
+
 // ---- Branded id helpers (lightweight; not enforced at runtime) ----
 export type Uuid = string;
 export type Iso8601 = string;

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireCapability } from "../../../../../lib/auth";
+import { can } from "../../../../../lib/auth/capabilities";
 import { getWorkerJourney, listWorkerChatSessions } from "../../../../../lib/journey";
 import { isAdminRequestError } from "../../../../../lib/admin-http";
 import { formatCount, formatDuration, formatRelative, formatTimestamp, shortId } from "../../../../../lib/format";
@@ -43,7 +44,15 @@ export default async function WorkerJourneyPage({
 }) {
   // Both journey routes declare `read_entities` (an owner ruling, recorded in the controller).
   // Page-level gate; the API enforces it again server-side.
-  await requireCapability("read_entities");
+  const session = await requireCapability("read_entities");
+
+  /**
+   * `GET /admin/feedback` declares the same `read_entities` this page is already behind, so
+   * this is true whenever the page renders. Derived from the session rather than hardcoded,
+   * for the reason the worker detail header records: the day either capability narrows, the
+   * control disappears with it instead of becoming a link to a redirect.
+   */
+  const mayReadFeedback = can(session.capabilities, "read_entities");
 
   const { id } = await params;
   const sp = await searchParams;
@@ -87,6 +96,24 @@ export default async function WorkerJourneyPage({
           </p>
         </div>
         <div className="page__actions">
+          {mayReadFeedback ? (
+            /* THE HALF THIS SCREEN CANNOT SEE. Everything below is behaviour with no words:
+               it can show that a worker stopped at question four and never say why. If they
+               told us, they told us here — and the alternative today is paging the whole
+               feedback list reading everyone else's messages looking for theirs, which is
+               both slower and a worse privacy posture than a lookup on an id already on the
+               screen. */
+            <Link
+              className="btn btn--ghost"
+              /* ENCODED, unlike the path links beside it. A path segment with a stray `#` or
+                 `&` in it still resolves to a route that 404s; the same characters in a query
+                 value silently truncate the filter, and a truncated `workerId` is a page that
+                 shows every worker's messages while the button that opened it said one. */
+              href={`/feedback?workerId=${encodeURIComponent(id)}`}
+            >
+              What they told us
+            </Link>
+          ) : null}
           <Link className="btn btn--ghost" href={`/workers/${id}/timeline`}>
             View event timeline
           </Link>

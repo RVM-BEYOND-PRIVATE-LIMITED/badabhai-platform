@@ -121,9 +121,14 @@ void main() {
     // the two).
     expect(find.text('Current balance'), findsOneWidget);
     expect(find.text('Credit ledger'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Unlock history'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Unlock history'), findsOneWidget);
-    // The money surface is gone: no payment-provider claim and no pack buy
-    // (the pack prices were hardcoded client-side and contradicted the server).
+    // The MOCK pack buy is restored (server-priced), but the REAL-money surface
+    // stays absent: no payment provider, no web checkout, no old hardcoded prices.
     expect(find.textContaining('Razorpay'), findsNothing);
     expect(find.textContaining('Secure checkout'), findsNothing);
     expect(find.text('Best value'), findsNothing);

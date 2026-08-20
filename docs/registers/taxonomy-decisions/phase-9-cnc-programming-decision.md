@@ -134,13 +134,43 @@ Not "one additive row", and this is where the option is most often mis-priced:
 
 ---
 
-## If the answer is B, the sequence is
+## If the answer is B — the implementation, specified
 
-1. S3-A (so `skill_drawing_reading` exists in production);
-2. S3-D (so the retag has run and the alias homes are final);
-3. the new cross-slug runner, with a manifest and a rollback of its own;
-4. `db:embed:skills` for the new row;
-5. `db:verify:path-b-parity` — the `cnc-programming` digest changes, and the new baseline is
-   committed in the same PR so the next parity run is meaningful.
+Written out so choosing B is a decision rather than a research project. **Not built**: a runner
+that can only ever be used under one unchosen option is speculative code, and every existing
+alias writer would have to be taught a concept the taxonomy has not agreed to.
 
-Steps 3 and 4 do not exist yet. They are the work item B implies, and they are not written.
+**Sequence.** 1. S3-A (so `skill_drawing_reading` exists in production) → 2. S3-D (so the retag
+has run and the alias homes are final) → 3. the new runner → 4. `db:embed:skills` → 5.
+`db:verify:path-b-parity`, committing the new baseline in the same PR so the next parity run
+stays meaningful.
+
+**Why a new runner and not a flag on an existing one.** `seed-skills.ts:182,204`,
+`retag-skills.ts:487` and `seed-domain-skills.ts:606` each derive `domain_id` from the parent
+skill. Teaching any of them to accept an override would put a cross-slug capability on three
+paths that run routinely, to serve one row — the blast radius is the wrong shape. A dedicated
+runner keeps the capability where the exception is.
+
+**`db:add:compat-alias`, specified:**
+
+| property | requirement |
+|---|---|
+| input | a committed manifest — `{skillId, text, lang, domainId, reason, decidedBy, decidedOn}` — never CLI-supplied ids, so the row's justification is reviewable in the diff |
+| id | `deterministicAliasId(skillId, text, lang)` — the same function every other writer uses, so a re-run is a no-op rather than a duplicate |
+| refusal 1 | refuse unless `skill.status = 'active'` for the target — a compat alias on a deprecated skill is a row that can never be reached |
+| refusal 2 | refuse if `domainId` equals the parent skill's own slug — that is an ordinary alias and belongs to `seed-skills` |
+| refusal 3 | refuse if the id already exists with a **different** `domain_id` — the cross-slug case must never silently re-home an existing row (the `retag-skills` data-loss lesson) |
+| guard | `opsGuard({mutating: true})` — production writes need the flag plus `OPS_ALLOW_PRODUCTION` naming the script |
+| dry run | default, printing the exact row and the `cnc-programming` digest before/after |
+| rollback | delete by deterministic id, and only when the row's `domain_id` still matches the manifest |
+| embedding | left NULL by the runner; `db:embed:skills` fills it. A row without one is inert, so the two steps are separable and the ordering is not load-bearing |
+
+**The test that matters** is not that the row inserts — it is that Path B returns it: seed the
+manifest row, run `pathBCandidates(corpus, "cnc-programming", …)`, and assert
+`skill_drawing_reading` is among the candidates. That is the whole point of the option, and it
+is the assertion that would catch the row being written correctly and still not working.
+
+**What would make B unnecessary.** If a caller ever scopes by `job_domain_id` instead of the
+legacy slug, Path A resolves `skill_drawing_reading` through `job_domain_skill` with no compat
+row at all. B is a bridge for the legacy scope's remaining lifetime, and its cost should be
+weighed against how long that is.

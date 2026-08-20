@@ -10,6 +10,8 @@ import type { Request } from "express";
 import type { ServerConfig } from "@badabhai/config";
 import { OtpSendFailedException } from "../common/otp-send-failure";
 import { AuthController } from "./auth.controller";
+import { createHash } from "node:crypto";
+import { OtpRequestIdempotency } from "./otp-request-idempotency.service";
 import type { AuthService } from "./auth.service";
 import type { SessionService } from "./session.service";
 import type { OtpService } from "./otp.service";
@@ -42,28 +44,46 @@ function make() {
   const MINTED = {
     access: { token: "fresh", expiresInSeconds: 3600 },
     refresh: { token: "rt_new", expiresInSeconds: 7776000 },
-    session: { tier: 1, expiresAtMs: Date.UTC(2026, 6, 27), requiresOtpAfterMs: Date.UTC(2026, 8, 25) },
+    session: {
+      tier: 1,
+      expiresAtMs: Date.UTC(2026, 6, 27),
+      requiresOtpAfterMs: Date.UTC(2026, 8, 25),
+    },
   };
   const sessions = {
     refresh: vi.fn(async () => ({ token: "fresh", expiresInSeconds: 3600 })),
     revoke: vi.fn(async () => undefined),
     refreshByToken: vi.fn(async () => ({ ok: true, minted: MINTED })),
-    resolveRefreshToken: vi.fn(async () => ({ workerId: WORKER.id, sid: WORKER.sid, familyId: "fam-1" })),
+    resolveRefreshToken: vi.fn(async () => ({
+      workerId: WORKER.id,
+      sid: WORKER.sid,
+      familyId: "fam-1",
+    })),
     revokeAll: vi.fn(async () => 2),
-    describe: vi.fn(async () => ({ tier: 1, expiresAtMs: Date.UTC(2026, 6, 27), requiresOtpAfterMs: null })),
+    describe: vi.fn(async () => ({
+      tier: 1,
+      expiresAtMs: Date.UTC(2026, 6, 27),
+      requiresOtpAfterMs: null,
+    })),
   };
   const workers = {
     // SELECT * — the account-delete step-up path needs the encrypted phone to send the OTP.
     findById: vi.fn(async () => ({ id: WORKER.id, status: "active", phoneE164: "ENC(+91999)" })),
     // ADR-0031 — GET /auth/me's EXPLICIT-projection read: status + the deletion marker only.
     // The absence of PII keys here is the point (see the /auth/me tests below).
-    findSelfView: vi.fn(async (): Promise<{ status: string; deletionScheduledAt: Date | null } | undefined> => ({
-      status: "active",
-      deletionScheduledAt: null,
-    })),
+    findSelfView: vi.fn(
+      async (): Promise<{ status: string; deletionScheduledAt: Date | null } | undefined> => ({
+        status: "active",
+        deletionScheduledAt: null,
+      }),
+    ),
   };
   const ipRateLimit = {
     assertWithinHourlyIpCap: vi.fn(async () => undefined),
+    // #1035 — the per-SENDER cap (device where the client named one, address otherwise). The
+    // gate that is supposed to trip on the OTP routes; the per-IP one above is now only the
+    // crude network flood ceiling above it.
+    assertWithinHourlySenderCap: vi.fn(async () => undefined),
     // Review L1 — the IP-INDEPENDENT daily backstop on the test-login mint.
     assertWithinGlobalDailyCap: vi.fn(async () => undefined),
   };
@@ -83,9 +103,21 @@ function make() {
   // a per-phone SMS budget vs a per-network abuse backstop — and the controller passing
   // the per-phone one to the per-IP limiter is the defect these values expose. Equal
   // numbers would let that regression pass unnoticed.
+  // #1019 — the Idempotency-Key seam. A PASS-THROUGH double here: these cases send no
+  // `Idempotency-Key`, which is exactly the path where `runOnce` must run the work unchanged,
+  // so every existing assertion below keeps testing the handler and not the seam. The seam's
+  // own behaviour is tested in otp-request-idempotency.service.test.ts.
+  const otpIdempotency = {
+    runOnce: vi.fn(async (o: { work: () => Promise<unknown> }) => o.work()),
+  };
   const config = {
     OTP_MAX_SENDS_PER_HOUR: 5,
-    OTP_MAX_SENDS_PER_IP_PER_HOUR: 20,
+    OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: 20,
+    // THREE DISTINCT VALUES ON PURPOSE (#1035 widened the pair to a trio). A per-phone SMS
+    // budget, a per-handset send gate and a per-network flood ceiling are three different
+    // questions, and every one of them has been passed to the wrong limiter at some point in
+    // this file's history. Equal numbers would let the next such swap pass unnoticed.
+    OTP_MAX_SENDS_PER_IP_PER_HOUR: 1000,
     TEST_LOGIN_MAX_PER_DAY: 200,
   } as ServerConfig;
   const controller = new AuthController(
@@ -97,6 +129,7 @@ function make() {
     pii as unknown as PiiCryptoService,
     accountDeletion as unknown as AccountDeletionService,
     consents as unknown as ConsentRepository,
+    otpIdempotency as unknown as OtpRequestIdempotency,
     config,
   );
   return {
@@ -114,11 +147,32 @@ function make() {
 }
 
 const reqWith = (overrides: Partial<Request> = {}): Request =>
-  ({ ip: "1.2.3.4", header: (k: string) => (k === "authorization" ? "Bearer tok" : undefined), ...overrides }) as unknown as Request;
+  ({
+    ip: "1.2.3.4",
+    header: (k: string) => (k === "authorization" ? "Bearer tok" : undefined),
+    ...overrides,
+  }) as unknown as Request;
+
+/** A device id of realistic shape — the worker app persists a UUID (`device_id.dart`). */
+const DEVICE = "3f7c1b9a-0d4e-4c62-9a11-77b2c5e8d013";
+
+/**
+ * A request from a real worker-app build: same address as {@link reqWith}, plus the
+ * `X-Device-Id` header `AuthedClient` puts on EVERY request. The pair is what lets these
+ * cases hold the address constant and vary only the handset (#1035).
+ */
+const reqWithDevice = (deviceId: string = DEVICE): Request =>
+  ({
+    ip: "1.2.3.4",
+    header: (k: string) => (k === "x-device-id" ? deviceId : undefined),
+  }) as unknown as Request;
 
 /** A request carrying the required Idempotency-Key header for POST /auth/token/refresh. */
 const reqIdem = (): Request =>
-  ({ ip: "1.2.3.4", header: (k: string) => (k === "idempotency-key" ? "idem-1" : undefined) }) as unknown as Request;
+  ({
+    ip: "1.2.3.4",
+    header: (k: string) => (k === "idempotency-key" ? "idem-1" : undefined),
+  }) as unknown as Request;
 
 describe("AuthController — consent-on-resume (A5 · ADR-0026 amendment)", () => {
   it("token/refresh: REVOKED consent → 403 and the token is NOT rotated", async () => {
@@ -142,7 +196,9 @@ describe("AuthController — consent-on-resume (A5 · ADR-0026 amendment)", () =
 
   it("token/refresh: ACTIVE consent (revokedAt null) is ALLOWED", async () => {
     const { controller, sessions, consents } = make();
-    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ revokedAt: null });
+    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      revokedAt: null,
+    });
     await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
     expect(sessions.refreshByToken).toHaveBeenCalled();
   });
@@ -157,34 +213,111 @@ describe("AuthController — consent-on-resume (A5 · ADR-0026 amendment)", () =
 });
 
 describe("AuthController", () => {
-  it("requestOtp applies the per-IP cap FIRST, then delegates the phone", async () => {
+  it("requestOtp applies the sender cap FIRST, then the network cap, then delegates", async () => {
     const { controller, auth, ipRateLimit } = make();
-    await controller.requestOtp({ phone: "+91999" } as never, reqWith(), CTX);
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("otp_request", "1.2.3.4", 20);
+    await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX);
+    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
+      "otp_request",
+      { kind: "device", value: DEVICE },
+      20,
+    );
+    // Its OWN scope, so it cannot collide with the `otp_request` address bucket the
+    // no-device-header fallback still writes into.
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
+      "otp_request_net",
+      "1.2.3.4",
+      1000,
+    );
     expect(auth.requestOtp).toHaveBeenCalledWith("+91999", CTX);
   });
 
-  it("the per-IP cap is the per-IP knob — NEVER the per-phone SMS budget", async () => {
-    // THE REGRESSION THIS LOCKS. The controller passed OTP_MAX_SENDS_PER_HOUR (5) here: a
-    // per-PHONE budget sized against paid SMS spend, silently reused as a per-NETWORK one.
-    // With no reverse proxy in the shipped topology `req.ip` is the NAT egress address, so
-    // that made one office wifi — or one carrier CGNAT pool fronting thousands of Jio /
-    // Airtel subscribers — worth five sign-ins an hour IN TOTAL, and the 429 a locked-out
-    // worker saw was indistinguishable from the platform being down.
-    const { controller, ipRateLimit, config } = make();
-    await controller.requestOtp({ phone: "+91999" } as never, reqWith(), CTX);
-    const cap = (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mock
-      .calls[0]![2];
-    expect(cap).toBe(config.OTP_MAX_SENDS_PER_IP_PER_HOUR);
-    expect(cap).not.toBe(config.OTP_MAX_SENDS_PER_HOUR);
+  it("#1035 — two handsets on ONE wifi do NOT share a bucket", async () => {
+    // THE REPORTED BUG, as an assertion. Keyed on `req.ip` these two requests landed in one
+    // bucket, so a handful of sign-ins on a factory wifi or a carrier CGNAT pool locked
+    // everybody else out — and changing your phone number did nothing, because the number
+    // was never the key. Same address, two device ids, two buckets.
+    const { controller, ipRateLimit } = make();
+    await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice("device-aaa1"), CTX);
+    await controller.requestOtp({ phone: "+91888" } as never, reqWithDevice("device-bbb2"), CTX);
+    const senders = (
+      ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>
+    ).mock.calls.map((c) => c[1]);
+    expect(senders).toEqual([
+      { kind: "device", value: "device-aaa1" },
+      { kind: "device", value: "device-bbb2" },
+    ]);
   });
 
-  it("requestOtp cap rejection blocks the send", async () => {
+  it("#1035 — a client that sends no device id keeps the pre-change per-IP behaviour", async () => {
+    // NOT A LOOPHOLE. An older build, a browser or curl lands in the SAME address bucket at
+    // the SAME number as before this change; only clients that identify a handset get their
+    // own. Dropping the header moves a caller into the shared bucket, which is stricter.
+    const { controller, ipRateLimit, config } = make();
+    await controller.requestOtp({ phone: "+91999" } as never, reqWith(), CTX);
+    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
+      "otp_request",
+      { kind: "ip", value: "1.2.3.4" },
+      config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
+    );
+  });
+
+  it("#1035 — a device id too short to identify a handset falls back to the address", async () => {
+    const { controller, ipRateLimit } = make();
+    await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice("short"), CTX);
+    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
+      "otp_request",
+      { kind: "ip", value: "1.2.3.4" },
+      20,
+    );
+  });
+
+  it("each cap reads its OWN knob — never the per-phone SMS budget", async () => {
+    // THE REGRESSION THIS LOCKS. The controller passed OTP_MAX_SENDS_PER_HOUR (5) to the
+    // per-IP limiter: a per-PHONE budget sized against paid SMS spend, silently reused as a
+    // per-NETWORK one. With no reverse proxy in the shipped topology `req.ip` is the NAT
+    // egress address, so that made one office wifi — or one carrier CGNAT pool fronting
+    // thousands of Jio / Airtel subscribers — worth five sign-ins an hour IN TOTAL, and the
+    // 429 a locked-out worker saw was indistinguishable from the platform being down.
+    //
+    // #1035 adds the third number, and the same swap is available again: the sender gate must
+    // read the per-DEVICE knob and the flood ceiling the per-IP one, never each other's.
+    const { controller, ipRateLimit, config } = make();
+    await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX);
+    const senderCap = (ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>).mock
+      .calls[0]![2];
+    const netCap = (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mock
+      .calls[0]![2];
+    expect(senderCap).toBe(config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR);
+    expect(netCap).toBe(config.OTP_MAX_SENDS_PER_IP_PER_HOUR);
+    expect(senderCap).not.toBe(config.OTP_MAX_SENDS_PER_HOUR);
+    expect(netCap).not.toBe(config.OTP_MAX_SENDS_PER_HOUR);
+    // The flood ceiling must stay far ABOVE the sender gate, or it becomes the thing that
+    // trips for a shared network — the bug, restored under a new name.
+    expect(netCap).toBeGreaterThan(senderCap);
+  });
+
+  it("requestOtp sender-cap rejection blocks the send AND spares the shared bucket", async () => {
+    // Sender first is why the second assertion holds: a handset that has already spent its
+    // allowance must not also charge the ceiling its neighbours are counted against.
+    const { controller, auth, ipRateLimit } = make();
+    (ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ConflictException("cap"),
+    );
+    await expect(
+      controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX),
+    ).rejects.toBeTruthy();
+    expect(auth.requestOtp).not.toHaveBeenCalled();
+    expect(ipRateLimit.assertWithinHourlyIpCap).not.toHaveBeenCalled();
+  });
+
+  it("requestOtp network-cap rejection blocks the send", async () => {
     const { controller, auth, ipRateLimit } = make();
     (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new ConflictException("cap"),
     );
-    await expect(controller.requestOtp({ phone: "+91999" } as never, reqWith(), CTX)).rejects.toBeTruthy();
+    await expect(
+      controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX),
+    ).rejects.toBeTruthy();
     expect(auth.requestOtp).not.toHaveBeenCalled();
   });
 
@@ -241,13 +374,49 @@ describe("AuthController", () => {
 
   // ---- D-3 — POST /auth/test-login (the guard 404s/401s the route; here: handler behaviour) ----
 
-  it("testLogin applies BOTH caps (per-IP hour + global day) BEFORE delegating to the mint seam", async () => {
+  it("testLogin applies ALL THREE caps (sender hour + network hour + global day) BEFORE the mint seam", async () => {
     const { controller, auth, ipRateLimit } = make();
     await controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX);
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("test_login", "1.2.3.4", 20);
+    // No device header on this caller (the e2e smoke does not send one), so the sender
+    // resolves to the address — the pre-#1035 bucket, at the pre-#1035 number.
+    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
+      "test_login",
+      { kind: "ip", value: "1.2.3.4" },
+      20,
+    );
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
+      "test_login_net",
+      "1.2.3.4",
+      1000,
+    );
     // Review L1 — the IP-INDEPENDENT backstop: a token holder rotating IPs is still bounded.
     expect(ipRateLimit.assertWithinGlobalDailyCap).toHaveBeenCalledWith("test_login", 200);
     expect(auth.testLogin).toHaveBeenCalledWith(SYNTHETIC_PHONE, CTX);
+  });
+
+  it("testLogin buckets are the seam's OWN — they never compete with real sign-ins", async () => {
+    // A shared scope would let e2e smoke traffic spend the throttle a real worker signs in
+    // against. Both of this route's per-caller scopes must be distinct from the OTP ones.
+    const { controller, ipRateLimit } = make();
+    await controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWithDevice(), CTX);
+    const senderScope = (ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0];
+    const netScope = (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0];
+    expect(senderScope).toBe("test_login");
+    expect(netScope).toBe("test_login_net");
+    expect(senderScope).not.toBe(netScope);
+  });
+
+  it("testLogin sender cap rejection blocks the mint (fail closed)", async () => {
+    const { controller, auth, ipRateLimit } = make();
+    (ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ConflictException("cap"),
+    );
+    await expect(
+      controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX),
+    ).rejects.toBeTruthy();
+    expect(auth.testLogin).not.toHaveBeenCalled();
   });
 
   it("testLogin per-IP cap rejection blocks the mint (fail closed)", async () => {
@@ -255,7 +424,9 @@ describe("AuthController", () => {
     (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new ConflictException("cap"),
     );
-    await expect(controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX)).rejects.toBeTruthy();
+    await expect(
+      controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX),
+    ).rejects.toBeTruthy();
     expect(auth.testLogin).not.toHaveBeenCalled();
   });
 
@@ -264,7 +435,9 @@ describe("AuthController", () => {
     (ipRateLimit.assertWithinGlobalDailyCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new ConflictException("global cap"),
     );
-    await expect(controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX)).rejects.toBeTruthy();
+    await expect(
+      controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX),
+    ).rejects.toBeTruthy();
     expect(auth.testLogin).not.toHaveBeenCalled();
   });
 
@@ -349,11 +522,7 @@ describe("AuthController", () => {
     // (findById's row carries phoneE164: "ENC(+91999)" — it must not reach the wire).
     const serialized = JSON.stringify(res);
     expect(serialized).not.toMatch(/phone|full_?name|hash|ENC\(|\+91/i);
-    expect(Object.keys(res).sort()).toEqual([
-      "deletion_scheduled_for",
-      "status",
-      "worker_id",
-    ]);
+    expect(Object.keys(res).sort()).toEqual(["deletion_scheduled_for", "status", "worker_id"]);
   });
 
   it("me never FABRICATES a date: a worker row that vanished mid-session → status fallback, no field", async () => {
@@ -461,7 +630,9 @@ describe("AuthController", () => {
   it("accountDeleteRequest 401s when the token worker row is gone (no oracle, fail closed)", async () => {
     const { controller, workers, auth } = make();
     (workers.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
-    await expect(controller.accountDeleteRequest(WORKER, CTX)).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(controller.accountDeleteRequest(WORKER, CTX)).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
     expect(auth.issueAndSendWithSignals).not.toHaveBeenCalled();
   });
 
@@ -492,7 +663,9 @@ describe("AuthController", () => {
 
   it("accountDeleteConfirm schedules NOTHING when the OTP verify throws (fail closed)", async () => {
     const { controller, otp, accountDeletion } = make();
-    (otp.verify as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new UnauthorizedException("bad otp"));
+    (otp.verify as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new UnauthorizedException("bad otp"),
+    );
     await expect(
       controller.accountDeleteConfirm(WORKER, { otp: "000000" } as never, CTX),
     ).rejects.toBeInstanceOf(UnauthorizedException);
@@ -566,7 +739,9 @@ describe("AuthController", () => {
 
   it("accountDeleteCancel is idempotent: still { success: true } when nothing was pending (no oracle)", async () => {
     const { controller, accountDeletion } = make();
-    (accountDeletion.cancel as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ cancelled: false });
+    (accountDeletion.cancel as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      cancelled: false,
+    });
     const res = await controller.accountDeleteCancel(WORKER, CTX);
     expect(res).toEqual({ success: true });
   });
@@ -584,3 +759,110 @@ describe("AuthController", () => {
 // account-deletion.module.boot.test.ts: all three deletion routes (request/confirm/cancel)
 // carry @UseGuards(WorkerAuthGuard), so an unauthenticated request is rejected by the guard
 // before any handler body runs. Cancel deliberately carries NO ConsentGuard (ADR-0031).
+
+/**
+ * #1019 — the route wiring, with the REAL seam rather than a pass-through double.
+ *
+ * The seam's own semantics are covered in `otp-request-idempotency.service.test.ts`. What can
+ * only be asserted HERE is placement: the per-IP cap has to run INSIDE the guarded work, not in
+ * front of it. It is one of the four counters the retry ladder was burning, and under carrier
+ * CGNAT its bucket is shared by thousands of workers — so a dedupe that started after it would
+ * still let one worker's flaky connection eat a whole network's hourly budget.
+ */
+describe("#1019 — POST /auth/otp/request honours Idempotency-Key", () => {
+  function withRealSeam() {
+    const store = new Map<string, string>();
+    const redis = {
+      set: async (k: string, v: string, _m: string, _t: number, nx?: string) => {
+        if (nx === "NX" && store.has(k)) return null;
+        store.set(k, v);
+        return "OK";
+      },
+      get: async (k: string) => store.get(k) ?? null,
+    };
+    const queue = {
+      get client() {
+        return Promise.resolve(redis);
+      },
+    };
+    // Real digests, not length-based fakes: a fake that collides distinct keys would make the
+    // fresh-key case below pass for the wrong reason.
+    const pii = {
+      hashPhone: (p: string) => createHash("sha256").update(p).digest("hex"),
+      hmac: (v: string) => createHash("sha256").update(v).digest("hex"),
+    } as unknown as PiiCryptoService;
+    const seam = new OtpRequestIdempotency(pii, queue as never);
+
+    const auth = {
+      requestOtp: vi.fn(async () => ({
+        success: true as const,
+        channel: "sms" as const,
+        resend_in_seconds: 30,
+      })),
+    };
+    const ipRateLimit = {
+      assertWithinHourlyIpCap: vi.fn(async () => undefined),
+      assertWithinHourlySenderCap: vi.fn(async () => undefined),
+    };
+    const config = {
+      OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: 20,
+      OTP_MAX_SENDS_PER_IP_PER_HOUR: 1000,
+      OTP_RESEND_COOLDOWN_SECONDS: 30,
+    } as ServerConfig;
+
+    const controller = new AuthController(
+      auth as unknown as AuthService,
+      {} as unknown as SessionService,
+      {} as unknown as WorkersRepository,
+      ipRateLimit as unknown as IpRateLimit,
+      {} as unknown as OtpService,
+      {} as unknown as PiiCryptoService,
+      {} as unknown as AccountDeletionService,
+      {} as unknown as ConsentRepository,
+      seam,
+      config,
+    );
+    return { controller, auth, ipRateLimit };
+  }
+
+  const withKey = (key: string) =>
+    reqWith({ header: ((k: string) => (k === "idempotency-key" ? key : undefined)) as never });
+
+  it("sends once and caps once across the client's three transport retries", async () => {
+    const { controller, auth, ipRateLimit } = withRealSeam();
+    const req = withKey("k-1");
+
+    const a = await controller.requestOtp({ phone: "+919876543210" } as never, req, CTX);
+    const b = await controller.requestOtp({ phone: "+919876543210" } as never, req, CTX);
+    const c = await controller.requestOtp({ phone: "+919876543210" } as never, req, CTX);
+
+    // The whole defect: this used to be 3 — three counted sends, three paid SMS.
+    expect(auth.requestOtp).toHaveBeenCalledTimes(1);
+    // And the per-IP bucket — shared across a whole CGNAT egress — is charged once, not thrice.
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledTimes(1);
+    expect([a, b, c]).toEqual([
+      { success: true, channel: "sms", resend_in_seconds: 30 },
+      { success: true, channel: "sms", resend_in_seconds: 30 },
+      { success: true, channel: "sms", resend_in_seconds: 30 },
+    ]);
+  });
+
+  it("still sends for a genuine resend, which carries a fresh key", async () => {
+    const { controller, auth } = withRealSeam();
+
+    await controller.requestOtp({ phone: "+919876543210" } as never, withKey("k-1"), CTX);
+    await controller.requestOtp({ phone: "+919876543210" } as never, withKey("k-2"), CTX);
+
+    expect(auth.requestOtp).toHaveBeenCalledTimes(2);
+  });
+
+  it("is unchanged for a caller that sends no header at all (§3)", async () => {
+    const { controller, auth, ipRateLimit } = withRealSeam();
+
+    await controller.requestOtp({ phone: "+919876543210" } as never, reqWith(), CTX);
+    await controller.requestOtp({ phone: "+919876543210" } as never, reqWith(), CTX);
+
+    expect(auth.requestOtp).toHaveBeenCalledTimes(2);
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledTimes(2);
+  });
+});

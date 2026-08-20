@@ -26,10 +26,33 @@ import type { AdminFeedbackListItem } from "./admin-feedback.dto";
  * status column and no admin reply, so there is nothing for an admin to mutate.
  *
  * ── NO SEARCH OVER `message` ────────────────────────────────────────────────────────────
- * Filtering is by `category` only, and that is a product decision, not an omission: a
- * substring search over free text is a PII discovery tool — "find every worker who typed a
- * phone number" — and the fact that it would be one `ilike` away is why it is refused here in
- * writing rather than left to be noticed later.
+ * Filtering is by `category` and `worker_id`, and the omission is `message`: a substring search
+ * over free text is a PII discovery tool — "find every worker who typed a phone number" — and
+ * the fact that it would be one `ilike` away is why it is refused here in writing rather than
+ * left to be noticed later. THE `worker_id` FILTER IS NOT A CRACK IN THAT: a search takes
+ * CONTENT and returns a set of people, while an id filter takes an id the admin already holds
+ * and returns a subset of a page they could already read. See the DTO header for the full
+ * argument; the line that must not move is the one around `message`.
+ *
+ * ── WHY NO NEW INDEX FOR THE WORKER FILTER ───────────────────────────────────────────────
+ * The worker-filtered page runs the same `ORDER BY created_at DESC, id DESC` keyset as every
+ * other, so the composite that would serve it perfectly is `(worker_id, created_at DESC NULLS
+ * FIRST, id DESC NULLS FIRST)` — the shape `worker_feedback_category_keyset_idx` takes for the
+ * category filter. It is deliberately NOT added, and the two filters differ in the one property
+ * that decides it: SELECTIVITY.
+ *
+ *   * `category` has three values plus NULL, so a filtered page matches roughly a third of the
+ *     table. Postgres reads a third of the rows and top-N sorts them, every page — which is why
+ *     that composite had to exist from day one.
+ *   * `worker_id` matches a HANDFUL of rows, permanently. The submit route is capped per worker
+ *     per minute AND per hour, and a worker who files even ten complaints in the product's
+ *     lifetime is a heavy outlier. `worker_feedback_worker_id_idx` (which exists for the DSAR
+ *     cascade and, until now, had no query reader at all) fetches that handful, and sorting ten
+ *     rows is free at any table size.
+ *
+ * So the existing single-column index is the right one and the composite would be a second index
+ * to maintain on every insert in exchange for removing a sort of ~10 rows. Revisit only if the
+ * per-worker row count stops being small — which would mean the rate caps had been removed.
  */
 @Injectable()
 export class AdminFeedbackRepository {
@@ -56,12 +79,15 @@ export class AdminFeedbackRepository {
    * the service over-fetches by one to tell "there is more" from "that was the last page".
    */
   async list(
-    filter: { category?: WorkerFeedbackCategory },
+    filter: { category?: WorkerFeedbackCategory; workerId?: string },
     cursor: EntityCursor | null,
     limit: number,
   ): Promise<AdminFeedbackListItem[]> {
     const clauses: SQL[] = [];
     if (filter.category) clauses.push(eq(workerFeedback.category, filter.category));
+    // The narrow lookup, served by `worker_feedback_worker_id_idx` — see the header for why that
+    // index is enough and no composite is added.
+    if (filter.workerId) clauses.push(eq(workerFeedback.workerId, filter.workerId));
     if (cursor)
       clauses.push(
         AdminFeedbackRepository.before(workerFeedback.createdAt, workerFeedback.id, cursor),
@@ -78,6 +104,9 @@ export class AdminFeedbackRepository {
         // The sanctioned exception, and the only one on this surface — see the dto header.
         message: workerFeedback.message,
         appBuild: workerFeedback.appBuild,
+        // The route PATTERN, never a path — normalized at the edge, so no id can be here to
+        // project. This is what turns "button kaam nahi kar raha" into an actionable report.
+        screenContext: workerFeedback.screenContext,
         createdAt: workerFeedback.createdAt,
       })
       .from(workerFeedback)
@@ -93,6 +122,7 @@ export class AdminFeedbackRepository {
       category: r.category,
       message: r.message,
       app_build: r.appBuild,
+      screen_context: r.screenContext,
       created_at: r.createdAt,
     }));
   }

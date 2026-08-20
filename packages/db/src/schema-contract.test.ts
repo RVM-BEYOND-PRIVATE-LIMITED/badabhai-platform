@@ -13,7 +13,9 @@ import {
   contractBlockReason,
   driftRemedy,
   evaluateContract,
+  DATA_API_ROLES,
   migrationDrift,
+  rlsLocked,
   uniqueIndexMatches,
   type JournalEntry,
 } from "./schema-contract";
@@ -37,9 +39,14 @@ describe("SCHEMA_REQUIREMENTS — the manifest itself", () => {
     }
   });
 
-  it("column and index/constraint entries carry an object name", () => {
+  it("column and index/constraint entries carry an object name; table and rls ones do not", () => {
+    // `object` names a thing INSIDE the table. `table` and `rls` are both properties OF the
+    // table, so requiring a name there would mean inventing one — and an invented name in a
+    // manifest is a probe that silently checks the wrong thing.
+    const wholeTable = new Set(["table", "rls"]);
     for (const r of SCHEMA_REQUIREMENTS) {
-      if (r.kind !== "table") expect(r.object, r.id).toBeTruthy();
+      if (wholeTable.has(r.kind)) expect(r.object, r.id).toBeUndefined();
+      else expect(r.object, r.id).toBeTruthy();
     }
   });
 });
@@ -219,5 +226,70 @@ describe("driftRemedy — the commands, in order", () => {
     expect(driftRemedy(migrationDrift(PROD_JOURNAL, new Set(["h75", "h76", "h77", "h78", "h79", "h80"]), []))).toEqual(
       [],
     );
+  });
+});
+
+/**
+ * RLS as a first-class requirement.
+ *
+ * Added because the one check that would have caught a dropped RLS tail —
+ * `tests/e2e/rls-spine.e2e.test.ts` — is `describe.skipIf(!RUN)` and does not run in ordinary
+ * CI. The tail is hand-appended in every migration that has one (drizzle models ENABLE and
+ * neither FORCE nor the REVOKEs), so it is precisely what a hand-run apply loses, and on
+ * `worker_feedback` the column at stake is the one place on the spine a worker's own free-text
+ * PII is allowed to live.
+ */
+describe("rlsLocked — ENABLE alone is decorative", () => {
+  const locked = { enabled: true, forced: true, grantedRoles: ["postgres"] };
+
+  it("accepts a table that is enabled, forced, and grants only the owner", () => {
+    expect(rlsLocked(locked)).toBe(true);
+  });
+
+  it("REJECTS enabled-but-not-forced, which is the state drizzle generates on its own", () => {
+    // The owner bypasses every policy without FORCE, and the owner is the only connection the
+    // backend uses — so this is the difference between a lock and a decoration.
+    expect(rlsLocked({ ...locked, forced: false })).toBe(false);
+  });
+
+  it("rejects a table with RLS off entirely", () => {
+    expect(rlsLocked({ ...locked, enabled: false })).toBe(false);
+  });
+
+  it.each(["anon", "authenticated", "service_role"])("rejects a grant to %s", (role) => {
+    expect(rlsLocked({ ...locked, grantedRoles: ["postgres", role] })).toBe(false);
+  });
+
+  it("rejects a PUBLIC grant whatever its case", () => {
+    // `PUBLIC` is spelled uppercase in DDL and lowercased in the catalog. Matching one spelling
+    // would let the broadest grant of all through.
+    expect(rlsLocked({ ...locked, grantedRoles: ["PUBLIC"] })).toBe(false);
+    expect(rlsLocked({ ...locked, grantedRoles: ["public"] })).toBe(false);
+  });
+
+  it("tolerates an unknown role — only the Data-API roles are forbidden", () => {
+    expect(rlsLocked({ ...locked, grantedRoles: ["postgres", "some_migration_role"] })).toBe(true);
+  });
+
+  it("DATA_API_ROLES names every role the REVOKE tail revokes", () => {
+    // Drift guard: the migration revokes from PUBLIC, anon, authenticated and service_role. A
+    // role dropped from this list is a hole the audit would then report as locked.
+    expect([...DATA_API_ROLES].sort()).toEqual(["PUBLIC", "anon", "authenticated", "service_role"]);
+  });
+});
+
+describe("the 0080 RLS requirement", () => {
+  const rls = SCHEMA_REQUIREMENTS.find((r) => r.id === "0080-worker-feedback-rls");
+
+  it("is in the manifest, as its own entry rather than folded into the table check", () => {
+    // The two fail differently: without the TABLE both surfaces 500 loudly; without the LOCK
+    // both surfaces work perfectly and free-text worker PII is readable by every PostgREST
+    // role. Folding them together would let the loud failure mask the silent one.
+    expect(rls).toBeDefined();
+    expect(rls?.kind).toBe("rls");
+  });
+
+  it("says the failure is SILENT, because that is what makes it worth a manifest entry", () => {
+    expect(rls?.failureMode).toMatch(/SILENT/);
   });
 });

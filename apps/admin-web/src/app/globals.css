@@ -1706,6 +1706,19 @@ textarea.field__input {
   vertical-align: top;
 }
 
+/* The SCREEN column holds a route pattern, and the server accepts one up to 128 characters.
+   Under the table's `nowrap` a pathological value would push the message column off the
+   right edge and turn the one screen that exists to be read into a horizontal drag — the
+   same failure the message cell above was carved out to avoid, arriving through a different
+   column. So this cell wraps too, bounded to the width a route actually needs (`/jobs/:id
+   /apply` is sixteen characters); anything longer breaks onto a second line instead of
+   widening the table, and nothing is truncated, so the full pattern is always readable. */
+.table--prose .cell--screen {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-inline-size: 24ch;
+}
+
 /* ==================================================================
  * PHASE 6 · A LINK THAT IS THE CURRENT VIEW
  * The worker-journey session filter is plain links, not a client form — the filter belongs

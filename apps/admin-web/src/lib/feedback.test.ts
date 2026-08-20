@@ -7,10 +7,10 @@ import type { ZodType } from "zod";
  * Three properties are load-bearing here, and every one of them is easy to regress without
  * anything visibly breaking:
  *
- *  1. WHAT IS ASKED FOR. The route offers exactly one filter — `category`. This module must
- *     never grow a second one that searches the message body: `?q=9876` over worker free text
- *     is a PII discovery tool wearing a convenience feature's costume, and it would arrive
- *     looking like a small usability win.
+ *  1. WHAT IS ASKED FOR. The route offers two filters — `category` and `workerId`, both
+ *     selections over columns. This module must never grow one that searches the message
+ *     BODY: `?q=9876` over worker free text is a PII discovery tool wearing a convenience
+ *     feature's costume, and it would arrive looking like a small usability win.
  *  2. WHAT IS ACCEPTED. The three category tokens are frozen in a SHIPPED app. A fourth
  *     arriving means the server changed under the portal, which is worth failing over rather
  *     than rendering as an unstyled word.
@@ -55,6 +55,7 @@ const ROW = {
   category: "problem",
   message: "App band ho jata hai. Ramesh, 98765 43210.",
   app_build: "9fd0b09",
+  screen_context: "/jobs/:id/apply",
   created_at: "2026-08-19T09:00:00.000Z",
 };
 
@@ -91,13 +92,32 @@ describe("listFeedback — the request it actually makes", () => {
     expect(lastPath()).toBe("/admin/feedback?category=spam");
   });
 
-  it("offers NO search over the message body — the query surface is exactly three keys", async () => {
+  it("offers NO search over the message body — the query surface is exactly four keys", async () => {
     // The load-bearing one. `GET /admin/feedback` has no free-text search and this module must
-    // never grow a client-side equivalent; if a fourth parameter ever appears in a request,
+    // never grow a client-side equivalent; if a fifth parameter ever appears in a request,
     // someone has to come here and say why it is not a way to grep worker free text.
-    await listFeedback({ category: "other", cursor: "c", limit: 25 });
+    //
+    // `workerId` is the fourth, and it is the opposite shape: a substring search takes content
+    // and returns a set of people, while this takes an id the operator already holds and
+    // returns a subset of a page they could reach by scrolling. It discovers nobody.
+    await listFeedback({ category: "other", workerId: "w", cursor: "c", limit: 25 });
     const params = new URL(`https://portal.invalid${lastPath()}`).searchParams;
-    expect([...params.keys()].sort()).toEqual(["category", "cursor", "limit"]);
+    expect([...params.keys()].sort()).toEqual(["category", "cursor", "limit", "workerId"]);
+  });
+
+  it("carries a worker narrowing, and drops an empty one", async () => {
+    await listFeedback({ workerId: "5eeded00-0001-4a00-8000-000000000001" });
+    expect(lastPath()).toBe("/admin/feedback?workerId=5eeded00-0001-4a00-8000-000000000001");
+    await listFeedback({ workerId: "" });
+    expect(lastPath()).toBe("/admin/feedback");
+  });
+
+  it("FORWARDS a workerId that is not a uuid instead of quietly dropping it", async () => {
+    // The server's schema is `.uuid()`, so this earns a 400 the page renders as a refusal.
+    // Dropping it here would render EVERY worker's messages under a URL claiming one
+    // worker's — and an operator reading a stranger's complaints would never know.
+    await listFeedback({ workerId: "not-a-uuid" });
+    expect(lastPath()).toBe("/admin/feedback?workerId=not-a-uuid");
   });
 
   it("returns the parsed page, not the raw body", async () => {
@@ -159,6 +179,34 @@ describe("the row schema — the sanctioned exception, and its edges", () => {
     expect(feedbackItemSchema.parse({ ...ROW, app_build: null }).app_build).toBeNull();
   });
 
+  it("carries the screen context — a route PATTERN, which is why it is allowed here", () => {
+    // `/jobs/:id/apply`, never `/jobs/<uuid>/apply`. The server substitutes every id-shaped
+    // segment before storing, so this field says WHICH SCREEN and cannot say which job.
+    expect(feedbackItemSchema.parse(ROW).screen_context).toBe("/jobs/:id/apply");
+  });
+
+  it("accepts a null screen context — an older app build is not a bad row", () => {
+    // Three causes (an app older than the field, a client that sent nothing, a value the
+    // server refused to normalise) and one wire form. Rejecting it would blank the page for
+    // every message submitted before the column existed.
+    expect(feedbackItemSchema.parse({ ...ROW, screen_context: null }).screen_context).toBeNull();
+  });
+
+  it("REQUIRES the screen context key — absent is not the same claim as null", () => {
+    // Null is the server saying "no screen". Absent is a projection that stopped sending the
+    // field, and treating that as null would render "unknown screen" on every row forever
+    // while the column quietly went missing.
+    const { screen_context: _drop, ...rest } = ROW;
+    expect(feedbackItemSchema.safeParse(rest).success).toBe(false);
+  });
+
+  it("does NOT bound the screen context — the writer already did", () => {
+    // Restating the server's cap here would only add a way for a long value to throw the
+    // whole page away. The portal renders what arrived; it does not re-adjudicate the bound.
+    const long = `/${"a".repeat(400)}`;
+    expect(feedbackItemSchema.parse({ ...ROW, screen_context: long }).screen_context).toBe(long);
+  });
+
   it("requires the message — an absent one must fail, not render as `undefined`", () => {
     const { message: _drop, ...rest } = ROW;
     expect(feedbackItemSchema.safeParse(rest).success).toBe(false);
@@ -206,6 +254,7 @@ describe("privacy — the projection cannot grow an identity field", () => {
       "created_at",
       "id",
       "message",
+      "screen_context",
       "worker_id",
     ]);
   });
