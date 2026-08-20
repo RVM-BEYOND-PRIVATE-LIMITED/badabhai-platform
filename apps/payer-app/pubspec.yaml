@@ -13,7 +13,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.8
   http: ^1.2.0
   # Crash reporting (FlutterFire). firebase_core boots the SDK from the native
   # config files (android/app/google-services.json, ios GoogleService-Info.plist);
@@ -39,8 +38,6 @@ dependencies:
   get_it: ^7.7.0
   # Persistent auth seam (not exercised in PASS A — mock session only).
   flutter_secure_storage: ^9.2.4
-  # Random PII-free ids / idempotency keys for future API binding.
-  uuid: ^4.5.1
   # Client-side QR rendering for the agency referral link (no PII, no network).
   qr_flutter: ^4.1.0
   # #354 — opens the SIGNED masked-résumé URL straight in the OS browser

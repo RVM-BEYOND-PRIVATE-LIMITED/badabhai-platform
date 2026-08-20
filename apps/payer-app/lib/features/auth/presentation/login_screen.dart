@@ -179,20 +179,29 @@ class _LoginScreenState extends State<LoginScreen> {
                 AppSpacing.gutter,
                 AppSpacing.s7,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  if (_step == _Step.details)
-                    ..._detailsStep()
-                  else
-                    ..._codeStep(),
-                  if (_error != null) ...<Widget>[
-                    const SizedBox(height: AppSpacing.s3),
-                    _ErrorLine(message: _error!),
-                  ],
-                  const SizedBox(height: AppSpacing.s4),
-                  const _TrustLine(),
-                ],
+              // #1087 — cap the form column so it never spans an unreadable
+              // width on a tablet/foldable; the deep-blue header + canvas stay
+              // full-bleed, only the content is centred.
+              child: Center(
+                child: ConstrainedBox(
+                  constraints:
+                      const BoxConstraints(maxWidth: AppSpacing.appMax),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      if (_step == _Step.details)
+                        ..._detailsStep()
+                      else
+                        ..._codeStep(),
+                      if (_error != null) ...<Widget>[
+                        const SizedBox(height: AppSpacing.s3),
+                        _ErrorLine(message: _error!),
+                      ],
+                      const SizedBox(height: AppSpacing.s4),
+                      const _TrustLine(),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
