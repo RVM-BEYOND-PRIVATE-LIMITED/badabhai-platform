@@ -69,6 +69,31 @@ export class OtpService {
   ) {}
 
   /**
+   * NAME THE THROTTLE THAT REFUSED — in the LOG, never in the response (#1019).
+   *
+   * WHY THIS EXISTS. Five different throttles on this path answer with one of two byte-identical
+   * 429s, and until now four of them threw in complete silence: only the global breaker logged.
+   * So "OTP bhejne ki limit ho gayi" produced NOTHING on the server, and the only way to learn
+   * which throttle fired was to open a shell on the box and read Redis keys by hand — which is
+   * literally what #1019's own verification checklist asks somebody to do, and why that issue
+   * could not be closed from the code alone. One `reason` slug turns that into a log query.
+   *
+   * THE NEUTRALITY IS NOT WEAKENED, and that distinction is the whole design. The response stays
+   * byte-identical: a deleted-account tombstone and an ordinary cooldown return the same string
+   * with the same status, so a caller still cannot tell them apart and the enumeration oracle the
+   * tombstone check exists to avoid is not opened. Only the operator's side of the wire learns
+   * anything, and an operator who can read this log can already read the Redis keys behind it.
+   *
+   * PII-FREE BY CONSTRUCTION. `phone_hash` is the same 8-char prefix every other line in this
+   * file uses as its handle, the reason is a fixed slug from a closed set, and the counts are
+   * integers. No number, no code, no address.
+   */
+  private refused(hashPrefix: string, reason: string, count?: number, cap?: number): void {
+    const budget = count !== undefined && cap !== undefined ? ` count=${count}/${cap}` : "";
+    this.logger.warn(`OTP refused phone_hash=${hashPrefix} reason=${reason}${budget}`);
+  }
+
+  /**
    * Generate a fresh code, store its HMAC, and send it. Returns the cooldown the
    * client must wait before requesting another. Throws 429 (cooldown / hourly
    * cap), 502 (send failed), or 503 (Redis down — fail closed).
@@ -91,6 +116,7 @@ export class OtpService {
       const deletedPhoneKey = `deleted_phone:${phoneHash}`;
       try {
         if ((await redis.exists(deletedPhoneKey)) > 0) {
+          this.refused(hashPrefix, "deleted_phone_tombstone");
           throw new HttpException(
             "Please wait before requesting another code",
             HttpStatus.TOO_MANY_REQUESTS,
@@ -107,6 +133,7 @@ export class OtpService {
 
       // 2. Resend cooldown.
       if ((await redis.exists(cooldownKey)) > 0) {
+        this.refused(hashPrefix, "resend_cooldown");
         throw new HttpException(
           "Please wait before requesting another code",
           HttpStatus.TOO_MANY_REQUESTS,
@@ -119,6 +146,7 @@ export class OtpService {
       const sends = await redis.incr(sendCountKey);
       await redis.expire(sendCountKey, OtpService.secondsUntilEndOfUtcHour());
       if (sends > this.config.OTP_MAX_SENDS_PER_HOUR) {
+        this.refused(hashPrefix, "phone_hourly_cap", sends, this.config.OTP_MAX_SENDS_PER_HOUR);
         throw new HttpException(
           "Too many codes requested; please try again later",
           HttpStatus.TOO_MANY_REQUESTS,
@@ -134,6 +162,7 @@ export class OtpService {
       const dailySends = await redis.incr(dailyKey);
       await redis.expire(dailyKey, secondsUntilEndOfUtcDay());
       if (dailySends > this.config.OTP_MAX_SENDS_PER_DAY) {
+        this.refused(hashPrefix, "phone_daily_cap", dailySends, this.config.OTP_MAX_SENDS_PER_DAY);
         throw new HttpException(
           "Too many codes requested; please try again later",
           HttpStatus.TOO_MANY_REQUESTS,

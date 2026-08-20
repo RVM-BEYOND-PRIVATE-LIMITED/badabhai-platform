@@ -11,12 +11,22 @@
  * what is in the database actually matches what each migration would have created, so this
  * script VERIFIES FIRST, AT DEPTH, and refuses to record anything on any mismatch.
  *
- * DEPTH (per migration, matching adopt-0066.ts rather than a presence-only heuristic):
+ * DEPTH (per migration, matching adopt-0066.ts rather than a presence-only heuristic). The rules
+ * live in `src/migration-adoption.ts`, pure and unit-tested; this file is the runner:
  *   • tables exist
  *   • every column exists AND its data_type matches the declared type
  *   • every CREATE INDEX exists
  *   • every ADD CONSTRAINT exists
  *   • ENABLE / FORCE ROW LEVEL SECURITY is actually enabled / forced
+ *   • every REVOKE ALL actually took — the role holds NO grant on the table
+ *   • the migration declares SOMETHING checkable, and contains no dynamic SQL
+ *
+ * THE LAST TWO WERE ADDED AFTER THIS TOOL GOT ONE WRONG. `0048` declares FORCE plus four
+ * REVOKEs per table; its objects all verified, so it was adopted clean — and `anon`,
+ * `authenticated` and `service_role` still hold every DML privilege plus TRUNCATE on all three
+ * of its tables. That is R39, and the pass is what stopped anyone looking. Separately, a
+ * migration made only of backfills or DROPs parsed to an EMPTY expectation set, which trivially
+ * matches any database: recorded as applied on no evidence at all. Both are refusals now.
  *
  * SAFETY RAILS — this writes to a live database, so:
  *   • verify-only by default; --apply is required to write
@@ -35,6 +45,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "dotenv";
 import postgres from "postgres";
+
+import {
+  adoptionProblems,
+  parseMigration,
+  type LiveCatalog,
+} from "./src/migration-adoption";
 
 config({ path: "../../.env" });
 config({ path: ".env" });
@@ -59,148 +75,6 @@ interface JournalEntry {
   tag: string;
 }
 
-/**
- * Declared-SQL-type → information_schema.data_type.
- *
- * Deliberately NOT a permissive fallback: an unmapped type raises, because silently treating an
- * unknown type as "matches" is exactly how a partly-applied migration would get adopted.
- */
-function normalizeType(declared: string): string {
-  // The column regex captures the type PLUS any trailing modifiers ("uuid PRIMARY KEY DEFAULT
-  // gen_random_uuid", "boolean DEFAULT false NOT NULL"). Cut at the first modifier keyword.
-  // Multi-word types survive because none of them contains one of these words.
-  const raw = declared.trim().replace(/\s+/g, " ");
-  const cut = raw.search(
-    /\b(NOT\s+NULL|NULL|DEFAULT|PRIMARY\s+KEY|REFERENCES|UNIQUE|CHECK|GENERATED|COLLATE)\b/i,
-  );
-  const t = (cut >= 0 ? raw.slice(0, cut) : raw).trim().toLowerCase();
-  if (/^varchar\(|^character varying/.test(t)) return "character varying";
-  if (/^numeric|^decimal/.test(t)) return "numeric";
-  if (/^vector\(/.test(t)) return "USER-DEFINED";
-  // information_schema reports every array type as the literal "ARRAY" (e.g. `text[]`).
-  if (/\[\s*\]$/.test(t)) return "ARRAY";
-  const map: Record<string, string> = {
-    text: "text",
-    uuid: "uuid",
-    boolean: "boolean",
-    integer: "integer",
-    int: "integer",
-    serial: "integer",
-    bigint: "bigint",
-    smallint: "smallint",
-    jsonb: "jsonb",
-    json: "json",
-    date: "date",
-    "double precision": "double precision",
-    real: "real",
-    "timestamp with time zone": "timestamp with time zone",
-    "timestamp without time zone": "timestamp without time zone",
-    timestamp: "timestamp without time zone",
-  };
-  const hit = map[t];
-  if (hit === undefined) throw new Error(`unmapped SQL type "${declared}" — refusing to guess`);
-  return hit;
-}
-
-interface Expect {
-  tables: Set<string>;
-  columns: Map<string, string>; // "table.column" -> expected data_type
-  indexes: Set<string>;
-  constraints: Set<string>;
-  rlsEnabled: Set<string>;
-  rlsForced: Set<string>;
-}
-
-/**
- * Postgres truncates identifiers at 63 bytes (NAMEDATALEN-1), so a longer generated FK name in
- * the migration is stored truncated in pg_constraint. Comparing the untruncated name reports a
- * false MISSING — four of them on the first full-depth run.
- */
-const pgIdent = (s: string): string => Buffer.from(s, "utf8").subarray(0, 63).toString("utf8");
-
-const unquote = (s: string): string => s.replace(/^"|"$/g, "").split(".").pop()!;
-
-function parseMigration(sql: string): Expect {
-  const e: Expect = {
-    tables: new Set(),
-    columns: new Map(),
-    indexes: new Set(),
-    constraints: new Set(),
-    rlsEnabled: new Set(),
-    rlsForced: new Set(),
-  };
-  const src = sql.replace(/--[^\n]*/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ");
-
-  // CREATE TABLE "x" ( "col" type ..., CONSTRAINT ... )
-  for (const m of src.matchAll(
-    /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?("?[\w.]+"?)\s*\(([\s\S]*?)\n\s*\);/gi,
-  )) {
-    const table = unquote(m[1]!);
-    e.tables.add(table);
-    for (const raw of splitTopLevel(m[2]!)) {
-      const line = raw.trim();
-      if (!line || /^(CONSTRAINT|PRIMARY\s+KEY|UNIQUE|FOREIGN\s+KEY|CHECK)\b/i.test(line)) continue;
-      const cm = /^("?\w+"?)\s+([a-z0-9_ ]+(?:\(\d+(?:,\s*\d+)?\))?(?:\s*\[\])?)/i.exec(line);
-      if (cm) e.columns.set(`${table}.${unquote(cm[1]!)}`, normalizeType(cm[2]!));
-    }
-  }
-
-  // ALTER TABLE ... ADD COLUMN — `[^;]*?` so the span can never cross a statement boundary
-  // (a `[\s\S]*?` span silently pairs one statement's table with a later statement's column).
-  for (const m of src.matchAll(
-    /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?("?[\w.]+"?)[^;]*?ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?("?\w+"?)\s+([a-z0-9_ ]+(?:\(\d+(?:,\s*\d+)?\))?(?:\s*\[\])?)/gi,
-  )) {
-    e.columns.set(`${unquote(m[1]!)}.${unquote(m[2]!)}`, normalizeType(m[3]!));
-  }
-
-  for (const m of src.matchAll(
-    /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?("?\w+"?)/gi,
-  ))
-    e.indexes.add(unquote(m[1]!));
-
-  // Offsets, not a regex built from the constraint name. Interpolating a name into `new RegExp`
-  // alongside a `[\s\S]*` span is a ReDoS shape (semgrep detect-non-literal-regexp) and is also
-  // needlessly indirect: the actual question is "was this constraint dropped AFTER its last
-  // add?", which is a comparison of two offsets. Drop-then-re-add keeps the constraint;
-  // add-then-drop, or a bare drop, does not.
-  const lastAddAt = new Map<string, number>();
-  for (const m of src.matchAll(/ADD\s+CONSTRAINT\s+("?\w+"?)/gi)) {
-    const name = unquote(m[1]!);
-    e.constraints.add(name);
-    lastAddAt.set(name, m.index ?? 0);
-  }
-  for (const m of src.matchAll(/DROP\s+CONSTRAINT\s+(?:IF\s+EXISTS\s+)?("?\w+"?)/gi)) {
-    const name = unquote(m[1]!);
-    const addedAt = lastAddAt.get(name);
-    if (addedAt === undefined || (m.index ?? 0) > addedAt) e.constraints.delete(name);
-  }
-
-  for (const m of src.matchAll(
-    /ALTER\s+TABLE\s+("?[\w.]+"?)\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY/gi,
-  ))
-    e.rlsEnabled.add(unquote(m[1]!));
-  for (const m of src.matchAll(/ALTER\s+TABLE\s+("?[\w.]+"?)\s+FORCE\s+ROW\s+LEVEL\s+SECURITY/gi))
-    e.rlsForced.add(unquote(m[1]!));
-
-  return e;
-}
-
-/** Split a CREATE TABLE body on commas that are not inside parentheses. */
-function splitTopLevel(body: string): string[] {
-  const out: string[] = [];
-  let depth = 0;
-  let cur = "";
-  for (const ch of body) {
-    if (ch === "(") depth += 1;
-    if (ch === ")") depth -= 1;
-    if (ch === "," && depth === 0) {
-      out.push(cur);
-      cur = "";
-    } else cur += ch;
-  }
-  out.push(cur);
-  return out;
-}
 
 async function main(): Promise<void> {
   const url = process.env.DATABASE_URL;
@@ -280,6 +154,27 @@ async function main(): Promise<void> {
       console.log(`\n[doctor] journal hash check: ${matched}/${journal.entries.length} match`);
       if (bad.length === 0) console.log("[doctor] → `pnpm db:migrate` will skip all migrations (no DDL).");
       else for (const b of bad) console.log(`   ✗ ${b}`);
+
+      // THE OTHER DIRECTION, and the one nothing was looking at. Everything above asks "is each
+      // file recorded?". This asks "is each recorded row a file?" — and a row with no journal
+      // entry means production has applied a migration THIS CHECKOUT DOES NOT CONTAIN.
+      //
+      // Found the hard way on 2026-08-20: `0081_worker_feedback_screen_context` merged and was
+      // applied to production while a second branch was minting its own `0081`. The slot was
+      // taken, in the database, and every local tool reported a clean journal because none of
+      // them looked this way round. That is exactly the collision MIGRATIONS.md's numbering
+      // rules exist to prevent, and a --doctor that cannot see it is why it happened anyway.
+      const known = new Set(journal.entries.map((e) => String(e.when)));
+      const orphans = rows.filter((r) => !known.has(String(r.created_at)));
+      console.log(`
+[doctor] recorded rows with NO journal entry here: ${orphans.length}`);
+      for (const o of orphans) {
+        console.log(`   ⚠ created_at=${o.created_at} hash=${o.hash.slice(0, 16)}…`);
+      }
+      if (orphans.length > 0) {
+        console.log("   → production has applied a migration this checkout does not have.");
+        console.log("     Fetch and rebase before minting a new one — the number may be taken.");
+      }
       console.log("");
       return;
     }
@@ -358,32 +253,31 @@ async function main(): Promise<void> {
     const rlsOn = new Set(rlsRows.filter((r) => r.relrowsecurity).map((r) => r.relname));
     const rlsForced = new Set(rlsRows.filter((r) => r.relforcerowsecurity).map((r) => r.relname));
 
+    // GRANTS — the R39 blind spot. A migration's REVOKE tail is the only thing standing between
+    // `service_role` (rolbypassrls = true, so RLS never filters it) and the table, and it was
+    // not checked here until 0048 was adopted clean with all twelve of its REVOKEs unapplied.
+    const grantRows = await sql<{ table_name: string; grantee: string }[]>`
+      SELECT DISTINCT table_name, grantee FROM information_schema.role_table_grants
+       WHERE table_schema='public'`;
+    const grants = new Set(grantRows.map((r) => `${r.table_name}:${r.grantee.toLowerCase()}`));
+
+    const live: LiveCatalog = {
+      tables: liveTables,
+      columns: liveCols,
+      indexes: liveIdx,
+      constraints: liveCons,
+      rlsEnabled: rlsOn,
+      rlsForced,
+      grants,
+    };
+
     const clean: JournalEntry[] = [];
     const dirty: { tag: string; problems: string[] }[] = [];
 
     for (const entry of targets) {
-      let exp: Expect;
-      try {
-        exp = parseMigration(readFileSync(join(dir, `${entry.tag}.sql`), "utf8"));
-      } catch (err) {
-        const problems = [`parse failed: ${(err as Error).message}`];
-        dirty.push({ tag: entry.tag, problems });
-        // Log here too — an early `continue` that skips the reporting below makes a parse
-        // failure look like a silent success in the per-migration output.
-        console.log(`  ✗ ${entry.tag} — ${problems[0]}`);
-        continue;
-      }
-      const problems: string[] = [];
-      for (const t of exp.tables) if (!liveTables.has(t)) problems.push(`table ${t} MISSING`);
-      for (const [key, want] of exp.columns) {
-        const got = liveCols.get(key);
-        if (got === undefined) problems.push(`column ${key} MISSING`);
-        else if (got !== want) problems.push(`column ${key} is ${got}, expected ${want}`);
-      }
-      for (const i of exp.indexes) if (!liveIdx.has(pgIdent(i))) problems.push(`index ${i} MISSING`);
-      for (const c of exp.constraints) if (!liveCons.has(pgIdent(c))) problems.push(`constraint ${c} MISSING`);
-      for (const t of exp.rlsEnabled) if (!rlsOn.has(t)) problems.push(`${t}: RLS not enabled`);
-      for (const t of exp.rlsForced) if (!rlsForced.has(t)) problems.push(`${t}: RLS not FORCED`);
+      // Every rule lives in `src/migration-adoption.ts` — pure, so each one is unit-tested
+      // against a synthetic catalog rather than only ever exercised against production.
+      const problems = adoptionProblems(readFileSync(join(dir, `${entry.tag}.sql`), "utf8"), live);
 
       if (problems.length === 0) {
         clean.push(entry);
@@ -413,15 +307,32 @@ async function main(): Promise<void> {
     }
 
     // Drizzle stores a plain sha256 of the migration FILE contents, ordered by created_at.
+    //
+    // IDEMPOTENT BY THE INSERT, not only by the selection. `targets` already excludes anything
+    // recorded, so a second ordinary run does nothing — but that filter was read seconds ago and
+    // `__drizzle_migrations` has no unique constraint on `created_at`, so two overlapping runs
+    // (or one re-run after a half-finished attempt) would both pass the filter and write the
+    // same row twice. `WHERE NOT EXISTS` inside the same transaction makes the write itself the
+    // guard, and re-reports what it actually inserted rather than what it intended to.
+    let written = 0;
     await sql.begin(async (tx) => {
       for (const entry of clean) {
         const hash = createHash("sha256")
           .update(readFileSync(join(dir, `${entry.tag}.sql`)))
           .digest("hex");
-        await tx`INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (${hash}, ${entry.when})`;
+        const rows = await tx`
+          INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+          SELECT ${hash}, ${entry.when}
+           WHERE NOT EXISTS (
+             SELECT 1 FROM drizzle.__drizzle_migrations WHERE created_at = ${entry.when}
+           )
+          RETURNING 1 AS ok`;
+        if (rows.length > 0) written += 1;
+        else console.log(`  = ${entry.tag} was already recorded by the time we wrote — skipped`);
       }
     });
-    console.log(`[adopt] recorded ${clean.length} migration(s). \`pnpm db:migrate\` can now proceed.`);
+    console.log(`[adopt] recorded ${written} of ${clean.length} verified migration(s). \`pnpm db:migrate\` can now proceed.`);
+    console.log(`[adopt] re-run with --doctor to confirm drizzle will attempt no DDL.`);
   } finally {
     await sql.end({ timeout: 5 });
   }

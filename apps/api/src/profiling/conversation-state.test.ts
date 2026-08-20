@@ -129,6 +129,7 @@ const FULL: ProfilingEnvelope = {
   llmLedTurns: 6,
   llmFallback: true,
   llmGateOpen: true,
+  llmGateAsked: true,
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {

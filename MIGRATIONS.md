@@ -42,36 +42,163 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 | `0077`        | Prakash   | **APPLIED IN PRODUCTION** — AI cost attribution: three running-total tables (verified 2026-08-19) |
 | `0078`        | Prakash   | **APPLIED IN PRODUCTION** — S3-C / D-6: `unresolved_phrase.job_domain_id` (verified object-by-object 2026-08-19) |
 | `0079`        | Prakash   | **APPLIED IN PRODUCTION** — admin worker-journey read indexes (#992; renumbered from `0078`, see notes below; verified object-by-object 2026-08-19) |
-| `0080`        | Divyanshu | **MERGED, NOT APPLIED** — worker app feedback table (#997, `ac3db91c`). `worker_feedback` is absent from production in every schema; both surfaces 500 until it lands. See the journal-drift note below — `db:migrate` alone cannot apply it |
-| `0081`        | Prakash   | **MERGED, NOT APPLIED** — `worker_feedback.screen_context` (#997 follow-up). ALTERs the table `0080` creates, so it is strictly ordered behind it and inherits the same journal-drift block. APPLY BEFORE DEPLOY for BOTH surfaces: the admin list names the column in its SELECT list, so "additive" describes the DDL, not the deploy |
-| `0082`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own |
+| `0080`        | Divyanshu | **APPLIED IN PRODUCTION** — worker app feedback table (#997, `ac3db91c`). Verified object-by-object 2026-08-19: 6 columns, 3 CHECKs, the FK, 3 indexes, RLS enabled + FORCED, all four REVOKEs, and two real rows written through the live path |
+| `0081`        | Prakash   | **APPLIED IN PRODUCTION** — `worker_feedback.screen_context` (#1036). Recorded in `drizzle.__drizzle_migrations` (`created_at=1787141865609`) and verified by `db:audit:schema-contract`. Note this migration is the ONLY one of `0076`–`0081` that is journal-recorded — see the drift note below |
+| `0082`        | Prakash   | **MERGED, NOT APPLIED** — R39: re-lock the seven public tables `db:audit:rls` reports open. Permissions only; no table, column, index or constraint moves. Minted as `0081` and renumbered after `#1036` took that slot. Rehearsed against production in a transaction that cannot commit (`db:verify:rls-lock`, 22/22 PASS, 2026-08-20) |
+| `0083`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own |
 
-### The journal is four files behind reality, and that blocks `db:migrate` — 2026-08-19
+### The journal is five files behind, and what that actually costs — corrected 2026-08-20
 
-**`0076`–`0079` are LIVE in production but UNRECORDED in `drizzle.__drizzle_migrations`.**
-They were applied out of band, so their objects exist and their journal rows do not. `0080` is
-unrecorded *and* absent — genuinely pending.
+**`0076`–`0080` are LIVE in production and UNRECORDED in `drizzle.__drizzle_migrations`.** All
+five were applied out of band, so their objects exist and their journal rows do not.
 
-That combination is why an attempt to apply `0080` with `db:migrate` does nothing:
-`drizzle-kit migrate` replays every unrecorded file **in order**, so it reaches
-`0076`'s `CREATE TABLE "job_domain"` — no `IF NOT EXISTS` — fails on *already exists*, rolls
-back, and never gets to `0080`. This is exactly the state `adopt-migrations.ts` and
-`reconcile-migrations.ts` were written for (`GAP-DB-19`), and `db:audit:schema-contract` now
-reports it rather than emitting a remedy that cannot run.
+**The rule this file stated on 2026-08-19 was wrong, and the correction changes the
+instruction.** It said `drizzle-kit migrate` "replays every unrecorded file in order". Read from
+the installed `drizzle-orm@0.45.2` (`pg-core/dialect.js`; `drizzle-kit migrate` delegates to it):
 
-Measured, read-only, 2026-08-19: 81 files, 76 recorded, 5 unrecorded — four live, one absent,
-zero PARTIAL.
-
-```bash
-npx tsx reconcile-migrations.ts        # per file: RECORDED / LIVE / ABSENT / PARTIAL
-npx tsx adopt-migrations.ts --only 0076_canonical_domain_skill_taxonomy,0077_ai_cost_running_totals,0078_unresolved_phrase_job_domain_id,0079_journey_read_indexes
-npx tsx adopt-migrations.ts --only <the same list> --apply --expect-host <host substring>
-pnpm --filter @badabhai/db db:migrate                  # now reaches 0080
-pnpm --filter @badabhai/db db:audit:schema-contract    # expect READY
+```js
+select id, hash, created_at from drizzle.__drizzle_migrations
+  order by created_at desc limit 1          // ONE row. A WATERMARK.
+for (const m of migrations)
+  if (!last || Number(last.created_at) < m.folderMillis) { …apply…; …insert… }
 ```
 
-`--expect-host` is not optional ceremony: adoption records DDL as done **without running it**,
-so the wrong target writes a false journal row that every later migration inherits.
+It is a **high-water mark**, not set membership. Everything with a `when` above the newest
+recorded `created_at` is applied; everything at or below it is skipped, recorded or not. The two
+models agreed on 2026-08-19 only by coincidence — the watermark sat at `0075`, so "unrecorded"
+and "above the watermark" named the same five files. They came apart when `0081` was applied out
+of band on 2026-08-20 and moved the watermark to `1787141865609`.
+
+**So, measured 2026-08-20 — 83 files, 77 recorded rows, 6 unrecorded, watermark
+`1787141865609`:**
+
+| | |
+|---|---|
+| will REPLAY (above the watermark) | `0082` only |
+| will SKIP (at or below, unrecorded) | `0076`, `0077`, `0078`, `0079`, `0080` |
+| genuinely pending | `0082` |
+
+`db:migrate` therefore **applies `0082` cleanly with no adoption first** — the "dies on 0076
+already-exists" blocker is gone, because those five are now under the watermark. Adoption is
+still worth doing, as hygiene rather than as a gate.
+
+**The direction that is dangerous.** A genuinely-pending migration whose `when` is *below* the
+watermark is skipped **silently**: `db:migrate` exits 0, writes nothing, and the objects never
+arrive — the shape of the `0078` incident with the one alarm that eventually caught it removed.
+That needs an out-of-order apply or a hand-pinned `when`, and both have happened here. It is now
+its own state in `db:audit:schema-contract`, reported first and without a `db:migrate` line
+underneath it, and it exits non-zero.
+
+```bash
+# APPLY 0082 (needs authorisation — see the R39 note)
+pnpm --filter @badabhai/db db:verify:rls-lock          # rehearse first; expect 22/22 PASS
+pnpm --filter @badabhai/db db:migrate                  # applies 0082 and nothing else
+pnpm --filter @badabhai/db db:audit:rls                # expect: 0 deviating
+pnpm --filter @badabhai/db db:audit:schema-contract    # expect: READY
+
+# HYGIENE — record the five live files so the journal stops lying. No DDL runs.
+cd packages/db
+npx tsx reconcile-migrations.ts                        # per file: RECORDED / LIVE / ABSENT / PARTIAL
+npx tsx adopt-migrations.ts --only 0076_canonical_domain_skill_taxonomy,0077_ai_cost_running_totals,0078_unresolved_phrase_job_domain_id,0079_journey_read_indexes,0080_worker_feedback
+npx tsx adopt-migrations.ts --only 0076_canonical_domain_skill_taxonomy,0077_ai_cost_running_totals,0078_unresolved_phrase_job_domain_id,0079_journey_read_indexes,0080_worker_feedback --apply --expect-host aws-1-ap-south-1.pooler.supabase.com
+npx tsx adopt-migrations.ts --doctor                   # expect 83/83 match, 0 orphan rows
+```
+
+**The `--only` list is spelled out twice on purpose, and it is not padding.** Adoption is
+all-or-nothing, and `0082` is unrecorded *and* genuinely unapplied until the block above runs —
+so a bare `adopt-migrations.ts --apply` correctly refuses the whole set and records nothing. A
+`<the same list>` placeholder in a runbook is the line someone paraphrases at 2am; the literal
+one is the line they paste.
+
+**Three properties worth knowing before running it, each demonstrated against production on
+2026-08-20 rather than argued:**
+
+| | evidence |
+|---|---|
+| it cannot mark a **missing** migration as applied | `--only 0082_rls_lock_seven_tables` → `REFUSING to record ANYTHING`, exit **1**, ten stated mismatches |
+| it is **idempotent** — an already-recorded migration is not even selected | `--only 0048_empty_archangel` → `selected=0`, `nothing to do` |
+| the five in the list verify **clean at full depth** | `clean=5 mismatched=0` — tables, columns *and their types*, indexes, constraints, RLS enable/force, and every `REVOKE ALL` |
+
+The write itself is `INSERT … WHERE NOT EXISTS` inside one transaction, so the guard survives two
+overlapping runs as well as two sequential ones — `__drizzle_migrations` has no unique constraint
+on `created_at` to fall back on.
+
+`--only` is required here, not optional: adoption is all-or-nothing, and `0082` is unrecorded
+*and* genuinely unapplied, so an unpinned run correctly refuses the whole set. `--expect-host` is
+not ceremony either — adoption records DDL as done **without running it**, so the wrong target
+writes a false journal row that every later migration inherits.
+
+**Adoption's two blind spots, and what one of them cost.** The depth check covers objects. Until
+2026-08-20 it did **not** look at GRANTs, and it treated a migration with no checkable objects as
+vacuously clean. That is how `0048` came to be recorded as applied with its twelve REVOKEs never
+run — which is `R39`, and why `0082` exists. Both are refusals now, as is dynamic SQL. The
+compensating control is `db:audit:rls`, which sweeps every live table for the lock rather than
+trusting any migration to have applied it.
+
+**And the direction nothing was checking at all:** `--doctor` only ever asked *"is each file
+recorded?"*. It now also asks *"is each recorded row a file?"*. A row with no journal entry means
+production has applied a migration this checkout does not contain — which is exactly how `0081`
+was found to be taken while a second branch was minting its own.
+
+### `0082` — R39: permissions only, APPLY ANY TIME, no backfill — 2026-08-20
+
+**Not additive and not destructive — it changes only who may reach seven tables.** No CREATE,
+no ALTER COLUMN, no DROP, and it grants nothing to anyone. A test asserts all four of those
+properties against the file itself.
+
+**What R39 is.** `db:audit:rls` sweeps all 77 public tables for the three conditions the house
+pattern requires — RLS enabled, FORCE, and no grant to a Data-API role. Seven fail. Measured
+2026-08-20: every one is **empty (0 rows)**, owned by `postgres`, with 0 policies.
+
+**The grant is the finding, not the missing FORCE.** "RLS is on with zero policies, so
+everything is denied" is true for `anon` and `authenticated` and **false for `service_role`**,
+which has `rolbypassrls = true` — RLS does not apply to it at all, so the grant is the only
+control and on these seven it is wide open, every DML privilege plus TRUNCATE. Three of the
+seven are correctly FORCEd *and still reachable*, which is what makes this worth a migration
+rather than a note.
+
+**Two sections, because the seven divide.**
+
+| | tables | why |
+|---|---|---|
+| **A** | `agency_kyc`, `agency_payout_accruals`, `agency_payout_requests` | `0048` already declares FORCE + all four REVOKEs for them. Its DDL is live and it is *recorded*, but its REVOKE tail never ran on production. Unconditional here; a no-op wherever `0048` ran in full |
+| **B** | `agency_profiles`, `employer_profiles`, `payer_capabilities`, `payer_member_invites` | exist on production and in **no** migration and **no** schema file (`GAP-DB-21`). Guarded by `to_regclass` — an unconditional ALTER would abort `0082` on every fresh database and take the slot with it |
+
+**Dropping the four is the better end state and is deliberately not this migration.**
+`GAP-DB-21`'s recorded recommendation is to drop them — `payer_member_invites` FKs to
+`auth.users` (Supabase Auth, unused here) and `payer_capabilities` is superseded by the shipped
+`org_role` enum. That is a destructive production action needing an owner's ruling. Locking them
+costs nothing and does not prejudge it.
+
+**Rehearsed, not reasoned.** `pnpm --filter @badabhai/db db:verify:rls-lock` runs the exact
+statements against the live database inside a transaction that **cannot commit**, then re-reads
+the catalog after the rollback and fails if anything moved. It answers the three things review
+cannot: that the REVOKEs actually take (a REVOKE only removes grants the executing role may
+remove — every grant here has `grantor = postgres`, and so does the migration), that FORCE does
+not lock the backend out (`postgres` is `rolbypassrls`), and that the Section-B guard does not
+silently skip a table that is present. **22/22 PASS against production, 2026-08-20.**
+
+**Timing.** ACCESS EXCLUSIVE per statement, microseconds each, seven empty tables. Run under
+`SET lock_timeout = '3s';` and retry on 55P03, per the `0073`/`0077`/`0080` precedent.
+
+**Rollback.** Re-grant. Nothing is lost and no data moves — the grants being restored are the
+finding.
+
+**Hand-written, not generated.** Drizzle-kit models `ENABLE ROW LEVEL SECURITY` and nothing else
+about the lock, so there is no model change to generate from. `meta/0082_snapshot.json` is a copy
+of `0081`'s with a fresh `id` and `prevId` chained to it — genuinely unchanged, because nothing
+in the model moves. Verified: `npx drizzle-kit generate` after this lands emits *"No schema
+changes, nothing to migrate"*.
+
+**Slot — and the fourth collision this file has recorded.** Minted as `0081`, renumbered to
+`0082` before merge: `#1036` took `0081` (`0081_worker_feedback_screen_context`) and **applied it
+to production** while this branch was in flight, so the clash was not only in the tree, it was
+already in `drizzle.__drizzle_migrations`. Nothing local reported it — every tool asked "is each
+FILE recorded?" and none asked "is each RECORDED ROW a file?". That direction is now part of
+`adopt-migrations.ts --doctor`. REGENERATED, NOT RENAMED (the `0071` rule): the snapshot was
+re-derived from `0081`'s, so `0082_snapshot.json.prevId == 0081_snapshot.json.id`, verified by a
+`db:generate` that emits nothing. The pre-renumber file was never applied anywhere, so its `when`
+needed no pinning. **OIE moves to `0083`.**
 
 ### `0079` — renumbered from `0078` after a live collision — 2026-08-19
 

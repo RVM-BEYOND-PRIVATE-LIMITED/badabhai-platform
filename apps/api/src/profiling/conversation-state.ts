@@ -580,6 +580,27 @@ export interface ProfilingEnvelope {
    * key by anything, so `servedQuestionKey` stays null for the whole LLM-led stretch.
    */
   readonly llmGateOpen: boolean;
+  /**
+   * The experience gate has been PUT ON SCREEN at least once in this interview (#1016).
+   *
+   * WHAT IT IS FOR. `LlmTurnService` used to serve the gate on exactly one condition — the turn
+   * the model returned a non-null `experience_entry` — so a model that ran the experience
+   * stretch conversationally and never filled the field took the gate off the air for the whole
+   * session, and Phase A closed on `phase_a_done` having never asked. Both triggers were model
+   * output, which put "is this worker asked whether they have another job?" in the model's hands.
+   * §3 says it is not the model's to decide. This flag is what lets the engine ask it ITSELF
+   * before accepting a close, exactly once, without re-asking a worker who already answered.
+   *
+   * DISTINCT FROM {@link llmGateOpen}, and the pair is not redundant: `llmGateOpen` is "the gate
+   * is on screen RIGHT NOW" and is cleared the moment it is answered, so it cannot answer
+   * "was it ever asked?" one turn later. This one is set with it and never cleared.
+   *
+   * NOT DERIVED FROM `llmDraft.experiences.length`. That count happens to agree today, because
+   * the entry branch fires whenever an entry lands below the cap — but it agrees by coincidence
+   * of the current control flow, not by anything stated, and the first edit to that branch would
+   * silently take the gate off the air again in precisely the way #1016 describes.
+   */
+  readonly llmGateAsked: boolean;
 }
 
 /**
@@ -670,6 +691,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   llmLedTurns: true,
   llmFallback: true,
   llmGateOpen: true,
+  llmGateAsked: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -705,6 +727,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     llmLedTurns: 0,
     llmFallback: false,
     llmGateOpen: false,
+    llmGateAsked: false,
   };
 }
 
@@ -946,6 +969,13 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // resume with the gate CLOSED. The alternative failure — resuming with it open — leaves the
     // worker's next sentence read as a yes/no answer to a question that is no longer on screen.
     llmGateOpen: v.llmGateOpen === true,
+    // FALSE ON ANYTHING ELSE, ABSENT INCLUDED — and absent is the state of every envelope in
+    // flight across the deploy that adds this field. The two failures are not symmetric, so this
+    // default is chosen rather than inherited: false means such a worker may be offered the gate
+    // once at close even if they already saw it (cost: one Yes/No turn), while true would mean a
+    // worker who never saw it never does — which is #1016 itself, preserved. "We have no record
+    // that it was asked" is also the honest reading of a field nothing ever wrote.
+    llmGateAsked: v.llmGateAsked === true,
   };
 }
 

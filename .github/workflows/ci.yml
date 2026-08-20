@@ -932,10 +932,17 @@ jobs:
       NODE_ENV: test
       API_PORT: "3001"
       RUN_E2E: "1"
-      # The per-IP OTP cap (OTP_MAX_SENDS_PER_IP_PER_HOUR, default 20). Every e2e test logs
-      # in from the SAME CI IP, so the whole suite shares one hourly budget — raise it here
-      # so the cap (a production abuse backstop, meaningless for a single shared CI IP)
-      # doesn't 429 the suite. Real deployments keep the default; this only affects CI.
+      # The per-SENDER OTP cap (#1035). The e2e client sends no `X-Device-Id`, so every test
+      # falls back to the ADDRESS bucket and the whole suite shares one hourly budget from the
+      # SAME CI IP — raise it here so a production abuse backstop, meaningless for a single
+      # shared CI runner, doesn't 429 the suite. Real deployments keep the default.
+      #
+      # MUST BE RAISED ALONGSIDE the per-IP one below. Since #1035 the fallback bucket is
+      # capped at the per-DEVICE knob, so leaving this at its default of 20 would 429 the suite
+      # on the 21st login however high the per-IP ceiling was set.
+      OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: "1000"
+      # The per-NETWORK flood ceiling ABOVE that sender gate (default 1000). Same reasoning:
+      # one shared CI IP for the whole suite.
       OTP_MAX_SENDS_PER_IP_PER_HOUR: "1000"
       # The per-PHONE hourly SMS budget — a DIFFERENT limit from the one above, which is
       # why both are raised. One CI run reuses phones across the suite.
@@ -1219,7 +1226,25 @@ jobs:
           # `test -- rank-parity` runs `vitest run -- rank-parity`, where vitest
           # ignores the filter and reruns the whole 2820-test suite. Measured, not
           # assumed — that is what the first push of this branch actually did.
-          pnpm --filter @badabhai/api run test rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db 2>&1 | tee db-gates-raw.log
+          #
+          # `--no-file-parallelism` IS LOAD-BEARING, and it is the one flag on this line
+          # that is about correctness rather than plumbing. Vitest gives each FILE its own
+          # worker and runs them concurrently; these seven share ONE Postgres, and four of
+          # them INSERT INTO `workers` (current-profile-order, ai-cost-totals.db,
+          # jobs-search-sql, and admin-dashboard.db itself). `admin-dashboard.db` reads a
+          # summary, inserts one row, reads again and asserts the delta is exactly 1 — an
+          # assertion about a GLOBAL count that any concurrent insert falsifies.
+          #
+          # Observed 2026-08-20 on an unrelated branch: `expected 2 to be 1`, from a second
+          # worker landing inside that window. `main` was green on the same commit range,
+          # so the gate was not failing — it was racing, and winning most of the time. A
+          # required check that fails on other people's timing teaches everyone to re-run
+          # it, which is how a real failure gets clicked through.
+          #
+          # Serialising costs nothing here (the whole step runs in ~4s) and is scoped to
+          # THIS step on purpose: `apps/api/vitest.config.ts` stays parallel, because the
+          # 2820-test `node` suite is database-free and has no shared state to race on.
+          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run

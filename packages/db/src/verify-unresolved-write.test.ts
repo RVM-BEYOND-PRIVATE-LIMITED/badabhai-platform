@@ -102,7 +102,7 @@ describe("RollbackSignal", () => {
   it("is identifiable by instanceof, so the catch cannot swallow a real error", () => {
     // The runner rethrows anything that is not this. If it were a plain Error matched on
     // message text, a genuine failure with a similar message would be discarded as "expected".
-    expect(new RollbackSignal()).toBeInstanceOf(RollbackSignal);
+    expect(new RollbackSignal("verify:unresolved-write")).toBeInstanceOf(RollbackSignal);
     expect(new Error("verify:unresolved-write — deliberate rollback")).not.toBeInstanceOf(RollbackSignal);
   });
 });

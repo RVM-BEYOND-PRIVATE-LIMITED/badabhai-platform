@@ -42,28 +42,28 @@ import { sql as dsql } from "drizzle-orm";
 import { createDbClient } from "./client";
 import { hostClass } from "./audit-embedding-provenance";
 import { opsGuard } from "./ops-guard";
+import {
+  RollbackSignal,
+  allPassed,
+  causeOf,
+  formatResults,
+  scalar as scalarRow,
+  type ProbeResult,
+} from "./probe-report";
 
 config({ path: join("..", "..", ".env") });
 
 const SCRIPT = "verify:unresolved-write";
 
-/** Thrown to force the ROLLBACK. Never escapes {@link main}. */
-export class RollbackSignal extends Error {
-  constructor() {
-    super("verify:unresolved-write — deliberate rollback");
-    this.name = "RollbackSignal";
-  }
-}
+/**
+ * The probe plumbing now lives in `probe-report.ts` — `verify-rls-lock.ts` needs the same four
+ * pieces, and each of them exists because of a specific way this runner's first version
+ * misreported its own results. Re-exported so this module's public surface is unchanged.
+ */
+export { RollbackSignal, allPassed, causeOf, formatResults, type ProbeResult };
 
-export interface ProbeResult {
-  /** Stable id, used in the report and in tests. */
-  readonly id: string;
-  /** What the write path must do, in one line. */
-  readonly expectation: string;
-  readonly passed: boolean;
-  /** Only on failure — what actually happened. */
-  readonly detail?: string;
-}
+/** {@link scalarRow}, with this script's name already bound. */
+const scalar = <T,>(rows: readonly T[], what: string): T => scalarRow(rows, what, SCRIPT);
 
 /**
  * The five properties, and why each one is here rather than covered by a presence check.
@@ -82,48 +82,6 @@ export const PROBE_EXPECTATIONS: Readonly<Record<string, string>> = {
   "nothing-committed": "the row count is identical after the transaction ends",
 };
 
-/**
- * The message that actually says what went wrong.
- *
- * Drizzle wraps every driver error in a `DrizzleQueryError` whose `message` is the SQL TEXT, so
- * reporting `e.message` prints the statement back at the reader and hides the reason — a CHECK
- * violation, a full pooler and an aborted transaction all render identically. The cause carries
- * the Postgres message and its SQLSTATE.
- */
-export function causeOf(e: unknown): string {
-  const err = e as { message?: string; cause?: { message?: string; code?: string } };
-  const cause = err?.cause?.message;
-  if (cause) return err.cause?.code ? `${cause} [${err.cause.code}]` : cause;
-  return (err?.message ?? String(e)).split("\n")[0] ?? String(e);
-}
-
-/**
- * The single number a `SELECT count(*)` returned.
- *
- * `noUncheckedIndexedAccess` is on, and rightly so here: an empty result would otherwise
- * destructure to `undefined` and compare unequal to itself, turning a query that returned
- * nothing into a silent "the count changed". Throwing is the correct answer — a counting query
- * that yields no row means the probe cannot make its claim.
- */
-export function scalar<T>(rows: readonly T[], what: string): T {
-  const row = rows[0];
-  if (row === undefined) throw new Error(`[${SCRIPT}] ${what} returned no row`);
-  return row;
-}
-
-/** True when every probe passed. Pure, so the exit-code decision is testable. */
-export function allPassed(results: readonly ProbeResult[]): boolean {
-  return results.length > 0 && results.every((r) => r.passed);
-}
-
-/** One line per probe, aligned. Pure. */
-export function formatResults(results: readonly ProbeResult[]): string[] {
-  const width = Math.max(0, ...results.map((r) => r.id.length));
-  return results.flatMap((r) => {
-    const head = `  ${r.passed ? "PASS" : "FAIL"}  ${r.id.padEnd(width)}  ${r.expectation}`;
-    return r.detail === undefined ? [head] : [head, `        ${" ".repeat(width)}  -> ${r.detail}`];
-  });
-}
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -257,7 +215,7 @@ async function main(): Promise<void> {
           }
         });
 
-        throw new RollbackSignal();
+        throw new RollbackSignal(SCRIPT);
       });
     } catch (e) {
       if (!(e instanceof RollbackSignal)) throw e;

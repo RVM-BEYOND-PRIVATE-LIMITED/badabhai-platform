@@ -80,6 +80,10 @@ function make() {
   };
   const ipRateLimit = {
     assertWithinHourlyIpCap: vi.fn(async () => undefined),
+    // #1035 — the per-SENDER cap (device where the client named one, address otherwise). The
+    // gate that is supposed to trip on the OTP routes; the per-IP one above is now only the
+    // crude network flood ceiling above it.
+    assertWithinHourlySenderCap: vi.fn(async () => undefined),
     // Review L1 — the IP-INDEPENDENT daily backstop on the test-login mint.
     assertWithinGlobalDailyCap: vi.fn(async () => undefined),
   };
@@ -108,7 +112,12 @@ function make() {
   };
   const config = {
     OTP_MAX_SENDS_PER_HOUR: 5,
-    OTP_MAX_SENDS_PER_IP_PER_HOUR: 20,
+    OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: 20,
+    // THREE DISTINCT VALUES ON PURPOSE (#1035 widened the pair to a trio). A per-phone SMS
+    // budget, a per-handset send gate and a per-network flood ceiling are three different
+    // questions, and every one of them has been passed to the wrong limiter at some point in
+    // this file's history. Equal numbers would let the next such swap pass unnoticed.
+    OTP_MAX_SENDS_PER_IP_PER_HOUR: 1000,
     TEST_LOGIN_MAX_PER_DAY: 200,
   } as ServerConfig;
   const controller = new AuthController(
@@ -142,6 +151,20 @@ const reqWith = (overrides: Partial<Request> = {}): Request =>
     ip: "1.2.3.4",
     header: (k: string) => (k === "authorization" ? "Bearer tok" : undefined),
     ...overrides,
+  }) as unknown as Request;
+
+/** A device id of realistic shape — the worker app persists a UUID (`device_id.dart`). */
+const DEVICE = "3f7c1b9a-0d4e-4c62-9a11-77b2c5e8d013";
+
+/**
+ * A request from a real worker-app build: same address as {@link reqWith}, plus the
+ * `X-Device-Id` header `AuthedClient` puts on EVERY request. The pair is what lets these
+ * cases hold the address constant and vary only the handset (#1035).
+ */
+const reqWithDevice = (deviceId: string = DEVICE): Request =>
+  ({
+    ip: "1.2.3.4",
+    header: (k: string) => (k === "x-device-id" ? deviceId : undefined),
   }) as unknown as Request;
 
 /** A request carrying the required Idempotency-Key header for POST /auth/token/refresh. */
@@ -190,34 +213,110 @@ describe("AuthController — consent-on-resume (A5 · ADR-0026 amendment)", () =
 });
 
 describe("AuthController", () => {
-  it("requestOtp applies the per-IP cap FIRST, then delegates the phone", async () => {
+  it("requestOtp applies the sender cap FIRST, then the network cap, then delegates", async () => {
     const { controller, auth, ipRateLimit } = make();
-    await controller.requestOtp({ phone: "+91999" } as never, reqWith(), CTX);
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("otp_request", "1.2.3.4", 20);
+    await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX);
+    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
+      "otp_request",
+      { kind: "device", value: DEVICE },
+      20,
+    );
+    // Its OWN scope, so it cannot collide with the `otp_request` address bucket the
+    // no-device-header fallback still writes into.
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
+      "otp_request_net",
+      "1.2.3.4",
+      1000,
+    );
     expect(auth.requestOtp).toHaveBeenCalledWith("+91999", CTX);
   });
 
-  it("the per-IP cap is the per-IP knob — NEVER the per-phone SMS budget", async () => {
-    // THE REGRESSION THIS LOCKS. The controller passed OTP_MAX_SENDS_PER_HOUR (5) here: a
-    // per-PHONE budget sized against paid SMS spend, silently reused as a per-NETWORK one.
-    // With no reverse proxy in the shipped topology `req.ip` is the NAT egress address, so
-    // that made one office wifi — or one carrier CGNAT pool fronting thousands of Jio /
-    // Airtel subscribers — worth five sign-ins an hour IN TOTAL, and the 429 a locked-out
-    // worker saw was indistinguishable from the platform being down.
-    const { controller, ipRateLimit, config } = make();
-    await controller.requestOtp({ phone: "+91999" } as never, reqWith(), CTX);
-    const cap = (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mock.calls[0]![2];
-    expect(cap).toBe(config.OTP_MAX_SENDS_PER_IP_PER_HOUR);
-    expect(cap).not.toBe(config.OTP_MAX_SENDS_PER_HOUR);
+  it("#1035 — two handsets on ONE wifi do NOT share a bucket", async () => {
+    // THE REPORTED BUG, as an assertion. Keyed on `req.ip` these two requests landed in one
+    // bucket, so a handful of sign-ins on a factory wifi or a carrier CGNAT pool locked
+    // everybody else out — and changing your phone number did nothing, because the number
+    // was never the key. Same address, two device ids, two buckets.
+    const { controller, ipRateLimit } = make();
+    await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice("device-aaa1"), CTX);
+    await controller.requestOtp({ phone: "+91888" } as never, reqWithDevice("device-bbb2"), CTX);
+    const senders = (
+      ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>
+    ).mock.calls.map((c) => c[1]);
+    expect(senders).toEqual([
+      { kind: "device", value: "device-aaa1" },
+      { kind: "device", value: "device-bbb2" },
+    ]);
   });
 
-  it("requestOtp cap rejection blocks the send", async () => {
+  it("#1035 — a client that sends no device id keeps the pre-change per-IP behaviour", async () => {
+    // NOT A LOOPHOLE. An older build, a browser or curl lands in the SAME address bucket at
+    // the SAME number as before this change; only clients that identify a handset get their
+    // own. Dropping the header moves a caller into the shared bucket, which is stricter.
+    const { controller, ipRateLimit, config } = make();
+    await controller.requestOtp({ phone: "+91999" } as never, reqWith(), CTX);
+    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
+      "otp_request",
+      { kind: "ip", value: "1.2.3.4" },
+      config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
+    );
+  });
+
+  it("#1035 — a device id too short to identify a handset falls back to the address", async () => {
+    const { controller, ipRateLimit } = make();
+    await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice("short"), CTX);
+    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
+      "otp_request",
+      { kind: "ip", value: "1.2.3.4" },
+      20,
+    );
+  });
+
+  it("each cap reads its OWN knob — never the per-phone SMS budget", async () => {
+    // THE REGRESSION THIS LOCKS. The controller passed OTP_MAX_SENDS_PER_HOUR (5) to the
+    // per-IP limiter: a per-PHONE budget sized against paid SMS spend, silently reused as a
+    // per-NETWORK one. With no reverse proxy in the shipped topology `req.ip` is the NAT
+    // egress address, so that made one office wifi — or one carrier CGNAT pool fronting
+    // thousands of Jio / Airtel subscribers — worth five sign-ins an hour IN TOTAL, and the
+    // 429 a locked-out worker saw was indistinguishable from the platform being down.
+    //
+    // #1035 adds the third number, and the same swap is available again: the sender gate must
+    // read the per-DEVICE knob and the flood ceiling the per-IP one, never each other's.
+    const { controller, ipRateLimit, config } = make();
+    await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX);
+    const senderCap = (ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>).mock
+      .calls[0]![2];
+    const netCap = (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mock
+      .calls[0]![2];
+    expect(senderCap).toBe(config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR);
+    expect(netCap).toBe(config.OTP_MAX_SENDS_PER_IP_PER_HOUR);
+    expect(senderCap).not.toBe(config.OTP_MAX_SENDS_PER_HOUR);
+    expect(netCap).not.toBe(config.OTP_MAX_SENDS_PER_HOUR);
+    // The flood ceiling must stay far ABOVE the sender gate, or it becomes the thing that
+    // trips for a shared network — the bug, restored under a new name.
+    expect(netCap).toBeGreaterThan(senderCap);
+  });
+
+  it("requestOtp sender-cap rejection blocks the send AND spares the shared bucket", async () => {
+    // Sender first is why the second assertion holds: a handset that has already spent its
+    // allowance must not also charge the ceiling its neighbours are counted against.
+    const { controller, auth, ipRateLimit } = make();
+    (ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ConflictException("cap"),
+    );
+    await expect(
+      controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX),
+    ).rejects.toBeTruthy();
+    expect(auth.requestOtp).not.toHaveBeenCalled();
+    expect(ipRateLimit.assertWithinHourlyIpCap).not.toHaveBeenCalled();
+  });
+
+  it("requestOtp network-cap rejection blocks the send", async () => {
     const { controller, auth, ipRateLimit } = make();
     (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new ConflictException("cap"),
     );
     await expect(
-      controller.requestOtp({ phone: "+91999" } as never, reqWith(), CTX),
+      controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX),
     ).rejects.toBeTruthy();
     expect(auth.requestOtp).not.toHaveBeenCalled();
   });
@@ -275,13 +374,49 @@ describe("AuthController", () => {
 
   // ---- D-3 — POST /auth/test-login (the guard 404s/401s the route; here: handler behaviour) ----
 
-  it("testLogin applies BOTH caps (per-IP hour + global day) BEFORE delegating to the mint seam", async () => {
+  it("testLogin applies ALL THREE caps (sender hour + network hour + global day) BEFORE the mint seam", async () => {
     const { controller, auth, ipRateLimit } = make();
     await controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX);
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("test_login", "1.2.3.4", 20);
+    // No device header on this caller (the e2e smoke does not send one), so the sender
+    // resolves to the address — the pre-#1035 bucket, at the pre-#1035 number.
+    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
+      "test_login",
+      { kind: "ip", value: "1.2.3.4" },
+      20,
+    );
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
+      "test_login_net",
+      "1.2.3.4",
+      1000,
+    );
     // Review L1 — the IP-INDEPENDENT backstop: a token holder rotating IPs is still bounded.
     expect(ipRateLimit.assertWithinGlobalDailyCap).toHaveBeenCalledWith("test_login", 200);
     expect(auth.testLogin).toHaveBeenCalledWith(SYNTHETIC_PHONE, CTX);
+  });
+
+  it("testLogin buckets are the seam's OWN — they never compete with real sign-ins", async () => {
+    // A shared scope would let e2e smoke traffic spend the throttle a real worker signs in
+    // against. Both of this route's per-caller scopes must be distinct from the OTP ones.
+    const { controller, ipRateLimit } = make();
+    await controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWithDevice(), CTX);
+    const senderScope = (ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0];
+    const netScope = (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mock
+      .calls[0]![0];
+    expect(senderScope).toBe("test_login");
+    expect(netScope).toBe("test_login_net");
+    expect(senderScope).not.toBe(netScope);
+  });
+
+  it("testLogin sender cap rejection blocks the mint (fail closed)", async () => {
+    const { controller, auth, ipRateLimit } = make();
+    (ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ConflictException("cap"),
+    );
+    await expect(
+      controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX),
+    ).rejects.toBeTruthy();
+    expect(auth.testLogin).not.toHaveBeenCalled();
   });
 
   it("testLogin per-IP cap rejection blocks the mint (fail closed)", async () => {
@@ -665,9 +800,13 @@ describe("#1019 — POST /auth/otp/request honours Idempotency-Key", () => {
         resend_in_seconds: 30,
       })),
     };
-    const ipRateLimit = { assertWithinHourlyIpCap: vi.fn(async () => undefined) };
+    const ipRateLimit = {
+      assertWithinHourlyIpCap: vi.fn(async () => undefined),
+      assertWithinHourlySenderCap: vi.fn(async () => undefined),
+    };
     const config = {
-      OTP_MAX_SENDS_PER_IP_PER_HOUR: 20,
+      OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: 20,
+      OTP_MAX_SENDS_PER_IP_PER_HOUR: 1000,
       OTP_RESEND_COOLDOWN_SECONDS: 30,
     } as ServerConfig;
 

@@ -8,6 +8,7 @@ import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
+import 'package:badabhai_worker_app/features/chat/presentation/widgets/voice_wave_visualizer.dart';
 import 'package:badabhai_worker_app/features/voice/domain/speech_dictation.dart';
 
 class MockChatRepository extends Mock implements ChatRepository {}
@@ -33,6 +34,10 @@ class FakeSpeechDictation implements SpeechDictation {
   /// TRAILING final the recogniser flushes after the worker tapped Stop.
   void Function(DictationResult result)? lastOnResult;
 
+  /// The last amplitude sink handed to [listen] — a test can push a sequence of
+  /// raw mic samples to exercise the adaptive noise floor.
+  void Function(double level)? lastOnSoundLevel;
+
   @override
   Future<bool> initialize() async {
     initCalls++;
@@ -48,6 +53,7 @@ class FakeSpeechDictation implements SpeechDictation {
     listenCalls++;
     listening = true;
     lastOnResult = onResult;
+    lastOnSoundLevel = onSoundLevel;
     if (emitLevel > 0) onSoundLevel?.call(emitLevel);
     if (emit.isNotEmpty) onResult(DictationResult(emit, isFinal: true));
     if (emit2.isNotEmpty) onResult(DictationResult(emit2, isFinal: true));
@@ -109,6 +115,12 @@ void main() {
 
   String fieldText(WidgetTester tester) =>
       tester.widget<TextField>(find.byType(TextField)).controller!.text;
+
+  /// The normalized 0..1 amplitude the on-screen waveform is currently reading.
+  double waveLevel(WidgetTester tester) => tester
+      .widget<VoiceWaveVisualizer>(find.byType(VoiceWaveVisualizer))
+      .level
+      .value;
 
   /// Tap the mic and pump through initialize()+listen() so the recogniser's
   /// results have been accumulated (but NOT yet placed in the field).
@@ -292,6 +304,71 @@ void main() {
       expect(find.text('pehla doosra'), findsNothing);
     },
   );
+
+  // --- the adaptive noise floor ------------------------------------------
+  //
+  // These workers are in noisy places (a workshop fan, a roadside, a factory
+  // floor). The waveform is only a useful "I am hearing you" cue if ambient
+  // noise stays FLAT and only the voice moves the bars, so the floor's exact
+  // arithmetic is behaviour, not decoration. Raw units are the plugin's Android
+  // RMS scale; the composer seeds the floor ABOVE the first sample, drops it
+  // fast toward a quieter ambient (50/50) and raises it slowly toward a louder
+  // one (90/10), then subtracts a 1.5 squelch and normalizes over a 6.0 span.
+
+  testWidgets(
+    'a cold first sample does NOT slam the bars — the floor seeds ABOVE it',
+    (WidgetTester tester) async {
+      await pumpScreen(tester);
+      await startDictation(tester);
+
+      // First (cold-mic) sample seeds the floor at 5 + 6 = 11.
+      speech.lastOnSoundLevel!(5);
+      expect(waveLevel(tester), 0.0);
+
+      // A loud sample arriving before the floor has settled onto ambient must
+      // still read as quiet — this is precisely the "bars slam full at the start
+      // of a hold" bug the seed-above rule exists to prevent.
+      speech.lastOnSoundLevel!(12);
+      expect(waveLevel(tester), 0.0,
+          reason: 'the floor has not settled onto ambient yet');
+    },
+  );
+
+  testWidgets(
+    'a steady room tone settles to the baseline; a louder voice drives the bars',
+    (WidgetTester tester) async {
+      await pumpScreen(tester);
+      await startDictation(tester);
+
+      // A steady fan at 5.0. The floor seeds to 11 and halves the gap on every
+      // sample (5 + 6/2^k), so after eleven samples it is 5.005859375 — and the
+      // fan itself never clears the squelch.
+      for (int i = 0; i < 11; i++) {
+        speech.lastOnSoundLevel!(5);
+        expect(waveLevel(tester), 0.0,
+            reason: 'a steady ambient tone must keep the bars flat');
+      }
+
+      // Now the worker speaks (12.0). The floor rises only 10% toward it
+      // (5.005859375 * 0.9 + 1.2 = 5.7052734375), so the signal is
+      // 12 - 5.7052734375 - 1.5 = 4.7947265625, normalized over the 6.0 span.
+      speech.lastOnSoundLevel!(12);
+      expect(waveLevel(tester), closeTo(0.79912109375, 0.0005));
+    },
+  );
+
+  testWidgets('a very loud sample clamps at 1.0, never above',
+      (WidgetTester tester) async {
+    await pumpScreen(tester);
+    await startDictation(tester);
+
+    for (int i = 0; i < 11; i++) {
+      speech.lastOnSoundLevel!(5);
+    }
+    speech.lastOnSoundLevel!(100);
+
+    expect(waveLevel(tester), 1.0);
+  });
 
   testWidgets(
     'no recogniser / denied mic → honest notice, composer stays empty, stays Mic',
