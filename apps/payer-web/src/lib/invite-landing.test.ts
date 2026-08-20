@@ -26,7 +26,7 @@ describe("inviteLandingUrl — the shareable link the bridge QR encodes (#607)",
     // no `referral_clicks` row. Attribution survives on `/i/` because that page pings the
     // public click endpoint itself — which is where the resolver's own 302 landed anyway.
     const url = inviteLandingUrl(CODE);
-    expect(url).toBe(`https://app.badabhai.in/i/${CODE}`);
+    expect(url).toBe(`https://payer.43-204-36-199.sslip.io/i/${CODE}`);
     expect(url).not.toContain("/r/");
   });
 
@@ -37,7 +37,7 @@ describe("inviteLandingUrl — the shareable link the bridge QR encodes (#607)",
 
   it("URL-encodes the code, so a hostile path segment cannot escape the `/i/` space", () => {
     expect(inviteLandingUrl("../../evil")).toBe(
-      "https://app.badabhai.in/i/..%2F..%2Fevil",
+      "https://payer.43-204-36-199.sslip.io/i/..%2F..%2Fevil",
     );
   });
 });
