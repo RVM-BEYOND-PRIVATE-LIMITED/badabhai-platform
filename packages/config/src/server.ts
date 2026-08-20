@@ -472,6 +472,36 @@ export const serverEnvSchema = z.object({
   // many DISTINCT numbers may be tried from one network; it does not let any one number be
   // texted more, so the spend ceiling is untouched.
   OTP_MAX_SENDS_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(1000),
+  // THE SAME TWO-TIER SHAPE ON /auth/otp/verify (#1132), and its OWN pair of knobs rather
+  // than a reuse of the send caps above — that reuse reads tidy and is a category error, the
+  // same one the per-IP knob above was split out to fix.
+  //
+  // WHY VERIFY NEEDS A LOOSER NUMBER THAN SEND. Sends and verifies are not one-to-one: each
+  // send licenses up to OTP_MAX_ATTEMPTS (5) verify calls, so a handset INSIDE its send budget
+  // can legitimately produce 20 x 5 = 100 verifies in the same hour. That is where this
+  // default comes from — it is DERIVED from the two constants above, not picked.
+  //
+  // AND WHY THE HEADROOM ON TOP MATTERS. The verify caps run OUTSIDE `runOnce`, deliberately
+  // (see auth.controller.ts): that is the only placement that stops an unauthenticated caller
+  // minting idempotency reservations into a `noeviction` Redis ahead of every control. The
+  // cost of that placement is that `AuthedClient` reuses ONE key across up to three transport
+  // retries, so a single logical verify can spend up to THREE units here, where the send route
+  // — capping inside the guarded work — spends one. A worker on a flaky link mistyping a code
+  // must not exhaust this: being locked out of VERIFY is worse than being locked out of SEND,
+  // because they are holding a valid code they cannot spend.
+  //
+  // THIS IS NOT THE BRUTE-FORCE CONTROL and must not be tightened as though it were. Guessing
+  // one number stays bounded where it already was — `otp:attempts:<phoneHash>` + OTP_MAX_ATTEMPTS
+  // inside OtpService.verify, which is per PHONE and untouched by this. This cap bounds VOLUME
+  // from one handset, nothing else, and a verify costs no SMS and no provider call.
+  OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR: z.coerce.number().int().positive().default(100),
+  // The network backstop above that verify sender gate, at the same ~50x ratio the send pair
+  // uses and for the same reason: this bucket can be an entire CGNAT pool, so the moment it
+  // becomes the binding constraint, workers who merely share a carrier lock each other out
+  // (#1035). Its only job is that one socket cannot trivially flood the verify path. An
+  // attacker reaches any value here by rotating device ids, so a tighter number buys no real
+  // defence while risking that outage. If a real shared network ever hits this, raise it.
+  OTP_MAX_VERIFY_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(5000),
   // Per-phone DAILY send ceiling backstopping the hourly cap: an abuser pacing just
   // under OTP_MAX_SENDS_PER_HOUR could still burn paid SMS all day against one number.
   // Generous default — a legit worker re-logging in stays far below it. Trips the SAME

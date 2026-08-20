@@ -189,19 +189,25 @@ export class AuthController {
     // device the client named via `X-Device-Id`, the address only as a fallback for a caller that
     // sent none. Keyed on `req.ip` this would be the NAT egress / carrier-CGNAT bucket, and a
     // handful of legitimate sign-ins would lock out everyone else behind the same pool — the exact
-    // outage #1035 fixed on the send route. Same two knobs and the same device-then-network order
-    // as the send route; its OWN scopes (`otp_verify` / `otp_verify_net`) so it never competes
-    // with the send buckets, and the rate-limit namespace (`ratelimit:…`) cannot collide with the
-    // idempotency one (`otp_idem:…`).
+    // outage #1035 fixed on the send route. Same device-then-network ORDER as the send
+    // route, but its OWN scopes (`otp_verify` / `otp_verify_net`) and its OWN knobs — a verify
+    // is not a send, and each send licenses up to OTP_MAX_ATTEMPTS of them, so the send budget
+    // is the wrong ceiling here (see the derivation on OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR). The
+    // rate-limit namespace (`ratelimit:…`) cannot collide with the idempotency one (`otp_idem:…`).
+    //
+    // ONE LOGICAL VERIFY CAN SPEND UP TO THREE UNITS, because these run OUTSIDE `runOnce` while
+    // `AuthedClient` reuses one key across three transport retries — the price of capping ahead
+    // of the reservation, and the reason the verify budget carries headroom the send budget does
+    // not need.
     await this.ipRateLimit.assertWithinHourlySenderCap(
       "otp_verify",
       senderOf(req),
-      this.config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
+      this.config.OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR,
     );
     await this.ipRateLimit.assertWithinHourlyIpCap(
       "otp_verify_net",
       req.ip ?? "unknown",
-      this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
+      this.config.OTP_MAX_VERIFY_PER_IP_PER_HOUR,
     );
     return this.otpIdempotency.runOnce({
       scope: "otp_verify",

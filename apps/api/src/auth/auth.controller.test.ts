@@ -113,6 +113,8 @@ function make() {
   };
   const config = {
     OTP_MAX_SENDS_PER_HOUR: 5,
+    OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR: 100,
+    OTP_MAX_VERIFY_PER_IP_PER_HOUR: 5000,
     OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: 20,
     // THREE DISTINCT VALUES ON PURPOSE (#1035 widened the pair to a trio). A per-phone SMS
     // budget, a per-handset send gate and a per-network flood ceiling are three different
@@ -340,13 +342,23 @@ describe("AuthController", () => {
     expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
       "otp_verify",
       { kind: "device", value: DEVICE },
-      config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
+      config.OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR,
     );
     // Its OWN network scope, at the flood-ceiling knob — never the per-device one.
     expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
       "otp_verify_net",
       "1.2.3.4",
-      config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
+      config.OTP_MAX_VERIFY_PER_IP_PER_HOUR,
+    );
+    // ...and its own knobs, NOT the send route's: a verify is not a send, each send licenses up
+    // to OTP_MAX_ATTEMPTS of them, and these run outside `runOnce` so a retry ladder spends
+    // three units where the send route spends one. Reusing the send budget would lock a worker
+    // out of spending a code they are already holding.
+    expect(config.OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR).not.toBe(
+      config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
+    );
+    expect(config.OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR).toBeGreaterThan(
+      config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
     );
   });
 
@@ -1120,8 +1132,13 @@ describe("#1132 — /auth/otp/verify device-first cap, ahead of the idempotency 
     };
     const consents = { findLatestByWorker: vi.fn(async () => ({ revokedAt: null })) };
     const config = {
-      OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: deviceCap,
-      OTP_MAX_SENDS_PER_IP_PER_HOUR: 1000,
+      // The SEND knobs are set to a sentinel deliberately far from `deviceCap`: if verifyOtp
+      // ever reads them again instead of its own pair, every cap assertion in this block stops
+      // tripping and fails loudly, rather than passing for the wrong reason.
+      OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: 9999,
+      OTP_MAX_SENDS_PER_IP_PER_HOUR: 9999,
+      OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR: deviceCap,
+      OTP_MAX_VERIFY_PER_IP_PER_HOUR: 1000,
     } as ServerConfig;
 
     const controller = new AuthController(
@@ -1177,6 +1194,30 @@ describe("#1132 — /auth/otp/verify device-first cap, ahead of the idempotency 
     // Device B, on the SAME address, is untouched: two clean verifies, no 429.
     await expect(controller.verifyOtp(body, reqWithDevice("device-bbb2"), CTX)).resolves.toBeTruthy();
     await expect(controller.verifyOtp(body, reqWithDevice("device-bbb2"), CTX)).resolves.toBeTruthy();
+  });
+
+  it("(d) verify spends its OWN budget — the send buckets are untouched, at its own cap", async () => {
+    // TWO PROPERTIES, both regressions waiting to happen if someone "tidies" the knobs back
+    // together. (1) The verify caps read OTP_MAX_VERIFY_* — the harness sets the SEND knobs to
+    // 9999, so a route reading those would never trip at all and (a) plus the 429 below would
+    // both go green-but-wrong. (2) The buckets are scoped `otp_verify` / `otp_verify_net`, so
+    // burning the verify budget does NOT spend the send budget: a worker throttled on verify
+    // can still request a fresh code, which is the whole point of separating them.
+    const { controller, store } = harness(2);
+    await controller.verifyOtp(body, reqWithDevice("device-ddd4"), CTX);
+    await controller.verifyOtp(body, reqWithDevice("device-ddd4"), CTX);
+    await expect(
+      controller.verifyOtp(body, reqWithDevice("device-ddd4"), CTX),
+    ).rejects.toMatchObject({ status: 429 });
+
+    const rateKeys = [...store.keys()].filter((k) => k.startsWith("ratelimit:"));
+    // The device tier counted under the VERIFY scope...
+    expect(rateKeys.some((k) => k.startsWith("ratelimit:dev:otp_verify:"))).toBe(true);
+    // ...the network tier under its own...
+    expect(rateKeys.some((k) => k.startsWith("ratelimit:ip:otp_verify_net:"))).toBe(true);
+    // ...and NOTHING landed in the send route's buckets, so the code-request path is unspent.
+    expect(rateKeys.some((k) => k.includes(":otp_request:"))).toBe(false);
+    expect(rateKeys.some((k) => k.includes(":otp_request_net:"))).toBe(false);
   });
 
   it("(c) a throttled verify writes NO idempotency reservation (the limiter runs BEFORE runOnce)", async () => {
