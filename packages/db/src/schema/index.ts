@@ -111,6 +111,12 @@ import {
   pushDeliveries,
   workerFlags,
 } from "./ops";
+import {
+  agencyProfiles,
+  employerProfiles,
+  payerCapabilities,
+  payerMemberInvites,
+} from "./payer-onboarding";
 import { platformAiCostTotals, sessionAiCostTotals, workerAiCostTotals } from "./ai-cost";
 import { workerFeedback } from "./feedback";
 import { aiCallTraces } from "./ai-trace";
@@ -129,6 +135,7 @@ export * from "./payer";
 export * from "./match";
 export * from "./referral";
 export * from "./ops";
+export * from "./payer-onboarding";
 export * from "./ai-cost";
 export * from "./feedback";
 export * from "./ai-trace";
@@ -346,4 +353,9 @@ export const schema = {
   platformAiCostTotals,
   workerFeedback,
   aiCallTraces,
+  // GAP-DB-21 — declared 2026-08-20 (owner ruling: keep and model). Nothing reads them.
+  agencyProfiles,
+  employerProfiles,
+  payerCapabilities,
+  payerMemberInvites,
 };

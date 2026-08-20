@@ -23,7 +23,7 @@
 | 3 | TD-01 seeding | **D2 — seed + embed, then promote**, trainer cases handled as specified. | sequenced; awaiting owner run |
 | 4 | `EVAL_COVERED` | **E1 — keep the stricter promotion gate.** | **shipped**; 6 cases await a trainer |
 | 5 | OIE canonicalization | **O2 now, O1 as the eventual proper fix.** | **shipped**; measured 0% coverage — O1 is now the whole fix |
-| 6 | four unmodelled tables | **Keep and model them. Do not drop.** | shipped (declaration) |
+| 6 | four unmodelled tables | **Keep and model them. Do not drop.** | **shipped** — model + migration `0084`, unapplied |
 
 Two constraints applied across all six:
 
@@ -181,6 +181,80 @@ code, and the request returns to its exact three keys.
 
 ---
 
+## 6 — the four unmodelled tables: kept and modelled
+
+**Ruling:** keep them, model them, do not drop. This **reverses** `0082`'s own recorded
+recommendation (*"DROP IS THE BETTER END STATE, AND IS NOT THIS MIGRATION"*), and the reversal
+is the point: dropping is the only irreversible option available, and it buys nothing measurable
+against tables that hold 0 rows, carry 0 inbound FKs, and are already locked.
+
+**What shipped.**
+
+| | |
+|---|---|
+| model | `packages/db/src/schema/payer-onboarding.ts` — all four, matching the live catalog name for name |
+| migration | `0084_model_gap_db_21_payer_onboarding` — creates them where they are absent, no-ops where they are not |
+| contract | four `rls` entries in `SCHEMA_REQUIREMENTS`, which the manifest could not carry while they existed on production alone |
+| e2e | added to `rls-spine.e2e.test.ts`'s `LOCKED_TABLES`, which used to exclude them in prose |
+| adoption | an effect verifier keyed to the tag, for the one `to_regclass`-guarded statement |
+
+**Constraint names are the LIVE ones** (`_fkey` / `_check` / `_key`), not Drizzle's `_fk`
+convention, because `adopt-migrations.ts` verifies constraints against the live catalog by name.
+A Drizzle-flavoured name would have made the migration unadoptable against the single database
+that already has these constraints.
+
+**The one thing not modelled:** `payer_member_invites.accepted_by_user_id → auth.users(id)`.
+That schema is Supabase's and does not exist on a plain Postgres, and declaring it in Drizzle
+would make Drizzle try to CREATE it. The column is modelled; the constraint lives in the
+migration behind a `to_regclass('auth.users')` guard. The model holds what is portable, the
+migration holds what is environment-specific.
+
+### Verified against production, read-only, before merge
+
+```
+adopt-migrations --only=0084_model_gap_db_21_payer_onboarding
+  -> clean=1  mismatched=0   (full static parse + 24 effect assertions)
+```
+
+That is a proof, not a claim: every table, column, index, constraint, RLS state and grant the
+migration declares already matches production object for object. **Applying it there changes
+nothing.**
+
+### What modelling immediately found
+
+**Two encrypted columns were unrotatable and nothing could say so.**
+`employer_profiles.gst_number_enc` and `payer_member_invites.invited_email_enc` have held
+`encryptPii` tokens since the tables were created out of band. The key-rotation coverage guard
+derives its column list from the SCHEMA, so while no schema file described these tables the
+guard passed — and a `kid` those columns depended on could never have been retired, with nothing
+anywhere to explain why. Declaring the tables failed that test on the first run. Both are now
+re-encrypt targets, which costs nothing today (0 rows) and makes the first row ever written
+rotatable.
+
+That is the argument for modelling over dropping, made concrete: the gap was invisible
+*because* the tables were undeclared.
+
+### Two hazards this hit, both worth remembering
+
+1. **The slot collision.** Minted as `0083`; `#1130` took that number and landed on `main`
+   mid-flight — the fifth collision this repository has recorded. Regenerated, not renamed, so
+   the snapshot chain stays unbroken.
+2. **The high-water mark, again.** `drizzle-kit` stamped this file at `1787226261060`, BELOW
+   `0083_ai_call_traces`'s `1787230000000`. Left alone the migrator would have skipped it
+   **silently and permanently** — no error, no output, just a fresh database that never gets the
+   four tables. Hand-raised to `1787240000000`, and pinned by a test.
+
+**And it explains the orphan.** `--doctor` had been reporting an unexplained recorded row at
+`created_at = 1787230000000`, read as "a checkout that never reached `main`". It was
+`0083_ai_call_traces`, applied to production ahead of its own PR. `--doctor` now reports
+**0 orphans**.
+
+**Rollback.** `DROP TABLE` is *not* the rollback: on production these tables predate the
+migration. Revert the schema file and the migration in git; on a fresh database, where they were
+genuinely created here, drop all four.
+
+---
+
 ## Owner actions still outstanding
 
 Nothing on this row list has been executed. Each is a production mutation.
@@ -188,6 +262,7 @@ Nothing on this row list has been executed. Each is a production mutation.
 | what | why it needs the owner | where it is written down |
 |---|---|---|
 | the TD-01 seed + embed + promote run | writes to production, and seeding creates Path A behaviour that no flag reverses | see the D2 section, added with that work |
+| apply migration `0084` | it is a no-op on production and verified as one, but it is still a migration against the live database | `MIGRATIONS.md`, the `0084` row |
 | six trainer phrases for the E1-demoted skills | ground truth a trade trainer must author; engineering writing them would re-open the hole E1 closed | `e1-eval-coverage-trainer-pack.md`, and Part 3 of the trainer worksheet |
 
 ---
@@ -198,4 +273,5 @@ Nothing on this row list has been executed. Each is a production mutation.
 |---|---|
 | 2026-08-20 | Record opened. Ruling on all six recorded; TD-07 T4 shipped. |
 | 2026-08-20 | `EVAL_COVERED` E1 shipped, with the trainer pack for the six skills it demotes. |
+| 2026-08-20 | GAP-DB-21 modelled: schema file + migration `0084`, verified read-only against production as a no-op. Found two unrotatable encrypted columns on the way. |
 | 2026-08-20 | OIE O2 shipped with its coverage report. Measured **0.00%** on n=92 — the covered population is empty and structurally so, and O1 now carries the whole decision. |

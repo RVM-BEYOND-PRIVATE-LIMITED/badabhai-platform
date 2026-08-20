@@ -323,8 +323,22 @@ describe("effect verifiers — the one narrow way past the dynamic-SQL refusal",
     expect(v!.assertions).toBe(R39_TABLES.length * (2 + DATA_API_ROLES.length));
   });
 
-  it("registers NOTHING else — the hatch is per-migration, not a general relaxation", () => {
-    expect(EFFECT_VERIFIERS.map((v) => v.tag)).toEqual([TAG]);
+  it("registers ONLY the migrations that genuinely need it — per-migration, not a relaxation", () => {
+    // The list is asserted EXACTLY, not by membership: the hatch's whole safety argument is
+    // that it is opened one migration at a time, for a stated reason, and an assertion that
+    // merely checks 0082 is present would let a general relaxation land beside it unnoticed.
+    //
+    // 0084 joined it because its `auth.users` foreign key is `to_regclass`-guarded — that
+    // schema exists on Supabase and nowhere else — while everything else in the file is plain
+    // text the static parse still checks in full.
+    expect(EFFECT_VERIFIERS.map((v) => v.tag)).toEqual([
+      TAG,
+      "0084_model_gap_db_21_payer_onboarding",
+    ]);
+    for (const v of EFFECT_VERIFIERS) {
+      expect(v.assertions).toBeGreaterThan(0);
+      expect(v.why.length).toBeGreaterThan(20);
+    }
   });
 
   it("still refuses dynamic SQL when the migration has no verifier", () => {
@@ -365,8 +379,8 @@ describe("effect verifiers — the one narrow way past the dynamic-SQL refusal",
     // Section B's tables appear ONLY inside the DO block, so `parseMigration` cannot see them.
     // If the verifier did not name them, adopting 0082 would assert nothing about four of seven.
     const parsed = parseMigration(read(TAG));
-    const unmodelled = R39_TABLES.filter((t) => t.cls === "unmodelled").map((t) => t.table);
-    for (const t of unmodelled) {
+    const sectionB = R39_TABLES.filter((t) => t.cls === "declared-by-0084").map((t) => t.table);
+    for (const t of sectionB) {
       expect([...parsed.rlsForced]).not.toContain(t);
       const live = locked();
       const forced = new Set(live.rlsForced);

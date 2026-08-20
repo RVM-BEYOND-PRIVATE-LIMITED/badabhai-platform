@@ -78,9 +78,10 @@ const scalar = <T,>(rows: readonly T[], what: string): T => scalarRow(rows, what
  * EFFECTS (its Section B is dynamic SQL and cannot be read off the file). Re-exported here so
  * this runner stays the obvious place to read them from.
  *
- * The `unmodelled` half (GAP-DB-21) exists on production and in no migration and no schema
- * file, so absence is the CORRECT state everywhere else and this runner reports it as
- * `skipped`, never as a pass.
+ * The `declared-by-0084` half was GAP-DB-21 — production-only, in no migration and no schema
+ * file — until the owner ruled on 2026-08-20 to model them. Absence is now the state of a
+ * database that has not applied `0084` yet rather than a permanent property, and this runner
+ * still reports it as `skipped`, never as a pass.
  */
 export { R39_TABLES };
 export type { R39Table, R39Class } from "./schema-contract";
@@ -212,8 +213,8 @@ async function main(): Promise<void> {
         for (const { table, cls } of R39_TABLES) {
           const state = before.get(table);
           if (state?.exists !== true) {
-            if (cls === "unmodelled") {
-              skipped.push(`${table} (absent — expected on every database but production)`);
+            if (cls === "declared-by-0084") {
+              skipped.push(`${table} (absent — this database has not applied 0083 yet)`);
               continue;
             }
             add(`${table}:lock-takes`, false, "table does not exist, but migration 0048 declares it");

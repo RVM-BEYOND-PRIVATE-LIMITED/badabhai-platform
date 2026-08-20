@@ -328,10 +328,46 @@ function r39LockProblems(live: LiveCatalog): string[] {
   const problems: string[] = [];
   for (const { table } of R39_TABLES) {
     if (!live.tables.has(table)) {
-      // Absent is not a pass. On a fresh database the four unmodelled tables genuinely are not
-      // there — but adoption only ever runs against a database claimed to ALREADY have the
-      // migration's effects, and "the table 0082 locks is missing" is never that.
+      // Absent is not a pass. On a database that has not applied `0084`, the four
+      // `declared-by-0084` tables genuinely are not there — but adoption only ever runs against
+      // a database claimed to ALREADY have the migration's effects, and "the table 0082 locks
+      // is missing" is never that.
       problems.push(`${table}: table MISSING — 0082 locks it, so it cannot already be applied here`);
+      continue;
+    }
+    if (!live.rlsEnabled.has(table)) problems.push(`${table}: RLS is not ENABLED`);
+    if (!live.rlsForced.has(table)) problems.push(`${table}: RLS is not FORCED — the owner bypasses every policy`);
+    for (const role of DATA_API_ROLES) {
+      if (live.grants.has(`${table}:${role.toLowerCase()}`)) {
+        problems.push(`${table}: ${role} still holds a privilege — the REVOKE did not take`);
+      }
+    }
+  }
+  return problems;
+}
+
+/** The four `0084` creates and locks — the GAP-DB-21 half of the R39 list. */
+const GAP_DB_21_TABLES = R39_TABLES.filter((t) => t.cls === "declared-by-0084");
+
+/**
+ * `0084` creates the four GAP-DB-21 tables and locks them, and its ONE dynamic statement is the
+ * `auth.users` foreign key — guarded by `to_regclass` because that schema exists on Supabase and
+ * nowhere else.
+ *
+ * WHAT THIS VERIFIES, AND WHAT IT DELIBERATELY DOES NOT. It asserts the four tables exist and
+ * are locked, from the catalog. It does NOT assert the `auth.users` FK: whether that constraint
+ * should be present is a property of the ENVIRONMENT, not of whether the migration ran, so
+ * requiring it would make 0084 unadoptable on exactly the databases where it correctly did
+ * nothing. The static parse still covers everything else in the file — every CREATE TABLE,
+ * every index, every payer FK, every FORCE and every REVOKE is plain text and checked as usual.
+ *
+ * This verifier runs IN ADDITION to that parse, never instead of it.
+ */
+function gapDb21CreateLockProblems(live: LiveCatalog): string[] {
+  const problems: string[] = [];
+  for (const { table } of GAP_DB_21_TABLES) {
+    if (!live.tables.has(table)) {
+      problems.push(`${table}: table MISSING — 0084 creates it, so it cannot already be applied here`);
       continue;
     }
     if (!live.rlsEnabled.has(table)) problems.push(`${table}: RLS is not ENABLED`);
@@ -352,6 +388,12 @@ export const EFFECT_VERIFIERS: readonly EffectVerifier[] = [
     why: "Section B locks four GAP-DB-21 tables through a to_regclass-guarded DO block",
     assertions: R39_TABLES.length * (2 + DATA_API_ROLES.length),
     verify: r39LockProblems,
+  },
+  {
+    tag: "0084_model_gap_db_21_payer_onboarding",
+    why: "the auth.users foreign key is guarded by to_regclass — present on Supabase, absent elsewhere",
+    assertions: GAP_DB_21_TABLES.length * (2 + DATA_API_ROLES.length),
+    verify: gapDb21CreateLockProblems,
   },
 ];
 
