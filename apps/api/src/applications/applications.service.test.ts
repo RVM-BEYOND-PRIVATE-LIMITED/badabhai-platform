@@ -482,3 +482,93 @@ describe("ApplicationsService — MATCH_V1_ENABLED=false keeps the legacy path",
     expect(names).not.toContain("feed.shown_v2");
   });
 });
+
+/**
+ * #1051 — THE SEAM WHERE AN INTERNAL ID BECOMES SOMETHING A WORKER MAY READ.
+ *
+ * The repository projects `job_reach.matched_skill_id` because a V1 decision has no other
+ * source for its subtitle: `job_postings` carries no trade key, so `trade_key` is NULL for
+ * every one of them. Turning that id into a human string is a closed-set taxonomy lookup, and
+ * it happens HERE. Two failures are possible on this line and each has already happened once
+ * in this codebase:
+ *
+ *   - send nothing, and the client renders a place with no trade (#1051 — all 17 live cards);
+ *   - send the id, and the client renders `mskill_mig_welder` in the reading position of a job
+ *     title (#1027 — the risk the label exists to remove).
+ *
+ * `trade_key` deliberately keeps carrying the raw internal key: it is the audit-trail value,
+ * clients are contractually told not to render it, and the worker app now refuses to.
+ */
+describe("applicationsForWorker — matched_skill_label (#1051)", () => {
+  const ROW = {
+    jobId: JOB_ID,
+    tradeKey: null as string | null,
+    title: "Welder — Day Shift",
+    city: "Pune",
+    area: null,
+    action: "applied" as const,
+    reason: null,
+    sourceSurface: "match_v1" as const,
+    rank: 1,
+    createdAt: new Date("2026-06-01T00:00:00Z"),
+    updatedAt: new Date("2026-06-01T00:00:00Z"),
+    matchedSkillId: null as string | null,
+  };
+
+  function serviceReturning(rows: Array<typeof ROW>) {
+    const repo = { findApplicationsByWorker: vi.fn(async () => rows) };
+    return new ApplicationsService(
+      repo as unknown as ApplicationsRepository,
+      {} as unknown as EventsService,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+  }
+
+  it("resolves a known match-skill id to its human label", async () => {
+    const svc = serviceReturning([{ ...ROW, matchedSkillId: "mskill_mig_welder" }]);
+    const out = await svc.applicationsForWorker(WORKER_ID);
+
+    expect(out.applications[0]!.matched_skill_label).toBe("MIG Welder");
+  });
+
+  it("is null for a legacy decision, which has no reach row at all", async () => {
+    const svc = serviceReturning([{ ...ROW, tradeKey: "cnc_operator", matchedSkillId: null }]);
+    const out = await svc.applicationsForWorker(WORKER_ID);
+
+    // Null, not "" and not the trade key: the client falls back to `trade_key` itself for a
+    // legacy row, and it can only do that if it can tell there is no label.
+    expect(out.applications[0]!.matched_skill_label).toBeNull();
+    expect(out.applications[0]!.trade_key).toBe("cnc_operator");
+  });
+
+  it("is null — never the id — for an id the taxonomy does not know", async () => {
+    // THE FAIL-CLOSED CASE. `matchSkillLabel` returns undefined for an unknown id, and the
+    // tempting `?? id` would put `mskill_something_new` straight onto a worker's card the
+    // first time the corpus and the reach table disagree.
+    const svc = serviceReturning([{ ...ROW, matchedSkillId: "mskill_not_in_the_corpus" }]);
+    const out = await svc.applicationsForWorker(WORKER_ID);
+
+    expect(out.applications[0]!.matched_skill_label).toBeNull();
+  });
+
+  it("puts no `mskill_` id anywhere a client could render it", async () => {
+    // `trade_key` is exempt BY CONTRACT — it is the internal key, and it is NULL for V1 rows
+    // anyway. Every other field is fair game for a subtitle, so none may carry an id.
+    const svc = serviceReturning([{ ...ROW, matchedSkillId: "mskill_mig_welder" }]);
+    const out = await svc.applicationsForWorker(WORKER_ID);
+    const { trade_key: _tradeKey, ...renderable } = out.applications[0]!;
+
+    expect(JSON.stringify(renderable)).not.toContain("mskill_");
+  });
+
+  it("sends the key at all — the #1051 regression was the field being absent", async () => {
+    // The worker app reads `json['matched_skill_label']`. A response that omits the key parses
+    // to null forever and the preferred branch is dead code, which is exactly what happened.
+    const svc = serviceReturning([{ ...ROW, matchedSkillId: "mskill_mig_welder" }]);
+    const out = await svc.applicationsForWorker(WORKER_ID);
+
+    expect(Object.keys(out.applications[0]!)).toContain("matched_skill_label");
+  });
+});
