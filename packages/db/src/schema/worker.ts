@@ -40,9 +40,20 @@ export const workers = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     phoneE164: text("phone_e164").notNull(), // AES-256-GCM ciphertext token (see above)
     phoneHash: text("phone_hash").notNull(), // keyed HMAC-SHA256
-    // NOTE: full_name is also raw PII. It has no write site yet (nullable, unused
-    // in Phase 1). It MUST be encrypted with encryptPii (like phone_e164) before
-    // any code writes a real name here — do not store a name in plaintext.
+    // full_name is raw PII, and — like phone_e164 — this column holds AES-256-GCM
+    // CIPHERTEXT (an `encryptPii` token), never a readable name. The column name is
+    // kept for migration safety.
+    //
+    // WRITE SITE (exactly one): WorkersService.setFullName encrypts via
+    // PiiCryptoService.encrypt and hands the token to WorkersRepository.updateFullName;
+    // the plaintext never reaches the DB and never enters `worker.name_recorded`, which
+    // carries only `worker_id`. The seeds encrypt too (`seed-reach-pool.ts`).
+    //
+    // READ SITES all decrypt at a boundary and DEGRADE to a null name on failure —
+    // resume render/fields, the disclosure masker (initials only), the chat greeting,
+    // the profiling redactor, and the admin console's `AdminIdentityRepository`
+    // (capability + egress cap + audit-before-decrypt; owner ruling 2026-08-18).
+    // Nullable: a worker who has never been asked for a name is the common state.
     fullName: text("full_name"),
     preferredLanguage: text("preferred_language").$type<LanguageCode>(),
     // Worker-controlled resume display prefs (the "Aap control karte hain" edit

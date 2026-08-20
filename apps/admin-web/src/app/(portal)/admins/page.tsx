@@ -1,8 +1,12 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
+import { can } from "../../../lib/auth/capabilities";
 import { listAdmins } from "../../../lib/entities";
+import { identityPosture } from "../../../lib/identity";
 import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
+import { NameCell } from "../../../components/name-cell";
+import { IdentityCapNotice } from "../../../components/identity-notice";
 import { InviteAdminForm } from "./invite-admin-form";
 import { AdminRowActions } from "./admin-row-actions";
 
@@ -12,23 +16,38 @@ export const metadata = { title: "Admin users" };
 /**
  * Admin users — a security-audit view of who holds access.
  *
- * ── WHY THERE IS NO NAME OR EMAIL COLUMN ────────────────────────────────────────────────
- * `admin_users.email_enc` and `name_enc` are AES-256-GCM ciphertext at rest, and no route on
- * this platform has ever decrypted ANOTHER admin's identity. Serving them here would be a new
- * cross-actor PII path and would turn one screen into the complete admin address book, so it
- * was escalated rather than assumed. **Owner ruling, 2026-08-04: faceless.**
+ * ── NAMES YES, EMAILS NO, AND BOTH HALVES ARE OWNER RULINGS ─────────────────────────────
+ * `admin_users.email_enc` and `name_enc` are both AES-256-GCM ciphertext at rest. The 2026-08-04
+ * ruling made this screen entirely faceless; the CTO REVERSED the name half on 2026-08-18,
+ * because a directory of uuids cannot answer the question people actually open it with — "who is
+ * this account?". So the Name column is served behind `read_identity`, capped and audited like
+ * every other name on this console.
  *
- * That is not a crippled screen, because the questions this page exists to answer are
- * security questions and none of them need a name:
+ * The EMAIL half stands, and nothing here has reversed it. It is the one that would turn this
+ * screen into the complete admin ADDRESS BOOK — a phishing target list for precisely the accounts
+ * with the most reach — so there is no email column, no email in the row shape, and no
+ * `mfa_secret_enc` ever.
+ *
+ * A null name is COMMON on this screen rather than exceptional: the invite flow does not collect
+ * one, so an account invited and never named renders the dash. That is why the screen's own
+ * questions are still framed around role, MFA and recency, all of which were always answerable
+ * without a name and none of which a name changes:
  *   - how many people hold `super_admin`, and is that number 1 (a lockout risk) or many
  *     (an over-privilege smell)
  *   - who has never enrolled a second factor
  *   - who has never logged in, or has gone quiet
  *   - who is still `pending` long after being invited
  *
- * The admin id is the join to everything else — it is the `actor_id` on every
+ * The admin id remains the join to everything else — it is the `actor_id` on every
  * `admin.action_performed` event — so the id cell links straight to that account's slice of
  * the audit spine, and the header links to the whole `admin.action_performed` stream.
+ *
+ * ── THE ONE POSTURE THAT IS SPECIAL HERE ────────────────────────────────────────────────
+ * This route is deliberately UNPAGINATED, so above the server's 50-name response bound it serves
+ * every row faceless rather than naming the first fifty (which would report the rest as "no name
+ * on record") or truncating the audit list to fifty (which would drop admin accounts off the one
+ * screen that exists to enumerate them). So the CAPPED banner here has two possible causes, and
+ * it names both rather than asserting the wrong one.
  *
  * ── WHY THERE IS NO IN-PAGE `can(...)` GATE HERE ────────────────────────────────────────
  * `session.ts` guides page-level `requireCapability` for whole pages and `can(...)` for
@@ -49,7 +68,7 @@ export default async function AdminsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireCapability("manage_admins");
+  const session = await requireCapability("manage_admins");
 
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) =>
@@ -78,14 +97,19 @@ export default async function AdminsPage({
   const neverLoggedIn = admins.filter((a) => a.last_login_at === null).length;
   const supers = directory?.active_super_admins ?? 0;
 
+  const posture = identityPosture(admins, "name", can(session.capabilities, "read_identity"));
+
   return (
     <div className="page">
       <header className="page__head">
         <div>
           <h1 className="page__title">Admin users</h1>
           <p className="page__sub">
-            Who holds access to this portal. Names and emails are encrypted at rest and are
-            deliberately not shown — the id is the handle, and it appears on every audit event.
+            Who holds access to this portal.{" "}
+            {posture === "faceless"
+              ? "Names are not served to your role and emails are served to no role at all"
+              : "Names are shown to your role and every read of one is audited; emails stay encrypted and are served to no role at all"}{" "}
+            — the id is the handle, and it appears on every audit event.
           </p>
         </div>
         {/* The way back to the audit spine. Every governed admin action emits an
@@ -97,6 +121,15 @@ export default async function AdminsPage({
           </Link>
         </div>
       </header>
+
+      {posture === "capped" && (
+        <IdentityCapNotice>
+          Your role may see them, so this is a limit on the read: either this admin account has
+          spent its hourly name budget, or this directory now holds more than the 50 accounts a
+          single response may name — this route is unpaginated, so it serves every row without a
+          name rather than naming only some of them.
+        </IdentityCapNotice>
+      )}
 
       {/* The two failure modes of a super_admin population, neither visible from a row. */}
       {directory && supers === 1 && (
@@ -208,6 +241,10 @@ export default async function AdminsPage({
               <caption className="sr-only">Admin accounts, oldest first</caption>
               <thead>
                 <tr>
+                  {/* Named posture only. Here the dash is the ordinary case — an invited
+                      account nobody has named — which is exactly why it must not also be
+                      made to mean "withheld from you". */}
+                  {posture === "named" && <th scope="col">Name</th>}
                   <th scope="col">Admin</th>
                   <th scope="col">Role</th>
                   <th scope="col">Status</th>
@@ -220,6 +257,14 @@ export default async function AdminsPage({
               <tbody>
                 {admins.map((a) => (
                   <tr key={a.id}>
+                    {posture === "named" && (
+                      <td>
+                        <NameCell value={a.name} />
+                        {/* "you" moves onto the name cell when there is one: it belongs
+                            beside whatever this row's primary label is. */}
+                        {a.is_self && <span className="table__meta">you</span>}
+                      </td>
+                    )}
                     <td>
                       {/* Every OTHER entity now has a per-entity timeline route; admins do
                           not, and deliberately so — `admin_session` is absent from
@@ -237,7 +282,9 @@ export default async function AdminsPage({
                       >
                         {shortId(a.id)}
                       </Link>
-                      {a.is_self && <span className="table__meta">you</span>}
+                      {a.is_self && posture !== "named" && (
+                        <span className="table__meta">you</span>
+                      )}
                     </td>
                     <td>
                       {/* Explicit tone: super_admin is not a "good" state, it is the most

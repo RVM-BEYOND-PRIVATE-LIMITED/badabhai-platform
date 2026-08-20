@@ -1,8 +1,11 @@
 import Link from "next/link";
 import type { JobPostingListItem, PayerDetail } from "../lib/entities";
+import { NAME_UNREADABLE, displayName, identityPosture } from "../lib/identity";
 import { formatCount, formatRelative, formatTimestamp, shortId } from "../lib/format";
 import { can, type AdminCapability } from "../lib/auth/capabilities";
 import { StatusPill } from "./status-pill";
+import { NameCell } from "./name-cell";
+import { IdentityCapNotice } from "./identity-notice";
 import { DetailList } from "./detail-list";
 import { PayerDetailHeader } from "./payer-detail-header";
 import { PayerCreditsPanel } from "./payer-credits-panel";
@@ -10,12 +13,17 @@ import { PayerCreditsPanel } from "./payer-credits-panel";
 /**
  * One payer account — shared by Companies and Agencies, which differ only by `role`.
  *
- * The org labels shown here are read off this payer's OWN job postings (`org_label`), not
- * decrypted from the account. That distinction is stated on the page rather than smoothed
- * over: it is poster-typed free text, it can vary between postings, and it is not a
- * verified legal name. Presenting it as "Company name" would invite an operator to act on
- * it as identity — which is exactly the mistake worth preventing on a screen that sits
- * next to a suspend button.
+ * ── TWO NAMES, AND THEY ARE NOT THE SAME NAME ───────────────────────────────────────────
+ * `org_name` is the account's REGISTERED organisation name, decrypted for this response behind
+ * `read_identity` (owner ruling 2026-08-18). The org LABELS further down are read off this
+ * payer's own job postings — poster-typed free text that can vary between postings and that
+ * every worker already sees in the feed.
+ *
+ * They are shown as two separate things, not merged, because they answer different questions and
+ * disagreeing is the interesting case: an account registered as one entity and publishing under
+ * another is exactly the shape of the spam an operator opens this screen to act on. Neither is a
+ * verified legal name, and the page says so about both — on a screen that sits next to a suspend
+ * button, "acting on identity" should never rest on a self-declared string alone.
  */
 export function PayerDetailView({
   payer,
@@ -37,6 +45,10 @@ export function PayerDetailView({
   // resolves to the section's own timeline page rather than the subject-type-wide feed.
   const timelineHref = `${backHref}/${payer.id}/timeline`;
 
+  // One record, so the posture is read off this single row.
+  const posture = identityPosture([payer], "org_name", can(capabilities, "read_identity"));
+  const orgName = displayName(payer.org_name);
+
   const title = (
     <div>
       <p className="page__eyebrow">
@@ -44,10 +56,13 @@ export function PayerDetailView({
           {kind === "Company" ? "Companies" : "Agencies"}
         </Link>
       </p>
-      <h1 className="page__title mono">{shortId(payer.id)}</h1>
+      {/* The id keeps its `mono` treatment; an organisation name does not get one. */}
+      <h1 className={orgName === null ? "page__title mono" : "page__title"}>
+        {orgName ?? shortId(payer.id)}
+      </h1>
       <p className="page__sub">
         One {kind === "Company" ? "employer" : "agency"} account — what it has posted and
-        spent, not who registered it.{" "}
+        spent{orgName === null ? ", not who registered it" : ""}.{" "}
         {labels.length > 0 ? (
           <>
             Publishes as <strong>{labels.slice(0, 3).join(", ")}</strong>
@@ -71,6 +86,13 @@ export function PayerDetailView({
         timelineHref={timelineHref}
       />
 
+      {posture === "capped" && (
+        <IdentityCapNotice>
+          Your role may see this account&apos;s registered name, so the heading above falls back
+          to its id: this admin account has spent its hourly name budget.
+        </IdentityCapNotice>
+      )}
+
       {payer.status === "suspended" && (
         <section className="notice notice--bad" role="status">
           <strong>Suspended.</strong> Their postings are hidden from the worker feed and
@@ -86,13 +108,29 @@ export function PayerDetailView({
             <h2 className="panel__title" id="p-record">
               Account
             </h2>
+            {/* THREE-VALUED, like the posture — see the worker detail page for the bug this
+                shape replaces: a capped response asserting a name had been decrypted, directly
+                under the banner saying none had. */}
             <p className="panel__sub">
-              Email, phone and registered organisation name are encrypted at rest and are
-              not served to this portal.
+              {posture === "faceless"
+                ? "The registered organisation name is not served to your role. Email and phone are encrypted at rest and are served to no role at all."
+                : posture === "capped"
+                  ? "No registered name was decrypted for this response — see above. Email and phone are encrypted at rest and are served to no role at all."
+                  : "The registered name is decrypted for this response only. Email and phone are encrypted at rest and are served to no role at all."}
             </p>
           </div>
           <DetailList
             items={[
+              // Present only in the `named` posture — see `lib/identity.ts`.
+              ...(posture === "named"
+                ? [
+                    {
+                      label: "Registered name",
+                      // `org_name_enc` is NOT NULL — a dash is unreadable, not unrecorded.
+                      value: <NameCell value={payer.org_name} absentTitle={NAME_UNREADABLE} />,
+                    },
+                  ]
+                : []),
               { label: `${kind} id`, value: <span className="mono">{payer.id}</span> },
               { label: "Role", value: payer.role === "agent" ? "Agency" : "Employer" },
               { label: "Status", value: <StatusPill value={payer.status} /> },

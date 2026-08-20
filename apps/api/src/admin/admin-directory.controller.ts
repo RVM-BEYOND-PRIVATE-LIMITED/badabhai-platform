@@ -1,4 +1,5 @@
-import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { Controller, Get, Header, Query, UseGuards } from "@nestjs/common";
+import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { AdminAuthGuard, CurrentAdmin, type AuthenticatedAdmin } from "./admin-auth.guard";
 import { AdminRolesGuard, RequireAdminRole } from "./admin-roles.guard";
@@ -34,16 +35,24 @@ export class AdminDirectoryController {
   constructor(private readonly service: AdminDirectoryService) {}
 
   /**
-   * The faceless admin directory. The caller's id comes from the SESSION (`@CurrentAdmin`),
-   * never a query param — it is used only to mark which row is "you".
+   * The admin directory. The caller comes from the SESSION (`@CurrentAdmin`), never a query
+   * param: it marks which row is "you", and it is the principal the identity gate resolves
+   * `read_identity` against before any `name_enc` is decrypted.
+   *
+   * `Cache-Control: no-store` because this response may carry decrypted admin names — the same
+   * header, and the same reason, as the reveal route's Control 8. `GET /admin/capabilities`
+   * below is a pure statement of the authorization model and carries no identity, so it does
+   * not need it.
    */
   @Get("admins")
+  @Header("Cache-Control", "no-store")
   @RequireAdminRole("manage_admins")
   directory(
     @CurrentAdmin() admin: AuthenticatedAdmin,
     @Query(new ZodValidationPipe(AdminDirectoryQuerySchema)) query: AdminDirectoryQueryDto,
+    @Ctx() ctx: RequestContext,
   ) {
-    return this.service.directory(query, admin.id);
+    return this.service.directory(admin, query, ctx);
   }
 
   /** The role→capability matrix, served so the portal never carries a second copy. */

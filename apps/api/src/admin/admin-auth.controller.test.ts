@@ -192,6 +192,11 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
         "read_events",
         // BP-1 — the faceless entity reads (ADR-0025 §3.1 row 2, all four roles).
         "read_entities",
+        // Owner ruling 2026-08-18 — the NAMES behind those ids. super_admin/ops_admin/support;
+        // `analyst` denied. This list is what the portal reads to decide whether an absent
+        // `full_name` means "not entitled" or "over budget", so a missing entry here would
+        // silently make every capped page look like a permissions problem.
+        "read_identity",
         "export",
         "suspend_payer",
         "grant_credits",

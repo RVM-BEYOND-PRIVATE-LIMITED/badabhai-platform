@@ -141,6 +141,12 @@ function buildTargets(db: Database): PiiTarget[] {
       "accountHolderNameEnc",
     ),
     target(adminUsers, adminUsers.id, adminUsers.emailEnc, "admin_users", "email_enc", "emailEnc"),
+    // `admin_users.name_enc` was missing from this list until the 2026-08-18 identity ruling gave
+    // it a READ site. It was always a rotatable `encryptPii` token (`bootstrap-admin.ts` writes
+    // one), but nothing ever decrypted it, so a rotation that skipped it was invisible. It is
+    // rendered on `/admins` now, and a skipped column surfaces there as every row showing the
+    // "No name on record" dash after a key retirement — the failure reported as benign absence.
+    target(adminUsers, adminUsers.id, adminUsers.nameEnc, "admin_users", "name_enc", "nameEnc"),
   ];
 }
 

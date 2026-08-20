@@ -12,11 +12,33 @@ import { adminFetch } from "./admin-http";
  * assumed a bucket shape the server did not send, and the parse failure is what made the
  * problem visible instead of silently blanking a tile.
  *
- * ── WHAT IS DELIBERATELY ABSENT ─────────────────────────────────────────────────────────
- * There is no name, email, phone or organisation name anywhere below, because the server
- * does not send one. A payer is an opaque id + role + status; a worker is an opaque id +
- * lifecycle state. The screens are built to be useful under that constraint rather than
- * working around it — see the Companies page for how a payer is actually identified.
+ * ── NAMES, AND ONLY NAMES (owner ruling 2026-08-18, reversing ADR-0025 Decision 4) ──────
+ * Three shapes below carry ONE identity field each — `full_name` on a worker, `org_name` on a
+ * payer, `name` on an admin — because a console in which every row is an opaque uuid cannot be
+ * used to operate the product. Each is served behind `read_identity` (super_admin / ops_admin /
+ * support; `analyst` denied), a per-admin hourly egress cap, and an `admin.identity_viewed`
+ * audit row the server commits BEFORE it decrypts anything.
+ *
+ * Every one of them is `.nullable().optional()`, and that is the contract, not laziness — see
+ * `lib/identity.ts`, which is the only place the three states are interpreted:
+ *   key ABSENT ⇒ this response disclosed nothing · NULL ⇒ disclosed, none on record · STRING ⇒
+ *   the name. Zod 3 leaves an absent optional key ABSENT on the parsed object, which is what
+ *   keeps "not disclosed" distinguishable from "no name recorded" all the way to the markup.
+ *
+ * ── WHAT IS STILL DELIBERATELY ABSENT ───────────────────────────────────────────────────
+ * No email, no phone, no phone hash, no photo storage key, anywhere below — the server does not
+ * send them, ruling or not. A worker's contact is reached only through the separate,
+ * reason-gated, single-subject `reveal_pii` path; a payer's B2B contact PII (TD21) stays put.
+ * There is no contact-PERSON name on a payer either: no such column exists anywhere in the
+ * codebase, and neither `payers.email_enc` nor `agency_kyc.account_holder_name_enc` is a
+ * substitute for one.
+ *
+ * ── NOTHING HERE IS EVER CACHED ─────────────────────────────────────────────────────────
+ * Every call below omits `revalidate`, which is what keeps `adminFetch` on `cache: "no-store"`.
+ * Passing a number instead swaps that for `next: { revalidate }` and writes the response — a
+ * decrypted name included — into Next's on-disk Data Cache under `.next/cache`, where it would
+ * outlive the audited read that disclosed it and be served to the next admin without one.
+ * `entities.identity.test.ts` asserts it of every identity-bearing helper.
  */
 
 /** Every list route answers this envelope. `nextCursor` null means last page. */
@@ -30,6 +52,8 @@ function pageOf<T extends z.ZodTypeAny>(item: T) {
 
 export const workerListItemSchema = z.object({
   id: z.string(),
+  /** See the header: absent ⇒ not disclosed, null ⇒ none on record, string ⇒ the name. */
+  full_name: z.string().nullable().optional(),
   status: z.string(),
   preferred_language: z.string().nullable(),
   has_photo: z.boolean(),
@@ -73,6 +97,11 @@ export function getWorker(id: string) {
 
 export const payerListItemSchema = z.object({
   id: z.string(),
+  /**
+   * The BUSINESS display name (`payers.org_name_enc`), self-declared at signup — not a verified
+   * legal name, and not a contact person. Same three states as the header describes.
+   */
+  org_name: z.string().nullable().optional(),
   role: z.enum(["employer", "agent"]),
   status: z.enum(["pending", "active", "suspended"]),
   previous_status: z.enum(["pending", "active", "suspended"]).nullable(),
@@ -336,11 +365,19 @@ export function listOrders(
 }
 
 // ---------------------------------------------------------------------------
-// administration (BP-3) — the faceless admin directory, roles, and the switches
+// administration (BP-3) — the admin directory, roles, and the switches
 // ---------------------------------------------------------------------------
 
 export const adminRowSchema = z.object({
   id: z.string(),
+  /**
+   * The admin's display name — the 2026-08-18 ruling's third surface. NAMES YES, EMAILS NO:
+   * nothing has reversed the email half, and it is the one that would turn this screen into the
+   * complete admin ADDRESS BOOK. There is no `email` key here and there must never be one.
+   *
+   * `null` is the COMMON case, not the exception: the invite flow does not collect a name.
+   */
+  name: z.string().nullable().optional(),
   role: z.enum(["super_admin", "ops_admin", "support", "analyst"]),
   status: z.enum(["pending", "active", "suspended"]),
   mfa_enrolled: z.boolean(),

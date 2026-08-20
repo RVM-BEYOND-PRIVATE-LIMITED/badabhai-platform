@@ -25,6 +25,35 @@ export const ADMIN_CAPABILITIES = [
    * narrow, at which point every route named for the wrong one moves with it.
    */
   "read_entities",
+  /**
+   * See the NAMES on an entity screen: `workers.full_name`, `payers.org_name_enc`,
+   * `admin_users.name_enc`. ADR-0025 Decision 4 made every admin list faceless; the CTO
+   * REVERSED that on 2026-08-18 because a console in which every row is an opaque uuid cannot
+   * be used to operate the product.
+   *
+   * ── WHY IT IS ITS OWN CAPABILITY AND NOT PART OF `read_entities` ────────────────────────
+   * Because `read_entities` is the read floor ALL FOUR roles hold, and its own docstring above
+   * states the reason that is safe: "Faceless is what makes that safe." Names are a different
+   * DATA CLASS — encrypted-at-rest PII, not ids/enums/timestamps/counts — so shipping them
+   * under the same capability would silently widen what every existing holder of the floor can
+   * see, and the published capability matrix (which `GET /admin/capabilities` serves to the
+   * portal, and which ADR-0025 §3.1 pins) would be describing a grant it no longer makes.
+   * A capability that has stopped meaning what its row says is worse than no capability at all:
+   * it is an authorization table people still trust.
+   *
+   * `analyst` is DENIED (owner ruling): the analytics role has the floor and no identity.
+   *
+   * ── IT IS NOT ENFORCED BY A DECORATOR, AND THAT IS DELIBERATE ───────────────────────────
+   * `@RequireAdminRole` sets exactly ONE capability per route ({@link
+   * import("./admin-roles.guard").RequireAdminRole}) and `admin-static-guards.test.ts` asserts
+   * exactly one per route, because a route with two gates has an ambiguous denial. The entity
+   * routes must stay reachable on `read_entities` for every role — names are ADDITIVE to a
+   * response that is otherwise unchanged — so the identity check is an explicit
+   * `can(admin.role, "read_identity")` INSIDE {@link
+   * import("./admin-identity.service").AdminIdentityService}, over the session admin the guard
+   * already resolved. A role without it gets today's faceless response, byte for byte.
+   */
+  "read_identity",
   "export",
   "suspend_payer",
   "grant_credits",
@@ -47,6 +76,8 @@ export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
  *   - `export` excludes `support` (the PII-reveal role must NOT also bulk-export) and `analyst`.
  *   - `toggle_kill_switch` + `manage_admins` are `super_admin`-only (break-glass).
  *   - `reveal_pii` is `support` + `super_admin` ONLY (ops_admin/analyst denied).
+ *   - `read_identity` is `super_admin` + `ops_admin` + `support` — a STRICT SUBSET of the
+ *     `read_entities` floor, so it can only ever narrow what a role sees, never widen it.
  */
 export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole[]> = {
   read_events: ["super_admin", "ops_admin", "support", "analyst"],
@@ -54,6 +85,13 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   // four roles, the same read floor as events. Faceless is what makes that safe: the
   // projections carry ids/enums/timestamps/counts, never a name, email, phone or ciphertext.
   read_entities: ["super_admin", "ops_admin", "support", "analyst"],
+  // The NAMES behind those ids (owner ruling 2026-08-18, reversing Decision 4's faceless
+  // contract). Three of the four roles — `analyst` is DENIED, so the analytics role keeps the
+  // faceless floor and nothing more. Held by `ops_admin` even though `reveal_pii` is not: a
+  // name on a screen you are already entitled to see is a different act from decrypting a
+  // phone number on a reason-gated route, and the operator suspending a spam payer needs the
+  // former to know which row to act on.
+  read_identity: ["super_admin", "ops_admin", "support"],
   export: ["super_admin", "ops_admin"],
   suspend_payer: ["super_admin", "ops_admin"],
   grant_credits: ["super_admin", "ops_admin"],

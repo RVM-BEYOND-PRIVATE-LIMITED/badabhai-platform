@@ -178,6 +178,22 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(() => loadServerConfig({ ADMIN_PII_REVEAL_MAX_PER_HOUR: "0" })).toThrow();
   });
 
+  it("the NAME-egress caps are a SEPARATE, larger budget (300/hour, 1000/day) and positive-only", () => {
+    // A second budget, not a share of the reveal's: these count NAMES disclosed by a list read,
+    // where one page can be fifty, while the reveal's 10/hour counts single-subject phone
+    // reveals. Sharing either number would either strangle the console or gut the reveal cap.
+    const config = loadServerConfig({});
+    expect(config.ADMIN_IDENTITY_MAX_PER_HOUR).toBe(300);
+    expect(config.ADMIN_IDENTITY_MAX_PER_DAY).toBe(1000);
+    // ...and they are genuinely independent of the reveal's, not aliases of it.
+    expect(config.ADMIN_IDENTITY_MAX_PER_HOUR).not.toBe(config.ADMIN_PII_REVEAL_MAX_PER_HOUR);
+    expect(loadServerConfig({ ADMIN_IDENTITY_MAX_PER_HOUR: "7" }).ADMIN_IDENTITY_MAX_PER_HOUR).toBe(7);
+    expect(loadServerConfig({ ADMIN_IDENTITY_MAX_PER_DAY: "9" }).ADMIN_IDENTITY_MAX_PER_DAY).toBe(9);
+    // Zero would mean "names are off", which must be a capability decision, not an env typo.
+    expect(() => loadServerConfig({ ADMIN_IDENTITY_MAX_PER_HOUR: "0" })).toThrow();
+    expect(() => loadServerConfig({ ADMIN_IDENTITY_MAX_PER_DAY: "-1" })).toThrow();
+  });
+
   it("assertPaymentsConfig is a no-op in the alpha mock default", () => {
     expect(() => assertPaymentsConfig(loadServerConfig({}))).not.toThrow();
   });

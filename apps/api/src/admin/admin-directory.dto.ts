@@ -5,21 +5,26 @@ import type { AdminCapability } from "./admin-capabilities";
 /**
  * DTOs for the ADMINISTRATION reads (BP-3): the admin directory and the capability matrix.
  *
- * ── THE DIRECTORY IS FACELESS, AND THAT IS AN OWNER RULING ──────────────────────────────
- * `admin_users.email_enc` and `name_enc` are AES-256-GCM ciphertext at rest (ADR-0004), and
- * no shipped route has ever decrypted ANOTHER admin's identity — `GET /admin/me` returns the
- * caller's id, role and capabilities, never an address. Serving names or emails here would
- * be a NEW cross-actor PII path and would turn one screen into the complete admin address
- * book, so it was escalated rather than assumed. Owner ruling 2026-08-04: **faceless now**.
+ * ── NAMES YES, EMAILS NO — AND BOTH HALVES ARE OWNER RULINGS ────────────────────────────
+ * `admin_users.email_enc` and `name_enc` are AES-256-GCM ciphertext at rest (ADR-0004). The
+ * 2026-08-04 ruling made this screen entirely faceless; the CTO REVERSED the name half on
+ * 2026-08-18, because a directory of uuids cannot answer the question people actually open it
+ * with ("who is this account?"). So:
  *
- * That is not a crippled screen. The questions this section actually has to answer are
- * security-audit questions, and every one of them is answerable without a name:
- *   - who holds `super_admin`, and how many of them are there
- *   - who has never enrolled a second factor
- *   - who has not logged in for months, or ever
- *   - who is still `pending` long after being invited
+ *   `name`  — SERVED, behind `read_identity` and the per-admin name-egress cap. Optional, and
+ *             its presence is the answer: absent = not disclosed to you, null = disclosed and
+ *             no name on record, string = the name. (This route is `manage_admins`, so in
+ *             practice only a super_admin reaches it, and a super_admin holds `read_identity`.)
+ *   EMAIL   — still NEVER. Nothing has reversed that half, and it is the one that would turn
+ *             this screen into the complete admin ADDRESS BOOK — a phishing target list for
+ *             precisely the accounts with the most reach. Nor `mfa_secret_enc`, ever.
  *
- * The admin id is the join to everything else: it is the `actor_id` on every
+ * The screen's real job is still security audit, and every one of those questions was always
+ * answerable without a name — who holds `super_admin` and how many, who has never enrolled a
+ * second factor, who has not logged in for months, who is still `pending`. A name makes the
+ * answers actionable; it does not change what is asked.
+ *
+ * The admin id remains the join to everything else: it is the `actor_id` on every
  * `admin.action_performed` event, so "what has this account done" is one click away.
  */
 
@@ -33,14 +38,22 @@ export const AdminDirectoryQuerySchema = z
 export type AdminDirectoryQueryDto = z.infer<typeof AdminDirectoryQuerySchema>;
 
 /**
- * One admin account, faceless.
+ * One admin account.
  *
- * NEVER: `email_enc`, `email_hash`, `name_enc`, `mfa_secret_enc`. The last of those is the
- * most important — it is the TOTP seed, and returning it would let any reader mint valid
- * second factors for that admin forever.
+ * NEVER: `email_enc`, `email_hash`, `mfa_secret_enc`. The last of those is the most important —
+ * it is the TOTP seed, and returning it would let any reader mint valid second factors for that
+ * admin forever. `name_enc` is the ONE identity column now served, and only via
+ * `AdminIdentityService` (capability + egress cap + audit-before-decrypt); the directory's own
+ * repository still projects none of the four.
  */
 export interface AdminDirectoryRow {
   id: string;
+  /**
+   * The admin's display name, decrypted for this response only. ABSENT when no name was
+   * disclosed to this caller; `null` when disclosed and none is on record (the invite flow does
+   * not collect one, so this is common).
+   */
+  name?: string | null;
   role: AdminRole;
   status: AdminStatus;
   mfa_enrolled: boolean;
