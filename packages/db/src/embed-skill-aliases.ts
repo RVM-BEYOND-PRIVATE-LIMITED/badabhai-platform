@@ -10,7 +10,7 @@
  * the endpoint enforces a per-request INR ceiling on the real path (TD64 interim guard) —
  * on `budget_stopped` this runner STOPS and a later run resumes the NULL rows.
  *
- * GUARDED: refuses NODE_ENV === "production" (mirrors seed-skills.ts — embedding is an
+ * GUARDED by `opsGuard`, which classifies the TARGET rather than the process (embedding is an
  *   ops action; the prod run is a deliberate, gated step).
  * RESUMABLE / IDEMPOTENT: only `embedding IS NULL` rows are fetched; a completed corpus
  *   re-run is a no-op. BLOCKED rows (pseudonymize fail-closed) are left NULL, excluded
@@ -42,6 +42,7 @@ import { config } from "dotenv";
 import { isNull, isNotNull, and, eq, inArray, notInArray, sql as sqlTag, type SQL } from "drizzle-orm";
 
 import { createDbClient } from "./client";
+import { enforceOpsGuard } from "./ops-guard";
 import { parseEmbedResponse } from "./embed-response";
 import { skillAliases } from "./schema";
 
@@ -197,12 +198,22 @@ export function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
 }
 
+/** Short name for `OPS_ALLOW_PRODUCTION`. Must match what an operator exports. */
+const SCRIPT = "embed:skills";
+
 async function main(): Promise<void> {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("[embed:skills] refusing to embed in production (run is §7-gated ops).");
-  }
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("[embed:skills] DATABASE_URL is not set");
+  // THE TARGET DECIDES, NOT `NODE_ENV`. See `ops-guard.ts` for why the old line was backwards
+  // in both directions.
+  //
+  // `--plan` is the ONLY non-mutating invocation, and note which way the expression is written:
+  // it asks whether `--plan` is present, so any flag combination this file does not know about
+  // is treated as MUTATING. `--reset-embeddings` in particular NULLs every vector in the table,
+  // and it must never be the branch that slips through because nobody added it to a list.
+  const { connectionString: url } = enforceOpsGuard({
+    script: SCRIPT,
+    connectionString: process.env.DATABASE_URL,
+    mutating: !hasFlag(process.argv, "--plan"),
+  });
   const aiBase = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
 
   // --reset-embeddings: NULL out ALL skill_alias embeddings and exit. The recovery for a

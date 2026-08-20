@@ -14,6 +14,8 @@ import {
   hostClass,
   isProductionLike,
   opsGuard,
+  enforceOpsGuard,
+  type EnforceOpsGuardInput,
   type OpsGuardInput,
 } from "./ops-guard";
 
@@ -180,5 +182,132 @@ describe("the flag cannot be triggered accidentally", () => {
     expect(
       guard({ connectionString: PROD, argv: [PRODUCTION_WRITE_FLAG], allowEnv: "", mutating: true }).allowed,
     ).toBe(false);
+  });
+});
+
+/**
+ * `enforceOpsGuard` — the call site, which is where a guard actually fails.
+ *
+ * `opsGuard` above is pure and every branch of it is pinned. That is necessary and not
+ * sufficient: none of it protects anything unless a runner reads the right environment
+ * variables, prints the warning AND throws on the refusal. Four runners copying eight lines is
+ * how one of them ends up reading `process.argv` instead of `process.argv.slice(2)`, or
+ * logging the refusal and continuing. These drive the wrapper the four now share.
+ */
+describe("enforceOpsGuard — the five cases every ops runner must get right", () => {
+  const lines: string[] = [];
+  const enforce = (o: Partial<EnforceOpsGuardInput> = {}) => {
+    lines.length = 0;
+    return enforceOpsGuard({
+      script: "seed:skills",
+      connectionString: LOCAL,
+      mutating: true,
+      env: {},
+      argv: [],
+      log: (l) => lines.push(l),
+      ...o,
+    });
+  };
+
+  it("1. production DB + no explicit authorisation -> REFUSE", () => {
+    // The FALSE PERMIT this replaces: NODE_ENV is unset, which is the default state of a laptop
+    // whose .env points at production, and the old guard let this through.
+    expect(() => enforce({ connectionString: PROD })).toThrow(/REFUSING TO WRITE/);
+    expect(() => enforce({ connectionString: PROD })).toThrow(new RegExp(PRODUCTION_WRITE_FLAG));
+    expect(() => enforce({ connectionString: PROD })).toThrow(new RegExp(PRODUCTION_WRITE_ENV));
+  });
+
+  it("2. production DB + BOTH signals -> ALLOW, and say so", () => {
+    const v = enforce({
+      connectionString: PROD,
+      argv: [PRODUCTION_WRITE_FLAG],
+      env: { [PRODUCTION_WRITE_ENV]: "seed:skills" },
+    });
+    expect(v.allowed).toBe(true);
+    expect(v.target).toBe("SUPABASE (remote)");
+    expect(v.connectionString).toBe(PROD);
+    expect(lines.join(" ")).toContain("AUTHORISED");
+  });
+
+  it("2b. ...and ONE signal is never enough, in either direction", () => {
+    expect(() => enforce({ connectionString: PROD, argv: [PRODUCTION_WRITE_FLAG] })).toThrow(
+      /REFUSING TO WRITE/,
+    );
+    expect(() =>
+      enforce({ connectionString: PROD, env: { [PRODUCTION_WRITE_ENV]: "seed:skills" } }),
+    ).toThrow(/REFUSING TO WRITE/);
+  });
+
+  it("2c. ...and an env var naming a DIFFERENT runner does not authorise this one", () => {
+    // The stale-export case: authorising `retag` last week must not authorise the D2 seed today.
+    expect(() =>
+      enforce({
+        connectionString: PROD,
+        argv: [PRODUCTION_WRITE_FLAG],
+        env: { [PRODUCTION_WRITE_ENV]: "retag" },
+      }),
+    ).toThrow(/authorises a different runner/);
+  });
+
+  it("3. non-production DB -> ALLOW a write with no ceremony, and say nothing alarming", () => {
+    const v = enforce({ connectionString: LOCAL });
+    expect(v.allowed).toBe(true);
+    expect(v.target).toBe("LOCAL DOCKER");
+    expect(lines).toEqual([]);
+  });
+
+  it("3b. ...but NODE_ENV=production is still an independent tripwire, even locally", () => {
+    // Kept deliberately: an operator who has correctly labelled their process should not be
+    // rescued by a connection string this classifier failed to recognise.
+    expect(() => enforce({ connectionString: LOCAL, env: { NODE_ENV: "production" } })).toThrow(
+      /REFUSING TO WRITE/,
+    );
+  });
+
+  it("4. missing DB target -> REFUSE, and refuse the DRY RUN too", () => {
+    // The one place a read is NOT waved through. "Read-only" is a claim about a database
+    // nobody has identified, and an unknown target is an unknown blast radius.
+    for (const missing of [undefined, "", "   "]) {
+      expect(() => enforce({ connectionString: missing, mutating: true })).toThrow(
+        /DATABASE_URL is not set/,
+      );
+      expect(() => enforce({ connectionString: missing, mutating: false })).toThrow(
+        /DATABASE_URL is not set/,
+      );
+    }
+  });
+
+  it("4b. ambiguous DB target -> treated as production-like, so a write REFUSES", () => {
+    // Fails CLOSED. A guard that has to understand a URL before it protects you stops
+    // protecting you the first time somebody uses a connection format it has not seen.
+    expect(() => enforce({ connectionString: "not-a-url" })).toThrow(/REFUSING TO WRITE/);
+    expect(() => enforce({ connectionString: OTHER })).toThrow(/REFUSING TO WRITE/);
+  });
+
+  it("5. read-only commands are ALLOWED against production, with no authorisation at all", () => {
+    // The FALSE REFUSAL this replaces. Blocking dry runs is what taught everyone to unset
+    // NODE_ENV — and unsetting it also unblocked the writes.
+    const v = enforce({ connectionString: PROD, mutating: false, env: { NODE_ENV: "production" } });
+    expect(v.allowed).toBe(true);
+    expect(lines.join(" ")).toContain("nothing will be written");
+  });
+
+  it("hands back the connection string it approved, so a runner cannot connect to another one", () => {
+    expect(enforce({ connectionString: LOCAL }).connectionString).toBe(LOCAL);
+  });
+
+  it("never prints the credential, refused or allowed", () => {
+    const secret = "sup3rs3cret";
+    const url = `postgres://u:${secret}@aws-0-ap-south-1.pooler.supabase.com:5432/postgres`;
+    let refusal = "";
+    try {
+      enforce({ connectionString: url });
+    } catch (e) {
+      refusal = (e as Error).message;
+    }
+    expect(refusal).toContain("REFUSING TO WRITE");
+    expect(refusal).not.toContain(secret);
+    enforce({ connectionString: url, mutating: false });
+    expect(lines.join(" ")).not.toContain(secret);
   });
 });

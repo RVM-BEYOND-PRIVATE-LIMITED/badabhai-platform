@@ -2,7 +2,9 @@
  * Skill-vocabulary seed (ADR-0030 / TAX-2) — loads the canonical `@badabhai/taxonomy`
  * SKILL_CORPUS into `skill` (+ its source aliases into `skill_alias`, embedding = NULL).
  *
- * GUARDED: refuses to run when NODE_ENV === "production" (mirrors seed.ts / seed-demand.ts).
+ * GUARDED by `opsGuard`, which classifies the TARGET rather than the process: a write to a
+ * production-like database needs the `--i-am-authorised-to-write-to-production` flag AND
+ * `OPS_ALLOW_PRODUCTION=seed:skills`. This runner has no dry run — every invocation writes.
  *   The corpus is reference data, but seeding is an ops action — kept off prod by default.
  * IDEMPOTENT: skills upsert on the immutable `skill_id` (labels/domain propagate; the id
  *   never changes); aliases use a DETERMINISTIC id derived from (skill_id, text, lang) with
@@ -48,6 +50,7 @@ import { config } from "dotenv";
 import { and, eq, sql as dsql } from "drizzle-orm";
 
 import { createDbClient } from "./client";
+import { enforceOpsGuard } from "./ops-guard";
 import { skillAliases, skills } from "./schema";
 import { deterministicAliasId as aliasId } from "./skill-alias-id";
 
@@ -77,13 +80,27 @@ export function heldSkillIds(
   return out.sort((a, b) => a.skillId.localeCompare(b.skillId));
 }
 
-async function main(): Promise<void> {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("[seed:skills] refusing to seed the skill vocabulary in production.");
-  }
+/** Short name for `OPS_ALLOW_PRODUCTION`. Must match what an operator exports. */
+const SCRIPT = "seed:skills";
 
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("[seed:skills] DATABASE_URL is not set");
+async function main(): Promise<void> {
+  // THE TARGET DECIDES, NOT `NODE_ENV`. Stated precisely, because the old line was NOT simply
+  // inert here: this repository's `.env` sets `NODE_ENV=production`, dotenv loads it above, and
+  // the old guard therefore refused — every run, including a read-only one this seeder does not
+  // have. What it was, was protection that lived in one line of a GITIGNORED file. A fresh
+  // clone, CI, or a teammate whose `.env` omits that line points at the same production
+  // database with nothing in the way, and the obvious cure for the over-refusal — delete the
+  // line — removes the write protection in the same gesture. This is the D2 seed, the largest
+  // irreversible write in the taxonomy phase, so where the protection lives matters.
+  //
+  // `mutating: true` UNCONDITIONALLY, and that is a statement about this runner rather than a
+  // default. It has no `--plan`: every invocation writes. Passing anything else here would be
+  // claiming a dry-run mode that does not exist.
+  const { connectionString: url } = enforceOpsGuard({
+    script: SCRIPT,
+    connectionString: process.env.DATABASE_URL,
+    mutating: true,
+  });
 
   // Never seed an invalid corpus (unknown domain / bad source / dup id).
   const problems = validateSkillCorpus();
