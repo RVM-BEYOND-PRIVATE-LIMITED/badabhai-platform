@@ -142,6 +142,7 @@ class MockApiClient extends ApiClient {
     required String authToken,
     required String message,
     String? category,
+    String? screen,
   }) async {
     // No-op: canned success so the feedback flow is walkable in mock mode.
     await _delay();

@@ -17,6 +17,12 @@ Failure mapError(Object error) {
 
   if (error is ApiException) {
     return switch (error.statusCode) {
+      // #1013 — a 400 is the server's CONSIDERED answer about this request, not a
+      // blip. Left as a ServerFailure it rendered "Server error (400). Thodi der
+      // baad try karein.", which sends the worker away to retry something that
+      // cannot ever succeed. It gets its own type so the copy can ask them to
+      // change what they sent instead.
+      400 => const InvalidRequestFailure(),
       401 => const UnauthorizedFailure(),
       403 => const ConsentRequiredFailure(),
       429 => const RateLimitedFailure(),
