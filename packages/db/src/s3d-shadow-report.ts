@@ -38,7 +38,12 @@
  *   - score delta distribution between the two paths on the cases where both resolve
  *   - GP-04 specifically, because the plan names it and pins 0.75
  *
- *   pnpm db:report:s3d-shadow --vectors=<tsv> [--json=<out>]
+ *   pnpm db:report:s3d-shadow --vectors=<tsv> [--json=<out>] [--if-promoted]
+ *
+ * `--if-promoted` reports the same signals over a corpus where provisional skills are
+ * retrievable. It is a COUNTERFACTUAL — no database is in that state — and it exists because
+ * the default run's headline finding is "Path A is empty because those skills are provisional",
+ * which is only actionable next to a number for what promoting them would recover.
  */
 import { writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -167,16 +172,60 @@ async function main(): Promise<void> {
 
   // Reuse the replay's own corpus + ranking rather than re-deriving them here. A second
   // implementation of "what does Path A see" is the defect this whole phase keeps finding.
-  const { buildReplayInputs, runBothPaths } = await import("./s3d-shadow-inputs");
+  const { buildReplayInputs, runBothPaths, poolComposition } = await import("./s3d-shadow-inputs");
   const fixture = loadEvalFixture(join(__dirname, "..", "data", "taxonomy", "eval", "retrieval-v2.jsonl"));
   const scoring = fixture.cases.filter((c) => !COVERAGE_ONLY_CATEGORIES.has(c.category));
 
+  // `--if-promoted` answers the ONE question the default run raises and cannot settle: the
+  // default says "Path A is empty on most cases because those skills are provisional, so do not
+  // flip" — and then offers no number for how much promotion would buy. Without it the
+  // promotion decision has no measurement attached and stays a matter of opinion.
+  //
+  // It is a COUNTERFACTUAL, not a mode of production, and every line below says so. It changes
+  // no default and relaxes no constant: `RETRIEVABLE_SKILL_STATUSES` is untouched and the
+  // counterfactual reuses `PRE_PROMOTION_STATUSES`, the set the replay already uses for
+  // `--include-provisional`.
+  const ifPromoted = process.argv.slice(2).includes("--if-promoted");
+  const semantics = ifPromoted ? "if_promoted" : "production";
+
   const inputs = buildReplayInputs(vectorFile);
-  const cases = runBothPaths(inputs, scoring);
+  const cases = runBothPaths(inputs, scoring, 5, semantics);
   const report = summarizeShadow(cases);
 
   console.log(`[${SCRIPT}] OFFLINE. No provider call, no database write, no request-path change.`);
+  if (ifPromoted) {
+    console.log("");
+    console.log("  ############################################################################");
+    console.log("  ##  COUNTERFACTUAL: --if-promoted. Provisional skills are treated as       ##");
+    console.log("  ##  retrievable. NO DATABASE IS IN THIS STATE. These numbers describe a    ##");
+    console.log("  ##  corpus where promotion has ALREADY happened, and exist only to price   ##");
+    console.log("  ##  that promotion. Do not quote them as current coverage.                 ##");
+    console.log("  ############################################################################");
+    console.log("");
+  }
+  console.log(`  semantics                = ${semantics === "production" ? "PRODUCTION (active only)" : "COUNTERFACTUAL (active + provisional)"}`);
   console.log(`  cases (scoring only)     = ${report.cases}`);
+  console.log("");
+
+  // === signal 0 — the candidate pool ========================================================
+  // Printed FIRST and before any rate, because every number below is a property of this pool,
+  // and reading them without it is how this report's own headline came to name the wrong cause.
+  const pool = poolComposition(inputs.input);
+  console.log(`  === signal 0 — what is even in the candidate pool ===`);
+  console.log(`  edges (domain -> skill)  = ${pool.edges}`);
+  for (const [st, n] of Object.entries(pool.skillsByStatus).sort()) {
+    const v = pool.aliasVectors[st];
+    const cover = v === undefined ? "no aliases" : `${v.embedded}/${v.total} aliases embedded`;
+    console.log(`  ${st.padEnd(13)} ${String(n).padStart(4)} skill(s)   ${cover}`);
+  }
+  console.log(`  promotion would add      = ${pool.promotionWouldAdd} rankable skill(s)`);
+  console.log(
+    `     A skill needs BOTH a retrievable status AND an embedded alias. Promotion moves only
+` +
+      `     the first. That number is how much of Path A's empty-rate a promotion can possibly
+` +
+      `     recover — verify it with --if-promoted rather than assuming either way.`,
+  );
   console.log("");
   console.log(`  === signal 1 — Path A empty-rate vs Path B ===`);
   console.log(`  Path A returned nothing  = ${report.aEmpty}`);
@@ -184,17 +233,27 @@ async function main(): Promise<void> {
   console.log(`  delta (A - B) / cases    = ${(report.emptyRateDelta * 100).toFixed(2)}%   <- the plan aborts if A exceeds B "by any margin agreed from shadow data"`);
   if (report.aEmpty > report.bEmpty) {
     console.log(
-      `  !! Path A returns NOTHING far more often than Path B. Measured with production
+      `  !! Path A returns NOTHING far more often than Path B, so flipping the read switch on
 ` +
-        `     semantics (active skills only), which is the point: most canonical skills are still
+        `     these numbers would blank the majority of queries. That much is unchanged and it is
 ` +
-        `     'provisional' in the growth corpus, so Path A has no candidates to rank in those
+        `     still the most decision-relevant number here.
 ` +
-        `     domains. This is a statement about PROMOTION, not about ranking quality — and on
+        `
 ` +
-        `     these numbers flipping the read switch before promotion would blank the majority of
+        `     WHAT CHANGED IS THE CAUSE. This line used to say the skills are 'provisional' and
 ` +
-        `     queries. That is the single most decision-relevant number this report produces.`,
+        `     that S3-D therefore cannot be flipped BEFORE PROMOTION. Measured with --if-promoted
+` +
+        `     on 2026-08-20 that is wrong: promotion produces an IDENTICAL empty-rate, identical
+` +
+        `     top-1 agreement and identical score deltas. Signal 0 above says why — a skill needs
+` +
+        `     a retrievable status AND an embedded alias, and the growth corpus has essentially no
+` +
+        `     vectors. Promotion is not the blocker. EMBEDDING COVERAGE is, and that is a provider
+` +
+        `     run and a seed rather than a status flip.`,
     );
   }
   console.log("");
@@ -231,6 +290,10 @@ async function main(): Promise<void> {
   }
   console.log("");
   console.log(`  NO THRESHOLD IS PROPOSED. This produces the distribution the owner sets them from.`);
+  if (!ifPromoted) {
+    console.log("");
+    console.log(`  Re-run with --if-promoted to price the promotion this report keeps pointing at.`);
+  }
 
   if (jsonOut !== undefined) {
     if (existsSync(jsonOut)) {

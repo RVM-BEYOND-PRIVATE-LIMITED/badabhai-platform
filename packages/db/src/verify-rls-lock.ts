@@ -57,7 +57,7 @@ import { sql as dsql } from "drizzle-orm";
 import { createDbClient } from "./client";
 import { hostClass } from "./audit-embedding-provenance";
 import { opsGuard } from "./ops-guard";
-import { DATA_API_ROLES, rlsLocked } from "./schema-contract";
+import { DATA_API_ROLES, R39_TABLES, rlsLocked } from "./schema-contract";
 import {
   RollbackSignal,
   allPassed,
@@ -73,33 +73,17 @@ const SCRIPT = "verify:rls-lock";
 const scalar = <T,>(rows: readonly T[], what: string): T => scalarRow(rows, what, SCRIPT);
 
 /**
- * Which half of 0082 a table belongs to. The distinction is not cosmetic: it decides whether
- * "table absent" is a failure or the expected state.
- */
-export type R39Class = "declared-by-0048" | "unmodelled";
-
-export interface R39Table {
-  readonly table: string;
-  readonly cls: R39Class;
-}
-
-/**
- * The seven, in the order 0082 locks them.
+ * The seven, in the order 0082 locks them, and which half of it each belongs to — both now owned
+ * by the schema contract, because `migration-adoption.ts` needs the SAME list to verify 0082's
+ * EFFECTS (its Section B is dynamic SQL and cannot be read off the file). Re-exported here so
+ * this runner stays the obvious place to read them from.
  *
- * `declared-by-0048` tables exist in every environment — migration 0048 creates them — so their
- * absence here is a real failure. `unmodelled` tables (GAP-DB-21) exist on production and in no
- * migration and no schema file, so their absence is the CORRECT state everywhere else and this
- * runner reports it as `skipped`, never as a pass.
+ * The `unmodelled` half (GAP-DB-21) exists on production and in no migration and no schema
+ * file, so absence is the CORRECT state everywhere else and this runner reports it as
+ * `skipped`, never as a pass.
  */
-export const R39_TABLES: readonly R39Table[] = [
-  { table: "agency_kyc", cls: "declared-by-0048" },
-  { table: "agency_payout_accruals", cls: "declared-by-0048" },
-  { table: "agency_payout_requests", cls: "declared-by-0048" },
-  { table: "agency_profiles", cls: "unmodelled" },
-  { table: "employer_profiles", cls: "unmodelled" },
-  { table: "payer_capabilities", cls: "unmodelled" },
-  { table: "payer_member_invites", cls: "unmodelled" },
-];
+export { R39_TABLES };
+export type { R39Table, R39Class } from "./schema-contract";
 
 /** Every DML privilege REVOKE ALL must strip. TRUNCATE and REFERENCES are in the grant too. */
 export const DML = ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES"] as const;

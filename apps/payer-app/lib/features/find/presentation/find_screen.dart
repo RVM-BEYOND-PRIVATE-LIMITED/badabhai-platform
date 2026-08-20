@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/error/payer_failure.dart';
 import '../../../core/session/credits_cubit.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -140,11 +141,14 @@ class _FindView extends StatelessWidget {
           return const BbStatusView.loading();
         }
         if (state.status == FindStatus.error) {
+          final PayerFailure failure =
+              state.failure ?? const PayerFailure(PayerFailureKind.unknown);
           return BbStatusView(
-            icon: Icons.wifi_off,
-            title: 'Could not load candidates',
+            icon: failure.icon,
+            title: failure.title,
+            subtitle: failure.message,
             action: BbButton(
-              label: 'Retry',
+              label: failure.isSessionExpired ? 'Log in' : 'Retry',
               onPressed: () => context.read<FindCubit>().load(),
             ),
           );
@@ -281,6 +285,8 @@ class _FindView extends StatelessWidget {
               label: const Text('History'),
               style: TextButton.styleFrom(
                 foregroundColor: AppColors.textSecondary,
+                minimumSize: const Size(0, AppSpacing.tap),
+                tapTargetSize: MaterialTapTargetSize.padded,
               ),
             ),
           ],
@@ -644,12 +650,16 @@ class _CandidateCard extends StatelessWidget {
       children: <Widget>[
         Icon(icon, size: color == AppColors.success ? 9 : 13, color: c),
         const SizedBox(width: 4),
-        Text(
-          text,
-          style: AppTypography.body(
-            size: AppTypography.sizeXs,
-            weight: bold ? FontWeight.w600 : FontWeight.w400,
-            color: c,
+        Flexible(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.body(
+              size: AppTypography.sizeXs,
+              weight: bold ? FontWeight.w600 : FontWeight.w400,
+              color: c,
+            ),
           ),
         ),
       ],

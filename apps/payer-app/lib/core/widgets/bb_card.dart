@@ -89,6 +89,9 @@ class BbCard extends StatelessWidget {
     } else {
       content = Container(
         padding: padding,
+        // Clip content to the rounded outline so long/overflowing children never
+        // paint past the hairline corners.
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color: gradient == null ? background : null,
           gradient: gradient,

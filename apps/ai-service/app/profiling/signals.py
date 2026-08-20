@@ -280,6 +280,17 @@ _WELDING_DOMAIN_SKILL_IDS = frozenset(
     {"skill_mig_welding", "skill_tig_welding", "skill_arc_welding", "skill_welder_occupation"}
 )
 
+# TD-07 (T4): the UNSPECIFIC welding attribute — the occupation anchor that the bare
+# "welder" / "welding" patterns write, as opposed to a NAMED process (MIG / TIG / arc /
+# gas cutting). The distinction is what makes the machining guard in `_detect_welding`
+# safe to apply: an unspecific signal is an inference, a named process is a claim.
+#
+# A frozenset rather than a literal comparison for the same reason
+# `_WELDING_DOMAIN_SKILL_IDS` is one: the gazetteer may grow another unspecific surface
+# form ("welding wala", "welder helper"), and it must land under the same guard rather
+# than quietly reopen the hole. Derived from the corpus, never minted here.
+_UNSPECIFIC_WELDING_SKILL_IDS = frozenset({"skill_welder_occupation"})
+
 # --- Machining signal: the guard that stops welding capturing a machining worker ---
 # ANY hit here means the text carries machining evidence, so welding must NOT assign
 # the role — even when `_ROLES` matched nothing. This is what makes "welding only ever
@@ -1614,8 +1625,47 @@ def _detect_welding(lower: str, sig: Signals) -> None:
     writes free text into a matchable field. Deliberately writes NO ``mach_*`` id: the
     taxonomy has no welding machine id and the corpus models TIG/MIG/arc as SKILLS, so
     inventing one would be minting.
+
+    TD-07 (T4, owner decision 2026-08-20) — the ATTRIBUTE bridge now carries the same
+    machining guard the ROLE bridge has carried since TAX-WELD-1, and only ever on the
+    UNSPECIFIC entry (:data:`_UNSPECIFIC_WELDING_SKILL_IDS`).
+
+    The asymmetry it removes was measured, not hypothetical. ``skill_welder_occupation``
+    is bridged to a SPECIFIC process downstream — ``match-skills.ts`` maps it to
+    ``mskill_mig_welder`` — so a machining worker who mentions welding in passing
+    ("cnc operator hun, welding bhi kar leta hun") was written as a MIG welder, then
+    carried to arc and TIG by ``MATCH_SKILL_RELATION_PAIRS`` with the payer's related
+    rows PRE-TICKED. ``_assign_welding_role`` already refused to call that same worker a
+    welder; the attribute path wrote the specific skill anyway.
+
+    Scope, stated so it is not mistaken for the fix TD-07 actually needs:
+
+    - **Named processes are untouched.** "cnc operator hun, TIG welding bhi karta hu"
+      keeps ``skill_tig_welding``. A named process is the worker's own claim; the guard
+      only suppresses an INFERENCE, so this costs no recall on anything anyone said.
+    - **It does not fix the finding.** A TIG-only worker is still additionally written
+      as MIG (that is the generic pattern firing on the word "welding", a separate
+      defect), and a self-described welder with no machining context still lands on a
+      specific MIG id. Both need T1's ``mskill_welder_general``, which mints a permanent
+      vocabulary id and is deliberately deferred to the first real welding row.
+    - **The blocker guard is deliberately NOT added here.** ``welding_role_blocked``
+      still suppresses the ROLE only; a denial keeps its welding skill ids. That is a
+      pre-existing, documented gazetteer-FAMILY limitation (see the module docstring in
+      ``tests/test_welding_gazetteer.py``), not part of T4's one predicate.
+
+    Fail direction is toward writing nothing, matching the role bridge: for a MACHINING
+    worker, an unspecific welding mention now records no welding attribute rather than a
+    confidently wrong specific one. Blast radius at the time of the change: **0**
+    welding rows exist anywhere in production.
     """
+    # Evaluated ONCE, before the loop, and off the same evidence `_assign_welding_role`
+    # reads later: `sig.machine_ids` / `sig.controllers` are both fully populated by the
+    # time `detect()` reaches here, and nothing between the two call sites adds to them.
+    # So the two guards cannot disagree about whether a text is machining.
+    machining = has_machining_signal(lower, sig)
     for pattern, label, skill_id in _WELDING_RE:
+        if machining and skill_id in _UNSPECIFIC_WELDING_SKILL_IDS:
+            continue
         if pattern.search(lower):
             _append_unique(sig.skills, label)
             _append_unique(sig.skill_ids, skill_id)

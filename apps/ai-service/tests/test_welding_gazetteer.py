@@ -49,11 +49,18 @@ The precise claim, which the tests below enforce, is now:
     non-welder). Both halves live in ONE place — ``signals._assign_welding_role`` —
     rather than being an emergent property of table ordering.
 
+TD-07 T4 (2026-08-20) CLOSED ONE HALF OF THE ASYMMETRY BELOW. The MACHINING guard now
+runs on the attribute bridge too, for the UNSPECIFIC entry only — see the T4 block at
+the bottom of this file. The BLOCKER guard is still role-only, deliberately.
+
 KNOWN, DELIBERATE LIMITATIONS (not fixed here):
 - Blockers suppress the welder ROLE only; welding SKILL ids are still recorded. A
   worker who says "welding nahi karta" keeps ``skill_welder_occupation``. Skills are
   not the 35% role factor, and general negation parsing is a gazetteer-FAMILY property
-  (every keyword table here is negation-blind), not a welding-specific defect.
+  (every keyword table here is negation-blind), not a welding-specific defect. T4
+  added the MACHINING guard to the attribute path and stopped there on purpose: that
+  one was writing a SPECIFIC downstream id from an UNSPECIFIC signal, which is a
+  different (and worse) failure than recording a skill a denial disclaimed.
 - ``miss_attribution.py`` anchors are substring-matched, so ``mig``/``tig``/``arc``
   fire on "emigration"/"fatigue"/"March". That module is EVAL-ONLY and off the live
   path; logged by the reviewer, deliberately not touched here.
@@ -295,3 +302,124 @@ def test_llm_can_never_inject_a_welding_id_it_invented():
     assert normalize_role_id("role_welder") == "role_welder"
     for bogus in ("mig_tig_welder", "role_mig_welder", "role_spot_welder", "welder", ""):
         assert normalize_role_id(bogus) is None
+
+
+# --- TD-07 T4: the ATTRIBUTE bridge now carries the ROLE bridge's machining guard ---
+#
+# THE ASYMMETRY THIS CLOSES. Every test in the block above asserts on the ROLE. The
+# attribute path was never asserted, and it did not have the guard: for all five texts
+# below `_assign_welding_role` correctly refused `role_welder` while `_detect_welding`
+# wrote `skill_welder_occupation` anyway — which `packages/taxonomy/src/match-skills.ts`
+# bridges to the SPECIFIC `mskill_mig_welder`, and `MATCH_SKILL_RELATION_PAIRS` then
+# carries to arc and TIG with the payer's related rows pre-ticked. So a CNC operator who
+# mentioned welding once became a MIG welder in the match spine while the role logic was
+# busy refusing to call them a welder at all.
+#
+# Owner decision 2026-08-20: T4 now, T1 (`mskill_welder_general`) at the first real
+# welding row. Blast radius when this landed: 0 welding rows anywhere in production.
+_MACHINING_PLUS_UNSPECIFIC_WELDING = [
+    "cnc operator hun, welding bhi kar leta hun",
+    "lathe pe kaam karta hu, welding bhi karta hu",
+    "pehle welding karta tha, ab CNC lathe chalata hu",
+    "welding shop mein CNC chalata hun",
+    "milling machine chalata hu, welding bhi aati hai",
+    "welder hun par ab vmc chalata hu",
+]
+
+
+@pytest.mark.parametrize("text", _MACHINING_PLUS_UNSPECIFIC_WELDING)
+def test_machining_worker_gets_no_unspecific_welding_attribute(text):
+    """Mutation proof: delete the `machining and skill_id in ...` continue from
+    `signals._detect_welding` and every one of these fails with
+    `skill_welder_occupation` — the id that becomes `mskill_mig_welder` downstream."""
+    sig = signals.detect(text)
+    assert signals.has_machining_signal(text.lower(), sig), f"no machining signal: {text}"
+    assert "skill_welder_occupation" not in sig.skill_ids, text
+    # The LABEL rides on the same tuple, so suppressing the id must suppress the text
+    # that would otherwise show up on the profile as a claimed skill.
+    assert "welding" not in sig.skills, text
+
+
+@pytest.mark.parametrize(
+    ("text", "kept"),
+    [
+        ("cnc operator hun, tig welding bhi karta hu", "skill_tig_welding"),
+        ("lathe chalata hu, mig welding bhi aati hai", "skill_mig_welding"),
+        ("vmc operator hu, arc welding bhi karta hu", "skill_arc_welding"),
+        ("cnc machine pe kaam, gas cutting bhi", "skill_gas_cutting"),
+    ],
+)
+def test_a_named_welding_process_survives_the_machining_guard(text, kept):
+    """The guard suppresses an INFERENCE, never a CLAIM.
+
+    A named process is something the worker said; only the bare "welder"/"welding"
+    surface form is the unspecific signal that was being resolved to a specific id.
+    Gating the whole table instead would cost real recall on real statements and buy
+    no correctness — which is why `_UNSPECIFIC_WELDING_SKILL_IDS` exists."""
+    sig = signals.detect(text)
+    assert signals.has_machining_signal(text.lower(), sig), f"no machining signal: {text}"
+    assert kept in sig.skill_ids, text
+    assert "skill_welder_occupation" not in sig.skill_ids, text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "welder hun main",
+        "welding ka kaam karta hu",
+        "welder hun, 5 saal ka experience hai",
+        "welding aur gas cutting dono karta hu",
+    ],
+)
+def test_a_real_welder_still_gets_the_unspecific_attribute(text):
+    """The guard must not cost the population it was never about.
+
+    No machining evidence => nothing changes, including the role, so T4 cannot be a
+    recall regression for the welding cohort it is meant to protect."""
+    sig = signals.detect(text)
+    assert not signals.has_machining_signal(text.lower(), sig), f"machining signal: {text}"
+    assert "skill_welder_occupation" in sig.skill_ids, text
+
+
+def test_t4_is_scoped_to_the_unspecific_attribute_only():
+    # A structural guard on the guard: if a named process ever joins the unspecific set,
+    # the test above would still pass on its own texts while real claims silently stopped
+    # being recorded. Pin the membership itself.
+    assert signals._UNSPECIFIC_WELDING_SKILL_IDS == {"skill_welder_occupation"}
+    assert signals._UNSPECIFIC_WELDING_SKILL_IDS < set(ALLOWED_WELDING_SKILL_IDS)
+    named = ALLOWED_WELDING_SKILL_IDS - signals._UNSPECIFIC_WELDING_SKILL_IDS
+    assert named == {
+        "skill_mig_welding",
+        "skill_tig_welding",
+        "skill_arc_welding",
+        "skill_gas_cutting",
+    }
+
+
+def test_t4_does_not_change_the_role_bridge():
+    """The two guards read the same evidence, so adding one must not shift the other.
+
+    `_assign_welding_role` already returns early on `has_machining_signal`, so it never
+    reached the `_WELDING_DOMAIN_SKILL_IDS` test on these texts. Asserted because the
+    suppressed id IS a member of that set — a reader could reasonably fear T4 changed
+    role assignment by removing it."""
+    for text in _MACHINING_PLUS_UNSPECIFIC_WELDING:
+        _rich, legacy = profile_extractor.extract(text)
+        assert legacy.canonical_role_id != "role_welder", text
+        assert legacy.canonical_trade_id != "dom_welding", text
+    # ...and on the other side of the guard the role is unchanged too.
+    _rich, legacy = profile_extractor.extract("welder hun main")
+    assert legacy.canonical_role_id == "role_welder"
+    assert legacy.canonical_trade_id == "dom_welding"
+
+
+def test_t4_does_not_fix_the_finding_it_is_scoped_under():
+    """Stated as a test so nobody reads T4 as closing TD-07.
+
+    A TIG-only worker is STILL additionally written as MIG (the bare "welding" pattern
+    fires on "tig welding"), and a self-described welder still lands on a specific
+    process downstream. Both need T1's `mskill_welder_general`. When T1 lands this test
+    is expected to fail — that is the signal to delete it, not to weaken T1."""
+    sig = signals.detect("tig welding karta hu 5 saal")
+    assert "skill_tig_welding" in sig.skill_ids
+    assert "skill_welder_occupation" in sig.skill_ids  # -> mskill_mig_welder downstream

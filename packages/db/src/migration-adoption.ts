@@ -44,6 +44,7 @@
  * a match, and a `DO $$` block is a refusal rather than an assumption, because what dynamic SQL
  * does cannot be read off the file.
  */
+import { DATA_API_ROLES, R39_TABLES } from "./schema-contract";
 
 /** What a migration claims to have created, as far as it can be read from its text. */
 export interface Expect {
@@ -280,23 +281,110 @@ export function verifyAgainst(e: Expect, live: LiveCatalog): string[] {
  * which is a different statement from "the answer is no" — and a reader who saw a clean object
  * list above them would take the file as verified.
  */
-export function adoptionProblems(sql: string, live: LiveCatalog): string[] {
+/**
+ * ===========================================================================
+ * EFFECT VERIFIERS — the one narrow way past the dynamic-SQL refusal
+ * ===========================================================================
+ * A `DO $$` block is refused because what it does is chosen at run time, so the file cannot be
+ * read as a promise. That refusal is right, and it is also a dead end: `0082_rls_lock_seven_tables`
+ * has a guarded Section B, was applied to production by hand, and then had drizzle's watermark
+ * move PAST it by an unrelated out-of-band apply — so `db:migrate` will now skip it forever and
+ * adoption is the only remaining way to record it.
+ *
+ * The escape hatch is deliberately NOT "trust me, adopt it". It is: name the migration, and
+ * supply a function that verifies its EFFECTS against the live catalog. That is strictly
+ * stronger evidence than the text parse it replaces — a parse asks what the file says, a
+ * verifier asks what the database actually is.
+ *
+ * FOUR PROPERTIES THAT KEEP THIS FROM BECOMING A BACK DOOR:
+ *
+ *   1. Keyed to ONE migration tag. There is no flag that relaxes the rule generally.
+ *   2. The verifier runs IN ADDITION to the static check, never instead of it — whatever
+ *      {@link parseMigration} can still read off the file is still verified.
+ *   3. `assertions` must be > 0 and is asserted by a test. A verifier that checks nothing would
+ *      reproduce exactly the "nothing to check counted as everything checked" defect that made
+ *      {@link vacuous} necessary.
+ *   4. It can still FAIL. Run against a database where 0082 has not been applied, the 0082
+ *      verifier reports 42 problems and adoption refuses — the property the runbook needs is
+ *      "cannot record a migration whose effects are absent", and this preserves it exactly.
+ */
+export interface EffectVerifier {
+  readonly tag: string;
+  /** Why this migration cannot be verified from its text. One line, for the report. */
+  readonly why: string;
+  /** How many independent facts {@link verify} checks. Must be > 0 — see property 3. */
+  readonly assertions: number;
+  /** Every reason the live database does NOT show this migration's effects. */
+  readonly verify: (live: LiveCatalog) => string[];
+}
+
+/**
+ * `0082` locks seven tables: ENABLE + FORCE + `REVOKE ALL` from each of the four Data-API roles.
+ * Three of them it names in plain text (verified statically anyway); four it reaches only
+ * through `to_regclass` inside the `DO` block. This checks all seven the same way, from the
+ * catalog — the same three conditions `rlsLocked` uses and `db:audit:rls` reports on.
+ */
+function r39LockProblems(live: LiveCatalog): string[] {
+  const problems: string[] = [];
+  for (const { table } of R39_TABLES) {
+    if (!live.tables.has(table)) {
+      // Absent is not a pass. On a fresh database the four unmodelled tables genuinely are not
+      // there — but adoption only ever runs against a database claimed to ALREADY have the
+      // migration's effects, and "the table 0082 locks is missing" is never that.
+      problems.push(`${table}: table MISSING — 0082 locks it, so it cannot already be applied here`);
+      continue;
+    }
+    if (!live.rlsEnabled.has(table)) problems.push(`${table}: RLS is not ENABLED`);
+    if (!live.rlsForced.has(table)) problems.push(`${table}: RLS is not FORCED — the owner bypasses every policy`);
+    for (const role of DATA_API_ROLES) {
+      if (live.grants.has(`${table}:${role.toLowerCase()}`)) {
+        problems.push(`${table}: ${role} still holds a privilege — the REVOKE did not take`);
+      }
+    }
+  }
+  return problems;
+}
+
+/** Every migration whose effects may be verified from the catalog instead of from its text. */
+export const EFFECT_VERIFIERS: readonly EffectVerifier[] = [
+  {
+    tag: "0082_rls_lock_seven_tables",
+    why: "Section B locks four GAP-DB-21 tables through a to_regclass-guarded DO block",
+    assertions: R39_TABLES.length * (2 + DATA_API_ROLES.length),
+    verify: r39LockProblems,
+  },
+];
+
+export function effectVerifierFor(tag: string | undefined): EffectVerifier | undefined {
+  if (tag === undefined) return undefined;
+  return EFFECT_VERIFIERS.find((v) => v.tag === tag);
+}
+
+/**
+ * Every reason this migration must NOT be recorded as applied.
+ *
+ * `tag` is optional only so existing callers that verify a bare string keep compiling; pass it
+ * whenever you have it, because it is what enables the effect verifier above.
+ */
+export function adoptionProblems(sql: string, live: LiveCatalog, tag?: string): string[] {
   let e: Expect;
   try {
     e = parseMigration(sql);
   } catch (err) {
     return [`parse failed: ${(err as Error).message}`];
   }
+  const verifier = effectVerifierFor(tag);
   const refusals: string[] = [];
-  if (e.dynamicSql) {
+  if (e.dynamicSql && verifier === undefined) {
     refusals.push(
       "contains dynamic SQL (DO $$ / EXECUTE) — what it does is decided at run time and cannot be verified from the file",
     );
   }
-  if (vacuous(e)) {
+  if (vacuous(e) && verifier === undefined) {
     refusals.push(
       "declares nothing this tool can check (no table, column, index, constraint, RLS flag or REVOKE) — adopting it would record a claim on no evidence",
     );
   }
-  return [...refusals, ...verifyAgainst(e, live)];
+  // Both, never either: the verifier ADDS catalog evidence, it does not excuse the text.
+  return [...refusals, ...verifyAgainst(e, live), ...(verifier?.verify(live) ?? [])];
 }

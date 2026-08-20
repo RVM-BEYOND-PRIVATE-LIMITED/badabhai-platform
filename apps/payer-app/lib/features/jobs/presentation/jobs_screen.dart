@@ -14,6 +14,7 @@ import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_progress.dart';
+import '../../../core/error/payer_failure.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import '../../job_posting_chat/presentation/cubit/chat_sessions_cubit.dart';
@@ -120,11 +121,14 @@ class _JobsView extends StatelessWidget {
           return const BbStatusView.loading();
         }
         if (state.status == JobsStatus.error) {
+          final PayerFailure failure =
+              state.failure ?? const PayerFailure(PayerFailureKind.unknown);
           return BbStatusView(
-            icon: Icons.wifi_off,
-            title: 'Could not load jobs',
+            icon: failure.icon,
+            title: failure.title,
+            subtitle: failure.message,
             action: BbButton(
-              label: 'Retry',
+              label: failure.isSessionExpired ? 'Log in' : 'Retry',
               onPressed: () => context.read<JobsCubit>().load(),
             ),
           );

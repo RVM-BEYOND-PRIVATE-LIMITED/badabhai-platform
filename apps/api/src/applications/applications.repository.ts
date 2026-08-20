@@ -10,6 +10,7 @@ import {
   applications,
   jobs,
   jobPostings,
+  jobReach,
 } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import { OPS_LIST_CAP } from "../common/pagination";
@@ -57,6 +58,10 @@ export interface ApplicationWithJob {
   rank: number | null;
   createdAt: Date;
   updatedAt: Date;
+  // The match skill that earned this worker his reach row for a V1 posting, or NULL for a
+  // legacy decision (which has no reach row at all). The ID, not a label: turning it into a
+  // human string is a taxonomy lookup and belongs in the service, not the repository.
+  matchedSkillId: string | null;
 }
 
 /** The fields an apply/skip upsert writes (worker/job identify the row). */
@@ -285,10 +290,30 @@ export class ApplicationsRepository {
         rank: applications.rank,
         createdAt: applications.createdAt,
         updatedAt: applications.updatedAt,
+        // #1051. `trade_key` is NULL for every V1 decision, so without this the subtitle a
+        // worker reads on the Applied tab has nothing to say about the WORK — only the place.
+        // The reach row is where a V1 decision's skill lives, and it is the same id the feed
+        // already surfaces, so the two surfaces now agree instead of one of them going blank.
+        //
+        // NOT the label: `matchSkillLabel` is a closed-set taxonomy lookup and belongs in the
+        // service. Keeping the repository to columns is also what stops this join from
+        // becoming the place someone later reaches for pay or employer.
+        matchedSkillId: jobReach.matchedSkillId,
       })
       .from(applications)
       .leftJoin(jobs, eq(applications.jobId, jobs.id))
       .leftJoin(jobPostings, eq(applications.jobPostingId, jobPostings.id))
+      // ON THE PRIMARY KEY, which is the property the paragraph above depends on:
+      // `job_reach`'s PK is exactly (job_posting_id, worker_id), so this cannot fan a
+      // decision out into duplicate rows any more than the other two joins can. LEFT, because
+      // a legacy decision has no reach row and must still appear.
+      .leftJoin(
+        jobReach,
+        and(
+          eq(jobReach.jobPostingId, applications.jobPostingId),
+          eq(jobReach.workerId, applications.workerId),
+        ),
+      )
       .where(eq(applications.workerId, workerId))
       .orderBy(asc(applications.createdAt))
       .limit(OPS_LIST_CAP); // bound an otherwise-unbounded ops read

@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import { isMatchV1Enabled, type ServerConfig } from "@badabhai/config";
+import { matchSkillLabel } from "@badabhai/taxonomy";
 import type { RequestContext } from "../common/request-context";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService, type EmitParams } from "../events/events.service";
@@ -266,6 +267,13 @@ export class ApplicationsService {
         rank: a.rank,
         created_at: a.createdAt,
         updated_at: a.updatedAt,
+        // #1051. ADDITIVE and display-safe. `trade_key` above is an INTERNAL key that is NULL
+        // for every V1 decision, so it is not something a client can render; this is the human
+        // half, from the same closed-set taxonomy the feed uses. NULL for a legacy decision
+        // (no reach row) and NULL for an id the taxonomy does not know — which is the honest
+        // answer, and lets the client fall back rather than print an id.
+        matched_skill_label:
+          a.matchedSkillId === null ? null : (matchSkillLabel(a.matchedSkillId) ?? null),
       })),
     };
   }

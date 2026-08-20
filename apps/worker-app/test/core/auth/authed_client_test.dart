@@ -166,6 +166,59 @@ void main() {
       );
     });
 
+    test('#998: persists + REUSES one refresh Idempotency-Key across separate '
+        'calls, clearing it once the rotation lands', () async {
+      final List<String?> refreshKeys = <String?>[];
+      final SecureTokenStore store = SecureTokenStore(FakeSecureStore());
+      await store.saveTokens(
+        refreshToken: 'refresh-old',
+        accessExpiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+        accessToken: 'access-expired',
+      );
+
+      bool failRefresh = true;
+      final AuthedClient client = _client(
+        MockClient((http.Request req) async {
+          if (req.url.path == '/auth/token/refresh') {
+            refreshKeys.add(req.headers['Idempotency-Key']);
+            if (failRefresh) throw http.ClientException('dropped');
+            return http.Response(
+              jsonEncode(<String, dynamic>{
+                'access_token': 'access-new',
+                'refresh_token': 'refresh-new',
+                'expires_in_seconds': 900,
+              }),
+              200,
+            );
+          }
+          return http.Response(jsonEncode(<String, dynamic>{'ok': true}), 200);
+        }),
+        tokenStore: store,
+        signal: ReauthSignal(),
+      );
+
+      // Round 1 — the rotation's response is lost (transport fails). The key is
+      // persisted and the refresh token is KEPT (no force-logout on a flaky net).
+      await expectLater(
+        client.send(HttpMethod.get, '/p1', authed: true),
+        throwsA(anything),
+      );
+      final String? persisted = await store.readRefreshIdempotencyKey();
+      expect(persisted, isNotNull);
+      expect(await store.readRefreshToken(), 'refresh-old');
+
+      // Round 2 — a later refresh REUSES the same key (so the server can dedupe),
+      // succeeds, and the key is cleared once the new token is durably persisted.
+      failRefresh = false;
+      await client.send(HttpMethod.get, '/p2', authed: true);
+      expect(refreshKeys.whereType<String>().toSet(), hasLength(1),
+          reason: 'ONE key across the failed retries AND the later success');
+      expect(refreshKeys.first, persisted);
+      expect(await store.readRefreshToken(), 'refresh-new');
+      expect(await store.readRefreshIdempotencyKey(), isNull,
+          reason: 'cleared once the rotation is durably persisted');
+    });
+
     test('reactive 401 → refresh → original retried once with the new token',
         () async {
       int refreshCalls = 0;

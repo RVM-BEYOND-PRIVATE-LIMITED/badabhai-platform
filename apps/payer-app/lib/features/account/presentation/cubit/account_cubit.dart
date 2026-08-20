@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/data/payer_account_api.dart';
+import '../../../../core/error/payer_failure.dart';
 
 /// Loads and edits the signed-in payer's account via `GET/PATCH /payer/me`.
 /// PII-light by construction: the model only ever carries `phoneLast4`, never a
@@ -17,10 +18,12 @@ class AccountCubit extends Cubit<AccountState> {
     try {
       final PayerMe me = await _api.fetchMe();
       emit(AccountState(status: AccountStatus.ready, me: me));
-    } catch (_) {
+    } catch (e) {
+      // Name the REAL reason (offline vs server vs expired session), not a flat
+      // "check your connection" that misleads on a 5xx.
       emit(state.copyWith(
         status: AccountStatus.error,
-        error: 'Could not load your account. Retry when you have a connection.',
+        error: PayerFailure.from(e).message,
       ));
     }
   }

@@ -50,6 +50,7 @@ class BbBlueHeader extends StatelessWidget {
               child: Transform.translate(
                 offset: const Offset(-AppSpacing.s3, 0),
                 child: IconButton(
+                  tooltip: 'Wapas',
                   onPressed: onBack,
                   color: AppColors.onBlue,
                   icon: const Icon(Icons.arrow_back),

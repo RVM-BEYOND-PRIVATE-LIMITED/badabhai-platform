@@ -79,6 +79,7 @@
     "db:audit:labels": "tsx src/taxonomy-label-audit.ts",
     "db:review-pack:fixture": "tsx src/taxonomy-fixture-review-pack.ts",
     "db:review-pack:td01": "tsx src/td01-review-pack.ts",
+    "db:review-pack:eval-coverage": "tsx src/eval-coverage-review-pack.ts",
     "db:audit:embeddings": "tsx src/audit-embedding-provenance.ts",
     "db:verify:embeddings": "tsx src/verify-embedding-provenance.ts",
     "db:audit:schema-contract": "tsx src/audit-schema-contract.ts",
@@ -87,7 +88,9 @@
     "db:verify:unresolved-write": "tsx src/verify-unresolved-write.ts",
     "db:verify:rls-lock": "tsx src/verify-rls-lock.ts",
     "db:rollback:s3d": "tsx src/s3d-rollback.ts",
-    "db:report:s3d-shadow": "tsx src/s3d-shadow-report.ts"
+    "db:report:s3d-shadow": "tsx src/s3d-shadow-report.ts",
+    "db:audit:live-drift": "tsx src/audit-live-drift.ts",
+    "db:export:alias-vectors": "tsx src/export-alias-vectors.ts"
   },
   "dependencies": {
     "@badabhai/ai-contracts": "workspace:*",

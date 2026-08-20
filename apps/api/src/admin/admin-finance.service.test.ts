@@ -38,9 +38,21 @@ const REAL_CFG = {
 
 const svc = (repo = repoStub(), cfg = MOCK_CFG) => new AdminFinanceService(repo, cfg);
 
+/**
+ * A deterministic uuid for row `i` — `00000000-0000-4000-8000-<12-digit index>`.
+ *
+ * Synthetic ids like `id-0` used to be fine here because the cursor decoder accepted any
+ * string. Since #1014 it accepts only what a `uuid` column can hold, which is what production
+ * ids have always been — so the fixtures were the thing that was wrong, not the guard. Kept
+ * derivable from the index so an assertion can still name the row it means.
+ */
+function uuidFor(i: number): string {
+  return `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
+}
+
 function rows(n: number, base = Date.parse("2026-08-04T12:00:00Z")) {
   return Array.from({ length: n }, (_, i) => ({
-    id: `id-${i}`,
+    id: uuidFor(i),
     created_at: new Date(base - i * 1000),
   }));
 }
@@ -132,7 +144,7 @@ describe("keyset paging", () => {
     const p = await svc(repoStub({ listLedger } as never)).ledger({ limit: 5 } as never);
     expect(listLedger).toHaveBeenCalledWith(expect.anything(), null, 6);
     expect(p.items).toHaveLength(5);
-    expect(decodeEntityCursor(p.nextCursor!)?.id).toBe("id-4");
+    expect(decodeEntityCursor(p.nextCursor!)?.id).toBe(uuidFor(4));
   });
 
   it("a full last page reports nextCursor null — no phantom page", async () => {

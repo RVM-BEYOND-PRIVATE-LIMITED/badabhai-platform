@@ -3,9 +3,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/error/payer_failure.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/pay_format.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
@@ -61,11 +63,14 @@ class _CreditsView extends StatelessWidget {
           return const BbStatusView.loading();
         }
         if (state.status == CreditsScreenStatus.error) {
+          final PayerFailure failure =
+              state.failure ?? const PayerFailure(PayerFailureKind.unknown);
           return BbStatusView(
-            icon: Icons.wifi_off,
-            title: 'Could not load',
+            icon: failure.icon,
+            title: failure.title,
+            subtitle: failure.message,
             action: BbButton(
-              label: 'Retry',
+              label: failure.isSessionExpired ? 'Log in' : 'Retry',
               onPressed: () => context.read<CreditsScreenCubit>().load(),
             ),
           );
@@ -124,7 +129,9 @@ class _CreditsView extends StatelessWidget {
                         color: AppColors.paper0,
                       ),
                       children: <InlineSpan>[
-                        TextSpan(text: '${state.balance ?? '—'} '),
+                        TextSpan(
+                            text:
+                                '${state.balance != null ? formatIndianGrouped(state.balance!) : '—'} '),
                         TextSpan(
                           text: 'unlocks',
                           style: AppTypography.body(
@@ -262,7 +269,7 @@ class _PackCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '₹${pack.priceInr}',
+                  '₹${formatIndianGrouped(pack.priceInr)}',
                   style: AppTypography.body(
                     size: AppTypography.sizeSm,
                     color: AppColors.textSecondary,
@@ -326,11 +333,15 @@ class _LedgerRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: <Widget>[
-          Text(
-            entry.label,
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              color: AppColors.textSecondary,
+          Flexible(
+            child: Text(
+              entry.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                color: AppColors.textSecondary,
+              ),
             ),
           ),
           Text(

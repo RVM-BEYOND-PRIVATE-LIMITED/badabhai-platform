@@ -10,10 +10,19 @@ import '../theme/app_spacing.dart';
 ///
 /// Stateless: drive [value] from the caller and flip it in [onChanged].
 class BbToggle extends StatelessWidget {
-  const BbToggle({super.key, required this.value, required this.onChanged});
+  const BbToggle({
+    super.key,
+    required this.value,
+    required this.onChanged,
+    this.semanticLabel,
+  });
 
   final bool value;
   final ValueChanged<bool> onChanged;
+
+  /// Accessibility label announced by TalkBack, alongside the on/off state.
+  /// Pass what the toggle controls (e.g. the row's title).
+  final String? semanticLabel;
 
   static const double _trackWidth = 52;
   static const double _trackHeight = 30;
@@ -24,35 +33,42 @@ class BbToggle extends StatelessWidget {
     // Vertical padding lifts the 30px track to the 48px sacred tap target.
     const double padV = (AppSpacing.tap - _trackHeight) / 2;
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => onChanged(!value),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: padV),
-        child: AnimatedContainer(
-          duration: AppMotion.base,
-          curve: AppMotion.easeOut,
-          width: _trackWidth,
-          height: _trackHeight,
-          decoration: BoxDecoration(
-            color: value ? AppColors.success : AppColors.ink300,
-            borderRadius: BorderRadius.circular(AppRadii.pill),
-          ),
-          child: AnimatedAlign(
+    return Semantics(
+      container: true,
+      toggled: value,
+      button: true,
+      label: semanticLabel,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => onChanged(!value),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: padV),
+          child: AnimatedContainer(
             duration: AppMotion.base,
             curve: AppMotion.easeOut,
-            alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s1 / 2),
-              child: Container(
-                width: _knobSize,
-                height: _knobSize,
-                // Elevation 0 — the design system BANS shadows (separation is by
-                // color/hairline, never a drop shadow). The white knob reads fine
-                // on both the green (on) and ink (off) track without one.
-                decoration: const BoxDecoration(
-                  color: AppColors.surfaceCard,
-                  shape: BoxShape.circle,
+            width: _trackWidth,
+            height: _trackHeight,
+            decoration: BoxDecoration(
+              color: value ? AppColors.success : AppColors.ink300,
+              borderRadius: BorderRadius.circular(AppRadii.pill),
+            ),
+            child: AnimatedAlign(
+              duration: AppMotion.base,
+              curve: AppMotion.easeOut,
+              alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: AppSpacing.s1 / 2),
+                child: Container(
+                  width: _knobSize,
+                  height: _knobSize,
+                  // Elevation 0 — the design system BANS shadows (separation is
+                  // by color/hairline, never a drop shadow). The white knob
+                  // reads fine on both the green (on) and ink (off) track.
+                  decoration: const BoxDecoration(
+                    color: AppColors.surfaceCard,
+                    shape: BoxShape.circle,
+                  ),
                 ),
               ),
             ),

@@ -65,9 +65,21 @@ function service(
 }
 
 /** `n` rows with strictly decreasing timestamps, newest first — the real list ordering. */
+/**
+ * A deterministic uuid for row `i` — `00000000-0000-4000-8000-<12-digit index>`.
+ *
+ * Synthetic ids like `id-0` used to be fine here because the cursor decoder accepted any
+ * string. Since #1014 it accepts only what a `uuid` column can hold, which is what production
+ * ids have always been — so the fixtures were the thing that was wrong, not the guard. Kept
+ * derivable from the index so an assertion can still name the row it means.
+ */
+function uuidFor(i: number): string {
+  return `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
+}
+
 function rows(n: number, base = Date.parse("2026-08-04T12:00:00Z")) {
   return Array.from({ length: n }, (_, i) => ({
-    id: `id-${i}`,
+    id: uuidFor(i),
     created_at: new Date(base - i * 1000),
   }));
 }
@@ -89,7 +101,7 @@ describe("keyset paging — the page boundary", () => {
     // at the peeked row would skip it on the next page.
     expect(decodeEntityCursor(page.nextCursor!)).toEqual({
       createdAt: rows(6)[4]!.created_at.toISOString(),
-      id: "id-4",
+      id: uuidFor(4),
     });
   });
 
@@ -113,11 +125,15 @@ describe("keyset paging — the page boundary", () => {
   it("passes a decoded cursor through to the repository", async () => {
     const listPayers = vi.fn(async () => []);
     const svc = service({ listPayers } as never);
-    const cursor = encodeEntityCursor({ createdAt: "2026-08-04T12:00:00.000Z", id: "x" });
+    // A real uuid, because since #1014 the decoder rejects anything else — and a fixture that
+    // the decoder throws away would make this assert that `null` is passed through, which is
+    // the GARBAGE case below, not this one.
+    const id = uuidFor(7);
+    const cursor = encodeEntityCursor({ createdAt: "2026-08-04T12:00:00.000Z", id });
     await svc.listPayers(admin(), { limit: 10, cursor } as never, CTX);
     expect(listPayers).toHaveBeenCalledWith(
       expect.anything(),
-      { createdAt: "2026-08-04T12:00:00.000Z", id: "x" },
+      { createdAt: "2026-08-04T12:00:00.000Z", id },
       11,
     );
   });
@@ -221,16 +237,16 @@ describe("credits — balance and ledger travel together", () => {
 
 describe("names — the service merges exactly what identity disclosed", () => {
   it("a DISCLOSING resolve puts full_name on every returned worker row", async () => {
-    const resolve = vi.fn(async () => new Map([["id-0", "Ramesh Kumar"]]));
+    const resolve = vi.fn(async () => new Map([[uuidFor(0), "Ramesh Kumar"]]));
     const svc = service({ listWorkers: vi.fn(async () => rows(2)) } as never, identityStub(
       resolve as never,
     ));
     const page = await svc.listWorkers(admin(), { limit: 5 } as never, CTX);
-    expect(page.items[0]).toMatchObject({ id: "id-0", full_name: "Ramesh Kumar" });
+    expect(page.items[0]).toMatchObject({ id: uuidFor(0), full_name: "Ramesh Kumar" });
     // A row the map has no entry for still CARRIES the field, as null — "disclosed, and this
     // person has no name on record". Omitting it there would be indistinguishable from the
     // not-entitled response.
-    expect(page.items[1]).toMatchObject({ id: "id-1", full_name: null });
+    expect(page.items[1]).toMatchObject({ id: uuidFor(1), full_name: null });
   });
 
   it("a NON-disclosing resolve leaves the page byte-identical to the faceless one", async () => {
@@ -255,7 +271,7 @@ describe("names — the service merges exactly what identity disclosed", () => {
     expect(resolve).toHaveBeenCalledWith(
       expect.anything(),
       "workers",
-      ["id-0", "id-1", "id-2", "id-3", "id-4"],
+      [uuidFor(0), uuidFor(1), uuidFor(2), uuidFor(3), uuidFor(4)],
       null,
       CTX,
     );
@@ -275,13 +291,13 @@ describe("names — the service merges exactly what identity disclosed", () => {
   });
 
   it("payers get org_name, from the `payers` surface — never the workers one", async () => {
-    const resolve = vi.fn(async () => new Map([["id-0", "Sharma Fabrication Pvt Ltd"]]));
+    const resolve = vi.fn(async () => new Map([[uuidFor(0), "Sharma Fabrication Pvt Ltd"]]));
     const svc = service({ listPayers: vi.fn(async () => rows(1)) } as never, identityStub(
       resolve as never,
     ));
     const page = await svc.listPayers(admin(), { limit: 5 } as never, CTX);
     expect(page.items[0]).toMatchObject({ org_name: "Sharma Fabrication Pvt Ltd" });
-    expect(resolve).toHaveBeenCalledWith(expect.anything(), "payers", ["id-0"], null, CTX);
+    expect(resolve).toHaveBeenCalledWith(expect.anything(), "payers", [uuidFor(0)], null, CTX);
   });
 
   it("a 404 short-circuits BEFORE any name is resolved (no budget spent, no audit row)", async () => {
@@ -385,7 +401,7 @@ describe("names — the service merges exactly what identity disclosed", () => {
     expect(resolve).toHaveBeenCalledWith(
       expect.anything(),
       "payers",
-      ["id-0", "id-1", "id-2", "id-3", "id-4"],
+      [uuidFor(0), uuidFor(1), uuidFor(2), uuidFor(3), uuidFor(4)],
       null,
       CTX,
     );
@@ -425,7 +441,7 @@ describe("names — the service merges exactly what identity disclosed", () => {
     expect(page.nextCursor).not.toBeNull();
     expect(decodeEntityCursor(page.nextCursor!)).toEqual({
       createdAt: rows(51)[49]!.created_at.toISOString(),
-      id: "id-49",
+      id: uuidFor(49),
     });
   });
 

@@ -6,9 +6,43 @@ on:
   pull_request:
     branches: [main]
 
+# A PR run is SUPERSEDABLE. A `main` run is a DEPLOY.
+#
+# `cancel-in-progress: true` is exactly right on a branch: a new push replaces the old one and
+# there is no reason to finish testing a commit nobody will merge.
+#
+# On `main` it is wrong, because main runs are not supersedable — each one is the deploy of a
+# distinct commit. `deploy-lightsail` is the LAST job in this workflow, so it is reliably the
+# one still pending when the next merge lands and kills the run. Merge cadence on this repo is
+# faster than the ~7-minute path to that job, which makes cancellation the NORMAL case:
+#
+#     measured 2026-08-20, last 59 settled runs on main:  39 cancelled / 20 success  (66%)
+#
+# It usually self-heals, which is why it went unnoticed for so long: the next successful run
+# deploys a descendant commit that contains the cancelled one's changes too. #1017 and #1019
+# both shipped that way — hours late, and only because unrelated work happened to merge behind
+# them. It stops self-healing exactly when it matters most, i.e. when the cancelled run is the
+# LAST one: end of day, a quiet period, or a single urgent hotfix merged on its own. Then main
+# is merged, production is not running it, and nothing is red anywhere to say so.
+#
+# WHAT THE EXPRESSION BUYS, STATED HONESTLY. It does not mean every main run completes.
+# GitHub cancels a PREVIOUSLY-PENDING run when a newer one joins the group, so a burst of
+# merges can still discard an intermediate run before it starts. What it guarantees is the
+# thing that was actually broken: the NEWEST run in the group is never cancelled by a newer
+# one, so the tip of `main` always reaches `deploy-lightsail`. Intermediate commits may still
+# show a cancelled `ci-required` — that is the aggregate gate reporting "something did not
+# finish", not a test failure — but the box can no longer be left behind `main` indefinitely.
+#
+# Serialising is desirable on its own terms: two deploys racing onto one box is a worse
+# failure than a deploy waiting seven minutes, and queued runs make deploy order match merge
+# order. `staging-cd.yml` — the other deploy workflow in this repo — already pins
+# `cancel-in-progress: false` for the same reason.
+#
+# Cost is CI minutes on `main` only. Pinned by `ci-main-deploy-concurrency.guard.test.ts`.
+# Refs #1041, #1021, #1019, #1017.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # ---- Detect changed paths (CI-2: dorny/paths-filter) + derive the build id (#965) ----
@@ -666,6 +700,59 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # ---- SHELLCHECK: EVERY TRACKED .sh, INCLUDING THE PRODUCTION DEPLOY BODY ----
+      #
+      # Nothing in this repo linted a shell script until this step. That mattered most for
+      # scripts/deploy/staging-deploy.sh, which executes on the Lightsail box on every push
+      # to main — and it was not merely unlinted but UNPARSEABLE: a prose comment beginning
+      # with the token `# shellcheck` was read as a DIRECTIVE, so shellcheck aborted the
+      # whole 500-line file with SC1073/SC1072 and analyzed none of it. Being unparseable
+      # is indistinguishable from being clean when no job runs the linter.
+      #
+      # WHY THIS JOB. `ci-required` is the only required status check on main and `needs:`
+      # cannot name a job in another workflow file, so a shell-lint job in a standalone
+      # workflow could sit RED beside a GREEN required check while the PR merged — measured
+      # twice already (#718 on PR #711, #773 twice in one day). This job is reachable by
+      # `ci-required` and carries no `if:` and no path filter, so no mis-scoped filter can
+      # silently skip it. It runs BEFORE `pnpm install`, so a bad script fails in seconds.
+      #
+      # PINNED, NOT PREINSTALLED. The runner image ships its own shellcheck and bumps it
+      # without asking; a scan must fail because the code changed, never because the rules
+      # changed overnight. v0.11.0 + sha256 (checksum reproduced from two independent
+      # fetches) is byte-identical to what a developer runs locally.
+      #
+      # DEFAULT SEVERITY, NO --exclude, NO BLANKET disable. All three tracked scripts pass
+      # cleanly at style level. The one suppression in the tree is a single-line, single-code
+      # `disable=SC2016` in scripts/chat-cli.sh over a JS template literal that MUST stay
+      # single-quoted, with the reason written above it.
+      #
+      # `git ls-files` rather than a hardcoded list, so a NEW script is linted the day it
+      # lands instead of inheriting the same blind spot. The count assertion is what stops
+      # this decaying into a green step that checked nothing — it is a FLOOR at today's
+      # count (4), so deleting a script is a deliberate act that has to update this number
+      # rather than something that quietly shrinks what the gate covers. #1108's
+      # scripts/deploy/r38-port-audit.sh was written before this gate existed and was
+      # verified clean against the pinned version below, not grandfathered past it.
+      - name: Shellcheck (all tracked shell scripts)
+        env:
+          SHELLCHECK_VERSION: "0.11.0"
+          SHELLCHECK_SHA256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o /tmp/shellcheck.tar.xz \
+            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          echo "${SHELLCHECK_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+          SC="/tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          "$SC" --version
+          mapfile -t SH_FILES < <(git ls-files '*.sh')
+          echo "Linting ${#SH_FILES[@]} tracked shell script(s): ${SH_FILES[*]}"
+          if [ "${#SH_FILES[@]}" -lt 4 ]; then
+            echo "::error::expected at least 4 tracked .sh files, found ${#SH_FILES[@]} — this step is not linting what it claims to. Fix the glob, do not lower the number."
+            exit 1
+          fi
+          "$SC" --format=gcc "${SH_FILES[@]}"
+
       - name: Install pnpm
         # No `version:` here on purpose — it would conflict with the
         # `packageManager` field in package.json (ERR_PNPM_BAD_PM_VERSION).
@@ -1217,7 +1304,7 @@ jobs:
       # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
       # `node` job, and a six-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard)
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -1229,9 +1316,9 @@ jobs:
           #
           # `--no-file-parallelism` IS LOAD-BEARING, and it is the one flag on this line
           # that is about correctness rather than plumbing. Vitest gives each FILE its own
-          # worker and runs them concurrently; these seven share ONE Postgres, and four of
+          # worker and runs them concurrently; these eight share ONE Postgres, and five of
           # them INSERT INTO `workers` (current-profile-order, ai-cost-totals.db,
-          # jobs-search-sql, and admin-dashboard.db itself). `admin-dashboard.db` reads a
+          # jobs-search-sql, applied-subtitle.db, and admin-dashboard.db itself). `admin-dashboard.db` reads a
           # summary, inserts one row, reads again and asserts the delta is exactly 1 — an
           # assertion about a GLOBAL count that any concurrent insert falsifies.
           #
@@ -1244,7 +1331,7 @@ jobs:
           # Serialising costs nothing here (the whole step runs in ~4s) and is scoped to
           # THIS step on purpose: `apps/api/vitest.config.ts` stays parallel, because the
           # 2820-test `node` suite is database-free and has no shared state to race on.
-          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db 2>&1 | tee db-gates-raw.log
+          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
@@ -1253,11 +1340,12 @@ jobs:
           #     suite-wide "some test passed" check is satisfied by unrelated tests.
           # The directory alternation must list EVERY directory a gate file lives in:
           # `ai-cost-totals.db` sits under src/ai, `jobs-search-sql` under src/jobs and
-          # `admin-dashboard.db` under src/admin, and against a regex missing any one of them
+          # `admin-dashboard.db` under src/admin and `applied-subtitle.db` under
+          # src/applications, and against a regex missing any one of them
           # this loop reports "did not run at all" on a perfectly good run. Widen it whenever a
           # gate lands in a new directory.
-          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db; do
-            line=$(grep -E "src/(ai|admin|match|profiles|jobs)/${f}\.test\.ts" db-gates.log | head -1 || true)
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db; do
+            line=$(grep -E "src/(ai|admin|applications|match|profiles|jobs)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
               exit 1
@@ -1274,8 +1362,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +7 passed \(7\)' db-gates.log; then
-            echo "::error::Expected exactly the 7 gate files to run — the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +8 passed \(8\)' db-gates.log; then
+            echo "::error::Expected exactly the 8 gate files to run — the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi

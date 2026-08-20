@@ -1,16 +1,4 @@
-import {
-  BadRequestException,
-  Body,
-  Controller,
-  ForbiddenException,
-  Get,
-  HttpCode,
-  Inject,
-  Post,
-  Req,
-  UnauthorizedException,
-  UseGuards,
-} from "@nestjs/common";
+import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, HttpException, HttpStatus, Inject, Post, Req, UnauthorizedException, UseGuards } from "@nestjs/common";
 import type { Request } from "express";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -149,14 +137,61 @@ export class AuthController {
     });
   }
 
+  /**
+   * IDEMPOTENT UNDER `Idempotency-Key` (#1023), on the same retry ladder as the send routes.
+   *
+   * `auth_api.dart` already sends this route with `idempotent: true`, so `AuthedClient` mints
+   * ONE key and reuses it across up to three transport retries — and the server ignored it.
+   * `OtpService.verify` increments `otp:attempts:<phoneHash>` per CALL and DELETES the code once
+   * `OTP_MAX_ATTEMPTS` is exceeded, so a worker on a flaky link who typed the CORRECT code could
+   * have it counted two or three times and be told "Too many attempts, request a new code".
+   *
+   * Worse, and the case the guard actually rescues: when attempt 1 SUCCEEDS and only its
+   * response is lost, the code is already consumed — single-use by design — so the retry finds
+   * nothing and returns 401. The worker is told the code they typed correctly is wrong. Replaying
+   * the stored session is the only answer that is true to what happened.
+   *
+   * SECRET AT REST. The 200 here is a `LoginResponse` carrying an access JWT and a refresh
+   * token, so the outcome is stored as CIPHERTEXT (`secret: true`) — the same rule
+   * `SessionService` follows for the pair its own refresh grace caches, and the same 180s
+   * window. Replaying needs the used code AND that exact 128-bit key AND the ability to
+   * decrypt: essentially the legitimate client.
+   *
+   * The whole `withConsentAccepted` compose is inside `work`, so what is replayed is the exact
+   * response the first attempt produced rather than a session re-derived later against a
+   * consent record that may since have changed.
+   *
+   * NO OPTIMISTIC `inFlight` ANSWER IS POSSIBLE, unlike the send routes. There is no session to
+   * hand back until the first attempt finishes, and the one thing this must never do is answer
+   * "wrong code" for a code that is being verified right now. So a duplicate that lands mid-flight
+   * gets the retryable 503 the OTP path already uses for a transient fault — it consumes no
+   * attempt, makes no claim about the code, and the next rung of the ladder finds the stored
+   * outcome. It is a narrow window in practice: a verify is Redis reads plus a JWT mint, with no
+   * provider call to outlive the client's 15s timeout the way a Fast2SMS send can.
+   */
   @Post("otp/verify")
   @HttpCode(200)
   async verifyOtp(
     @Body(new ZodValidationPipe(OtpVerifySchema)) dto: OtpVerifyDto,
+    @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<LoginResponse> {
-    const login = await this.auth.verifyOtp(dto.phone, dto.otp, ctx, dto.device_info);
-    return withConsentAccepted(this.consents, login);
+    return this.otpIdempotency.runOnce({
+      scope: "otp_verify",
+      phoneE164: dto.phone,
+      idempotencyKey: req.header("idempotency-key"),
+      secret: true,
+      inFlight: () => {
+        throw new HttpException(
+          "This is temporarily unavailable; please retry shortly",
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      },
+      work: async () => {
+        const login = await this.auth.verifyOtp(dto.phone, dto.otp, ctx, dto.device_info);
+        return withConsentAccepted(this.consents, login);
+      },
+    });
   }
 
   /**
@@ -346,11 +381,39 @@ export class AuthController {
   @UseGuards(WorkerAuthGuard)
   async accountDeleteRequest(
     @CurrentWorker() worker: AuthenticatedWorker,
+    @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<AccountDeleteRequestResponse> {
     const phone = await this.resolvePhone(worker.id);
-    const { resendInSeconds } = await this.auth.issueAndSendWithSignals(phone, ctx);
-    return { success: true, resend_in_seconds: resendInSeconds };
+    // IDEMPOTENT UNDER `Idempotency-Key` (#1023). This reaches `issueAndSendWithSignals`, i.e.
+    // the SAME `OtpService.issueAndSend` and therefore the same per-phone hourly (5), per-phone
+    // daily (10) and platform-wide `OTP_GLOBAL_MAX_SENDS_PER_DAY` breaker as the login send —
+    // and the breaker, once tripped, 429s EVERY worker on EVERY device until UTC midnight.
+    //
+    // Its contribution is genuinely small: the route is authenticated, deliberate and fires a
+    // handful of times a day, and the resend cooldown arming at t≈0.1s refuses the t≈15.3s rung
+    // before either INCR — so the realistic amplification is 2 sends per tap, not 3. This is
+    // scope-completeness rather than a live outage: the counters are shared, so the route
+    // should not be the one place a retry can still spend them.
+    //
+    // NOT `secret`: the response is `{ success, resend_in_seconds }`, the same shape as the
+    // send routes and carrying no credential.
+    //
+    // Its OWN scope, so a key cannot replay between this and login — the key namespace is
+    // per-phone, and this route resolves the very same phone that /auth/otp/request would.
+    return this.otpIdempotency.runOnce({
+      scope: "account_delete_request",
+      phoneE164: phone,
+      idempotencyKey: req.header("idempotency-key"),
+      inFlight: () => ({
+        success: true as const,
+        resend_in_seconds: this.config.OTP_RESEND_COOLDOWN_SECONDS,
+      }),
+      work: async () => {
+        const { resendInSeconds } = await this.auth.issueAndSendWithSignals(phone, ctx);
+        return { success: true as const, resend_in_seconds: resendInSeconds };
+      },
+    });
   }
 
   /**

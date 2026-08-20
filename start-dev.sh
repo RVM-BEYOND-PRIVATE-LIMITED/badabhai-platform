@@ -32,7 +32,9 @@ else
             --port "$AI_PORT"
     ) &
 
-    AI_PID=$!
+    # No `AI_PID=$!` here: nothing ever read it (SC2034) — this script never
+    # `wait`s on or signals the uvicorn subshell, it re-checks the PORT below
+    # and then `exec`s pnpm dev. Reintroduce it only alongside a real reader.
 
     sleep 3
 

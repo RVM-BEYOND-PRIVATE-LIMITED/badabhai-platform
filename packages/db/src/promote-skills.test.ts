@@ -20,6 +20,7 @@ import {
   CRITERIA,
   isCriterion,
   judge,
+  evalCoverage,
   judgeRegression,
   REGRESSION_BASELINE,
   reportPath,
@@ -29,6 +30,38 @@ import {
   type PromotionReport,
 } from "./promote-skills";
 import type { CorpusFingerprint } from "./corpus-fingerprint";
+import {
+  countsAsEvalCoverage,
+  isScoreable,
+  loadEvalFixture,
+  reviewStatusOf,
+} from "./taxonomy-eval-fixture";
+import { DEFAULT_FIXTURE } from "./taxonomy-retrieval-eval";
+import { TAXONOMY_DATA_DIR } from "./taxonomy-corpus";
+import { SKILL_CORPUS } from "@badabhai/taxonomy";
+
+/**
+ * The committed fixture and corpus, read once. Assertions about the CURRENT corpus have to
+ * come FROM the corpus; the numbers that used to sit below as literals had already drifted.
+ */
+const FIXTURE = loadEvalFixture(DEFAULT_FIXTURE);
+const CORPUS_SKILL_IDS: string[] = readFileSync(join(TAXONOMY_DATA_DIR, "skills.jsonl"), "utf8")
+  .split("\n")
+  .filter((l) => l.trim().length > 0 && !l.startsWith("#"))
+  .map((l) => JSON.parse(l).skill_id as string);
+/** The wedge corpus — the skills production actually holds. A DISJOINT id space. */
+const WEDGE_SKILL_IDS: string[] = SKILL_CORPUS.map((s) => s.skillId);
+
+const coveredBy = (p: (c: (typeof FIXTURE)["cases"][number]) => boolean): Set<string> => {
+  const out = new Set<string>();
+  for (const c of FIXTURE.cases.filter(p)) {
+    if (c.expected_skill_id !== null) out.add(c.expected_skill_id);
+    for (const a of c.acceptable_skill_ids ?? []) out.add(a);
+  }
+  return out;
+};
+const COVERED_BY_ANY = coveredBy(() => true);
+const COVERED_BY_REVIEWED = coveredBy((c) => reviewStatusOf(c) === "reviewed");
 
 /** Two fingerprints differing ONLY in the skill_alias component — the election's signature. */
 const FP_A: CorpusFingerprint = {
@@ -306,26 +339,105 @@ describe("the audit report", () => {
 });
 
 describe("the CURRENT corpus, judged", () => {
-  it("blocks the 37 skills the fixture never exercises", () => {
-    // A regression guard on the policy against real numbers: 98 candidates, 61 covered.
-    // If someone loosens EVAL_COVERED, this is what changes.
-    const covered = 61;
-    const total = 98;
+  // These used to be two literals — `covered = 61`, `total = 98` — under a comment calling
+  // them "real numbers". They were real when written and then stopped being: E1 moves
+  // coverage from 61 to 55 and neither literal would notice, because the test builds
+  // synthetic verdicts and never reads the fixture it claims to describe. Derived now, so
+  // the guard fails when the policy moves rather than when someone remembers to edit it.
+  const total = CORPUS_SKILL_IDS.length;
+  const covered = CORPUS_SKILL_IDS.filter((s) => COVERED_BY_REVIEWED.has(s)).length;
+
+  it("blocks every corpus skill no REVIEWED case exercises", () => {
     const vs = [
       ...Array.from({ length: covered }, (_, i) => judge(ok({ skill_id: `c${i}` }))),
       ...Array.from({ length: total - covered }, (_, i) => judge(ok({ skill_id: `u${i}`, eval_covered: false }))),
     ];
-    expect(vs.filter((v) => v.eligible)).toHaveLength(61);
-    expect(blockingHistogram(vs)).toEqual({ EVAL_COVERED: 37 });
+    expect(vs.filter((v) => v.eligible)).toHaveLength(covered);
+    expect(blockingHistogram(vs)).toEqual({ EVAL_COVERED: total - covered });
   });
 
-  it("admits all 98 only when EVAL_COVERED is explicitly waived", () => {
+  it("admits every candidate only when EVAL_COVERED is explicitly waived", () => {
     const w = new Set<Criterion>(["EVAL_COVERED"]);
     const vs = [
-      ...Array.from({ length: 61 }, (_, i) => judge(ok({ skill_id: `c${i}` }), w)),
-      ...Array.from({ length: 37 }, (_, i) => judge(ok({ skill_id: `u${i}`, eval_covered: false }), w)),
+      ...Array.from({ length: covered }, (_, i) => judge(ok({ skill_id: `c${i}` }), w)),
+      ...Array.from({ length: total - covered }, (_, i) => judge(ok({ skill_id: `u${i}`, eval_covered: false }), w)),
     ];
-    expect(vs.filter((v) => v.eligible)).toHaveLength(98);
+    expect(vs.filter((v) => v.eligible)).toHaveLength(total);
+  });
+
+  it("costs the corpus exactly 6 skills to read the spec strictly", () => {
+    // The price of E1, against the same two sets the gate reads. Under `isScoreable` the
+    // corpus had 61 covered skills; under `countsAsEvalCoverage` it has 55.
+    const loose = CORPUS_SKILL_IDS.filter((s) => COVERED_BY_ANY.has(s)).length;
+    expect(loose - covered).toBe(6);
+    expect({ loose, strict: covered }).toEqual({ loose: 61, strict: 55 });
+  });
+});
+
+// ===========================================================================
+// E1 — EVAL_COVERED counts only REVIEWED cases (owner ruling 2026-08-20)
+// ===========================================================================
+describe("EVAL_COVERED reads countsAsEvalCoverage, not isScoreable", () => {
+  it("separates the two questions, because they have different answers", () => {
+    const mechanical = { provenance: "corpus_alias:skill_x/en" };
+    const reviewed = { provenance: "hand_authored" };
+    const pending = { provenance: "hand_authored", review_status: "pending_review" as const };
+
+    // A mechanical case still SCORES — excluding it would silently move every published
+    // metric — but it no longer UNLOCKS A PROMOTION. That gap is the entire change.
+    expect(isScoreable(mechanical)).toBe(true);
+    expect(countsAsEvalCoverage(mechanical)).toBe(false);
+
+    expect(isScoreable(reviewed)).toBe(true);
+    expect(countsAsEvalCoverage(reviewed)).toBe(true);
+
+    expect(isScoreable(pending)).toBe(false);
+    expect(countsAsEvalCoverage(pending)).toBe(false);
+  });
+
+  it("names the 6 skills the committed fixture covers ONLY mechanically", () => {
+    // WHEN THIS FAILS, A TRAINER CASE LANDED (or a skill left the fixture). That is the
+    // event the worksheet and the decision record both hang off, so failing loudly here is
+    // the point — update `phase-9-trainer-worksheet.md` Part 3 and this list together.
+    const mechanicalOnly = [...COVERED_BY_ANY].filter((s) => !COVERED_BY_REVIEWED.has(s)).sort();
+    expect(mechanicalOnly).toEqual([
+      "skill_earthing_and_bonding",
+      "skill_order_picking_and_packing",
+      "skill_pipe_support_and_clamping",
+      "skill_punching_machine_operation",
+      "skill_structural_fit_up_and_tacking",
+      "skill_suspension_and_steering_repair",
+    ]);
+  });
+
+  it("blocks zero live promotions, because none of the 6 is in production", () => {
+    // The reason E1 is cheap RIGHT NOW: all six belong to the 98-skill Phase-3 growth
+    // corpus, which is 0% seeded. Production holds the disjoint wedge corpus.
+    const mechanicalOnly = [...COVERED_BY_ANY].filter((s) => !COVERED_BY_REVIEWED.has(s));
+    expect(mechanicalOnly.length).toBeGreaterThan(0);
+    for (const s of mechanicalOnly) {
+      expect(CORPUS_SKILL_IDS).toContain(s); // they ARE growth-corpus skills...
+      expect(WEDGE_SKILL_IDS).not.toContain(s); // ...and are NOT in the seeded wedge corpus
+    }
+  });
+
+  it("computes the gate's answer over the COMMITTED fixture", () => {
+    // The runner's own path, not a re-implementation of it: `evalCoverage` is the function
+    // `main` calls. Mutation proof — swap `countsAsEvalCoverage` back to `isScoreable` in
+    // `evalCoverage` and both halves of this fail (65 covered, 0 demoted).
+    const { covered, demoted } = evalCoverage(FIXTURE);
+    expect(covered.size).toBe(59);
+    expect(demoted).toHaveLength(6);
+    expect(demoted).toEqual([...demoted].sort()); // named in a stable order for the operator
+    for (const s of demoted) expect(covered.has(s)).toBe(false);
+  });
+
+  it("still lets an operator through, on the record", () => {
+    // E1 makes the gate stricter, not absolute. The waiver path predates this and was
+    // unreachable while the gate was a no-op; it is the documented escape hatch.
+    const v = judge(ok({ eval_covered: false }), new Set<Criterion>(["EVAL_COVERED"]));
+    expect(v.eligible).toBe(true);
+    expect(v.criteria.find((c) => c.criterion === "EVAL_COVERED")?.waived).toBe(true);
   });
 });
 

@@ -7,6 +7,7 @@ import '../../../core/session/app_session.dart';
 import '../../../core/session/app_session_cubit.dart';
 import '../../../core/session/credits_cubit.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/bb_bottom_nav.dart';
 import '../../credits/presentation/credits_screen.dart';
 import '../../find/presentation/find_screen.dart';
@@ -192,7 +193,7 @@ class _AppShellState extends State<AppShell> {
     // down.
     final String? sub = _sub;
     final int tabIndex = _tabs.indexWhere((BbNavTab t) => t.id == _tab);
-    return IndexedStack(
+    final Widget stack = IndexedStack(
       // An unknown tab id falls back to the first branch — the old switch's
       // SizedBox default, minus the risk of an out-of-range stack index.
       index: sub != null ? _tabs.length : (tabIndex < 0 ? 0 : tabIndex),
@@ -219,6 +220,15 @@ class _AppShellState extends State<AppShell> {
           _ => const SizedBox.shrink(),
         },
       ],
+    );
+    // #1087 — cap the content column on tablets/foldables so it never stretches
+    // to an unreadable line length. The page background stays full-bleed (the
+    // Scaffold canvas shows outside the cap); only the content is centred.
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: AppSpacing.appMax),
+        child: stack,
+      ),
     );
   }
 

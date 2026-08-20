@@ -90,6 +90,40 @@ const R39_LOCKED_BY_0082: readonly { readonly table: string; readonly holds: str
   },
 ];
 
+/**
+ * How `0082` reaches a table: through a schema file, or only through `to_regclass`.
+ *
+ * `declared-by-0048` tables exist in every environment — migration `0048` creates them — so
+ * their absence is a real failure. `unmodelled` tables (GAP-DB-21) exist on production and in no
+ * migration and no schema file, so their absence is the CORRECT state everywhere else, and
+ * `0082` reaches them only inside a guarded `DO $$` block.
+ */
+export type R39Class = "declared-by-0048" | "unmodelled";
+
+export interface R39Table {
+  readonly table: string;
+  readonly cls: R39Class;
+}
+
+/**
+ * THE SEVEN, in the order `0082` locks them — the single source for every consumer.
+ *
+ * This list lives here rather than beside the rehearsal runner because it now has three
+ * readers that must not drift apart: `verify-rls-lock.ts` (rehearses the statements),
+ * `migration-adoption.ts` (verifies `0082`'s EFFECTS, because its Section B is dynamic SQL that
+ * cannot be read off the file), and this file's own manifest, which can only name the three
+ * that a fresh database is guaranteed to have.
+ */
+export const R39_TABLES: readonly R39Table[] = [
+  { table: "agency_kyc", cls: "declared-by-0048" },
+  { table: "agency_payout_accruals", cls: "declared-by-0048" },
+  { table: "agency_payout_requests", cls: "declared-by-0048" },
+  { table: "agency_profiles", cls: "unmodelled" },
+  { table: "employer_profiles", cls: "unmodelled" },
+  { table: "payer_capabilities", cls: "unmodelled" },
+  { table: "payer_member_invites", cls: "unmodelled" },
+];
+
 const R39_RLS_REQUIREMENTS: readonly SchemaRequirement[] = R39_LOCKED_BY_0082.map(({ table, holds }) => ({
   id: `0082-${table.replace(/_/g, "-")}-rls`,
   migration: "0082_rls_lock_seven_tables",

@@ -128,6 +128,7 @@ class BbListRow extends StatelessWidget {
       trailing: BbToggle(
         value: value,
         onChanged: enabled ? onChanged : (_) {},
+        semanticLabel: title,
       ),
     );
   }

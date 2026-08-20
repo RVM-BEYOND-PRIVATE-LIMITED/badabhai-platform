@@ -138,11 +138,30 @@ class SmsUserConsentManager(
     }
 }
 
-/** API-33-safe [android.os.Bundle.getParcelable]. */
+/**
+ * [android.os.Bundle.getParcelable] that AVOIDS the Android 13 typed-overload
+ * framework NPE.
+ *
+ * The crash: `getParcelable(key, clazz)` (the API-33 typed overload) throws
+ * `NullPointerException: ... 'boolean java.lang.Class.isInterface()' on a null
+ * object reference` INSIDE the framework — [clazz] at our call sites is never null
+ * (`Status::class.java` / `Intent::class.java`); the null is the framework's own
+ * internal class resolution, a documented Android 13 `Bundle` bug that surfaces on
+ * some OEM ROMs (Realme) when this receiver fires while the app is BACKGROUNDED.
+ *
+ * The fix is to never walk that path: the deprecated UNTYPED `getParcelable(key)`
+ * does not do the framework class-check, so it is used on ALL API levels and the
+ * type is verified HERE off the returned object with a non-null [clazz] (the same
+ * thing `androidx.core.os.BundleCompat` does on API 33). Any residual unparcel
+ * failure on a restricted background process (a frozen class loader → e.g.
+ * `BadParcelableException`) degrades to `null` rather than crashing the app.
+ */
+@Suppress("DEPRECATION")
 private fun <T> android.os.Bundle.parcelable(key: String, clazz: Class<T>): T? =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        getParcelable(key, clazz)
-    } else {
-        @Suppress("DEPRECATION")
-        getParcelable(key) as? T
+    try {
+        val value = getParcelable<android.os.Parcelable>(key)
+        if (value != null && clazz.isInstance(value)) clazz.cast(value) else null
+    } catch (t: Throwable) {
+        Log.w("BbSmsOtp", "parcelable('$key') failed on a backgrounded broadcast", t)
+        null
     }

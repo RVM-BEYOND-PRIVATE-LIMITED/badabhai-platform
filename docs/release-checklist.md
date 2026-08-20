@@ -111,6 +111,70 @@ broken.
 11. `docker logout ghcr.io` on **every** exit path (`trap ... EXIT`) — never leaves a registry
     credential on the box.
 
+## A compose change to a service the deploy does not start NEVER reaches the box
+
+The sequence above `up -d --no-deps`-es exactly five services: `redis`, `ai-service`, `api`,
+`payer-web`, `admin-web`. **`postgres` and `adminer` are never touched by a deploy.** Nothing
+in the pipeline creates, recreates or even stops them.
+
+The consequence is the trap: **editing a service's `ports:` (or any other create-time setting)
+in `docker-compose.yml` changes only the file. A container is configured when it is CREATED;
+a running container keeps the binds it was born with forever.** So for `postgres`/`adminer`,
+merging such a change accomplishes nothing on the box — it is a guard against the next bare
+`up -d`, not a remedy for what is already running.
+
+**This is not hypothetical.** R38 (commit `ffdc84db`) loopback-bound `postgres` to
+`127.0.0.1:5432:5432` in `docker-compose.yml`. Measured on the live box on 2026-08-19,
+weeks later, `badabhai-postgres` was still `Up` and still published on `0.0.0.0:5432->5432/tcp`.
+The merge was real, the file is correct, and the exposure was untouched.
+`apps/api/src/config/deploy-workflow-taxonomy.guard.test.ts` records the same residual as a test.
+
+**These two containers are NOT the application's database.** Staging's `DATABASE_URL` points at
+Supabase; the compose-internal `postgres` is a local-development convenience that a bare
+`up -d` once started on this box and nothing has stopped since. `adminer` is its web UI.
+Nothing the platform serves reads from either.
+
+### Closing it requires a BOX action, by hand, with owner authorization
+
+No merge does this and no pipeline will. It is a manual change to running containers on a live
+host, so it needs the owner's explicit go-ahead — the same bar as any other box operation.
+Over ssh, as the deploy user:
+
+```bash
+# 1. CONFIRM what is actually running and how it is bound (never skip this).
+docker ps --filter name=badabhai-postgres --filter name=badabhai-adminer \
+  --format '{{.Names}}\t{{.Status}}\t{{.Ports}}'
+
+# 2. REMOVE them. Neither is used by anything the platform serves (see above), so the
+#    exposure goes away entirely rather than being re-bound. Stop first, THEN remove:
+#    `docker rm -f` would SIGKILL a database rather than let it shut down cleanly.
+#    Addressed by fixed `container_name`, so no compose env/overlay interpolation is
+#    needed (the staging overlay's `${VAR:?}` entries would otherwise have to resolve)
+#    and no other service can be caught by a stray service name.
+docker stop badabhai-postgres badabhai-adminer
+docker rm   badabhai-postgres badabhai-adminer
+
+# 3. VERIFY: both lines are gone, and nothing else moved.
+docker ps --format '{{.Names}}\t{{.Ports}}'
+```
+
+`docker rm` removes **containers only**. The named volume `badabhai_pgdata` is not a container
+and is not deleted by this, so the (unused) local data survives and the step is reversible: a
+later `docker compose -f docker-compose.yml up -d postgres` recreates the container from the
+current file — i.e. with the corrected `127.0.0.1` bind.
+
+If instead the intent is to keep a compose-internal service running with a corrected `ports:`,
+removal is not optional either — **`up -d` alone will not re-bind an existing container.** It
+must be `--force-recreate`, which destroys and rebuilds it:
+
+```bash
+docker compose -f docker-compose.yml up -d --force-recreate --no-deps postgres
+```
+
+The general rule for every service, not just these two: **if you changed `ports:`, `volumes:`,
+`container_name:` or any other create-time key, ask "does the deploy actually recreate this
+container?" If it does not, the change has not shipped.**
+
 ## Verify after a deploy
 
 - Both `/health` endpoints return 200 (the job itself already confirmed this, but re-check from

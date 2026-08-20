@@ -13,6 +13,7 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_scaffold.dart';
+import '../../../core/widgets/bb_scroll_safe_body.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../domain/voice_models.dart';
 import 'cubit/voice_note_cubit.dart';
@@ -253,7 +254,9 @@ class _IdleView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    // Scroll-safe: the mic hero + copy centre on a tall screen and scroll
+    // (never a RenderFlex overflow) on a short handset or at a large text scale.
+    return BbScrollSafeBody(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
@@ -329,7 +332,10 @@ class _RecordingView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    // Scroll-safe: the record ring + counter + send/cancel CTAs centre on a tall
+    // screen and scroll (never a RenderFlex overflow) on a short handset or at a
+    // large accessibility text scale.
+    return BbScrollSafeBody(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
@@ -343,14 +349,27 @@ class _RecordingView extends StatelessWidget {
                 // approaches, so the record state shows real progress rather than
                 // a bare/indeterminate spinner. The mono clock reads out the same.
                 Positioned.fill(
-                  child: CircularProgressIndicator(
-                    value: maxSeconds > 0
-                        ? (elapsedSeconds / maxSeconds).clamp(0.0, 1.0)
-                        : 0.0,
-                    strokeWidth: 4,
-                    backgroundColor: AppColors.dangerTint,
-                    valueColor:
-                        const AlwaysStoppedAnimation<Color>(AppColors.danger),
+                  // Tween the ring between per-second ticks so it sweeps
+                  // continuously instead of snapping once a second. Each tick
+                  // moves `end`, and TweenAnimationBuilder animates from the
+                  // current value to it over one second on a linear curve.
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween<double>(
+                      begin: 0.0,
+                      end: maxSeconds > 0
+                          ? (elapsedSeconds / maxSeconds).clamp(0.0, 1.0)
+                          : 0.0,
+                    ),
+                    duration: const Duration(seconds: 1),
+                    curve: Curves.linear,
+                    builder: (BuildContext context, double value, Widget? _) =>
+                        CircularProgressIndicator(
+                      value: value,
+                      strokeWidth: 4,
+                      backgroundColor: AppColors.dangerTint,
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                          AppColors.danger),
+                    ),
                   ),
                 ),
                 Container(

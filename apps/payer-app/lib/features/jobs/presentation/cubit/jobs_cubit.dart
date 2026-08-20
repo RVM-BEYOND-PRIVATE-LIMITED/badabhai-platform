@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
+import '../../../../core/error/payer_failure.dart';
 
 /// Loads the signed-in payer's job postings for the My-jobs screen and drives
 /// the per-row lifecycle (publish / pause / resume / close) actions. Each action
@@ -29,9 +30,14 @@ class JobsCubit extends Cubit<JobsState> {
     emit(state.copyWith(status: JobsStatus.loading));
     try {
       final List<JobPosting> jobs = await _api.fetchJobs();
+      if (isClosed) return; // screen popped mid-load — emit would throw StateError
       emit(JobsState(status: JobsStatus.ready, jobs: jobs));
-    } catch (_) {
-      emit(state.copyWith(status: JobsStatus.error));
+    } catch (e) {
+      if (isClosed) return;
+      emit(state.copyWith(
+        status: JobsStatus.error,
+        failure: PayerFailure.from(e),
+      ));
     }
   }
 
@@ -99,8 +105,10 @@ class JobsCubit extends Cubit<JobsState> {
       return JobActionResult.fail(
         e.isConflict ? conflictMessage : 'Could not update. Please try again.',
       );
-    } catch (_) {
-      return JobActionResult.fail('Network error. Check your connection.');
+    } catch (e) {
+      // Name the real reason (a timeout is not a dead link) — same honesty as
+      // load(), instead of a blanket "check your connection".
+      return JobActionResult.fail(PayerFailure.from(e).message);
     }
   }
 
@@ -125,18 +133,28 @@ class JobsState extends Equatable {
   const JobsState({
     this.status = JobsStatus.initial,
     this.jobs = const <JobPosting>[],
+    this.failure,
   });
 
   final JobsStatus status;
   final List<JobPosting> jobs;
 
-  JobsState copyWith({JobsStatus? status, List<JobPosting>? jobs}) {
+  /// The classified reason the last load failed — drives the honest error copy.
+  /// Null unless [status] is [JobsStatus.error].
+  final PayerFailure? failure;
+
+  JobsState copyWith({
+    JobsStatus? status,
+    List<JobPosting>? jobs,
+    PayerFailure? failure,
+  }) {
     return JobsState(
       status: status ?? this.status,
       jobs: jobs ?? this.jobs,
+      failure: failure ?? this.failure,
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[status, jobs];
+  List<Object?> get props => <Object?>[status, jobs, failure];
 }

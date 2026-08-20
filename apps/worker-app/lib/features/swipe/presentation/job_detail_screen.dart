@@ -149,13 +149,14 @@ class _JobDetailViewState extends State<_JobDetailView> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(d.title,
-              style: AppTypography.display(size: 22, weight: FontWeight.w800)),
+              style: AppTypography.display(
+                  size: AppTypography.sizeXl, weight: FontWeight.w800)),
           if (pay != null) ...<Widget>[
             const SizedBox(height: AppSpacing.s3),
             // The salary is the hero of the header — bigger than the title.
             Text(pay,
                 style: AppTypography.display(
-                    size: 28,
+                    size: AppTypography.size2xl,
                     weight: FontWeight.w800,
                     color: AppColors.textPrimary)),
           ],

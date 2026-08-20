@@ -73,9 +73,13 @@ class BbChip extends StatelessWidget {
                   Icon(icon, size: 18, color: foreground),
                   const SizedBox(width: 6),
                 ],
-                Text(
-                  label,
-                  style: labelStyle,
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: labelStyle,
+                  ),
                 ),
               ],
             ),

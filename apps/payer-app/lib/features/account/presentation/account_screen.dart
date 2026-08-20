@@ -288,11 +288,15 @@ class _EditSheetState extends State<_EditSheet> {
         AppSpacing.gutter,
         AppSpacing.s5 + bottomInset,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
+      // Scrollable so the keyboard (or a large accessibility text scale) on a
+      // small/cheap screen can't push the Save button off-screen into a RenderFlex
+      // overflow — the sheet content simply scrolls instead.
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
             'Edit account',
             style: AppTypography.display(
               size: AppTypography.sizeLg,
@@ -314,8 +318,20 @@ class _EditSheetState extends State<_EditSheet> {
             keyboardType: TextInputType.phone,
             prefixText: '$kIndiaDialCode ',
             inputFormatters: <TextInputFormatter>[
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(kNationalMobileDigits),
+              // Reduce to the 10 NATIONAL digits — strips a pasted 91/+91/0 prefix
+              // BEFORE capping, so pasting a full '+91 8946991002' lands on the
+              // correct '8946991002' instead of a truncated, valid-looking WRONG
+              // number. Plain digits-only + a 10-cap would corrupt that paste.
+              TextInputFormatter.withFunction(
+                (TextEditingValue _, TextEditingValue next) {
+                  final String digits = toNationalDigits(next.text);
+                  return TextEditingValue(
+                    text: digits,
+                    selection:
+                        TextSelection.collapsed(offset: digits.length),
+                  );
+                },
+              ),
             ],
           ),
           if (_phoneError != null) ...<Widget>[
@@ -345,6 +361,7 @@ class _EditSheetState extends State<_EditSheet> {
             onPressed: _saving ? null : _save,
           ),
         ],
+        ),
       ),
     );
   }
@@ -592,10 +609,12 @@ String _initials(String orgName) {
   final List<String> parts =
       orgName.trim().split(RegExp(r'\s+')).where((String p) => p.isNotEmpty).toList();
   if (parts.isEmpty) return '?';
+  // First GRAPHEME (not UTF-16 code unit) of each word — an org whose name starts
+  // with an emoji / non-BMP glyph must not render a broken half-surrogate.
   if (parts.length == 1) {
-    return parts.first.substring(0, 1).toUpperCase();
+    return parts.first.characters.first.toUpperCase();
   }
-  return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
+  return (parts[0].characters.first + parts[1].characters.first).toUpperCase();
 }
 
 /// `employer` → Company, `agent` → Agency (matches the wire role).
