@@ -30,8 +30,10 @@ class JobsCubit extends Cubit<JobsState> {
     emit(state.copyWith(status: JobsStatus.loading));
     try {
       final List<JobPosting> jobs = await _api.fetchJobs();
+      if (isClosed) return; // screen popped mid-load — emit would throw StateError
       emit(JobsState(status: JobsStatus.ready, jobs: jobs));
     } catch (e) {
+      if (isClosed) return;
       emit(state.copyWith(
         status: JobsStatus.error,
         failure: PayerFailure.from(e),
@@ -103,8 +105,10 @@ class JobsCubit extends Cubit<JobsState> {
       return JobActionResult.fail(
         e.isConflict ? conflictMessage : 'Could not update. Please try again.',
       );
-    } catch (_) {
-      return JobActionResult.fail('Network error. Check your connection.');
+    } catch (e) {
+      // Name the real reason (a timeout is not a dead link) — same honesty as
+      // load(), instead of a blanket "check your connection".
+      return JobActionResult.fail(PayerFailure.from(e).message);
     }
   }
 

@@ -72,21 +72,20 @@ class PayerHttp {
   /// each firing their own.
   Future<String?>? _pendingRefresh;
 
-  /// Bounded auto-retry for a transient failure on an IDEMPOTENT GET. This is what
-  /// turns the "load failed → tap Retry → it works" dance into a self-healing first
-  /// load: a dropped socket on a weak link, a cold first-connection, or a transient
-  /// 502/503/504 is retried silently before the screen ever shows an error. Only
-  /// GET is retried — a POST/PATCH/DELETE that failed AFTER the server saw it would
-  /// double-submit (e.g. buy the credit pack twice), so those still surface at once.
+  /// Bounded auto-retry for a transient TRANSPORT failure on an IDEMPOTENT GET —
+  /// a dropped socket on a weak link or a cold first-connection that never reached
+  /// the server. This is what turns the "load failed → tap Retry → it works" dance
+  /// into a self-healing first load.
+  ///
+  /// DELIBERATELY does NOT retry any server RESPONSE (incl. 5xx): a 5xx means the
+  /// server answered, so retrying would amplify load on an already-struggling
+  /// backend — with every client firing the same GET in synchronized waves, a brief
+  /// blip becomes a thundering-herd outage. A 5xx surfaces at once with the honest
+  /// "problem on our side" copy and a MANUAL retry the user paces themselves.
+  /// Timeouts are not retried either (see the loop). Only GET is retried — a
+  /// POST/PATCH/DELETE that failed AFTER the server saw it would double-submit.
   static const int _kGetRetries = 2;
   static const Duration _kRetryBackoff = Duration(milliseconds: 300);
-
-  /// Server-side statuses worth retrying on an idempotent GET: a gateway/upstream
-  /// blip (502/504) or a briefly-unavailable service (503). NOT 500 — that is a
-  /// deterministic app error a retry only delays, and NOT any 4xx (a retry can't
-  /// change the outcome; 401 is handled by [send]'s refresh path).
-  static bool _isTransientStatus(int status) =>
-      status == 502 || status == 503 || status == 504;
 
   void dispose() => _client.close();
 
@@ -171,13 +170,9 @@ class PayerHttp {
         }
             .timeout(kRequestTimeout);
 
-        // A transient upstream status on a GET is worth one more try before the
-        // screen shows an error; anything else (2xx, 4xx, 500) returns as-is.
-        if (retriable && !lastAttempt && _isTransientStatus(res.statusCode)) {
-          await Future<void>.delayed(_kRetryBackoff * (attempt + 1));
-          continue;
-        }
-
+        // The server ANSWERED — return it as-is (2xx/4xx/5xx). We never retry a
+        // response: a 5xx retry would amplify load on a failing backend (see
+        // [_kGetRetries]); a 4xx/2xx would not change on a retry.
         // Persist a rolling refresh BEFORE decoding, so the very next call already
         // signs with the fresh bearer even if this response is an error the caller
         // rethrows.
@@ -239,7 +234,16 @@ class PayerHttp {
     final String? fresh = res.headers['x-session-token'];
     if (fresh == null || fresh.isEmpty) return;
     if (fresh == _tokenStore.accessToken) return;
-    await _tokenStore.saveAccessToken(fresh);
+    try {
+      await _tokenStore.saveAccessToken(fresh);
+    } catch (_) {
+      // Best-effort: saveAccessToken updates the in-memory bearer BEFORE it writes,
+      // so a secure-storage failure (Keystore error on a restored-backup / low-end
+      // device) still leaves this and the next request correctly signed. Swallow it
+      // — it must NOT bubble into the request's transport-error path (this runs
+      // AFTER a successful response) and trigger a pointless re-GET or a false
+      // "connection failed" on a call the server already answered.
+    }
   }
 
   /// Wipes the local session and bounces to Login. Called only when refresh is

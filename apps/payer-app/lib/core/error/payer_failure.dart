@@ -1,5 +1,5 @@
 import 'dart:async' show TimeoutException;
-import 'dart:io' show SocketException;
+import 'dart:io' show HandshakeException, SocketException;
 
 import 'package:flutter/material.dart' show IconData, Icons;
 import 'package:http/http.dart' as http;
@@ -72,9 +72,14 @@ class PayerFailure {
     if (error is TimeoutException) {
       return const PayerFailure(PayerFailureKind.timeout);
     }
-    // A dead/blocked socket, or the http client wrapping one — both mean the
-    // request never got a usable reply from the host.
-    if (error is SocketException || error is http.ClientException) {
+    // A dead/blocked socket, the http client wrapping one, or a TLS handshake
+    // failure — all mean the request never got a usable reply from the host. (A
+    // HandshakeException is common on low-end devices with a wrong system clock:
+    // cert validation fails on every call — still a connection-level problem, not
+    // a generic 'something went wrong'.)
+    if (error is SocketException ||
+        error is HandshakeException ||
+        error is http.ClientException) {
       return const PayerFailure(PayerFailureKind.network);
     }
     return const PayerFailure(PayerFailureKind.unknown);

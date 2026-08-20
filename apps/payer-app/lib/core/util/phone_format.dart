@@ -42,3 +42,29 @@ String? normalizeIndianMobileToE164(String raw) {
 /// gate. Does not police the leading digit (see the library note).
 bool isValidIndianMobile(String raw) =>
     normalizeIndianMobileToE164(raw) != null;
+
+/// Reduce loosely-typed / pasted input to the 10 NATIONAL digits for the phone
+/// FIELD: strip non-digits, drop a pasted `91` country prefix (12 digits) or a
+/// leading trunk `0` (11 digits) FIRST, then cap at 10.
+///
+/// This exists because the field must not blindly cap at 10 raw digits: pasting
+/// `+91 8946991002` digit-strips to `918946991002` (12), and a naive 10-cap keeps
+/// the FIRST ten (`9189469910`) — a wrong number that [normalizeIndianMobileToE164]
+/// then accepts as a valid-looking E.164 and silently saves (the payer's OTP would
+/// go to a number they don't own). Stripping the prefix before the cap makes the
+/// same paste land on the correct `8946991002`.
+///
+/// NOTE: this CAPS (for live display); it never validates. [normalizeIndianMobileToE164]
+/// stays the strict source of truth — it returns null unless the input reduces to
+/// EXACTLY 10 digits, so an over-long paste is rejected, not truncated-then-accepted.
+String toNationalDigits(String raw) {
+  var digits = raw.replaceAll(RegExp(r'\D'), '');
+  if (digits.length == 12 && digits.startsWith('91')) {
+    digits = digits.substring(2);
+  } else if (digits.length == 11 && digits.startsWith('0')) {
+    digits = digits.substring(1);
+  }
+  return digits.length > kNationalMobileDigits
+      ? digits.substring(0, kNationalMobileDigits)
+      : digits;
+}

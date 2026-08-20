@@ -52,4 +52,30 @@ void main() {
     expect(isValidIndianMobile('8946991002'), isTrue);
     expect(isValidIndianMobile('123'), isFalse);
   });
+
+  group('toNationalDigits — the field formatter (paste must not corrupt)', () {
+    test('a pasted +91 / 91 / 0 prefix is STRIPPED, not truncated to a wrong 10',
+        () {
+      // The bug this guards: naive digits-only + 10-cap keeps the first ten of
+      // "918946991002" -> "9189469910" (wrong). Stripping first lands correct.
+      expect(toNationalDigits('+91 8946991002'), '8946991002');
+      expect(toNationalDigits('918946991002'), '8946991002');
+      expect(toNationalDigits('08946991002'), '8946991002');
+    });
+
+    test('a plain 10-digit entry is untouched', () {
+      expect(toNationalDigits('8946991002'), '8946991002');
+    });
+
+    test('strips punctuation and caps over-long free typing at 10', () {
+      expect(toNationalDigits('89469-91002'), '8946991002');
+      expect(toNationalDigits('89469910029999'), '8946991002');
+    });
+
+    test('what the field holds after a prefixed paste normalises correctly',
+        () {
+      final String field = toNationalDigits('+918946991002');
+      expect(normalizeIndianMobileToE164(field), '+918946991002');
+    });
+  });
 }

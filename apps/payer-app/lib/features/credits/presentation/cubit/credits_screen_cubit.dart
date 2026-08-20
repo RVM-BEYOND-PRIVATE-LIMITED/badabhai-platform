@@ -36,6 +36,7 @@ class CreditsScreenCubit extends Cubit<CreditsScreenState> {
       } catch (_) {
         packs = const <CreditPack>[];
       }
+      if (isClosed) return; // screen popped mid-load — emit would throw StateError
       emit(
         CreditsScreenState(
           status: CreditsScreenStatus.ready,
@@ -46,6 +47,7 @@ class CreditsScreenCubit extends Cubit<CreditsScreenState> {
         ),
       );
     } catch (e) {
+      if (isClosed) return;
       emit(state.copyWith(
         status: CreditsScreenStatus.error,
         failure: PayerFailure.from(e),
@@ -70,6 +72,7 @@ class CreditsScreenCubit extends Cubit<CreditsScreenState> {
       } catch (_) {
         ledger = state.ledger;
       }
+      if (isClosed) return;
       emit(state.copyWith(
         balance: balance,
         ledger: ledger,
@@ -77,6 +80,7 @@ class CreditsScreenCubit extends Cubit<CreditsScreenState> {
         purchased: true,
       ));
     } catch (_) {
+      if (isClosed) return;
       emit(state.copyWith(clearPurchasing: true, purchaseFailed: true));
     }
   }
