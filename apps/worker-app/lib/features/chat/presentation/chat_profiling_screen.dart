@@ -13,6 +13,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_bottom_sheet.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
@@ -763,32 +764,11 @@ class _ChatViewState extends State<_ChatView> {
                           ],
                         ),
                       ),
-                      // #761 — while an optimistic predicted turn is on screen
-                      // (predictedQuestionKey != null), show its chips instead of
-                      // the typing indicator, so the worker can answer the
-                      // predicted question during the round trip.
-                      if (state.sending && state.predictedQuestionKey == null)
-                        _typingIndicator()
-                      // #761 — when the turn serves `suggested_options` (the LLM
-                      // chat), render chips from IT so each carries its stable
-                      // option_key: the tapped label is submitted byte-identically
-                      // while the bloc indexes `lookahead` by the key, and the
-                      // optimistic prediction finally fires. Served ALONGSIDE
-                      // `suggested_followups`, so a deterministic/older turn with
-                      // no options falls through to the label-keyed path below,
-                      // unchanged (label == key there).
-                      else if (state.suggestedOptions.isNotEmpty)
-                        state.questionKind == ChatQuestionKind.disambiguate
-                            ? _disambiguateOptions(state.suggestedOptions)
-                            : _followupOptions(state.suggestedOptions)
-                      else if (state.followups.isNotEmpty)
-                        // A disambiguation turn is mutually-exclusive occupations
-                        // where the tapped label BECOMES the answer of record and
-                        // selects the pack — a vertical single-select, not the
-                        // horizontal scroller a worker can skim past (#649).
-                        state.questionKind == ChatQuestionKind.disambiguate
-                            ? _disambiguate(state.followups)
-                            : _followups(state.followups),
+                      // #1059 — the answer affordance (typing indicator ↔ chips)
+                      // cross-fades instead of snapping. The child is keyed by
+                      // KIND ('typing' / 'chips' / 'none') so typing→chips
+                      // animates while chip→chip content changes stay instant.
+                      BbAnimatedSwitcher(child: _answerAffordance(state)),
                       // A blocked turn (pseudonymize fail-closed) never processed the
                       // worker's last answer — say so rather than let the canned
                       // fallback reply read as understood. Shown in every build.
@@ -1050,6 +1030,50 @@ class _ChatViewState extends State<_ChatView> {
     );
   }
 
+  /// The single "answer affordance" slot that sits above the composer — either
+  /// the typing indicator or the tap-to-answer chips — as ONE keyed child so
+  /// [BbAnimatedSwitcher] can cross-fade the swap (#1059). Every branch carries a
+  /// ValueKey; the two chip paths share `'chips'` so a question→question chip
+  /// change stays instant while typing→chips animates.
+  Widget _answerAffordance(ChatState state) {
+    // #761 — while an optimistic predicted turn is on screen
+    // (predictedQuestionKey != null), show its chips instead of the typing
+    // indicator, so the worker can answer the predicted question during the
+    // round trip.
+    if (state.sending && state.predictedQuestionKey == null) {
+      return KeyedSubtree(
+        key: const ValueKey<String>('typing'),
+        child: _typingIndicator(),
+      );
+    }
+    // #761 — when the turn serves `suggested_options` (the LLM chat), render
+    // chips from IT so each carries its stable option_key: the tapped label is
+    // submitted byte-identically while the bloc indexes `lookahead` by the key,
+    // and the optimistic prediction finally fires. Served ALONGSIDE
+    // `suggested_followups`, so a deterministic/older turn with no options falls
+    // through to the label-keyed path below, unchanged (label == key there).
+    if (state.suggestedOptions.isNotEmpty) {
+      return KeyedSubtree(
+        key: const ValueKey<String>('chips'),
+        child: state.questionKind == ChatQuestionKind.disambiguate
+            ? _disambiguateOptions(state.suggestedOptions)
+            : _followupOptions(state.suggestedOptions),
+      );
+    }
+    if (state.followups.isNotEmpty) {
+      // A disambiguation turn is mutually-exclusive occupations where the tapped
+      // label BECOMES the answer of record and selects the pack — a vertical
+      // single-select, not the horizontal scroller a worker can skim past (#649).
+      return KeyedSubtree(
+        key: const ValueKey<String>('chips'),
+        child: state.questionKind == ChatQuestionKind.disambiguate
+            ? _disambiguate(state.followups)
+            : _followups(state.followups),
+      );
+    }
+    return const SizedBox.shrink(key: ValueKey<String>('none'));
+  }
+
   /// "Bada Bhai type kar raha hai…" — shown while a reply is in flight so a
   /// real (1–3s) LLM turn does not look frozen.
   ///
@@ -1253,7 +1277,8 @@ class _ChatViewState extends State<_ChatView> {
   /// [_kDisambiguateEscape] phrase and the tapped label is both submit and key.
   Widget _disambiguateOption(String label) => _disambiguateRow(
         label: label,
-        escape: label.trim().toLowerCase() == _kDisambiguateEscape.toLowerCase(),
+        escape:
+            label.trim().toLowerCase() == _kDisambiguateEscape.toLowerCase(),
         onTap: () => _sendOption(label),
       );
 
@@ -1293,9 +1318,8 @@ class _ChatViewState extends State<_ChatView> {
                     style: AppTypography.body(
                       size: AppTypography.sizeSm,
                       weight: escape ? FontWeight.w400 : FontWeight.w600,
-                      color: escape
-                          ? AppColors.textMuted
-                          : AppColors.textPrimary,
+                      color:
+                          escape ? AppColors.textMuted : AppColors.textPrimary,
                     ),
                   ),
                 ),

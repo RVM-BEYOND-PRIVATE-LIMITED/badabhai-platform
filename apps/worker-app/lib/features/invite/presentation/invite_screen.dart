@@ -97,7 +97,7 @@ class _InviteView extends StatelessWidget {
                         size: AppTypography.sizeXl,
                         weight: FontWeight.w800,
                         color: AppColors.onBlue)),
-                const SizedBox(height: 2),
+                const SizedBox(height: AppSpacing.hairline),
                 Text('Referral link share karein',
                     style: AppTypography.body(
                         size: AppTypography.sizeXs,
@@ -125,8 +125,8 @@ class _InviteView extends StatelessWidget {
             const SizedBox(height: AppSpacing.s4),
             Center(
               child: Container(
-                width: 96,
-                height: 96,
+                width: AppSpacing.s12,
+                height: AppSpacing.s12,
                 alignment: Alignment.center,
                 decoration: const BoxDecoration(
                   color: AppColors.saffron50,

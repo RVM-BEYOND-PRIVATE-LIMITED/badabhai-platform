@@ -234,7 +234,7 @@ class _KitDownloadButtonState extends State<_KitDownloadButton> {
   Widget build(BuildContext context) {
     if (_loading) {
       return const Padding(
-        padding: EdgeInsets.all(14),
+        padding: EdgeInsets.all(AppSpacing.controlInset),
         child: SizedBox(
           width: 20,
           height: 20,

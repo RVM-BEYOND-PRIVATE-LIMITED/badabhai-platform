@@ -222,7 +222,7 @@ class _ProfileTabView extends StatelessWidget {
                       weight: FontWeight.w800,
                       color: AppColors.onBlue)),
               if (subline != null) ...<Widget>[
-                const SizedBox(height: 2),
+                const SizedBox(height: AppSpacing.hairline),
                 Text(subline,
                     style: AppTypography.body(color: AppColors.onBlueMuted)),
               ],
