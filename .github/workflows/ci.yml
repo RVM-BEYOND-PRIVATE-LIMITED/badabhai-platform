@@ -666,6 +666,59 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # ---- SHELLCHECK: EVERY TRACKED .sh, INCLUDING THE PRODUCTION DEPLOY BODY ----
+      #
+      # Nothing in this repo linted a shell script until this step. That mattered most for
+      # scripts/deploy/staging-deploy.sh, which executes on the Lightsail box on every push
+      # to main — and it was not merely unlinted but UNPARSEABLE: a prose comment beginning
+      # with the token `# shellcheck` was read as a DIRECTIVE, so shellcheck aborted the
+      # whole 500-line file with SC1073/SC1072 and analyzed none of it. Being unparseable
+      # is indistinguishable from being clean when no job runs the linter.
+      #
+      # WHY THIS JOB. `ci-required` is the only required status check on main and `needs:`
+      # cannot name a job in another workflow file, so a shell-lint job in a standalone
+      # workflow could sit RED beside a GREEN required check while the PR merged — measured
+      # twice already (#718 on PR #711, #773 twice in one day). This job is reachable by
+      # `ci-required` and carries no `if:` and no path filter, so no mis-scoped filter can
+      # silently skip it. It runs BEFORE `pnpm install`, so a bad script fails in seconds.
+      #
+      # PINNED, NOT PREINSTALLED. The runner image ships its own shellcheck and bumps it
+      # without asking; a scan must fail because the code changed, never because the rules
+      # changed overnight. v0.11.0 + sha256 (checksum reproduced from two independent
+      # fetches) is byte-identical to what a developer runs locally.
+      #
+      # DEFAULT SEVERITY, NO --exclude, NO BLANKET disable. All three tracked scripts pass
+      # cleanly at style level. The one suppression in the tree is a single-line, single-code
+      # `disable=SC2016` in scripts/chat-cli.sh over a JS template literal that MUST stay
+      # single-quoted, with the reason written above it.
+      #
+      # `git ls-files` rather than a hardcoded list, so a NEW script is linted the day it
+      # lands instead of inheriting the same blind spot. The count assertion is what stops
+      # this decaying into a green step that checked nothing — it is a FLOOR at today's
+      # count (4), so deleting a script is a deliberate act that has to update this number
+      # rather than something that quietly shrinks what the gate covers. #1108's
+      # scripts/deploy/r38-port-audit.sh was written before this gate existed and was
+      # verified clean against the pinned version below, not grandfathered past it.
+      - name: Shellcheck (all tracked shell scripts)
+        env:
+          SHELLCHECK_VERSION: "0.11.0"
+          SHELLCHECK_SHA256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o /tmp/shellcheck.tar.xz \
+            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          echo "${SHELLCHECK_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+          SC="/tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          "$SC" --version
+          mapfile -t SH_FILES < <(git ls-files '*.sh')
+          echo "Linting ${#SH_FILES[@]} tracked shell script(s): ${SH_FILES[*]}"
+          if [ "${#SH_FILES[@]}" -lt 4 ]; then
+            echo "::error::expected at least 4 tracked .sh files, found ${#SH_FILES[@]} — this step is not linting what it claims to. Fix the glob, do not lower the number."
+            exit 1
+          fi
+          "$SC" --format=gcc "${SH_FILES[@]}"
+
       - name: Install pnpm
         # No `version:` here on purpose — it would conflict with the
         # `packageManager` field in package.json (ERR_PNPM_BAD_PM_VERSION).

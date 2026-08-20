@@ -14,9 +14,17 @@
 # identical padding added OUTSIDE the scalar (same file size) did not.
 #
 # Living here instead means the 21 KB ceiling cannot be reached by editing deploy
-# logic, the comments stay next to the code they explain, and the script is
-# shellcheck-able and diffable. `ci-deploy-script-size.guard.test.ts` keeps the inline
+# logic, the comments stay next to the code they explain, and the script is diffable
+# and lintable with shellcheck. `ci-deploy-script-size.guard.test.ts` keeps the inline
 # remainder small so this cannot silently regress.
+#
+# DO NOT begin any comment line here with the token `# shellcheck` unless it really is
+# a directive: shellcheck parses such a line as one, fails on the trailing prose, and
+# aborts the WHOLE file with SC1073/SC1072 — analyzing none of it. That is exactly how
+# this script, on the production deploy path, sat linted by nothing. A real directive
+# also takes no trailing prose: put the reason on the line ABOVE it.
+# The "Shellcheck (all tracked shell scripts)" step in the `node` job of
+# .github/workflows/ci.yml is what now catches this.
 #
 # CONTRACT WITH ci.yml:
 #   * The box has ALREADY `cd`-ed into the deploy directory and run `git pull`, so this
@@ -48,30 +56,41 @@ echo "Logging into GHCR..."
 # PRIVATE (anonymous pull 401-verified), so a login IS required; the
 # box only ever pulls during a deploy run, so the ephemeral token
 # suffices — and a leaked box can no longer pull outside a run.
-echo "$GHCR_TOKEN" | docker login ghcr.io -u $GH_ACTOR --password-stdin
+echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
 
 # CD-4: pin the IMMUTABLE per-commit tag pushed by build-and-push-image
 # (metadata-action type=sha -> prefix "sha-" + short 7-char sha, length
 # pinned via DOCKER_METADATA_SHORT_SHA_LENGTH above). Rollback = export
 # the previous sha tag and re-run compose up (docs/rollback-guide.md).
-export API_IMAGE="$(echo "ghcr.io/$GH_REPOSITORY/badabhai-api:sha-$(echo "$GH_SHA" | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
+#
+# ASSIGN THEN EXPORT, ON TWO LINES — for all four image vars below. Do not
+# fold them back into `export VAR="$(...)"` (SC2155): in that one-line form
+# the exit status is `export`'s, which is ALWAYS 0, so a failed substitution
+# is masked and `set -e` sails past it with an EMPTY image ref — a deploy
+# that pulls `ghcr.io//badabhai-api:sha-`. Split, the assignment carries the
+# substitution's own status and the deploy dies here instead.
+API_IMAGE="$(echo "ghcr.io/$GH_REPOSITORY/badabhai-api:sha-$(echo "$GH_SHA" | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
+export API_IMAGE
 # TD81(a): the ai-service image, same commit, same immutability rule.
 # This export is NOT optional even for an api-only concern: compose
 # interpolates the WHOLE overlay before it filters by service or
 # profile, so docker-compose.staging.yml's `${AI_SERVICE_IMAGE:?}`
 # would fail EVERY command below — including `pull api` — if it were
 # missing. Same reason a rollback must export both (docs/rollback-guide.md).
-export AI_SERVICE_IMAGE="$(echo "ghcr.io/$GH_REPOSITORY/badabhai-ai-service:sha-$(echo "$GH_SHA" | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
+AI_SERVICE_IMAGE="$(echo "ghcr.io/$GH_REPOSITORY/badabhai-ai-service:sha-$(echo "$GH_SHA" | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
+export AI_SERVICE_IMAGE
 # GAP-XC-06 (#920): the payer-web image, same commit, same immutability
 # rule. Also NOT optional even for an api-only concern, for the identical
 # reason AI_SERVICE_IMAGE above is not: compose interpolates the WHOLE
 # overlay before filtering by service/profile, so docker-compose.staging.yml's
 # `${PAYER_WEB_IMAGE:?}` would fail EVERY command below if it were missing.
-export PAYER_WEB_IMAGE="$(echo "ghcr.io/$GH_REPOSITORY/badabhai-payer-web:sha-$(echo "$GH_SHA" | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
+PAYER_WEB_IMAGE="$(echo "ghcr.io/$GH_REPOSITORY/badabhai-payer-web:sha-$(echo "$GH_SHA" | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
+export PAYER_WEB_IMAGE
 # GAP-XC-06 (#920): apps/admin-web (the INTERNAL admin portal), same commit,
 # same immutability rule, and NOT optional either — `${ADMIN_WEB_IMAGE:?}` in
 # the overlay would fail every command below, `pull api` included.
-export ADMIN_WEB_IMAGE="$(echo "ghcr.io/$GH_REPOSITORY/badabhai-admin-web:sha-$(echo "$GH_SHA" | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
+ADMIN_WEB_IMAGE="$(echo "ghcr.io/$GH_REPOSITORY/badabhai-admin-web:sha-$(echo "$GH_SHA" | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
+export ADMIN_WEB_IMAGE
 echo "Deploying image: $API_IMAGE"
 echo "Deploying image: $AI_SERVICE_IMAGE"
 echo "Deploying image: $PAYER_WEB_IMAGE"
