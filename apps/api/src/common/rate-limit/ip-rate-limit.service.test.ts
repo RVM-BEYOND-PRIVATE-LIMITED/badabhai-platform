@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { HttpException, HttpStatus } from "@nestjs/common";
+import { HttpException, HttpStatus, Logger } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import { IpRateLimit } from "./ip-rate-limit.service";
 import type { PiiCryptoService } from "../pii-crypto.service";
@@ -182,5 +182,41 @@ describe("IpRateLimit.assertWithinHourlySenderCap — keyed on the handset (#103
     const { svc, pii } = setup({ incrResults: [1] });
     await svc.assertWithinHourlySenderCap("otp_request", { kind: "ip", value: "" }, 20);
     expect(pii.hashIp).toHaveBeenCalledWith("unknown");
+  });
+});
+
+describe("a cap that fires says so (#1019)", () => {
+  // The same silence #1019 hit in `OtpService`: this limiter throws the neutral 429 that four
+  // other throttles also throw, so without a line here "which limit did this worker hit?" can
+  // only be answered by reading Redis on the box by hand.
+  it("logs the kind, the scope and the count — never the raw address or device id", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc } = setup({ incrResults: [21] });
+    await expect429(svc.assertWithinHourlySenderCap("otp_request", { kind: "ip", value: IP }, 20));
+    const line = warn.mock.calls.map((c) => String(c[0])).find((m) => m.includes("cap reached"));
+    expect(line).toContain("scope=otp_request");
+    expect(line).toMatch(/count=21\/20/);
+    expect(line).not.toContain(IP);
+    warn.mockRestore();
+  });
+
+  it("says which KIND of bucket it was, so a device cap is not read as a network one", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc } = setup({ incrResults: [21] });
+    await expect429(
+      svc.assertWithinHourlySenderCap("otp_request", { kind: "device", value: "dev-aaa1" }, 20),
+    );
+    const line = warn.mock.calls.map((c) => String(c[0])).find((m) => m.includes("cap reached"));
+    expect(line).toMatch(/^device rate-limit cap reached/);
+    expect(line).not.toContain("dev-aaa1");
+    warn.mockRestore();
+  });
+
+  it("a request WITHIN cap logs nothing — the line marks a refusal, not a hit", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    const { svc } = setup({ incrResults: [1] });
+    await svc.assertWithinHourlySenderCap("otp_request", { kind: "ip", value: IP }, 20);
+    expect(warn.mock.calls.map((c) => String(c[0])).filter((m) => m.includes("cap reached"))).toEqual([]);
+    warn.mockRestore();
   });
 });
