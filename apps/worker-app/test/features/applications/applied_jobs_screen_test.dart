@@ -18,12 +18,15 @@ AppliedJob _job(
   String id, {
   String? area,
   required String title,
+  // Default is a LEGACY trade slug — the production shape (all 17 rows carry a
+  // non-empty jobs.trade_key and no matched_skill_label). Pass an `mskill_*` id to
+  // exercise the MATCH_V1 guard.
+  String tradeKey = 'cnc_operator',
   String? skillLabel,
 }) =>
     AppliedJob(
       jobId: id,
-      // An INTERNAL match-skill id (MATCH_V1 shape) — it must NEVER reach the UI.
-      tradeKey: 'mskill_cnc_op',
+      tradeKey: tradeKey,
       title: title,
       city: 'Pune',
       area: area,
@@ -76,6 +79,30 @@ Future<void> _pump(WidgetTester tester, List<AppliedJob> applied) async {
 void main() {
   tearDown(() async => locator.reset());
 
+  test('#1051: AppliedJob.fromJson on the REAL applications payload — trade_key '
+      'present, NO matched_skill_label — so the fallback trade line is what shows',
+      () {
+    // The exact shape GET /workers/me/applications returns: it projects
+    // `trade_key` and never sends `matched_skill_label`. A label-only read left
+    // this null and dropped the trade line for every legacy row (#1051). This is
+    // the fromJson coverage #1027's fixture-built tests were missing.
+    final AppliedJob job = AppliedJob.fromJson(<String, dynamic>{
+      'job_id': 'j1',
+      'trade_key': 'cnc_operator',
+      'title': 'CNC Operator',
+      'city': 'Pune',
+      'area': 'Pimpri',
+      'action': 'applied',
+      'source_surface': 'feed',
+      'created_at': '2026-06-01T00:00:00Z',
+      'updated_at': '2026-06-01T00:00:00Z',
+    });
+    expect(job.matchedSkillLabel, isNull,
+        reason: 'the applications API sends no label');
+    expect(job.tradeKey, 'cnc_operator',
+        reason: 'the legacy slug the subtitle falls back to');
+  });
+
   testWidgets(
       'WA-1 regression: THREE applications render as THREE rows — the list '
       'must never collapse to one', (WidgetTester tester) async {
@@ -92,28 +119,28 @@ void main() {
     expect(find.byType(BbJobCard), findsNWidgets(3));
   });
 
-  testWidgets('renders applied rows including a null-area row', (
-    WidgetTester tester,
-  ) async {
+  testWidgets(
+      'subtitle prefers the matched-skill LABEL, falls back to the legacy '
+      'trade_key (#1051), never an mskill_ id', (WidgetTester tester) async {
     await _pump(tester, <AppliedJob>[
-      _job('a1', area: 'Pimpri', title: 'CNC Operator', skillLabel: 'CNC Operator'),
-      _job('a2', area: null, title: 'VMC Operator', skillLabel: 'CNC Operator'),
+      // V1 row that carries a label.
+      _job('a1',
+          area: 'Pimpri', title: 'CNC Operator', skillLabel: 'MIG Welder'),
+      // LEGACY row — the production shape: a trade_key slug, no label. Its trade
+      // line MUST survive (this is exactly what #1027 regressed and #1051 fixes).
+      _job('a2', area: null, title: 'VMC Operator'), // tradeKey 'cnc_operator'
     ]);
 
-    expect(find.text('CNC Operator'), findsWidgets);
-    expect(find.text('VMC Operator'), findsOneWidget);
-    // Subtitle shows the human matched-skill LABEL + place — area present →
-    // "area, city"; area null → city only.
-    expect(find.text('CNC Operator · Pimpri, Pune'), findsOneWidget);
-    expect(find.text('CNC Operator · Pune'), findsOneWidget);
-    // #1027: the internal `mskill_*` trade_key must NEVER be rendered.
+    expect(find.text('MIG Welder · Pimpri, Pune'), findsOneWidget);
+    expect(find.text('cnc_operator · Pune'), findsOneWidget);
+    // The internal `mskill_*` trade_key must NEVER be rendered (#1027).
     expect(find.textContaining('mskill_'), findsNothing);
   });
 
-  testWidgets('#1027: with no matched-skill label, no internal id leaks — the '
-      'subtitle is just the place', (WidgetTester tester) async {
+  testWidgets('#1027: an mskill_ id is never rendered — the subtitle drops to '
+      'place alone', (WidgetTester tester) async {
     await _pump(tester, <AppliedJob>[
-      _job('a1', area: 'Pimpri', title: 'CNC Operator'), // skillLabel null
+      _job('a1', area: 'Pimpri', title: 'CNC Operator', tradeKey: 'mskill_cnc_op'),
     ]);
 
     expect(find.text('Pimpri, Pune'), findsOneWidget); // subtitle = place only
