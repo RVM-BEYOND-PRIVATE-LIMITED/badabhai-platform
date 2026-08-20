@@ -23,20 +23,39 @@ const TTL = 30 * 86400;
 function makeRedis() {
   const store = new Map<string, string>();
   const sets = new Map<string, Set<string>>();
-  // Last EXPIRE seconds recorded per key — lets a test assert the lineage-set TTLs (the
-  // re-arm fix) without a real clock.
+  // Last TTL recorded per key, from EITHER an `EXPIRE` or a `SET ... EX <sec>` — lets a test
+  // assert re-arming without a real clock.
+  //
+  // Recording the `EX` form is what makes the refresh-record TTLs assertable at all. Until it
+  // did, this map saw only `EXPIRE`, so the two keys rotation re-arms with `SET ... EX`
+  // (`refresh:<oldHash>` and `refresh:<newHash>`) were invisible to every test in this file —
+  // which is precisely why the assertions on them were missing rather than failing.
   const ttls = new Map<string, number>();
+
+  /** The seconds argument of a `SET key val [NX] EX <sec>`, or null when the call has no EX. */
+  function exSeconds(rest: unknown[]): number | null {
+    const i = rest.findIndex((a) => typeof a === "string" && a.toUpperCase() === "EX");
+    if (i < 0) return null;
+    const sec = rest[i + 1];
+    return typeof sec === "number" ? sec : null;
+  }
   const calls: Array<[string, ...unknown[]]> = [];
   const client = {
     async set(key: string, value: string, ...rest: unknown[]) {
       calls.push(["set", key, value, ...rest]);
       // SET key val NX EX sec — create-if-absent.
       if (rest[0] === "NX") {
+        // A refused NX writes nothing, so it must not record a TTL either — otherwise a test
+        // could assert a re-arm that the real Redis never performed.
         if (store.has(key)) return null;
         store.set(key, value);
+        const nxTtl = exSeconds(rest);
+        if (nxTtl !== null) ttls.set(key, nxTtl);
         return "OK";
       }
       store.set(key, value);
+      const ttl = exSeconds(rest);
+      if (ttl !== null) ttls.set(key, ttl);
       return "OK";
     },
     async get(key: string) {
@@ -596,6 +615,59 @@ describe("SessionService — logout kills refresh tokens (no resurrection)", () 
     // the sets can never expire before the refresh records they index.
     expect(redis.ttls.get("worker_families:worker-1")).toBe(REFRESH_TTL);
     expect(redis.ttls.get("worker_sessions:worker-1")).toBe(REFRESH_TTL);
+  });
+
+  /**
+   * The other three keys rotation re-arms, which nothing asserted until #999.
+   *
+   * Rotation touches FIVE keys with a TTL: the presented record (`refresh:<oldHash>`, rewritten
+   * as `used`), the newly minted one (`refresh:<newHash>`), the family set
+   * (`refresh_family:<fid>`), and the two `worker_*` lineage sets the case above already
+   * covers. A regression that stopped re-arming any of the first three would have passed CI.
+   *
+   * They were unasserted for a mechanical reason rather than an oversight: the two refresh
+   * records are re-armed by `SET ... EX`, and this file's Redis double recorded a TTL only on
+   * `EXPIRE`. So they were invisible to the harness, not merely unchecked — which is why the
+   * double learned to record `EX` before this test could exist.
+   *
+   * WHY IT MATTERS THAT THEY MATCH. `refresh:<oldHash>` must outlive nothing in particular on
+   * its own, but it is what reuse detection reads: if it expired early, a replayed stolen token
+   * would find NO record and be served as a plain `invalid` instead of tripping the family
+   * teardown — silently downgrading the theft signal that the owner's ruling on this issue
+   * deliberately keeps fail-closed. `refresh_family:<fid>` is the set `revokeFamily` iterates,
+   * so an expired one makes a teardown a no-op over an empty set while live tokens survive.
+   */
+  it("rotation re-arms the THREE refresh keys too — old record, new record, and the family set", async () => {
+    const REFRESH_TTL = 90 * 86400;
+    const { svc, redis } = setup(); // gate OFF (default)
+    const created = await svc.create("worker-1");
+
+    const oldHash = sha256Hex(created.refresh.token);
+    const stored = JSON.parse(redis.store.get(`refresh:${oldHash}`)!) as { family_id: string };
+    const familyKey = `refresh_family:${stored.family_id}`;
+
+    // Scramble every TTL create() armed, so a value left over from create() can never be
+    // mistaken for one that rotation re-armed. Without this the test would pass unchanged
+    // against a rotation that re-armed nothing at all.
+    redis.ttls.set(`refresh:${oldHash}`, 1);
+    redis.ttls.set(familyKey, 1);
+
+    const rotated = await svc.refreshByToken(created.refresh.token, "idem-rot-refresh-ttls");
+    expect(rotated.ok).toBe(true);
+    if (!rotated.ok) return;
+    const newHash = sha256Hex(rotated.minted.refresh.token);
+
+    // The presented token, rewritten as `used` — and re-armed, so reuse detection can still
+    // FIND it for the whole refresh window rather than losing the evidence.
+    expect(redis.ttls.get(`refresh:${oldHash}`)).toBe(REFRESH_TTL);
+    // The freshly minted successor.
+    expect(redis.ttls.get(`refresh:${newHash}`)).toBe(REFRESH_TTL);
+    // The family set revokeFamily iterates.
+    expect(redis.ttls.get(familyKey)).toBe(REFRESH_TTL);
+
+    // Sanity: the two are genuinely different keys, so the three assertions above are not
+    // three readings of one entry.
+    expect(newHash).not.toBe(oldHash);
   });
 
   it("after a rotation, logout-all reaps the ROTATED (long-rotating) token ⇒ replay invalid", async () => {
