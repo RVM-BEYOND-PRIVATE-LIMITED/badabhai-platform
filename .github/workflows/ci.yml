@@ -6,9 +6,43 @@ on:
   pull_request:
     branches: [main]
 
+# A PR run is SUPERSEDABLE. A `main` run is a DEPLOY.
+#
+# `cancel-in-progress: true` is exactly right on a branch: a new push replaces the old one and
+# there is no reason to finish testing a commit nobody will merge.
+#
+# On `main` it is wrong, because main runs are not supersedable — each one is the deploy of a
+# distinct commit. `deploy-lightsail` is the LAST job in this workflow, so it is reliably the
+# one still pending when the next merge lands and kills the run. Merge cadence on this repo is
+# faster than the ~7-minute path to that job, which makes cancellation the NORMAL case:
+#
+#     measured 2026-08-20, last 59 settled runs on main:  39 cancelled / 20 success  (66%)
+#
+# It usually self-heals, which is why it went unnoticed for so long: the next successful run
+# deploys a descendant commit that contains the cancelled one's changes too. #1017 and #1019
+# both shipped that way — hours late, and only because unrelated work happened to merge behind
+# them. It stops self-healing exactly when it matters most, i.e. when the cancelled run is the
+# LAST one: end of day, a quiet period, or a single urgent hotfix merged on its own. Then main
+# is merged, production is not running it, and nothing is red anywhere to say so.
+#
+# WHAT THE EXPRESSION BUYS, STATED HONESTLY. It does not mean every main run completes.
+# GitHub cancels a PREVIOUSLY-PENDING run when a newer one joins the group, so a burst of
+# merges can still discard an intermediate run before it starts. What it guarantees is the
+# thing that was actually broken: the NEWEST run in the group is never cancelled by a newer
+# one, so the tip of `main` always reaches `deploy-lightsail`. Intermediate commits may still
+# show a cancelled `ci-required` — that is the aggregate gate reporting "something did not
+# finish", not a test failure — but the box can no longer be left behind `main` indefinitely.
+#
+# Serialising is desirable on its own terms: two deploys racing onto one box is a worse
+# failure than a deploy waiting seven minutes, and queued runs make deploy order match merge
+# order. `staging-cd.yml` — the other deploy workflow in this repo — already pins
+# `cancel-in-progress: false` for the same reason.
+#
+# Cost is CI minutes on `main` only. Pinned by `ci-main-deploy-concurrency.guard.test.ts`.
+# Refs #1041, #1021, #1019, #1017.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # ---- Detect changed paths (CI-2: dorny/paths-filter) + derive the build id (#965) ----
