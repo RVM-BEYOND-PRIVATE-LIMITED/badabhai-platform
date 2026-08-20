@@ -1529,6 +1529,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # PRE-PUBLISH GATE (#1140): the payer-web image bakes in the served
+      # /.well-known/assetlinks.json. App Link verification fails SILENTLY on a
+      # placeholder / malformed fingerprint (Android just opens the browser), so
+      # this hard-blocks the payer-web publish before the image is pushed. Bare
+      # `node` — no pnpm install needed (the script only reads the static file).
+      # payer-web leg only; a false switch is impossible since `if` gates it.
+      - name: Gate — assetlinks.json is release-ready
+        if: matrix.app == 'payer-web'
+        run: node apps/payer-web/scripts/verify-assetlinks-release.mjs
+
       - name: Set up Docker Buildx
         # REQUIRED for CD-5: the runner's stock `docker` driver CANNOT export a
         # `type=gha` cache — buildx hard-errors before the build starts. This
