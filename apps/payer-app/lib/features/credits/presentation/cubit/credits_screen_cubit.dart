@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
+import '../../../../core/error/payer_failure.dart';
 
 /// Loads the Credits screen: the REAL balance (`GET /payer/credits`), the REAL
 /// credit ledger (`GET /payer/credits/ledger`), and the buyable packs
@@ -44,8 +45,11 @@ class CreditsScreenCubit extends Cubit<CreditsScreenState> {
           packs: packs,
         ),
       );
-    } catch (_) {
-      emit(state.copyWith(status: CreditsScreenStatus.error));
+    } catch (e) {
+      emit(state.copyWith(
+        status: CreditsScreenStatus.error,
+        failure: PayerFailure.from(e),
+      ));
     }
   }
 
@@ -90,9 +94,14 @@ class CreditsScreenState extends Equatable {
     this.purchasing,
     this.purchaseFailed = false,
     this.purchased = false,
+    this.failure,
   });
 
   final CreditsScreenStatus status;
+
+  /// The classified reason [load] failed — drives the honest error copy. Null
+  /// unless [status] is [CreditsScreenStatus.error].
+  final PayerFailure? failure;
 
   /// The credit-ACCOUNT ledger (`GET /payer/credits/ledger`) — pack purchases,
   /// unlock debits, grants, refunds.
@@ -128,6 +137,7 @@ class CreditsScreenState extends Equatable {
     bool clearPurchasing = false,
     bool? purchaseFailed,
     bool? purchased,
+    PayerFailure? failure,
   }) {
     return CreditsScreenState(
       status: status ?? this.status,
@@ -138,6 +148,7 @@ class CreditsScreenState extends Equatable {
       purchasing: clearPurchasing ? null : (purchasing ?? this.purchasing),
       purchaseFailed: purchaseFailed ?? this.purchaseFailed,
       purchased: purchased ?? this.purchased,
+      failure: failure ?? this.failure,
     );
   }
 
@@ -151,5 +162,6 @@ class CreditsScreenState extends Equatable {
         purchasing,
         purchaseFailed,
         purchased,
+        failure,
       ];
 }

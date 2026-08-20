@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/config/app_config.dart';
 import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
+import '../../../../core/error/payer_failure.dart';
 
 /// Loads the Find feed. Two shapes behind one cubit:
 ///
@@ -33,8 +34,11 @@ class FindCubit extends Cubit<FindState> {
         final List<Candidate> candidates = await _api.fetchCandidates();
         emit(FindState(status: FindStatus.ready, candidates: candidates));
       }
-    } catch (_) {
-      emit(state.copyWith(status: FindStatus.error));
+    } catch (e) {
+      emit(state.copyWith(
+        status: FindStatus.error,
+        failure: PayerFailure.from(e),
+      ));
     }
   }
 
@@ -56,8 +60,11 @@ class FindCubit extends Cubit<FindState> {
     emit(state.copyWith(status: FindStatus.loading));
     try {
       await _loadApplicants(job, state.jobs);
-    } catch (_) {
-      emit(state.copyWith(status: FindStatus.error));
+    } catch (e) {
+      emit(state.copyWith(
+        status: FindStatus.error,
+        failure: PayerFailure.from(e),
+      ));
     }
   }
 
@@ -89,8 +96,11 @@ class FindCubit extends Cubit<FindState> {
         workerId: applicant.workerId,
         jobId: state.selectedJob?.id,
       );
-    } catch (_) {
-      emit(state.copyWith(status: FindStatus.error));
+    } catch (e) {
+      emit(state.copyWith(
+        status: FindStatus.error,
+        failure: PayerFailure.from(e),
+      ));
       rethrow;
     }
     if (result.granted) {
@@ -129,9 +139,14 @@ class FindState extends Equatable {
     this.jobs = const <JobPosting>[],
     this.selectedJob,
     this.applicants = const <Applicant>[],
+    this.failure,
   });
 
   final FindStatus status;
+
+  /// The classified reason the last load failed — drives the honest error copy.
+  /// Null unless [status] is [FindStatus.error].
+  final PayerFailure? failure;
 
   /// MOCK feed rows.
   final List<Candidate> candidates;
@@ -154,6 +169,7 @@ class FindState extends Equatable {
     List<JobPosting>? jobs,
     JobPosting? selectedJob,
     List<Applicant>? applicants,
+    PayerFailure? failure,
   }) {
     return FindState(
       status: status ?? this.status,
@@ -161,10 +177,11 @@ class FindState extends Equatable {
       jobs: jobs ?? this.jobs,
       selectedJob: selectedJob ?? this.selectedJob,
       applicants: applicants ?? this.applicants,
+      failure: failure ?? this.failure,
     );
   }
 
   @override
   List<Object?> get props =>
-      <Object?>[status, candidates, jobs, selectedJob, applicants];
+      <Object?>[status, candidates, jobs, selectedJob, applicants, failure];
 }
