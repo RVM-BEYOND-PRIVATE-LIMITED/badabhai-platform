@@ -575,6 +575,13 @@
       "when": 1787141865609,
       "tag": "0081_worker_feedback_screen_context",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1787220000000,
+      "tag": "0082_rls_lock_seven_tables",
+      "breakpoints": true
     }
   ]
 }

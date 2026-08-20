@@ -1,8 +1,7 @@
 /**
  * "Is this database ready for the code on `main`?" — one read-only question, one command.
  *
- * ===========================================================================
- * WHY THIS EXISTS
+ * ==================================================================== * WHY THIS EXISTS
  * ===========================================================================
  * On 2026-08-19 production was running code from `9bb12992` against a database without
  * migration `0078`. Every write to `unresolved_phrase` had been failing since the first deploy
@@ -49,6 +48,62 @@ export interface SchemaRequirement {
   /** What an operator would see if it is missing. */
   readonly failureMode: string;
 }
+
+/**
+ * R39 — the three tables migration 0082 re-locks, and why they are here at all.
+ *
+ * THESE ARE NOT "CODE WILL 500 WITHOUT THEM" ENTRIES, and that is the same exception the 0080
+ * RLS entry already makes. The manifest's usual bar is "code on `main` names this object
+ * unconditionally"; an RLS entry fails that bar by construction, because a missing lock breaks
+ * nothing an operator can see. It earns its place the other way round: the failure is SILENT and
+ * permanent, so an audit is the ONLY thing that would ever report it.
+ *
+ * WHY 0048 IS NOT ENOUGH. 0048 declares FORCE and all four REVOKEs for exactly these three
+ * tables, and 0048 is RECORDED in the journal — yet on production the grants are still there.
+ * The table bodies were applied out-of-band, Supabase's default privileges granted the Data-API
+ * roles at CREATE time, and the REVOKE tail never ran. `adopt-migrations.ts` then recorded 0048
+ * as applied after a full-depth check of tables, columns, indexes, constraints and RLS
+ * enable/force — a check that does not look at GRANTS. So the one tool positioned to catch this
+ * passed it. 0082 re-states the lock and these entries make the state askable.
+ *
+ * WHY ONLY THREE OF THE SEVEN. `agency_profiles`, `employer_profiles`, `payer_capabilities` and
+ * `payer_member_invites` exist on production and in NO migration and NO schema file (GAP-DB-21).
+ * A manifest entry for them would report MISSING on every correctly-migrated fresh database,
+ * which inverts the question this file exists to answer. `db:audit:rls` is their authority: it
+ * sweeps what is actually there, so it covers a table no manifest could name.
+ */
+const R39_LOCKED_BY_0082: readonly { readonly table: string; readonly holds: string }[] = [
+  {
+    table: "agency_kyc",
+    holds:
+      "PAN and bank-account ciphertext plus a keyed HMAC — the highest-sensitivity financial PII " +
+      "on the platform (ADR-0022 Amdt 2, ADR-0004 discipline)",
+  },
+  {
+    table: "agency_payout_accruals",
+    holds: "the commission accrual ledger — ₹ amounts and opaque ids, of which source_unlock_id is one hop from a worker",
+  },
+  {
+    table: "agency_payout_requests",
+    holds: "payout requests — ₹ amounts, opaque ids and a status enum",
+  },
+];
+
+const R39_RLS_REQUIREMENTS: readonly SchemaRequirement[] = R39_LOCKED_BY_0082.map(({ table, holds }) => ({
+  id: `0082-${table.replace(/_/g, "-")}-rls`,
+  migration: "0082_rls_lock_seven_tables",
+  kind: "rls" as const,
+  table,
+  requiredBy:
+    "no code path — this is the platform-wide table-DEFAULT lock (TD20). 0048 declares it for " +
+    "this table and its REVOKE tail never reached production, so the grant, not RLS, is what " +
+    "governs `service_role` here: that role has rolbypassrls = true, which means RLS does not " +
+    "apply to it at all and an open grant is an open table",
+  failureMode:
+    `SILENT and permanent. ${table} holds ${holds}. It is empty today, so nothing is exposed ` +
+    "yet — the exposure begins with the first row written, and no surface degrades to announce " +
+    "it. Only db:audit:rls or this audit will ever say so",
+}));
 
 /**
  * The apply-before-deploy set.
@@ -130,6 +185,8 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     failureMode:
       "identical to the 0080 table entry and for the same reason — both surfaces 500. Listed SEPARATELY because the table can be present while the column is not, which is exactly the state a deploy that skips this migration produces",
   },
+=======
+  ...R39_RLS_REQUIREMENTS,
 ] as const;
 
 /** What the live database actually has, keyed by requirement id. */

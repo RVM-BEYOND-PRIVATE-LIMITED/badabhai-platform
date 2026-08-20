@@ -293,3 +293,59 @@ describe("the 0080 RLS requirement", () => {
     expect(rls?.failureMode).toMatch(/SILENT/);
   });
 });
+
+/**
+ * R39 — the seven unlocked tables, and the three of them this manifest can speak for.
+ *
+ * The split is the interesting part and the easiest thing to get wrong later: four of the seven
+ * exist on production and in no migration and no schema file, so listing them here would make a
+ * correctly-migrated fresh database report MISSING. `db:audit:rls` covers those, because it
+ * sweeps what is actually present instead of what someone remembered to enumerate.
+ */
+describe("the 0081 R39 requirements", () => {
+  const r39 = SCHEMA_REQUIREMENTS.filter((r) => r.migration === "0081_rls_lock_seven_tables");
+
+  it("covers exactly the three tables that exist in every environment", () => {
+    expect(r39.map((r) => r.table).sort()).toEqual([
+      "agency_kyc",
+      "agency_payout_accruals",
+      "agency_payout_requests",
+    ]);
+  });
+
+  it("does NOT list the four unmodelled tables, which exist on production alone", () => {
+    // Listing them would make this audit answer "not ready" for every database that is in fact
+    // correct. They are GAP-DB-21's dead scaffolding and `db:audit:rls` is their authority.
+    const unmodelled = ["agency_profiles", "employer_profiles", "payer_capabilities", "payer_member_invites"];
+    expect(SCHEMA_REQUIREMENTS.filter((r) => unmodelled.includes(r.table))).toEqual([]);
+  });
+
+  it("is `rls`-kind and whole-table, like the 0080 entry", () => {
+    for (const r of r39) {
+      expect(r.kind).toBe("rls");
+      expect(r.object).toBeUndefined();
+    }
+  });
+
+  it("says the failure is SILENT, because no surface degrades when the lock is missing", () => {
+    for (const r of r39) expect(r.failureMode).toMatch(/SILENT/);
+  });
+
+  it("names service_role's rolbypassrls as the reason the GRANT is the control", () => {
+    // The whole finding. "RLS is on with zero policies" is a real denial for anon and
+    // authenticated and no denial at all for service_role, so a reader who takes ENABLE as
+    // sufficient would close this as a false positive.
+    for (const r of r39) expect(r.requiredBy).toMatch(/rolbypassrls/);
+  });
+
+  it("records that the lock is empty-table latent rather than an active leak", () => {
+    // Measured on production 2026-08-20: all seven hold 0 rows. Overstating this as a live
+    // breach is how a P2 becomes an unplanned production change at midnight.
+    for (const r of r39) expect(r.failureMode).toMatch(/empty today/);
+  });
+
+  it("keeps every entry's id unique against the rest of the manifest", () => {
+    const ids = SCHEMA_REQUIREMENTS.map((r) => r.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
