@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { WorkerAppScreenTemplate } from "@badabhai/types";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { WorkersRepository } from "../workers/workers.repository";
@@ -9,6 +10,32 @@ import type { SubmitFeedbackDto } from "./feedback.dto";
 /** What the caller gets back: the row id, and deliberately nothing the worker typed. */
 export interface SubmitFeedbackResult {
   id: string;
+}
+
+/**
+ * The two SANITIZED telemetry values the edge derived, carried as a named object rather than as
+ * two positional `string | null` parameters.
+ *
+ * That is a correctness decision, not a style one: adjacent same-typed nullable parameters are
+ * silently swappable, and swapping these two would put a route pattern in `app_build` and a
+ * build stamp in `screen_context` — both would pass every CHECK, both would land on the event
+ * spine, and nothing anywhere would fail. Named fields make the same mistake a compile error.
+ *
+ * Both arrive ALREADY sanitized (`sanitizeAppBuild` / `resolveScreenTemplate`), so each is a
+ * well-formed value or `null`, and neither is ever a reason for this call to fail.
+ */
+export interface SubmitFeedbackClientContext {
+  /** `x-app-build` (#966): a commit SHA / build number, or null when absent or malformed. */
+  readonly appBuild: string | null;
+  /**
+   * WHICH SCREEN of the worker app the feedback was about, or null.
+   *
+   * TYPED AS THE UNION, NOT AS `string`, and that is the point rather than pedantry: the closed
+   * set `resolveScreenTemplate` guarantees is then carried by the compiler all the way to the
+   * event payload, so a caller that reached for a raw path — the exact §2 failure this field has
+   * had twice — does not compile.
+   */
+  readonly screenContext: WorkerAppScreenTemplate | null;
 }
 
 /**
@@ -42,13 +69,13 @@ export class FeedbackService {
    *
    * `workerId` comes from the bearer token, never from the body — the controller takes it from
    * `@CurrentWorker` and the DTO is `.strict()`, so there is no other way for one to arrive.
-   * `appBuild` has already been sanitized at the edge (`sanitizeAppBuild`): it is a well-formed
-   * build stamp or `null`, and never a reason for this call to fail.
+   * `client` has already been sanitized at the edge (see {@link SubmitFeedbackClientContext}):
+   * both values are well-formed or `null`, and neither is ever a reason for this call to fail.
    */
   async submit(
     workerId: string,
     dto: SubmitFeedbackDto,
-    appBuild: string | null,
+    client: SubmitFeedbackClientContext,
     ctx: RequestContext,
   ): Promise<SubmitFeedbackResult> {
     // The FK would refuse an unknown worker anyway, but as a driver error the worker would see
@@ -65,9 +92,11 @@ export class FeedbackService {
     // trail is allowed to know.
     const messageLength = dto.message.length;
 
+    const { appBuild, screenContext } = client;
+
     const row = await this.repo.withTransaction(async (tx) => {
       const inserted = await this.repo.insert(
-        { workerId, category, message: dto.message, appBuild },
+        { workerId, category, message: dto.message, appBuild, screenContext },
         tx,
       );
       await this.events.emit({
@@ -82,6 +111,13 @@ export class FeedbackService {
           // payload's own note in packages/event-schema for why not even a hash of them rides.
           message_length: messageLength,
           app_build: appBuild,
+          // WHICH SCREEN, and it may ride the spine precisely because it cannot be anything
+          // else: `resolveScreenTemplate` returns one of the app's own 28 route constants or
+          // null, so there is nothing here that links this row to a specific job, session or
+          // worker — and nothing here that a caller composed. "Which screen generated this
+          // complaint" is exactly the kind of shape question the audit record exists to answer,
+          // alongside the category and the length.
+          screen_context: screenContext,
         } satisfies PayloadInputOf<"feedback.submitted">,
         // The row id is the natural key: one row, one audit record. A client that retried a
         // request which had already committed cannot produce a second event.
@@ -102,7 +138,11 @@ export class FeedbackService {
     // log line in this API truncates it: enough to correlate, not enough to be a directory.
     this.logger.log(
       `feedback recorded id=${row.id} worker=${workerId.slice(0, 8)}… ` +
-        `category=${category ?? "none"} length=${messageLength} build=${appBuild ?? "unknown"}`,
+        `category=${category ?? "none"} length=${messageLength} build=${appBuild ?? "unknown"} ` +
+        // The SCREEN NAME is loggable for the same reason it is eventable — it is one of our own
+        // constants, so no caller-chosen byte can be interpolated here. A raw path would not be:
+        // it would put an entity id in the log a `message` is deliberately kept out of.
+        `screen=${screenContext ?? "unknown"}`,
     );
     return { id: row.id };
   }

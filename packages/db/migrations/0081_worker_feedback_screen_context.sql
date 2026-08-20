@@ -1,0 +1,90 @@
+-- ===========================================================================
+-- 0081 — WORKER FEEDBACK: which SCREEN the worker was on (#997 follow-up)
+--
+-- FULLY ADDITIVE. One NULLABLE column plus its length CHECK on a table 0080 created. Nothing is
+-- dropped, nothing is renamed, no shipped column changes meaning, and every existing row stays
+-- valid — the CHECK admits NULL, which is what every pre-existing row has.
+--
+-- WHAT IT STORES, AND WHY IT IS NOT A PATH. `screen_context` is one of the worker app's own
+-- route constants — `/jobs/detail/:id` — bound by `resolveScreenTemplate`, which matches the
+-- untrusted client value against the app's finite route table and binds the TABLE'S string, never
+-- the caller's. A raw path (`/jobs/6f2c…-uuid/apply`) is an IDENTIFIER: it links a feedback row to
+-- one specific job, application or chat session, which is a fact about the worker nobody asked
+-- them to disclose, and it rides the `feedback.submitted` event where CLAUDE.md §2 forbids
+-- personal data outright. The screen name answers the only question the column exists for — WHICH
+-- SCREEN was "button kaam nahi kar raha" about — and answers nothing else.
+--
+-- THE CHECK IS A LENGTH BOUND ONLY, DELIBERATELY — AND IT STAYED ONE when the request-edge
+-- normalizer became an ALLOWLIST and SQL could therefore have pinned membership
+-- (`screen_context IN ('/', '/login', …)`). That would be strictly stronger and is still the
+-- wrong constraint: the app gaining a screen is routine, and an IN-list makes each such widening
+-- a migration that must land before the code emitting the new constant deploys — get the order
+-- wrong and every INSERT carrying the new screen is a 23514 inside the same transaction as the
+-- event, costing the worker the paragraph they typed over a telemetry field they never filled in.
+-- That is exactly the failure this column must never be able to cause. Membership is enforced
+-- where it costs nobody their message: at the sole writer (`resolveScreenTemplate` returns a
+-- table constant or NULL, and its return type makes anything else a compile error) and at the
+-- spine (`FeedbackSubmittedPayload`'s `z.enum`, which is where a SECOND emitter added later must
+-- fail closed). What is left for SQL is the writer neither reaches — a backfill or an ops script
+-- — and a length bound still stops the column becoming a second free-text channel around the
+-- `message` bound. The literal tracks WORKER_FEEDBACK_SCREEN_MAX; SQL cannot import, so
+-- `worker-feedback-schema.test.ts` asserts the two are equal (the same pairing 0080 set up for
+-- the message and app_build bounds).
+--
+-- ORDER: APPLY BEFORE DEPLOY — for BOTH surfaces, not only the write.
+--   * WRITE: `FeedbackRepository.insert` inserts the drizzle model's full column list on the
+--     request path of POST /workers/me/feedback, and the write shares a transaction with its
+--     `feedback.submitted` event — no savepoint, no catch. Against a database without this
+--     column every submission 500s and the typed message is lost with it.
+--   * READ: `AdminFeedbackRepository.list` names `screen_context` in its explicit SELECT list
+--     unconditionally, so GET /admin/feedback 500s on first page load too.
+-- That is the honest statement. It is tempting to record this as "additive, so reads are safe" —
+-- additive describes the DDL, not the deploy, and the read is only safe when the deployed code
+-- does not name the column. This one does. Recorded in `schema-contract.ts` as
+-- `0081-screen-context-column`, so `pnpm --filter @badabhai/db db:audit:schema-contract` answers
+-- "is this database ready?" rather than anyone taking it on report — the 0078 lesson.
+--
+-- AND THE TWO SURFACES ARE ORDERED AGAINST EACH OTHER TOO, which "DB before code" does not say.
+-- `feedbackItemSchema` in admin-web declares `screen_context` as a REQUIRED key (deliberately —
+-- an absent key means a projection stopped sending the field, and rendering that as "unknown
+-- screen" on every row would hide the column going missing). A required key is also an ordering
+-- constraint: admin-web parsing an API response without it throws `AdminRequestError`, which
+-- `/feedback` renders as a whole-page outage rather than a degraded row.
+--   FORWARD:  apply 0081  →  deploy api  →  deploy admin-web
+--   ROLLBACK: revert admin-web  →  revert api  →  run the SQL below
+-- The deploy matrix builds both surfaces from one commit and does not pin their restart order,
+-- so a same-commit skew is short and self-healing; a PARTIAL ROLLBACK of `api` alone while the
+-- portal stays is the case that is not, and it is the one this note exists for.
+--
+-- ⚠ 0080 IS MERGED BUT NOT APPLIED IN PRODUCTION (see MIGRATIONS.md). This migration ALTERs the
+-- table that one creates, so it is strictly ordered behind it and inherits its journal-drift
+-- problem: `db:migrate` alone still cannot reach either until 0076–0079 are adopted.
+--
+-- TIMING (the DDL, as distinct from deploy ORDER). `ADD COLUMN ... text` with no DEFAULT and no
+-- NOT NULL is a catalog-only change in every supported Postgres — no table rewrite, no row
+-- touched. The ADD CONSTRAINT ... CHECK is the one that costs: it takes ACCESS EXCLUSIVE and
+-- validates every existing row. On `worker_feedback` that is trivial (the table is empty or
+-- nearly so, and the predicate is true for NULL), but ACCESS EXCLUSIVE conflicts with EVERY
+-- other lock, so the request queues behind any in-flight statement and every reader arriving
+-- meanwhile queues behind IT. Per the 0073/0077/0080 precedent this is timing guidance, not a
+-- blocker: run under `SET lock_timeout = '3s';` and retry on 55P03 (lock_not_available).
+--
+-- BACKFILL: NONE, and none is possible. No prior record of a worker's screen exists — rows
+-- written before this column keep NULL, which the admin screen reads as "unknown screen". That
+-- is the honest rendering; inventing a route for them would be worse than the blank.
+--
+-- RLS. NOTHING TO RE-APPLY. RLS is a TABLE-level posture and 0080 already set ENABLE + FORCE +
+-- the four REVOKEs on `worker_feedback`; a new column inherits it. This migration deliberately
+-- adds no grant and no policy — `rls-spine.e2e.test.ts` still asserts the table denies all four
+-- Data-API roles, and that assertion is what would catch it if this were ever wrong.
+--
+-- ROLLBACK. Drop the constraint, then the column — safe with the app live ONLY in the reverse
+-- order of deploy (revert the app first; both surfaces name the column):
+--   ALTER TABLE "worker_feedback" DROP CONSTRAINT IF EXISTS "worker_feedback_screen_context_len_chk";
+--   ALTER TABLE "worker_feedback" DROP COLUMN IF EXISTS "screen_context";
+-- Lossy for this column only, and cheaply so: it is a coarse route label with no downstream
+-- consumer, unlike `message`, which 0080's rollback note has to warn about at length. The
+-- feedback rows themselves are untouched.
+-- ===========================================================================
+ALTER TABLE "worker_feedback" ADD COLUMN "screen_context" text;--> statement-breakpoint
+ALTER TABLE "worker_feedback" ADD CONSTRAINT "worker_feedback_screen_context_len_chk" CHECK ("worker_feedback"."screen_context" IS NULL OR char_length("worker_feedback"."screen_context") BETWEEN 1 AND 128);

@@ -590,6 +590,19 @@ export const EVENT_REGISTRY = {
     domain: "admin",
     payload: p.AdminWorkerJourneyViewedPayload,
   },
+  // ADR-0025 Amendment 1 (#997 follow-up) — an admin READ a page of worker FEEDBACK, which is
+  // the one admin read that projects worker-authored free text. The sibling of
+  // `worker_journey_viewed`: that one audits reading a worker's step COUNTS, this one audits
+  // reading their actual WORDS, which until now emitted nothing at all. Subject is the
+  // `admin_session` rather than a worker — the route's worker filter is OPTIONAL, so a
+  // worker-axis subject would make that axis look complete when it cannot be (the payload's own
+  // note has the full argument). PII-free: opaque admin id + the two filters + a result count —
+  // never message text, an excerpt, or a length. v1.
+  "admin.feedback_viewed": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminFeedbackViewedPayload,
+  },
   // ADR-0025 ADMIN-3b (must-fix #8) — a per-admin worker-PII reveal cap was exceeded. The
   // PII-free BREACH event: opaque admin_id + which window (hour|day) ONLY — never a worker/
   // subject id, the revealed value, or the reason note. An over-cap request reveals nothing. v1.

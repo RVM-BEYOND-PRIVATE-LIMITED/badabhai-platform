@@ -100,6 +100,8 @@ import { AdminFeedbackController } from "./admin-feedback.controller";
  * because the worker chose to say it to us. The boundary is unchanged everywhere else: no name,
  * no phone, no join to `workers`, and no search over the message body (a substring search over
  * free text is a PII discovery tool). Identity egress remains `reveal-contact` and only that.
+ * ADR-0025 Amendment 1 adds `admin.feedback_viewed` to that read and an optional `workerId`
+ * LOOKUP filter — an id the admin already holds, never a search over what anyone wrote.
  */
 @Module({
   imports: [
@@ -197,7 +199,11 @@ import { AdminFeedbackController } from "./admin-feedback.controller";
     // ONE non-faceless read on this surface — it projects `message`, the worker's own free text.
     // Deliberately its own module rather than a ninth entity read, so the faceless contract
     // stays absolute in the file that declares it. No name/phone, no join to `workers`, and no
-    // search over the message body.
+    // search over the message body — narrowing by `workerId` is a LOOKUP, not a search.
+    //
+    // The SECOND read service here that emits: `admin.feedback_viewed` (ADR-0025 Amendment 1),
+    // awaited and fail-closed, so reading a worker's WORDS leaves the same kind of trail as
+    // reading their step counts — hence EventsService in its constructor too.
     AdminFeedbackRepository,
     AdminFeedbackService,
   ],

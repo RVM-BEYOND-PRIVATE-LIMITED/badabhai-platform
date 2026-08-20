@@ -14,6 +14,8 @@ import type { RequestContext } from "../common/request-context";
 const WORKER_ID = "11111111-1111-4111-8111-111111111111";
 const FEEDBACK_ID = "ffffffff-0000-4000-8000-000000000001";
 const APP_BUILD = "abc1234";
+/** A SCREEN NAME, as `resolveScreenTemplate` hands it over — one of the app's own constants. */
+const SCREEN = "/jobs/detail/:id";
 const CTX: RequestContext = { requestId: "req-1", correlationId: "corr-1" };
 
 /**
@@ -129,16 +131,22 @@ const dto = (over: Partial<SubmitFeedbackDto> = {}): SubmitFeedbackDto => ({
 describe("FeedbackService.submit — the row (#997)", () => {
   it("stores the message under the TOKEN's worker, with the sanitized build", async () => {
     const { service, repo } = make();
-    await service.submit(WORKER_ID, dto({ category: "problem" }), APP_BUILD, CTX);
+    await service.submit(WORKER_ID, dto({ category: "problem" }), { appBuild: APP_BUILD, screenContext: SCREEN }, CTX);
     expect(repo.insert).toHaveBeenCalledWith(
-      { workerId: WORKER_ID, category: "problem", message: MESSAGE, appBuild: APP_BUILD },
+      {
+        workerId: WORKER_ID,
+        category: "problem",
+        message: MESSAGE,
+        appBuild: APP_BUILD,
+        screenContext: SCREEN,
+      },
       FAKE_TX,
     );
   });
 
   it("returns the row id and nothing the worker typed", async () => {
     const { service } = make();
-    await expect(service.submit(WORKER_ID, dto(), null, CTX)).resolves.toEqual({
+    await expect(service.submit(WORKER_ID, dto(), { appBuild: null, screenContext: null }, CTX)).resolves.toEqual({
       id: FEEDBACK_ID,
     });
   });
@@ -147,7 +155,7 @@ describe("FeedbackService.submit — the row (#997)", () => {
     // A deleted-mid-session account is the realistic path here, and a driver error after the
     // worker typed a paragraph is the worst way to tell them.
     const { service, repo } = make({ workerExists: false });
-    await expect(service.submit(WORKER_ID, dto(), null, CTX)).rejects.toBeInstanceOf(
+    await expect(service.submit(WORKER_ID, dto(), { appBuild: null, screenContext: null }, CTX)).rejects.toBeInstanceOf(
       NotFoundException,
     );
     expect(repo.insert).not.toHaveBeenCalled();
@@ -157,7 +165,7 @@ describe("FeedbackService.submit — the row (#997)", () => {
     // Untagged is a real answer. Defaulting it would turn silence into a choice and make the
     // category histogram ops read a lie.
     const { service, repo, emitted } = make();
-    await service.submit(WORKER_ID, dto(), null, CTX);
+    await service.submit(WORKER_ID, dto(), { appBuild: null, screenContext: null }, CTX);
     expect(repo.insert.mock.calls[0]![0]).toMatchObject({ category: null });
     expect(emitted[0]!.payload).toMatchObject({ category: null });
   });
@@ -165,7 +173,7 @@ describe("FeedbackService.submit — the row (#997)", () => {
   it("carries every tag the client can send through to both the row and the event", async () => {
     for (const category of WORKER_FEEDBACK_CATEGORIES) {
       const { service, repo, emitted } = make();
-      await service.submit(WORKER_ID, dto({ category }), null, CTX);
+      await service.submit(WORKER_ID, dto({ category }), { appBuild: null, screenContext: null }, CTX);
       expect(repo.insert.mock.calls[0]![0]).toMatchObject({ category });
       expect(emitted[0]!.payload).toMatchObject({ category });
     }
@@ -175,7 +183,7 @@ describe("FeedbackService.submit — the row (#997)", () => {
 describe("FeedbackService.submit — the event", () => {
   it("emits feedback.submitted with the SHAPE of the submission", async () => {
     const { service, emitted } = make();
-    await service.submit(WORKER_ID, dto({ category: "suggestion" }), APP_BUILD, CTX);
+    await service.submit(WORKER_ID, dto({ category: "suggestion" }), { appBuild: APP_BUILD, screenContext: SCREEN }, CTX);
     expect(emitted).toHaveLength(1);
     const evt = emitted[0]!;
     expect(evt.event_name).toBe("feedback.submitted");
@@ -187,6 +195,7 @@ describe("FeedbackService.submit — the event", () => {
       category: "suggestion",
       message_length: MESSAGE.length,
       app_build: APP_BUILD,
+      screen_context: SCREEN,
     });
     expect(evt.correlationId).toBe(CTX.correlationId);
     expect(evt.requestId).toBe(CTX.requestId);
@@ -194,7 +203,7 @@ describe("FeedbackService.submit — the event", () => {
 
   it("keys idempotency off the ROW id, so a committed-then-retried request cannot double-audit", async () => {
     const { service, emitted } = make();
-    await service.submit(WORKER_ID, dto(), null, CTX);
+    await service.submit(WORKER_ID, dto(), { appBuild: null, screenContext: null }, CTX);
     expect(emitted[0]!.idempotencyKey).toBe(`feedback.submitted:${FEEDBACK_ID}`);
   });
 
@@ -204,7 +213,7 @@ describe("FeedbackService.submit — the event", () => {
     // the assertion that matters — it catches the text arriving under ANY field name, including
     // one nobody has thought of yet.
     const { service, emitted } = make();
-    await service.submit(WORKER_ID, dto({ category: "problem" }), APP_BUILD, CTX);
+    await service.submit(WORKER_ID, dto({ category: "problem" }), { appBuild: APP_BUILD, screenContext: SCREEN }, CTX);
     const serialized = JSON.stringify(emitted);
     expect(serialized).not.toContain(MESSAGE);
     expect(serialized).not.toContain(NAME);
@@ -220,7 +229,7 @@ describe("FeedbackService.submit — the event", () => {
     // The words are one authenticated admin screen away, behind an audited surface. Logging
     // them here would route around exactly that control, into a sink with no access story.
     const { service, logs } = make();
-    await service.submit(WORKER_ID, dto({ category: "problem" }), APP_BUILD, CTX);
+    await service.submit(WORKER_ID, dto({ category: "problem" }), { appBuild: APP_BUILD, screenContext: SCREEN }, CTX);
     const allLogs = logs.join("\n");
     expect(allLogs).not.toContain(MESSAGE);
     expect(allLogs).not.toContain(NAME);
@@ -233,9 +242,39 @@ describe("FeedbackService.submit — the event", () => {
     expect(allLogs).toContain(`length=${MESSAGE.length}`);
   });
 
+  /**
+   * ⚠ THE LOG LINE'S THIRD FIELD, WHICH SHIPPED WITH NO TEST AT ALL. `screen=` is the only
+   * client-influenced value this service interpolates into a log, and the raw `dto.screen` —
+   * unvalidated, `z.unknown()`, an unbounded attacker-chosen string — is still in scope on the
+   * DTO at that line. Rewriting the interpolation to read `dto.screen` instead of the resolved
+   * `client.screenContext` passed 44/44 before this test existed, because the fixture never set
+   * `screen` and the privacy assertions above scan only for the message, the name and the phone.
+   */
+  it("logs the RESOLVED screen, never the raw one off the DTO", async () => {
+    const { service, logs } = make();
+    await service.submit(
+      WORKER_ID,
+      // What a client actually posts, and what the edge turned it into. They differ on purpose:
+      // if the log read the DTO, the raw path — and its uuid — would appear.
+      dto({ screen: "/jobs/detail/6f2c04e0-4f89-41d3-9a0c-0305e82c3301?q=welder" }),
+      { appBuild: APP_BUILD, screenContext: "/jobs/detail/:id" },
+      CTX,
+    );
+    const allLogs = logs.join("\n");
+    expect(allLogs).toContain("screen=/jobs/detail/:id");
+    expect(allLogs).not.toContain("6f2c04e0-4f89-41d3-9a0c-0305e82c3301");
+    expect(allLogs).not.toContain("q=welder");
+  });
+
+  it("logs `unknown` for an absent screen rather than the word undefined", async () => {
+    const { service, logs } = make();
+    await service.submit(WORKER_ID, dto(), { appBuild: null, screenContext: null }, CTX);
+    expect(logs.join("\n")).toContain("screen=unknown");
+  });
+
   it("never logs the FULL worker id — enough to correlate, not enough to be a directory", async () => {
     const { service, logs } = make();
-    await service.submit(WORKER_ID, dto(), null, CTX);
+    await service.submit(WORKER_ID, dto(), { appBuild: null, screenContext: null }, CTX);
     expect(logs.join("\n")).not.toContain(WORKER_ID);
   });
 });
@@ -246,7 +285,7 @@ describe("FeedbackService.submit — the row and the audit record are one write"
     // both states nobody can reconcile afterwards. Sharing the `tx` is what makes both
     // impossible rather than merely unlikely.
     const { service, repo, events } = make();
-    await service.submit(WORKER_ID, dto(), APP_BUILD, CTX);
+    await service.submit(WORKER_ID, dto(), { appBuild: APP_BUILD, screenContext: SCREEN }, CTX);
     expect(repo.withTransaction).toHaveBeenCalledTimes(1);
     expect(repo.insert.mock.calls[0]![1]).toBe(FAKE_TX);
     expect((events.emit.mock.calls[0]![0] as CapturedEmit).tx).toBe(FAKE_TX);
@@ -254,7 +293,7 @@ describe("FeedbackService.submit — the row and the audit record are one write"
 
   it("does both INSIDE the transaction, before it commits", async () => {
     const { service, trace } = make();
-    await service.submit(WORKER_ID, dto(), null, CTX);
+    await service.submit(WORKER_ID, dto(), { appBuild: null, screenContext: null }, CTX);
     expect(trace).toEqual(["tx:open", "insert", "emit", "tx:commit"]);
   });
 
@@ -262,7 +301,7 @@ describe("FeedbackService.submit — the row and the audit record are one write"
     // NOT the `job.search_performed` best-effort case: that event has no system-of-record row
     // behind it, so swallowing its failure costs telemetry only. Here it would cost the audit.
     const { service, trace } = make({ emitThrows: true });
-    await expect(service.submit(WORKER_ID, dto(), null, CTX)).rejects.toThrow(
+    await expect(service.submit(WORKER_ID, dto(), { appBuild: null, screenContext: null }, CTX)).rejects.toThrow(
       "simulated emit failure",
     );
     // The transaction never reached commit — the insert goes back with it.
@@ -273,7 +312,44 @@ describe("FeedbackService.submit — the row and the audit record are one write"
     // A "feedback recorded" line for a rolled-back transaction is worse than silence: it is the
     // line an operator would trust while looking for a row that does not exist.
     const { service, logs } = make({ emitThrows: true });
-    await expect(service.submit(WORKER_ID, dto(), null, CTX)).rejects.toThrow();
+    await expect(service.submit(WORKER_ID, dto(), { appBuild: null, screenContext: null }, CTX)).rejects.toThrow();
     expect(logs).toEqual([]);
+  });
+});
+
+describe("FeedbackService.submit — the screen context is carried, and it is a SCREEN NAME", () => {
+  it("stores and events the screen the edge handed over", async () => {
+    // The service does not resolve — `resolveScreenTemplate` already did, at the controller.
+    // What this pins is that the value reaches BOTH sinks: the row (where an admin reads it) and
+    // the event (where the shape of the complaint is recorded). A field that landed in only one
+    // would leave the spine and the screen disagreeing about which screen a report came from.
+    const { service, repo, emitted } = make();
+    await service.submit(WORKER_ID, dto(), { appBuild: null, screenContext: SCREEN }, CTX);
+    expect(repo.insert.mock.calls[0]![0]).toMatchObject({ screenContext: SCREEN });
+    expect(emitted[0]!.payload.screen_context).toBe(SCREEN);
+  });
+
+  it("carries NULL through unchanged — an unknown screen is a value, not a missing field", async () => {
+    // Null is what a client that sent nothing, a value that failed normalization, and a row
+    // written before the column existed all produce, and all three mean the same thing.
+    // Substituting a placeholder here would invent a screen the worker was never on.
+    const { service, repo, emitted } = make();
+    await service.submit(WORKER_ID, dto(), { appBuild: null, screenContext: null }, CTX);
+    expect(repo.insert.mock.calls[0]![0]).toMatchObject({ screenContext: null });
+    expect(emitted[0]!.payload.screen_context).toBeNull();
+  });
+
+  it("keeps the build stamp and the screen in their OWN fields — never crossed", async () => {
+    // The two are adjacent nullable strings that the service takes as one named object for
+    // exactly this reason: swapped, both would still pass every CHECK and every payload rule,
+    // and nothing anywhere would fail. This is the assertion that would notice.
+    const { service, repo, emitted } = make();
+    await service.submit(WORKER_ID, dto(), { appBuild: APP_BUILD, screenContext: SCREEN }, CTX);
+    expect(repo.insert.mock.calls[0]![0]).toMatchObject({
+      appBuild: APP_BUILD,
+      screenContext: SCREEN,
+    });
+    expect(emitted[0]!.payload.app_build).toBe(APP_BUILD);
+    expect(emitted[0]!.payload.screen_context).toBe(SCREEN);
   });
 });
