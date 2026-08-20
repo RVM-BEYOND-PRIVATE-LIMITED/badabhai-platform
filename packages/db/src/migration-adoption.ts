@@ -86,6 +86,18 @@ export interface LiveCatalog {
    * the exact shape of false assurance the effect-verifier rules exist to prevent.
    */
   readonly functionGrants: ReadonlySet<string>;
+  /**
+   * `"schema:objtype:role"` for every DEFAULT privilege granted by `postgres`, role lowercased,
+   * `PUBLIC` spelled `public` — e.g. `"public:f:anon"`.
+   *
+   * `0085` Section A is the only statement in the #1110 set that changes what a FUTURE object
+   * means, and it is invisible to every other check here: a default ACL is not a grant on
+   * anything, so nothing in `grants` or `functionGrants` moves when it is revoked. Without this
+   * the section could be adopted as applied while still handing EXECUTE to every new function.
+   */
+  readonly defaultFunctionAcls: ReadonlySet<string>;
+  /** Columns present on `_delete_forensics`, or empty when the table is absent. */
+  readonly deleteForensicsColumns: ReadonlySet<string>;
 }
 
 /**
@@ -106,6 +118,13 @@ export function normalizeType(declared: string): string {
   if (/^varchar\(|^character varying/.test(t)) return "character varying";
   if (/^numeric|^decimal/.test(t)) return "numeric";
   if (/^vector\(/.test(t)) return "USER-DEFINED";
+  // THE SERIAL PSEUDO-TYPES. `bigserial` is not a type: Postgres expands it to `bigint` plus a
+  // sequence and a default, and `information_schema` reports the underlying integer type. First
+  // needed by `0086`, and worth mapping rather than special-casing because the refusal it caused
+  // was correct — an unmapped type must never be guessed at.
+  if (t === "serial" || t === "serial4") return "integer";
+  if (t === "bigserial" || t === "serial8") return "bigint";
+  if (t === "smallserial" || t === "serial2") return "smallint";
   // information_schema reports every array type as the literal "ARRAY" (e.g. `text[]`).
   if (/\[\s*\]$/.test(t)) return "ARRAY";
   const map: Record<string, string> = {
@@ -428,11 +447,85 @@ export const UNDECLARED_DEFINER_FUNCTIONS: readonly string[] = [
  */
 function executeRevokedProblems(live: LiveCatalog): string[] {
   const problems: string[] = [];
+
+  // SECTION A FIRST, because it is the half that decides whether this recurs. A default ACL is
+  // not a grant on any object, so nothing else in this catalog moves when it is revoked — and a
+  // verifier that only checked the three functions would happily record 0085 as applied on a
+  // database still handing EXECUTE to every function created tomorrow.
+  for (const role of DATA_API_ROLES) {
+    if (live.defaultFunctionAcls.has(`public:f:${role.toLowerCase()}`)) {
+      problems.push(
+        `DEFAULT PRIVILEGES still grant EXECUTE on new functions in public to ${role} — ` +
+          `Section A did not take`,
+      );
+    }
+  }
+
   for (const fn of UNDECLARED_DEFINER_FUNCTIONS) {
     for (const role of DATA_API_ROLES) {
       if (live.functionGrants.has(`${fn}:${role.toLowerCase()}`)) {
         problems.push(`${fn}(): ${role} still holds EXECUTE — the REVOKE did not take`);
       }
+    }
+  }
+  return problems;
+}
+
+/** The two columns `0086` removes — the only ones that could carry raw PII into an audit record. */
+export const DELETE_FORENSICS_DROPPED_COLUMNS: readonly string[] = ["query", "client_addr"];
+
+/** What must survive, so "narrowed" is never confused with "gutted". */
+export const DELETE_FORENSICS_KEPT_COLUMNS: readonly string[] = [
+  "id",
+  "at",
+  "txid",
+  "table_name",
+  "row_id",
+  "worker_id",
+  "db_user",
+  "app_name",
+  "backend_pid",
+];
+
+/**
+ * `0086` narrows the deletion trail, and its two `DROP COLUMN IF EXISTS` statements are exactly
+ * the shape the static parse cannot judge: `IF EXISTS` means the file says the same thing on a
+ * database where the columns were dropped and on one where they never existed.
+ *
+ * ABSENCE OF THE TABLE IS NOT A PASS, unlike `0085`. `0086` CREATEs `_delete_forensics`, so on a
+ * database where this migration ran the table is there by definition — the 0082/0084 rule, not
+ * the 0085 exception.
+ *
+ * IT ALSO ASSERTS WHAT SURVIVED. A verifier that only checked the two columns were gone would
+ * pass against a dropped table, which is the one outcome the owner decision explicitly forbids:
+ * *"preserve the actual DPDP erasure proof"*. The kept-column list is how "narrowed" is
+ * distinguished from "gutted".
+ */
+function deletionForensicsProblems(live: LiveCatalog): string[] {
+  const problems: string[] = [];
+  const table = "_delete_forensics";
+
+  if (!live.tables.has(table)) {
+    problems.push(`${table}: table MISSING — 0086 creates it, so it cannot already be applied here`);
+    return problems;
+  }
+
+  for (const c of DELETE_FORENSICS_DROPPED_COLUMNS) {
+    if (live.deleteForensicsColumns.has(c)) {
+      problems.push(`${table}.${c} still exists — the DROP did not take, and it is the PII column`);
+    }
+  }
+  for (const c of DELETE_FORENSICS_KEPT_COLUMNS) {
+    if (!live.deleteForensicsColumns.has(c)) {
+      problems.push(`${table}.${c} is MISSING — the trail was gutted, not narrowed`);
+    }
+  }
+
+  if (!live.rlsEnabled.has(table)) problems.push(`${table}: RLS is not ENABLED`);
+  if (!live.rlsForced.has(table)) problems.push(`${table}: RLS is not FORCED`);
+  for (const role of DATA_API_ROLES) {
+    if (live.grants.has(`${table}:${role.toLowerCase()}`)) {
+      problems.push(`${table}: ${role} still holds a privilege — the REVOKE did not take`);
     }
   }
   return problems;
@@ -455,8 +548,14 @@ export const EFFECT_VERIFIERS: readonly EffectVerifier[] = [
   {
     tag: "0085_revoke_execute_undeclared_routines",
     why: "every REVOKE is inside format() behind a to_regprocedure guard, so the file text states none of them",
-    assertions: UNDECLARED_DEFINER_FUNCTIONS.length * DATA_API_ROLES.length,
+    assertions: (UNDECLARED_DEFINER_FUNCTIONS.length + 1) * DATA_API_ROLES.length,
     verify: executeRevokedProblems,
+  },
+  {
+    tag: "0086_bound_deletion_forensics",
+    why: "the two DROP COLUMNs are no-ops where the columns never existed, so the file text cannot say whether they are gone",
+    assertions: DELETE_FORENSICS_DROPPED_COLUMNS.length + DELETE_FORENSICS_KEPT_COLUMNS.length + 2 + DATA_API_ROLES.length,
+    verify: deletionForensicsProblems,
   },
 ];
 

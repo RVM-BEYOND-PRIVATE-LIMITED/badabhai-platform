@@ -299,6 +299,29 @@ async function main(): Promise<void> {
        WHERE n.nspname = 'public' AND a.privilege_type = 'EXECUTE'`;
     const functionGrants = new Set(fnAclRows.map((r) => `${r.proname}:${r.grantee}`));
 
+    // DEFAULT PRIVILEGES — what a function created TOMORROW will arrive with. Nothing else in
+    // this catalog moves when `ALTER DEFAULT PRIVILEGES` runs, so without this the one statement
+    // in 0085 that stops the finding recurring would be unverifiable.
+    const defaclRows = await sql<{ schema: string; objtype: string; grantee: string }[]>`
+      SELECT d.defaclnamespace::regnamespace::text AS schema,
+             d.defaclobjtype::text                 AS objtype,
+             CASE WHEN a.grantee = 0 THEN 'public'
+                  ELSE lower(pg_get_userbyid(a.grantee)) END AS grantee
+        FROM pg_default_acl d
+        CROSS JOIN LATERAL aclexplode(d.defaclacl) a
+       WHERE pg_get_userbyid(d.defaclrole) = 'postgres'
+         AND a.privilege_type = 'EXECUTE'`;
+    const defaultFunctionAcls = new Set(
+      defaclRows.map((r) => `${r.schema}:${r.objtype}:${r.grantee}`),
+    );
+
+    // `_delete_forensics`'s live column set — 0086's DROP COLUMN IF EXISTS says the same thing
+    // whether the columns were dropped or never created, so the file cannot answer this.
+    const dfCols = await sql<{ column_name: string }[]>`
+      SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = '_delete_forensics'`;
+    const deleteForensicsColumns = new Set(dfCols.map((r) => r.column_name));
+
     const live: LiveCatalog = {
       tables: liveTables,
       columns: liveCols,
@@ -308,6 +331,8 @@ async function main(): Promise<void> {
       rlsForced,
       grants,
       functionGrants,
+      defaultFunctionAcls,
+      deleteForensicsColumns,
     };
 
     const clean: JournalEntry[] = [];

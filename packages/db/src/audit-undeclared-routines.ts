@@ -64,6 +64,7 @@ import { createDbClient } from "./client";
 import { hostClass } from "./audit-embedding-provenance";
 import { DATA_API_ROLES } from "./schema-contract";
 import { declaredRoutines } from "./audit-live-drift";
+import { DELETE_FORENSICS_RETENTION_DAYS } from "./schema/delete-forensics";
 
 config({ path: join("..", "..", ".env") });
 
@@ -110,7 +111,20 @@ export function isExposedDefiner(r: RoutineRow): boolean {
 }
 
 /**
- * PII shapes counted in `_delete_forensics.query`, never printed.
+ * The PII shapes that WERE counted in `_delete_forensics.query`. **Nothing counts them now.**
+ *
+ * ===========================================================================
+ * WHY THIS IS STILL HERE WITH NOTHING CALLING IT
+ * ===========================================================================
+ * Migration `0086` dropped `query` and `client_addr` on 2026-08-21, so the column these shapes
+ * were written to interrogate does not exist and the counts are structurally zero rather than
+ * measured zero. Deleting the map would be tidier and would also delete the DEFINITION of the
+ * measurement that justified the drop — "0 phone-shaped, 0 email-shaped, and none of the 35
+ * quoted ten-digit literals is a bare Indian mobile" is only checkable against the exact
+ * patterns that produced it.
+ *
+ * So it stays, as the record of what was asked, and a test pins that it is no longer wired into
+ * any query. If the columns are ever restored, this is what the restoration has to answer to.
  *
  * `_log_delete` writes `current_query()` — the whole statement text. A parameterised DELETE
  * (`WHERE id = $1`) carries no values, but a hand-typed one
@@ -159,19 +173,26 @@ FROM pg_event_trigger e JOIN pg_proc f ON f.oid = e.evtfoid
 ORDER BY 1, 2`;
 
 /** The forensics table's own state, and the shapes its `query` column matches. Counts only. */
+/**
+ * The forensics table's own state — and, since `0086`, its RETENTION state.
+ *
+ * REWRITTEN 2026-08-21. Every PII-shape count this used to carry referenced `query`, which
+ * `0086` dropped; left as it was, the whole aggregate raised "column does not exist", the
+ * runner's `catch` swallowed it as "table absent on every database but production", and the
+ * report silently lost its `_delete_forensics` section altogether. A tool that reports NOTHING
+ * where it used to report a finding is the worst of the three possible outcomes, so the query
+ * now asks what is still answerable.
+ *
+ * `over_retention` is the new question and it is the useful one: the sweep
+ * (`db:prune:delete-forensics`) is an age predicate, and this is the same predicate read
+ * independently, so the audit and the runner can be compared without trusting either.
+ */
 export const FORENSICS_SQL = `
 SELECT count(*)::int AS rows,
        min(at)::text AS first_at,
        max(at)::text AS last_at,
        count(DISTINCT table_name)::int AS source_tables,
-       count(*) FILTER (WHERE query IS NOT NULL)::int AS with_query_text,
-       count(*) FILTER (WHERE client_addr IS NOT NULL)::int AS with_client_addr,
-       count(*) FILTER (WHERE query ~ '${PII_SHAPES["phone_e164_shaped"]}')::int AS phone_e164_shaped,
-       count(*) FILTER (WHERE query ~ '${PII_SHAPES["ten_digit_run"]}')::int AS ten_digit_run,
-       count(*) FILTER (WHERE query ~ '${PII_SHAPES["ten_digit_in_literal"]}')::int AS ten_digit_in_literal,
-       count(*) FILTER (WHERE query ~ '${PII_SHAPES["bare_indian_mobile_literal"]}')::int AS bare_indian_mobile_literal,
-       count(*) FILTER (WHERE query ~ '${PII_SHAPES["email_shaped"]}')::int AS email_shaped,
-       max(length(query))::int AS longest_query_chars
+       count(*) FILTER (WHERE at < now() - make_interval(days => ${DELETE_FORENSICS_RETENTION_DAYS}))::int AS over_retention
 FROM public._delete_forensics`;
 
 export const FORENSICS_BY_TABLE_SQL = `
@@ -304,11 +325,12 @@ export function render(rows: readonly RoutineRow[], forensics: Record<string, un
     L.push(`    first / last               ${String(forensics["first_at"])}  ..  ${String(forensics["last_at"])}`);
     L.push(`    source tables              ${String(forensics["source_tables"])}`);
     for (const r of byTable) L.push(`      ${String(r["table_name"]).padEnd(20)} ${String(r["n"])}`);
-    L.push(`    rows carrying query text   ${String(forensics["with_query_text"])}  (current_query(), verbatim)`);
-    L.push(`    rows carrying client IP    ${String(forensics["with_client_addr"])}  (personal data under DPDP)`);
-    L.push(`    longest query captured     ${String(forensics["longest_query_chars"])} chars`);
-    L.push("    PII SHAPES IN THE CAPTURED SQL — counts, never values:");
-    for (const k of Object.keys(PII_SHAPES)) L.push(`      ${k.padEnd(24)} ${String(forensics[k])}`);
+    L.push(`    over the ${String(DELETE_FORENSICS_RETENTION_DAYS)}-day window    ${String(forensics["over_retention"])}  <- what db:prune:delete-forensics would remove`);
+    L.push("");
+    L.push("    NO PII COLUMNS REMAIN. `0086` dropped `query` (current_query(), verbatim) and");
+    L.push("    `client_addr` (an IP, personal data under DPDP). The PII-shape counts this");
+    L.push("    section used to print are gone because the column they interrogated is gone —");
+    L.push("    structurally zero now, rather than measured zero.");
     L.push("");
   }
   L.push("  See docs/registers/gap-db-undeclared-routines.md (#1110). Nothing here is changed by");

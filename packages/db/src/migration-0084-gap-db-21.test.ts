@@ -154,6 +154,8 @@ describe("0084 and the adoption path", () => {
       rlsForced: new Set(),
       grants: new Set(),
       functionGrants: new Set(),
+      defaultFunctionAcls: new Set(),
+      deleteForensicsColumns: new Set(),
     });
     // Without a tag there is no verifier, so the refusal still stands — the hatch is opened by
     // naming the migration, never by the file's own contents.
@@ -174,6 +176,8 @@ describe("0084 and the adoption path", () => {
         rlsForced: new Set(),
         grants: new Set(),
         functionGrants: new Set(),
+        defaultFunctionAcls: new Set(),
+        deleteForensicsColumns: new Set(),
       },
       TAG,
     );

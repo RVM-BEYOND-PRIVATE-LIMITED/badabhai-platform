@@ -138,6 +138,7 @@ const LOCKED_TABLES = [
   "agency_profiles", // 0084: the agency-side 1:1 extension of a payer — PII-free today (type, cities, counts) but a payer-scoped table; RLS+FORCE+REVOKE in migration 0082, re-stated by 0084 for fresh databases
   "employer_profiles", // 0084: the employer-side 1:1 extension of a payer — holds `gst_number_enc`, business PII ciphertext (and now a re-encrypt backfill target); RLS+FORCE+REVOKE in migration 0082, re-stated by 0084
   "payer_capabilities", // 0084: the superseded per-payer boolean permission matrix (`payer_members.org_role` is the live model) — an authorization table, so a readable default would publish who may do what; RLS+FORCE+REVOKE in migration 0082, re-stated by 0084
+  "_delete_forensics", // 0086: the deletion trail #1110 found, DECLARED once the owner ruled it stays. It records that a worker row was destroyed and is keyed to the erased `worker_id`, so a readable default would publish exactly who has exercised their right to erasure — the one fact an erasure is supposed to end. `query` and `client_addr` were DROPPED by 0086; RLS+FORCE+REVOKE stated explicitly by 0086 (0082 had already swept it on production)
   "payer_member_invites", // 0084: email invites into a payer org — `invited_email_enc` ciphertext plus `invite_token_hash`, a BEARER credential: a client that could read it could accept someone else's invite; RLS+FORCE+REVOKE in migration 0082, re-stated by 0084
 ] as const;
 

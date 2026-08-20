@@ -136,6 +136,7 @@ export * from "./match";
 export * from "./referral";
 export * from "./ops";
 export * from "./payer-onboarding";
+export * from "./delete-forensics";
 export * from "./ai-cost";
 export * from "./feedback";
 export * from "./ai-trace";

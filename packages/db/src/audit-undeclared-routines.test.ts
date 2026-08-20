@@ -74,8 +74,11 @@ describe("counts only, never values", () => {
     expect([...VALUE_COLUMN_PATTERN_KEYS].sort()).toEqual([...VALUE_COLUMNS].sort());
   });
 
-  it("counts PII by SHAPE, and the shapes are regexes rather than extractors", () => {
-    // A shape says "a row here looks like it contains a phone number". It never yields one.
+  it("keeps the SHAPE definitions, and no longer counts them — 0086 dropped the column", () => {
+    // The map is the RECORD of the measurement that justified dropping `query`: "0
+    // phone-shaped, 0 email-shaped, and none of the 35 quoted ten-digit literals is a bare
+    // Indian mobile" is only checkable against the exact patterns that produced it. Deleting it
+    // would be tidier and would delete the definition of the evidence.
     expect(Object.keys(PII_SHAPES).sort()).toEqual([
       "bare_indian_mobile_literal",
       "email_shaped",
@@ -84,9 +87,21 @@ describe("counts only, never values", () => {
       "ten_digit_run",
     ]);
     for (const [name, pattern] of Object.entries(PII_SHAPES)) {
-      expect(FORENSICS_SQL, `${name} must actually be used`).toContain(pattern);
-      expect(() => new RegExp(pattern)).not.toThrow();
+      expect(() => new RegExp(pattern), `${name} must still be a valid shape`).not.toThrow();
+      // ...and is NOT wired into any query, because the column it interrogated is gone.
+      expect(FORENSICS_SQL, `${name} must no longer be counted`).not.toContain(pattern);
     }
+  });
+
+  it("the forensics query names no column 0086 dropped — the bug that hid the whole section", () => {
+    // WHAT THIS CAUGHT. Left as it was, the aggregate raised "column query does not exist", the
+    // runner's catch swallowed it as "absent on every database but production", and the report
+    // silently lost its `_delete_forensics` section. Reporting NOTHING where there used to be a
+    // finding is worse than either reporting it or failing outright.
+    for (const gone of ["with_query_text", "longest_query_chars", "client_addr"]) {
+      expect(FORENSICS_SQL, `${gone} was dropped by 0086`).not.toContain(gone);
+    }
+    expect(FORENSICS_SQL).toContain("over_retention");
   });
 });
 
@@ -190,15 +205,19 @@ describe("the report", () => {
     expect(render(rows, null, []).join("\n")).toContain("absent on every fresh database");
   });
 
-  it("labels the captured query text and the client IP for what they are", () => {
+  it("reports retention, and says WHY the PII counts are gone rather than dropping them silently", () => {
     const out = render(
       rows,
-      { rows: 147, first_at: "a", last_at: "b", source_tables: 2, with_query_text: 147, with_client_addr: 147, longest_query_chars: 400, phone_e164_shaped: 0, ten_digit_run: 35, ten_digit_in_literal: 35, bare_indian_mobile_literal: 0, email_shaped: 0 },
+      { rows: 147, first_at: "a", last_at: "b", source_tables: 2, over_retention: 0 },
       [{ table_name: "workers", n: 104 }],
     ).join("\n");
+    expect(out).toContain("db:prune:delete-forensics");
+    expect(out).toContain("NO PII COLUMNS REMAIN");
+    // Structurally zero, not measured zero — the distinction the reader needs.
+    expect(out).toContain("structurally zero now, rather than measured zero");
+    // ...and both names still appear, as what WAS dropped, so the history stays legible.
     expect(out).toContain("current_query(), verbatim");
     expect(out).toContain("personal data under DPDP");
-    expect(out).toContain("counts, never values");
   });
 
   it("points at the register rather than proposing a change", () => {
