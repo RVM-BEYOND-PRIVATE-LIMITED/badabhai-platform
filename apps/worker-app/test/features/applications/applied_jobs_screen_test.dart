@@ -14,9 +14,16 @@ import 'package:badabhai_worker_app/features/applications/presentation/cubit/app
 
 class MockApplicationsRepository extends Mock implements ApplicationsRepository {}
 
-AppliedJob _job(String id, {String? area, required String title}) => AppliedJob(
+AppliedJob _job(
+  String id, {
+  String? area,
+  required String title,
+  String? skillLabel,
+}) =>
+    AppliedJob(
       jobId: id,
-      tradeKey: 'cnc_operator',
+      // An INTERNAL match-skill id (MATCH_V1 shape) — it must NEVER reach the UI.
+      tradeKey: 'mskill_cnc_op',
       title: title,
       city: 'Pune',
       area: area,
@@ -26,6 +33,7 @@ AppliedJob _job(String id, {String? area, required String title}) => AppliedJob(
       rank: null,
       createdAt: DateTime(2026, 6, 1),
       updatedAt: DateTime(2026, 6, 1),
+      matchedSkillLabel: skillLabel,
     );
 
 /// Wires a fake repo into the locator + a minimal router (applied + the
@@ -88,15 +96,28 @@ void main() {
     WidgetTester tester,
   ) async {
     await _pump(tester, <AppliedJob>[
-      _job('a1', area: 'Pimpri', title: 'CNC Operator'),
-      _job('a2', area: null, title: 'VMC Operator'),
+      _job('a1', area: 'Pimpri', title: 'CNC Operator', skillLabel: 'CNC Operator'),
+      _job('a2', area: null, title: 'VMC Operator', skillLabel: 'CNC Operator'),
     ]);
 
-    expect(find.text('CNC Operator'), findsOneWidget);
+    expect(find.text('CNC Operator'), findsWidgets);
     expect(find.text('VMC Operator'), findsOneWidget);
-    // area present → "area, city"; area null → city only.
-    expect(find.text('cnc_operator · Pimpri, Pune'), findsOneWidget);
-    expect(find.text('cnc_operator · Pune'), findsOneWidget);
+    // Subtitle shows the human matched-skill LABEL + place — area present →
+    // "area, city"; area null → city only.
+    expect(find.text('CNC Operator · Pimpri, Pune'), findsOneWidget);
+    expect(find.text('CNC Operator · Pune'), findsOneWidget);
+    // #1027: the internal `mskill_*` trade_key must NEVER be rendered.
+    expect(find.textContaining('mskill_'), findsNothing);
+  });
+
+  testWidgets('#1027: with no matched-skill label, no internal id leaks — the '
+      'subtitle is just the place', (WidgetTester tester) async {
+    await _pump(tester, <AppliedJob>[
+      _job('a1', area: 'Pimpri', title: 'CNC Operator'), // skillLabel null
+    ]);
+
+    expect(find.text('Pimpri, Pune'), findsOneWidget); // subtitle = place only
+    expect(find.textContaining('mskill_'), findsNothing);
   });
 
   testWidgets('empty state shows the Hinglish copy + a CTA', (

@@ -175,10 +175,14 @@ class _AppliedJobsView extends StatelessWidget {
     final String place = (job.area != null && job.area!.isNotEmpty)
         ? '${job.area}, ${job.city}'
         : job.city;
-    // "trade · place" as the subtitle line (company is PII, always null). V1 feed
-    // postings carry no trade_key — drop the separator so it never reads " · place".
+    // "skill · place" as the subtitle line (company is PII, always null). Show the
+    // human matched-skill LABEL ("MIG Welder"), NEVER `trade_key` — that is an
+    // internal key by contract, and under MATCH_V1 it is a raw `mskill_*` id that
+    // would read as "mskill_mig_welder · Pune" (#1027). Fall back to place alone
+    // when there is no label (legacy postings that carry none).
+    final String? skill = job.matchedSkillLabel;
     final String subtitle =
-        job.tradeKey.isEmpty ? place : '${job.tradeKey} · $place';
+        (skill == null || skill.isEmpty) ? place : '$skill · $place';
     return BbJobCard(
       data: BbJobCardData(
         title: job.title,
