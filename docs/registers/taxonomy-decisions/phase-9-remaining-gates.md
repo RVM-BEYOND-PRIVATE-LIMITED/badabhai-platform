@@ -13,19 +13,36 @@
 >
 > The production writes made by the owner — `0078`, `0080`, and stamping 76 `embedding_model`
 > values (proven, never assumed) — are recorded below with their evidence.
+>
+> **Sixth pass, 2026-08-20.** `0081_worker_feedback_screen_context` was merged (`#1036`) and
+> applied out of band, which took the migration slot this session was minting into — R39's fix is
+> therefore `0082`, and it was **applied on 2026-08-20: 77/77 tables locked, 0 deviating, R39
+> closed.** Every open judgement call now has a costed options table in
+> **[`phase-9-open-decisions.md`](./phase-9-open-decisions.md)**, re-measured against production
+> the same day. The measurement that reframes most of them: **`job_domain_skill` is EMPTY** — 0
+> edges against the corpus file's 236 — and the 98-skill Phase-3 corpus those edges point into is
+> **0% seeded**. Path A's occupation half is complete (4 071 domains, 9 121 embedded aliases);
+> the domain→skill half has never had a row. Production's 51 skills are the wedge corpus (33
+> `skill_*` + 18 `mskill_*`, all `active`, no `provisional` rows at all), `worker_skill` holds
+> **6 rows** and `job_reach` **4**. Every taxonomy decision below is at its cheapest right now,
+> and that window closes at the first seed.
 
 | # | gate | blocked on | state |
 |---|---|---|---|
 | 0 | `0078` / S3-C | — | ✅ **APPLIED & VERIFIED** — object-by-object, write path exercised |
 | 1 | Embedding provenance (76 unstamped rows) | — | ✅ **CLOSED** — proven `gemini-embedding-001`, stamped |
-| 2 | `cnc-programming` scope decision | **product / taxonomy owner** | ⏸ **decision package complete** — `phase-9-cnc-programming-decision.md` |
+| 2 | `cnc-programming` scope decision | **product / taxonomy owner** | ⏸ **costed, re-measured 2026-08-20** — 11 candidate rows / 4 skills, unchanged. `phase-9-cnc-programming-decision.md` + options table |
 | 3 | 11 provider evaluation cases | — | ✅ **EXECUTED**; replay gap closed; harness defect fixed; **US-04 resolved** |
-| 4 | 5 TD-01 trainer slots | **trade trainer** | ⏸ worksheet ready |
-| 5 | TD-07 | **product + trainer** | ⏸ worksheet ready; engineering evidence complete |
+| 4 | 5 TD-01 trainer slots | **trade trainer** | ⏸ worksheet ready. Separately: TD-01's ratified re-point is **corpus-only** — `skill_drawing_reading` is ABSENT from production and `job_domain_skill` has 0 edges, so seeding is its own owner decision (D1/D2/D3) |
+| 5 | TD-07 | **product + trainer** | ⏸ **four costed remedies (T1–T4)**; engineering evidence complete. Live blast radius measured: **0 welding rows anywhere** — the fix is free today and acquires a backfill at the first welder |
 | 6 | R38 residual | **host-only** | 🔴 open — CD cannot fix it (see below) |
 | 7 | Path A miss recording | — | ✅ **CLOSED** (#1024) — `job_domain_id` reaches `unresolved_phrase`; the thresholds' own inputs are now collectable |
 | 8 | `0080` applied to production | — | ✅ **APPLIED & VERIFIED** object-by-object, RLS included — see below |
-| 9 | **7 tables keep their Data-API grants** (R39) | **owner — production write** | 🔴 open — found by the new `db:audit:rls` sweep |
+| 9 | **7 tables keep their Data-API grants** (R39) | ~~owner — production write~~ | 🟢 **CLOSED 2026-08-20 — APPLIED.** `0082_rls_lock_seven_tables` (#1037, `cdcf31bd`) went in by hand. `db:audit:rls` now reads **77 tables, 77 locked, 0 DEVIATING**; `db:audit:schema-contract` reads **READY**, all three requirements OK. The gate did its job in both directions — it read **NO** while the fix was merged-but-unapplied, and flipped to YES only when the objects arrived. **One follow-up, hygiene not security:** the apply bypassed `db:migrate`, so `0082` is live and unrecorded — see gate 13 |
+| 10 | `EVAL_COVERED` — spec and code disagree | **eval owner** | ⏸ **three costed options (E1/E2/E3)**. The 6 mechanical-only skills are now named and all are ABSENT from production, so the stricter reading blocks **0 live promotions** and costs 6 trainer cases |
+| 11 | OIE canonicalization — should the OIE path populate `job_domain_id`? | **product** | ⏸ **three costed options (O1/O2/O3)**. Recommendation on record is the OIE occupation pin; the blocker is that the pin and the canonicalize pass sit on mutually exclusive branches |
+| 12 | `#1027` — client-side trade filter reads an internal id as a trade slug | ✅ **routed, and closed the same day** — @RishiBamako, fixed in `54134971` | 🟡 **re-scoped after tracing the render path: NO raw id was rendered anywhere.** `FeedItem.tradeKey` is never displayed; the Applied tab reads a different `trade_key` the API nulls under V1. Backend side complete and pinned. **Two things remain.** (a) `jobMatchesTrades` still matches keywords against an `mskill_*` id's spelling — works by coincidence, untouched by the fix. (b) **#1051:** the fix renders `matched_skill_label`, which `GET /workers/me/applications` does not send, so all **17** live applied-jobs cards lost their trade line — to guard a V1 path holding **0** rows |
+| 13 | ~~Five~~ **Six** live migrations unrecorded in the journal (`0076`–`0080`, **and now `0082`**) | **owner — production write** | 🟡 **still not a blocker, and the sixth is the cheap one.** `0081`'s out-of-band apply moved the watermark past the first five, so they are skipped rather than replayed — adoption is their fix, and it is hygiene. `0082` sits **above** the watermark, so `db:migrate` replays it: fifteen permissions statements measured to change nothing (`db:verify:rls-lock` 22/22 PASS against the already-locked production, `nothing-committed` byte-identical), and the journal row lands. Adoption cannot take `0082` — it contains dynamic SQL, which is an unconditional refusal by design |
 
 ---
 
@@ -66,10 +83,14 @@ adoption is now a prerequisite of any further schema work. Procedure in `MIGRATI
 
 ---
 
-## 9. Seven tables keep their Data-API grants — R39
+## 9. Seven tables keep their Data-API grants — R39 — CLOSED 2026-08-20
+
+**Applied. `db:audit:rls` now reads 77 public tables, 77 fully locked, 0 deviating**, and
+`db:audit:schema-contract` reads READY. What follows is the finding as it stood, kept because
+the reasoning is what made the fix safe to write.
 
 Found on 2026-08-19 by `db:audit:rls`, a new sweep over **every** public table rather than a
-hand-maintained list. 70 of 77 are fully locked; seven are not: `agency_kyc`,
+hand-maintained list. 70 of 77 were fully locked; seven were not: `agency_kyc`,
 `agency_payout_accruals`, `agency_payout_requests`, `agency_profiles`, `employer_profiles`,
 `payer_capabilities`, `payer_member_invites`.
 
@@ -82,8 +103,24 @@ none of the seven.
 open where the other 70 revoke it. Latent while the tables are empty; live the moment KYC or
 payout rows land.
 
-Full entry, with the per-table remediation, in the risks register as **R39**. The fix is a
-migration — and it lands behind the adoption above.
+Full entry, with the per-table remediation, in the risks register as **R39**.
+
+**How it closed, and the one thing it left behind.** The fix is a migration —
+`0082_rls_lock_seven_tables` (#1037) — rehearsed against production inside a transaction that
+cannot commit (`db:verify:rls-lock`, 22/22 PASS) before it was applied on 2026-08-20. It did
+*not* land behind the adoption above, as this section predicted it would: `0081`'s out-of-band
+apply had already moved drizzle's watermark past the five unrecorded files, so the ordering
+constraint dissolved on its own.
+
+It was applied **by hand rather than through `db:migrate`**, which is the residue. The objects
+are live and the journal has no row for them, so `0082` joins `0076`–`0080` as unrecorded — but
+unlike those five it sits *above* the watermark, so `db:migrate` replays rather than skips it,
+and the replay is measured to change nothing. Tracked as gate 13; hygiene, not security.
+
+A second tool corroborates the lock from the other direction, which is worth more than
+re-reading the same catalog twice: `adopt-migrations.ts --only 0082_rls_lock_seven_tables`
+reported ten mismatches before the apply, **nine of them the grants**. After it, those nine are
+gone and only the dynamic-SQL refusal remains.
 
 ---
 
