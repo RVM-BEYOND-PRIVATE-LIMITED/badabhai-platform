@@ -59,7 +59,11 @@ export function MaskedCandidate({
     >
       <span
         className={`bb-avatar ${masked ? "bb-avatar--masked" : "bb-avatar--brand"}`}
-        style={{ width: 52, height: 52, fontSize: 20 }}
+        style={{
+          width: "var(--avatar-lg)",
+          height: "var(--avatar-lg)",
+          fontSize: "var(--avatar-lg-text)",
+        }}
       >
         <span className="bb-avatar__initials">{masked ? "••" : initials || "?"}</span>
         {verified && (

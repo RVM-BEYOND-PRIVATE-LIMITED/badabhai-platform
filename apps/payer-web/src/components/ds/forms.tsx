@@ -76,6 +76,22 @@ export function Button({
   children,
   ...rest
 }: ButtonProps) {
+  // Tap-floor guard (#1104): `sm` renders a 36px (--control-sm) control, below the 48px tap
+  // floor a REAL action must clear. It stays available for dense/decorative controls
+  // (secondary / ghost / tonal), but a primary / success (CTA) / danger (destructive) action
+  // must never ship at `sm` — bump it to `md`. Dev-only, stripped in production.
+  if (
+    process.env.NODE_ENV !== "production" &&
+    size === "sm" &&
+    (variant === "primary" || variant === "success" || variant === "danger")
+  ) {
+    console.error(
+      `[bb-ds] Button: size="sm" (--control-sm, below the --tap floor) is not allowed on a ` +
+        `"${variant}" action — a real action must clear the tap floor. Use size="md", or a ` +
+        `secondary/ghost variant if you genuinely need a dense control.`,
+    );
+  }
+
   const cls = [
     "bb-btn",
     `bb-btn--${variant}`,

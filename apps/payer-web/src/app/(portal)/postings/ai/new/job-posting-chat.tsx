@@ -223,7 +223,7 @@ export function JobPostingChat({ resumable, loadFailed = false }: JobPostingChat
                   </div>
                   <Button
                     variant="primary"
-                    size="sm"
+                    size="md"
                     iconRight="arrow-right"
                     loading={busy}
                     disabled={busy}
