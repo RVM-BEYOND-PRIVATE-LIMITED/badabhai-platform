@@ -61,6 +61,10 @@ function makeDb(rows: unknown[] = []) {
 /** The compiled text of one projected column. */
 const col = (captured: Captured, name: string): string => render(captured.selection![name]);
 
+/** The joins whose ON clause mentions a table, by compiled text. */
+const joinsOn = (captured: Captured, table: string) =>
+  captured.joins.filter((j) => render(j.on).includes(table));
+
 describe("findApplicationsByWorker — a decision from EITHER surface must show", () => {
   it("LEFT JOINs both `jobs` and `job_postings` — never an INNER JOIN", async () => {
     const { repo, captured } = makeDb();
@@ -71,7 +75,9 @@ describe("findApplicationsByWorker — a decision from EITHER surface must show"
     // them: the worker applied from the V1 feed and the Applied tab still read empty.
     // An INNER JOIN on EITHER table reintroduces it (job_postings-inner would drop
     // every legacy decision instead).
-    expect(captured.joins).toHaveLength(2);
+    // THREE joins since #1051 — `jobs`, `job_postings`, and `job_reach` for the V1 subtitle.
+    // The count is asserted so a fourth cannot arrive unnoticed; what matters is the KIND.
+    expect(captured.joins).toHaveLength(3);
     expect(captured.joins.every((j) => j.kind === "left")).toBe(true);
     expect(captured.joins.map((j) => render(j.on)).join(" | ")).toMatch(/job_id.*job_posting_id/s);
   });
@@ -177,15 +183,57 @@ describe("findApplicationsByWorker — the trade_key boundary (#1027)", () => {
     expect(tradeKey).not.toContain("job_postings");
   });
 
-  it("never reaches a matched-skill id from this statement", async () => {
+  /**
+   * SUPERSEDED DELIBERATELY ON 2026-08-20 — left as a record rather than deleted.
+   *
+   * This block used to assert "never reaches a matched-skill id from this statement", on the
+   * grounds that the Applied tab had no use for it. #1051 proved the opposite: `trade_key` is
+   * NULL for every V1 decision, so with no reach join the subtitle a worker reads says nothing
+   * about the WORK — only the place. The id is now joined on purpose.
+   *
+   * The invariant did not disappear, it moved. It was never "the repository must not know the
+   * id"; it was "a worker must never read one". The repository projects the ID, the service
+   * turns it into a closed-set LABEL, and the tests below pin both halves of that seam.
+   */
+  it("DOES join the reach row's matched-skill id — the V1 subtitle has no other source", async () => {
     const { repo, captured } = makeDb();
     await repo.findApplicationsByWorker(WORKER);
-    const projection = Object.values(captured.selection!).map(render).join(" | ");
 
-    // `job_reach.matched_skill_id` is what the feed puts in its `trade_key` slot. It is not
-    // joined here and must not become so — the Applied tab has no use for it and one
-    // rendering path away from showing it.
-    expect(projection).not.toContain("matched_skill_id");
-    expect(projection).not.toContain("mskill_");
+    expect(col(captured, "matchedSkillId")).toContain("matched_skill_id");
+  });
+
+  it("joins `job_reach` on its FULL primary key, so a decision cannot fan out", async () => {
+    // job_reach's PK is exactly (job_posting_id, worker_id). Joining on only one of them would
+    // multiply a decision by every other posting that worker can reach — silently, and only
+    // for a worker with more than one reach row, which is every real worker and no fixture.
+    const { repo, captured } = makeDb();
+    await repo.findApplicationsByWorker(WORKER);
+
+    const reach = joinsOn(captured, "job_reach");
+    expect(reach).toHaveLength(1);
+    const on = render(reach[0]!.on);
+    expect(on).toContain("job_posting_id");
+    expect(on).toContain("worker_id");
+  });
+
+  it("LEFT joins it, so a legacy decision with no reach row still appears", async () => {
+    // All 17 live applications are legacy and have no reach row. An INNER join here would
+    // empty the Applied tab outright — a worse regression than the one #1051 was raised for.
+    const { repo, captured } = makeDb();
+    await repo.findApplicationsByWorker(WORKER);
+
+    expect(joinsOn(captured, "job_reach")[0]!.kind).toBe("left");
+  });
+
+  it("lets NO other projected column carry the raw skill id", async () => {
+    // The id may be in the row; it may not sit where a client would render it. Only
+    // `matchedSkillId` — a name no subtitle reaches for — is allowed to carry it.
+    const { repo, captured } = makeDb();
+    await repo.findApplicationsByWorker(WORKER);
+
+    for (const [name, expr] of Object.entries(captured.selection!)) {
+      if (name === "matchedSkillId") continue;
+      expect(render(expr)).not.toContain("matched_skill_id");
+    }
   });
 });
