@@ -783,7 +783,10 @@ class MockPayerApiClient implements PayerApiClient {
       ];
 
   @override
-  Future<int> buyCreditPack(String code) async {
+  Future<int> buyCreditPack(String code, {String? idempotencyKey}) async {
+    // The mock has no reserve-before-grant seam, so the key is ignored — a
+    // second call with the same key would re-grant here, but the mock is never
+    // the real dedupe authority (the server is). Shape parity only.
     const Map<String, int> grants = <String, int>{
       'starter': 50,
       'growth': 200,

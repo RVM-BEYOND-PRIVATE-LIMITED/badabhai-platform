@@ -471,11 +471,14 @@ class HttpPayerApiClient implements PayerApiClient {
   }
 
   @override
-  Future<int> buyCreditPack(String code) async {
+  Future<int> buyCreditPack(String code, {String? idempotencyKey}) async {
     final PayerResponse res = await _http.send(
       PayerMethod.post,
       '/payer/credits',
       body: <String, dynamic>{'pack_code': code},
+      // A repeat tap of the same intent replays the original balance (server
+      // reserve-before-grant) instead of double-granting; null → header omitted.
+      idempotencyKey: idempotencyKey,
     );
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
     // A 2xx must still carry the new numeric balance; a wrong body is a contract
