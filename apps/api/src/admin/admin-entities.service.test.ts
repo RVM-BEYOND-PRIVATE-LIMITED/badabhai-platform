@@ -1,16 +1,28 @@
 import { describe, it, expect, vi } from "vitest";
 import { NotFoundException } from "@nestjs/common";
+import type { AdminRole } from "@badabhai/db";
+import type { RequestContext } from "../common/request-context";
+import type { AuthenticatedAdmin } from "./admin-auth.guard";
 import { AdminEntitiesService } from "./admin-entities.service";
 import type { AdminEntitiesRepository } from "./admin-entities.repository";
+import type { AdminIdentityService } from "./admin-identity.service";
 import { decodeEntityCursor, encodeEntityCursor } from "./admin-entities.cursor";
 
 /**
- * The service owns exactly one thing — keyset paging — so that is what this file tests, hard.
+ * The service owns two things — keyset paging, and merging in the names the identity layer
+ * decided this admin may see — so that is what this file tests, hard.
  *
  * Paging bugs are the quiet kind: an off-by-one at a page boundary silently drops a row from
  * an operations list, and nothing anywhere reports an error. The operator just never sees that
  * worker.
  */
+
+const CTX: RequestContext = { requestId: "req-1", correlationId: "cor-1" };
+const admin = (role: AdminRole = "ops_admin"): AuthenticatedAdmin => ({
+  id: "admin-1",
+  role,
+  sid: "s",
+});
 
 function repoStub(overrides: Partial<AdminEntitiesRepository> = {}): AdminEntitiesRepository {
   return {
@@ -27,6 +39,23 @@ function repoStub(overrides: Partial<AdminEntitiesRepository> = {}): AdminEntiti
   } as unknown as AdminEntitiesRepository;
 }
 
+/**
+ * An identity layer that discloses NOTHING by default — the faceless posture every paging test
+ * below is written against, and the real behaviour for a role without `read_identity`.
+ */
+function identityStub(
+  resolve: AdminIdentityService["resolve"] = vi.fn(async () => null),
+): AdminIdentityService {
+  return { resolve, isPermitted: vi.fn(() => false) } as unknown as AdminIdentityService;
+}
+
+function service(
+  overrides: Partial<AdminEntitiesRepository> = {},
+  identity: AdminIdentityService = identityStub(),
+): AdminEntitiesService {
+  return new AdminEntitiesService(repoStub(overrides), identity);
+}
+
 /** `n` rows with strictly decreasing timestamps, newest first — the real list ordering. */
 function rows(n: number, base = Date.parse("2026-08-04T12:00:00Z")) {
   return Array.from({ length: n }, (_, i) => ({
@@ -38,16 +67,14 @@ function rows(n: number, base = Date.parse("2026-08-04T12:00:00Z")) {
 describe("keyset paging — the page boundary", () => {
   it("over-fetches by exactly one: a page of N asks the repository for N+1", async () => {
     const listWorkers = vi.fn(async () => []);
-    const svc = new AdminEntitiesService(repoStub({ listWorkers } as never));
-    await svc.listWorkers({ limit: 25 } as never);
+    const svc = service({ listWorkers } as never);
+    await svc.listWorkers(admin(), { limit: 25 } as never, CTX);
     expect(listWorkers).toHaveBeenCalledWith(expect.anything(), null, 26);
   });
 
   it("returns exactly `limit` items and a cursor when a further row exists", async () => {
-    const svc = new AdminEntitiesService(
-      repoStub({ listWorkers: vi.fn(async () => rows(6)) } as never),
-    );
-    const page = await svc.listWorkers({ limit: 5 } as never);
+    const svc = service({ listWorkers: vi.fn(async () => rows(6)) } as never);
+    const page = await svc.listWorkers(admin(), { limit: 5 } as never, CTX);
     expect(page.items).toHaveLength(5);
     expect(page.nextCursor).not.toBeNull();
     // The cursor points at the LAST RETURNED row (index 4), never at the peeked 6th — pointing
@@ -62,26 +89,24 @@ describe("keyset paging — the page boundary", () => {
     // The bug this pins: deriving "there is more" from `items.length === limit` shows a Next
     // button whenever the total is an exact multiple of the page size, and the operator lands
     // on an empty screen that reads like data loss.
-    const svc = new AdminEntitiesService(
-      repoStub({ listWorkers: vi.fn(async () => rows(5)) } as never),
-    );
-    const page = await svc.listWorkers({ limit: 5 } as never);
+    const svc = service({ listWorkers: vi.fn(async () => rows(5)) } as never);
+    const page = await svc.listWorkers(admin(), { limit: 5 } as never, CTX);
     expect(page.items).toHaveLength(5);
     expect(page.nextCursor).toBeNull();
   });
 
   it("an empty result is an empty page, not a cursor to nowhere", async () => {
-    const svc = new AdminEntitiesService(repoStub());
-    const page = await svc.listWorkers({ limit: 10 } as never);
+    const svc = service();
+    const page = await svc.listWorkers(admin(), { limit: 10 } as never, CTX);
     expect(page.items).toEqual([]);
     expect(page.nextCursor).toBeNull();
   });
 
   it("passes a decoded cursor through to the repository", async () => {
     const listPayers = vi.fn(async () => []);
-    const svc = new AdminEntitiesService(repoStub({ listPayers } as never));
+    const svc = service({ listPayers } as never);
     const cursor = encodeEntityCursor({ createdAt: "2026-08-04T12:00:00.000Z", id: "x" });
-    await svc.listPayers({ limit: 10, cursor } as never);
+    await svc.listPayers(admin(), { limit: 10, cursor } as never, CTX);
     expect(listPayers).toHaveBeenCalledWith(
       expect.anything(),
       { createdAt: "2026-08-04T12:00:00.000Z", id: "x" },
@@ -91,8 +116,8 @@ describe("keyset paging — the page boundary", () => {
 
   it("a GARBAGE cursor is treated as the first page, never as an error", async () => {
     const listPayers = vi.fn(async () => []);
-    const svc = new AdminEntitiesService(repoStub({ listPayers } as never));
-    await svc.listPayers({ limit: 10, cursor: "not-a-real-cursor" } as never);
+    const svc = service({ listPayers } as never);
+    await svc.listPayers(admin(), { limit: 10, cursor: "not-a-real-cursor" } as never, CTX);
     expect(listPayers).toHaveBeenCalledWith(expect.anything(), null, 11);
   });
 });
@@ -100,8 +125,12 @@ describe("keyset paging — the page boundary", () => {
 describe("filters reach the repository verbatim", () => {
   it("worker filters (status + pendingDeletion) are forwarded", async () => {
     const listWorkers = vi.fn(async () => []);
-    const svc = new AdminEntitiesService(repoStub({ listWorkers } as never));
-    await svc.listWorkers({ limit: 10, status: "suspended", pendingDeletion: true } as never);
+    const svc = service({ listWorkers } as never);
+    await svc.listWorkers(
+      admin(),
+      { limit: 10, status: "suspended", pendingDeletion: true } as never,
+      CTX,
+    );
     expect(listWorkers).toHaveBeenCalledWith(
       { status: "suspended", pendingDeletion: true },
       null,
@@ -111,14 +140,14 @@ describe("filters reach the repository verbatim", () => {
 
   it("payer role is forwarded — it is what splits Companies from Agencies", async () => {
     const listPayers = vi.fn(async () => []);
-    const svc = new AdminEntitiesService(repoStub({ listPayers } as never));
-    await svc.listPayers({ limit: 10, role: "agent" } as never);
+    const svc = service({ listPayers } as never);
+    await svc.listPayers(admin(), { limit: 10, role: "agent" } as never, CTX);
     expect(listPayers).toHaveBeenCalledWith({ role: "agent", status: undefined }, null, 11);
   });
 
   it("job-posting filters are forwarded", async () => {
     const listJobPostings = vi.fn(async () => []);
-    const svc = new AdminEntitiesService(repoStub({ listJobPostings } as never));
+    const svc = service({ listJobPostings } as never);
     await svc.listJobPostings({
       limit: 10,
       status: "open",
@@ -135,29 +164,27 @@ describe("filters reach the repository verbatim", () => {
 
 describe("a missing entity is 404, never an empty-shaped 200", () => {
   it("getWorker throws NotFound", async () => {
-    const svc = new AdminEntitiesService(repoStub());
-    await expect(svc.getWorker("missing")).rejects.toThrow(NotFoundException);
+    const svc = service();
+    await expect(svc.getWorker(admin(), "missing", CTX)).rejects.toThrow(NotFoundException);
   });
 
   it("getPayer throws NotFound", async () => {
-    const svc = new AdminEntitiesService(repoStub());
-    await expect(svc.getPayer("missing")).rejects.toThrow(NotFoundException);
+    const svc = service();
+    await expect(svc.getPayer(admin(), "missing", CTX)).rejects.toThrow(NotFoundException);
   });
 
   it("getJobPosting throws NotFound", async () => {
-    const svc = new AdminEntitiesService(repoStub());
+    const svc = service();
     await expect(svc.getJobPosting("missing")).rejects.toThrow(NotFoundException);
   });
 });
 
 describe("credits — balance and ledger travel together", () => {
   it("returns the balance alongside a paged ledger", async () => {
-    const svc = new AdminEntitiesService(
-      repoStub({
-        getCreditBalance: vi.fn(async () => 42),
-        listCreditLedger: vi.fn(async () => rows(3)),
-      } as never),
-    );
+    const svc = service({
+      getCreditBalance: vi.fn(async () => 42),
+      listCreditLedger: vi.fn(async () => rows(3)),
+    } as never);
     const view = await svc.getCredits("payer-1", { limit: 10 } as never);
     expect(view).toMatchObject({ payer_id: "payer-1", balance: 42 });
     expect(view.ledger.items).toHaveLength(3);
@@ -165,15 +192,114 @@ describe("credits — balance and ledger travel together", () => {
   });
 
   it("a payer with NO credits row reads 0 — a real zero, not an unavailable state", async () => {
-    const svc = new AdminEntitiesService(repoStub());
+    const svc = service();
     const view = await svc.getCredits("payer-1", { limit: 10 } as never);
     expect(view.balance).toBe(0);
   });
 
   it("the ledger page is scoped to the requested payer", async () => {
     const listCreditLedger = vi.fn(async () => []);
-    const svc = new AdminEntitiesService(repoStub({ listCreditLedger } as never));
+    const svc = service({ listCreditLedger } as never);
     await svc.getCredits("payer-9", { limit: 10 } as never);
     expect(listCreditLedger).toHaveBeenCalledWith("payer-9", null, 11);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NAMES (owner ruling 2026-08-18) — what the identity layer decides, and what this service
+// does with the answer. The gate itself is tested in `admin-identity.service.test.ts`; here
+// the question is whether this service asks the right question and merges the right rows.
+// ---------------------------------------------------------------------------
+
+describe("names — the service merges exactly what identity disclosed", () => {
+  it("a DISCLOSING resolve puts full_name on every returned worker row", async () => {
+    const resolve = vi.fn(async () => new Map([["id-0", "Ramesh Kumar"]]));
+    const svc = service({ listWorkers: vi.fn(async () => rows(2)) } as never, identityStub(
+      resolve as never,
+    ));
+    const page = await svc.listWorkers(admin(), { limit: 5 } as never, CTX);
+    expect(page.items[0]).toMatchObject({ id: "id-0", full_name: "Ramesh Kumar" });
+    // A row the map has no entry for still CARRIES the field, as null — "disclosed, and this
+    // person has no name on record". Omitting it there would be indistinguishable from the
+    // not-entitled response.
+    expect(page.items[1]).toMatchObject({ id: "id-1", full_name: null });
+  });
+
+  it("a NON-disclosing resolve leaves the page byte-identical to the faceless one", async () => {
+    // The `read_identity`-less path, and the one that must never regress: an analyst's response
+    // is today's response, with no `full_name` KEY at all — not a null, which would claim the
+    // name was disclosed and found empty.
+    const svc = service({ listWorkers: vi.fn(async () => rows(2)) } as never);
+    const page = await svc.listWorkers(admin("analyst"), { limit: 5 } as never, CTX);
+    expect(page.items[0]).not.toHaveProperty("full_name");
+    expect(Object.keys(page.items[0]!).sort()).toEqual(["created_at", "id"]);
+  });
+
+  it("asks for the RETURNED page only — never the peeked `limit + 1` row", async () => {
+    // Auditing (and charging the name budget for) a row the admin was never shown would make
+    // both the trail and the cap describe reading that did not happen. Six rows come back for a
+    // page of five; exactly five ids may be resolved.
+    const resolve = vi.fn(async () => new Map());
+    const svc = service({ listWorkers: vi.fn(async () => rows(6)) } as never, identityStub(
+      resolve as never,
+    ));
+    await svc.listWorkers(admin(), { limit: 5 } as never, CTX);
+    expect(resolve).toHaveBeenCalledWith(
+      expect.anything(),
+      "workers",
+      ["id-0", "id-1", "id-2", "id-3", "id-4"],
+      null,
+      CTX,
+    );
+  });
+
+  it("a LIST resolves with subject_id null; a DETAIL resolves with the entity id", async () => {
+    const resolve = vi.fn(async () => new Map());
+    const identity = identityStub(resolve as never);
+    const svc = service(
+      { findWorker: vi.fn(async () => ({ id: "w-1" })), listPayers: vi.fn(async () => []) } as never,
+      identity,
+    );
+    await svc.getWorker(admin(), "w-1", CTX);
+    expect(resolve).toHaveBeenLastCalledWith(expect.anything(), "workers", ["w-1"], "w-1", CTX);
+    await svc.listPayers(admin(), { limit: 5 } as never, CTX);
+    expect(resolve).toHaveBeenLastCalledWith(expect.anything(), "payers", [], null, CTX);
+  });
+
+  it("payers get org_name, from the `payers` surface — never the workers one", async () => {
+    const resolve = vi.fn(async () => new Map([["id-0", "Sharma Fabrication Pvt Ltd"]]));
+    const svc = service({ listPayers: vi.fn(async () => rows(1)) } as never, identityStub(
+      resolve as never,
+    ));
+    const page = await svc.listPayers(admin(), { limit: 5 } as never, CTX);
+    expect(page.items[0]).toMatchObject({ org_name: "Sharma Fabrication Pvt Ltd" });
+    expect(resolve).toHaveBeenCalledWith(expect.anything(), "payers", ["id-0"], null, CTX);
+  });
+
+  it("a 404 short-circuits BEFORE any name is resolved (no budget spent, no audit row)", async () => {
+    const resolve = vi.fn(async () => new Map());
+    const svc = service({}, identityStub(resolve as never));
+    await expect(svc.getWorker(admin(), "missing", CTX)).rejects.toThrow(NotFoundException);
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("the SESSION admin is what gets handed to the gate — never anything from the DTO", async () => {
+    const resolve = vi.fn(async () => new Map());
+    const svc = service({}, identityStub(resolve as never));
+    const who = admin("support");
+    await svc.listWorkers(who, { limit: 5 } as never, CTX);
+    expect(resolve).toHaveBeenCalledWith(who, "workers", [], null, CTX);
+  });
+
+  it("job postings, applications and credits ask for NO names at all", async () => {
+    // These three carry no person: `org_label` on a posting is poster-typed text already shown
+    // to every worker in the feed, and the ledger is money. Resolving names for them would
+    // spend budget and write audit rows for a disclosure that never happens.
+    const resolve = vi.fn(async () => new Map());
+    const svc = service({}, identityStub(resolve as never));
+    await svc.listJobPostings({ limit: 5 } as never);
+    await svc.listApplications({ limit: 5 } as never);
+    await svc.getCredits("p-1", { limit: 5 } as never);
+    expect(resolve).not.toHaveBeenCalled();
   });
 });

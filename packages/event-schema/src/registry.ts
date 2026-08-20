@@ -611,6 +611,26 @@ export const EVENT_REGISTRY = {
     domain: "admin",
     payload: p.AdminPiiRevealCapExceededPayload,
   },
+  // ADR-0025 Decision 4, REVERSED 2026-08-18 — an admin was shown NAMES on an entity screen
+  // (workers / payers / admins). Audited at RESPONSE granularity, never per subject: one event
+  // per name would be write amplification AND would turn the spine into a queryable index of
+  // "which workers has anyone looked at" — a new inference surface. PII-free: opaque admin id +
+  // a surface enum + an opaque subject id (detail reads only) + how many names were actually
+  // disclosed. The names themselves live ONLY in the HTTP response. v1.
+  "admin.identity_viewed": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminIdentityViewedPayload,
+  },
+  // The identity sibling of `admin.pii_reveal_cap_exceeded`: a per-admin NAME-egress cap was
+  // exceeded, so the read served the FACELESS projection and disclosed nothing. Separate from
+  // the reveal breach because the budgets are separate — a list of names is a bulk disclosure
+  // the single-subject reveal cap cannot see. PII-free: opaque admin id + window ONLY. v1.
+  "admin.identity_cap_exceeded": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminIdentityCapExceededPayload,
+  },
   // ADR-0025 ADMIN-3c (OQ-6) — an admin requested a SAFE-DIRECTION kill-switch PAUSE. The
   // audited INTENT only; it NEVER enables anything (enabling a real provider stays env/deploy-
   // gated, §2 #5). PII-free: opaque admin_id + a switch KEY enum + a reason CODE only. v1.

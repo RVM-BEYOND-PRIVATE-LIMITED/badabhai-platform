@@ -24,12 +24,32 @@ import type {
  * the admin surface cannot show, because the repository selects exactly these columns. In
  * particular, and permanently:
  *
- *   workers  — NEVER `phone_e164` (AES ciphertext), `phone_hash` (keyed HMAC), `full_name`.
+ *   workers  — NEVER `phone_e164` (AES ciphertext), `phone_hash` (keyed HMAC).
  *              `photo_storage_key` is reduced to a `has_photo` BOOLEAN: the key is an opaque
  *              pointer, but it addresses a face photo, and handing an object key to the UI
  *              turns "is there a photo" into "here is where the photo lives".
- *   payers   — NEVER `email_enc` / `email_hash` / `phone_enc` / `phone_hash` / `org_name_enc`.
+ *   payers   — NEVER `email_enc` / `email_hash` / `phone_enc` / `phone_hash`.
  *              A payer is an opaque id + role + status. The B2B contact PII (TD21) stays put.
+ *
+ * ── THE ONE EXCEPTION: NAMES (owner ruling 2026-08-18, reversing Decision 4) ─────────────
+ * `full_name` on a worker and `org_name` on a payer are now served, on the list AND the detail,
+ * because a console in which every row is an opaque uuid cannot be used to operate the product.
+ * They are the ONLY identity fields here and they behave unlike every other field on these
+ * types: they are OPTIONAL, and their presence is itself the answer.
+ *
+ *   field ABSENT  — this admin was shown no name (they hold no `read_identity`, or they are
+ *                   over their per-admin name budget). The rest of the row is unchanged.
+ *   field NULL    — disclosed, and nobody has ever recorded a name for this row.
+ *   field STRING  — the stored name, decrypted for this one response.
+ *
+ * Everything behind that — the capability, the egress cap, the audit-before-decrypt — lives in
+ * `AdminIdentityService`, and the name columns are read by `AdminIdentityRepository`, never by
+ * the faceless projections in `admin-entities.repository.ts`. That separation is what keeps the
+ * faceless contract above provable by a source scan rather than by assertion.
+ *
+ * Still NEVER here, ruling or not: `phone_e164`, `phone_hash`, `email_enc`, `email_hash`,
+ * `phone_enc`. Identity egress for a CONTACT stays `POST /admin/workers/:id/reveal-contact`
+ * and only that.
  *
  * Job postings are the deliberate exception, and it is not one: `org_label`, `role_title`,
  * `location_label` and `description` are POSTER-TYPED business fields already served to every
@@ -136,6 +156,11 @@ export interface AdminPage<T> {
 
 export interface AdminWorkerListItem {
   id: string;
+  /**
+   * The worker's own name, decrypted for this response only. ABSENT when no name was disclosed
+   * to this admin; `null` when disclosed and none is on record. See the header.
+   */
+  full_name?: string | null;
   status: string;
   preferred_language: LanguageCode | null;
   /** Derived from `photo_storage_key`. The KEY itself is never projected — see the header. */
@@ -159,6 +184,16 @@ export interface AdminWorkerDetail extends AdminWorkerListItem {
 
 export interface AdminPayerListItem {
   id: string;
+  /**
+   * The BUSINESS display name (`payers.org_name_enc`) — the Companies/Agencies tab's handle on
+   * the account. ABSENT when no name was disclosed to this admin; `null` when disclosed and
+   * none decrypts.
+   *
+   * NOT a contact person: no contact-person column exists anywhere in the codebase, and neither
+   * `payers.email_enc` nor `agency_kyc.account_holder_name_enc` (ADR-0022 money/legal gate) is a
+   * substitute for one. Collecting a contact name is separately scoped work.
+   */
+  org_name?: string | null;
   role: PayerRole;
   status: PayerStatus;
   /** The status a suspend moved them OUT of, so the UI can say what reinstate would restore. */

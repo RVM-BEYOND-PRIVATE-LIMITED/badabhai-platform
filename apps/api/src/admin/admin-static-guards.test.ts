@@ -487,6 +487,125 @@ describe("BP-1 entity-read routes — guarded, read-only, and read_entities-scop
   });
 });
 
+/**
+ * NAMES (owner ruling 2026-08-18, reversing ADR-0025 Decision 4) — the identity egress.
+ *
+ * The ruling reopened a door the faceless contract had welded shut, so the build-blockers below
+ * exist to keep it a DOOR rather than a hole: exactly one file may read a name column, exactly
+ * one may decrypt one, and neither may grow a way to SEARCH by name. A source scan is the right
+ * layer, because the SQL-shape tests only see the queries a test happens to call while this sees
+ * every line in the file.
+ */
+describe("identity reads — one reader, one decrypter, and no name search", () => {
+  const IDENTITY_REPO = "admin-identity.repository.ts";
+
+  /** Non-comment source of a file under admin/**. */
+  function code(file: string): string {
+    return readFileSync(join(ADMIN_DIR, file), "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+  }
+
+  it("EXACTLY ONE non-test file under admin/** reads a name column (the single-reader invariant)", () => {
+    // The faceless projections in `admin-entities.repository.ts` and
+    // `admin-directory.repository.ts` are held to their promises by the scans elsewhere in this
+    // file. This is the other half: the name columns those scans forbid must have exactly ONE
+    // home, or the next surface that wants a name adds a second projection and there is nothing
+    // left to audit. COMMENTS ARE STRIPPED FIRST — several files under admin/** name these
+    // columns in prose explaining why they do not select them.
+    const readers = tsFiles(ADMIN_DIR)
+      .filter((f) => {
+        const src = readFileSync(f, "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+        return /workers\.fullName|payers\.orgNameEnc|adminUsers\.nameEnc/.test(src);
+      })
+      .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"));
+    expect(
+      readers,
+      `exactly one admin file may project a name column. Readers: ${readers.join(", ")}`,
+    ).toEqual([`admin/${IDENTITY_REPO}`]);
+  });
+
+  it("EXACTLY THREE non-test files under admin/** turn ciphertext into plaintext", () => {
+    // Decryption is the moment PII exists in this process, so the set of places it can happen is
+    // a number worth pinning rather than a convention. The whole list, and why each is in it:
+    //   admin-identity.service  — names, at the response boundary, after the audit row commits
+    //   admin-pii-reveal.service— one worker phone, on the reason-gated + flagged route
+    //   admin-mfa.store         — the admin's OWN TOTP seed, for verification. Authentication,
+    //                             not disclosure: the plaintext never leaves the comparison.
+    // A fourth entry has to be a deliberate edit to this list, reviewed as one.
+    const decrypters = tsFiles(ADMIN_DIR)
+      .filter((f) => {
+        const src = readFileSync(f, "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+        return /\bpii\.decrypt\s*\(/.test(src);
+      })
+      .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"))
+      .sort();
+    expect(decrypters).toEqual(
+      [
+        "admin/admin-identity.service.ts",
+        "admin/admin-mfa.store.ts",
+        "admin/admin-pii-reveal.service.ts",
+      ].sort(),
+    );
+  });
+
+  it("the identity repository issues no write against any table", () => {
+    expect(code(IDENTITY_REPO)).not.toMatch(/\.(insert|update|delete)\s*\(/);
+    expect(code(IDENTITY_REPO)).not.toMatch(/\.select\(\s*\)/); // never an unprojected read
+  });
+
+  it("the identity repository projects NO other PII column", () => {
+    // It is one id-keyed lookup per table, and each of those tables carries something worse than
+    // a name next to it: `phone_e164`/`phone_hash` on workers, four ciphertext columns on
+    // payers, and `mfa_secret_enc` — the TOTP seed — on admin_users.
+    const src = code(IDENTITY_REPO);
+    for (const forbidden of [
+      "phoneE164",
+      "phoneHash",
+      "emailEnc",
+      "emailHash",
+      "phoneEnc",
+      "mfaSecretEnc",
+      "photoStorageKey",
+    ]) {
+      expect(src, `admin-identity.repository must not project ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
+  });
+
+  it("the identity repository never SEARCHES by name, and never joins", () => {
+    // `WHERE full_name ILIKE ...` would turn an ops console into "find me every worker called
+    // X" — a person-discovery tool. It is impossible today (the column is non-deterministic AES
+    // ciphertext), which is exactly why a plaintext or hashed sibling must never be added later.
+    const src = code(IDENTITY_REPO);
+    for (const search of [/\bilike\b/i, /\bto_tsquery\b/i, /\bsimilar\s+to\b/i, /\blike\s*\(/i]) {
+      expect(src, "admin-identity.repository must not search a name").not.toMatch(search);
+    }
+    for (const join of ["innerJoin", "leftJoin", "rightJoin", "fullJoin"]) {
+      expect(src, `admin-identity.repository must not ${join}`).not.toContain(join);
+    }
+  });
+
+  it("the ENTITY and DIRECTORY repositories are still the faceless ones", () => {
+    // The ruling added names to those SCREENS, not to those queries. If a future change moves a
+    // name column back into either projection, the single-reader assertion above fails — this is
+    // the same claim stated positively, so the failure names the file a reviewer must look at.
+    for (const file of ["admin-entities.repository.ts", "admin-directory.repository.ts"]) {
+      const src = code(file);
+      expect(src, `${file} must not project a name`).not.toMatch(
+        /fullName|orgNameEnc|nameEnc/,
+      );
+    }
+  });
+
+  it("the identity SERVICE gates on read_identity, not on a route capability", () => {
+    // The check cannot be a second decorator (`@RequireAdminRole` sets exactly one capability
+    // per route, asserted throughout this file), so it lives in the service — where a scan is
+    // the only thing standing between it and being quietly dropped in a refactor.
+    const svc = code("admin-identity.service.ts");
+    expect(svc).toContain(`can(admin.role, "read_identity")`);
+  });
+});
+
 describe("#997 feedback route — guarded, read-only, and read_entities-scoped", () => {
   const proto = AdminFeedbackController.prototype as unknown as Record<string, unknown>;
   const routeMethods = Object.getOwnPropertyNames(AdminFeedbackController.prototype).filter(

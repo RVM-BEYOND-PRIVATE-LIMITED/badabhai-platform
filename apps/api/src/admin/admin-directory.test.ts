@@ -9,11 +9,21 @@ import { type AdminCapability, ADMIN_CAPABILITY_MATRIX, can } from "./admin-capa
 import { AdminDirectoryController } from "./admin-directory.controller";
 import { AdminDirectoryService } from "./admin-directory.service";
 import { AdminDirectoryRepository } from "./admin-directory.repository";
+import type { AdminIdentityService } from "./admin-identity.service";
 import { AdminDirectoryQuerySchema } from "./admin-directory.dto";
 import { captureQueries, expectColumnsAbsent } from "./testing/query-capture";
+import type { RequestContext } from "../common/request-context";
 
 const ROLES: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
 const admin = (role: AdminRole): AuthenticatedAdmin => ({ id: "self-id", role, sid: "s" });
+const CTX: RequestContext = { requestId: "req-1", correlationId: "cor-1" };
+
+/** An identity layer that discloses NOTHING unless a test says otherwise. */
+function identityStub(
+  resolve: AdminIdentityService["resolve"] = vi.fn(async () => null),
+): AdminIdentityService {
+  return { resolve, isPermitted: vi.fn(() => false) } as unknown as AdminIdentityService;
+}
 
 function declaredCapability(method: string): AdminCapability {
   const proto = AdminDirectoryController.prototype as unknown as Record<string, object>;
@@ -84,7 +94,7 @@ describe("BP-3 authz — the capability matrix is the read floor", () => {
 // ---------------------------------------------------------------------------
 
 describe("the served matrix IS what the guard enforces", () => {
-  const svc = new AdminDirectoryService({} as AdminDirectoryRepository);
+  const svc = new AdminDirectoryService({} as AdminDirectoryRepository, identityStub());
 
   it("agrees with can() on every cell", () => {
     const { matrix } = svc.capabilityMatrix();
@@ -136,17 +146,25 @@ describe("directory service", () => {
     } as unknown as AdminDirectoryRepository;
   }
 
+  /** The calling admin, as the guard resolved them. `id` is what marks a row as "you". */
+  const me = { id: "me-1", role: "super_admin", sid: "s" } as AuthenticatedAdmin;
+
   it("passes the SESSION admin id through so rows can be marked as self", async () => {
     const list = vi.fn(async () => []);
-    await new AdminDirectoryService(repoStub({ list } as never)).directory({} as never, "me-1");
+    await new AdminDirectoryService(repoStub({ list } as never), identityStub()).directory(
+      me,
+      {} as never,
+      CTX,
+    );
     expect(list).toHaveBeenCalledWith({ role: undefined, status: undefined }, "me-1");
   });
 
   it("forwards the role and status filters", async () => {
     const list = vi.fn(async () => []);
-    await new AdminDirectoryService(repoStub({ list } as never)).directory(
+    await new AdminDirectoryService(repoStub({ list } as never), identityStub()).directory(
+      me,
       { role: "support", status: "active" } as never,
-      "me-1",
+      CTX,
     );
     expect(list).toHaveBeenCalledWith({ role: "support", status: "active" }, "me-1");
   });
@@ -156,9 +174,46 @@ describe("directory service", () => {
     const countActiveSuperAdmins = vi.fn(async () => 2);
     const res = await new AdminDirectoryService(
       repoStub({ countActiveSuperAdmins } as never),
-    ).directory({ role: "support" } as never, "me-1");
+      identityStub(),
+    ).directory(me, { role: "support" } as never, CTX);
     expect(res.active_super_admins).toBe(2);
     expect(countActiveSuperAdmins).toHaveBeenCalledWith();
+  });
+
+  it("merges the disclosed name onto each row, from the `admins` surface", async () => {
+    const list = vi.fn(async () => [{ id: "a-1" }, { id: "a-2" }]);
+    const resolve = vi.fn(async () => new Map([["a-1", "Divyanshu"]]));
+    const res = await new AdminDirectoryService(
+      repoStub({ list } as never),
+      identityStub(resolve as never),
+    ).directory(me, {} as never, CTX);
+    expect(resolve).toHaveBeenCalledWith(me, "admins", ["a-1", "a-2"], null, CTX);
+    expect(res.admins[0]).toMatchObject({ id: "a-1", name: "Divyanshu" });
+    // Disclosed but unset — the invite flow does not collect a name, so this is the common row.
+    expect(res.admins[1]).toMatchObject({ id: "a-2", name: null });
+  });
+
+  it("leaves rows untouched when identity discloses nothing (no `name` KEY at all)", async () => {
+    // A null `name` would claim the name was disclosed and found empty. An absent key is the
+    // honest answer for a caller who was shown none.
+    const list = vi.fn(async () => [{ id: "a-1" }]);
+    const res = await new AdminDirectoryService(
+      repoStub({ list } as never),
+      identityStub(),
+    ).directory(me, {} as never, CTX);
+    expect(res.admins[0]).not.toHaveProperty("name");
+  });
+
+  it("gates names on read_identity, NOT on the route's manage_admins", async () => {
+    // The whole session admin goes to the gate, so the capability it consults is the one the
+    // identity service names. Reusing `manage_admins` would make "can manage admins" silently
+    // imply "can read identities" the day either grant moves.
+    const resolve = vi.fn(async () => null);
+    await new AdminDirectoryService(
+      repoStub({ list: vi.fn(async () => []) } as never),
+      identityStub(resolve as never),
+    ).directory(me, {} as never, CTX);
+    expect(resolve).toHaveBeenCalledWith(me, "admins", [], null, CTX);
   });
 });
 

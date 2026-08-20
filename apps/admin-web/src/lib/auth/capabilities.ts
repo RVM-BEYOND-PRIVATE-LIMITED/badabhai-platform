@@ -23,6 +23,12 @@
 export const ADMIN_CAPABILITIES = [
   "read_events",
   "read_entities",
+  // The NAMES behind the ids (owner ruling 2026-08-18). Held by super_admin/ops_admin/support;
+  // `analyst` is denied. Deliberately distinct from `read_entities`: a role without it gets the
+  // same rows with the name field simply absent, never an error — so the portal decides what to
+  // render from THIS capability, not from a null name (a null name also means "this person has
+  // not given us one", which is a different fact).
+  "read_identity",
   "export",
   "suspend_payer",
   "grant_credits",
@@ -50,6 +56,7 @@ export const ROLE_LABELS: Record<AdminRole, string> = {
 export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   read_events: "Read events",
   read_entities: "Read workers, companies, agencies and jobs",
+  read_identity: "See names on worker, company, agency and admin records",
   export: "Export data",
   suspend_payer: "Suspend payers",
   grant_credits: "Grant credits",

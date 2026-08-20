@@ -2065,6 +2065,168 @@ describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/
     if (!bad.success) expect(bad.error.stage).toBe("payload");
   });
 
+  // ── admin.identity_viewed (Decision 4 reversed, 2026-08-18) — the audit of a NAME read ──
+  //
+  // The one admin event whose whole purpose is to record a disclosure of PII while carrying
+  // none. Everything below is about the second half of that sentence.
+
+  it("validates admin.identity_viewed for a LIST read: a surface, a count, and no subject", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.identity_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      // The admin SESSION, uniformly — a list spans many subjects, so filing DETAIL reads under
+      // `worker` would make the per-worker spine query look complete while omitting every list
+      // page that contained them.
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, surface: "workers", result_count: 50 },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.identity_viewed") {
+      // An omitted subject_id defaults to null — "this was a list read", recorded explicitly.
+      expect(result.event.payload.subject_id).toBeNull();
+      expect(result.event.payload.surface).toBe("workers");
+    }
+  });
+
+  it("validates admin.identity_viewed for a DETAIL read: the single subject, count 1", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.identity_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, surface: "payers", subject_id: UUID_B, result_count: 1 },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.identity_viewed") {
+      expect(result.event.payload.subject_id).toBe(UUID_B);
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["admin_id", "result_count", "subject_id", "surface"].sort(),
+      );
+    }
+  });
+
+  it("REJECTS a NAME under any key — the value this event exists to keep off the spine", () => {
+    // The negative test that matters. `admin.identity_viewed` is emitted at the exact moment a
+    // name is about to be disclosed, so it is the single most tempting payload in the registry
+    // to "just add the name to". `.strict()` is the structural refusal; this is the proof.
+    for (const extra of [
+      { full_name: "Ramesh Kumar" },
+      { name: "Ramesh Kumar" },
+      { org_name: "Sharma Fabrication Pvt Ltd" },
+      { names: ["Ramesh Kumar", "Sunita Devi"] },
+      { subject_name: "Ramesh" },
+      { name_hash: "a3f1c2" }, // a hash of a name is still a per-person identifier
+      { initials: "R.K." },
+      { phone: "+919876543210" },
+      { phone_e164: "+919876543210" },
+      { email: "ramesh@example.com" },
+    ]) {
+      const evt = {
+        ...workerCreatedEvent(),
+        event_name: "admin.identity_viewed",
+        actor: { actor_type: "admin", actor_id: UUID_A },
+        subject: { subject_type: "admin_session", subject_id: UUID_A },
+        payload: { admin_id: UUID_A, surface: "workers", result_count: 1, ...extra },
+      };
+      const bad = validateEvent(evt);
+      expect(bad.success, JSON.stringify(extra)).toBe(false);
+      if (!bad.success) expect(bad.error.stage).toBe("payload");
+    }
+  });
+
+  it("rejects an unknown surface, and a NAME where the opaque subject id belongs", () => {
+    const evt = (payload: object) => ({
+      ...workerCreatedEvent(),
+      event_name: "admin.identity_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload,
+    });
+    // Surface is a CLOSED enum, so it can never become a free-text label for a screen.
+    expect(
+      validateEvent(evt({ admin_id: UUID_A, surface: "everything", result_count: 1 })).success,
+    ).toBe(false);
+    expect(
+      validateEvent(evt({ admin_id: UUID_A, surface: "job_postings", result_count: 1 })).success,
+    ).toBe(false);
+    expect(
+      validateEvent(
+        evt({ admin_id: UUID_A, surface: "workers", subject_id: "Ramesh Kumar", result_count: 1 }),
+      ).success,
+    ).toBe(false);
+    // ...and the three legitimate surfaces all pass.
+    for (const surface of ["workers", "payers", "admins"]) {
+      expect(
+        validateEvent(evt({ admin_id: UUID_A, surface, result_count: 0 })).success,
+        surface,
+      ).toBe(true);
+    }
+  });
+
+  it("rejects a negative or fractional result_count; zero is legitimate", () => {
+    const evt = (result_count: unknown) => ({
+      ...workerCreatedEvent(),
+      event_name: "admin.identity_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, surface: "admins", result_count },
+    });
+    expect(validateEvent(evt(-1)).success).toBe(false);
+    expect(validateEvent(evt(1.5)).success).toBe(false);
+    // A page on which nobody has a name discloses nothing — and the read still happened.
+    expect(validateEvent(evt(0)).success).toBe(true);
+  });
+
+  it("validates admin.identity_cap_exceeded with admin_id + window ONLY (no surface, no subject)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.identity_cap_exceeded",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, window: "hour" },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.identity_cap_exceeded") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(["admin_id", "window"].sort());
+    }
+  });
+
+  it("rejects admin.identity_cap_exceeded carrying a surface, a subject, or a count", () => {
+    // A breach alert is about an ACCOUNT's velocity. Adding the surface would let the alert
+    // stream be read as a coarse browsing history; adding a subject would make it a per-person
+    // record of who someone tried to look at.
+    for (const extra of [
+      { surface: "workers" },
+      { subject_id: UUID_B },
+      { result_count: 50 },
+      { full_name: "Ramesh Kumar" },
+    ]) {
+      const bad = validateEvent({
+        ...workerCreatedEvent(),
+        event_name: "admin.identity_cap_exceeded",
+        actor: { actor_type: "admin", actor_id: UUID_A },
+        subject: { subject_type: "admin_session", subject_id: UUID_A },
+        payload: { admin_id: UUID_A, window: "day", ...extra },
+      });
+      expect(bad.success, JSON.stringify(extra)).toBe(false);
+      if (!bad.success) expect(bad.error.stage).toBe("payload");
+    }
+    // ...and the window stays the same closed enum the reveal breach uses.
+    expect(
+      validateEvent({
+        ...workerCreatedEvent(),
+        event_name: "admin.identity_cap_exceeded",
+        actor: { actor_type: "admin", actor_id: UUID_A },
+        subject: { subject_type: "admin_session", subject_id: UUID_A },
+        payload: { admin_id: UUID_A, window: "minute" },
+      }).success,
+    ).toBe(false);
+  });
+
   it("validates admin.kill_switch_pause_requested with switch_key + reason_code and NO value (ADMIN-3c)", () => {
     const evt = {
       ...workerCreatedEvent(),
@@ -2880,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 163 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed + chat.session_abandoned + the duplicate submission + skill.phrase_unresolved_v2 + the admin worker-journey read audit + worker feedback)", () => {
-    expect(EVENT_NAMES).toHaveLength(164);
+  it("exposes all 166 event names (164 prior + the admin identity read audit and its cap breach)", () => {
+    expect(EVENT_NAMES).toHaveLength(166);
     // #997 — the worker addressing the platform in their own words. The only worker-authored
     // free text on the spine whose system-of-record row is deliberately allowed to hold the
     // worker's own PII; the EVENT carries the category, the length and the build, never the
@@ -2897,6 +3059,11 @@ describe("registry", () => {
     // worker's actual WORDS. Reading a worker's step counts already left a trail; reading their
     // prose left none, which made FeedbackService's own "behind an audited surface" claim false.
     expect(isEventName("admin.feedback_viewed")).toBe(true);
+    // Owner ruling 2026-08-18, reversing ADR-0025 Decision 4 — the admin console now shows
+    // NAMES on the entity lists and details. The third audited read, and the only one that
+    // records an actual PII disclosure; its cap breach is the identity twin of the reveal's.
+    expect(isEventName("admin.identity_viewed")).toBe(true);
+    expect(isEventName("admin.identity_cap_exceeded")).toBe(true);
     // #931 — one physical submission arriving twice. Invisible on the spine otherwise: a
     // duplicate returns before the engine is consulted, so it writes no `chat_messages` row and
     // emits no `chat.message_received`, and everything downstream looks like a healthy session

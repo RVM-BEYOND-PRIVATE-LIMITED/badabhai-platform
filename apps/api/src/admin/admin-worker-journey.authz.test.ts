@@ -137,11 +137,15 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
     }
   });
 
-  it("NO new capability was minted for this surface (the matrix is pinned to a signed ADR)", () => {
+  it("NO new capability was minted for THIS surface (the matrix is pinned to a signed ADR)", () => {
     // `ADMIN_CAPABILITIES` is transcribed verbatim from ADR-0025 Decision 3.1 by the
-    // matrix-drift test. Adding a member is an ADR amendment, not a backend decision — and a
+    // matrix-drift test. Adding a member is an owner decision, not a backend one — and a
     // half-added one would also leave `apps/admin-web`'s exhaustive CAPABILITY_LABELS
     // incomplete, which a backend-only PR cannot fix.
+    //
+    // `read_identity` is the one addition since, and it belongs to the entity/directory NAME
+    // reads (owner ruling 2026-08-18), not to the journey: the journey returns opaque ids,
+    // enums, counts and timings, and shows no name on any of its three routes.
     expect([...ADMIN_CAPABILITIES].sort()).toEqual(
       [
         "export",
@@ -151,6 +155,7 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
         "manage_admins",
         "read_entities",
         "read_events",
+        "read_identity",
         "reveal_pii",
         "suspend_payer",
         "toggle_kill_switch",

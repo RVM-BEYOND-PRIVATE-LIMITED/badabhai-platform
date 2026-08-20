@@ -27,6 +27,9 @@ import { AdminPiiRevealService } from "./admin-pii-reveal.service";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminKillSwitchService } from "./admin-kill-switch.service";
 import { AdminKillSwitchController } from "./admin-kill-switch.controller";
+import { AdminIdentityRepository } from "./admin-identity.repository";
+import { AdminIdentityCapService } from "./admin-identity-cap.service";
+import { AdminIdentityService } from "./admin-identity.service";
 import { AdminEntitiesRepository } from "./admin-entities.repository";
 import { AdminEntitiesService } from "./admin-entities.service";
 import { AdminEntitiesController } from "./admin-entities.controller";
@@ -159,9 +162,24 @@ import { AdminFeedbackController } from "./admin-feedback.controller";
     // existing server-config gates; emits a value-free `admin.kill_switch_pause_requested`. It NEVER
     // enables a provider (enabling stays env/deploy-gated, §2 #5) — there is no enable code path.
     AdminKillSwitchService,
-    // BP-1: faceless entity reads (workers/payers/job-postings/applications/credits) behind
+    // Owner ruling 2026-08-18 (reversing ADR-0025 Decision 4): the NAME layer shared by the
+    // entity reads and the admin directory. `read_identity` (super_admin/ops_admin/support;
+    // analyst DENIED) is checked INSIDE the service rather than by a second decorator, because
+    // the routes must stay reachable on `read_entities` for every role — names are ADDITIVE.
+    // Its repository is the ONE place under admin/** that projects a name column, so the
+    // faceless projections next to it stay provably faceless. Its cap is a SEPARATE
+    // `admin_identity:*` budget on the shared `AdminEgressCapService` — a list of names is a
+    // bulk disclosure the single-subject reveal cap structurally cannot see, so without it the
+    // reveal cap is bypassed by paging. Emits `admin.identity_viewed` (awaited, fail-closed,
+    // BEFORE any decrypt) and the PII-free `admin.identity_cap_exceeded` breach — hence
+    // EventsService, and PiiCryptoService for the decrypt-at-boundary.
+    AdminIdentityRepository,
+    AdminIdentityCapService,
+    AdminIdentityService,
+    // BP-1: entity reads (workers/payers/job-postings/applications/credits) behind
     // `read_entities`. SELECT-ONLY, explicit column projections, keyset-paginated. It does NOT
-    // widen InternalServiceGuard and does not touch the existing ops read routes.
+    // widen InternalServiceGuard and does not touch the existing ops read routes. Names on the
+    // worker/payer reads come from AdminIdentityService above, never from this repository.
     AdminEntitiesRepository,
     AdminEntitiesService,
     // BP-2: finance reads (credit position, platform-wide ledger, payment orders) behind
@@ -169,9 +187,11 @@ import { AdminFeedbackController } from "./admin-feedback.controller";
     // posture, so a mock rupee can never be read as a real one.
     AdminFinanceRepository,
     AdminFinanceService,
-    // BP-3: the FACELESS admin directory (`manage_admins`, super_admin only) + the
-    // role→capability matrix (`read_entities`), served so the portal carries no second copy
-    // of the authorization table. SELECT-ONLY; never projects email/name/mfa_secret.
+    // BP-3: the admin directory (`manage_admins`, super_admin only) + the role→capability
+    // matrix (`read_entities`), served so the portal carries no second copy of the
+    // authorization table. Its OWN repository is SELECT-ONLY and still projects no
+    // email/name/mfa_secret; the `name` column comes from AdminIdentityService, gated on
+    // `read_identity` rather than on the route's `manage_admins` — one capability, one meaning.
     AdminDirectoryRepository,
     AdminDirectoryService,
     // BP-5: the dashboard summary (platform AI spend by provider/task/breach-reason + volume

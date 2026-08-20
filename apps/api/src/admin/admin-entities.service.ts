@@ -1,5 +1,8 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import type { RequestContext } from "../common/request-context";
+import type { AuthenticatedAdmin } from "./admin-auth.guard";
 import { AdminEntitiesRepository } from "./admin-entities.repository";
+import { AdminIdentityService } from "./admin-identity.service";
 import { decodeEntityCursor, encodeEntityCursor } from "./admin-entities.cursor";
 import type {
   AdminApplicationListItem,
@@ -19,19 +22,37 @@ import type {
 } from "./admin-entities.dto";
 
 /**
- * The admin faceless-entity read service (BP-1).
+ * The admin entity read service (BP-1).
  *
  * Thin by design: validation happens at the Zod pipe, the PII projection happens in the
- * repository's select list, and authorization happens in the guards. What is left — and the
- * only thing this layer owns — is keyset paging.
+ * repository's select list, and ROUTE authorization happens in the guards. What is left is
+ * keyset paging, and — since the 2026-08-18 ruling — deciding whether this particular admin is
+ * shown the NAMES behind the ids.
  *
- * NO EVENTS. A read is not a state change, so it emits nothing (CLAUDE.md §1). The
- * privileged read that IS audited is the PII reveal, which lives in its own service behind
- * its own capability and its own default-off flag; that asymmetry is the point.
+ * ── WHY THE SERVICE TAKES AN ADMIN, WHEN IT USED TO TAKE ONLY A DTO ─────────────────────
+ * Because the identity gate CANNOT be a second `@RequireAdminRole`. The routes must stay
+ * reachable on `read_entities` for all four roles — an analyst still gets the full faceless
+ * page — so the decision is per-RESPONSE, not per-route, and `@RequireAdminRole` sets exactly
+ * one capability per route by design (`admin-static-guards.test.ts` asserts exactly one). The
+ * capability check therefore happens INSIDE {@link AdminIdentityService}, over the session
+ * admin the guard already resolved and threaded here as `@CurrentAdmin()`. It is never taken
+ * from a query param or a body: the actor is non-spoofable or it is not an actor.
+ *
+ * EVENTS: still none for the faceless read — a read is not a state change. The NAME read does
+ * emit (`admin.identity_viewed`, awaited and fail-closed, before any decrypt), for the same
+ * reason the feedback and journey reads do: it is a disclosure, not a state snapshot. That
+ * emission lives entirely in `AdminIdentityService`.
+ *
+ * NAMES ARE RESOLVED FOR THE RETURNED PAGE ONLY, never the peeked `limit + 1` row. Auditing —
+ * and charging the egress budget for — a name the admin was never shown would make both the
+ * trail and the cap describe reading that did not happen.
  */
 @Injectable()
 export class AdminEntitiesService {
-  constructor(private readonly repo: AdminEntitiesRepository) {}
+  constructor(
+    private readonly repo: AdminEntitiesRepository,
+    private readonly identity: AdminIdentityService,
+  ) {}
 
   /**
    * Turn `limit + 1` fetched rows into a page plus an HONEST `nextCursor`.
@@ -57,34 +78,81 @@ export class AdminEntitiesService {
     };
   }
 
-  async listWorkers(dto: AdminWorkersQueryDto): Promise<AdminPage<AdminWorkerListItem>> {
+  async listWorkers(
+    admin: AuthenticatedAdmin,
+    dto: AdminWorkersQueryDto,
+    ctx: RequestContext,
+  ): Promise<AdminPage<AdminWorkerListItem>> {
     const rows = await this.repo.listWorkers(
       { status: dto.status, pendingDeletion: dto.pendingDeletion },
       decodeEntityCursor(dto.cursor),
       dto.limit + 1,
     );
-    return AdminEntitiesService.page(rows, dto.limit);
+    const page = AdminEntitiesService.page(rows, dto.limit);
+    const names = await this.identity.resolve(
+      admin,
+      "workers",
+      page.items.map((w) => w.id),
+      // A LIST spans many subjects, so the audit carries no single subject id.
+      null,
+      ctx,
+    );
+    if (!names) return page;
+    return {
+      ...page,
+      items: page.items.map((w) => ({ ...w, full_name: names.get(w.id) ?? null })),
+    };
   }
 
-  async getWorker(id: string): Promise<AdminWorkerDetail> {
+  async getWorker(
+    admin: AuthenticatedAdmin,
+    id: string,
+    ctx: RequestContext,
+  ): Promise<AdminWorkerDetail> {
     const worker = await this.repo.findWorker(id);
     if (!worker) throw new NotFoundException("Worker not found");
-    return worker;
+    // The 404 comes FIRST: resolving a name for a worker who does not exist would spend budget
+    // and write an audit row for a disclosure that cannot happen.
+    const names = await this.identity.resolve(admin, "workers", [id], id, ctx);
+    if (!names) return worker;
+    return { ...worker, full_name: names.get(id) ?? null };
   }
 
-  async listPayers(dto: AdminPayersQueryDto): Promise<AdminPage<AdminPayerListItem>> {
+  async listPayers(
+    admin: AuthenticatedAdmin,
+    dto: AdminPayersQueryDto,
+    ctx: RequestContext,
+  ): Promise<AdminPage<AdminPayerListItem>> {
     const rows = await this.repo.listPayers(
       { role: dto.role, status: dto.status },
       decodeEntityCursor(dto.cursor),
       dto.limit + 1,
     );
-    return AdminEntitiesService.page(rows, dto.limit);
+    const page = AdminEntitiesService.page(rows, dto.limit);
+    const names = await this.identity.resolve(
+      admin,
+      "payers",
+      page.items.map((p) => p.id),
+      null,
+      ctx,
+    );
+    if (!names) return page;
+    return {
+      ...page,
+      items: page.items.map((p) => ({ ...p, org_name: names.get(p.id) ?? null })),
+    };
   }
 
-  async getPayer(id: string): Promise<AdminPayerDetail> {
+  async getPayer(
+    admin: AuthenticatedAdmin,
+    id: string,
+    ctx: RequestContext,
+  ): Promise<AdminPayerDetail> {
     const payer = await this.repo.findPayer(id);
     if (!payer) throw new NotFoundException("Payer not found");
-    return payer;
+    const names = await this.identity.resolve(admin, "payers", [id], id, ctx);
+    if (!names) return payer;
+    return { ...payer, org_name: names.get(id) ?? null };
   }
 
   async listJobPostings(

@@ -2433,6 +2433,91 @@ export const AdminPiiRevealCapExceededPayload = z
 export type AdminPiiRevealCapExceededPayload = z.infer<typeof AdminPiiRevealCapExceededPayload>;
 
 /**
+ * WHICH admin console surface a name disclosure happened on (ADR-0025 Decision 4, REVERSED
+ * 2026-08-18). A closed enum, and deliberately a SURFACE rather than an entity type: it names
+ * the screen the operator was on, which is what an auditor reviewing "what was this account
+ * doing" needs, and it stays a fixed vocabulary as the projections behind those screens change.
+ *
+ *   workers — `GET /admin/workers` + `/admin/workers/:id` → `workers.full_name`
+ *   payers  — `GET /admin/payers`  + `/admin/payers/:id`  → `payers.org_name_enc` (the portal's
+ *             Companies AND Agencies tabs; ONE table, one surface, one projection)
+ *   admins  — `GET /admin/admins`                         → `admin_users.name_enc`
+ */
+export const ADMIN_IDENTITY_SURFACES = ["workers", "payers", "admins"] as const;
+export const AdminIdentitySurface = z.enum(ADMIN_IDENTITY_SURFACES);
+export type AdminIdentitySurface = z.infer<typeof AdminIdentitySurface>;
+
+/**
+ * An admin was shown NAMES on an entity screen (ADR-0025 Decision 4, REVERSED 2026-08-18 — the
+ * console was unusable when every row was an opaque uuid).
+ *
+ * ── WHY THIS IS AUDITED AT RESPONSE GRANULARITY, NOT PER SUBJECT ─────────────────────────
+ * The obvious design — one event per name — is wrong twice over. It is write amplification (a
+ * 50-row page becomes 50 spine inserts on every scroll), and, far worse, it would turn the
+ * append-only spine into a QUERYABLE INDEX of "which workers has anyone ever looked at". That
+ * index does not exist today and creating it would be a NEW inference surface built out of the
+ * very control meant to constrain one: an attacker (or a curious insider) with spine read
+ * access would learn who the platform's operators find interesting, which is a fact about those
+ * workers that no one ever decided to record. One event per RESPONSE keeps the audit answering
+ * "what did this admin do, how much did they see" — which is the question the trail is for —
+ * without answering "who has been looked at", which it was never meant to answer.
+ *
+ * ── THE SUBJECT IS THE ADMIN SESSION, UNIFORMLY ──────────────────────────────────────────
+ * The `admin.feedback_viewed` precedent (see its header) applies verbatim and for the same
+ * reason: a LIST read spans many subjects, so filing the DETAIL reads under `worker`/`payer`
+ * would make the obvious spine query — "who has read worker W's name?" — look COMPLETE when it
+ * is structurally incapable of being so (every list page containing W would be missing from the
+ * answer). A uniformly honest subject beats a per-request one that is precise on half the calls
+ * and silently partial on the other half. `subject_id` in the PAYLOAD carries the single entity
+ * on a detail read and is null on a list read, so the distinction survives without pretending
+ * the worker axis is queryable.
+ *
+ * ── PII-FREE BY CONSTRUCTION ─────────────────────────────────────────────────────────────
+ * The opaque `admin_id`, a surface enum, an opaque `subject_id` (or null), and a count. NEVER a
+ * name, an initial, a masked form, or a hash of one — the whole point of the event is that the
+ * NAME stays in the HTTP response to the one authenticated admin and nowhere else. `.strict()`
+ * is the structural backstop.
+ *
+ * `result_count` is how many names were ACTUALLY disclosed — rows whose stored name was
+ * non-null, counted from the CIPHERTEXT before anything is decrypted. Not the page size: a page
+ * of fifty workers who have never given us a name is zero disclosures, and counting it as fifty
+ * would make the trail (and the egress cap it feeds) describe reading that never happened.
+ */
+export const AdminIdentityViewedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    surface: AdminIdentitySurface,
+    /** The single entity on a DETAIL read. Null on a list read (which spans many). */
+    subject_id: uuidSchema.nullable().default(null),
+    result_count: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AdminIdentityViewedPayload = z.infer<typeof AdminIdentityViewedPayload>;
+
+/**
+ * A per-admin NAME-egress cap was EXCEEDED — the identity sibling of
+ * {@link AdminPiiRevealCapExceededPayload}, and PII-free for the same reasons.
+ *
+ * It exists because a LIST of names is a bulk disclosure that the single-subject reveal cap
+ * cannot see: one `?limit=100` page would hand over ten times the entire hourly reveal budget
+ * in a single request, so without its own budget the reveal cap is bypassed simply by paging a
+ * list. An over-cap read discloses NO names (the faceless projection is still served — the
+ * identity cap must not take out the `read_entities` floor it sits beside).
+ *
+ * AGGREGATE / PII-FREE: the opaque `admin_id` whose velocity tripped the cap + which `window`.
+ * Deliberately NOT the surface: a breach alert is about an ACCOUNT's velocity, and naming the
+ * screen would let the alert stream be read as a coarse browsing history. `.strict()` backstops.
+ * The window enum is shared with the reveal breach — one vocabulary for both egress caps.
+ */
+export const AdminIdentityCapExceededPayload = z
+  .object({
+    admin_id: uuidSchema,
+    window: AdminPiiRevealCapWindow,
+  })
+  .strict();
+export type AdminIdentityCapExceededPayload = z.infer<typeof AdminIdentityCapExceededPayload>;
+
+/**
  * The CLOSED set of platform operational/provider kill-switches an admin may request a
  * safe-direction PAUSE for (ADR-0025 ADMIN-3c, OQ-6). A switch KEY enum — never free text,
  * never a secret/value. Each names an EXISTING env/config-governed switch (the pause is

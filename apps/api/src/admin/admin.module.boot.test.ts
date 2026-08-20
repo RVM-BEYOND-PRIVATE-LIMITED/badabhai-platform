@@ -55,6 +55,16 @@ describe("AdminModule wiring (DI regression guard)", () => {
     expect(tokens).toContain("AdminPiiRevealCapService");
   });
 
+  it("provides the identity layer the entity reads AND the directory both inject", () => {
+    // A dropped registration here is a BOOT failure that typecheck, lint and every unit test
+    // miss — `AdminEntitiesService` and `AdminDirectoryService` now take `AdminIdentityService`
+    // as a constructor dependency, and it in turn needs its own repository and cap service.
+    const tokens = providerTokens();
+    expect(tokens).toContain("AdminIdentityService");
+    expect(tokens).toContain("AdminIdentityRepository");
+    expect(tokens).toContain("AdminIdentityCapService");
+  });
+
   it("declares the BP-5 dashboard controller + provides its service/repository AND the spine reader it depends on", () => {
     expect(getMeta("controllers", AdminModule)).toContain(AdminDashboardController);
     const tokens = providerTokens();
