@@ -6,6 +6,7 @@ import {
   countDistinct,
   desc,
   eq,
+  exists,
   inArray,
   lt,
   max,
@@ -274,6 +275,59 @@ export class AdminWorkerJourneyRepository {
     workerId: string,
     pairs: ReadonlyArray<{ packId: string; packVersion: number }>,
   ): Promise<number> {
+    return this.countSettledKeysByOwnership(workerId, pairs, false);
+  }
+
+  /**
+   * How many DISTINCT settled question keys this worker holds that a contributing pack DOES own
+   * — the profiling progress NUMERATOR.
+   *
+   * ⚠ DISTINCT KEYS, NOT ANSWER ROWS, AND THAT IS THE WHOLE POINT. The denominator
+   * ({@link countPackItems}) counts QUESTIONS; a numerator counting ROWS is a different unit, and
+   * the two come apart the moment one question yields two rows. `wpa_worker_question_uq` is
+   * `(worker_id, pack_id, question_key)`, so a worker re-interviewed under a second trade has
+   * their universal answers stamped a second time: 20 rows over 14 questions.
+   *
+   * MEASURED, on a worker seeded in exactly that shape: the row-counting numerator reported
+   * `19 of 19` → `done` for someone who had settled 14 of 19 distinct questions and had never
+   * answered `current_city` or `salary_expected`. Capping the row count at the denominator did
+   * not save it — the cap is what produced the `19`. That is the same false `done` this whole
+   * change exists to remove, re-entering through the numerator.
+   *
+   * IT IS ALSO WHAT THE ENGINE COUNTS. `progressOf` in `next-question.ts` is
+   * `items.filter((item) => isSettled(answers, item.question_key)).length` over the two packs'
+   * items — a count of QUESTIONS that are settled, and one that ignores a settled key no item
+   * carries. This method is that expression in SQL, so the admin screen and the bar the worker
+   * saw agree by construction rather than by coincidence.
+   *
+   * ⚠ IT CANNOT EXCEED THE DENOMINATOR, structurally rather than by a clamp:
+   * `qpi_pack_question_uq` is `(pack_id, pack_version, question_key)`, so the item count of the
+   * contributing pairs is at least the number of distinct keys they own, and this counts a
+   * SUBSET of those keys. No `Math.min` is required, and one would be a line that makes the next
+   * reader believe a check happened.
+   *
+   * INDEXES: as {@link countSettledKeysOutsidePacks} — same query, opposite predicate.
+   */
+  async countSettledKeysInPacks(
+    workerId: string,
+    pairs: ReadonlyArray<{ packId: string; packVersion: number }>,
+  ): Promise<number> {
+    return this.countSettledKeysByOwnership(workerId, pairs, true);
+  }
+
+  /**
+   * The shared body of the two counts above: DISTINCT settled `question_key`s for one worker,
+   * partitioned by whether a contributing pack still owns the key.
+   *
+   * ONE IMPLEMENTATION because they are one query with one flipped predicate, and because the
+   * correlation rule below is the subtle part — duplicating it would mean two places to get it
+   * wrong, and the two counts are read side by side in the same summary.
+   */
+  private async countSettledKeysByOwnership(
+    workerId: string,
+    pairs: ReadonlyArray<{ packId: string; packVersion: number }>,
+    ownedByAPack: boolean,
+  ): Promise<number> {
     if (pairs.length === 0) return 0;
     const clauses = pairs
       .slice(0, ADMIN_JOURNEY_PACK_PAIRS_MAX)
@@ -305,7 +359,7 @@ export class AdminWorkerJourneyRepository {
         and(
           eq(workerPackAnswers.workerId, workerId),
           inArray(workerPackAnswers.status, [...SETTLED_ANSWER_STATUSES]),
-          notExists(owned),
+          ownedByAPack ? exists(owned) : notExists(owned),
         ),
       );
     return rows[0]?.n ?? 0;

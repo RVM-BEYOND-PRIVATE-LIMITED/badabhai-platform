@@ -174,9 +174,10 @@ export class AdminWorkerJourneyService {
     // A SECOND round trip because both WHERE clauses are built from the first batch's result.
     // That dependency is the whole property this denominator has, so it is not collapsible
     // into the batch above; the two reads inside it are independent and run together.
-    const [itemCounts, orphanKeyCount] = await Promise.all([
+    const [itemCounts, orphanKeyCount, settledKeyCount] = await Promise.all([
       this.repo.countPackItems(denominatorPairs),
       this.repo.countSettledKeysOutsidePacks(workerId, denominatorPairs),
+      this.repo.countSettledKeysInPacks(workerId, denominatorPairs),
     ]);
 
     const caveats: JourneyCaveat[] = ["interview_kit_attribution_since_0079"];
@@ -212,7 +213,7 @@ export class AdminWorkerJourneyService {
     // a property of today's flush, not of the schema, which permits the third value and arms
     // this for any future writer. A fifth reader written as a hand-rolled sum would drift the
     // same way; one written over this constant cannot.
-    const settledTotal = SETTLED_ANSWER_STATUSES.reduce(
+    const settledRowTotal = SETTLED_ANSWER_STATUSES.reduce(
       (sum, status) => sum + AdminWorkerJourneyService.statCount(answerStats, status),
       0,
     );
@@ -221,22 +222,33 @@ export class AdminWorkerJourneyService {
     const packTotal = itemCounts.reduce((sum, c) => sum + c.itemCount, 0);
 
     /**
-     * ⚠ CLAMPED, AND THE CLAMP ANNOUNCES ITSELF.
+     * ⚠ THE NUMERATOR AND THE DENOMINATOR MUST BE THE SAME UNIT OVER THE SAME SET, and getting
+     * that wrong is how this screen told us every worker was `done` in the first place.
      *
-     * `settledTotal` counts ROWS; `packTotal` counts QUESTIONS. They are the same number for a
-     * worker interviewed once, and they come apart in two ways that are both reachable:
+     * `packTotal` counts QUESTIONS. So `completed` counts DISTINCT SETTLED QUESTION KEYS THE
+     * CONTRIBUTING PACKS OWN — {@link AdminWorkerJourneyRepository.countSettledKeysInPacks} —
+     * and NOT answer rows. The two are the same number for a worker interviewed once and come
+     * apart on a RE-INTERVIEW under a second trade: `wpa_worker_question_uq` is per pack, so the
+     * universal answers are stamped again under the new occupation pack and one question yields
+     * two rows.
      *
-     *  - a RETIRED question — a settled row whose key no contributing pack still owns;
-     *  - a RE-INTERVIEW under a second trade — the universal answers are stamped again with the
-     *    new occupation pack (`wpa_worker_question_uq` is per pack), so one question yields two
-     *    rows while the denominator counts it once.
+     * MEASURED on a worker seeded in that shape: the row count was 20 over 14 distinct questions
+     * against a denominator of 19, and capping it at the denominator reported `19 of 19` →
+     * `done` for someone who had never answered `current_city` or `salary_expected`. The cap did
+     * not rescue the wrong unit, it manufactured the same false `done` this change exists to
+     * remove.
      *
-     * `13 of 12` is a bug on the screen whatever produced it, so the numerator is capped at the
-     * denominator — but silently capping would be the same class of dishonesty this file
-     * refuses everywhere else, so a clamp that BITES raises the caveat below, and the true
-     * numbers stay on `answered_count` / `declined_count` where nothing rounds them.
+     * ⚠ NO CLAMP, and its absence is load-bearing rather than an omission.
+     * `qpi_pack_question_uq` is `(pack_id, pack_version, question_key)`, so `packTotal` is at
+     * least the number of distinct keys the contributing pairs own, and this counts a SUBSET of
+     * exactly those keys. `completed > total` is unrepresentable, so a `Math.min` here could
+     * never fire — and a guard that cannot fire is a line that makes the next reader believe a
+     * check happened.
+     *
+     * The uncapped ROW counts stay on `answered_count` / `declined_count`, where nothing
+     * reconciles them, and the caveat below fires when they disagree with this.
      */
-    const completed = packTotal > 0 ? Math.min(settledTotal, packTotal) : settledTotal;
+    const completed = settledKeyCount;
 
     // THE PACK CORPUS NO LONGER ACCOUNTS FOR THIS WORKER'S ANSWERS — one caveat, three ways in,
     // because they are one fact: the denominator has stopped describing the numerator.
@@ -247,8 +259,12 @@ export class AdminWorkerJourneyService {
       // and the only one of the three that is otherwise SILENT (it undercounts without ever
       // pushing the numerator past the denominator).
       orphanKeyCount > 0 ||
-      // The arithmetic proof, whatever the cause — including a cause this list has not met.
-      completed !== settledTotal
+      // ROWS ≠ QUESTIONS: the worker holds more settled answer rows than the distinct questions
+      // they account for, which is a re-interview (or a cause this list has not met). The
+      // progress figure is still honest — `completed` counts questions — but `answered_count`
+      // beside it will not reconcile with it, and an operator reading both deserves to be told
+      // why rather than left to assume one of them is broken.
+      settledRowTotal !== completed
     ) {
       caveats.push("pack_version_retired");
     }

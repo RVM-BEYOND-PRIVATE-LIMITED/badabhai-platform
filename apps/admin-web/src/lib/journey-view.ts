@@ -227,7 +227,7 @@ export function describeJourneyCaveat(code: string): CaveatView {
         // settles one question under two packs. Naming only the first would tell an operator
         // something specific and, two thirds of the time, false.
         title: "The question packs no longer account for all of this worker's answers",
-        body: "A pack version they answered under has lost its questions, or a question was retired from under them, or they were re-interviewed and one question settled under two packs. Either way the profiling total no longer describes the answers counted against it, so read the progress figure as approximate — the answered and declined counts beside it are exact.",
+        body: "A pack version they answered under has lost its questions, or a question was retired from under them, or they were re-interviewed and one question settled under two packs. The progress figure counts questions, so it stays readable — but it will not reconcile with the answered and declined counts beside it, which count answer rows and are exact as such.",
       };
     case "stuck_items_unresolved":
       return {

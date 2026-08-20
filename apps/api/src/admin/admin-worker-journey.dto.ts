@@ -139,9 +139,11 @@ export const JOURNEY_CAVEATS = [
    *    left (the original meaning: a version retired out from under the answers);
    *  - a SETTLED answer whose `question_key` no contributing pack still owns — the same
    *    retirement one question at a time, which a re-seed that drops a question produces;
-   *  - `completed` had to be CLAMPED to `total`. A re-interview under a second trade stamps
-   *    the universal answers again under the new occupation pack, so one question yields two
-   *    rows against a denominator that counts it once.
+   *  - the worker holds MORE settled answer ROWS than the distinct questions those rows
+   *    account for. A re-interview under a second trade stamps the universal answers again
+   *    under the new occupation pack (`wpa_worker_question_uq` is per pack), so one question
+   *    yields two rows. `completed` is unaffected — it counts questions, not rows — but
+   *    `answered_count` beside it will not reconcile with it, and this says why.
    */
   "pack_version_retired",
   /**

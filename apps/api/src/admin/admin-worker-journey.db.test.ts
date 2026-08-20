@@ -233,4 +233,77 @@ describe.skipIf(!RUN)("admin worker journey — the profiling denominator agains
         );
     }
   });
+
+  /**
+   * ⚠ THE NUMERATOR IS QUESTIONS, NOT ANSWER ROWS — against the REAL corpus, because this is
+   * the one the unit fixtures cannot state honestly: it needs `wpa_worker_question_uq` to be
+   * per-PACK, and a fake cannot be wrong about that on the schema's behalf.
+   *
+   * A PARTIAL RE-INTERVIEW. The worker is re-interviewed under a second trade, so their six
+   * universal answers are stamped a SECOND time under the new occupation pack. They still have
+   * not answered `current_city` or `salary_expected`, and they answered only two of the second
+   * trade's questions.
+   *
+   * The rule this replaced counted ROWS and capped the result at the denominator. Measured on
+   * this database before the fix, that read `19 of 19` → `done` for this worker. The cap is
+   * what produced the 19; it did not catch the overflow, it disguised it as completion — the
+   * same false `done` this whole file exists to remove.
+   */
+  it("a PARTIAL re-interview reads its distinct questions, never a capped row count", async () => {
+    const SECOND_PACK = "qp_plumbing";
+    // Two of `qp_plumbing`'s own questions, and the SIX universal keys stamped again under it.
+    const secondTradeKeys = ["plumbing_scope", "pipe_material"];
+    await client.db.insert(workerPackAnswers).values(
+      [...secondTradeKeys, ...UNIVERSAL_KEYS_ANSWERED].map((questionKey) => ({
+        workerId: WORKER,
+        chatSessionId: SESSION,
+        packId: SECOND_PACK,
+        packVersion: PACK_VERSION,
+        questionKey,
+        answerText: "x",
+        status: "answered" as const,
+        source: "chat" as const,
+      })),
+    );
+    try {
+      const counts = await repo.countPackItems([
+        { packId: OCCUPATION_PACK, packVersion: PACK_VERSION },
+        { packId: SECOND_PACK, packVersion: PACK_VERSION },
+        { packId: UNIVERSAL_PACK, packVersion: PACK_VERSION },
+      ]);
+      const total = counts.reduce((sum, c) => sum + c.itemCount, 0);
+
+      const summary = await service.getJourneySummary(ADMIN, WORKER, CTX);
+      const profiling = summary.steps.find(
+        (s) => s.key === "profiling",
+      ) as AdminJourneyProfilingStep;
+
+      // Asserted, not asserted-away: `completed` is `number | null` on the step base, and this
+      // worker has answers, so a null here would itself be the regression.
+      const completed = profiling.completed;
+      expect(completed).not.toBeNull();
+
+      // The ROW count — read out of the response's own uncapped fields — is strictly larger
+      // than the questions those rows cover. That inequality IS the fixture: without it this
+      // test would be re-asserting the single-interview case.
+      const settledRows = profiling.answered_count + profiling.declined_count;
+      expect(settledRows).toBeGreaterThan(completed!);
+
+      expect(profiling.total).toBe(total);
+      // NOT `total` (the row count capped) and NOT `settledRows`.
+      expect(completed!).toBeLessThan(total);
+      // The reading the pre-fix rule produced was `done`. Two universal questions are still
+      // outstanding, so it is not.
+      expect(profiling.status).toBe("in_progress");
+      // Rows disagreeing with questions is what the caveat names, so the operator reading
+      // `completed` beside `answered_count` is told why the two do not reconcile.
+      expect(summary.caveats).toContain("pack_version_retired");
+    } finally {
+      await client.db
+        .delete(workerPackAnswers)
+        .where(
+          and(eq(workerPackAnswers.workerId, WORKER), eq(workerPackAnswers.packId, SECOND_PACK)),
+        );
+    }
+  });
 });

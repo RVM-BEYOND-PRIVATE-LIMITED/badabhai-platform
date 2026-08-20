@@ -94,6 +94,28 @@ function fakeRepo(over: Partial<Record<keyof Repo | JourneySpineRead, unknown>> 
     // still owns" — the healthy case, so a test that means to exercise a retired question has
     // to say so explicitly rather than inheriting it.
     countSettledKeysOutsidePacks: vi.fn(async () => 0),
+    /**
+     * The NUMERATOR — distinct settled question keys the contributing packs own.
+     *
+     * DERIVED FROM THIS HARNESS'S OWN `packAnswerStatusCounts` rather than hand-fed, because
+     * every fixture in this file describes a worker interviewed ONCE, and in that world the
+     * two are equal by definition: one settled row per settled question. Hard-coding a second
+     * number would let a fixture drift into describing a world the database cannot produce —
+     * the failure the db suite exists to catch — and would silently satisfy `completed`
+     * assertions that mean to be about the status split.
+     *
+     * A test that means to exercise a RE-INTERVIEW (rows > distinct questions) overrides this
+     * explicitly, which is the only shape where the two numbers legitimately differ.
+     */
+    countSettledKeysInPacks: vi.fn(async (): Promise<number> => {
+      const stats = (await repo.packAnswerStatusCounts()) as ReadonlyArray<{
+        status: string;
+        n: number;
+      }>;
+      return stats
+        .filter((s) => s.status === "answered" || s.status === "declined")
+        .reduce((sum, s) => sum + s.n, 0);
+    }),
     countSessions: vi.fn(async () => 0),
     resumeStats: vi.fn(async () => ({ n: 0, rendered: 0, firstAt: null, lastAt: null })),
     currentProfile: vi.fn(async () => ({
@@ -388,25 +410,44 @@ describe("step 2: profiling — the REAL stamping shape (universal answers under
     expect(step(summary, "profiling").completed).toBe(12);
   });
 
-  it("CLAMPS `completed` to `total` and says so, so the UI can never render `20 of 14`", async () => {
-    // A RE-INTERVIEW under a second trade: `wpa_worker_question_uq` is per PACK, so the
-    // universal answers are stamped a second time under the new occupation pack. Twenty settled
-    // rows, fourteen distinct questions. Reachable without any retirement at all.
+  /**
+   * ⚠ THE NUMERATOR IS QUESTIONS, NOT ROWS — and this is the fixture that tells them apart.
+   *
+   * A PARTIAL RE-INTERVIEW under a second trade. `wpa_worker_question_uq` is per PACK, so the
+   * universal answers are stamped a second time under the new occupation pack: twenty settled
+   * ROWS covering only twelve distinct QUESTIONS, against a denominator of fourteen.
+   *
+   * The rule this replaced counted rows and capped the result at the denominator, which read
+   * `14 of 14` → `done` for a worker with two questions still unanswered. That is the SAME
+   * false `done` this whole change exists to remove, re-entering through the numerator — and
+   * the cap is what manufactured it, not what caught it. Measured against a worker seeded in
+   * this shape on the verification database before it was fixed.
+   *
+   * The distinct-key numerator makes the cap unnecessary as well as wrong: it counts a SUBSET
+   * of the keys the denominator counts, so `completed > total` is unrepresentable.
+   */
+  it("counts QUESTIONS, not answer rows, so a partial re-interview cannot read `done`", async () => {
     const { service } = realShape({
+      // Twenty settled rows...
       packAnswerStatusCounts: vi.fn(async () => [
         { status: "answered", n: 18, firstAt: CREATED, lastAt: CREATED },
         { status: "declined", n: 2, firstAt: CREATED, lastAt: CREATED },
       ]),
+      // ...over twelve distinct questions, of the fourteen the two packs ask.
+      countSettledKeysInPacks: vi.fn(async () => 12),
     });
     const summary = await service.getJourneySummary(ADMIN, WORKER, CTX);
     const profiling = step(summary, "profiling") as AdminJourneyProfilingStep;
 
     expect(profiling.total).toBe(14);
-    expect(profiling.completed).toBe(14);
-    expect(profiling.status).toBe("done");
-    // NOT SILENTLY: a clamp that bites is exactly the condition the caveat names.
+    // 12, NOT 20 (the row count) and NOT 14 (the row count capped at the denominator).
+    expect(profiling.completed).toBe(12);
+    // The whole point: two questions outstanding means this worker is not finished.
+    expect(profiling.status).toBe("in_progress");
+    // NOT SILENTLY: rows disagreeing with questions is exactly what the caveat names, so an
+    // operator reading `12 of 14` beside `18 answered` is told why they do not reconcile.
     expect(summary.caveats).toContain("pack_version_retired");
-    // ...and the uncapped truth is still on the response, where nothing rounded it.
+    // ...and the ROW counts are still on the response, exact and unrounded.
     expect(profiling.answered_count).toBe(18);
     expect(profiling.declined_count).toBe(2);
   });
