@@ -486,17 +486,44 @@ class AuthSessionManager extends ChangeNotifier {
   /// must log in again ([loggedOut]). Throws [AuthFailure] on a bad OTP (401 →
   /// otpInvalid) or a weak/format PIN (400 → pinWeak).
   Future<void> confirmPinReset(String phoneE164, String otp, String pin) async {
-    await _authApi.pinResetConfirm(phoneE164, otp, pin);
+    final OtpVerifyResult result =
+        await _authApi.pinResetConfirm(phoneE164, otp, pin);
     // #352: the reset just set a NEW PIN — record it, or the worker who resets
     // and then cold-starts would be sent to set-PIN again.
     _pinSet = true;
     if (_persistentAuthEnabled) await _tokenStore.writePinSet(true);
+
+    // A6/#998: the reset now returns a LIVE, device-bound session. When it carries
+    // real tokens, CONSUME them directly — persist + bridge + AUTHENTICATE — so the
+    // worker is not bounced to `locked` against the OLD (possibly dead) refresh
+    // token. That fallback is the trap that looped "reset PIN → told it's wrong"
+    // forever: the worker double-entered this PIN seconds ago via an OTP-verified
+    // reset, so there is nothing left to prove.
+    if (result.tokens.refresh.isNotEmpty && result.tokens.access.isNotEmpty) {
+      _consecutivePinFailures = 0;
+      _pinJustReset = false;
+      _captureSessionView(result.tokens);
+      if (_persistentAuthEnabled) {
+        await _persistTokens(result.tokens);
+        await _tokenStore.writeWorkerId(result.workerId);
+      }
+      _consentAccepted = result.consentAccepted;
+      _bridge(
+        accessToken: result.tokens.access,
+        workerId: result.workerId,
+        phone: phoneE164,
+      );
+      _session.setDeletionScheduledFor(result.deletionScheduledFor);
+      _setStatus(AuthStatus.authenticated);
+      return;
+    }
+
+    // LEGACY back-compat: an older server that still answers 204 (empty body)
+    // mints no session here, so keep the pre-A6 behaviour — unlock with the new
+    // PIN when a token is on file (armed with the dead-token escape in
+    // [unlockWithPin]), else a fresh OTP login.
     final String? refresh = await _tokenStore.readRefreshToken();
     if (refresh != null && refresh.isNotEmpty) {
-      // Keep the fast path (unlock with the new PIN) when the token is alive, but
-      // arm the dead-token escape: the very next unlock proves whether that token
-      // still works. If it doesn't, [unlockWithPin] routes to OTP instead of
-      // looping "wrong PIN" on a PIN the worker just set.
       _pinJustReset = true;
       _setStatus(AuthStatus.locked);
     } else {
