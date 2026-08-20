@@ -1,8 +1,40 @@
 import Link from "next/link";
 import { requirePayer } from "../../../lib/auth";
+import { getAgencyKyc } from "../../../lib/payer-api";
+import type { AgencyKyc } from "../../../lib/contracts";
+import { maskLast4 } from "../../../lib/masking";
 import { Avatar, Badge, Card } from "../../../components/ds";
 import { RetryButton } from "../../../components/retry-button";
 import { AccountForm } from "./account-form";
+
+type BadgeTone = "neutral" | "brand" | "success" | "danger" | "warning" | "info";
+
+/** Real KYC status → the card's badge tone + label + one-line body. */
+function kycView(kyc: AgencyKyc): { tone: BadgeTone; label: string; body: string } {
+  switch (kyc.status) {
+    case "verified":
+      return {
+        tone: "success",
+        label: "Verified",
+        body: `PAN ${maskLast4(kyc.panLast4)} verified.`,
+      };
+    case "pending":
+      return {
+        tone: "warning",
+        label: "Under review",
+        body: "Your documents are being reviewed.",
+      };
+    case "rejected":
+      return {
+        tone: "danger",
+        label: "Rejected",
+        body: kyc.rejectReason ?? "Please resubmit your documents.",
+      };
+    case "not_submitted":
+    default:
+      return { tone: "neutral", label: "Not submitted", body: "Submit your KYC documents." };
+  }
+}
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +89,11 @@ export default async function AccountPage() {
     );
   }
 
+  // Agent-only, LIVE KYC status. `getAgencyKyc` maps the gated 404 to null (the
+  // payouts flag is off), so a null result HIDES the card rather than showing a
+  // permanent, misleading "Pending" (#1011).
+  const kyc: AgencyKyc | null = session.role === "agent" ? await getAgencyKyc() : null;
+
   return (
     <>
       <p className="page-back">
@@ -104,62 +141,67 @@ export default async function AccountPage() {
         </div>
       </section>
 
-      {session.role === "agent" ? (
-        <section className="section">
-          <div className="section__head">
-            <h2 className="section__title">KYC &amp; Bank Details</h2>
-            <p className="section__sub">
-              Identity verification and payout banking information for your agency.
-            </p>
-          </div>
+      {kyc ? (
+        (() => {
+          const view = kycView(kyc);
+          const bankAdded = Boolean(kyc.bankLast4 && kyc.bankLast4.length > 0);
+          return (
+            <section className="section">
+              <div className="section__head">
+                <h2 className="section__title">KYC &amp; Bank Details</h2>
+                <p className="section__sub">
+                  Identity verification and payout banking information for your agency.
+                </p>
+              </div>
 
-          {/* Both rows were whole-card links to the SAME destination with an aria-label doing
-              the naming; as `alert` bands the destination is unchanged but the action is a
-              visible, named control instead of an invisible stretched link. */}
-          <div className="alert alert--warning">
-            <i className="ph ph-identification-card alert__icon" aria-hidden="true" />
-            <div className="alert__text">
-              <p className="alert__title">
-                KYC &mdash; PAN &amp; Identity{" "}
-                <Badge tone="warning" upper>
-                  Pending
-                </Badge>
-              </p>
-              <p className="alert__body">Submit your KYC documents.</p>
-            </div>
-            <div className="alert__actions">
-              <Link
-                className="bb-btn bb-btn--secondary bb-btn--sm"
-                href="/agency/referrals"
-                aria-label="KYC details — manage"
-              >
-                Manage
-              </Link>
-            </div>
-          </div>
+              <div className={`alert${view.tone === "warning" ? " alert--warning" : ""}`}>
+                <i className="ph ph-identification-card alert__icon" aria-hidden="true" />
+                <div className="alert__text">
+                  <p className="alert__title">
+                    KYC &mdash; PAN &amp; Identity{" "}
+                    <Badge tone={view.tone} upper>
+                      {view.label}
+                    </Badge>
+                  </p>
+                  <p className="alert__body">{view.body}</p>
+                </div>
+                <div className="alert__actions">
+                  <Link
+                    className="bb-btn bb-btn--secondary bb-btn--sm"
+                    href="/agency/referrals"
+                    aria-label="KYC details — manage"
+                  >
+                    Manage
+                  </Link>
+                </div>
+              </div>
 
-          <div className="alert">
-            <i className="ph ph-bank alert__icon" aria-hidden="true" />
-            <div className="alert__text">
-              <p className="alert__title">
-                Bank Account &mdash; not added{" "}
-                <Badge tone="neutral" upper>
-                  Not set
-                </Badge>
-              </p>
-              <p className="alert__body">Add payout bank details.</p>
-            </div>
-            <div className="alert__actions">
-              <Link
-                className="bb-btn bb-btn--secondary bb-btn--sm"
-                href="/agency/referrals"
-                aria-label="Bank details — add"
-              >
-                Add
-              </Link>
-            </div>
-          </div>
-        </section>
+              <div className="alert">
+                <i className="ph ph-bank alert__icon" aria-hidden="true" />
+                <div className="alert__text">
+                  <p className="alert__title">
+                    Bank Account &mdash; {bankAdded ? maskLast4(kyc.bankLast4) : "not added"}{" "}
+                    <Badge tone={bankAdded ? "success" : "neutral"} upper>
+                      {bankAdded ? "Added" : "Not set"}
+                    </Badge>
+                  </p>
+                  <p className="alert__body">
+                    {bankAdded ? "Payout bank details on file." : "Add payout bank details."}
+                  </p>
+                </div>
+                <div className="alert__actions">
+                  <Link
+                    className="bb-btn bb-btn--secondary bb-btn--sm"
+                    href="/agency/referrals"
+                    aria-label={bankAdded ? "Bank details — manage" : "Bank details — add"}
+                  >
+                    {bankAdded ? "Manage" : "Add"}
+                  </Link>
+                </div>
+              </div>
+            </section>
+          );
+        })()
       ) : null}
     </>
   );
