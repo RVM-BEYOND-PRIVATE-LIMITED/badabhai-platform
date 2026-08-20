@@ -176,12 +176,19 @@ class AppliedJob extends Equatable {
     required this.rank,
     required this.createdAt,
     required this.updatedAt,
+    this.matchedSkillLabel,
   });
 
   final String jobId;
 
-  /// One of the 15 alpha trades — kept as a plain String (no enum).
+  /// One of the 15 alpha trades — kept as a plain String (no enum). INTERNAL key
+  /// by contract; under MATCH_V1 it is a raw `mskill_*` id, so it must NEVER be
+  /// shown to a worker — render [matchedSkillLabel] instead (#1027).
   final String tradeKey;
+
+  /// Human, display-safe matched-skill name ("MIG Welder") when the feed carries
+  /// one; null otherwise. The one field the subtitle may show.
+  final String? matchedSkillLabel;
   final String title;
   final String city;
 
@@ -220,6 +227,7 @@ class AppliedJob extends Equatable {
         rank: (json['rank'] as num?)?.toInt(),
         createdAt: _date(json['created_at']),
         updatedAt: _date(json['updated_at']),
+        matchedSkillLabel: json['matched_skill_label'] as String?,
       );
 
   @override
@@ -235,6 +243,7 @@ class AppliedJob extends Equatable {
         rank,
         createdAt,
         updatedAt,
+        matchedSkillLabel,
       ];
 }
 
