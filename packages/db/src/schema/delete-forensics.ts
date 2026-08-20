@@ -63,7 +63,7 @@ import { sql } from "drizzle-orm";
 import { bigserial, bigint, index, pgTable, text, timestamp, uuid, integer } from "drizzle-orm/pg-core";
 
 /**
- * Matches the live catalog column for column, minus the two dropped by `0085`.
+ * Matches the live catalog column for column, minus the two dropped by `0086`.
  *
  * No foreign key on `worker_id`, and that is faithful rather than an oversight: the row exists
  * BECAUSE the worker row is gone, so a reference would delete the evidence with the subject.

@@ -120,6 +120,7 @@ import {
 import { platformAiCostTotals, sessionAiCostTotals, workerAiCostTotals } from "./ai-cost";
 import { workerFeedback } from "./feedback";
 import { aiCallTraces } from "./ai-trace";
+import { deleteForensics } from "./delete-forensics";
 
 export * from "./worker";
 export * from "./skill";
@@ -359,4 +360,10 @@ export const schema = {
   employerProfiles,
   payerCapabilities,
   payerMemberInvites,
+  // #1110 — declared by 0086 once the owner ruled the deletion trail stays. It belongs in
+  // THIS object, not only in the `export *` above: drizzle-kit reads the module's exports
+  // (so the snapshot always had it), but `schema` is hand-maintained and is what the RLS
+  // no-drift E2E counts against the live `pg_tables`. Missing here, a table that exists on
+  // every database reads as model drift.
+  deleteForensics,
 };
