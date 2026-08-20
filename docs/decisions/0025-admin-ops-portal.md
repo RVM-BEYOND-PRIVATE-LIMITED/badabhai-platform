@@ -303,7 +303,8 @@ guard's fail-closed `role: null`).
 | Capability | `super_admin` | `ops_admin` | `support` | `analyst` |
 |---|:---:|:---:|:---:|:---:|
 | Read events (explorer, filter on the 4 indexes) | ✅ | ✅ | ✅ | ✅ |
-| Read entities (workers/payers/jobs/postings — **faceless**, no PII) — `read_entities`, implemented BP-1 (PR #574) | ✅ | ✅ | ✅ | ✅ |
+| Read entities (workers/payers/jobs/postings — ids, enums, counts; **no contact PII**) — `read_entities`, implemented BP-1 (PR #574) | ✅ | ✅ | ✅ | ✅ |
+| **Read identities (the NAME behind an id, on the five entity/directory reads)** — `read_identity`, owner ruling 2026-08-18 reversing Decision 4 | ✅ | ✅ | ✅ | ❌ |
 | Read metrics / dashboards | ✅ | ✅ | ✅ | ✅ |
 | Export (PII-free events / aggregates) | ✅ | ✅ | ❌ | ❌ |
 | Suspend / reinstate a payer | ✅ | ✅ | ❌ | ❌ |
@@ -316,6 +317,16 @@ guard's fail-closed `role: null`).
 
 ✅ = allow, ❌ = deny. **Every cell not marked ✅ is denied.** (Export-for-`support` is denied so
 the PII-reveal role cannot also bulk-export; this separation is deliberate — see Decision 4.)
+
+**`read_identity` is ADDITIVE, never a gate on the route.** All four roles keep reaching the five
+reads on `read_entities`; the capability decides only whether that response carries the NAME field
+(`full_name` / `org_name` / `name`). An `analyst` gets the pre-ruling response byte for byte. The
+check therefore lives in `AdminIdentityService`, not in a second `@RequireAdminRole` — a route
+declares exactly one capability by design. Every disclosure is charged to a per-admin hourly/daily
+name budget (`ADMIN_IDENTITY_MAX_PER_{HOUR,DAY}`, default 300/1000, its own `admin_identity:*`
+Redis namespace) and writes an `admin.identity_viewed` row **before** anything is decrypted; an
+over-budget read degrades to the faceless projection rather than failing, so an identity control
+can never take out the `read_entities` floor beside it.
 
 ### 3.2 Enforcement mechanism
 
@@ -331,6 +342,21 @@ failure. `null`/unknown role → **deny** (fail-closed), never a privileged defa
 ## Decision 4 — PII-reveal policy: reason-gated, role-gated, audited, rate-limited, never bulk
 
 **Decided + MANDATORY security-engineer sign-off. This is the most sensitive admin capability.**
+
+> **PARTIALLY REVERSED, 2026-08-18 (owner ruling).** The "faceless entity list" half of this
+> decision — every admin row an opaque uuid, no names anywhere — is withdrawn: a console in which
+> every row is a uuid cannot be used to operate the product. Worker names now appear on the
+> workers LIST and DETAIL, organisation names on Companies/Agencies, admin names on the directory,
+> behind the new `read_identity` capability (§3.1) for `super_admin` / `ops_admin` / `support`;
+> `analyst` is denied. The CTO was shown the detail-only recommendation for v1 and chose both.
+>
+> **Everything below still stands unchanged for CONTACT PII.** `workers.phone_e164` remains
+> reachable only through `POST /admin/workers/:id/reveal-contact` with all eight controls; the
+> name path is a separate capability, a separate Redis budget, a separate audit event, and it
+> never touches a phone, an email, or `mfa_secret_enc`. The two are deliberately not merged —
+> a name is a bulk egress that needed a bulk-shaped control (charged per name disclosed, bounded
+> at 50 per response), and a reveal is a single-subject act that needed a reason code. Sharing one
+> budget would have let routine console browsing exhaust the incident-response budget.
 
 Worker contact PII (`workers.phone_e164`) is encrypted at rest; the only decryptor is
 [`PiiCryptoService.decrypt`](../../apps/api/src/common/pii-crypto.service.ts). Support
@@ -412,8 +438,17 @@ enums + codes only:
 | `admin.action_performed` | the **target entity** (`payer`/`worker`/`job_posting`/…) | `{ admin_id, action_code, target_id }` — **action CODE + target id only, NO values** | one row per governed mutation; the *what-changed* is the action code, never old/new values |
 | `admin.pii_viewed` | `worker` | `{ admin_id, worker_id (== subject), reason_code }` — **NEVER the PII value** | the Decision-4 audit fact; emitted **before** the value is returned |
 
-The faceless rule holds: `admin_id`/`target_id`/`worker_id` are opaque UUIDs; admin email,
-worker phone/name, and any reveal value **never** appear. `admin.action_performed` carries an
+Two further events were added by the 2026-08-18 identity ruling, both PII-FREE on the same terms:
+
+| Event | Subject | Payload (PII-free) | Notes |
+|---|---|---|---|
+| `admin.identity_viewed` | `admin_session` | `{ admin_id, surface, subject_id, result_count }` — `surface` is a closed enum (`workers \| payers \| admins`); `subject_id` is the entity on a DETAIL read and **null on a list**; **never a name** | one row per RESPONSE, never per subject — fifty rows a page view would turn the spine into a queryable "which workers has anyone looked at" index, which is an inference surface a privacy control must not be the thing to create. Emitted **before** any decrypt; awaited, fail-closed |
+| `admin.identity_cap_exceeded` | `admin_session` | `{ admin_id, window }` (enum: `hour \| day`) — **no surface, no subject id, no name** | the velocity breach. A cap trip is about an ACCOUNT, and naming the screen would let the alert stream be read as a coarse browsing history. Emitted in addition to the degraded (faceless) response, and its own failure is logged rather than thrown — see Decision 4's reversal note |
+
+The faceless rule holds where it still applies: `admin_id`/`target_id`/`worker_id` are opaque
+UUIDs; admin email, worker phone, and any reveal value **never** appear. Since 2026-08-18 a
+worker/organisation/admin NAME may appear in a RESPONSE BODY on the five identity reads — never
+in an event payload, a log line, or a bound query parameter. `admin.action_performed` carries an
 **action code**, never the changed values, so the spine learns *that* a payer was suspended (and
 by whom) without leaking anything sensitive — consistent with how `pricing.*` records changed
 field **keys** not values.
@@ -594,6 +629,12 @@ the `read_entities` floor all four roles hold. Broad access is the reason the tr
 not a reason it need not. Ordinary faceless reads (`/admin/workers`, `/admin/payers`,
 `/admin/finance/*`, `/admin/dashboard/summary`) stay unaudited; a read is not a state change,
 and auditing all of them would bury the two that matter.
+
+**Amended 2026-08-18.** Those same routes now emit `admin.identity_viewed` **when, and only when,
+they actually disclose a name.** That is the principle above applied unchanged, not an exception
+to it: a decrypted name IS materially more sensitive than an entity snapshot. The faceless
+response on the identical route still emits nothing — an `analyst`'s `/admin/workers` is exactly
+as unaudited as it was — so what is audited is the disclosure, never the read.
 
 | Event | Subject | Payload (PII-free) | Notes |
 |---|---|---|---|

@@ -62,14 +62,6 @@ export class AdminEntitiesService {
   ) {}
 
   /**
-   * Turn `limit + 1` fetched rows into a page plus an HONEST `nextCursor`.
-   *
-   * Over-fetching by one is what makes it honest. Deriving the cursor from "we returned
-   * exactly `limit` rows" produces a phantom next page whenever the total is an exact
-   * multiple of the page size — the operator clicks Next and lands on an empty screen,
-   * which reads as data loss rather than as the end of the list.
-   */
-  /**
    * The page size this REQUEST will actually use.
    *
    * A page that will carry names is clamped to {@link ADMIN_IDENTITY_PAGE_MAX}; a faceless one
@@ -89,6 +81,14 @@ export class AdminEntitiesService {
       : requested;
   }
 
+  /**
+   * Turn `limit + 1` fetched rows into a page plus an HONEST `nextCursor`.
+   *
+   * Over-fetching by one is what makes it honest. Deriving the cursor from "we returned
+   * exactly `limit` rows" produces a phantom next page whenever the total is an exact
+   * multiple of the page size — the operator clicks Next and lands on an empty screen,
+   * which reads as data loss rather than as the end of the list.
+   */
   private static page<T extends { id: string; created_at: Date }>(
     rows: T[],
     limit: number,

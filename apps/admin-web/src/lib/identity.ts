@@ -10,7 +10,12 @@
  * and its presence is itself an answer:
  *
  *   key ABSENT   — nothing was disclosed on this response.
- *   key NULL     — disclosed, and nobody has ever recorded a name for this row.
+ *   key NULL     — disclosed, and no name came back: either none is recorded, or the stored one
+ *                  did not decrypt (the server degrades a failed decrypt to null rather than
+ *                  500ing an operations list). WHICH of the two depends on the column: it is
+ *                  almost always the former on `workers`/`admin_users`, whose name columns are
+ *                  NULLABLE, and can only be the latter on `payers`, whose `org_name_enc` is
+ *                  `NOT NULL`. See NO_NAME_ON_RECORD / NAME_UNREADABLE at the bottom of the file.
  *   key STRING   — the stored name, decrypted for this one response.
  *
  * Collapsing absent into null is the specific mistake worth preventing. A dash under a "Name"
@@ -96,5 +101,27 @@ export function displayName(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-/** Hover copy for the dash. It must say ABSENT-ON-RECORD, because that is all a dash can mean. */
+/**
+ * Hover copy for the dash, on a surface whose name column is NULLABLE.
+ *
+ * `workers.full_name` and `admin_users.name_enc` are both nullable, and both are routinely
+ * unset — the admin invite flow never collects a name at all — so on those two surfaces "nobody
+ * recorded one" is the overwhelmingly likely truth and is what the dash should say.
+ */
 export const NO_NAME_ON_RECORD = "No name on record for this account.";
+
+/**
+ * Hover copy for the dash on a NOT-NULL name column — today only `payers.org_name_enc`.
+ *
+ * `packages/db/src/schema/payer.ts` declares `org_name_enc` as `.notNull()`, and
+ * `payers.repository.ts` always writes a ciphertext on signup, so a payer with no org name is a
+ * row that cannot exist. A dash here therefore does NOT mean "none was recorded" — the only
+ * things it can mean are that the stored ciphertext failed to decrypt (a retired or rotated
+ * key, a kid missing from the keyring, corruption — `AdminIdentityService.decryptOrNull`
+ * degrades all three to `null`) or that the stored name is blank whitespace.
+ *
+ * Printing NO_NAME_ON_RECORD here would tell an operator that a paying customer never supplied
+ * a name, when the truth is that the platform can no longer read the one it holds — a difference
+ * that matters on a screen with a suspend button on it.
+ */
+export const NAME_UNREADABLE = "No readable name is stored for this account.";

@@ -193,6 +193,53 @@ describe("directory service", () => {
     expect(res.admins[1]).toMatchObject({ id: "a-2", name: null });
   });
 
+  it("above the 50-name bound it serves faceless WITHOUT calling the identity layer", async () => {
+    // This route is deliberately unpaginated (`ADMIN_DIRECTORY_MAX = 500`), so past the 51st
+    // account the identity service refuses the whole set. That refusal is CORRECT — naming only
+    // the first fifty would report the rest as `name: null`, which on this contract means "no
+    // name on record", a lie shaped like data on the one screen whose job is security audit.
+    //
+    // What was wrong is where it was detected. `resolve` logs its bound refusal at ERROR on the
+    // stated grounds that it can only mean a caller forgot to clamp — a CALLER BUG. This caller
+    // is not one; the unpaginated shape is deliberate and documented. So every load of `/admins`
+    // on a deployment with 51+ admins emitted an ERROR-level line, permanently, for a steady
+    // state no code change can fix. In a repo where ERROR is an alerting level, that is how a
+    // real alert gets trained away.
+    const list = vi.fn(async () => Array.from({ length: 51 }, (_, i) => ({ id: `a-${i}` })));
+    const resolve = vi.fn(async () => new Map());
+    const identity = {
+      resolve,
+      isPermitted: vi.fn(() => true),
+    } as unknown as AdminIdentityService;
+    const res = await new AdminDirectoryService(repoStub({ list } as never), identity).directory(
+      me,
+      {} as never,
+      CTX,
+    );
+    expect(resolve).not.toHaveBeenCalled();
+    // Every row faceless — the row data itself is untouched, which is the whole point.
+    expect(res.admins).toHaveLength(51);
+    for (const row of res.admins) expect(row).not.toHaveProperty("name");
+  });
+
+  it("...and AT the bound it still resolves, so the check is `>` and not `>=`", async () => {
+    // An off-by-one here would silently drop names from a 50-admin deployment and look like the
+    // cap doing its job.
+    const list = vi.fn(async () => Array.from({ length: 50 }, (_, i) => ({ id: `a-${i}` })));
+    const resolve = vi.fn(async () => new Map([["a-0", "Divyanshu"]]));
+    const identity = {
+      resolve,
+      isPermitted: vi.fn(() => true),
+    } as unknown as AdminIdentityService;
+    const res = await new AdminDirectoryService(repoStub({ list } as never), identity).directory(
+      me,
+      {} as never,
+      CTX,
+    );
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(res.admins[0]).toMatchObject({ id: "a-0", name: "Divyanshu" });
+  });
+
   it("leaves rows untouched when identity discloses nothing (no `name` KEY at all)", async () => {
     // A null `name` would claim the name was disclosed and found empty. An absent key is the
     // honest answer for a caller who was shown none.

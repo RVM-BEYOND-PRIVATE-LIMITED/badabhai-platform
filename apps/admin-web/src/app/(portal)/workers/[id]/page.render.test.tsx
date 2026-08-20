@@ -189,6 +189,16 @@ describe("an entitled admin whose budget is spent", () => {
     const out = await render();
     expect(out).not.toContain("Names are not served to your role");
   });
+
+  it("does NOT claim a name was decrypted, eight lines under a banner saying none was", async () => {
+    // The Record panel's subtitle was a two-way branch (`posture === "faceless" ? … : …`) over a
+    // THREE-valued posture, so `capped` fell through into the named copy — the page rendered
+    // "Names are withheld on this page" and then, in the panel below, "The name is decrypted for
+    // this response only." Both on the same screen, one of them false.
+    const out = await render();
+    expect(out).not.toContain("The name is decrypted for this response only");
+    expect(out).toContain("No name was decrypted for this response");
+  });
 });
 
 describe("the deletion banner still wins its own space", () => {

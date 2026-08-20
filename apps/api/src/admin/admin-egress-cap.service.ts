@@ -186,7 +186,21 @@ export class AdminEgressCapService {
     return "unknown";
   }
 
-  /** UTC hour stamp `YYYYMMDDHH` (key namespace + rolling window). */
+  /**
+   * UTC hour stamp `YYYYMMDDHH` — a FIXED calendar-hour window, not a rolling one.
+   *
+   * The counter key changes at :00 and the old key expires, so the budget resets on the wall
+   * clock rather than sliding. The consequence is a boundary burst: an admin who spends the
+   * whole hourly budget at 11:59:30Z can spend it again at 12:00:01Z, i.e. up to 2x the hourly
+   * figure inside a minute. The DAY counter is unaffected and still bounds the same span, which
+   * is what keeps the burst finite (four such bursts reach the daily cap).
+   *
+   * Left fixed rather than made rolling because this arithmetic predates the identity cap — it
+   * is `AdminPiiRevealCapService`'s, moved here verbatim when the class was generalised — and a
+   * sliding window is a different data structure (a sorted set of timestamps, not an INCRBY), so
+   * changing it changes the reveal cap's behaviour too. Worth doing; not worth doing silently in
+   * a change about names. Stated here so the next reader is not told "rolling" by a comment.
+   */
   private static utcHourStamp(now: Date = new Date()): string {
     return `${AdminEgressCapService.utcDayStamp(now)}${String(now.getUTCHours()).padStart(2, "0")}`;
   }

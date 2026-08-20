@@ -62,11 +62,39 @@ const nextConfig = {
           // agree rather than each assuming the other did it.
           //
           // Applied to `/:path*` unconditionally rather than only to the name-bearing routes:
-          // a caching header that varies by page is one refactor away from being wrong, and
-          // there is nothing under this origin worth caching in the first place — every page
-          // is `force-dynamic` operational data behind an admin session.
+          // a caching header that varies by page is one refactor away from being wrong, and no
+          // PAGE under this origin is worth caching — every one is `force-dynamic` operational
+          // data behind an admin session. The build's own hashed assets are the one exception,
+          // and they are put back below rather than carved out of the pattern here, so the
+          // security headers keep their unconditional `/:path*` scope.
           { key: "Cache-Control", value: "no-store" },
         ],
+      },
+      {
+        // THE BUILD OUTPUT, PUT BACK.
+        //
+        // MEASURED, not assumed: with only the rule above, `curl -I` on
+        // `/_next/static/chunks/<hash>.js` against a built server returned
+        // `Cache-Control: no-store`. Next applies `headers()` output to the response FIRST
+        // (`next/dist/server/lib/router-server.js`, `for (const key of Object.keys(resHeaders))
+        // res.setHeader(...)`) and only THEN decides its own static caching, behind
+        // `if (!res.getHeader('cache-control') && matchedOutput.type === 'nextStaticFolder')`.
+        // The `/:path*` rule has already set the header, so that guard is permanently false and
+        // `public, max-age=31536000, immutable` never runs — every content-hashed JS/CSS chunk
+        // in the portal is re-downloaded on every navigation.
+        //
+        // Safe to cache forever, for the same reason Next does it by default: everything under
+        // `/_next/static/` is named by a content hash of itself, so a changed file is a changed
+        // URL. It is compiled build output — no session, no operator data, no name has ever
+        // been in it. The `no-store` above is a claim about RESPONSE BODIES that may carry
+        // decrypted names, and this directory cannot contain one.
+        //
+        // A LATER RULE WINS: `resolve-routes.js` assembles matches with `resHeaders[key] =
+        // value`, so for a non-`set-cookie` key the last matching rule's value is the one sent.
+        // The four security headers above are NOT repeated here — they are still applied by the
+        // `/:path*` match, since both rules match and only `Cache-Control` collides.
+        source: "/_next/static/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
     ];
   },

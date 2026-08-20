@@ -525,6 +525,71 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     ).toEqual([`admin/${IDENTITY_REPO}`]);
   });
 
+  /**
+   * The at-rest column names, as POSTGRES spells them. The camelCase scans above anchor on the
+   * Drizzle property, which is the form a projection USUALLY takes — and is exactly the form a
+   * raw `sql` template does not use. `admin-entities.repository.ts` and
+   * `admin-dashboard.repository.ts` both already prefer `sql` for a projection when it suits
+   * them (`hasPhoto`, nine cost aggregates), so the idiom that slips past a camelCase scan is
+   * the house idiom, not an exotic one.
+   */
+  const RAW_PII_COLUMNS = [
+    "full_name",
+    "org_name_enc",
+    "name_enc",
+    "mfa_secret_enc",
+    "phone_e164",
+    "phone_hash",
+    "email_enc",
+    "email_hash",
+    "phone_enc",
+  ];
+
+  /** Every `sql\`…\`` / `sql<T>\`…\`` template literal in a source file. */
+  function sqlTemplates(src: string): string[] {
+    return [...src.matchAll(/sql(?:<[^>]*>)?`([^`]*)`/g)].map((m) => m[1]!);
+  }
+
+  it("NO raw `sql` template under admin/** names a PII column (the camelCase scans' blind spot)", () => {
+    // MEASURED, not assumed: adding
+    //   `.select({ id: sql<string>\`id\`, token: sql<string|null>\`full_name\` }).from(workers)`
+    // to `admin-dashboard.repository.ts` — the file the scan below calls the highest-risk one —
+    // passed all 77 guards and all 917 admin tests before this test existed. The entity
+    // repository survives the same mutation only because of its RUNTIME SQL-capture test
+    // (`admin-entities.repository.test.ts`), which no other repository has and which by
+    // construction only sees the queries a test happens to call.
+    //
+    // Scoped to `sql` TEMPLATES rather than to file text, because `full_name` is also the DTO
+    // field name on `AdminWorkerListItem` — `admin-entities.dto.ts` and `admin-entities.service.ts`
+    // both carry it legitimately, and a blanket text scan would fail on the response contract the
+    // ruling asked for. A column name inside a SQL template has no such second meaning.
+    const offenders: string[] = [];
+    for (const file of tsFiles(ADMIN_DIR)) {
+      const src = readFileSync(file, "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+      for (const tpl of sqlTemplates(src)) {
+        for (const col of RAW_PII_COLUMNS) {
+          if (tpl.includes(col)) {
+            offenders.push(`${relative(SRC_DIR, file).replace(/\\/g, "/")}: ${col}`);
+          }
+        }
+      }
+    }
+    expect(
+      offenders,
+      `a raw SQL template may not name a PII column. Offenders: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("...and that raw-SQL rule is CAPABLE of failing on the exact shape it exists to stop", () => {
+    // Prove the extractor sees both template forms, and does not fire on a DTO field name that
+    // merely looks like a column.
+    expect(sqlTemplates("sql<string | null>`full_name`")).toEqual(["full_name"]);
+    expect(sqlTemplates("sql`select full_name from workers`")).toEqual([
+      "select full_name from workers",
+    ]);
+    expect(sqlTemplates("const x = { full_name: names.get(id) ?? null };")).toEqual([]);
+  });
+
   it("the decrypt ALLOW-LIST is exactly three files — matched on `.decrypt(`, not on a count", () => {
     // Decryption is the moment PII exists in this process, so the set of places it can happen is
     // pinned as a SET rather than a number. The whole list, and why each is in it:
@@ -542,10 +607,18 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     //    injected service `pii` today, so that anchor passes — and would keep passing for a
     //    fourth file that named its dependency `crypto`, `piiCrypto`, or destructured it. The
     //    method call is the invariant; the variable it hangs off is a naming convention.
+    //
+    // AND NOT ONLY THE METHOD FORM. `apps/api/src/common/crypto.ts` re-exports `decryptPii` and
+    // `decryptPiiWithKeyring` as FREE FUNCTIONS, and `SERVER_CONFIG.PII_ENCRYPTION_KEY` is
+    // injectable anywhere — so `decryptPii(token, key)` decrypts with no receiver and therefore
+    // no leading dot. MEASURED: a new admin file containing exactly that call passed all 77
+    // guards before this clause was added. A `.decrypt(`-only anchor proves the RECEIVER was
+    // generalised, which was never the hole.
+    const DECRYPT_CALL = /\.decrypt\s*\(|\bdecryptPii(?:WithKeyring)?\s*\(/;
     const decrypters = tsFiles(ADMIN_DIR)
       .filter((f) => {
         const src = readFileSync(f, "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
-        return /\.decrypt\s*\(/.test(src);
+        return DECRYPT_CALL.test(src);
       })
       .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"))
       .sort();
@@ -558,15 +631,21 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     );
   });
 
-  it("...and that allow-list pattern is CAPABLE of failing on a differently-named receiver", () => {
-    // Prove the widened anchor actually buys something: the shape the `pii.decrypt(` form could
-    // not see is the ONLY reason this scan was rewritten, so pin that it now matches.
-    const pattern = /\.decrypt\s*\(/;
+  it("...and that allow-list pattern is CAPABLE of failing on a receiver-free decrypt", () => {
+    // Prove the widened anchor actually buys something. The receiver cases were the original
+    // rationale; the FREE-FUNCTION cases are the ones a real mutation walked through.
+    const pattern = /\.decrypt\s*\(|\bdecryptPii(?:WithKeyring)?\s*\(/;
     expect(pattern.test("return this.pii.decrypt(token);")).toBe(true);
     expect(pattern.test("return this.crypto.decrypt(token);")).toBe(true);
     expect(pattern.test("return piiCrypto.decrypt (token);")).toBe(true);
-    // ...and does not fire on prose-free code that merely mentions the word.
+    // The shape that shipped past the previous anchor: no receiver, no dot.
+    expect(pattern.test("return decryptPii(token, key);")).toBe(true);
+    expect(pattern.test("return decryptPiiWithKeyring(token, keyring);")).toBe(true);
+    expect(pattern.test("const { decryptPii } = crypto; decryptPii (t, k);")).toBe(true);
+    // ...and does not fire on prose-free code that merely mentions the word, or on the ENCRYPT
+    // half — writing a name is not a disclosure and no admin file should be blocked for it.
     expect(pattern.test("const decrypted = false;")).toBe(false);
+    expect(pattern.test("return encryptPii(name, key);")).toBe(false);
   });
 
   it("the identity repository issues no write against any table", () => {
@@ -681,6 +760,30 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     ) ?? []) as Array<{ name: string; value: string }>;
     return headers.find((h) => h.name.toLowerCase() === "cache-control")?.value;
   }
+
+  it("EXACTLY TWO non-test files reach the identity layer (the no-store derivation's own input)", () => {
+    // `nameBearingHandlers` derives METHODS from source, which is the right shape — but it is
+    // only ever CALLED with two hardcoded filenames, so the derivation is wrapped in exactly the
+    // hand-kept list its own header says a hand-kept list is what a new route gets left off.
+    //
+    // MEASURED: a new `admin-lookup.service.ts` calling `this.identity.resolve(` plus a wired
+    // `@Get("lookup")` controller with NO `@Header("Cache-Control", "no-store")`, no page clamp
+    // and `ids` taken straight off a query string passed all 77 guards, all 917 admin tests and
+    // `tsc --noEmit`. `admin.module.boot.test.ts` uses `toContain`, so registering it was
+    // additive too. This closes that: a third caller of the identity layer now fails HERE, and
+    // whoever adds it must extend the no-store derivation below in the same edit.
+    const callers = tsFiles(ADMIN_DIR)
+      .filter((f) => {
+        const src = readFileSync(f, "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+        return /this\.identity\.resolve\s*\(/.test(src);
+      })
+      .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"))
+      .sort();
+    expect(
+      callers,
+      `a new name-bearing service must be added to the no-store derivation below. Callers: ${callers.join(", ")}`,
+    ).toEqual(["admin/admin-directory.service.ts", "admin/admin-entities.service.ts"].sort());
+  });
 
   it("the DERIVED name-bearing handler set is exactly the five reads the ruling names", () => {
     // Pinned so the derivation cannot go vacuously empty. If it did, the no-store test below
@@ -1046,6 +1149,16 @@ describe("BP-5 dashboard route — guarded, read-only, and off the cost WRITER",
       "",
     );
     for (const forbidden of ["fullName", "orgNameEnc", "nameEnc", "phoneE164", "phoneHash", "emailEnc"]) {
+      expect(src, `admin-dashboard.repository must not project ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
+    // ...and the same columns as POSTGRES spells them. The list above anchors on the Drizzle
+    // property; this file already prefers a raw `sql` template for nine of its projections, and
+    // a `sql<string|null>\`full_name\`` here was measured to pass every guard in this file. The
+    // repo-wide `sql`-template scan in the identity block covers this too — restated here so the
+    // failure names the file rather than an aggregate.
+    for (const forbidden of ["full_name", "org_name_enc", "name_enc", "phone_e164", "email_enc"]) {
       expect(src, `admin-dashboard.repository must not project ${forbidden}`).not.toContain(
         forbidden,
       );

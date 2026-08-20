@@ -126,15 +126,20 @@ describe("when the account never recorded one", () => {
     expect(out).toContain("not who registered it");
   });
 
-  it("dashes the Registered name row — disclosed, and empty", () => {
+  it("dashes the Registered name row — disclosed, and UNREADABLE rather than unrecorded", () => {
+    // `payers.org_name_enc` is `NOT NULL`, so a null org_name on this surface can only be a
+    // failed decrypt (or blank whitespace) — never "nobody recorded one". The worker and admin
+    // surfaces keep the "No name on record" copy, because their name columns really are
+    // nullable and routinely unset.
     const out = render(UNNAMED, ENTITLED);
-    expect(out).toContain('title="No name on record for this account."');
+    expect(out).toContain('title="No readable name is stored for this account."');
+    expect(out).not.toContain("No name on record");
   });
 
   it("a BLANK registered name behaves exactly as a null one", () => {
     const out = render({ ...FACELESS, org_name: " " }, ENTITLED);
     expect(out).toContain('<h1 class="page__title mono">6155050c…</h1>');
-    expect(out).toContain('title="No name on record for this account."');
+    expect(out).toContain('title="No readable name is stored for this account."');
   });
 });
 
@@ -161,6 +166,15 @@ describe("an entitled admin whose budget is spent", () => {
     expect(out).toContain("hourly name budget");
     expect(out).not.toContain("No name on record");
     expect(out).not.toContain("not served to your role");
+  });
+
+  it("does NOT claim a registered name was decrypted, directly under the withheld banner", () => {
+    // Same defect as the worker detail page: a two-way branch over a three-valued posture put
+    // "The registered name is decrypted for this response only." on a response that decrypted
+    // nothing, immediately below the banner saying so.
+    const out = render(FACELESS, ENTITLED);
+    expect(out).not.toContain("The registered name is decrypted for this response only");
+    expect(out).toContain("No registered name was decrypted for this response");
   });
 });
 

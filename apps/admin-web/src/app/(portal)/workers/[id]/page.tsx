@@ -121,10 +121,16 @@ export default async function WorkerDetailPage({
             <h2 className="panel__title" id="w-identity">
               Record
             </h2>
+            {/* THREE-VALUED, like the posture. A two-way branch here put "The name is
+                decrypted for this response only." eight lines under a banner saying names
+                were withheld — the capped case fell into the `named` copy because it was
+                only ever tested for `faceless`. */}
             <p className="panel__sub">
               {posture === "faceless"
                 ? "Names are not served to your role, and contact never appears on a record read for any role — revealing a worker's phone is a separate, reason-gated action."
-                : "The name is decrypted for this response only. Contact never appears on a record read — revealing a worker's phone is a separate, reason-gated action."}
+                : posture === "capped"
+                  ? "No name was decrypted for this response — see above. Contact never appears on a record read either — revealing a worker's phone is a separate, reason-gated action."
+                  : "The name is decrypted for this response only. Contact never appears on a record read — revealing a worker's phone is a separate, reason-gated action."}
             </p>
           </div>
           <DetailList

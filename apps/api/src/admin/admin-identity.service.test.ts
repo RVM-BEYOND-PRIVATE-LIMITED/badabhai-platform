@@ -286,6 +286,34 @@ describe("the name-egress cap", () => {
     const h = harness({ cap: { ok: false, window: "hour" } });
     await expect(h.svc.resolve(admin("ops_admin"), "payers", [W1], null, CTX)).resolves.toBeNull();
   });
+
+  it("a FAILED breach emit still degrades to faceless — it must not 500 the read_entities floor", async () => {
+    // The over-cap path's `emitCapExceeded` used to be awaited with no `try`, so an `events`
+    // insert failure at that moment propagated out of `resolve` → `listPayers` → 500. MEASURED
+    // before the fix: `resolve` threw "events insert failed" instead of returning null.
+    //
+    // That inverted the invariant this class's own header states — "an ops_admin who has spent
+    // their name budget must still be able to list payers and suspend one". On THIS path no name
+    // is at stake (`resolve` is about to return null either way), so failing closed bought
+    // nothing and cost the faceless read. Contrast the `identity_viewed` emit in the disclosing
+    // path, which gates a real decrypt and MUST still propagate — pinned separately below.
+    const h = harness({ cap: { ok: false, window: "hour" }, emitRejects: true });
+    await expect(
+      h.svc.resolve(admin("ops_admin"), "payers", [W1], null, CTX),
+    ).resolves.toBeNull();
+    expect(h.emit).toHaveBeenCalledTimes(1);
+    expect(h.decrypt).not.toHaveBeenCalled();
+  });
+
+  it("...while a failed emit on the DISCLOSING path still propagates (audit-before-decrypt)", async () => {
+    // The anti-vacuity partner of the test above: proving the catch is scoped to the over-cap
+    // branch and did not quietly turn the whole class's fail-closed audit into best-effort.
+    const h = harness({ cap: { ok: true }, emitRejects: true });
+    await expect(h.svc.resolve(admin("ops_admin"), "workers", [W1], null, CTX)).rejects.toThrow(
+      "events insert failed",
+    );
+    expect(h.decrypt).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

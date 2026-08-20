@@ -58,14 +58,20 @@ describe("the named posture", () => {
     expect(out).toContain(`title="${PAYER_ID}"`);
   });
 
-  it("dashes an account that never recorded an organisation name", () => {
+  it("dashes an account whose organisation name did not come back", () => {
+    // The COPY is payer-specific, and that is the point. `payers.org_name_enc` is `NOT NULL` and
+    // is always written at signup, so a null here cannot mean "never recorded" — it can only be
+    // a decrypt failure (retired kid, rotated key, corruption; the server degrades all three to
+    // null rather than 500ing an operations list). Telling an operator that a paying customer
+    // never supplied a name, on a screen with a suspend button, would be a lie shaped like data.
     const out = render([UNNAMED], "named");
-    expect(out).toContain('title="No name on record for this account.">—</span>');
+    expect(out).toContain('title="No readable name is stored for this account.">—</span>');
+    expect(out).not.toContain("No name on record");
   });
 
   it("dashes a BLANK one rather than leaving the cell empty", () => {
     const out = render([{ ...FACELESS, org_name: "  " }], "named");
-    expect(out).toContain('title="No name on record for this account.">—</span>');
+    expect(out).toContain('title="No readable name is stored for this account.">—</span>');
   });
 
   it("keeps header and row widths in step", () => {

@@ -20,11 +20,17 @@ export type AdminIdentityMap = ReadonlyMap<string, string | null>;
  *
  * It lives HERE, at the single decrypt boundary, rather than only in each caller's page size,
  * because a bound that every caller has to remember is a bound the next caller forgets. The
- * paged entity lists clamp to this number so a permitted admin gets a full 50-row named page
- * (`ADMIN_IDENTITY_PAGE_MAX` in `admin-entities.dto.ts` is the same constant, re-exported for
- * the DTO layer); this check is the backstop that makes the bound TRUE for every caller —
- * including one added later that forgets to clamp, which is exactly the case a source scan
- * cannot see and a page-size default cannot stop.
+ * paged entity lists clamp to this number so a permitted admin gets a full 50-row named page;
+ * this check is the backstop that makes the bound TRUE for every caller — including one added
+ * later that forgets to clamp, which is exactly the case a source scan cannot see and a
+ * page-size default cannot stop.
+ *
+ * `ADMIN_IDENTITY_PAGE_MAX` in `admin-entities.dto.ts` is an INDEPENDENT literal of the same
+ * value — NOT a re-export of this one, and neither file imports the other. They are held equal
+ * by a drift test (`admin-static-guards.test.ts`, "the clamp equals the service's own bound"),
+ * because the DTO layer must not import from a service. Changing one alone does NOT move the
+ * other: a clamp raised above this bound means a permitted admin silently gets NO names at all
+ * instead of a smaller page of them, which is why the drift test exists rather than a comment.
  *
  * Over the bound the read discloses NOTHING — not "the first fifty". A partially-named page
  * would report the unnamed rows as `name: null`, which on this contract MEANS "disclosed, and
@@ -56,6 +62,9 @@ export const ADMIN_IDENTITY_MAX_SUBJECTS = 50;
  *     will actually disclose. Counted from the CIPHERTEXT, before any plaintext exists.
  *  5. EGRESS CAP, charged `result_count` — a page of fifty names costs fifty. Over-cap (or a
  *     Redis error) → emit the PII-free `admin.identity_cap_exceeded` breach and return `null`.
+ *     That emit is the ONE awaited write here whose failure does NOT propagate: nothing is
+ *     disclosed on this path regardless, so throwing would only take out the faceless read
+ *     beside it. It is logged at ERROR instead. See the call site.
  *  6. AUDIT-BEFORE-DECRYPT — emit `admin.identity_viewed` and AWAIT its commit BEFORE any
  *     plaintext is computed. If the emit FAILS the exception propagates and we never reach the
  *     decrypt: fail closed, exactly as `AdminPiiRevealService` does for the phone.
@@ -146,7 +155,28 @@ export class AdminIdentityService {
     // --- 5. EGRESS CAP, charged per disclosure. Fail-closed on a Redis error.
     const capResult = await this.cap.consume(admin.id, resultCount);
     if (!capResult.ok) {
-      await this.emitCapExceeded(admin.id, capResult.window, ctx);
+      // The breach emit is best-effort HERE, and only here, which is the opposite of step 6 and
+      // deliberately so. Step 6 gates a DISCLOSURE: if that row cannot be written, the name must
+      // not be computed, so its failure propagates. On THIS path nothing is disclosed either way
+      // — `resolve` returns `null` two lines down — so letting an `events` insert failure escape
+      // would buy no privacy and would 500 the FACELESS read travelling in the same request,
+      // breaking the `read_entities` floor this class's header promises survives an exhausted
+      // budget ("an ops_admin who has spent their name budget must still be able to list payers
+      // and suspend one"). The reveal route can let the same failure throw because a reveal is
+      // all that route does; an entity list is not. MEASURED before this catch existed: `resolve`
+      // threw "events insert failed" out to the caller instead of returning null.
+      //
+      // The failure is LOUD (ERROR) rather than swallowed: a breach nobody recorded is a breach
+      // nobody will see, so it must page someone even though it cannot fail the request.
+      try {
+        await this.emitCapExceeded(admin.id, capResult.window, ctx);
+      } catch (err) {
+        this.logger.error(
+          `could not record admin.identity_cap_exceeded for admin_id=${admin.id.slice(0, 8)}… ` +
+            `window=${capResult.window}; names were STILL withheld (reason: ` +
+            `${AdminIdentityService.failureName(err)})`,
+        );
+      }
       return null;
     }
 
@@ -206,6 +236,20 @@ export class AdminIdentityService {
       );
       return null;
     }
+  }
+
+  /**
+   * A BOUNDED name for a failure, for the one log line that reports a failed breach emit.
+   *
+   * Deliberately NOT `err.message`: an `events` insert failure can surface a driver error whose
+   * message embeds the statement, and a statement's bound parameters are not something this
+   * class gets to vouch for. The error's CLASS is the operational signal; the message is
+   * untrusted free text this repository never wrote. Same reasoning, and the same shape, as
+   * `AdminEgressCapService.failureCode`.
+   */
+  private static failureName(err: unknown): string {
+    const name = (err as { name?: unknown } | null)?.name;
+    return typeof name === "string" && /^[A-Za-z][A-Za-z0-9]{0,31}$/.test(name) ? name : "unknown";
   }
 
   /**

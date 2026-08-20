@@ -1,9 +1,9 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type { AdminRole } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import type { AuthenticatedAdmin } from "./admin-auth.guard";
 import { AdminDirectoryRepository } from "./admin-directory.repository";
-import { AdminIdentityService } from "./admin-identity.service";
+import { AdminIdentityService, ADMIN_IDENTITY_MAX_SUBJECTS } from "./admin-identity.service";
 import {
   ADMIN_CAPABILITIES,
   ADMIN_CAPABILITY_MATRIX,
@@ -20,6 +20,8 @@ const ROLES: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
 
 @Injectable()
 export class AdminDirectoryService {
+  private readonly logger = new Logger(AdminDirectoryService.name);
+
   constructor(
     private readonly repo: AdminDirectoryRepository,
     private readonly identity: AdminIdentityService,
@@ -44,9 +46,9 @@ export class AdminDirectoryService {
    * shaped like data, on the one screen whose job is security audit. Truncating the LIST to
    * fifty would drop admin accounts off that screen to make room for names, which inverts what
    * the screen is for. Serving every row faceless keeps the audit answer complete and honest,
-   * and the identity service logs the refusal at ERROR so it is diagnosable rather than
-   * mysterious. If the platform ever runs >50 admins the fix is to paginate this route — a
-   * deliberate change to a shipped contract, not a silent one.
+   * and the refusal is LOGGED so it is diagnosable rather than mysterious. If the platform ever
+   * runs >50 admins the fix is to paginate this route — a deliberate change to a shipped
+   * contract, not a silent one.
    */
   async directory(
     admin: AuthenticatedAdmin,
@@ -59,14 +61,33 @@ export class AdminDirectoryService {
       // keys" must not change because someone filtered the table to `support`.
       this.repo.countActiveSuperAdmins(),
     ]);
-    const names = await this.identity.resolve(
-      admin,
-      "admins",
-      admins.map((a) => a.id),
-      // Unpaginated LIST, so no single subject — the same shape as the entity lists.
-      null,
-      ctx,
-    );
+    // The over-bound case is DETECTED HERE rather than left to the identity service's backstop.
+    // Both refuse identically (every row faceless) — but `resolve` logs its refusal at ERROR, on
+    // the stated grounds that it can only mean "a name-bearing list forgot to clamp", i.e. a
+    // CALLER BUG. This caller is not one: the unpaginated shape is deliberate and documented
+    // above, so past the 51st admin account every single load of `/admins` would emit an
+    // ERROR-level line, forever, for a steady state nobody can fix from the code. In a repo
+    // where ERROR is an alerting level, that is how a real alert gets trained away.
+    //
+    // So it is a WARN naming the actual remedy, and the backstop in `resolve` keeps its ERROR
+    // meaning for the case it was written for.
+    const overBound = admins.length > ADMIN_IDENTITY_MAX_SUBJECTS;
+    if (overBound && this.identity.isPermitted(admin)) {
+      this.logger.warn(
+        `admin directory holds ${admins.length} accounts, above the ${ADMIN_IDENTITY_MAX_SUBJECTS}-name ` +
+          `response bound; serving every row WITHOUT a name. Paginate this route to restore names.`,
+      );
+    }
+    const names = overBound
+      ? null
+      : await this.identity.resolve(
+          admin,
+          "admins",
+          admins.map((a) => a.id),
+          // Unpaginated LIST, so no single subject — the same shape as the entity lists.
+          null,
+          ctx,
+        );
     return {
       admins: names ? admins.map((a) => ({ ...a, name: names.get(a.id) ?? null })) : admins,
       active_super_admins: activeSuperAdmins,

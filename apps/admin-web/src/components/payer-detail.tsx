@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { JobPostingListItem, PayerDetail } from "../lib/entities";
-import { displayName, identityPosture } from "../lib/identity";
+import { NAME_UNREADABLE, displayName, identityPosture } from "../lib/identity";
 import { formatCount, formatRelative, formatTimestamp, shortId } from "../lib/format";
 import { can, type AdminCapability } from "../lib/auth/capabilities";
 import { StatusPill } from "./status-pill";
@@ -108,10 +108,15 @@ export function PayerDetailView({
             <h2 className="panel__title" id="p-record">
               Account
             </h2>
+            {/* THREE-VALUED, like the posture — see the worker detail page for the bug this
+                shape replaces: a capped response asserting a name had been decrypted, directly
+                under the banner saying none had. */}
             <p className="panel__sub">
               {posture === "faceless"
                 ? "The registered organisation name is not served to your role. Email and phone are encrypted at rest and are served to no role at all."
-                : "The registered name is decrypted for this response only. Email and phone are encrypted at rest and are served to no role at all."}
+                : posture === "capped"
+                  ? "No registered name was decrypted for this response — see above. Email and phone are encrypted at rest and are served to no role at all."
+                  : "The registered name is decrypted for this response only. Email and phone are encrypted at rest and are served to no role at all."}
             </p>
           </div>
           <DetailList
@@ -121,7 +126,8 @@ export function PayerDetailView({
                 ? [
                     {
                       label: "Registered name",
-                      value: <NameCell value={payer.org_name} />,
+                      // `org_name_enc` is NOT NULL — a dash is unreadable, not unrecorded.
+                      value: <NameCell value={payer.org_name} absentTitle={NAME_UNREADABLE} />,
                     },
                   ]
                 : []),

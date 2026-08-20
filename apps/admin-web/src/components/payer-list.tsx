@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { PayerListItem } from "../lib/entities";
-import type { IdentityPosture } from "../lib/identity";
+import { NAME_UNREADABLE, type IdentityPosture } from "../lib/identity";
 import { formatRelative, formatTimestamp, shortId } from "../lib/format";
 import { StatusPill } from "./status-pill";
 import { NameCell } from "./name-cell";
@@ -76,7 +76,9 @@ export function PayerList({
             <tr key={p.id}>
               {posture === "named" && (
                 <td>
-                  <NameCell value={p.org_name} />
+                  {/* `payers.org_name_enc` is NOT NULL, so a dash here cannot mean "none was
+                      recorded" — see NAME_UNREADABLE. */}
+                  <NameCell value={p.org_name} absentTitle={NAME_UNREADABLE} />
                 </td>
               )}
               {/* The id column stays: it is the join key onto the audit spine and the handle

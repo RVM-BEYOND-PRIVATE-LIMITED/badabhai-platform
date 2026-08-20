@@ -572,9 +572,12 @@ export const serverEnvSchema = z.object({
   // Redis error DENIES (never uncaps). An over-cap denial emits a PII-free breach event.
   ADMIN_PII_REVEAL_MAX_PER_HOUR: z.coerce.number().int().positive().default(10),
   ADMIN_PII_REVEAL_MAX_PER_DAY: z.coerce.number().int().positive().default(30),
-  // Per-ADMIN NAME-egress caps (ADR-0025 Decision 4, reversed 2026-08-18) over the same rolling
-  // UTC hour + UTC day, counted in the SEPARATE `admin_identity:*` Redis namespace by the same
-  // fail-closed AdminEgressCapService. A SECOND budget rather than a share of the reveal's,
+  // Per-ADMIN NAME-egress caps (ADR-0025 Decision 4, reversed 2026-08-18) over the same FIXED
+  // UTC hour + UTC day windows as the reveal cap above, counted in the SEPARATE
+  // `admin_identity:*` Redis namespace by the same fail-closed AdminEgressCapService. The
+  // windows are calendar-aligned, not sliding, so the hourly figure is burstable to ~2x across
+  // an hour boundary; the daily cap is what bounds that — see
+  // `AdminEgressCapService.utcHourStamp`. A SECOND budget rather than a share of the reveal's,
   // because these bound a DIFFERENT egress: the reveal hands over one worker's phone on a
   // reason-gated route, while an entity LIST hands over up to `limit` names in one request —
   // one `?limit=100` page would consume ten times the entire hourly reveal budget, so without

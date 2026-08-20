@@ -291,6 +291,72 @@ describe("names — the service merges exactly what identity disclosed", () => {
     expect(resolve).not.toHaveBeenCalled();
   });
 
+  // ── THE PAYER LIMB ──────────────────────────────────────────────────────────────────────
+  // Every assertion above about `full_name` had a `listPayers`/`getPayer` twin that was NOT
+  // covered, and all three of the following mutations were MEASURED to survive the entire
+  // 929-test admin suite before these tests existed. The shape of the gap was uniform: the
+  // worker path was pinned to the mutation bar, the payer path was pinned for `listPayers`'
+  // surface, clamp and cursor and nothing else.
+
+  it("getPayer 404s BEFORE any name is resolved (no budget spent, no audit row)", async () => {
+    // MUTATION THIS CATCHES: hoisting `this.identity.resolve(...)` above the `findPayer` /
+    // NotFoundException lines. A payer id that does not exist would then spend name budget and
+    // commit an `admin.identity_viewed` row for a disclosure that cannot happen. The worker
+    // mirror was pinned; this one was not, and the mutation shipped green.
+    const resolve = vi.fn(async () => new Map());
+    const svc = service({ findPayer: vi.fn(async () => undefined) } as never, identityStub(
+      resolve as never,
+    ));
+    await expect(svc.getPayer(admin(), "missing", CTX)).rejects.toThrow(NotFoundException);
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("getPayer MERGES the disclosed org_name onto the returned detail", async () => {
+    // MUTATION THIS CATCHES: replacing the merge with a bare `await this.identity.resolve(...);
+    // return payer;`. The console would spend the budget, write the audit row and decrypt the
+    // name — and then never return it, so every company/agency detail view silently loses its
+    // org name while the spine records that it was disclosed. The static guard cannot see this:
+    // it derives name-bearing handlers by scanning for `this.identity.resolve(`, which the
+    // mutation keeps.
+    const resolve = vi.fn(async () => new Map([["p-1", "Sharma Fabrication Pvt Ltd"]]));
+    const svc = service(
+      { findPayer: vi.fn(async () => ({ id: "p-1", role: "employer" })) } as never,
+      identityStub(resolve as never),
+    );
+    const payer = await svc.getPayer(admin(), "p-1", CTX);
+    expect(payer).toMatchObject({ id: "p-1", org_name: "Sharma Fabrication Pvt Ltd" });
+    expect(resolve).toHaveBeenCalledWith(expect.anything(), "payers", ["p-1"], "p-1", CTX);
+  });
+
+  it("getPayer keeps org_name ABSENT when identity disclosed nothing", async () => {
+    // The other half of the three-state contract on the detail read: not a null, which would
+    // claim the name was disclosed and found empty.
+    const svc = service(
+      { findPayer: vi.fn(async () => ({ id: "p-1", role: "employer" })) } as never,
+    );
+    const payer = await svc.getPayer(admin("analyst"), "p-1", CTX);
+    expect(payer).not.toHaveProperty("org_name");
+  });
+
+  it("listPayers asks for the RETURNED page only — never the peeked `limit + 1` row", async () => {
+    // MUTATION THIS CATCHES: `page.items.map((p) => p.id)` → `rows.map((p) => p.id)`. Every
+    // payer page would audit and charge one name more than the admin was shown — the audit trail
+    // and the egress budget both describing reading that did not happen, which is the exact
+    // property the `listWorkers` twin of this test exists to protect.
+    const resolve = vi.fn(async () => new Map());
+    const svc = service({ listPayers: vi.fn(async () => rows(6)) } as never, identityStub(
+      resolve as never,
+    ));
+    await svc.listPayers(admin(), { limit: 5 } as never, CTX);
+    expect(resolve).toHaveBeenCalledWith(
+      expect.anything(),
+      "payers",
+      ["id-0", "id-1", "id-2", "id-3", "id-4"],
+      null,
+      CTX,
+    );
+  });
+
   it("the SESSION admin is what gets handed to the gate — never anything from the DTO", async () => {
     const resolve = vi.fn(async () => new Map());
     const svc = service({}, identityStub(resolve as never));
