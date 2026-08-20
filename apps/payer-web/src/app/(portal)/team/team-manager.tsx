@@ -19,8 +19,9 @@ import { inviteMemberAction, removeMemberAction } from "./actions";
  *
  * UI-1: both blocks are `panel`s — the invite form on the shared `form` spine, the directory as a
  * `panel--table` whose body is the `table` primitive with an empty `state` that says what to do
- * next. The action result is the neutral `alert` band (its tone stays UNSET because the component
- * only holds the message string, never the ok/fail flag — changing that would change behaviour).
+ * next. The action result is a TONED `alert` band — success (green ✓) or danger (red ⚠) driven by
+ * the action's `ok` flag, mirroring accept-invite. The message string is already PII-safe (it
+ * never echoes an email), so tone conveys outcome without becoming an enumeration oracle.
  */
 const ROLE_TONE: Record<OrgRole, "brand" | "neutral"> = { owner: "brand", recruiter: "neutral" };
 const STATUS_TONE: Record<OrgMemberStatus, "success" | "warning" | "neutral"> = {
@@ -31,7 +32,7 @@ const STATUS_TONE: Record<OrgMemberStatus, "success" | "warning" | "neutral"> = 
 
 export function TeamManager({ members }: { members: OrgMemberView[] }) {
   const [email, setEmail] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
 
   function onInvite(e: FormEvent) {
@@ -39,7 +40,7 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
     setMessage(null);
     startTransition(async () => {
       const res = await inviteMemberAction({ email });
-      setMessage(res.message);
+      setMessage({ ok: res.ok, text: res.message });
       if (res.ok) setEmail("");
     });
   }
@@ -48,7 +49,7 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
     setMessage(null);
     startTransition(async () => {
       const res = await removeMemberAction({ memberId });
-      setMessage(res.message);
+      setMessage({ ok: res.ok, text: res.message });
     });
   }
 
@@ -82,10 +83,13 @@ export function TeamManager({ members }: { members: OrgMemberView[] }) {
           </form>
           <div aria-live="polite" className="form-status">
             {message ? (
-              <div className="alert">
-                <i className="ph ph-info alert__icon" aria-hidden="true" />
+              <div className={`alert ${message.ok ? "alert--success" : "alert--danger"}`}>
+                <i
+                  className={`ph ${message.ok ? "ph-check-circle" : "ph-warning-circle"} alert__icon`}
+                  aria-hidden="true"
+                />
                 <div className="alert__text">
-                  <p className="alert__body">{message}</p>
+                  <p className="alert__body">{message.text}</p>
                 </div>
               </div>
             ) : null}

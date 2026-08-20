@@ -63,7 +63,7 @@
 .bb-btn--danger:hover { background: var(--danger-press); }
 .bb-btn--danger:active { transform: scale(0.97); }
 
-.bb-btn__spinner { width: 1.1em; height: 1.1em; border: var(--border-bold) solid currentColor; border-right-color: transparent; border-radius: var(--radius-round); animation: bb-spin 0.6s linear infinite; }
+.bb-btn__spinner { width: 1.1em; height: 1.1em; border: var(--border-bold) solid currentColor; border-right-color: transparent; border-radius: var(--radius-round); animation: bb-spin var(--duration-slower) linear infinite; }
 @keyframes bb-spin { to { transform: rotate(360deg); } }
 
 /* ---------- IconButton ---------- */
@@ -156,7 +156,9 @@
 .bb-switch input:focus-visible + .bb-switch__track { box-shadow: var(--ring-focus); }
 
 /* ---------- OTP input (brand) ---------- */
-.bb-otp { display: inline-flex; gap: var(--space-3); }
+/* The row WRAPS (and can scroll as a last-resort) so a 6-cell code never overflows a narrow
+   phone off-screen; the cells centre when they wrap onto a second line. */
+.bb-otp { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: var(--space-3); overflow-x: auto; }
 .bb-otp__cell {
   width: 52px; height: 60px; text-align: center;
   font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: var(--weight-bold);
@@ -166,6 +168,10 @@
 }
 .bb-otp__cell:focus { outline: none; border-color: var(--brand); box-shadow: var(--ring-focus); }
 .bb-otp__cell--filled { border-color: var(--brand); background: var(--brand-tint); }
+/* Narrow phones: shrink the cells so all six fit one line before wrapping is needed. */
+@media (max-width: 420px) {
+  .bb-otp__cell { width: 44px; height: 52px; font-size: var(--text-xl); }
+}
 
 /* ============================================================
    DISPLAY — Card, Badge, Chip, Avatar, StatTile.
@@ -208,7 +214,9 @@
   font-family: var(--font-sans); font-size: var(--text-xs); font-weight: var(--weight-bold);
   line-height: 1; padding: 5px 9px; border-radius: var(--radius-pill);
   border: 1.5px solid transparent; /* outline variant colors this (no box-shadow) */
-  letter-spacing: 0.01em; white-space: nowrap;
+  /* A status word must stay on one line (never break mid-word); on a narrow viewport the badge
+     is bounded by its container width rather than pushing the row wider than the screen. */
+  letter-spacing: 0.01em; white-space: nowrap; max-width: 100%;
 }
 .bb-badge .ph, .bb-badge .ph-fill { font-size: 1.15em; }
 .bb-badge--upper { text-transform: uppercase; letter-spacing: 0.08em; }

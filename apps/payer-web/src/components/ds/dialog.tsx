@@ -3,12 +3,14 @@
 /**
  * BadaBhai Design System — Dialog (centered modal / bottom sheet).
  *
- * Client primitive: wires Esc-to-close and scrim-click-to-close. Controlled via `open`.
- * Presentational only — the caller owns the open state + actions (e.g. confirm-on-spend
- * lives in the screen, not here). Prop contract mirrors
+ * Client primitive: wires Esc-to-close, scrim-click-to-close, and modal FOCUS management —
+ * on open it saves the trigger, moves focus into the dialog, and TRAPS Tab / Shift+Tab
+ * within the dialog's focusable set (wrapping first↔last); on close it restores focus to the
+ * trigger. Controlled via `open`. Presentational only — the caller owns the open state +
+ * actions (e.g. confirm-on-spend lives in the screen, not here). Prop contract mirrors
  * docs/design/.../components/feedback/Dialog.d.ts.
  */
-import { useEffect } from "react";
+import { useEffect, useId, useRef } from "react";
 import type { MouseEvent, ReactNode } from "react";
 
 export interface DialogProps {
@@ -37,6 +39,12 @@ export function Dialog({
   sheet = false,
   closeOnScrim = true,
 }: DialogProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // A per-instance id (never a shared literal) so two open dialogs can't collide their
+  // `aria-labelledby` target. Only wired when a title actually renders.
+  const generatedId = useId();
+  const titleId = title ? generatedId : undefined;
+
   useEffect(() => {
     if (!open) return undefined;
     const onKey = (e: globalThis.KeyboardEvent) => {
@@ -46,6 +54,58 @@ export function Dialog({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  // FOCUS MANAGEMENT — save the trigger, move focus in, trap Tab within the dialog, restore
+  // the trigger on close. Keyed on `open` so it arms exactly when the dialog is in the DOM.
+  useEffect(() => {
+    if (!open) return undefined;
+    const dialogEl = dialogRef.current;
+    if (!dialogEl) return undefined;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    const focusable = (): HTMLElement[] =>
+      Array.from(
+        dialogEl.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+
+    // Move focus into the dialog — its first focusable, else the dialog container itself.
+    const initial = focusable();
+    (initial[0] ?? dialogEl).focus();
+
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const items = focusable();
+      if (items.length === 0) {
+        e.preventDefault();
+        dialogEl.focus();
+        return;
+      }
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      const active = document.activeElement;
+      if (e.shiftKey) {
+        if (active === first || !dialogEl.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (active === last || !dialogEl.contains(active)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    dialogEl.addEventListener("keydown", onKeyDown);
+    return () => {
+      dialogEl.removeEventListener("keydown", onKeyDown);
+      // Restore focus to whatever opened the dialog (keyboard users land back where they were).
+      if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+        previouslyFocused.focus();
+      }
+    };
+  }, [open]);
+
   if (!open) return null;
 
   const onScrimClick = closeOnScrim
@@ -54,12 +114,11 @@ export function Dialog({
       }
     : undefined;
 
-  // Tie the dialog to its heading for screen readers (a11y) — only when a title exists.
-  const titleId = title ? "bb-dialog-title" : undefined;
-
   return (
     <div className={`bb-scrim ${sheet ? "bb-scrim--sheet" : ""}`} onClick={onScrimClick}>
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className={`bb-dialog ${sheet ? "bb-dialog--sheet" : ""}`}
         role="dialog"
         aria-modal="true"
