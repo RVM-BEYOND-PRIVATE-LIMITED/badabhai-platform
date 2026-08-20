@@ -5,6 +5,7 @@ import type { ServerConfig } from "@badabhai/config";
 import { PinController } from "./pin.controller";
 import { createHash } from "node:crypto";
 import { OtpRequestIdempotency } from "./otp-request-idempotency.service";
+import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import type { PinService } from "./pin.service";
 import type { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
@@ -215,7 +216,7 @@ describe("#1019 — POST /auth/pin/reset/request honours Idempotency-Key", () =>
       hashPhone: (p: string) => createHash("sha256").update(p).digest("hex"),
       hmac: (v: string) => createHash("sha256").update(v).digest("hex"),
     } as unknown as PiiCryptoService;
-    const seam = new OtpRequestIdempotency(pii, queue as never);
+    const seam = new OtpRequestIdempotency(pii, new RequestIdempotency(pii, queue as never));
 
     const pin = { resetRequest: vi.fn(async () => undefined) };
     const ipRateLimit = {

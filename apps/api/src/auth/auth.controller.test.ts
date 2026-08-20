@@ -12,6 +12,7 @@ import { OtpSendFailedException } from "../common/otp-send-failure";
 import { AuthController } from "./auth.controller";
 import { createHash } from "node:crypto";
 import { OtpRequestIdempotency } from "./otp-request-idempotency.service";
+import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import type { AuthService } from "./auth.service";
 import type { SessionService } from "./session.service";
 import type { OtpService } from "./otp.service";
@@ -791,7 +792,7 @@ describe("#1019 — POST /auth/otp/request honours Idempotency-Key", () => {
       hashPhone: (p: string) => createHash("sha256").update(p).digest("hex"),
       hmac: (v: string) => createHash("sha256").update(v).digest("hex"),
     } as unknown as PiiCryptoService;
-    const seam = new OtpRequestIdempotency(pii, queue as never);
+    const seam = new OtpRequestIdempotency(pii, new RequestIdempotency(pii, queue as never));
 
     const auth = {
       requestOtp: vi.fn(async () => ({
@@ -903,7 +904,7 @@ describe("#1023 — verify and account-delete honour Idempotency-Key", () => {
             // not one of our ciphertexts — pass it through so both users of this stub work.
             t,
     } as unknown as PiiCryptoService;
-    const seam = new OtpRequestIdempotency(pii, queue as never);
+    const seam = new OtpRequestIdempotency(pii, new RequestIdempotency(pii, queue as never));
 
     const auth = {
       verifyOtp: vi.fn(async () => ({ access_token: "at", refresh_token: "rt", pin_set: false })),

@@ -34,11 +34,16 @@ const bool kPersistentAuth =
 /// Absolute base for referral invite links (A3). The `POST /invites` response
 /// carries a SERVER-RELATIVE `link` (`/i/<code>`); the share sheet prepends this
 /// so the shared text is a tappable URL. Overridable per build:
-///   flutter run --dart-define=INVITE_LINK_BASE=https://app.badabhai.in
+///   flutter run --dart-define=INVITE_LINK_BASE=https://payer.43-204-36-199.sslip.io
 /// Trailing slash is trimmed by the caller. PII-free — the code is opaque.
+///
+/// #1144: points at the ruled INTERIM invite origin (#1138) — the host that
+/// actually serves `/.well-known/assetlinks.json` + `/i/<code>` (#1139). MUST
+/// match the App Link `android:host` in AndroidManifest.xml. The Lightsail IP is
+/// inside the hostname, so this WILL move — keep it one easy-to-change constant.
 const String kInviteLinkBase = String.fromEnvironment(
   'INVITE_LINK_BASE',
-  defaultValue: 'https://app.badabhai.in',
+  defaultValue: 'https://payer.43-204-36-199.sslip.io',
 );
 
 /// The build-time API base URL OVERRIDE. Supply it to point a build at a
