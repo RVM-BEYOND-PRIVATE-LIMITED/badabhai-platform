@@ -323,7 +323,7 @@ describe("AuthController", () => {
 
   it("verifyOtp delegates phone + otp (+ optional device_info) and passes through pin_set", async () => {
     const { controller, auth } = make();
-    const res = await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, CTX);
+    const res = await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, reqWith(), CTX);
     // device_info is undefined when the client omits it (ADR-0026 Phase 2 — additive/opt-in).
     expect(auth.verifyOtp).toHaveBeenCalledWith("+91999", "1234", CTX, undefined);
     // ADR-0026 Phase 4 — the controller surfaces pin_set unchanged from the service.
@@ -335,7 +335,7 @@ describe("AuthController", () => {
   it("verifyOtp: NEVER-consented worker (no row) → consent_accepted false", async () => {
     const { controller, consents } = make();
     (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
-    const res = await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, CTX);
+    const res = await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, reqWith(), CTX);
     expect(consents.findLatestByWorker).toHaveBeenCalledWith(WORKER.id);
     expect(res.consent_accepted).toBe(false);
   });
@@ -345,7 +345,7 @@ describe("AuthController", () => {
     (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       revokedAt: null,
     });
-    const res = await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, CTX);
+    const res = await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, reqWith(), CTX);
     expect(res.consent_accepted).toBe(true);
   });
 
@@ -354,7 +354,7 @@ describe("AuthController", () => {
     (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       revokedAt: new Date(),
     });
-    const res = await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, CTX);
+    const res = await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, reqWith(), CTX);
     expect(res.consent_accepted).toBe(false);
   });
 
@@ -366,7 +366,7 @@ describe("AuthController", () => {
     (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("db blip"),
     );
-    const res = await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, CTX);
+    const res = await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, reqWith(), CTX);
     expect(res.worker_id).toBe(WORKER.id);
     expect(res.access_token).toBe("tok");
     expect("consent_accepted" in res).toBe(false); // omitted, never a defaulted value
@@ -618,7 +618,7 @@ describe("AuthController", () => {
 
   it("accountDeleteRequest resolves the TOKEN worker's phone (never a body) and sends the OTP via the F4 signal seam", async () => {
     const { controller, workers, pii, auth } = make();
-    const res = await controller.accountDeleteRequest(WORKER, CTX);
+    const res = await controller.accountDeleteRequest(WORKER, reqWith(), CTX);
     expect(workers.findById).toHaveBeenCalledWith(WORKER.id);
     expect(pii.decrypt).toHaveBeenCalledWith("ENC(+91999)");
     // The send rides the SHARED AuthService seam (never otp.issueAndSend directly), so a
@@ -630,7 +630,7 @@ describe("AuthController", () => {
   it("accountDeleteRequest 401s when the token worker row is gone (no oracle, fail closed)", async () => {
     const { controller, workers, auth } = make();
     (workers.findById as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
-    await expect(controller.accountDeleteRequest(WORKER, CTX)).rejects.toBeInstanceOf(
+    await expect(controller.accountDeleteRequest(WORKER, reqWith(), CTX)).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
     expect(auth.issueAndSendWithSignals).not.toHaveBeenCalled();
@@ -644,7 +644,7 @@ describe("AuthController", () => {
     (auth.issueAndSendWithSignals as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new OtpSendFailedException({ provider: "fast2sms", reason: "transport" }),
     );
-    await expect(controller.accountDeleteRequest(WORKER, CTX)).rejects.toMatchObject({
+    await expect(controller.accountDeleteRequest(WORKER, reqWith(), CTX)).rejects.toMatchObject({
       status: 502,
       message: "Could not send the code, please retry",
     });
@@ -701,7 +701,7 @@ describe("AuthController", () => {
     // decrypted ciphertext. A would-be body worker_id can never redirect the OTP send.
     const { controller, workers, auth } = make();
     const VICTIM = "99999999-9999-4999-8999-999999999999";
-    await controller.accountDeleteRequest(WORKER, CTX);
+    await controller.accountDeleteRequest(WORKER, reqWith(), CTX);
     expect(workers.findById).toHaveBeenCalledWith(WORKER.id);
     expect(workers.findById).not.toHaveBeenCalledWith(VICTIM);
     expect(auth.issueAndSendWithSignals).toHaveBeenCalledWith("+91999", CTX);
@@ -709,7 +709,7 @@ describe("AuthController", () => {
 
   it("accountDeleteRequest NEVER returns the phone or the OTP — only success + resend_in_seconds", async () => {
     const { controller } = make();
-    const res = await controller.accountDeleteRequest(WORKER, CTX);
+    const res = await controller.accountDeleteRequest(WORKER, reqWith(), CTX);
     expect(res).toEqual({ success: true, resend_in_seconds: 30 });
     const json = JSON.stringify(res);
     // No decrypted phone, no E.164 run, no OTP code in the response body.
@@ -864,5 +864,164 @@ describe("#1019 — POST /auth/otp/request honours Idempotency-Key", () => {
 
     expect(auth.requestOtp).toHaveBeenCalledTimes(2);
     expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledTimes(2);
+  });
+});
+
+
+/**
+ * #1023 — the two remaining routes on the same retry ladder, with the REAL seam.
+ *
+ * The seam's own semantics live in `otp-request-idempotency.service.test.ts`. What can only be
+ * asserted HERE is that these two handlers actually read the header and pass the right scope —
+ * and, for verify, that the whole `withConsentAccepted` compose sits INSIDE the guarded work, so
+ * what a retry replays is the exact response the first attempt produced.
+ */
+describe("#1023 — verify and account-delete honour Idempotency-Key", () => {
+  function withRealSeam() {
+    const store = new Map<string, string>();
+    const redis = {
+      set: async (k: string, v: string, _m: string, _t: number, nx?: string) => {
+        if (nx === "NX" && store.has(k)) return null;
+        store.set(k, v);
+        return "OK";
+      },
+      get: async (k: string) => store.get(k) ?? null,
+    };
+    const queue = {
+      get client() {
+        return Promise.resolve(redis);
+      },
+    };
+    const pii = {
+      hashPhone: (v: string) => createHash("sha256").update(v).digest("hex"),
+      hmac: (v: string) => createHash("sha256").update(v).digest("hex"),
+      encrypt: (t: string) => `enc:${Buffer.from(t, "utf8").toString("base64")}`,
+      decrypt: (t: string) =>
+        t.startsWith("enc:")
+          ? Buffer.from(t.slice(4), "base64").toString("utf8")
+          : // The controller ALSO calls decrypt() on the stored phone in resolvePhone, which is
+            // not one of our ciphertexts — pass it through so both users of this stub work.
+            t,
+    } as unknown as PiiCryptoService;
+    const seam = new OtpRequestIdempotency(pii, queue as never);
+
+    const auth = {
+      verifyOtp: vi.fn(async () => ({ access_token: "at", refresh_token: "rt", pin_set: false })),
+      issueAndSendWithSignals: vi.fn(async () => ({ resendInSeconds: 30 })),
+    };
+    const workers = { findById: vi.fn(async () => ({ phoneE164: "+919876543210" })) };
+    const consents = { findLatestByWorker: vi.fn(async () => ({ revokedAt: null })) };
+    const config = { OTP_RESEND_COOLDOWN_SECONDS: 30 } as ServerConfig;
+
+    const controller = new AuthController(
+      auth as unknown as AuthService,
+      {} as unknown as SessionService,
+      workers as unknown as WorkersRepository,
+      {} as unknown as IpRateLimit,
+      {} as unknown as OtpService,
+      pii,
+      {} as unknown as AccountDeletionService,
+      consents as unknown as ConsentRepository,
+      seam,
+      config,
+    );
+    return { controller, auth, consents, store };
+  }
+
+  const key = (k: string) =>
+    reqWith({ header: ((h: string) => (h === "idempotency-key" ? k : undefined)) as never });
+
+  it("verify: one key across the ladder verifies ONCE — the attempt counter moves once", async () => {
+    const { controller, auth } = withRealSeam();
+    const body = { phone: "+919876543210", otp: "1234" } as never;
+
+    const a = await controller.verifyOtp(body, key("k-1"), CTX);
+    const b = await controller.verifyOtp(body, key("k-1"), CTX);
+    const c = await controller.verifyOtp(body, key("k-1"), CTX);
+
+    // ONE call to OtpService.verify — so `otp:attempts:<phoneHash>` moved once and the code was
+    // consumed once, instead of a correct code being counted three times and refused.
+    expect(auth.verifyOtp).toHaveBeenCalledTimes(1);
+    expect(b).toEqual(a);
+    expect(c).toEqual(a);
+  });
+
+  it("verify: replays the consent-composed RESPONSE, not a re-derived one", async () => {
+    // `withConsentAccepted` is inside `work`, so the consent read happens once too. If the
+    // compose sat outside the guard, a replay would re-read consent and could answer differently
+    // from the response the first attempt actually sent.
+    const { controller, consents } = withRealSeam();
+    const body = { phone: "+919876543210", otp: "1234" } as never;
+
+    const first = await controller.verifyOtp(body, key("k-2"), CTX);
+    const replay = await controller.verifyOtp(body, key("k-2"), CTX);
+
+    expect(consents.findLatestByWorker).toHaveBeenCalledTimes(1);
+    expect(replay).toEqual(first);
+    expect(first.consent_accepted).toBe(true);
+  });
+
+  it("verify: never leaves the tokens in Redis in the clear", async () => {
+    const { controller, store } = withRealSeam();
+    await controller.verifyOtp({ phone: "+919876543210", otp: "1234" } as never, key("k-3"), CTX);
+
+    const written = [...store.values()].join("\n");
+    expect(written.length).toBeGreaterThan(0);
+    expect(written).not.toContain('"access_token":"at"');
+    expect(written).not.toContain('"refresh_token":"rt"');
+  });
+
+  it("verify: a fresh key is a real second attempt — a worker retyping is never replayed", async () => {
+    const { controller, auth } = withRealSeam();
+    const body = { phone: "+919876543210", otp: "1234" } as never;
+
+    await controller.verifyOtp(body, key("k-4"), CTX);
+    await controller.verifyOtp(body, key("k-5"), CTX);
+
+    expect(auth.verifyOtp).toHaveBeenCalledTimes(2);
+  });
+
+  it("verify: a caller sending no header is unchanged (§3)", async () => {
+    const { controller, auth } = withRealSeam();
+    const body = { phone: "+919876543210", otp: "1234" } as never;
+
+    await controller.verifyOtp(body, reqWith(), CTX);
+    await controller.verifyOtp(body, reqWith(), CTX);
+
+    expect(auth.verifyOtp).toHaveBeenCalledTimes(2);
+  });
+
+  it("account-delete: one key across the ladder sends ONE OTP", async () => {
+    const { controller, auth } = withRealSeam();
+
+    const a = await controller.accountDeleteRequest(WORKER, key("d-1"), CTX);
+    const b = await controller.accountDeleteRequest(WORKER, key("d-1"), CTX);
+
+    // One call to the SHARED issueAndSendWithSignals — so the per-phone hourly/daily counters
+    // and the platform-wide breaker each moved once.
+    expect(auth.issueAndSendWithSignals).toHaveBeenCalledTimes(1);
+    expect(b).toEqual(a);
+    expect(a).toEqual({ success: true, resend_in_seconds: 30 });
+  });
+
+  it("account-delete: a fresh key still sends, so a deliberate resend works", async () => {
+    const { controller, auth } = withRealSeam();
+
+    await controller.accountDeleteRequest(WORKER, key("d-2"), CTX);
+    await controller.accountDeleteRequest(WORKER, key("d-3"), CTX);
+
+    expect(auth.issueAndSendWithSignals).toHaveBeenCalledTimes(2);
+  });
+
+  it("account-delete and verify cannot replay into each other on one reused key", async () => {
+    // Both routes resolve the SAME phone, so only the scope separates them. A client that
+    // reuses one UUID across the two must get two independent operations.
+    const { controller, auth } = withRealSeam();
+
+    await controller.verifyOtp({ phone: "+919876543210", otp: "1234" } as never, key("same"), CTX);
+    await controller.accountDeleteRequest(WORKER, key("same"), CTX);
+
+    expect(auth.verifyOtp).toHaveBeenCalledTimes(1);
+    expect(auth.issueAndSendWithSignals).toHaveBeenCalledTimes(1);
   });
 });

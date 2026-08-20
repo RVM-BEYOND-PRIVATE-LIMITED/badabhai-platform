@@ -39,12 +39,22 @@ function make(over: { redis?: unknown; failClient?: boolean } = {}) {
   // A REAL digest, not `hash_of_${phone}`. The stub has to be as opaque as the thing it stands
   // in for, or the "never the raw number" assertion below is testing the stub instead of the key
   // builder — and would pass for a production bug that interpolated the phone directly.
+  //
+  // `encrypt`/`decrypt` are a reversible stand-in rather than real AES, but they are NOT the
+  // identity function: the ciphertext must not contain the plaintext, or the "no bearer token
+  // at rest" assertions below would pass against a production bug that stored the response
+  // verbatim.
   const pii = {
     hashPhone: (p: string) => createHash("sha256").update(p).digest("hex"),
     hmac: (v: string) =>
       createHash("sha256")
         .update("pepper" + v)
         .digest("hex"),
+    encrypt: (plaintext: string) => `enc:${Buffer.from(plaintext, "utf8").toString("base64")}`,
+    decrypt: (token: string) => {
+      if (!token.startsWith("enc:")) throw new Error("not a ciphertext");
+      return Buffer.from(token.slice(4), "base64").toString("utf8");
+    },
   } as unknown as PiiCryptoService;
   const svc = new OtpRequestIdempotency(pii, queue as never);
   return { svc, client, store };
@@ -58,12 +68,19 @@ const IN_FLIGHT_REPLY = { success: true as const, channel: "sms" as const, resen
 const run = <T>(
   svc: OtpRequestIdempotency,
   work: () => Promise<T>,
-  over: { key?: string; phone?: string; scope?: string; inFlight?: () => T } = {},
+  over: {
+    key?: string;
+    phone?: string;
+    scope?: string;
+    inFlight?: () => T;
+    secret?: boolean;
+  } = {},
 ) =>
   svc.runOnce({
     scope: over.scope ?? "otp_request",
     phoneE164: over.phone ?? PHONE,
     idempotencyKey: "key" in over ? over.key : KEY,
+    secret: over.secret,
     work,
     inFlight: over.inFlight ?? (() => IN_FLIGHT_REPLY as unknown as T),
   });
@@ -376,5 +393,141 @@ describe("the Redis key is bounded, whatever the client sends", () => {
     await run(svc, work, { key: bigKey });
 
     expect(work).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+/**
+ * #1023 — `/auth/otp/verify` is on the same retry ladder, and its 200 is a CREDENTIAL.
+ *
+ * The send routes store their outcome in the clear, correctly: `{ success, channel,
+ * resend_in_seconds }` already went over the wire to this caller and carries nothing secret.
+ * Verify's 200 is a `LoginResponse` holding an access JWT and a refresh token, so storing it the
+ * same way would put bearer credentials in Redis in plaintext for the full window — which is
+ * exactly what `SessionService` refuses to do with the pair its own refresh grace caches.
+ *
+ * These assert the mechanism, not the route: that `secret: true` changes what lands in Redis,
+ * that a replay still reconstructs the value exactly, and that the plaintext never appears.
+ */
+const LOGIN = {
+  access_token: "eyJhbGciOiJIUzI1NiJ9.header.signature",
+  refresh_token: "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0",
+  pin_set: false,
+  consent_accepted: true,
+};
+
+describe("a credential-bearing outcome is stored as ciphertext (#1023)", () => {
+  it("never writes the access or refresh token into Redis in the clear", async () => {
+    const { svc, store } = make();
+    await run(svc, async () => LOGIN, { scope: "otp_verify", secret: true });
+
+    const written = [...store.values()].join("\n");
+    expect(written).not.toContain(LOGIN.access_token);
+    expect(written).not.toContain(LOGIN.refresh_token);
+    // And it is genuinely the stored blob being checked, not an empty store.
+    expect(written.length).toBeGreaterThan(0);
+  });
+
+  it("replays the SAME session to a duplicate, decrypting what it wrote", async () => {
+    const { svc } = make();
+    const work = vi.fn(async () => LOGIN);
+
+    const first = await run(svc, work, { scope: "otp_verify", secret: true });
+    const replayed = await run(svc, work, { scope: "otp_verify", secret: true });
+
+    // The whole point: the lost-response retry gets the session the first attempt minted,
+    // instead of a 401 for a code that was already correctly consumed.
+    expect(replayed).toEqual(first);
+    expect(replayed).toEqual(LOGIN);
+    // ONE verify. The attempt counter moved once and the code was consumed once.
+    expect(work).toHaveBeenCalledTimes(1);
+  });
+
+  it("the send routes are UNCHANGED — no `secret`, so their outcome stays plaintext", async () => {
+    // A regression guard in the other direction: encrypting by default would be a silent
+    // behaviour change to the routes #1019 shipped, and would make the stored blob unreadable
+    // to anyone debugging a send.
+    const { svc, store } = make();
+    await run(svc, async () => SENT);
+    expect([...store.values()].join("\n")).toContain('"resend_in_seconds":30');
+  });
+
+  it("an undecryptable blob is treated as in flight, never as a licence to verify again", async () => {
+    // Key rotation, or a blob written before the route was marked secret. The reservation still
+    // means an attempt owns this key, so the one thing that must not happen is re-running the
+    // work — that would re-increment the attempt counter this guard exists to protect.
+    const { svc, store, client } = make();
+    await run(svc, async () => LOGIN, { scope: "otp_verify", secret: true });
+
+    for (const [k, v] of store) if (v.startsWith("enc:")) store.set(k, "enc:!!!not-base64!!!");
+    client.set.mockClear();
+
+    const work = vi.fn(async () => LOGIN);
+    const out = await run(svc, work, {
+      scope: "otp_verify",
+      secret: true,
+      inFlight: () => "IN_FLIGHT" as never,
+    });
+
+    expect(out).toBe("IN_FLIGHT");
+    expect(work).not.toHaveBeenCalled();
+  });
+
+  it("a FAILED verify replays its own status and message, without re-running the work", async () => {
+    // A wrong code is still one attempt. The client mints a NEW key per user-initiated call, so
+    // a worker who corrects a typo is never served from here — only a transport retry is.
+    const { svc } = make();
+    const work = vi.fn(async () => {
+      throw new HttpException("Invalid or expired code", HttpStatus.UNAUTHORIZED);
+    });
+
+    await expect(run(svc, work, { scope: "otp_verify", secret: true })).rejects.toBeInstanceOf(
+      HttpException,
+    );
+    await expect(run(svc, work, { scope: "otp_verify", secret: true })).rejects.toMatchObject({
+      status: HttpStatus.UNAUTHORIZED,
+      message: "Invalid or expired code",
+    });
+    expect(work).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failing encrypt must NOT turn a completed login into a 500", async () => {
+    // The hazard in putting crypto on this path at all. `store()` swallows write failures ON
+    // PURPOSE — its contract is that it must never convert a completed request into a failed
+    // one — so the encrypt call has to sit INSIDE that same try. If it were hoisted above it
+    // (the obvious way to write this), a key-rotation fault would throw AFTER the code was
+    // consumed and the session minted, and the worker would get a 500 for a login that
+    // succeeded, with no way to reach the session that now exists.
+    const { svc, store } = make();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (svc as any).pii.encrypt = () => {
+      throw new Error("keyring unavailable");
+    };
+
+    const out = await run(svc, async () => LOGIN, { scope: "otp_verify", secret: true });
+
+    // The caller still gets their session.
+    expect(out).toEqual(LOGIN);
+    // And nothing leaked as a consolation prize: what is left is the reservation sentinel, not
+    // a plaintext outcome, so a duplicate is answered as in-flight rather than served tokens.
+    const written = [...store.values()].join("\n");
+    expect(written).not.toContain(LOGIN.access_token);
+    expect(written).not.toContain(LOGIN.refresh_token);
+    expect(written).toContain("in_flight");
+  });
+
+  it("account-delete and login never collide, even on one phone and one reused key", async () => {
+    // Both routes resolve the SAME phone, so the phone half of the namespace cannot separate
+    // them — the scope is what does. A client that reuses a UUID across the two must get two
+    // independent sends, not one send and one silent replay.
+    const { svc } = make();
+    const login = vi.fn(async () => SENT);
+    const del = vi.fn(async () => SENT);
+
+    await run(svc, login, { scope: "otp_request" });
+    await run(svc, del, { scope: "account_delete_request" });
+
+    expect(login).toHaveBeenCalledTimes(1);
+    expect(del).toHaveBeenCalledTimes(1);
   });
 });
