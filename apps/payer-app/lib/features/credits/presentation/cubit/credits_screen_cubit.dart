@@ -17,33 +17,25 @@ class CreditsScreenCubit extends Cubit<CreditsScreenState> {
   Future<void> load() async {
     emit(state.copyWith(status: CreditsScreenStatus.loading));
     try {
-      final int balance = await _api.fetchCreditBalance();
-      final List<LedgerEntry> ledger = await _api.fetchCreditLedger();
-      // The per-unlock history (`GET /payer/unlocks`) is a SEPARATE, best-effort
-      // section — a blip on it must not blank the balance + credit ledger, which
-      // are the primary content. Fall back to an empty list on any error.
-      List<LedgerEntry> unlockLedger;
-      try {
-        unlockLedger = await _api.fetchLedger();
-      } catch (_) {
-        unlockLedger = const <LedgerEntry>[];
-      }
-      // Packs are best-effort too: a pricing-catalog blip hides the buy section
-      // but must not fail the whole screen (balance + ledger stay).
-      List<CreditPack> packs;
-      try {
-        packs = await _api.fetchCreditPacks();
-      } catch (_) {
-        packs = const <CreditPack>[];
-      }
+      // The four reads are independent, so fire them CONCURRENTLY — on a 2G/3G
+      // link this bounds first paint by one round trip instead of four in series.
+      // balance + ledger are primary (a throw fails the screen via Future.wait);
+      // the per-unlock history (`GET /payer/unlocks`) and the pricing catalog are
+      // best-effort — a blip there falls back to empty without blanking the screen.
+      final List<Object> results = await Future.wait(<Future<Object>>[
+        _api.fetchCreditBalance(),
+        _api.fetchCreditLedger(),
+        _api.fetchLedger().onError((_, __) => const <LedgerEntry>[]),
+        _api.fetchCreditPacks().onError((_, __) => const <CreditPack>[]),
+      ]);
       if (isClosed) return; // screen popped mid-load — emit would throw StateError
       emit(
         CreditsScreenState(
           status: CreditsScreenStatus.ready,
-          ledger: ledger,
-          unlockLedger: unlockLedger,
-          balance: balance,
-          packs: packs,
+          balance: results[0] as int,
+          ledger: results[1] as List<LedgerEntry>,
+          unlockLedger: results[2] as List<LedgerEntry>,
+          packs: results[3] as List<CreditPack>,
         ),
       );
     } catch (e) {
