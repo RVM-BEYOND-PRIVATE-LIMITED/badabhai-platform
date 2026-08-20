@@ -71,6 +71,22 @@ class PayerHttp {
   /// each firing their own.
   Future<String?>? _pendingRefresh;
 
+  /// Bounded auto-retry for a transient failure on an IDEMPOTENT GET. This is what
+  /// turns the "load failed → tap Retry → it works" dance into a self-healing first
+  /// load: a dropped socket on a weak link, a cold first-connection, or a transient
+  /// 502/503/504 is retried silently before the screen ever shows an error. Only
+  /// GET is retried — a POST/PATCH/DELETE that failed AFTER the server saw it would
+  /// double-submit (e.g. buy the credit pack twice), so those still surface at once.
+  static const int _kGetRetries = 2;
+  static const Duration _kRetryBackoff = Duration(milliseconds: 300);
+
+  /// Server-side statuses worth retrying on an idempotent GET: a gateway/upstream
+  /// blip (502/504) or a briefly-unavailable service (503). NOT 500 — that is a
+  /// deterministic app error a retry only delays, and NOT any 4xx (a retry can't
+  /// change the outcome; 401 is handled by [send]'s refresh path).
+  static bool _isTransientStatus(int status) =>
+      status == 502 || status == 503 || status == 504;
+
   void dispose() => _client.close();
 
   /// The single entry point. Returns the decoded [PayerResponse]; the caller maps
@@ -134,21 +150,49 @@ class PayerHttp {
     }
 
     final String? encoded = body == null ? null : jsonEncode(body);
-    // Every verb is bounded by kRequestTimeout — `package:http` has no default
-    // timeout, so a stalled socket would hang the future forever (infinite
-    // spinner, no error, no retry).
-    final http.Response res = await switch (method) {
-      PayerMethod.get => _client.get(uri, headers: headers),
-      PayerMethod.post => _client.post(uri, headers: headers, body: encoded),
-      PayerMethod.patch => _client.patch(uri, headers: headers, body: encoded),
-      PayerMethod.delete => _client.delete(uri, headers: headers, body: encoded),
+
+    // Idempotent GETs auto-retry a transient failure (see [_kGetRetries]); every
+    // other verb runs exactly once so a write is never silently repeated.
+    final bool retriable = method == PayerMethod.get;
+    final int attempts = retriable ? _kGetRetries + 1 : 1;
+
+    for (int attempt = 0; attempt < attempts; attempt++) {
+      final bool lastAttempt = attempt == attempts - 1;
+      try {
+        // Every verb is bounded by kRequestTimeout — `package:http` has no default
+        // timeout, so a stalled socket would hang the future forever (infinite
+        // spinner, no error, no retry).
+        final http.Response res = await switch (method) {
+          PayerMethod.get => _client.get(uri, headers: headers),
+          PayerMethod.post => _client.post(uri, headers: headers, body: encoded),
+          PayerMethod.patch => _client.patch(uri, headers: headers, body: encoded),
+          PayerMethod.delete => _client.delete(uri, headers: headers, body: encoded),
+        }
+            .timeout(kRequestTimeout);
+
+        // A transient upstream status on a GET is worth one more try before the
+        // screen shows an error; anything else (2xx, 4xx, 500) returns as-is.
+        if (retriable && !lastAttempt && _isTransientStatus(res.statusCode)) {
+          await Future<void>.delayed(_kRetryBackoff * (attempt + 1));
+          continue;
+        }
+
+        // Persist a rolling refresh BEFORE decoding, so the very next call already
+        // signs with the fresh bearer even if this response is an error the caller
+        // rethrows.
+        await _adoptRollingToken(path, res, authed: authed);
+        return _decode(res);
+      } on Exception {
+        // Transport failure (TimeoutException / SocketException / ClientException —
+        // a cold first-connection or a dropped socket on a weak link). Retry an
+        // idempotent GET; otherwise surface it so the caller shows an honest error.
+        if (!retriable || lastAttempt) rethrow;
+        await Future<void>.delayed(_kRetryBackoff * (attempt + 1));
+      }
     }
-        .timeout(kRequestTimeout);
-    // Persist a rolling refresh BEFORE decoding, so the very next call already
-    // signs with the fresh bearer even if this response is an error the caller
-    // rethrows.
-    await _adoptRollingToken(path, res, authed: authed);
-    return _decode(res);
+    // Unreachable: the loop always returns a response or rethrows on the last
+    // attempt. Present so the analyzer sees a definite return.
+    throw StateError('payer request retry loop exited without a result');
   }
 
   /// Adopts the rolling session token `PayerAuthGuard` returns in the
