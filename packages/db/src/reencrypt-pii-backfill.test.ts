@@ -26,6 +26,30 @@ const SCHEMA_DIR = join(__dirname, "schema");
 const BACKFILL = readFileSync(join(__dirname, "reencrypt-pii-backfill.ts"), "utf8");
 
 /**
+ * Does `src` contain a `target(...)` naming exactly this `(table, column)` pair?
+ *
+ * Whitespace is collapsed first so `"a","b"` and `"a" ,  "b"` (or a prettier line break between
+ * the two arguments) compare identically, and then the pair is matched as a PLAIN SUBSTRING.
+ *
+ * ⚠ Deliberately not `new RegExp(\`"${table}"\\s*,\\s*"${column}"\`)`, which is what this started
+ * as. Semgrep's `detect-non-literal-regexp` rule blocks a RegExp built from non-literal parts —
+ * correctly, as a general rule, even though these particular parts are schema identifiers rather
+ * than user input. Collapsing once and matching literally removes the dynamic regex entirely
+ * instead of suppressing the check.
+ *
+ * The quotes are load-bearing: a bare substring match would report `admin_users.name_enc` as
+ * covered because `"name_enc"` appears inside `"org_name_enc"`. That exact confusion is what let
+ * the real gap hide, and the test below pins it.
+ */
+const collapseWhitespace = (s: string): string => s.replace(/\s+/g, "");
+const BACKFILL_FLAT = collapseWhitespace(BACKFILL);
+
+function hasTargetPair(src: string, table: string, column: string): boolean {
+  const flat = src === BACKFILL ? BACKFILL_FLAT : collapseWhitespace(src);
+  return flat.includes(`"${table}","${column}"`);
+}
+
+/**
  * Columns that hold an `encryptPii` token but are NOT spelled `*_enc`, so the suffix rule below
  * cannot find them. Both are on `workers` and both are in TARGETS.
  */
@@ -88,8 +112,7 @@ describe("PII re-encrypt backfill covers every encrypted column the schema decla
       if (key in KNOWN_EXCEPTIONS) continue;
       // A target is `target(tbl, tbl.id, tbl.col, "<table>", "<column>", "<dataKey>")`, so the
       // table+column string pair appearing together is the signal.
-      const hasTarget = new RegExp(`"${table}"\\s*,\\s*"${column}"`).test(BACKFILL);
-      if (!hasTarget) missing.push(key);
+      if (!hasTargetPair(BACKFILL, table, column)) missing.push(key);
     }
     expect(
       missing,
@@ -103,15 +126,13 @@ describe("PII re-encrypt backfill covers every encrypted column the schema decla
     // `admin_users.name_enc` was the real miss. Prove the matcher would have seen its absence
     // rather than trusting that it would — a column-name substring match ("name_enc" appears
     // inside "org_name_enc") would have reported it as covered.
-    const targetFor = (t: string, c: string, src: string) =>
-      new RegExp(`"${t}"\\s*,\\s*"${c}"`).test(src);
-    expect(targetFor("admin_users", "name_enc", BACKFILL)).toBe(true);
-    expect(targetFor("admin_users", "name_enc", `target(x, x.id, x.o, "payers", "org_name_enc",`)).toBe(
-      false,
-    );
-    expect(targetFor("admin_users", "name_enc", `target(x, x.id, x.e, "admin_users", "email_enc",`)).toBe(
-      false,
-    );
+    expect(hasTargetPair(BACKFILL, "admin_users", "name_enc")).toBe(true);
+    expect(
+      hasTargetPair(`target(x, x.id, x.o, "payers", "org_name_enc",`, "admin_users", "name_enc"),
+    ).toBe(false);
+    expect(
+      hasTargetPair(`target(x, x.id, x.e, "admin_users", "email_enc",`, "admin_users", "name_enc"),
+    ).toBe(false);
   });
 
   it("every KNOWN_EXCEPTION is a column that really exists (no stale suppressions)", () => {
