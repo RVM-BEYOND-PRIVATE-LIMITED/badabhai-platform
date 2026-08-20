@@ -266,33 +266,55 @@ code, and E3 is the only option that leaves a record of the judgement per promot
 
 ---
 
-## 6. `#1027` — needs a frontend owner, not a taxonomy decision
+## 6. `#1027` — re-scoped, assigned, and smaller than it was filed as
 
-**What it is.** `match-feed.service.ts:97` sets `trade_key: row.matchedSkillId` — the raw id. The
-worker app string-interpolates that field straight into a card subtitle
-(`applied_jobs_screen.dart:181`, `'${job.tradeKey} · $place'`) on the stated assumption that
-*"V1 feed postings carry no trade_key"*, which the API contradicts. With `MATCH_V1_ENABLED` on, a
-worker would see the literal string `mskill_mig_welder`.
+**The filed claim does not survive tracing the render path**, and the correction is what changes
+the work rather than the priority. `#1027` said a worker sees the literal string
+`mskill_mig_welder`. Two true facts, one file apart — and **they are not the same `trade_key`**:
 
-**Investigated, and the backend is not the bug.** Emptying `trade_key` under V1 would delete an
-intentional property, pinned by a test that says so in as many words —
-`match-feed.service.test.ts:277-287`: *"the id still reaches the audit trail, so the bad row is
-findable"*. No backend PR was written; the issue was updated with the finding instead.
+| | |
+|---|---|
+| `applied_jobs_screen.dart:181` renders… | `AppliedJob.tradeKey`, from `GET /workers/me/applications` |
+| …which the API projects as | a bare `jobs.trade_key`, **NULL for every V1 decision** — `job_postings` has no trade key (`applications.repository.ts:46,278`) |
+| `FeedItem.tradeKey`, which **is** the `mskill_*` id | is parsed and **never rendered**. `_cardData` (`swipe_jobs_screen.dart:454`) builds from title / city / pay / shift plus `matchNoteFor`, which uses the closed-set `matchedSkillLabel` |
 
-**Exposure today, measured:** `MATCH_V1_ENABLED` is **off**, `job_reach` holds **4 rows**, and
-**0** of them carry a welding skill. No worker can see a raw id right now. The label
-(`matched_skill_label`) is already on the same card, so nothing is missing from the payload —
-the two sides simply disagree about what `trade_key` contains under V1.
+**No worker sees an internal id, on either screen, with the flag on or off.** The applied-tab
+comment that reads *"V1 feed postings carry no trade_key"* is correct for the endpoint it is
+about — the earlier write-up read it as if it were about the feed.
+
+**The backend is not the bug, and now cannot become one.** `trade_key: row.matchedSkillId` on the
+feed is deliberate and pinned on purpose (`match-feed.service.test.ts:277-287` — the id reaching
+the audit trail is how an unknown skill stays findable). What was NOT pinned is the projection
+that keeps the Applied tab safe: one bare column in a selection where **every neighbouring field
+is a `coalesce(jobs.x, job_postings.y)`**, so it reads like the one that was forgotten and
+`job_postings` has a plausible arm one word away. Adding it would put `mskill_mig_welder` on a
+worker's card in the reading position of a job title. Now asserted and mutation-verified — see
+the PR that accompanies this page.
+
+**What is actually left, and it is real.** `FeedItem.tradeKey` has exactly one consumer:
+`jobMatchesTrades` (`job_filter.dart:200-211`), a CLIENT-SIDE substring filter over
+`'${tradeKey} ${title}'`. The keyword set is `cnc` / `vmc` / `weld` / `fitter` /
+`quality|inspector|qc`, so under V1 the filter keeps working **by coincidence** —
+`mskill_mig_welder` contains `weld`, `mskill_cnc_operator_general` contains `cnc`. The first
+`mskill_*` id that does not spell its own trade (a `mskill_fabricator` used for welding work)
+drops **silently** out of the Welder filter, and nothing anywhere would report it.
+
+A user-facing filter keyed on an internal identifier's spelling is worth fixing. It is not a raw
+id on a card.
 
 | | change | owner | cost |
 |---|---|---|---|
-| **F1 — the app renders `matched_skill_label`, not `trade_key`** | one widget | Frontend Platform | smallest; no API change, no version skew |
-| **F2 — the API adds a display-safe field and the app switches** | contract + app | Backend, then Frontend | two PRs and a skew window, for a field the payload already carries |
-| **F3 — the API stops sending the raw id under V1** | service + test | Backend | contradicts the existing test's stated intent; loses the audit-trail property |
+| **F1 — filter on a field that is a trade** | `matchedSkillLabel` is already on `FeedItem`, is a closed-set human label, and is `null` when the taxonomy does not know the id — the honest "cannot filter this" instead of a coincidence | Frontend Platform | smallest; no API change, no skew |
+| **F1b — treat `tradeKey` as opaque** | match the selected trade against `title` + `matchedSkillLabel` and drop the id from the haystack | Frontend Platform | same file, keeps the field for debugging |
+| **F2 — the API adds a filter-safe trade field** | contract + app | Backend, then Frontend | two PRs and a skew window, for a value `matched_skill_label` already carries |
 
-**Ownership.** Per `CLAUDE.md` §5/§6 this is Frontend Platform — **Rishi**. Backend work on it is
-complete. `#1027` needs an owner assigned; it needs no taxonomy decision and should not wait on
-one.
+**Exposure today, measured:** `MATCH_V1_ENABLED` is **off**, `job_reach` holds **4 rows**, none
+carrying a welding skill.
+
+**Routed.** Assigned to **@RishiBamako**, re-titled to what it actually is, labelled
+`area:worker-app` / `tech-debt` / **P3** — latent rather than closed, because the coincidence
+that hides it will not hold. Backend side is complete. It needs no taxonomy decision and should
+not wait on one.
 
 ---
 
@@ -305,7 +327,7 @@ one.
 | 3 | OIE canonicalization | product: *should it canonicalize at all?* | — | 0 rows carry `job_domain_id`; fully observable in the shadow |
 | 4 | TD-01 seed timing | taxonomy owner | S3-A not dated | seeding creates Path A behaviour where there is none |
 | 5 | `EVAL_COVERED` E1/E2/E3 | eval owner | — | 0 live promotions; 6 trainer cases if E1 |
-| 6 | `#1027` | assign a frontend owner | — | 0 workers exposed (`MATCH_V1_ENABLED` off) |
+| 6 | `#1027` | ~~assign a frontend owner~~ **done — @RishiBamako, P3** | — | 0 workers exposed. Re-scoped: no raw id is rendered anywhere; the defect is a client-side filter keyed on an id's spelling |
 
 Every one of the six is at its cheapest right now, for the same reason: **`job_domain_skill` is
 empty, the 98-skill corpus behind it is unseeded, and the match spine holds 6 worker-skill rows
