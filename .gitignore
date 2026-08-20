@@ -93,3 +93,8 @@ dump.rdb
 .agents/
 .claude/skills/
 skills-lock.json
+
+# A stray 6MB grid dump that has sat in the repo root since before 2026-08-20.
+# Anchored with a leading slash so it matches ONLY the root file, never a legitimate
+# `x` directory or fixture deeper in the tree. Keeps `git add -A` from sweeping it in.
+/x
