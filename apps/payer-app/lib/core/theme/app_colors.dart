@@ -130,8 +130,12 @@ class AppColors {
   // text
   static const Color textPrimary = ink900; // #101828
   static const Color textSecondary = ink600; // #475069
-  static const Color textMuted = ink500; // #8A92A6
-  static const Color textFaint = ink500; // #8A92A6
+  // #1084 — ink500 (#8A92A6) is only ~3.1:1 on the paper canvas, failing WCAG AA
+  // for body text. Muted/faint TEXT roles repoint to #667085 (payer-web's proven
+  // --ink-500), which clears 4.5:1 while staying distinct from textSecondary
+  // (#475069). ink500 itself is untouched — it keeps its decorative/border roles.
+  static const Color textMuted = Color(0xFF667085);
+  static const Color textFaint = Color(0xFF667085);
   static const Color textInverse = paper0; // white
   static const Color textBrand = blue; // #123D8C
   static const Color textOnBrand = blue; // #123D8C — text on haldi is deep blue

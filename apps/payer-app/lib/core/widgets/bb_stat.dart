@@ -97,22 +97,27 @@ class BbStat extends StatelessWidget {
             InkWell(
               onTap: onDeltaTap,
               borderRadius: BorderRadius.circular(AppRadii.xs),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    const Icon(Icons.add, size: 14, color: AppColors.success),
-                    const SizedBox(width: 4),
-                    Text(
-                      deltaText,
-                      style: AppTypography.body(
-                        size: AppTypography.sizeXs,
-                        weight: FontWeight.w700,
-                        color: AppColors.success,
+              // A visually-small delta link ("View ledger") must still meet the
+              // ≥48px hittable target — grow the tap area, not the text.
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      const Icon(Icons.add, size: 14, color: AppColors.success),
+                      const SizedBox(width: 4),
+                      Text(
+                        deltaText,
+                        style: AppTypography.body(
+                          size: AppTypography.sizeXs,
+                          weight: FontWeight.w700,
+                          color: AppColors.success,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             )

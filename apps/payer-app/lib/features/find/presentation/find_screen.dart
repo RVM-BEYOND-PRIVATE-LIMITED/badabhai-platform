@@ -285,6 +285,8 @@ class _FindView extends StatelessWidget {
               label: const Text('History'),
               style: TextButton.styleFrom(
                 foregroundColor: AppColors.textSecondary,
+                minimumSize: const Size(0, AppSpacing.tap),
+                tapTargetSize: MaterialTapTargetSize.padded,
               ),
             ),
           ],
@@ -648,12 +650,16 @@ class _CandidateCard extends StatelessWidget {
       children: <Widget>[
         Icon(icon, size: color == AppColors.success ? 9 : 13, color: c),
         const SizedBox(width: 4),
-        Text(
-          text,
-          style: AppTypography.body(
-            size: AppTypography.sizeXs,
-            weight: bold ? FontWeight.w600 : FontWeight.w400,
-            color: c,
+        Flexible(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.body(
+              size: AppTypography.sizeXs,
+              weight: bold ? FontWeight.w600 : FontWeight.w400,
+              color: c,
+            ),
           ),
         ),
       ],

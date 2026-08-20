@@ -84,12 +84,19 @@ class BbBadge extends StatelessWidget {
             Icon(icon, size: 13, color: foreground),
             const SizedBox(width: 4),
           ],
-          Text(
-            label,
-            style: AppTypography.body(
-              size: AppTypography.sizeXs,
-              weight: FontWeight.w700,
-              color: foreground,
+          // Flexible (loose fit) sizes to content under unbounded width and
+          // ellipsizes only when the badge is width-constrained — required for
+          // ellipsis to engage inside a mainAxisSize.min Row.
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.body(
+                size: AppTypography.sizeXs,
+                weight: FontWeight.w700,
+                color: foreground,
+              ),
             ),
           ),
         ],
