@@ -2,7 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "."
   },
-  "include": ["src/**/*"]
+  // The root-level ops runners (`adopt-migrations.ts`, `reconcile-migrations.ts`,
+  // `inspect-unmodelled.ts`, `adopt-0066.ts`) connect to production and were outside the type
+  // checker entirely — `tsconfig.build.json` still emits from `src` alone, so nothing about the
+  // published package changes. Typecheck what can touch the database.
+  "include": ["src/**/*", "*.ts"]
 }

@@ -1,4 +1,13 @@
 {
   "extends": "./tsconfig.json",
+  // PINNED, not inherited. `tsconfig.json` deliberately widens `rootDir`/`include` to cover the
+  // root-level ops runners (`adopt-migrations.ts`, `reconcile-migrations.ts`, …) so that code
+  // which connects to production is typechecked. Inheriting that here would emit them into the
+  // published package AND shift every real output down a level, to `dist/src/…` — which silently
+  // breaks the `main`/`exports` paths in package.json. The build emits `src` and only `src`.
+  "compilerOptions": {
+    "rootDir": "./src"
+  },
+  "include": ["src/**/*"],
   "exclude": ["src/**/*.test.ts", "src/**/*.spec.ts", "src/seed.ts"]
 }

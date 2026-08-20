@@ -85,6 +85,7 @@
     "db:audit:rls": "tsx src/audit-rls.ts",
     "db:verify:path-b-parity": "tsx src/verify-path-b-parity.ts",
     "db:verify:unresolved-write": "tsx src/verify-unresolved-write.ts",
+    "db:verify:rls-lock": "tsx src/verify-rls-lock.ts",
     "db:rollback:s3d": "tsx src/s3d-rollback.ts",
     "db:report:s3d-shadow": "tsx src/s3d-shadow-report.ts"
   },

@@ -85,3 +85,42 @@ describe("script entrypoints", () => {
     expect(guardsEntrypoint("main();")).toBe(false);
   });
 });
+
+/**
+ * The build config must not inherit the typecheck config's widened scope.
+ *
+ * `tsconfig.json` deliberately covers the root-level ops runners — `adopt-migrations.ts` and its
+ * neighbours connect to production and were outside the type checker entirely. `rootDir` had to
+ * widen to `.` for that. `tsconfig.build.json` EXTENDS it, so without an explicit pin the build
+ * inherits both changes and does two silent things at once: it ships the ops runners inside the
+ * published package, and it moves every real output down a level to `dist/src/…`, which no
+ * longer matches the `main`/`types`/`exports` paths in package.json.
+ *
+ * Caught by a downstream typecheck the same afternoon the widening landed — `@badabhai/api`
+ * failed on a column that existed in the model and not in the stale `dist` the build had stopped
+ * writing to. Nothing in this package failed; the breakage was entirely in its consumers.
+ */
+describe("tsconfig.build.json — the published layout is pinned, not inherited", () => {
+  const build = JSON.parse(
+    readFileSync(join(__dirname, "..", "tsconfig.build.json"), "utf8").replace(/^\s*\/\/.*$/gm, ""),
+  ) as { compilerOptions?: { rootDir?: string }; include?: string[] };
+  const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as {
+    main: string;
+    types: string;
+  };
+
+  it("pins rootDir to ./src, whatever tsconfig.json says", () => {
+    expect(build.compilerOptions?.rootDir).toBe("./src");
+  });
+
+  it("emits src and only src", () => {
+    expect(build.include).toEqual(["src/**/*"]);
+  });
+
+  it("keeps package.json's entrypoints consistent with that layout", () => {
+    // `dist/index.js`, not `dist/src/index.js`. This is the assertion that actually fails if
+    // rootDir drifts, because the two have to agree and only one of them is obvious.
+    expect(pkg.main).toBe("./dist/index.js");
+    expect(pkg.types).toBe("./dist/index.d.ts");
+  });
+});
