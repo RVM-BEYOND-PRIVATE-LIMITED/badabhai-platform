@@ -27,6 +27,7 @@
  * against a column the database does not have.
  */
 import { config } from "dotenv";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { sql as dsql } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
@@ -61,6 +62,13 @@ export interface DeclaredTable {
   readonly columns: readonly string[];
 }
 
+export interface RoutineDrift {
+  /** Trigger names on public tables that no migration file creates. */
+  readonly undeclaredTriggers: readonly string[];
+  /** Function names in `public` that no migration file creates, extension-owned excluded. */
+  readonly undeclaredFunctions: readonly string[];
+}
+
 export interface Drift {
   /** In the database, declared by no Drizzle table. The `GAP-DB-21` direction. */
   readonly undeclaredTables: readonly string[];
@@ -70,6 +78,28 @@ export interface Drift {
   readonly undeclaredColumns: readonly string[];
   /** Table present both sides; column Drizzle declares that the database does not have. */
   readonly missingColumns: readonly string[];
+}
+
+/**
+ * Trigger and function names any migration file CREATEs.
+ *
+ * Drizzle models neither, so unlike tables there is no schema object to compare against — the
+ * migration text is the only declaration that exists. As of 2026-08-20 the answer is the empty
+ * set: `grep -iE "create (or replace )?(function|trigger)"` over all 83 files matches nothing,
+ * so every routine in production's `public` schema is undeclared. That is the finding, not a
+ * bug in this parser.
+ */
+export function declaredRoutines(migrationsDir: string): { triggers: Set<string>; functions: Set<string> } {
+  const triggers = new Set<string>();
+  const functions = new Set<string>();
+  for (const f of readdirSync(migrationsDir).filter((n) => n.endsWith(".sql"))) {
+    const sql = readFileSync(join(migrationsDir, f), "utf8");
+    for (const m of sql.matchAll(/CREATE\s+(?:CONSTRAINT\s+)?TRIGGER\s+"?([\w]+)"?/gi)) triggers.add(m[1]!);
+    for (const m of sql.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:"?public"?\.)?"?([\w]+)"?/gi)) {
+      functions.add(m[1]!);
+    }
+  }
+  return { triggers, functions };
 }
 
 /** `true` when the database owns this name and we never expect to model it. */
@@ -200,7 +230,80 @@ async function main(): Promise<void> {
       "declared on a modelled table and absent live — this is always a defect",
     );
 
-    if (isClean(d)) {
+    // ---- ROUTINES ---------------------------------------------------------------------------
+    // Added after the table sweep found `_delete_forensics` (147 rows) but could NOT have found
+    // the trigger and function that fill it — those came from a hand query, which is exactly the
+    // gap this tool exists to remove. A trigger is the most consequential thing that can be
+    // undeclared: it fires during someone else's migration or backfill, and the person running
+    // it has no way to know it is there. See #1110.
+    const routines = declaredRoutines(join(__dirname, "..", "migrations"));
+
+    const trg = (await db.execute(
+      dsql`SELECT t.tgname AS name, c.relname AS tbl
+             FROM pg_trigger t
+             JOIN pg_class c ON c.oid = t.tgrelid
+             JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE NOT t.tgisinternal AND n.nspname = 'public'
+            ORDER BY c.relname, t.tgname`,
+    )) as unknown as { name: string; tbl: string }[];
+
+    // `deptype = 'e'` is extension membership. pgvector and friends install functions into
+    // `public`, and listing those as drift would bury the rows that matter.
+    const fns = (await db.execute(
+      dsql`SELECT p.proname AS name
+             FROM pg_proc p
+             JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'public'
+              AND NOT EXISTS (
+                SELECT 1 FROM pg_depend dep
+                 WHERE dep.objid = p.oid AND dep.classid = 'pg_proc'::regclass AND dep.deptype = 'e')
+            ORDER BY p.proname`,
+    )) as unknown as { name: string }[];
+
+    // EVENT triggers are not in `pg_trigger` and were the last blind spot — and the one that
+    // mattered most. `ensure_rls` (ddl_command_end -> rls_auto_enable) AUTO-ENABLES RLS on every
+    // table created in `public`. It is a live safety mechanism that exists in no migration, and
+    // it is why GAP-DB-21's four tables read as RLS-enabled while still being FORCE-less and
+    // fully granted: the trigger enables, and does nothing else. It made them LOOK protected,
+    // which is a large part of why R39 went unnoticed.
+    const evt = (await db.execute(
+      dsql`SELECT e.evtname AS name, e.evtevent AS event, p.proname AS fn
+             FROM pg_event_trigger e
+             JOIN pg_proc p ON p.oid = e.evtfoid
+            ORDER BY e.evtname`,
+    )) as unknown as { name: string; event: string; fn: string }[];
+
+    const undeclaredTriggers = trg
+      .filter((t) => !routines.triggers.has(t.name))
+      .map((t) => `${t.tbl}.${t.name}`);
+    const undeclaredEventTriggers = evt
+      .filter((e) => !routines.triggers.has(e.name))
+      .map((e) => `${e.name} (${e.event} -> ${e.fn}())`);
+    const undeclaredFunctions = fns.filter((f) => !routines.functions.has(f.name)).map((f) => f.name);
+
+    console.log(
+      `\n  routines declared by migrations = ${routines.triggers.size} trigger(s), ${routines.functions.size} function(s)`,
+    );
+    report(
+      "UNDECLARED triggers (public)",
+      undeclaredTriggers,
+      "fires during any write, including someone else's migration, and appears in no file",
+    );
+    report(
+      "UNDECLARED functions (public, non-extension)",
+      undeclaredFunctions,
+      "no migration creates these — a fresh database will not have them",
+    );
+    report(
+      "UNDECLARED event triggers",
+      undeclaredEventTriggers,
+      "fire on DDL itself. Supabase installs most of these; `ensure_rls` is the one that changes " +
+        "what a CREATE TABLE means, so read this list before concluding a new table is unprotected",
+    );
+
+    const routinesClean =
+      undeclaredTriggers.length === 0 && undeclaredFunctions.length === 0 && undeclaredEventTriggers.length === 0;
+    if (isClean(d) && routinesClean) {
       console.log(`\n  the live schema and the Drizzle schema agree, name for name.`);
       return;
     }
