@@ -185,6 +185,24 @@ FROM public._delete_forensics GROUP BY 1 ORDER BY 2 DESC`;
  */
 export const VALUE_COLUMNS = ["query", "client_addr"] as const;
 
+/**
+ * One LITERAL pattern per protected column.
+ *
+ * NOT ``new RegExp(`…${column}…`)``, which is how this was first written. Interpolating a name
+ * into a constructed regex is a ReDoS shape — `semgrep detect-non-literal-regexp` blocks it, and
+ * this repository has already been bitten by it once in `migration-adoption.ts`, where the fix
+ * was to compare offsets instead. The set here is two entries and closed, so two literals cost
+ * nothing, and {@link VALUE_COLUMN_PATTERN_KEYS} lets a test pin the map against
+ * {@link VALUE_COLUMNS} so a third column cannot be added to one and forgotten in the other.
+ */
+const VALUE_COLUMN_PATTERNS: Readonly<Record<(typeof VALUE_COLUMNS)[number], RegExp>> = {
+  query: /(^|[\s,(])query([\s,)]|$)/i,
+  client_addr: /(^|[\s,(])client_addr([\s,)]|$)/i,
+};
+
+/** The pattern map's keys, so a test can require them to be exactly {@link VALUE_COLUMNS}. */
+export const VALUE_COLUMN_PATTERN_KEYS: readonly string[] = Object.keys(VALUE_COLUMN_PATTERNS);
+
 export function selectsAValueColumn(sql: string): boolean {
   // A value column is allowed only inside a `count(... FILTER ...)`, a `length(...)`, or an
   // `IS NOT NULL` test. Any bare projection of one is the thing this refuses.
@@ -192,7 +210,7 @@ export function selectsAValueColumn(sql: string): boolean {
     .replace(/count\(\*\)\s*FILTER\s*\([^)]*\)/gi, " ")
     .replace(/max\(length\([^)]*\)\)/gi, " ")
     .replace(/count\(\*\)\s*FILTER\s*\(\s*WHERE\s+\w+\s+IS\s+NOT\s+NULL\s*\)/gi, " ");
-  return VALUE_COLUMNS.some((c) => new RegExp(`(^|[\\s,(])${c}([\\s,)]|$)`, "i").test(stripped));
+  return VALUE_COLUMNS.some((c) => VALUE_COLUMN_PATTERNS[c].test(stripped));
 }
 
 export function classify(

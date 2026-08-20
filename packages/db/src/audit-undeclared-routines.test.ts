@@ -16,6 +16,7 @@ import {
   PII_SHAPES,
   ROUTINES_SQL,
   VALUE_COLUMNS,
+  VALUE_COLUMN_PATTERN_KEYS,
   classify,
   isExposedDefiner,
   isOurs,
@@ -62,6 +63,14 @@ describe("counts only, never values", () => {
 
   it("names the columns it protects, so the list is reviewable", () => {
     expect([...VALUE_COLUMNS]).toEqual(["query", "client_addr"]);
+  });
+
+  it("keeps the pattern map and the column list in step", () => {
+    // The patterns are LITERAL regexes rather than `new RegExp(`…${column}…`)` — semgrep's
+    // `detect-non-literal-regexp` blocks the constructed form, and this repo has been bitten by
+    // that ReDoS shape before. The cost of literals is that the two lists can drift; this is
+    // what stops a third protected column being added to one and forgotten in the other.
+    expect([...VALUE_COLUMN_PATTERN_KEYS].sort()).toEqual([...VALUE_COLUMNS].sort());
   });
 
   it("counts PII by SHAPE, and the shapes are regexes rather than extractors", () => {
