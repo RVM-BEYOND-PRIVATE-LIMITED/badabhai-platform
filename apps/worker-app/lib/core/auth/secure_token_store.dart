@@ -52,6 +52,7 @@ class SecureTokenStore {
   static const String _kWorkerId = 'bb_auth_worker_id';
   static const String _kPinSet = 'bb_auth_pin_set';
   static const String _kAccessExpiresAt = 'bb_auth_access_expires_at';
+  static const String _kRefreshIdemKey = 'bb_auth_refresh_idem_key';
 
   /// Access token — MEMORY ONLY. Survives the app process but NOT a cold start;
   /// after a restart the interceptor refreshes it from the persisted refresh
@@ -64,6 +65,17 @@ class SecureTokenStore {
 
   Future<String?> readWorkerId() => _store.read(_kWorkerId);
   Future<void> writeWorkerId(String id) => _store.write(_kWorkerId, id);
+
+  /// The idempotency key for the IN-FLIGHT refresh rotation (#998). Persisted so a
+  /// retry across separate `_doRefresh` calls presents the SAME key — a fresh key
+  /// every call is guaranteed to miss the server's dedupe window, so a retry of a
+  /// rotation whose response was lost re-presents an already-`used` token and
+  /// reuse-detection force-logs-out the worker. Held only until the rotation is
+  /// durably persisted, then cleared.
+  Future<String?> readRefreshIdempotencyKey() => _store.read(_kRefreshIdemKey);
+  Future<void> writeRefreshIdempotencyKey(String key) =>
+      _store.write(_kRefreshIdemKey, key);
+  Future<void> clearRefreshIdempotencyKey() => _store.delete(_kRefreshIdemKey);
 
   Future<bool> readPinSet() async => (await _store.read(_kPinSet)) == 'true';
   Future<void> writePinSet(bool value) =>
@@ -120,5 +132,6 @@ class SecureTokenStore {
     await _store.delete(_kWorkerId);
     await _store.delete(_kPinSet);
     await _store.delete(_kAccessExpiresAt);
+    await _store.delete(_kRefreshIdemKey);
   }
 }
