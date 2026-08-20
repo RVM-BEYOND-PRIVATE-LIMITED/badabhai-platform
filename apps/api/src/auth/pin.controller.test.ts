@@ -27,9 +27,13 @@ function make() {
     resetRequest: vi.fn(async () => undefined),
     resetConfirm: vi.fn(async () => undefined),
   };
-  const ipRateLimit = { assertWithinHourlyIpCap: vi.fn(async () => undefined) };
-  // Distinct values: the per-IP limiter must read the per-IP knob, never the per-phone
-  // SMS budget. Equal numbers would hide that regression (see auth.controller.test.ts).
+  const ipRateLimit = {
+    assertWithinHourlyIpCap: vi.fn(async () => undefined),
+    // #1035 — the per-SENDER cap: the handset, not the NAT egress address.
+    assertWithinHourlySenderCap: vi.fn(async () => undefined),
+  };
+  // Distinct values: each limiter must read its OWN knob, never the per-phone SMS budget.
+  // Equal numbers would hide that regression (see auth.controller.test.ts).
   // #1019 — the Idempotency-Key seam. A PASS-THROUGH double here: these cases send no
   // `Idempotency-Key`, which is exactly the path where `runOnce` must run the work unchanged,
   // so every existing assertion below keeps testing the handler and not the seam. The seam's
@@ -39,7 +43,8 @@ function make() {
   };
   const config = {
     OTP_MAX_SENDS_PER_HOUR: 5,
-    OTP_MAX_SENDS_PER_IP_PER_HOUR: 20,
+    OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: 20,
+    OTP_MAX_SENDS_PER_IP_PER_HOUR: 1000,
   } as ServerConfig;
   const controller = new PinController(
     pin as unknown as PinService,
@@ -50,30 +55,71 @@ function make() {
   return { controller, pin, ipRateLimit, otpIdempotency };
 }
 
-// `header` is part of the stub because the handler now reads `Idempotency-Key` (#1019). A
-// real Express Request always has it; leaving it off would fail on the shape, not the behaviour.
-const reqWith = (overrides: Partial<Request> & { idempotencyKey?: string } = {}): Request => {
-  const { idempotencyKey, ...rest } = overrides;
+// `header` is part of the stub because the handler reads `Idempotency-Key` (#1019) and
+// `X-Device-Id` (#1035). A real Express Request always has it; leaving it off would fail on
+// the shape, not the behaviour.
+const reqWith = (
+  overrides: Partial<Request> & { idempotencyKey?: string; deviceId?: string } = {},
+): Request => {
+  const { idempotencyKey, deviceId, ...rest } = overrides;
   return {
     ip: "1.2.3.4",
-    header: (name: string) =>
-      name.toLowerCase() === "idempotency-key" ? idempotencyKey : undefined,
+    header: (name: string) => {
+      const k = name.toLowerCase();
+      if (k === "idempotency-key") return idempotencyKey;
+      if (k === "x-device-id") return deviceId;
+      return undefined;
+    },
     ...rest,
   } as unknown as Request;
 };
 
-describe("PinController.resetRequest — per-IP cap (security Finding 2)", () => {
-  it("applies the per-IP hourly cap FIRST (shared otp_request scope + config cap), then sends", async () => {
+/** The worker app persists a UUID as its device id (`device_id.dart`). */
+const DEVICE = "3f7c1b9a-0d4e-4c62-9a11-77b2c5e8d013";
+
+describe("PinController.resetRequest — per-caller caps (security Finding 2, #1035)", () => {
+  it("applies the sender cap FIRST (shared otp_request scope), then the network cap, then sends", async () => {
     const { controller, pin, ipRateLimit } = make();
-    const res = await controller.resetRequest({ phone: PHONE } as never, reqWith(), CTX);
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("otp_request", "1.2.3.4", 20);
+    const res = await controller.resetRequest(
+      { phone: PHONE } as never,
+      reqWith({ deviceId: DEVICE }),
+      CTX,
+    );
+    // SHARED SCOPES with /auth/otp/request on purpose: PIN-reset and login send through the
+    // same OtpService, so they must draw on ONE budget per sender and one per network.
+    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
+      "otp_request",
+      { kind: "device", value: DEVICE },
+      20,
+    );
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
+      "otp_request_net",
+      "1.2.3.4",
+      1000,
+    );
     expect(pin.resetRequest).toHaveBeenCalledWith(PHONE, CTX);
     expect(res).toEqual({ success: true });
   });
 
-  it("a cap rejection (429) BLOCKS the send — no OTP is dispatched", async () => {
+  it("#1035 — forgot-PIN is keyed on the handset, so a shared wifi cannot lock a worker out", async () => {
+    // THE ROUTE WHERE THIS HURTS MOST. A worker reaches forgot-PIN because they already
+    // cannot get in; being refused here by strangers' sign-ins on the same NAT leaves them
+    // with no way back into the app at all.
+    const { controller, ipRateLimit } = make();
+    await controller.resetRequest({ phone: PHONE } as never, reqWith({ deviceId: "dev-aaa1" }), CTX);
+    await controller.resetRequest({ phone: PHONE } as never, reqWith({ deviceId: "dev-bbb2" }), CTX);
+    const senders = (
+      ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>
+    ).mock.calls.map((c) => c[1]);
+    expect(senders).toEqual([
+      { kind: "device", value: "dev-aaa1" },
+      { kind: "device", value: "dev-bbb2" },
+    ]);
+  });
+
+  it("a sender-cap rejection (429) BLOCKS the send — no OTP is dispatched", async () => {
     const { controller, pin, ipRateLimit } = make();
-    (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+    (ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new Error("Too many requests from this network; please try again later"),
     );
     await expect(
@@ -83,10 +129,25 @@ describe("PinController.resetRequest — per-IP cap (security Finding 2)", () =>
     expect(pin.resetRequest).not.toHaveBeenCalled();
   });
 
-  it('a missing req.ip falls back to "unknown" (still capped, fails closed)', async () => {
+  it("a network-cap rejection (429) BLOCKS the send — no OTP is dispatched", async () => {
+    const { controller, pin, ipRateLimit } = make();
+    (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("Too many requests from this network; please try again later"),
+    );
+    await expect(
+      controller.resetRequest({ phone: PHONE } as never, reqWith(), CTX),
+    ).rejects.toBeTruthy();
+    expect(pin.resetRequest).not.toHaveBeenCalled();
+  });
+
+  it('a missing req.ip and no device id falls back to "unknown" (still capped, fails closed)', async () => {
     const { controller, ipRateLimit } = make();
     await controller.resetRequest({ phone: PHONE } as never, reqWith({ ip: undefined }), CTX);
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith("otp_request", "unknown", 20);
+    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
+      "otp_request",
+      { kind: "ip", value: "unknown" },
+      20,
+    );
   });
 });
 
@@ -157,8 +218,14 @@ describe("#1019 — POST /auth/pin/reset/request honours Idempotency-Key", () =>
     const seam = new OtpRequestIdempotency(pii, queue as never);
 
     const pin = { resetRequest: vi.fn(async () => undefined) };
-    const ipRateLimit = { assertWithinHourlyIpCap: vi.fn(async () => undefined) };
-    const config = { OTP_MAX_SENDS_PER_IP_PER_HOUR: 20 } as ServerConfig;
+    const ipRateLimit = {
+      assertWithinHourlyIpCap: vi.fn(async () => undefined),
+      assertWithinHourlySenderCap: vi.fn(async () => undefined),
+    };
+    const config = {
+      OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: 20,
+      OTP_MAX_SENDS_PER_IP_PER_HOUR: 1000,
+    } as ServerConfig;
     const controller = new PinController(
       pin as unknown as PinService,
       ipRateLimit as unknown as IpRateLimit,
@@ -177,7 +244,10 @@ describe("#1019 — POST /auth/pin/reset/request honours Idempotency-Key", () =>
     const c = await controller.resetRequest({ phone: PHONE } as never, req, CTX);
 
     expect(pin.resetRequest).toHaveBeenCalledTimes(1);
-    // The per-IP cap is INSIDE the guard — this is the assertion the pass-through double cannot make.
+    // BOTH caps are INSIDE the guard — the assertion a pass-through double cannot make. Each
+    // one is a counter the retry ladder was burning three times over (#1019), and #1035 added
+    // the second without moving either out.
+    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledTimes(1);
     expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledTimes(1);
     expect([a, b, c]).toEqual([{ success: true }, { success: true }, { success: true }]);
   });

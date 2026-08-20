@@ -426,9 +426,28 @@ export const serverEnvSchema = z.object({
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(30),
   OTP_MAX_SENDS_PER_HOUR: z.coerce.number().int().positive().default(5),
-  // Per-IP hourly cap on the UNAUTHENTICATED worker OTP endpoint — the worker analogue of
-  // PAYER_AUTH_MAX_PER_IP_PER_HOUR / ADMIN_AUTH_MAX_PER_IP_PER_HOUR, and deliberately the
-  // same magnitude as both.
+  // THE PRIMARY SENDER GATE on the unauthenticated worker OTP routes (#1035): how many sends
+  // one HANDSET may ask for in a rolling UTC hour, keyed on the `X-Device-Id` the worker app
+  // already puts on every request. A caller that sends no usable device id falls back to the
+  // per-IP bucket AT THIS SAME NUMBER, so an older client sees exactly the pre-#1035 ceiling.
+  //
+  // WHY THE DEVICE AND NOT THE ADDRESS. `TRUST_PROXY_HOP_COUNT` defaults to 0 and the shipped
+  // topology has no reverse proxy, so `req.ip` is the socket peer — i.e. the NAT egress
+  // address. Indian mobile carriers run large-scale CGNAT, so a single public IP can front
+  // thousands of Jio/Airtel subscribers, and a factory or office wifi fronts everyone
+  // standing in it. Keyed that way, a handful of legitimate sign-ins locks out every other
+  // worker behind the same NAT, the 429 they get is indistinguishable from the platform being
+  // down, and — because the bucket is the NETWORK — changing your phone number does not reset
+  // it. That is exactly how #1035 was reported.
+  //
+  // 20 IS A CEILING FOR ONE PHYSICAL HANDSET, not for a network, which is what lets it stay
+  // this tight: a worker signing in, mistyping and resending stays far below it, and so does
+  // a friend's handset borrowed by three people. Rotating device ids evades it (a reinstall
+  // mints a new one) and that is bounded deliberately by the SPEND caps below rather than
+  // here — see OTP_MAX_SENDS_PER_HOUR / _PER_DAY and the global breaker.
+  OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // THE CRUDE PER-NETWORK FLOOD CEILING ABOVE THAT SENDER GATE — no longer the limit a
+  // legitimate worker can hit, and it must never become one again (#1035).
   //
   // WHY IT IS ITS OWN KNOB. The controller used to pass OTP_MAX_SENDS_PER_HOUR here, which
   // reads as a tidy reuse and is a category error: that number is a per-PHONE SMS budget
@@ -438,20 +457,21 @@ export const serverEnvSchema = z.object({
   // accident — which made the WORKER path, the one used by the people this platform is
   // FOR, the tightest per-IP cap on the platform.
   //
-  // AND THE WORKER PATH IS THE WORST PLACE FOR THAT. `TRUST_PROXY_HOP_COUNT` defaults to 0
-  // and the shipped topology has no reverse proxy, so `req.ip` is the socket peer — i.e.
-  // the NAT egress address. Indian mobile carriers run large-scale CGNAT, so a single
-  // public IP can front thousands of Jio/Airtel subscribers, and a factory or office wifi
-  // fronts everyone standing in it. At 5/hour a handful of legitimate sign-ins locks out
-  // every other worker behind the same NAT, and the 429 they get is indistinguishable from
-  // the platform being down.
+  // WHY 1000 AND NOT SOMETHING TIGHTER. Whatever this number is, an attacker reaches it by
+  // rotating device ids — fifty of them at the per-device cap — so a tighter value buys no
+  // real defence while risking the outage above: this bucket can be an entire CGNAT pool, and
+  // the moment it is the binding constraint, workers who merely share a carrier lock each
+  // other out. Its only job is that one socket cannot trivially flood the send path. It is
+  // DELIBERATELY no longer the same magnitude as PAYER_AUTH_MAX_PER_IP_PER_HOUR /
+  // ADMIN_AUTH_MAX_PER_IP_PER_HOUR — those gate portal logins from office networks, not
+  // handsets behind carrier NAT. If a real shared network ever hits this, raise it.
   //
   // THE PER-PHONE CAPS ARE UNCHANGED AND ARE WHAT BOUND SMS SPEND: OTP_MAX_SENDS_PER_HOUR
   // (5/number/hour), OTP_MAX_SENDS_PER_DAY (10/number/day), the resend cooldown, and the
   // platform-wide OTP_GLOBAL_MAX_SENDS_PER_DAY breaker. Raising the per-IP cap widens how
   // many DISTINCT numbers may be tried from one network; it does not let any one number be
   // texted more, so the spend ceiling is untouched.
-  OTP_MAX_SENDS_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  OTP_MAX_SENDS_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(1000),
   // Per-phone DAILY send ceiling backstopping the hourly cap: an abuser pacing just
   // under OTP_MAX_SENDS_PER_HOUR could still burn paid SMS all day against one number.
   // Generous default — a legit worker re-logging in stays far below it. Trips the SAME
