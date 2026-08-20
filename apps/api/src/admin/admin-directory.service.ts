@@ -33,6 +33,20 @@ export class AdminDirectoryService {
    * would mean "can manage admins" silently implied "can read identities" — so the day
    * `manage_admins` is granted to anyone else, or the directory route is opened up, the
    * identity decision would travel with it unnoticed. One capability, one meaning.
+   *
+   * ── THE UNPAGINATED SHAPE MEETS THE 50-NAME RESPONSE BOUND ────────────────────────────
+   * This route is deliberately unpaginated (`ADMIN_DIRECTORY_MAX = 500` is a sanity cap, not a
+   * page size), so above `ADMIN_IDENTITY_MAX_SUBJECTS` admins the identity service refuses the
+   * whole set and every row comes back WITHOUT a name — the row data itself is unaffected.
+   *
+   * That is the deliberate choice over the two alternatives. Naming only the first fifty would
+   * report the rest as `name: null`, which on this contract MEANS "no name on record" — a lie
+   * shaped like data, on the one screen whose job is security audit. Truncating the LIST to
+   * fifty would drop admin accounts off that screen to make room for names, which inverts what
+   * the screen is for. Serving every row faceless keeps the audit answer complete and honest,
+   * and the identity service logs the refusal at ERROR so it is diagnosable rather than
+   * mysterious. If the platform ever runs >50 admins the fix is to paginate this route — a
+   * deliberate change to a shipped contract, not a silent one.
    */
   async directory(
     admin: AuthenticatedAdmin,

@@ -16,6 +16,24 @@ import type { AdminEgressCapWindow } from "./admin-egress-cap.service";
 export type AdminIdentityMap = ReadonlyMap<string, string | null>;
 
 /**
+ * HARD upper bound on how many names ONE response may disclose (owner ruling 2026-08-18).
+ *
+ * It lives HERE, at the single decrypt boundary, rather than only in each caller's page size,
+ * because a bound that every caller has to remember is a bound the next caller forgets. The
+ * paged entity lists clamp to this number so a permitted admin gets a full 50-row named page
+ * (`ADMIN_IDENTITY_PAGE_MAX` in `admin-entities.dto.ts` is the same constant, re-exported for
+ * the DTO layer); this check is the backstop that makes the bound TRUE for every caller —
+ * including one added later that forgets to clamp, which is exactly the case a source scan
+ * cannot see and a page-size default cannot stop.
+ *
+ * Over the bound the read discloses NOTHING — not "the first fifty". A partially-named page
+ * would report the unnamed rows as `name: null`, which on this contract MEANS "disclosed, and
+ * nobody has recorded a name" — a lie that looks like data. Absent-for-all is the one honest
+ * degradation, and it is the state the client already knows how to render.
+ */
+export const ADMIN_IDENTITY_MAX_SUBJECTS = 50;
+
+/**
  * The one place a stored NAME becomes plaintext on the admin surface (owner ruling 2026-08-18,
  * reversing ADR-0025 Decision 4 — the console was unusable when every row was an opaque uuid).
  *
@@ -30,15 +48,18 @@ export type AdminIdentityMap = ReadonlyMap<string, string | null>;
  *     on `read_entities` for all four roles (names are ADDITIVE), and the guard sets exactly one
  *     capability per route by design. A role without it gets `null` here and therefore today's
  *     faceless response, byte for byte — no cap consumed, no event emitted, nothing to explain.
- *  2. CIPHERTEXT LOOKUP — the repository returns `(id, token|null)`. Still encrypted.
- *  3. COUNT — `result_count` = how many tokens are NON-NULL, i.e. how many names this response
+ *  2. RESPONSE BOUND — at most {@link ADMIN_IDENTITY_MAX_SUBJECTS} names per response, enforced
+ *     HERE so no caller can page around it. Over the bound: nothing disclosed, nothing charged,
+ *     nothing audited.
+ *  3. CIPHERTEXT LOOKUP — the repository returns `(id, token|null)`. Still encrypted.
+ *  4. COUNT — `result_count` = how many tokens are NON-NULL, i.e. how many names this response
  *     will actually disclose. Counted from the CIPHERTEXT, before any plaintext exists.
- *  4. EGRESS CAP, charged `result_count` — a page of fifty names costs fifty. Over-cap (or a
+ *  5. EGRESS CAP, charged `result_count` — a page of fifty names costs fifty. Over-cap (or a
  *     Redis error) → emit the PII-free `admin.identity_cap_exceeded` breach and return `null`.
- *  5. AUDIT-BEFORE-DECRYPT — emit `admin.identity_viewed` and AWAIT its commit BEFORE any
+ *  6. AUDIT-BEFORE-DECRYPT — emit `admin.identity_viewed` and AWAIT its commit BEFORE any
  *     plaintext is computed. If the emit FAILS the exception propagates and we never reach the
  *     decrypt: fail closed, exactly as `AdminPiiRevealService` does for the phone.
- *  6. DECRYPT-AT-BOUNDARY — transiently, into the returned map and nowhere else. Never logged,
+ *  7. DECRYPT-AT-BOUNDARY — transiently, into the returned map and nowhere else. Never logged,
  *     cached, persisted, or put on any event.
  *
  * ── WHY AN OVER-CAP READ DEGRADES INSTEAD OF FAILING ─────────────────────────────────────
@@ -78,10 +99,12 @@ export class AdminIdentityService {
   /**
    * Resolve the names for `ids` on `surface`, or `null` when none may be disclosed.
    *
-   * `null` covers BOTH "this role holds no `read_identity`" and "this admin is over their name
-   * budget" — one return value, because the caller's job is identical in both cases: serve the
-   * faceless projection. The two are distinguished on the spine (only one of them emits a
-   * breach) and in the client (only one of them holds the capability).
+   * `null` covers "this role holds no `read_identity`", "this admin is over their name budget",
+   * and "this response would exceed {@link ADMIN_IDENTITY_MAX_SUBJECTS}" — one return value,
+   * because the caller's job is identical in all three: serve the faceless projection. They are
+   * told apart where it matters — on the spine (only the budget case emits a breach), in the
+   * client (only the capability case is knowable from `GET /admin/me`), and in the logs (only
+   * the bound case logs at ERROR, because only it is a caller bug).
    *
    * @param subjectId the single entity on a DETAIL read; `null` on a list read. It lands in the
    *   audit payload — never in the envelope subject, which is uniformly the admin session so the
@@ -97,23 +120,37 @@ export class AdminIdentityService {
     // --- 1. CAPABILITY. Deny-by-default via the single-source matrix; no cap, no event.
     if (!this.isPermitted(admin)) return null;
 
-    // --- 2. CIPHERTEXT LOOKUP. Nothing decrypted yet.
+    // --- 2. RESPONSE BOUND. Fail closed above the cap — see ADMIN_IDENTITY_MAX_SUBJECTS. No
+    // query, no budget, no `identity_viewed` row: nothing was disclosed, so nothing is recorded.
+    // Deliberately NOT an `identity_cap_exceeded` breach either — that event means "this
+    // ACCOUNT's velocity tripped a budget", and filing a caller-side bound under it would put
+    // noise in the stream a reviewer is meant to read as an alert. Logged at ERROR because it
+    // is a CALLER bug (a name-bearing list that forgot to clamp), not admin behaviour.
+    if (ids.length > ADMIN_IDENTITY_MAX_SUBJECTS) {
+      this.logger.error(
+        `identity read asked for ${ids.length} subjects on surface=${surface} (max ` +
+          `${ADMIN_IDENTITY_MAX_SUBJECTS}); disclosing NO names. Clamp the caller's page size.`,
+      );
+      return null;
+    }
+
+    // --- 3. CIPHERTEXT LOOKUP. Nothing decrypted yet.
     const rows = await this.fetch(surface, ids);
 
-    // --- 3. COUNT, from the ciphertext. How many names this response will actually disclose —
+    // --- 4. COUNT, from the ciphertext. How many names this response will actually disclose —
     // NOT the page size. A page of workers who never gave us a name discloses nothing, and
     // charging the budget (or auditing a count) for it would describe reading that never
     // happened. `result_count` and the cap charge are the SAME number by construction.
     const resultCount = rows.reduce((n, r) => (r.nameCipher === null ? n : n + 1), 0);
 
-    // --- 4. EGRESS CAP, charged per disclosure. Fail-closed on a Redis error.
+    // --- 5. EGRESS CAP, charged per disclosure. Fail-closed on a Redis error.
     const capResult = await this.cap.consume(admin.id, resultCount);
     if (!capResult.ok) {
       await this.emitCapExceeded(admin.id, capResult.window, ctx);
       return null;
     }
 
-    // --- 5. AUDIT BEFORE DECRYPT. Awaited; a failure PROPAGATES, so no name is ever computed
+    // --- 6. AUDIT BEFORE DECRYPT. Awaited; a failure PROPAGATES, so no name is ever computed
     // for a read the spine does not record.
     await this.events.emit({
       event_name: "admin.identity_viewed",
@@ -130,7 +167,7 @@ export class AdminIdentityService {
       requestId: ctx.requestId,
     });
 
-    // --- 6. DECRYPT AT THE BOUNDARY. The plaintext exists ONLY in the returned map, on its way
+    // --- 7. DECRYPT AT THE BOUNDARY. The plaintext exists ONLY in the returned map, on its way
     // to the HTTP response — never logged, cached, persisted, or evented.
     const out = new Map<string, string | null>();
     for (const row of rows) out.set(row.id, this.decryptOrNull(row, surface));

@@ -5,7 +5,7 @@ import type { RequestContext } from "../common/request-context";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import type { EventsService } from "../events/events.service";
 import type { AuthenticatedAdmin } from "./admin-auth.guard";
-import { AdminIdentityService } from "./admin-identity.service";
+import { AdminIdentityService, ADMIN_IDENTITY_MAX_SUBJECTS } from "./admin-identity.service";
 import type { AdminIdentityCapService } from "./admin-identity-cap.service";
 import type { AdminIdentityRepository, AdminIdentityRow } from "./admin-identity.repository";
 
@@ -289,7 +289,95 @@ describe("the name-egress cap", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. Surfaces + decrypt behaviour.
+// 5. The per-RESPONSE bound — the control the callers' page sizes cannot be trusted with.
+// ---------------------------------------------------------------------------
+
+describe("the 50-name response bound", () => {
+  /** `n` rows, all named — the worst case the bound exists for. */
+  const namedRows = (n: number): AdminIdentityRow[] =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `${String(i).padStart(8, "0")}-0000-4000-8000-000000000000`,
+      nameCipher: `v1.token-${i}`,
+    }));
+
+  it("PERMITS exactly the bound: 50 subjects resolve, all 50 names, one event", async () => {
+    // The permissive half first. A bound that was never proven to allow its own limit is one
+    // off-by-one away from capping the console at 49 and nobody noticing for a release.
+    const rows = namedRows(ADMIN_IDENTITY_MAX_SUBJECTS);
+    const h = harness({ rows });
+    const names = await h.svc.resolve(
+      admin("ops_admin"),
+      "workers",
+      rows.map((r) => r.id),
+      null,
+      CTX,
+    );
+    expect(names).not.toBeNull();
+    expect(names!.size).toBe(ADMIN_IDENTITY_MAX_SUBJECTS);
+    expect(h.consume).toHaveBeenCalledWith(ADMIN_ID, ADMIN_IDENTITY_MAX_SUBJECTS);
+    expect(h.emit).toHaveBeenCalledTimes(1);
+  });
+
+  it("REFUSES one over the bound — no query, no budget, no audit row, nothing decrypted", async () => {
+    // Fail closed BEFORE the lookup: a refused read must not even touch the name columns, or
+    // the bound would still be a database read of 51 people's names that we then threw away.
+    const rows = namedRows(ADMIN_IDENTITY_MAX_SUBJECTS + 1);
+    const h = harness({ rows });
+    const names = await h.svc.resolve(
+      admin("super_admin"),
+      "workers",
+      rows.map((r) => r.id),
+      null,
+      CTX,
+    );
+    expect(names).toBeNull();
+    expect(h.workerNames).not.toHaveBeenCalled();
+    expect(h.consume).not.toHaveBeenCalled();
+    expect(h.emit).not.toHaveBeenCalled();
+    expect(h.decrypt).not.toHaveBeenCalled();
+  });
+
+  it("refuses ALL of them, never the first fifty", async () => {
+    // The alternative that looks kinder and is worse: a partial page reports rows 51+ as
+    // `name: null`, which on this contract MEANS "disclosed, no name on record". Silently
+    // wrong data beats loudly absent data on exactly no screen.
+    const rows = namedRows(ADMIN_IDENTITY_MAX_SUBJECTS + 1);
+    const h = harness({ rows });
+    await expect(
+      h.svc.resolve(admin("super_admin"), "admins", rows.map((r) => r.id), null, CTX),
+    ).resolves.toBeNull();
+    expect(h.adminNames).not.toHaveBeenCalled();
+  });
+
+  it("the bound is NOT an `identity_cap_exceeded` breach — the alert stream stays clean", async () => {
+    // A velocity breach means "this ACCOUNT is reading too many names". A caller that forgot to
+    // clamp is a code bug on our side. Filing the second under the first would put noise into
+    // the one stream a reviewer is meant to read as an alert.
+    const rows = namedRows(ADMIN_IDENTITY_MAX_SUBJECTS + 1);
+    const h = harness({ rows });
+    await h.svc.resolve(admin("support"), "workers", rows.map((r) => r.id), null, CTX);
+    expect(h.emit).not.toHaveBeenCalled();
+  });
+
+  it("an over-bound ANALYST read costs nothing either — the capability is still checked FIRST", async () => {
+    // The two denials are indistinguishable to the CALLER by design (both serve the faceless
+    // page), so what is pinned here is that the ordering does not make the un-entitled path
+    // any more expensive: no query, no budget, no trail, whatever the id count. The two are
+    // told apart in the LOGS, and that is asserted in `admin-identity.logging.test.ts` — only
+    // the bound logs, because only the bound is a bug on our side.
+    const rows = namedRows(ADMIN_IDENTITY_MAX_SUBJECTS + 1);
+    const h = harness({ rows });
+    await expect(
+      h.svc.resolve(admin("analyst"), "workers", rows.map((r) => r.id), null, CTX),
+    ).resolves.toBeNull();
+    expect(h.workerNames).not.toHaveBeenCalled();
+    expect(h.consume).not.toHaveBeenCalled();
+    expect(h.emit).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. Surfaces + decrypt behaviour.
 // ---------------------------------------------------------------------------
 
 describe("surfaces route to exactly one projection each", () => {

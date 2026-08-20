@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { Controller, Get, Header, Query, UseGuards } from "@nestjs/common";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { AdminAuthGuard, CurrentAdmin, type AuthenticatedAdmin } from "./admin-auth.guard";
@@ -38,8 +38,14 @@ export class AdminDirectoryController {
    * The admin directory. The caller comes from the SESSION (`@CurrentAdmin`), never a query
    * param: it marks which row is "you", and it is the principal the identity gate resolves
    * `read_identity` against before any `name_enc` is decrypted.
+   *
+   * `Cache-Control: no-store` because this response may carry decrypted admin names — the same
+   * header, and the same reason, as the reveal route's Control 8. `GET /admin/capabilities`
+   * below is a pure statement of the authorization model and carries no identity, so it does
+   * not need it.
    */
   @Get("admins")
+  @Header("Cache-Control", "no-store")
   @RequireAdminRole("manage_admins")
   directory(
     @CurrentAdmin() admin: AuthenticatedAdmin,

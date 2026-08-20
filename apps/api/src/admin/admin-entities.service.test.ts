@@ -45,8 +45,16 @@ function repoStub(overrides: Partial<AdminEntitiesRepository> = {}): AdminEntiti
  */
 function identityStub(
   resolve: AdminIdentityService["resolve"] = vi.fn(async () => null),
+  isPermitted = false,
 ): AdminIdentityService {
-  return { resolve, isPermitted: vi.fn(() => false) } as unknown as AdminIdentityService;
+  return { resolve, isPermitted: vi.fn(() => isPermitted) } as unknown as AdminIdentityService;
+}
+
+/** An identity layer that DOES disclose — the posture of a super_admin / ops_admin / support. */
+function permittedIdentity(
+  resolve: AdminIdentityService["resolve"] = vi.fn(async () => new Map()),
+): AdminIdentityService {
+  return identityStub(resolve, true);
 }
 
 function service(
@@ -289,6 +297,80 @@ describe("names — the service merges exactly what identity disclosed", () => {
     const who = admin("support");
     await svc.listWorkers(who, { limit: 5 } as never, CTX);
     expect(resolve).toHaveBeenCalledWith(who, "workers", [], null, CTX);
+  });
+
+  it("a NAME-BEARING page is clamped to 50 — the query, the page, and the names alike", async () => {
+    // The clamp is applied BEFORE the query, so `?limit=100` from a permitted admin is a
+    // 50-row read, not a 100-row read with half the answer thrown away. All three numbers move
+    // together or the control is only cosmetic: the repository is asked for 51 (50 + the peek),
+    // the page is 50, and exactly 50 ids are handed to the identity layer.
+    const resolve = vi.fn(async () => new Map());
+    const listWorkers = vi.fn(async () => rows(51));
+    const svc = service({ listWorkers } as never, permittedIdentity(resolve as never));
+
+    const page = await svc.listWorkers(admin(), { limit: 100 } as never, CTX);
+
+    expect(listWorkers).toHaveBeenCalledWith(expect.anything(), null, 51);
+    expect(page.items).toHaveLength(50);
+    expect((resolve.mock.calls[0] as unknown[])[2] as string[]).toHaveLength(50);
+  });
+
+  it("...and the clamped page's nextCursor points at row 50, not row 100", async () => {
+    // The paging half. A clamp that shrank the page but left the cursor derived from the
+    // requested limit would skip rows 50–99 on the next page — an operations list silently
+    // losing half its rows, with nothing anywhere reporting an error.
+    const listPayers = vi.fn(async () => rows(51));
+    const svc = service({ listPayers } as never, permittedIdentity());
+    const page = await svc.listPayers(admin(), { limit: 100 } as never, CTX);
+    expect(page.nextCursor).not.toBeNull();
+    expect(decodeEntityCursor(page.nextCursor!)).toEqual({
+      createdAt: rows(51)[49]!.created_at.toISOString(),
+      id: "id-49",
+    });
+  });
+
+  it("the FACELESS path keeps its full 100 ceiling — an analyst's page does not shrink", async () => {
+    // The ruling clamps the NAME-bearing path. Shrinking the faceless read too would be an
+    // identity control quietly degrading the `read_entities` floor all four roles hold.
+    const listWorkers = vi.fn(async () => rows(101));
+    const svc = service({ listWorkers } as never, identityStub());
+    const page = await svc.listWorkers(admin("analyst"), { limit: 100 } as never, CTX);
+    expect(listWorkers).toHaveBeenCalledWith(expect.anything(), null, 101);
+    expect(page.items).toHaveLength(100);
+  });
+
+  it("the clamp only ever SHRINKS: a request under 50 is passed through untouched", async () => {
+    // `Math.min`, not "always 50". A permitted admin asking for 10 rows must get 10, or the
+    // clamp would be silently inflating every small page into a 50-name disclosure.
+    const listWorkers = vi.fn(async () => rows(10));
+    const svc = service({ listWorkers } as never, permittedIdentity());
+    await svc.listWorkers(admin(), { limit: 10 } as never, CTX);
+    expect(listWorkers).toHaveBeenCalledWith(expect.anything(), null, 11);
+  });
+
+  it("the clamp is decided by the CAPABILITY, not by whether names came back", async () => {
+    // A permitted admin who is over their egress budget gets `resolve() === null` — the same
+    // value an analyst gets. The page size must still be the clamped one, because the decision
+    // is about what the request was ENTITLED to ask for, and a size that depended on the cap
+    // result would make an admin's page size flap as their budget drained.
+    const listWorkers = vi.fn(async () => rows(60));
+    const svc = service(
+      { listWorkers } as never,
+      permittedIdentity(vi.fn(async () => null) as never),
+    );
+    const page = await svc.listWorkers(admin(), { limit: 100 } as never, CTX);
+    expect(listWorkers).toHaveBeenCalledWith(expect.anything(), null, 51);
+    expect(page.items).toHaveLength(50);
+    expect(page.items[0]).not.toHaveProperty("full_name");
+  });
+
+  it("DETAIL reads are untouched by the clamp — one row is one row", async () => {
+    const findWorker = vi.fn(async () => ({ id: "w-1" }));
+    const resolve = vi.fn(async () => new Map([["w-1", "Ramesh Kumar"]]));
+    const svc = service({ findWorker } as never, permittedIdentity(resolve as never));
+    await expect(svc.getWorker(admin(), "w-1", CTX)).resolves.toMatchObject({
+      full_name: "Ramesh Kumar",
+    });
   });
 
   it("job postings, applications and credits ask for NO names at all", async () => {

@@ -4,6 +4,7 @@ import type { AuthenticatedAdmin } from "./admin-auth.guard";
 import { AdminEntitiesRepository } from "./admin-entities.repository";
 import { AdminIdentityService } from "./admin-identity.service";
 import { decodeEntityCursor, encodeEntityCursor } from "./admin-entities.cursor";
+import { ADMIN_IDENTITY_PAGE_MAX } from "./admin-entities.dto";
 import type {
   AdminApplicationListItem,
   AdminApplicationsQueryDto,
@@ -46,6 +47,12 @@ import type {
  * NAMES ARE RESOLVED FOR THE RETURNED PAGE ONLY, never the peeked `limit + 1` row. Auditing —
  * and charging the egress budget for — a name the admin was never shown would make both the
  * trail and the cap describe reading that did not happen.
+ *
+ * ── A NAME-BEARING PAGE IS CLAMPED TO HALF A FACELESS ONE ───────────────────────────────
+ * See {@link effectiveLimit}. `?limit=100` from an analyst is 100 faceless rows, exactly as
+ * before; the same request from an ops_admin is 50 named rows and a cursor to the next 50. The
+ * clamp is applied BEFORE the query so the ceiling bounds the read as well as the response, and
+ * `nextCursor` is derived from the clamped page, so paging stays honest across it.
  */
 @Injectable()
 export class AdminEntitiesService {
@@ -62,6 +69,26 @@ export class AdminEntitiesService {
    * multiple of the page size — the operator clicks Next and lands on an empty screen,
    * which reads as data loss rather than as the end of the list.
    */
+  /**
+   * The page size this REQUEST will actually use.
+   *
+   * A page that will carry names is clamped to {@link ADMIN_IDENTITY_PAGE_MAX}; a faceless one
+   * keeps the full `ADMIN_ENTITIES_PAGE_MAX` ceiling. The decision is made BEFORE the query, so
+   * an over-limit named page is 50 rows fetched and 50 names disclosed — not 100 rows fetched
+   * and half of them stripped, which would spend the database read and then throw it away.
+   *
+   * `isPermitted` is the same capability predicate `resolve` re-checks, and it is deliberately
+   * asked twice: here it only decides a page SIZE (getting it wrong costs rows, never names),
+   * while the disclosure decision stays inside the identity service where the cap and the audit
+   * live. A clamp that could be talked out of clamping would be the wrong shape entirely — note
+   * the direction, `Math.min`: this can only ever make a page smaller.
+   */
+  private effectiveLimit(admin: AuthenticatedAdmin, requested: number): number {
+    return this.identity.isPermitted(admin)
+      ? Math.min(requested, ADMIN_IDENTITY_PAGE_MAX)
+      : requested;
+  }
+
   private static page<T extends { id: string; created_at: Date }>(
     rows: T[],
     limit: number,
@@ -83,12 +110,13 @@ export class AdminEntitiesService {
     dto: AdminWorkersQueryDto,
     ctx: RequestContext,
   ): Promise<AdminPage<AdminWorkerListItem>> {
+    const limit = this.effectiveLimit(admin, dto.limit);
     const rows = await this.repo.listWorkers(
       { status: dto.status, pendingDeletion: dto.pendingDeletion },
       decodeEntityCursor(dto.cursor),
-      dto.limit + 1,
+      limit + 1,
     );
-    const page = AdminEntitiesService.page(rows, dto.limit);
+    const page = AdminEntitiesService.page(rows, limit);
     const names = await this.identity.resolve(
       admin,
       "workers",
@@ -123,12 +151,13 @@ export class AdminEntitiesService {
     dto: AdminPayersQueryDto,
     ctx: RequestContext,
   ): Promise<AdminPage<AdminPayerListItem>> {
+    const limit = this.effectiveLimit(admin, dto.limit);
     const rows = await this.repo.listPayers(
       { role: dto.role, status: dto.status },
       decodeEntityCursor(dto.cursor),
-      dto.limit + 1,
+      limit + 1,
     );
-    const page = AdminEntitiesService.page(rows, dto.limit);
+    const page = AdminEntitiesService.page(rows, limit);
     const names = await this.identity.resolve(
       admin,
       "payers",

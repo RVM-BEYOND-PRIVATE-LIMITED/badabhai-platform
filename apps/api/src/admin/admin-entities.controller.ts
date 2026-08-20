@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from "@nestjs/common";
+import { Controller, Get, Header, Param, Query, UseGuards } from "@nestjs/common";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { AdminAuthGuard, CurrentAdmin, type AuthenticatedAdmin } from "./admin-auth.guard";
@@ -57,8 +57,18 @@ export class AdminEntitiesController {
   constructor(private readonly service: AdminEntitiesService) {}
 
   // ---- workers ------------------------------------------------------------
+  //
+  // `Cache-Control: no-store` on the four NAME-BEARING handlers, the same header and the same
+  // reason as the reveal route's Control 8: the response body may contain decrypted PII, so it
+  // must not be written to a shared proxy cache, a browser disk cache, or a bfcache entry that
+  // outlives the session. It is set UNCONDITIONALLY rather than only when a name was actually
+  // disclosed — a header that varies with the caller's capability is a cache-poisoning bug
+  // waiting to happen (an analyst's cacheable faceless page served to an ops_admin, or worse
+  // the reverse), and it would leak whether the caller holds `read_identity` to any observer
+  // of the headers. The four faceless routes below deliberately do NOT carry it.
 
   @Get("workers")
+  @Header("Cache-Control", "no-store")
   @RequireAdminRole("read_entities")
   listWorkers(
     @CurrentAdmin() admin: AuthenticatedAdmin,
@@ -69,6 +79,7 @@ export class AdminEntitiesController {
   }
 
   @Get("workers/:id")
+  @Header("Cache-Control", "no-store")
   @RequireAdminRole("read_entities")
   getWorker(
     @CurrentAdmin() admin: AuthenticatedAdmin,
@@ -81,6 +92,7 @@ export class AdminEntitiesController {
   // ---- payers (Companies = role:employer, Agencies = role:agent) -----------
 
   @Get("payers")
+  @Header("Cache-Control", "no-store")
   @RequireAdminRole("read_entities")
   listPayers(
     @CurrentAdmin() admin: AuthenticatedAdmin,
@@ -91,6 +103,7 @@ export class AdminEntitiesController {
   }
 
   @Get("payers/:id")
+  @Header("Cache-Control", "no-store")
   @RequireAdminRole("read_entities")
   getPayer(
     @CurrentAdmin() admin: AuthenticatedAdmin,

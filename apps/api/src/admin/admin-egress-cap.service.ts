@@ -59,7 +59,9 @@ type NumericServerConfigKey = {
  * `?limit=100` request would hand over ten times an hourly budget while spending one unit of it.
  *
  * PII-FREE: the only identity in the Redis key + logs is the opaque `admin_id` (logged as a
- * PREFIX only); no worker/payer id, no name, no value ever touches this service.
+ * PREFIX only); no worker/payer id, no name, no value ever touches this service. A failed
+ * Redis call is logged as a BOUNDED code, never as the client's own message — see
+ * {@link failureCode} for why that distinction is a security property and not tidiness.
  */
 export class AdminEgressCapService {
   protected readonly logger = new Logger(this.constructor.name);
@@ -143,18 +145,45 @@ export class AdminEgressCapService {
     return { ok: true };
   }
 
-  /** Fail-closed denial on a Redis error. Logs the reason + the admin-id PREFIX only (no PII). */
+  /** Fail-closed denial on a Redis error. Logs a BOUNDED code + the admin-id PREFIX only. */
   private denyOnRedisError(
     err: unknown,
     idPrefix: string,
     window: AdminEgressCapWindow,
   ): AdminEgressCapResult {
     this.logger.error(
-      `admin ${this.namespace} cap Redis unavailable admin_id=${idPrefix}…; failing closed (reason: ${
-        err instanceof Error ? err.message : String(err)
-      })`,
+      `admin ${this.namespace} cap Redis unavailable admin_id=${idPrefix}…; failing closed ` +
+        `(reason: ${AdminEgressCapService.failureCode(err)})`,
     );
     return { ok: false, window };
+  }
+
+  /**
+   * A BOUNDED description of a client failure — deliberately NOT `err.message`.
+   *
+   * An error's message is free text produced OUTSIDE this codebase, and the ioredis client's
+   * connection errors routinely embed the connection target — which for this deployment is a
+   * `redis://user:password@host:port` URL. Interpolating it into a log line is how a credential
+   * ends up in a log aggregator, and no reviewer reading `${err.message}` would see it, because
+   * the leak is in a string this repository never writes.
+   *
+   * So only two shapes are ever emitted, both matched against a strict pattern:
+   *  - the errno-style `code` (`ECONNREFUSED`, `ETIMEDOUT`, `NOAUTH`) — which is the actual
+   *    operational signal an on-call reader wants, and is enum-like rather than free text;
+   *  - failing that, the error's `name` (`Error`, `TimeoutError`).
+   * Anything else — including a message-bearing `code` some client set to a sentence — becomes
+   * `unknown`. Losing a diagnostic is recoverable; logging a secret is not.
+   *
+   * NOTE: this narrows a pattern (`reason: ${err.message}`) that is repeated across roughly ten
+   * other rate-limit / OTP services in this repo. Those are outside this change's scope and
+   * unchanged; the same reasoning applies to them and they are worth a follow-up.
+   */
+  private static failureCode(err: unknown): string {
+    const code = (err as { code?: unknown } | null)?.code;
+    if (typeof code === "string" && /^[A-Z][A-Z0-9_]{1,31}$/.test(code)) return code;
+    const name = (err as { name?: unknown } | null)?.name;
+    if (typeof name === "string" && /^[A-Za-z][A-Za-z0-9]{0,31}$/.test(name)) return name;
+    return "unknown";
   }
 
   /** UTC hour stamp `YYYYMMDDHH` (key namespace + rolling window). */

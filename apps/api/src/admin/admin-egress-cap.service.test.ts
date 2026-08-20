@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
+import { Logger } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import { AdminEgressCapService } from "./admin-egress-cap.service";
@@ -121,5 +122,82 @@ describe("AdminEgressCapService — charging N units for a disclosure of N subje
     for (const [, ttl] of redis.expire.mock.calls) {
       expect(ttl).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * The Redis-failure LOG. Separated out because the property is not "does it deny" (asserted
+ * above) but "what does it say while denying".
+ *
+ * An ioredis connection error's `message` embeds the connection target, and this deployment's
+ * target is a `redis://user:password@host` URL. `reason: ${err.message}` therefore writes a
+ * credential into the log stream — from a string this repository never authored, which is why
+ * no amount of reading our own source would reveal it.
+ */
+describe("a Redis failure is logged as a BOUNDED code, never the client's message", () => {
+  function capture(): { lines: string[]; restore: () => void } {
+    const lines: string[] = [];
+    const spies = (["error", "warn", "log"] as const).map((level) =>
+      vi.spyOn(Logger.prototype, level).mockImplementation((...args: unknown[]) => {
+        for (const a of args) lines.push(typeof a === "string" ? a : JSON.stringify(a));
+      }),
+    );
+    return { lines, restore: () => spies.forEach((s) => s.mockRestore()) };
+  }
+
+  async function logOf(err: Error): Promise<string> {
+    const { lines, restore } = capture();
+    const svc = new AdminEgressCapService(
+      { ADMIN_IDENTITY_MAX_PER_HOUR: 300, ADMIN_IDENTITY_MAX_PER_DAY: 1000 } as unknown as ServerConfig,
+      { client: Promise.reject(err) } as unknown as Queue,
+      "admin_identity",
+      "ADMIN_IDENTITY_MAX_PER_HOUR",
+      "ADMIN_IDENTITY_MAX_PER_DAY",
+    );
+    await svc.consume(ADMIN_ID, 1);
+    restore();
+    return lines.join("\n");
+  }
+
+  it("prefers the errno CODE — the diagnostic an on-call reader actually wants", async () => {
+    const err = Object.assign(new Error("connect ECONNREFUSED 10.0.0.4:6379"), {
+      code: "ECONNREFUSED",
+    });
+    const line = await logOf(err);
+    expect(line).toContain("ECONNREFUSED");
+    expect(line).not.toContain("10.0.0.4:6379");
+  });
+
+  it("never emits a message-shaped code, and never the message itself", async () => {
+    // A URL with credentials, in both of the places a client can put one. Neither may survive.
+    const err = Object.assign(
+      new Error("NOAUTH Authentication required for redis://admin:s3cr3t@cache.internal:6379"),
+      { code: "connect ECONNREFUSED redis://admin:s3cr3t@cache.internal:6379" },
+    );
+    const line = await logOf(err);
+    expect(line).not.toContain("s3cr3t");
+    expect(line).not.toContain("cache.internal");
+    expect(line).not.toContain("Authentication required");
+    // The code was rejected for its shape, so the fallback is the error's NAME.
+    expect(line).toContain("reason: Error");
+  });
+
+  it("falls back to `unknown` rather than to anything free-form", async () => {
+    const err = Object.assign(new Error("boom redis://admin:s3cr3t@cache.internal"), {
+      name: "an error occurred at redis://admin:s3cr3t@cache.internal",
+    });
+    const line = await logOf(err);
+    expect(line).toContain("reason: unknown");
+    expect(line).not.toContain("s3cr3t");
+  });
+
+  it("still names the window and the admin PREFIX — the log stays useful", async () => {
+    // The mutation bar's other half: a "reason" that redacted everything would pass every
+    // assertion above while making the log worthless. Pin what it must still say.
+    const line = await logOf(Object.assign(new Error("x"), { code: "ETIMEDOUT" }));
+    expect(line).toContain("admin_identity");
+    expect(line).toContain(ADMIN_ID.slice(0, 8));
+    expect(line).not.toContain(ADMIN_ID);
+    expect(line).toContain("failing closed");
   });
 });

@@ -62,9 +62,29 @@ import type {
  * maps onto an index (see migration 0064) so a deep page stays O(page), not O(offset).
  */
 
-/** Hard upper bound on a single entity page. */
+/** Hard upper bound on a single FACELESS entity page. */
 export const ADMIN_ENTITIES_PAGE_MAX = 100;
 export const ADMIN_ENTITIES_PAGE_DEFAULT = 50;
+
+/**
+ * Hard upper bound on a NAME-BEARING entity page (owner ruling 2026-08-18) — half the faceless
+ * ceiling, because the two pages are not the same act.
+ *
+ * A faceless page of 100 is 100 opaque uuids; a named page of 100 is 100 people deanonymized in
+ * one request. The velocity cap bounds names per HOUR, so it cannot see the shape of a single
+ * request — a lower per-response ceiling is what makes "one screen" a smaller unit of egress
+ * than "the hourly budget".
+ *
+ * It CLAMPS rather than rejects: an over-limit request from a permitted admin returns 50 named
+ * rows and an honest `nextCursor`, not a 400. A validation error here would be an identity
+ * control breaking the `read_entities` floor beside it — the same recoupling the over-cap path
+ * refuses — and an analyst asking for `?limit=100` still gets 100 faceless rows, unchanged.
+ *
+ * It is deliberately EQUAL to `ADMIN_IDENTITY_MAX_SUBJECTS`, the bound the identity service
+ * itself enforces; a drift test pins them together, since a clamp above that bound would mean
+ * a permitted admin silently gets NO names at all instead of a smaller page of them.
+ */
+export const ADMIN_IDENTITY_PAGE_MAX = 50;
 
 /** The keyset page controls every list query shares. */
 const pageShape = {

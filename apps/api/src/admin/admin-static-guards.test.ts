@@ -16,6 +16,8 @@ import { AdminWorkerJourneyController } from "./admin-worker-journey.controller"
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
 import { type AdminCapability } from "./admin-capabilities";
+import { ADMIN_ENTITIES_PAGE_MAX, ADMIN_IDENTITY_PAGE_MAX } from "./admin-entities.dto";
+import { ADMIN_IDENTITY_MAX_SUBJECTS } from "./admin-identity.service";
 
 /**
  * STATIC build-blocker guards for the Admin Ops Portal security invariants (ADR-0025
@@ -523,18 +525,27 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     ).toEqual([`admin/${IDENTITY_REPO}`]);
   });
 
-  it("EXACTLY THREE non-test files under admin/** turn ciphertext into plaintext", () => {
+  it("the decrypt ALLOW-LIST is exactly three files — matched on `.decrypt(`, not on a count", () => {
     // Decryption is the moment PII exists in this process, so the set of places it can happen is
-    // a number worth pinning rather than a convention. The whole list, and why each is in it:
+    // pinned as a SET rather than a number. The whole list, and why each is in it:
     //   admin-identity.service  — names, at the response boundary, after the audit row commits
     //   admin-pii-reveal.service— one worker phone, on the reason-gated + flagged route
     //   admin-mfa.store         — the admin's OWN TOTP seed, for verification. Authentication,
     //                             not disclosure: the plaintext never leaves the comparison.
     // A fourth entry has to be a deliberate edit to this list, reviewed as one.
+    //
+    // TWO THINGS THIS DELIBERATELY IS NOT:
+    //  - NOT a COUNT (`toHaveLength(3)` / `<= 3`). A count cannot tell "the identity service was
+    //    added" from "the reveal service was replaced by something else", and a `<=` form would
+    //    silently admit a fourth the day one of the three stopped decrypting.
+    //  - NOT anchored on the RECEIVER name (`pii.decrypt(`). All three happen to call the
+    //    injected service `pii` today, so that anchor passes — and would keep passing for a
+    //    fourth file that named its dependency `crypto`, `piiCrypto`, or destructured it. The
+    //    method call is the invariant; the variable it hangs off is a naming convention.
     const decrypters = tsFiles(ADMIN_DIR)
       .filter((f) => {
         const src = readFileSync(f, "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
-        return /\bpii\.decrypt\s*\(/.test(src);
+        return /\.decrypt\s*\(/.test(src);
       })
       .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"))
       .sort();
@@ -545,6 +556,17 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
         "admin/admin-pii-reveal.service.ts",
       ].sort(),
     );
+  });
+
+  it("...and that allow-list pattern is CAPABLE of failing on a differently-named receiver", () => {
+    // Prove the widened anchor actually buys something: the shape the `pii.decrypt(` form could
+    // not see is the ONLY reason this scan was rewritten, so pin that it now matches.
+    const pattern = /\.decrypt\s*\(/;
+    expect(pattern.test("return this.pii.decrypt(token);")).toBe(true);
+    expect(pattern.test("return this.crypto.decrypt(token);")).toBe(true);
+    expect(pattern.test("return piiCrypto.decrypt (token);")).toBe(true);
+    // ...and does not fire on prose-free code that merely mentions the word.
+    expect(pattern.test("const decrypted = false;")).toBe(false);
   });
 
   it("the identity repository issues no write against any table", () => {
@@ -572,6 +594,41 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     }
   });
 
+  it("EVERY select in the identity repository projects EXACTLY `{id, nameCipher}` — nothing else", () => {
+    // The forbidden-list test above is the NEGATIVE half and it can only ever catch the columns
+    // somebody thought to name. This is the positive half, and it is the one that holds: the
+    // shape is pinned, so a column added here fails whether or not anyone predicted it — a
+    // `phoneHash`, a `status`, a `createdAt`, a column that does not exist yet.
+    //
+    // It also pins the COUNT of projections at three, one per surface, so a fourth lookup cannot
+    // arrive without this list being edited.
+    const src = code(IDENTITY_REPO);
+    const selects = [...src.matchAll(/\.select\(\s*\{([^}]*)\}\s*\)/g)].map((m) =>
+      [...m[1]!.matchAll(/(\w+)\s*:/g)].map((k) => k[1]!).sort(),
+    );
+    expect(selects, "the identity repository must have exactly one select per surface").toHaveLength(
+      3,
+    );
+    for (const keys of selects) {
+      expect(keys, `a select projects ${keys.join(", ")}`).toEqual(["id", "nameCipher"]);
+    }
+  });
+
+  it("...and that projection rule is CAPABLE of failing (a third column is caught)", () => {
+    // The rule above is a regex over source, so prove it fires on the exact shape it exists to
+    // stop rather than trusting that it would.
+    const parse = (s: string) =>
+      [...s.matchAll(/\.select\(\s*\{([^}]*)\}\s*\)/g)].map((m) =>
+        [...m[1]!.matchAll(/(\w+)\s*:/g)].map((k) => k[1]!).sort(),
+      );
+    expect(parse(".select({ id: workers.id, nameCipher: workers.fullName })")).toEqual([
+      ["id", "nameCipher"],
+    ]);
+    expect(
+      parse(".select({ id: workers.id, nameCipher: workers.fullName, phoneHash: workers.phoneHash })"),
+    ).toEqual([["id", "nameCipher", "phoneHash"]]);
+  });
+
   it("the identity repository never SEARCHES by name, and never joins", () => {
     // `WHERE full_name ILIKE ...` would turn an ops console into "find me every worker called
     // X" — a person-discovery tool. It is impossible today (the column is non-deterministic AES
@@ -593,6 +650,100 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
       const src = code(file);
       expect(src, `${file} must not project a name`).not.toMatch(
         /fullName|orgNameEnc|nameEnc/,
+      );
+    }
+  });
+
+  /**
+   * The route handlers whose response can carry a decrypted name — DERIVED from the source
+   * rather than listed, because a hand-kept list is exactly what a new name-bearing route gets
+   * left off. A service method that calls `this.identity.resolve(` is a name-bearing read, and
+   * both controllers delegate to their service 1:1 by method name.
+   */
+  function nameBearingHandlers(serviceFile: string): string[] {
+    const src = code(serviceFile);
+    // Split on the top-level `async name(` markers this codebase's formatting guarantees, and
+    // keep the ones whose body reaches the identity layer.
+    const parts = src.split(/\n {2}(?:private |protected |public )?async (?=\w+[(<])/);
+    return parts
+      .slice(1)
+      .map((chunk) => ({ name: /^(\w+)/.exec(chunk)?.[1] ?? "", chunk }))
+      .filter(({ chunk }) => /this\.identity\.resolve\s*\(/.test(chunk))
+      .map(({ name }) => name)
+      .sort();
+  }
+
+  /** The `Cache-Control` value Nest will set on a handler, or undefined. */
+  function cacheControlOf(ctor: { prototype: object }, method: string): string | undefined {
+    const headers = (Reflect.getMetadata(
+      "__headers__",
+      (ctor.prototype as Record<string, object>)[method]!,
+    ) ?? []) as Array<{ name: string; value: string }>;
+    return headers.find((h) => h.name.toLowerCase() === "cache-control")?.value;
+  }
+
+  it("the DERIVED name-bearing handler set is exactly the five reads the ruling names", () => {
+    // Pinned so the derivation cannot go vacuously empty. If it did, the no-store test below
+    // would pass over an empty set and prove nothing — the failure mode that makes a derived
+    // assertion worse than a hardcoded one instead of better.
+    expect(nameBearingHandlers("admin-entities.service.ts")).toEqual([
+      "getPayer",
+      "getWorker",
+      "listPayers",
+      "listWorkers",
+    ]);
+    expect(nameBearingHandlers("admin-directory.service.ts")).toEqual(["directory"]);
+  });
+
+  it("EVERY name-bearing route sets Cache-Control: no-store (the reveal route's Control 8)", () => {
+    // Same header, same assertion shape, and the same reason as
+    // `POST /admin/workers/:id/reveal-contact`: a response body that may contain decrypted PII
+    // must not land in a shared proxy cache, a browser disk cache, or a bfcache entry that
+    // outlives the session. DERIVED from which service methods resolve a name, so a name added
+    // to a sixth route fails HERE rather than shipping a cacheable page of names.
+    for (const method of nameBearingHandlers("admin-entities.service.ts")) {
+      expect(cacheControlOf(AdminEntitiesController, method), `${method} must be no-store`).toBe(
+        "no-store",
+      );
+    }
+    for (const method of nameBearingHandlers("admin-directory.service.ts")) {
+      expect(cacheControlOf(AdminDirectoryController, method), `${method} must be no-store`).toBe(
+        "no-store",
+      );
+    }
+  });
+
+  it("the FACELESS entity routes are unchanged — no-store is not sprayed across the controller", () => {
+    // The header is a claim about the BODY. Putting it on routes that carry no identity would
+    // make it decorative, and the next reviewer could no longer read its presence as "this
+    // response may contain PII".
+    for (const method of ["getPayerCredits", "listJobPostings", "getJobPosting", "listApplications"]) {
+      expect(cacheControlOf(AdminEntitiesController, method), `${method} carries no name`).toBeUndefined();
+    }
+    expect(cacheControlOf(AdminDirectoryController, "capabilities")).toBeUndefined();
+  });
+
+  it("a NAME-BEARING page is clamped to 50, and the clamp equals the service's own bound", () => {
+    // Two constants that must never drift: a page clamp ABOVE the service bound would mean a
+    // permitted admin silently gets NO names (the service refuses the whole set) rather than a
+    // smaller page of them — a control degrading into an outage.
+    expect(ADMIN_IDENTITY_PAGE_MAX).toBe(50);
+    expect(ADMIN_IDENTITY_PAGE_MAX).toBe(ADMIN_IDENTITY_MAX_SUBJECTS);
+    // ...and it really is HALF the faceless ceiling, which is what the ruling asked for.
+    expect(ADMIN_ENTITIES_PAGE_MAX).toBe(100);
+    expect(ADMIN_IDENTITY_PAGE_MAX).toBeLessThan(ADMIN_ENTITIES_PAGE_MAX);
+  });
+
+  it("both name-bearing LIST reads route their page size through the clamp", () => {
+    // The clamp is one helper, so the failure this catches is a list read that goes straight to
+    // `dto.limit` — which is what the original code did, and what a new list read would copy.
+    const src = code("admin-entities.service.ts");
+    const parts = src.split(/\n {2}(?:private |protected |public )?async (?=\w+[(<])/).slice(1);
+    for (const list of ["listWorkers", "listPayers"]) {
+      const chunk = parts.find((p) => p.startsWith(list))!;
+      expect(chunk, `${list} must clamp`).toContain("this.effectiveLimit(admin, dto.limit)");
+      expect(chunk, `${list} must not pass the raw dto.limit to the repository`).not.toContain(
+        "dto.limit + 1",
       );
     }
   });
@@ -881,6 +1032,24 @@ describe("BP-5 dashboard route — guarded, read-only, and off the cost WRITER",
     expect(src).toContain("platformAiCostTotals");
     expect(src).not.toContain("workerAiCostTotals");
     expect(src).not.toContain("sessionAiCostTotals");
+  });
+
+  it("the dashboard repository never projects a NAME column either", () => {
+    // The dashboard is COUNTS — the one admin repository that joins across workers, payers and
+    // postings, and therefore the easiest place to slide "and the five newest worker names" into
+    // a summary card. It has no `AdminIdentityService`, no capability check, no egress cap and
+    // no audit row, so a name reaching it would be an UNGATED disclosure on the console's
+    // landing page. Named here as well as in the single-reader scan above so the failure points
+    // at this file rather than at an aggregate list of readers.
+    const src = readFileSync(join(ADMIN_DIR, "admin-dashboard.repository.ts"), "utf8").replace(
+      /^\s*(\/\/|\*|\/\*).*$/gm,
+      "",
+    );
+    for (const forbidden of ["fullName", "orgNameEnc", "nameEnc", "phoneE164", "phoneHash", "emailEnc"]) {
+      expect(src, `admin-dashboard.repository must not project ${forbidden}`).not.toContain(
+        forbidden,
+      );
+    }
   });
 });
 
