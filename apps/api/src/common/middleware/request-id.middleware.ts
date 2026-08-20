@@ -2,7 +2,7 @@ import { Injectable, type NestMiddleware } from "@nestjs/common";
 import type { Request, Response, NextFunction } from "express";
 import { randomUUID } from "node:crypto";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { isCanonicalUuid } from "../uuid";
 
 // Augment Express's Request with our tracing ids (global Express namespace).
 declare global {
@@ -29,7 +29,7 @@ export class RequestIdMiddleware implements NestMiddleware {
 
     const incomingCorrelationId = req.header("x-correlation-id");
     const correlationId =
-      incomingCorrelationId && UUID_RE.test(incomingCorrelationId)
+      incomingCorrelationId && isCanonicalUuid(incomingCorrelationId)
         ? incomingCorrelationId
         : randomUUID();
 

@@ -13,6 +13,8 @@
  * silently skip or repeat rows.
  */
 
+import { isCanonicalUuid } from "../common/uuid";
+
 export interface EntityCursor {
   /** The last row's `created_at`, as an ISO-8601 string (lossless to the DB timestamp). */
   createdAt: string;
@@ -44,6 +46,14 @@ export function decodeEntityCursor(token: string | undefined): EntityCursor | nu
     // date becomes an Invalid Date, and `created_at < 'Invalid Date'` is not a filter, it is
     // a query that returns nothing (or throws) for reasons nobody can see from the response.
     if (Number.isNaN(Date.parse(parsed.c))) return null;
+    // The id half needs the same treatment, and for a sharper reason. `typeof === "string"`
+    // let ANY string through to `... and id < $n`, where every id column in this schema is
+    // `uuid` — so Postgres rejected it at BIND with 22P02 and `AllExceptionsFilter` turned it
+    // into a 500. That is the exact outcome the paragraph above promises does not happen:
+    // `?cursor=` + base64url of `{"c":<valid ISO>,"i":"x"}` faulted every keyset read on this
+    // module. A cursor id that is not a uuid cannot match a row anyway, so first-page fallback
+    // loses nothing a correct cursor would have found.
+    if (!isCanonicalUuid(parsed.i)) return null;
     return { createdAt: parsed.c, id: parsed.i };
   } catch {
     return null;
