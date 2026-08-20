@@ -365,17 +365,45 @@ surface reads `worker_skill` at all.
 list READ from. The write path runs regardless (`profile-extraction.processor.ts:455` is
 explicitly not gated), so the rows accumulate now and become visible when the flag flips.
 
-### 4.3 A separate defect found on the way, and it is not a taxonomy question
+### 4.3 A separate defect found on the way — CORRECTED 2026-08-20, and it is smaller than this said
 
-`match-feed.service.ts:97` sets `trade_key: row.matchedSkillId` — the **raw id**. The worker app
-string-interpolates that field straight into a card subtitle
-(`applied_jobs_screen.dart:181`, `'${job.tradeKey} · $place'`), on the stated assumption that
-*"V1 feed postings carry no trade_key"* — which the API contradicts.
+**The original claim below was wrong, and it is worth recording why rather than quietly
+rewriting it.** It read: *"with `MATCH_V1_ENABLED` on, a worker sees the literal string
+`mskill_mig_welder`"*, on the grounds that `match-feed.service.ts:97` sets
+`trade_key: row.matchedSkillId` and `applied_jobs_screen.dart:181` interpolates
+`'${job.tradeKey} · $place'`. Two true facts, one file apart — and they are **not the same
+`trade_key`**. Tracing the render path instead of the field name:
 
-So with `MATCH_V1_ENABLED` on, a worker sees the literal string `mskill_mig_welder`. The label is
-already on the same card as `matched_skill_label`, so nothing is missing — the two sides simply
-disagree about what `trade_key` contains under V1. Raised as **#1027**; it crosses ownership, it
-needs no taxonomy decision, and it should not wait on one.
+| | |
+|---|---|
+| `applied_jobs_screen.dart:181` renders… | `AppliedJob.tradeKey`, from `GET /workers/me/applications` |
+| …which the API projects as | a bare `jobs.trade_key`, **NULL for every V1 decision** (`applications.repository.ts:46,278` — `job_postings` has no trade key) |
+| `FeedItem.tradeKey`, which **is** the `mskill_*` id | is parsed and **never rendered**. `_cardData` (`swipe_jobs_screen.dart:454`) builds from title / city / pay / shift plus `matchNoteFor`, which uses the closed-set `matchedSkillLabel` |
+
+**So no worker sees an internal id, on either screen, with the flag on or off.** The applied-tab
+comment that reads *"V1 feed postings carry no trade_key"* is **correct for the endpoint it is
+about**.
+
+**What is actually true, and it is a latent fragility rather than a defect.** `FeedItem.tradeKey`
+has exactly one consumer: `jobMatchesTrades` (`job_filter.dart:200-211`), a CLIENT-SIDE substring
+filter over `'${tradeKey} ${title}'`. The keyword set is `cnc` / `vmc` / `weld` / `fitter` /
+`quality|inspector|qc`, so under V1 the filter keeps working **by coincidence** — the id
+`mskill_mig_welder` contains `weld`, `mskill_cnc_operator_general` contains `cnc`. The first
+`mskill_*` id that does not spell its trade (a `mskill_fabricator` used for welding work) drops
+silently out of that filter, and nothing anywhere would report it.
+
+**Pinned where it can regress.** The Applied tab is safe only because that one projection is a
+bare column while every field around it is a `coalesce(jobs.x, job_postings.y)` — so it reads
+like the one that was forgotten, and `job_postings` has a plausible arm one word away. Adding it
+would put `mskill_mig_welder` on a worker's card in the reading position of a job title.
+`applications.repository.test.ts` now asserts the projection has no coalesce and no
+`job_postings` arm, and that no matched-skill id is reachable from the statement at all;
+mutation-verified — adding the coalesce turns it red.
+
+**#1027 stands, re-scoped.** It is not "a worker sees a raw id"; it is "the client-side trade
+filter reads an internal id as if it were a trade slug". Frontend Platform owns the fix (F1: the
+filter should key on a field that is a trade, or the API should stop being the source of a
+pseudo-trade). Still crosses ownership, still needs no taxonomy decision.
 
 ---
 
