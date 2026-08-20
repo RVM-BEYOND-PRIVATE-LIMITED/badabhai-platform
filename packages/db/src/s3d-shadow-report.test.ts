@@ -9,6 +9,9 @@
 import { describe, expect, it } from "vitest";
 
 import { UNMEASURABLE_OFFLINE, percentile, summarizeShadow, type ShadowCase } from "./s3d-shadow-report";
+import { poolComposition, statusesFor } from "./s3d-shadow-inputs";
+import { PRE_PROMOTION_STATUSES, RETRIEVABLE_SKILL_STATUSES, type CorpusInput } from "./path-a-replay";
+import type { SkillStatus } from "@badabhai/taxonomy";
 
 const c = (
   caseId: string,
@@ -107,5 +110,101 @@ describe("it measures, it does not judge", () => {
       expect(u.why.length, u.signal).toBeGreaterThan(10);
       expect(u.needs.length, u.signal).toBeGreaterThan(10);
     }
+  });
+});
+
+describe("poolComposition — the report must diagnose, not guess", () => {
+  const skill = (skillId: string, status: SkillStatus) => ({
+    skillId,
+    status,
+    replacedBy: null,
+    preMergeStatus: status,
+  });
+  const alias = (skillId: string, text: string, vector: number[] | null) => ({
+    skillId,
+    text,
+    lang: "en" as const,
+    domainId: "d1",
+    vector,
+  });
+
+  function input(over: Partial<CorpusInput> = {}): CorpusInput {
+    return {
+      skills: [],
+      aliases: [],
+      edges: [],
+      ...over,
+    } as CorpusInput;
+  }
+
+  it("counts skills by status and alias-vector coverage within each", () => {
+    const c = poolComposition(
+      input({
+        skills: [skill("a", "active"), skill("p1", "provisional"), skill("p2", "provisional")],
+        aliases: [
+          alias("a", "welder", [1]),
+          alias("a", "welding", null),
+          alias("p1", "grinder", null),
+          alias("p2", "borer", null),
+        ],
+      }),
+    );
+
+    expect(c.skillsByStatus).toEqual({ active: 1, provisional: 2 });
+    expect(c.aliasVectors["active"]).toEqual({ embedded: 1, total: 2 });
+    expect(c.aliasVectors["provisional"]).toEqual({ embedded: 0, total: 2 });
+  });
+
+  it("counts as promotable ONLY a provisional skill that could actually be ranked", () => {
+    // THE NUMBER THIS WHOLE FUNCTION EXISTS FOR. The report used to assert that Path A is empty
+    // because skills are provisional, and therefore that promotion would fix it. A skill needs
+    // BOTH a retrievable status and an embedded alias; promotion moves only the first. On the
+    // real corpus this is 1 out of 111, which is why --if-promoted changes nothing.
+    const c = poolComposition(
+      input({
+        skills: [skill("p1", "provisional"), skill("p2", "provisional"), skill("p3", "provisional")],
+        aliases: [alias("p1", "has one", [1]), alias("p2", "none", null), alias("p3", "none either", null)],
+      }),
+    );
+
+    expect(c.promotionWouldAdd).toBe(1);
+  });
+
+  it("does not count a provisional skill twice when several of its aliases are embedded", () => {
+    const c = poolComposition(
+      input({
+        skills: [skill("p1", "provisional")],
+        aliases: [alias("p1", "one", [1]), alias("p1", "two", [1]), alias("p1", "three", [1])],
+      }),
+    );
+
+    expect(c.promotionWouldAdd).toBe(1);
+  });
+
+  it("counts no active skill as promotable — promotion is provisional -> active", () => {
+    const c = poolComposition(
+      input({ skills: [skill("a", "active")], aliases: [alias("a", "embedded", [1])] }),
+    );
+
+    expect(c.promotionWouldAdd).toBe(0);
+  });
+});
+
+describe("statusesFor — the counterfactual widens exactly one thing", () => {
+  it("is active-only for production, and never mutates the shared constant", () => {
+    expect([...statusesFor("production")]).toEqual(["active"]);
+    expect([...RETRIEVABLE_SKILL_STATUSES]).toEqual(["active"]);
+  });
+
+  it("adds provisional — and nothing else — for the counterfactual", () => {
+    // Reusing PRE_PROMOTION_STATUSES rather than building a second list is what keeps this in
+    // step with `db:replay:path-a --include-provisional`; if they drifted, two tools would
+    // answer the same question differently.
+    expect([...statusesFor("if_promoted")].sort()).toEqual(["active", "provisional"]);
+    expect(statusesFor("if_promoted")).toBe(PRE_PROMOTION_STATUSES);
+  });
+
+  it("never admits deprecated — a retired skill must not come back through a counterfactual", () => {
+    expect([...statusesFor("if_promoted")]).not.toContain("deprecated");
   });
 });
