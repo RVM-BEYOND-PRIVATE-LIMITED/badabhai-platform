@@ -1071,6 +1071,7 @@ class _ChatViewState extends State<_ChatView> {
           Flexible(
             child: Text(
               'Bada Bhai type kar raha hai…',
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
@@ -1191,6 +1192,7 @@ class _ChatViewState extends State<_ChatView> {
               label,
               style: AppTypography.body(size: 14, weight: FontWeight.w600),
               overflow: TextOverflow.ellipsis,
+              maxLines: 1,
             ),
           ),
         ],
@@ -1289,7 +1291,7 @@ class _ChatViewState extends State<_ChatView> {
                   child: Text(
                     label,
                     style: AppTypography.body(
-                      size: 15,
+                      size: AppTypography.sizeSm,
                       weight: escape ? FontWeight.w400 : FontWeight.w600,
                       color: escape
                           ? AppColors.textMuted

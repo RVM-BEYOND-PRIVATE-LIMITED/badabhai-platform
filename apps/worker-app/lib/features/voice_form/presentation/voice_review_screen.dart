@@ -98,7 +98,8 @@ class VoiceReviewScreen extends StatelessWidget {
             children: <Widget>[
               Text(row.fieldLabel,
                   style: AppTypography.body(
-                      size: 13, color: AppColors.textMuted)),
+                      size: AppTypography.sizeXs,
+                      color: AppColors.textMuted)),
               const SizedBox(height: AppSpacing.s1),
               if (row.declined)
                 Text(_kDeclined,

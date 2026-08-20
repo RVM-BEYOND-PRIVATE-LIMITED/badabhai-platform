@@ -101,9 +101,6 @@ class _NotificationsView extends StatelessWidget {
           if (Navigator.of(context).canPop()) ...<Widget>[
             IconButton(
               tooltip: 'Wapas',
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-              visualDensity: VisualDensity.compact,
               icon: const Icon(Icons.arrow_back, color: AppColors.onBlue),
               // Navigator (not go_router's context.pop): a go_router push still
               // creates a Navigator route, so this pops correctly AND does not

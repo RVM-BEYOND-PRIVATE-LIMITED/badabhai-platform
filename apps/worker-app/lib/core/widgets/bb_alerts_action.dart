@@ -22,7 +22,12 @@ import '../theme/app_typography.dart';
 /// plain, badge-less bell — the entry point still works, it just cannot show a
 /// count.
 class BbAlertsAction extends StatelessWidget {
-  const BbAlertsAction({super.key});
+  const BbAlertsAction({super.key, this.color = AppColors.brand});
+
+  /// Bell icon colour. Defaults to haldi [AppColors.brand]; pass
+  /// [AppColors.onBlue] on the blue swipe header where haldi collides with the
+  /// haldi headline.
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +48,7 @@ class BbAlertsAction extends StatelessWidget {
       icon: Stack(
         clipBehavior: Clip.none,
         children: <Widget>[
-          const Icon(Icons.notifications_outlined, color: AppColors.brand),
+          Icon(Icons.notifications_outlined, color: color),
           if (unread > 0)
             Positioned(
               top: -4,
