@@ -16,17 +16,26 @@ earlier write-ups had:
 
 | | measured |
 |---|---|
-| `skill` rows | **51 — all `active`**: 33 `attribute` + 18 `match_skill` |
-| canonical corpus skills (`skill_*` from `data/taxonomy`) | **0 seeded** |
-| `job_domain_skill` edges | **0** (the corpus file holds 236) |
+| `skill` rows | **51 — all `active`**: 33 `skill_*` (`kind='attribute'`) + 18 `mskill_*` (`kind='match_skill'`) |
+| …which corpus those 33 are | the **wedge corpus**, `packages/taxonomy/src/skill-corpus.ts` |
+| the Phase-3 generated corpus (`data/taxonomy/skills.jsonl`, 98 skills) | **0 of 98 seeded** — the two id spaces do not overlap at all |
+| `job_domain` / `job_domain_alias` | 4 071 / **9 121, every one embedded** |
+| **`job_domain_skill` edges** | **0** — the corpus file holds 236 |
+| `skill_alias` | 98 rows, 76 embedded, 10 distinct `domain_id` |
 | `worker_skill` rows | **6**, all `derived_coarse` |
 | `job_reach` rows | **4** |
 | `unresolved_phrase` rows | 34 — 32 `occupation`, 2 `skill`, **0 carrying `job_domain_id`** |
 | workers | 77 |
 
-**The canonical taxonomy exists as schema and not as data.** `0076` created the tables and
-nothing has been seeded into them. Path A therefore has no edges *at all* in production — which
-is a stronger statement than "most canonical skills are provisional", and it means:
+**Read the third and fifth rows together.** The occupation half of Path A is fully seeded and
+fully embedded — 4 071 domains, 9 121 embedded aliases. What is missing is the half that makes it
+a *domain→skill* path: **`job_domain_skill` is empty**, and the 98-skill corpus those edges point
+into has not been seeded either. So Path A retrieves nothing not because its skills are
+`provisional` — there are no `provisional` rows in production at all — but because **the edge
+table `0076` created has never had a row in it.**
+
+That is a more precise statement than the earlier "most canonical skills are still provisional",
+and it means:
 
 - every taxonomy option below is currently a change to **corpus files and Path B alias rows**, not
   to live retrieval behaviour;
@@ -182,7 +191,10 @@ edge total 238 → 236, verified against the replay counterfactual on all ten me
 | `skill_drawing_reading` | **ABSENT** |
 | `skill_gdt_reading` | `active` — still the pre-merge state |
 | `skill_cad_interpretation` | `active` — still the pre-merge state |
-| `job_domain_skill` edges | **0** (corpus holds 236) |
+| `job_domain_skill` edges | **0** (corpus holds 236, 12 of them on `skill_drawing_reading`) |
+
+All three are wedge-corpus ids, so unlike the Phase-3 corpus they *are* the vocabulary production
+runs on — which is what makes the pre-merge state a live fact rather than a file-level one.
 
 So the ratified decision has had **no effect on production** and cannot until someone seeds. That
 seed is a production mutation that changes retrieval, which is exactly the class of action held
@@ -225,8 +237,9 @@ Because there are zero `pending_review` cases, **the earlier PR-1 fix (`#953`) i
 no-op on the shipped fixture** — the covered set is 65 either way, `coverageOnly` is always empty
 and the operator warning is unreachable. The commit message asserts the opposite.
 
-**The 6, named** — and every one of them is **ABSENT from production** (measured; production
-holds 51 skills, all `active`, none of them canonical corpus skills):
+**The 6, named** — and every one of them is **ABSENT from production**, which follows from the
+table at the top: they belong to the 98-skill Phase-3 corpus, none of which is seeded (the 33
+`skill_*` rows production does hold are the wedge corpus, a disjoint id space):
 
 | skill | mechanical cases |
 |---|---|
@@ -294,6 +307,6 @@ one.
 | 5 | `EVAL_COVERED` E1/E2/E3 | eval owner | — | 0 live promotions; 6 trainer cases if E1 |
 | 6 | `#1027` | assign a frontend owner | — | 0 workers exposed (`MATCH_V1_ENABLED` off) |
 
-Every one of the six is at its cheapest right now, for the same reason: **the canonical taxonomy
-is schema without data, and the match spine holds 6 worker-skill rows and 4 reach rows.** That
-window closes at the first seed.
+Every one of the six is at its cheapest right now, for the same reason: **`job_domain_skill` is
+empty, the 98-skill corpus behind it is unseeded, and the match spine holds 6 worker-skill rows
+and 4 reach rows.** That window closes at the first seed.

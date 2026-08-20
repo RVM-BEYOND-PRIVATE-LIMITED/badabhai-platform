@@ -18,11 +18,13 @@
 > applied out of band, which took the migration slot this session was minting into — R39's fix is
 > therefore `0082`. Every open judgement call now has a costed options table in
 > **[`phase-9-open-decisions.md`](./phase-9-open-decisions.md)**, re-measured against production
-> the same day. The measurement that reframes most of them: **the canonical taxonomy is schema
-> without data** — `job_domain_skill` holds **0 edges**, production carries **51 skills** (all
-> `active`, none of them canonical corpus skills), `worker_skill` **6 rows**, `job_reach` **4
-> rows**. Every taxonomy decision below is at its cheapest right now, and that window closes at
-> the first seed.
+> the same day. The measurement that reframes most of them: **`job_domain_skill` is EMPTY** — 0
+> edges against the corpus file's 236 — and the 98-skill Phase-3 corpus those edges point into is
+> **0% seeded**. Path A's occupation half is complete (4 071 domains, 9 121 embedded aliases);
+> the domain→skill half has never had a row. Production's 51 skills are the wedge corpus (33
+> `skill_*` + 18 `mskill_*`, all `active`, no `provisional` rows at all), `worker_skill` holds
+> **6 rows** and `job_reach` **4**. Every taxonomy decision below is at its cheapest right now,
+> and that window closes at the first seed.
 
 | # | gate | blocked on | state |
 |---|---|---|---|
