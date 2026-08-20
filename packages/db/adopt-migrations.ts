@@ -278,6 +278,27 @@ async function main(): Promise<void> {
        WHERE table_schema='public'`;
     const grants = new Set(grantRows.map((r) => `${r.table_name}:${r.grantee.toLowerCase()}`));
 
+    // FUNCTION EXECUTE — the same blind spot one object class over, and the reason 0085 exists.
+    // `information_schema.routine_privileges` omits `PUBLIC` entirely (it reports named grantees
+    // only), and PUBLIC is the broadest grant of the four, so this reads `pg_proc.proacl`
+    // directly. `aclexplode` renders the PUBLIC grant as grantee OID 0, which `pg_get_userbyid`
+    // returns as `-` — normalised to `public` so it matches DATA_API_ROLES lowercased.
+    //
+    // A NULL `proacl` means "defaults apply", which for a function is EXECUTE to PUBLIC — so
+    // `coalesce(proacl, acldefault('f', proowner))` is not tidiness: without it a function that
+    // has never been touched by a GRANT reads as having no grants at all, which is the exact
+    // false PASS this check exists to prevent.
+    const fnAclRows = await sql<{ proname: string; grantee: string; priv: string }[]>`
+      SELECT p.proname,
+             CASE WHEN a.grantee = 0 THEN 'public'
+                  ELSE lower(pg_get_userbyid(a.grantee)) END AS grantee,
+             a.privilege_type AS priv
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+       WHERE n.nspname = 'public' AND a.privilege_type = 'EXECUTE'`;
+    const functionGrants = new Set(fnAclRows.map((r) => `${r.proname}:${r.grantee}`));
+
     const live: LiveCatalog = {
       tables: liveTables,
       columns: liveCols,
@@ -286,6 +307,7 @@ async function main(): Promise<void> {
       rlsEnabled: rlsOn,
       rlsForced,
       grants,
+      functionGrants,
     };
 
     const clean: JournalEntry[] = [];

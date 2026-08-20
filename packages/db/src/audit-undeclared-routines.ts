@@ -3,6 +3,8 @@
  *
  *   pnpm db:audit:undeclared-routines            # report
  *   pnpm db:audit:undeclared-routines --json=<p> # + an evidence record
+ *   pnpm db:audit:undeclared-routines --strict   # + exit 1 if any function we own is
+ *                                                #   SECURITY DEFINER *and* Data-API executable
  *
  * ===========================================================================
  * WHY A RUNNER AND NOT A ONE-OFF QUERY
@@ -238,6 +240,36 @@ export function classify(
   };
 }
 
+/**
+ * The `--strict` verdict: is any owner-privileged function still reachable by a Data-API role?
+ *
+ * PURE, and separate from {@link render}, because this is the one thing about #1110 that has a
+ * yes/no answer an operator can act on. Migration `0085` revokes EXECUTE on the three functions
+ * the register names; run this before it and it exits 1 naming all three, run it after and it
+ * exits 0. That is what makes the remediation VERIFIED rather than believed — the same reason
+ * `0082`'s lock became a schema-contract requirement instead of an assumption.
+ *
+ * IT IS NOT SCOPED TO THE THREE KNOWN NAMES, deliberately. `ALTER DEFAULT PRIVILEGES ... ON
+ * FUNCTIONS GRANT EXECUTE` is live on this database for `postgres` in `public`, so the NEXT
+ * `CREATE FUNCTION` arrives with exactly the same grant. A check that only knew about
+ * `_log_delete`, `rls_auto_enable` and `is_active_payer_member` would pass the day a fourth
+ * appears — which is the failure this whole investigation is an instance of.
+ *
+ * Ownership is part of the test. Supabase's own `SECURITY DEFINER` functions are owned by
+ * `supabase_admin` and are the platform's business; reporting them would bury the rows that are
+ * ours in rows nobody here can act on.
+ */
+export function strictProblems(rows: readonly RoutineRow[]): string[] {
+  return rows
+    .filter((r) => isOurs(r.owner) && isExposedDefiner(r))
+    .map(
+      (r) =>
+        `${r.name}(): SECURITY DEFINER, owned by ${r.owner}, EXECUTE held by ` +
+        `${[...r.executableBy].sort().join(", ")}`,
+    )
+    .sort();
+}
+
 export function render(rows: readonly RoutineRow[], forensics: Record<string, unknown> | null, byTable: readonly Record<string, unknown>[]): string[] {
   const ours = rows.filter((r) => isOurs(r.owner));
   const undeclared = ours.filter((r) => !r.declaredByAMigration);
@@ -287,6 +319,7 @@ export function render(rows: readonly RoutineRow[], forensics: Record<string, un
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const jsonArg = argv.find((a) => a.startsWith("--json="));
+  const strict = argv.includes("--strict");
   const url = process.env["DATABASE_URL"];
   if (!url) throw new Error(`[${SCRIPT}] DATABASE_URL is not set`);
 
@@ -324,6 +357,22 @@ async function main(): Promise<void> {
         "utf8",
       );
       console.log(`  evidence written to ${path}`);
+    }
+
+    if (strict) {
+      const problems = strictProblems(rows);
+      console.log("");
+      if (problems.length === 0) {
+        console.log("  [--strict] PASS — no function we own is both SECURITY DEFINER and");
+        console.log("             executable by anon / authenticated / service_role / PUBLIC.");
+      } else {
+        console.log(`  [--strict] FAIL — ${problems.length} owner-privileged function(s) reachable by a Data-API role:`);
+        for (const p of problems) console.log(`             ${p}`);
+        console.log("");
+        console.log("             Remedy: migration 0085_revoke_execute_undeclared_routines.");
+        console.log("             Re-run with --strict afterwards; it is the proof the REVOKE took.");
+        process.exitCode = 1;
+      }
     }
   } finally {
     await sql.end();

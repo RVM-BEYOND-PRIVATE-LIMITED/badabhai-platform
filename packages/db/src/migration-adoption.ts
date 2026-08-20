@@ -72,6 +72,20 @@ export interface LiveCatalog {
   readonly rlsForced: ReadonlySet<string>;
   /** "table:role", role lowercased — one entry per grantee holding ANY privilege. */
   readonly grants: ReadonlySet<string>;
+  /**
+   * "function:role" for EXECUTE, role lowercased, `PUBLIC` spelled `public`.
+   *
+   * Keyed on the BARE function name, not the signature: the three routines #1110 is about are
+   * not overloaded, and a signature-keyed set would make the verifier depend on how the
+   * argument list happens to be rendered. If an overload ever appears, the audit reports it as
+   * a separate routine and this set collapses them — which is a false PASS, so
+   * {@link executeRevokedProblems} states that limit rather than leaving it to be discovered.
+   *
+   * REQUIRED, not optional. An absent set and an empty set mean opposite things — "nobody
+   * collected this" versus "nobody holds it" — and a verifier that cannot tell them apart is
+   * the exact shape of false assurance the effect-verifier rules exist to prevent.
+   */
+  readonly functionGrants: ReadonlySet<string>;
 }
 
 /**
@@ -381,6 +395,49 @@ function gapDb21CreateLockProblems(live: LiveCatalog): string[] {
   return problems;
 }
 
+/**
+ * The three undeclared `SECURITY DEFINER` functions `0085` revokes EXECUTE on — #1110.
+ *
+ * Bare names, because {@link LiveCatalog.functionGrants} is keyed that way and none of the three
+ * is overloaded on this database.
+ */
+export const UNDECLARED_DEFINER_FUNCTIONS: readonly string[] = [
+  "_log_delete",
+  "is_active_payer_member",
+  "rls_auto_enable",
+];
+
+/**
+ * `0085` is one `DO` block and {@link parseMigration} can read nothing out of it — every REVOKE
+ * is inside `format()`, behind a `to_regprocedure` guard, behind a loop.
+ *
+ * ABSENCE IS A PASS HERE, and that is the opposite of the rule 0082 and 0084 follow — so it is
+ * argued rather than assumed. For those two, a missing table means "this migration did not run"
+ * and adoption must refuse. For 0085 there is no object it creates: it constrains three
+ * functions that NO migration declares, so a database built from this repository correctly does
+ * not have them and there is genuinely no privilege left to take away. Requiring their presence
+ * would make 0085 unadoptable on exactly the databases where it correctly did nothing.
+ *
+ * What still cannot pass: a function that IS present while a Data-API role still holds EXECUTE.
+ * That is the whole finding, and it is the one state this refuses to record as applied.
+ *
+ * LIMIT, stated: `functionGrants` is keyed on the bare name, so an overload of one of these
+ * three would be collapsed into the same key and its grants would read as the original's. None
+ * of the three is overloaded today; `db:audit:undeclared-routines` is what would report a new
+ * one, and it lists routines rather than merging them.
+ */
+function executeRevokedProblems(live: LiveCatalog): string[] {
+  const problems: string[] = [];
+  for (const fn of UNDECLARED_DEFINER_FUNCTIONS) {
+    for (const role of DATA_API_ROLES) {
+      if (live.functionGrants.has(`${fn}:${role.toLowerCase()}`)) {
+        problems.push(`${fn}(): ${role} still holds EXECUTE — the REVOKE did not take`);
+      }
+    }
+  }
+  return problems;
+}
+
 /** Every migration whose effects may be verified from the catalog instead of from its text. */
 export const EFFECT_VERIFIERS: readonly EffectVerifier[] = [
   {
@@ -394,6 +451,12 @@ export const EFFECT_VERIFIERS: readonly EffectVerifier[] = [
     why: "the auth.users foreign key is guarded by to_regclass — present on Supabase, absent elsewhere",
     assertions: GAP_DB_21_TABLES.length * (2 + DATA_API_ROLES.length),
     verify: gapDb21CreateLockProblems,
+  },
+  {
+    tag: "0085_revoke_execute_undeclared_routines",
+    why: "every REVOKE is inside format() behind a to_regprocedure guard, so the file text states none of them",
+    assertions: UNDECLARED_DEFINER_FUNCTIONS.length * DATA_API_ROLES.length,
+    verify: executeRevokedProblems,
   },
 ];
 

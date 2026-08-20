@@ -22,6 +22,7 @@ import {
   isOurs,
   render,
   selectsAValueColumn,
+  strictProblems,
   type RoutineRow,
 } from "./audit-undeclared-routines";
 import { DATA_API_ROLES } from "./schema-contract";
@@ -205,5 +206,71 @@ describe("the report", () => {
     const out = render(rows, null, []).join("\n");
     expect(out).toContain("gap-db-undeclared-routines.md");
     expect(out).toContain("nothing should be changed");
+  });
+});
+
+describe("--strict — the verdict that makes the 0085 REVOKE verifiable", () => {
+  const fn = (o: Partial<RoutineRow> = {}): RoutineRow => ({
+    kind: "function",
+    name: "f",
+    owner: "postgres",
+    securityDefiner: true,
+    executableBy: ["anon"],
+    on: null,
+    declaredByAMigration: false,
+    ...o,
+  });
+
+  it("FAILS while a function we own is SECURITY DEFINER and Data-API executable", () => {
+    // The production state on 2026-08-20, and the state 0085 exists to change.
+    const problems = strictProblems([
+      fn({ name: "_log_delete", executableBy: ["PUBLIC", "anon", "authenticated", "service_role"] }),
+      fn({ name: "is_active_payer_member", executableBy: ["anon"] }),
+      fn({ name: "rls_auto_enable", executableBy: ["service_role"] }),
+    ]);
+    expect(problems).toHaveLength(3);
+    expect(problems[0]).toBe(
+      "_log_delete(): SECURITY DEFINER, owned by postgres, " +
+        "EXECUTE held by PUBLIC, anon, authenticated, service_role",
+    );
+    // Sorted, so two runs against the same database produce the same text and a diff of the
+    // report before and after 0085 shows only what actually changed.
+    expect([...problems].sort()).toEqual(problems);
+  });
+
+  it("PASSES once the grants are gone — the same rows, only the ACL changed", () => {
+    // This is the after-state 0085 produces, and the only evidence that the REVOKE took.
+    expect(
+      strictProblems([
+        fn({ name: "_log_delete", executableBy: [] }),
+        fn({ name: "is_active_payer_member", executableBy: [] }),
+        fn({ name: "rls_auto_enable", executableBy: [] }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("is NOT scoped to the three known names — a fourth exposed function fails it too", () => {
+    // ALTER DEFAULT PRIVILEGES ... ON FUNCTIONS GRANT EXECUTE is still live for `postgres` in
+    // `public`, so the next CREATE FUNCTION arrives with the same grant. A check that knew only
+    // the three names would pass the day a fourth appears — which is this finding, repeated.
+    const problems = strictProblems([fn({ name: "some_new_helper", executableBy: ["authenticated"] })]);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("some_new_helper()");
+  });
+
+  it("ignores the platform's own definers — they are supabase_admin's, not ours", () => {
+    expect(strictProblems([fn({ name: "pgrst_ddl_watch", owner: "supabase_admin" })])).toEqual([]);
+  });
+
+  it("needs both halves, exactly like isExposedDefiner", () => {
+    expect(strictProblems([fn({ securityDefiner: false })])).toEqual([]);
+    expect(strictProblems([fn({ executableBy: [] })])).toEqual([]);
+  });
+
+  it("does not mutate the row's readonly executableBy while sorting it", () => {
+    const frozen = Object.freeze(["service_role", "anon"]) as readonly string[];
+    const row = fn({ executableBy: frozen });
+    expect(() => strictProblems([row])).not.toThrow();
+    expect(row.executableBy).toEqual(["service_role", "anon"]);
   });
 });

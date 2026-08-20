@@ -127,11 +127,16 @@ describe("0084 is reachable by the migrator at all", () => {
     expect(entry!.when).toBeGreaterThan(1787230000000);
   });
 
-  it("is the last entry, and the journal is strictly increasing", () => {
+  it("is stamped above everything before it, and the journal is strictly increasing", () => {
     // A `when` raised by hand is exactly the edit that can put the journal out of order.
+    // NOT "is the last entry" any more — 0085 lands after it. What has to hold is the property
+    // that mattered all along: nothing before 0084 is stamped at or above it, because
+    // drizzle-kit branches on a high-water mark and an entry below it is skipped forever.
     const whens = JOURNAL.entries.map((e) => e.when);
     for (let i = 1; i < whens.length; i += 1) expect(whens[i]!).toBeGreaterThan(whens[i - 1]!);
-    expect(JOURNAL.entries[JOURNAL.entries.length - 1]!.tag).toBe(TAG);
+    const idx = JOURNAL.entries.findIndex((e) => e.tag === TAG);
+    expect(idx).toBeGreaterThanOrEqual(0);
+    for (const e of JOURNAL.entries.slice(0, idx)) expect(e.when).toBeLessThan(whens[idx]!);
   });
 });
 
@@ -148,6 +153,7 @@ describe("0084 and the adoption path", () => {
       rlsEnabled: new Set(),
       rlsForced: new Set(),
       grants: new Set(),
+      functionGrants: new Set(),
     });
     // Without a tag there is no verifier, so the refusal still stands — the hatch is opened by
     // naming the migration, never by the file's own contents.
@@ -167,6 +173,7 @@ describe("0084 and the adoption path", () => {
         rlsEnabled: new Set(),
         rlsForced: new Set(),
         grants: new Set(),
+        functionGrants: new Set(),
       },
       TAG,
     );
