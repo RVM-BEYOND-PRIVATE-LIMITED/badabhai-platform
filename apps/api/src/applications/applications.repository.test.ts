@@ -143,3 +143,49 @@ describe("findApplicationsByWorker — scope and bound", () => {
     expect(captured.limit).toBeGreaterThan(0);
   });
 });
+
+/**
+ * THE APPLIED TAB MUST NEVER RENDER AN INTERNAL ID (#1027).
+ *
+ * `GET /feed` deliberately fills its legacy `trade_key` slot with the matched `mskill_*` id —
+ * V1 has no trade on the posting, and `match-feed.service.test.ts` pins that on purpose so an
+ * unknown skill is still findable in the audit trail. The worker app is safe from it only
+ * because it never renders `FeedItem.tradeKey`: the feed card builds from `title`/`city`/`pay`/
+ * `shift` plus `matchedSkillLabel`, a closed-set label.
+ *
+ * The Applied tab is the one screen that DOES interpolate a trade key —
+ * `applied_jobs_screen.dart:181` renders `'${job.tradeKey} · $place'` — and it reads
+ * `AppliedJob.tradeKey`, which comes from HERE. The only thing standing between an internal id
+ * and that subtitle is this projection being a bare `jobs.trade_key` with no `job_postings` arm.
+ *
+ * Which makes the tempting change the dangerous one. Every neighbouring field in this selection
+ * is a `coalesce(jobs.x, job_postings.y)`, so `tradeKey` reads like the one that was forgotten,
+ * and `job_postings` has an obvious-looking candidate one word away. Adding it would put
+ * `mskill_mig_welder` on a worker's card in the reading language of a job title. `NULL` is the
+ * honest answer for a V1 decision, and the client already renders the subtitle without it.
+ */
+describe("findApplicationsByWorker — the trade_key boundary (#1027)", () => {
+  it("projects `jobs.trade_key` ALONE — no coalesce, no `job_postings` arm", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findApplicationsByWorker(WORKER);
+    const tradeKey = col(captured, "tradeKey");
+
+    expect(tradeKey).toContain("trade_key");
+    // A coalesce here is the regression: whatever the second arm was, it would be a
+    // `job_postings` value reaching a subtitle that reads as a trade name.
+    expect(tradeKey).not.toMatch(/coalesce/i);
+    expect(tradeKey).not.toContain("job_postings");
+  });
+
+  it("never reaches a matched-skill id from this statement", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findApplicationsByWorker(WORKER);
+    const projection = Object.values(captured.selection!).map(render).join(" | ");
+
+    // `job_reach.matched_skill_id` is what the feed puts in its `trade_key` slot. It is not
+    // joined here and must not become so — the Applied tab has no use for it and one
+    // rendering path away from showing it.
+    expect(projection).not.toContain("matched_skill_id");
+    expect(projection).not.toContain("mskill_");
+  });
+});
