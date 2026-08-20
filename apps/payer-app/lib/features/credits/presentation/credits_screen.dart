@@ -281,7 +281,9 @@ class _PackCard extends StatelessWidget {
           const SizedBox(width: AppSpacing.s3),
           BbButton(
             label: 'Buy',
-            size: BbButtonSize.sm,
+            // md (44px) not sm — a loud primary CTA must clear the 48px tap
+            // floor via its material tap target (#1082).
+            size: BbButtonSize.md,
             loading: busy,
             onPressed: (busy || locked) ? null : onBuy,
           ),

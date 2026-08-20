@@ -12,6 +12,7 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_field.dart';
 import '../../../core/widgets/bb_icon_button.dart';
+import '../../../core/widgets/bb_stamp_celebration.dart';
 import '../../../core/widgets/bb_toast.dart';
 import 'cubit/batch_invite_cubit.dart';
 import '../util/invite_url.dart';
@@ -86,7 +87,7 @@ class _BatchInviteViewState extends State<_BatchInviteView> {
             Expanded(
               child: BlocBuilder<BatchInviteCubit, BatchInviteState>(
                 builder: (BuildContext context, BatchInviteState state) {
-                  return ListView(
+                  final Widget list = ListView(
                     keyboardDismissBehavior:
                         ScrollViewKeyboardDismissBehavior.onDrag,
                     padding: const EdgeInsets.fromLTRB(
@@ -126,6 +127,18 @@ class _BatchInviteViewState extends State<_BatchInviteView> {
                           ),
                         ),
                       ],
+                    ],
+                  );
+                  return Stack(
+                    children: <Widget>[
+                      list,
+                      // #1077 — the "stamp" beat when a fresh batch of invite
+                      // codes is minted; brief + non-blocking over the results.
+                      if (state.status == BatchInviteStatus.ready &&
+                          state.invites.isNotEmpty)
+                        const Positioned.fill(
+                          child: BbStampCelebration(icon: Icons.qr_code_2),
+                        ),
                     ],
                   );
                 },

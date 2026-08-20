@@ -925,8 +925,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
         ),
         const SizedBox(height: AppSpacing.s2),
         Wrap(
-          spacing: 7,
-          runSpacing: 7,
+          spacing: AppSpacing.chipGap,
+          runSpacing: AppSpacing.chipGap,
           children: <Widget>[
             for (final String skill in _skills)
               BbChip(

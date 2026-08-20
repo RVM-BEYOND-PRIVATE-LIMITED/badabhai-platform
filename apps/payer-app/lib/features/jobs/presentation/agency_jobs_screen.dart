@@ -89,7 +89,9 @@ class _AgencyJobsBody extends StatelessWidget {
                 ),
                 BbButton(
                   label: 'Post',
-                  size: BbButtonSize.sm,
+                  // md (44px) not sm — a loud primary CTA clears the 48px tap
+                  // floor (#1082).
+                  size: BbButtonSize.md,
                   iconLeft: Icons.add,
                   onPressed: onPost,
                 ),

@@ -166,7 +166,7 @@ class _DraftRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         SizedBox(
-          width: 104,
+          width: AppSpacing.labelCol,
           child: Text(
             label,
             style: AppTypography.body(

@@ -260,7 +260,7 @@ class _FindView extends StatelessWidget {
           'CANDIDATES FOR ${role.toUpperCase()}',
           style: AppTypography.eyebrow(color: AppColors.textMuted),
         ),
-        const SizedBox(height: 2),
+        const SizedBox(height: AppSpacing.gap2),
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
@@ -422,7 +422,7 @@ class _ApplicantCard extends StatelessWidget {
                       ),
                     ),
                     if (applicant.hot) ...<Widget>[
-                      const SizedBox(width: 6),
+                      const SizedBox(width: AppSpacing.gap6),
                       const BbBadge(
                         'Hot',
                         tone: BbBadgeTone.danger,
@@ -432,7 +432,7 @@ class _ApplicantCard extends StatelessWidget {
                     ],
                   ],
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: AppSpacing.gap3),
                 Text(
                   _facets(applicant),
                   maxLines: 1,
@@ -444,10 +444,10 @@ class _ApplicantCard extends StatelessWidget {
                   ),
                 ),
                 if (tierBadge != null || signals.isNotEmpty) ...<Widget>[
-                  const SizedBox(height: 6),
+                  const SizedBox(height: AppSpacing.gap6),
                   Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
+                    spacing: AppSpacing.gap6,
+                    runSpacing: AppSpacing.gap6,
                     children: <Widget>[
                       if (tierBadge != null) tierBadge,
                       for (final String s in signals)
@@ -466,14 +466,16 @@ class _ApplicantCard extends StatelessWidget {
               if (masked)
                 BbButton(
                   label: '₹40',
-                  size: BbButtonSize.sm,
+                  // md (44px) not sm — the ₹40 unlock is the paid CTA and must
+                  // clear the 48px tap floor (#1082).
+                  size: BbButtonSize.md,
                   iconLeft: Icons.lock_open,
                   onPressed: onUnlock,
                 )
               else
                 BbButton(
                   label: 'View',
-                  size: BbButtonSize.sm,
+                  size: BbButtonSize.md,
                   iconLeft: Icons.chat_bubble_outline,
                   onPressed: onView,
                 ),
@@ -571,10 +573,10 @@ class _CandidateCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: AppSpacing.gap6),
                     const Icon(Icons.verified, size: 15, color: AppColors.success),
                     if (candidate.hot) ...<Widget>[
-                      const SizedBox(width: 6),
+                      const SizedBox(width: AppSpacing.gap6),
                       const BbBadge(
                         'Hot',
                         tone: BbBadgeTone.danger,
@@ -584,7 +586,7 @@ class _CandidateCard extends StatelessWidget {
                     ],
                   ],
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: AppSpacing.gap3),
                 Text(
                   '${candidate.trade} · ${candidate.skill}',
                   maxLines: 1,
@@ -598,7 +600,7 @@ class _CandidateCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 Wrap(
                   spacing: AppSpacing.s3,
-                  runSpacing: 2,
+                  runSpacing: AppSpacing.gap2,
                   children: <Widget>[
                     _meta(Icons.military_tech_outlined, candidate.exp),
                     _meta(Icons.location_on_outlined, candidate.loc),
@@ -625,14 +627,16 @@ class _CandidateCard extends StatelessWidget {
               if (masked)
                 BbButton(
                   label: '₹40',
-                  size: BbButtonSize.sm,
+                  // md (44px) not sm — the ₹40 unlock is the paid CTA and must
+                  // clear the 48px tap floor (#1082).
+                  size: BbButtonSize.md,
                   iconLeft: Icons.lock_open,
                   onPressed: onUnlock,
                 )
               else
                 BbButton(
                   label: 'View',
-                  size: BbButtonSize.sm,
+                  size: BbButtonSize.md,
                   iconLeft: Icons.phone,
                   onPressed: onView,
                 ),
