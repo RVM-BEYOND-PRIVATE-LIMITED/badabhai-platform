@@ -512,6 +512,117 @@ called at all.
 
 ---
 
+## RESOLVED — the owner decision, and what it changed
+
+**Decision, 2026-08-21:**
+
+> *"keep the DPDP erasure proof, but do not retain raw statement text/operator IP indefinitely...
+> remove the broad default EXECUTE grant on functions; explicitly revoke EXECUTE from anon and
+> authenticated for these routines; retain only the minimum application-required execution
+> privilege; define a bounded retention policy for deletion forensics; remove unnecessary
+> query/forensics exposure if it is not required by the approved erasure/audit design; preserve
+> the actual DPDP erasure proof/tombstone mechanism."*
+
+That answers the three questions this page existed to ask. **`0085` and `0086` were applied to
+production by hand on 2026-08-21**, and every claim below is a post-apply measurement.
+
+### Before / after, measured
+
+| | before | after |
+|---|---|---|
+| default privileges, `postgres` → `public` FUNCTIONS | `postgres`, `anon`, `authenticated`, `service_role` | **`postgres` only** |
+| `_log_delete` EXECUTE acl | `=X/postgres, postgres, anon, authenticated, service_role` | **`{postgres=X/postgres}`** |
+| `rls_auto_enable` EXECUTE acl | same four + PUBLIC | **`{postgres=X/postgres}`** |
+| `is_active_payer_member` EXECUTE acl | same four + PUBLIC | **`{postgres=X/postgres}`** |
+| `db:audit:undeclared-routines --strict` | **exit 1**, three named | **exit 0, PASS** |
+| `_delete_forensics.query` | present, 147 rows populated | **dropped** |
+| `_delete_forensics.client_addr` | present, 147 rows populated | **dropped** |
+| `_delete_forensics` rows | 147 | **147** — narrowed, not emptied |
+| index on `at` | none | **`_delete_forensics_at_idx`** |
+| RLS on `_delete_forensics` | enabled + forced, 0 Data-API grants | **unchanged** |
+| routines no migration declares | **6** | **3** |
+| `audit_logs` (the erasure proof) | 11 columns | **11 columns, untouched** |
+
+`--strict` going from exit 1 to exit 0 is the whole remediation in one command, and it was run in
+both directions.
+
+### The `service_role` deviation, called out rather than made silently
+
+The instruction named `anon` and `authenticated`. `0085` also revokes `PUBLIC` and
+`service_role`, because *"retain only the minimum application-required execution privilege"*
+governs and neither is required: the backend connects as `postgres` (the owner, which keeps its
+explicit grant), and the Data API cannot reach this schema's data at all — all 78 public tables
+grant `service_role` nothing. If a future Data-API surface needs it, restoring it is one `GRANT`.
+
+### Why two migrations instead of one
+
+`0085` is privileges only: no CREATE, no ALTER TABLE, no data. Every statement is reversed by one
+`GRANT`. `0086` drops two columns, which is **not** reversible. Putting them in one migration
+would tie a cheap rollback to an expensive one.
+
+### What made the irreversible half safe to do now
+
+The drop destroys 147 values and no backup of this table is declared. It was safe because the
+content had been measured first, counted and never printed: **0 phone-shaped, 0 email-shaped, and
+none of the 35 quoted ten-digit literals is a bare Indian mobile.** "Clean" was a property of how
+deletes had happened so far — parameterised, or by uuid at a console — not of the mechanism, so
+the cost of this change was only ever going to rise.
+
+**What was lost:** network-level attribution for a console deletion. What survives still
+identifies one — `txid`, `table_name`, `row_id`, `worker_id`, `db_user`, `app_name`,
+`backend_pid`.
+
+### The retention policy
+
+**90 days**, defined once in `packages/db/src/schema/delete-forensics.ts` and imported by the
+runner, the audit report and their tests.
+
+```
+pnpm --filter @badabhai/db db:prune:delete-forensics        # PLAN. The default.
+```
+
+```
+  rows in _delete_forensics   147
+  older than 90  days          0
+  oldest row                  2026-08-13 10:44:29+00
+
+  Nothing to do. The policy is in force and no row has reached the window yet —
+  which is the state it was deliberately introduced in.
+```
+
+**It is in code, not in `pg_cron`** — which is not installed here, and which would have put the
+policy back out of band in exactly the shape this finding is about. The runner is
+`opsGuard`-gated, dry-run by default, and refuses a window below a 30-day floor rather than
+clamping it.
+
+### Two bugs this work surfaced, both found by their own tests
+
+1. **`FORENSICS_SQL` still counted `query`.** After the drop it raised *"column does not exist"*,
+   the runner's `catch` swallowed it as *"absent on every database but production"*, and the
+   report **silently lost its whole `_delete_forensics` section**. Reporting nothing where there
+   used to be a finding is worse than either reporting it or failing outright. Rewritten to ask
+   what is still answerable, including the retention count. A test pins that it names no dropped
+   column.
+2. **`--retention-days` used `parseInt`.** `"90x"` read as 90 and `"9.5"` as 9 — a fat-fingered
+   window silently accepted at a tenth of its intended length. Now whole-string or refuse.
+
+`normalizeType` also learned the serial pseudo-types: adoption REFUSED `0086` with *"unmapped SQL
+type bigserial — refusing to guess"*, which was the correct behaviour and the right place to fix.
+
+### What remains undeclared, and why that is still correct
+
+`ensure_rls`, `rls_auto_enable` and `is_active_payer_member` — **no owner ruling covers them.**
+`_log_delete` and both triggers are now declared **because a decision was recorded**, and a test
+pins exactly that split so a future migration cannot quietly declare the other three without one.
+
+The three open items are unchanged: whether `ensure_rls` stays (and if so, whether it should
+FORCE and REVOKE rather than only ENABLE, and lose its `EXCEPTION WHEN OTHERS`), whether
+`is_active_payer_member` should simply be dropped as the last remnant of an abandoned
+Supabase-Auth design, and whether the **TABLE** default privilege — the twin of the one `0085`
+fixed, and where GAP-DB-21's grants came from — should go the same way.
+
+---
+
 ## Change log
 
 | date | what |
@@ -522,3 +633,4 @@ called at all.
 | 2026-08-20 | **Deletion source measured**: 147/147 rows `db_user=postgres`, `app_name=supabase/dashboard`; 95 on 2026-08-19 alone; 104 distinct worker ids, **0 still live**. Not one delete came from the application. |
 | 2026-08-20 | **Erasure interaction found**: `_log_delete` fires on `WorkersRepository.hardDelete`, the DPDP right-to-erasure path, and writes a fourth residue record the erasure design never accounted for. Has not yet occurred in production. |
 | 2026-08-20 | Migration **`0085_revoke_execute_undeclared_routines` written and NOT applied**, with an effect verifier, a `--strict` verdict, and a test that keeps the drift audit honest. Verified read-only against production: adoption refuses it with 12 mismatches, `--strict` exits 1. |
+| 2026-08-21 | **RESOLVED for the deletion trail.** Owner ruled: keep the DPDP erasure proof, bound the forensics, remove the exposure. `0085` (privileges: default ACL + the three routines) and `0086` (declare, narrow, bound) written and **applied by hand to production**. Verified after: `--strict` **exit 0** (was exit 1 naming three), default ACL for `public` FUNCTIONS now `postgres` only, all three routines `{postgres=X/postgres}`, `query` and `client_addr` **dropped** with all 147 rows retained, `_delete_forensics_at_idx` created, `audit_logs` untouched, undeclared routines **6 -> 3**. Retention is 90 days in code (`db:prune:delete-forensics`), not `pg_cron`, and its first run is a measured no-op. Journal rows for both are **not yet recorded** — adoption verifies clean (16 + 17 assertions) and awaits approval. |

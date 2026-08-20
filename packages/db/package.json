@@ -56,6 +56,7 @@
     "db:growth:occupation": "tsx src/growth-occupation.ts",
     "db:retag:skills": "tsx src/retag-skills.ts",
     "db:reencrypt:pii": "tsx src/reencrypt-pii-backfill.ts",
+    "db:prune:delete-forensics": "tsx src/prune-delete-forensics.ts",
     "db:verify:demand": "tsx src/verify-demand.ts",
     "db:seed:reach": "tsx src/seed-reach-pool.ts",
     "db:seed:reach:large": "tsx src/seed-reach-pool.ts",
