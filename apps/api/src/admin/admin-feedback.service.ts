@@ -44,12 +44,6 @@ import type { AdminFeedbackListItem, AdminFeedbackQueryDto } from "./admin-feedb
  *    text, an excerpt, or a length — the payload's `.strict()` is the structural backstop, and
  *    its own header explains why even a length is refused here.
  */
-/**
- * Canonical 8-4-4-4-12 hex form — what a `uuid` column accepts and what `encodeEntityCursor`
- * emits. A cursor id that is not one cannot match a row, so falling back to the first page
- * loses nothing a correct cursor would have found.
- */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class AdminFeedbackService {
@@ -95,13 +89,12 @@ export class AdminFeedbackService {
    * by a link shortener sooner or later, and an operator seeing a stack trace instead of the
    * top of the list learns nothing useful.
    *
-   * `decodeEntityCursor` alone does NOT make that true. It validates the timestamp half and
-   * accepts the id half as any string, so `{"c":<valid>,"i":"x"}` decodes cleanly and then
-   * binds `x` against a `uuid` column — Postgres rejects it at BIND with 22P02 and the filter
-   * turns it into a 500, which is precisely what the paragraph above promises does not happen.
-   * The guard is here rather than in the shared decoder because that decoder is on the BP-1
-   * entity and finance reads too, and widening it is their change to make, not this one's
-   * (raised separately).
+   * `decodeEntityCursor` is what makes that true, for BOTH halves. It used to validate only
+   * the timestamp and accept the id as any string, so `{"c":<valid>,"i":"x"}` decoded cleanly
+   * and then bound `x` against a `uuid` column — a 22P02 at BIND, surfaced as a 500. This
+   * service carried a local uuid guard for exactly that reason; #1014 moved the check into the
+   * shared decoder, where the BP-1 entity and finance reads needed it too, and the local one
+   * was deleted rather than left as a second answer to the same question.
    */
   async list(
     adminId: string,
@@ -111,7 +104,7 @@ export class AdminFeedbackService {
     const cursor = decodeEntityCursor(dto.cursor);
     const rows = await this.repo.list(
       { category: dto.category, workerId: dto.workerId },
-      cursor && UUID_RE.test(cursor.id) ? cursor : null,
+      cursor,
       dto.limit + 1,
     );
     const page = AdminFeedbackService.page(rows, dto.limit);
