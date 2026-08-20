@@ -43,32 +43,22 @@ void main() {
     expect(calls, 2, reason: 'first failed, retried once, succeeded');
   });
 
-  test('GET retries a transient 503, then succeeds', () async {
-    int calls = 0;
-    final PayerHttp http0 = _client(MockClient((http.Request _) async {
-      calls++;
-      return calls == 1 ? http.Response('{}', 503) : _ok();
-    }));
+  test('a server 5xx is NOT retried — no thundering herd on a failing backend',
+      () async {
+    for (final int status in <int>[500, 502, 503, 504]) {
+      int calls = 0;
+      final PayerHttp http0 = _client(MockClient((http.Request _) async {
+        calls++;
+        return http.Response('{}', status);
+      }));
 
-    final PayerResponse res =
-        await http0.send(PayerMethod.get, '/payer/reach/jobs/j/applicants');
+      final PayerResponse res =
+          await http0.send(PayerMethod.get, '/payer/job-postings');
 
-    expect(res.statusCode, 200);
-    expect(calls, 2);
-  });
-
-  test('a deterministic 500 is NOT retried — surfaces at once', () async {
-    int calls = 0;
-    final PayerHttp http0 = _client(MockClient((http.Request _) async {
-      calls++;
-      return http.Response('{}', 500);
-    }));
-
-    final PayerResponse res =
-        await http0.send(PayerMethod.get, '/payer/job-postings');
-
-    expect(res.statusCode, 500);
-    expect(calls, 1);
+      expect(res.statusCode, status);
+      expect(calls, 1,
+          reason: 'retrying a $status amplifies load; surface it at once');
+    }
   });
 
   test('a POST is NEVER auto-retried — a write must not repeat', () async {

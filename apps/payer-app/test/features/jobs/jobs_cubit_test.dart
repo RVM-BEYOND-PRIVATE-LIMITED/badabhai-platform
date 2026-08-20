@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:payer_app/core/data/mock_payer_api_client.dart';
@@ -121,13 +123,16 @@ void main() {
       expect(api.fetches, 0);
     });
 
-    test('a transport error is reported as a network error', () async {
-      api.throwOnUpdate = Exception('socket closed');
+    test('a transport error is reported with the honest network reason',
+        () async {
+      api.throwOnUpdate = const SocketException('socket closed');
 
       final JobActionResult result = await cubit.editJob('j1', roleTitle: 'x');
 
       expect(result.success, isFalse);
-      expect(result.message, 'Network error. Check your connection.');
+      // Classified via PayerFailure, same honesty as load() — a real connection
+      // problem, not a blanket 'network error' that also mislabels a timeout.
+      expect(result.message, contains('internet'));
     });
   });
 }
