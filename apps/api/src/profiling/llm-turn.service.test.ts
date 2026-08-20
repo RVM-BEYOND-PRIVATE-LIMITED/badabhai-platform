@@ -192,15 +192,19 @@ describe("the caps — the API owns termination, never the model", () => {
   });
 
   it("honours the model's phase_a_done as advice when no cap has fired", async () => {
+    // `llmGateAsked: true` because this case is about the CLOSE, not the gate. #1016 put the
+    // engine's own gate in front of the FIRST `phase_a_done` of an interview, so an envelope that
+    // has never shown the gate answers "ask" here — correctly, and for a different reason than the
+    // one this case exists to pin. Gate-before-close has its own describe block below.
     const { svc } = make({ turn: TURN({ phase_a_done: true }) });
-    expect((await svc.take(env(), "bas", [], CTX))?.kind).toBe("done");
+    expect((await svc.take(env({ llmGateAsked: true }), "bas", [], CTX))?.kind).toBe("done");
   });
 
   it("keeps the model's findings on the turn that ends Phase A", async () => {
     // The last turn is still a turn: dropping its draft would lose whatever the worker said in
     // the sentence that finished the phase.
     const { svc } = make({ turn: TURN({ phase_a_done: true, skills: ["tandoor"] }) });
-    const out = await svc.take(env(), "bas itna hi", [], CTX);
+    const out = await svc.take(env({ llmGateAsked: true }), "bas itna hi", [], CTX);
     expect(out?.patch.llmDraft?.skills).toEqual(["tandoor"]);
     expect(out?.patch.llmStage).toBe("done");
   });
@@ -312,7 +316,8 @@ describe("`llmLedTurns` — what the platform recorded, not what the model claim
 
   it("counts the turn that closes Phase A on the model's advice", async () => {
     const { svc } = make({ turn: TURN({ phase_a_done: true }) });
-    const out = await svc.take(env({ llmLedTurns: 4 }), "bas itna hi", [], CTX);
+    // `llmGateAsked: true` — see the note in "honours the model's phase_a_done as advice".
+    const out = await svc.take(env({ llmLedTurns: 4, llmGateAsked: true }), "bas itna hi", [], CTX);
     expect(out?.kind).toBe("done");
     expect(out?.patch.llmLedTurns).toBe(5);
   });
@@ -564,5 +569,142 @@ describe("#1016 — what actually decides whether the worker sees the experience
     expect(out?.kind).toBe("ask");
     expect(out?.kind === "ask" && out.reply).not.toBe(EXPERIENCE_GATE_PROMPT);
     expect(out?.patch.llmGateOpen).toBeFalsy();
+  });
+});
+
+describe("#1016 — the engine asks the gate before it accepts a close", () => {
+  // THE REPORTED BUG, as a suite. The gate was served on exactly one condition — the turn the
+  // model returned a non-null `experience_entry` — so a model that never filled that field took
+  // the question off the air for the whole session, and Phase A closed on `phase_a_done` having
+  // never asked. Both triggers were the model's own output, which is what §3 forbids: whether a
+  // worker is asked "do you have another job?" is a business decision.
+  //
+  // #1017 sharpened the prompt and said in its own commit message that the API "cannot invent a
+  // job the model did not report". True — and beside the point. These cases pin that the engine
+  // does not need the job in order to ask the QUESTION.
+
+  it("THE WELDER SESSION: no entry, phase_a_done — the worker is asked anyway", async () => {
+    // The session recorded in `llm-interview.orchestrator.test.ts`: the model ran the experience
+    // stretch conversationally, wrote its own gate-shaped question, emitted no `experience_entry`,
+    // and returned `phase_a_done`. Before this fix that closed Phase A in silence.
+    const { svc } = make({ turn: TURN({ phase_a_done: true, experience_entry: null }) });
+    const out = await svc.take(env(), "bas itna hi", [], CTX);
+    expect(out).toMatchObject({
+      kind: "ask",
+      reply: EXPERIENCE_GATE_PROMPT,
+      inputMode: "options_only",
+    });
+    expect(out?.patch).toMatchObject({ llmGateOpen: true, llmGateAsked: true });
+  });
+
+  it("the gate carries BOTH chips — a question with one answer is not a gate", async () => {
+    const { svc } = make({ turn: TURN({ phase_a_done: true }) });
+    const out = await svc.take(env(), "bas", [], CTX);
+    expect(out?.kind === "ask" ? out.chips : null).toEqual(["Haan", "Nahi"]);
+  });
+
+  it("the model's closing words are DROPPED — the gate stands alone", async () => {
+    // Branch 4's rule, applied here: two closing sentences and a Yes/No question in one bubble is
+    // not a question, and the reply the model wrote was for a turn that is not happening.
+    const { svc } = make({
+      turn: TURN({ phase_a_done: true, reply_text: "Shukriya! Aapka profile ban gaya." }),
+    });
+    const out = await svc.take(env(), "bas", [], CTX);
+    expect(out?.kind === "ask" ? out.reply : null).toBe(EXPERIENCE_GATE_PROMPT);
+  });
+
+  it("ONCE PER INTERVIEW — a second phase_a_done closes instead of re-asking", async () => {
+    // The bound that matters. Without it a model that keeps returning `phase_a_done` is handed
+    // the gate on every one of those turns, and a worker who already answered is asked again —
+    // the "asked twice" failure the prompt itself warns the model about.
+    const { svc } = make({ turn: TURN({ phase_a_done: true }) });
+    const out = await svc.take(env({ llmGateAsked: true }), "bas", [], CTX);
+    expect(out?.kind).toBe("done");
+    expect(out?.patch.llmStage).toBe("done");
+  });
+
+  it("a worker who already saw the gate after an entry is not asked twice", async () => {
+    // The ordinary path, end to end: branch 3 serves the gate when an entry lands and sets the
+    // flag, so the model's later `phase_a_done` closes rather than re-opening it. This is the
+    // case that proves the two branches share ONE bound rather than each having their own.
+    const { svc } = make({ turn: TURN({ experience_entry: ENTRY }) });
+    const first = await svc.take(env(), "3 saal tandoor pe", [], CTX);
+    expect(first?.patch.llmGateAsked).toBe(true);
+
+    const { svc: svc2 } = make({ turn: TURN({ phase_a_done: true }) });
+    const second = await svc2.take(
+      env({ ...first?.patch, llmGateOpen: false }),
+      "bas itna hi",
+      [],
+      CTX,
+    );
+    expect(second?.kind).toBe("done");
+  });
+
+  it("AT THE ENTRY CAP the gate is NOT offered — there is no second job to add", async () => {
+    // Offering it would be a lie: a "Haan" cannot produce another entry, so the worker would be
+    // asked a question whose only honest answer the engine is about to ignore.
+    const { svc } = make({ turn: TURN({ phase_a_done: true }) });
+    const out = await svc.take(env(withEntries(MAX_EXPERIENCE_ENTRIES)), "bas", [], CTX);
+    expect(out?.kind).toBe("done");
+  });
+
+  it("A CAP CLOSE IS NOT A phase_a_done CLOSE — the ask budget ends it outright", async () => {
+    // Branch 2 returns before the model is even called, so there is no `phase_a_done` to gate on
+    // and nothing to offer: a "Haan" would hit the same cap on the next turn. The engine closes.
+    const { svc } = make({ turn: TURN({ phase_a_done: false }) });
+    const out = await svc.take(env({ llmAsks: MAX_LLM_ASKS }), "aur bhi kaam kiya hai", [], CTX);
+    expect(out?.kind).toBe("done");
+    expect(out?.patch.llmGateOpen).toBeFalsy();
+  });
+
+  it("`llmAsks` IS NOT SPENT on the gate — a Haan is guaranteed a real model turn", async () => {
+    // Branch 3's reasoning verbatim: the model's reply is discarded in favour of the gate, so the
+    // question it wrote was never asked. Charging for it would let the budget run out on the turn
+    // AFTER a worker says "Haan", which is the one case the gate exists to make possible.
+    const { svc } = make({ turn: TURN({ phase_a_done: true }) });
+    const out = await svc.take(env({ llmAsks: 3 }), "bas", [], CTX);
+    expect(out?.patch.llmAsks).toBeUndefined();
+  });
+
+  it("`llmLedTurns` IS counted — the gate is a turn Phase A put on screen", async () => {
+    // The counter `selectableEnginePacks` reads to answer "did the platform already interview
+    // this worker about their work?". A gate the worker saw and answered is such a turn.
+    const { svc } = make({ turn: TURN({ phase_a_done: true }) });
+    const out = await svc.take(env({ llmLedTurns: 4 }), "bas", [], CTX);
+    expect(out?.patch.llmLedTurns).toBe(5);
+  });
+
+  it("the stage is clamped to `experience`, so a Haan lands the model on the right rung", async () => {
+    const { svc } = make({ turn: TURN({ phase_a_done: true, stage: "domain" }) });
+    const out = await svc.take(env(), "bas", [], CTX);
+    expect(out?.patch.llmStage).toBe("experience");
+  });
+
+  it("the draft the model gathered on the closing turn is KEPT", async () => {
+    // The turn still happened. Dropping its findings would lose whatever the worker said in the
+    // sentence that triggered the close — the same rule branch 4 already follows.
+    const { svc } = make({ turn: TURN({ phase_a_done: true, skills: ["welding", "grinding"] }) });
+    const out = await svc.take(env(), "bas itna hi", [], CTX);
+    expect(out?.patch.llmDraft?.skills).toEqual(["welding", "grinding"]);
+  });
+
+  it("HAAN AT THE ENGINE-SERVED GATE reopens the interview, exactly as after an entry", async () => {
+    // The whole point: the gate is only worth serving if answering it yes actually buys another
+    // experience question. Same branch-1 path an entry-served gate uses.
+    const { svc } = make({ turn: TURN({ reply_text: "Us kaam mein kya karte the?" }) });
+    const out = await svc.take(env({ llmGateOpen: true, llmGateAsked: true }), "Haan", [], CTX);
+    expect(out?.kind).toBe("ask");
+    expect(out?.kind === "ask" ? out.reply : null).toBe("Us kaam mein kya karte the?");
+    expect(out?.patch.llmGateOpen).toBe(false);
+  });
+
+  it("NAHI closes Phase A, and the flag stays set for the rest of the interview", async () => {
+    const { svc } = make({ turn: TURN() });
+    const out = await svc.take(env({ llmGateOpen: true, llmGateAsked: true }), "Nahi", [], CTX);
+    expect(out?.kind).toBe("done");
+    // Not cleared: it records that the question WAS asked, which stays true afterwards. Clearing
+    // it would let a later `phase_a_done` re-open the gate on a worker who already said no.
+    expect(out?.patch.llmGateAsked).toBeUndefined();
   });
 });
