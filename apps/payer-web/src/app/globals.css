@@ -37,7 +37,7 @@
   --accent-soft: var(--info-tint);
   --ok: var(--success);
   --ok-soft: var(--success-tint);
-  --warn: var(--vermilion-800); /* dark haldi — legible warn text on --warn-soft */
+  --warn: var(--amber-800); /* #1103: dark AMBER — legible caution text on the amber --warn-soft */
   --warn-soft: var(--warning-tint);
 }
 
@@ -4790,13 +4790,16 @@ body:has(.invite-landing) .chrome-footer {
   --alert-tone: var(--success);
 }
 .alert--warning {
-  --alert-tone: var(--vermilion-600);
+  --alert-tone: var(--amber-700); /* #1103: amber caution spine/icon (~5:1 on white), not haldi */
 }
 .alert--danger {
   --alert-tone: var(--danger);
 }
 [data-theme="ink"] .alert--danger {
   --alert-tone: var(--red-300);
+}
+[data-theme="ink"] .alert--warning {
+  --alert-tone: var(--amber-300); /* #1103: light amber tone on the dark alert surface */
 }
 [data-theme="ink"] .alert--info {
   --alert-tone: var(--blue-300);

@@ -160,7 +160,7 @@
    phone off-screen; the cells centre when they wrap onto a second line. */
 .bb-otp { display: inline-flex; flex-wrap: wrap; justify-content: center; gap: var(--space-3); overflow-x: auto; }
 .bb-otp__cell {
-  width: 52px; height: 60px; text-align: center;
+  width: var(--control-lg); height: var(--otp-cell-h); text-align: center;
   font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: var(--weight-bold);
   color: var(--text-primary); background: var(--surface-card);
   border: var(--border-bold) solid var(--border-strong); border-radius: var(--radius-md);
@@ -225,14 +225,14 @@
 .bb-badge--brand   { background: var(--brand-tint-2); color: var(--brand-press); }
 .bb-badge--success { background: var(--success-tint); color: var(--green-700); }
 .bb-badge--danger  { background: var(--danger-tint); color: var(--red-700); }
-.bb-badge--warning { background: var(--warning-tint); color: var(--saffron-700); }
+.bb-badge--warning { background: var(--warning-tint); color: var(--amber-800); } /* #1103: amber, ~6.4:1 on the amber tint (was saffron/haldi) */
 .bb-badge--info    { background: var(--info-tint); color: var(--teal-700); }
 /* solid */
 .bb-badge--solid.bb-badge--brand   { background: var(--brand); color: var(--text-on-brand); }
 .bb-badge--solid.bb-badge--success { background: var(--success); color: var(--text-on-brand); }
 .bb-badge--solid.bb-badge--danger  { background: var(--danger); color: var(--text-on-brand); }
 .bb-badge--solid.bb-badge--neutral { background: var(--ink-800); color: var(--text-on-brand); }
-.bb-badge--solid.bb-badge--warning { background: var(--warning); color: var(--text-on-brand); }
+.bb-badge--solid.bb-badge--warning { background: var(--warning); color: var(--text-inverse); } /* #1103: WHITE on amber (~5:1); deep-blue text-on-brand fails on the darker amber fill */
 .bb-badge--solid.bb-badge--info    { background: var(--info); color: var(--text-on-brand); }
 /* outline */
 .bb-badge--outline { background: transparent; border-color: currentColor; }
@@ -253,7 +253,7 @@
 [data-theme="ink"] .bb-badge--brand   { color: var(--vermilion-200); }
 [data-theme="ink"] .bb-badge--success { color: var(--green-200); }
 [data-theme="ink"] .bb-badge--danger  { color: var(--red-300); }
-[data-theme="ink"] .bb-badge--warning { color: var(--saffron-200); }
+[data-theme="ink"] .bb-badge--warning { color: var(--amber-200); } /* #1103: light amber on the dark amber tint (~10:1) */
 [data-theme="ink"] .bb-badge--info    { color: var(--teal-100); }
 [data-theme="ink"] .bb-badge--outline.bb-badge--success { color: var(--green-300); }
 [data-theme="ink"] .bb-badge--outline.bb-badge--neutral { color: var(--ink-300); }
