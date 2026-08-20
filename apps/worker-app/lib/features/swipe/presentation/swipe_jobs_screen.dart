@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -16,6 +18,7 @@ import '../../../core/widgets/bb_bottom_sheet.dart';
 import '../../../core/widgets/bb_job_card.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/bb_success_stamp.dart';
 import '../../../router.dart';
 import '../domain/job_detail.dart';
 import '../domain/job_filter.dart';
@@ -67,6 +70,28 @@ class _FeedView extends StatefulWidget {
 class _FeedViewState extends State<_FeedView> {
   int _shownAppliedNonce = 0;
   int _shownDecisionError = 0;
+
+  /// #1058 — briefly overlays the green success "stamp" when an apply truly
+  /// lands. Non-blocking (behind an [IgnorePointer]) and self-clearing, so it
+  /// celebrates the moment without trapping the worker on the feed.
+  bool _applyStamp = false;
+  Timer? _applyStampTimer;
+
+  @override
+  void dispose() {
+    _applyStampTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Flash the apply stamp for a beat, then remove it. A fresh [ValueKey] on the
+  /// stamp (the applied nonce) remounts the one-shot animation on every apply.
+  void _flashApplyStamp() {
+    setState(() => _applyStamp = true);
+    _applyStampTimer?.cancel();
+    _applyStampTimer = Timer(const Duration(milliseconds: 1100), () {
+      if (mounted) setState(() => _applyStamp = false);
+    });
+  }
 
   /// The ONE source of truth for filter state on this screen. BOTH the header
   /// chip row and the Filters sheet read and write it, and every write dispatches
@@ -134,39 +159,63 @@ class _FeedViewState extends State<_FeedView> {
           .add(const SwipeFeedRequested(background: true)),
       child: Scaffold(
         backgroundColor: AppColors.canvas,
-        body: BlocConsumer<SwipeBloc, SwipeState>(
-          listenWhen: (SwipeState prev, SwipeState curr) =>
-              prev.decisionError != curr.decisionError ||
-              prev.appliedNonce != curr.appliedNonce,
-          listener: (BuildContext context, SwipeState state) {
-            if (state.appliedNonce != _shownAppliedNonce) {
-              _shownAppliedNonce = state.appliedNonce;
-              // Apply truly succeeded — confirm with a lightweight toast and let
-              // the list drop the applied card (no full-screen confirmation).
-              _toast(context, 'Applied');
-            } else if (state.decisionError != _shownDecisionError) {
-              _shownDecisionError = state.decisionError;
-              _toast(context, 'Could not save. Please try again.');
-            }
-          },
-          builder: (BuildContext context, SwipeState state) {
-            return switch (state.status) {
-              // Determinate progress is impossible for an open-ended fetch, so
-              // the loader carries a caption — never a bare centered spinner.
-              SwipeStatus.loading => const SafeArea(
-                  child: BbStatusView.loading(caption: 'Jobs load ho rahe hain…'),
+        body: Stack(
+          children: <Widget>[
+            _body(context),
+            // #1058 — the apply success stamp, centered and non-blocking. The
+            // applied nonce keys it so each successful apply remounts the
+            // one-shot animation.
+            if (_applyStamp)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Center(
+                    child: BbSuccessStamp(
+                      key: ValueKey<int>(_shownAppliedNonce),
+                      size: 64,
+                    ),
+                  ),
                 ),
-              SwipeStatus.error => SafeArea(child: _error(context, state)),
-              SwipeStatus.consentRequired =>
-                SafeArea(child: _consentRequired(context)),
-              SwipeStatus.empty => SafeArea(child: _empty(context)),
-              SwipeStatus.ready => state.filteredOut
-                  ? SafeArea(child: _noMatch(context))
-                  : _feed(context, state),
-            };
-          },
+              ),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _body(BuildContext context) {
+    return BlocConsumer<SwipeBloc, SwipeState>(
+      listenWhen: (SwipeState prev, SwipeState curr) =>
+          prev.decisionError != curr.decisionError ||
+          prev.appliedNonce != curr.appliedNonce,
+      listener: (BuildContext context, SwipeState state) {
+        if (state.appliedNonce != _shownAppliedNonce) {
+          _shownAppliedNonce = state.appliedNonce;
+          // Apply truly succeeded — confirm with a lightweight toast, flash
+          // the success stamp, and let the list drop the applied card (no
+          // full-screen confirmation).
+          _toast(context, 'Applied');
+          _flashApplyStamp();
+        } else if (state.decisionError != _shownDecisionError) {
+          _shownDecisionError = state.decisionError;
+          _toast(context, 'Could not save. Please try again.');
+        }
+      },
+      builder: (BuildContext context, SwipeState state) {
+        return switch (state.status) {
+          // Determinate progress is impossible for an open-ended fetch, so
+          // the loader carries a caption — never a bare centered spinner.
+          SwipeStatus.loading => const SafeArea(
+              child: BbStatusView.loading(caption: 'Jobs load ho rahe hain…'),
+            ),
+          SwipeStatus.error => SafeArea(child: _error(context, state)),
+          SwipeStatus.consentRequired =>
+            SafeArea(child: _consentRequired(context)),
+          SwipeStatus.empty => SafeArea(child: _empty(context)),
+          SwipeStatus.ready => state.filteredOut
+              ? SafeArea(child: _noMatch(context))
+              : _feed(context, state),
+        };
+      },
     );
   }
 
@@ -268,7 +317,7 @@ class _FeedViewState extends State<_FeedView> {
                             size: AppTypography.sizeXl,
                             weight: FontWeight.w800,
                             color: AppColors.haldi)),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: AppSpacing.hairline),
                     Text('Aaj ${state.queue.length} naye jobs',
                         style: AppTypography.body(
                             size: AppTypography.size2xs,
@@ -321,8 +370,7 @@ class _FeedViewState extends State<_FeedView> {
             ),
             child: Row(
               children: <Widget>[
-                const Icon(Icons.search,
-                    size: 20, color: AppColors.textMuted),
+                const Icon(Icons.search, size: 20, color: AppColors.textMuted),
                 const SizedBox(width: AppSpacing.s2),
                 Expanded(
                   child: Text(

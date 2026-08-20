@@ -145,7 +145,7 @@ class _NameViewState extends State<_NameView> {
                           fillColor: AppColors.paper,
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: AppSpacing.s3,
-                            vertical: 14,
+                            vertical: AppSpacing.controlInset,
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(AppRadii.sm),

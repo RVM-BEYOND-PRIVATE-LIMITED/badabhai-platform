@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -7,6 +9,7 @@ import '../di/locator.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
+import 'bottom_bar_inset.dart';
 
 /// Route path where the floating Feedback button is HIDDEN, matched EXACTLY so a
 /// prefix rule can't swallow the whole app: splash.
@@ -79,7 +82,9 @@ bool? feedbackConsentSignal(AuthSessionManager? auth) {
 
 /// Distance the button floats ABOVE the safe-area bottom — enough to clear the
 /// [BbBottomNav] on the tab pages so it never covers a nav item. On full-screen
-/// pages it simply floats a little higher, consistently.
+/// pages it simply floats a little higher, consistently. It is a FLOOR: a page
+/// whose own bottom bar is TALLER than this (a sticky CTA) pushes the button
+/// higher still, via [bottomBarInset] (#1071).
 const double _kBottomInset = 72;
 
 /// Overlays a FIXED bottom-LEFT "Feedback" button on every non-auth page (CEO
@@ -177,20 +182,44 @@ class _FeedbackFabOverlayState extends State<FeedbackFabOverlay> {
   @override
   Widget build(BuildContext context) {
     final bool keyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
+    final double safeBottom = MediaQuery.of(context).padding.bottom;
     return Stack(
       children: <Widget>[
         widget.child,
         if (showFeedbackOn(_path, consentAccepted: _consentAccepted) &&
             !keyboardOpen)
-          Positioned(
-            left: AppSpacing.gutter,
-            bottom: MediaQuery.of(context).padding.bottom + _kBottomInset,
-            child: _FeedbackButton(
-              // The route the worker is ON when they tap — the whole answer to
-              // "which button kaam nahi kar raha". Travels as `extra` (in-memory,
-              // never in the URL) and is normalized into a route PATTERN at the
-              // wire boundary, so no identifier leaves the device.
-              onTap: () => widget.router.push(Routes.feedback, extra: _path),
+          // Positioned.fill (not a bare Positioned) so the inset-driven
+          // ValueListenableBuilder can sit BETWEEN the Stack and the button —
+          // a Positioned must be a DIRECT Stack child, so the reactive rebuild
+          // lives inside the fill and never re-runs the whole app subtree. The
+          // empty area of the fill absorbs no touches (Align has no hit-self),
+          // so taps outside the button still fall through to the page below.
+          Positioned.fill(
+            child: ValueListenableBuilder<double>(
+              valueListenable: bottomBarInset,
+              builder: (BuildContext context, double barHeight, _) {
+                return Align(
+                  alignment: Alignment.bottomLeft,
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      left: AppSpacing.gutter,
+                      // Float above whichever is taller: the default inset (which
+                      // clears the bottom nav) or the current page's real bottom
+                      // bar (#1071).
+                      bottom: safeBottom + math.max(_kBottomInset, barHeight),
+                    ),
+                    child: _FeedbackButton(
+                      // The route the worker is ON when they tap — the whole
+                      // answer to "which button kaam nahi kar raha". Travels as
+                      // `extra` (in-memory, never in the URL) and is normalized
+                      // into a route PATTERN at the wire boundary, so no
+                      // identifier leaves the device.
+                      onTap: () =>
+                          widget.router.push(Routes.feedback, extra: _path),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
       ],

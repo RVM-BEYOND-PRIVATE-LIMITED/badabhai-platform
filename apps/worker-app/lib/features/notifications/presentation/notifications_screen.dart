@@ -7,6 +7,7 @@ import '../../../core/nav/tab_focus.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../domain/app_notification.dart';
@@ -48,29 +49,38 @@ class _NotificationsView extends StatelessWidget {
             Expanded(
               child: BlocBuilder<NotificationsCubit, NotificationsState>(
                 builder: (BuildContext context, NotificationsState state) {
-                  return switch (state.status) {
-                    NotificationsStatus.loading => const BbStatusView.loading(),
-                    NotificationsStatus.failed => BbStatusView(
-                        icon: failureReason(state.failure).icon,
-                        title: 'Alerts load nahi hue.',
-                        subtitle: failureReason(state.failure).reason,
-                        action: FilledButton(
-                          // Retry behaves like re-opening the tab: a successful
-                          // load marks the alerts read and clears the badge.
-                          onPressed: () => context
-                              .read<NotificationsCubit>()
-                              .loadAndMarkRead(),
-                          child: const Text('Try again'),
-                        ),
-                      ),
-                    NotificationsStatus.empty => const BbStatusView(
-                        icon: Icons.notifications_none_rounded,
-                        title: 'Abhi koi alert nahi',
-                        subtitle:
-                            'Resume, profile aur account updates yahin dikhenge.',
-                      ),
-                    NotificationsStatus.ready => _list(state.items),
-                  };
+                  // #1059 — cross-fade between the load / empty / error / list
+                  // states instead of flashing. Keyed by status so the switcher
+                  // animates the swap (list→list item changes stay instant).
+                  return BbAnimatedSwitcher(
+                    child: KeyedSubtree(
+                      key: ValueKey<NotificationsStatus>(state.status),
+                      child: switch (state.status) {
+                        NotificationsStatus.loading =>
+                          const BbStatusView.loading(),
+                        NotificationsStatus.failed => BbStatusView(
+                            icon: failureReason(state.failure).icon,
+                            title: 'Alerts load nahi hue.',
+                            subtitle: failureReason(state.failure).reason,
+                            action: FilledButton(
+                              // Retry behaves like re-opening the tab: a successful
+                              // load marks the alerts read and clears the badge.
+                              onPressed: () => context
+                                  .read<NotificationsCubit>()
+                                  .loadAndMarkRead(),
+                              child: const Text('Try again'),
+                            ),
+                          ),
+                        NotificationsStatus.empty => const BbStatusView(
+                            icon: Icons.notifications_none_rounded,
+                            title: 'Abhi koi alert nahi',
+                            subtitle:
+                                'Resume, profile aur account updates yahin dikhenge.',
+                          ),
+                        NotificationsStatus.ready => _list(state.items),
+                      },
+                    ),
+                  );
                 },
               ),
             ),
@@ -119,7 +129,7 @@ class _NotificationsView extends StatelessWidget {
                         size: AppTypography.sizeXl,
                         weight: FontWeight.w800,
                         color: AppColors.onBlue)),
-                const SizedBox(height: 2),
+                const SizedBox(height: AppSpacing.hairline),
                 Text('Aapke saare updates',
                     style: AppTypography.body(
                         size: AppTypography.sizeXs,
@@ -191,8 +201,8 @@ class _NotificationsView extends StatelessWidget {
           bottom: 0,
           child: Center(
             child: Container(
-              width: 8,
-              height: 8,
+              width: AppSpacing.s2,
+              height: AppSpacing.s2,
               decoration: const BoxDecoration(
                 color: AppColors.haldi,
                 shape: BoxShape.circle,

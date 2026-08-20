@@ -52,7 +52,21 @@ class BbButton extends StatelessWidget {
     this.iconRight,
     this.loading = false,
     this.buttonKey,
-  });
+  }) : assert(
+          !(size == BbButtonSize.sm &&
+              (variant == BbButtonVariant.primary ||
+                  variant == BbButtonVariant.brand ||
+                  variant == BbButtonVariant.navy ||
+                  variant == BbButtonVariant.success ||
+                  variant == BbButtonVariant.danger)),
+          // #1064 — the 36px `sm` control is below the 48px worker tap floor, so
+          // it is banned on the high-emphasis ACTION variants (the hero CTA, its
+          // navy/green commitments and the destructive button). It stays allowed
+          // on the quiet variants (secondary/ghost/tonal/outline) for dense or
+          // decorative use. The check is const-evaluable so `const BbButton(...)`
+          // still compiles.
+          'primary/CTA buttons must be md/lg — sm is below the 48px tap floor',
+        );
 
   final String label;
   final VoidCallback? onPressed;
