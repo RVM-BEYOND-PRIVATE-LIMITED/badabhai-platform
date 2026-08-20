@@ -3,6 +3,7 @@ import openingKeys from "./__fixtures__/profiling-opening.keys.json";
 import jobPostingChatKeys from "./__fixtures__/job-posting-chat.keys.json";
 import profilingKeys from "./__fixtures__/profiling.keys.json";
 import oieKeys from "./__fixtures__/oie.keys.json";
+import aiCallMetadataKeys from "./__fixtures__/ai-call-metadata.keys.json";
 import {
   AnswerRecordHistoryEntrySchema,
   AnswerRecordSchema,
@@ -211,6 +212,53 @@ describe("AICallMetadataSchema (contracts.py parity)", () => {
     expect(meta.attempt_count).toBe(6);
     expect(meta.candidates_tried).toEqual(["gemini-2.5-flash", "claude-haiku-4-5"]);
     expect(meta.failure_reason).toBe("no_text_content");
+  });
+
+  /**
+   * THE TEXT PAIR — the field group whose absence was a live privacy defect.
+   *
+   * `apps/ai-service` populated `prompt_text`/`response_text` with post-pseudonymization text,
+   * and this schema had no such fields. A bare `z.object` STRIPS unknown keys, silently, so the
+   * masked text was produced, sent over the wire and discarded at `AiService`'s
+   * `schema.parse(await res.json())` — after which the trace writer fell back to the API-side
+   * request object, i.e. the worker's raw name, phone number and address, into `prompt_enc`.
+   *
+   * Every suite in both languages was green. That is the failure this block exists to make
+   * impossible: it asserts the fields SURVIVE A PARSE, which is the property that was actually
+   * broken — not that they appear in the type, which they would have done either way.
+   */
+  it("carries the masked prompt/response pair THROUGH a parse — the fields are not stripped", () => {
+    const meta = AICallMetadataSchema.parse({
+      ...minimal,
+      prompt_text: "mera naam [PERSON_1] hai, number [PHONE_1], main VMC operator hu, Pune se",
+      response_text: "the model's answer",
+    });
+    expect(meta.prompt_text).toContain("[PERSON_1]");
+    expect(meta.response_text).toBe("the model's answer");
+  });
+
+  it("defaults both to null, so an older ai-service does not 500 every AI call", () => {
+    // Additive and defaulted, exactly like the diagnostics trio above. A deploy in which the api
+    // leads the ai-service, and every surface that does not route through `AIRouter` (embeddings,
+    // STT, translate), sends neither field.
+    const meta = AICallMetadataSchema.parse(minimal);
+    expect(meta.prompt_text).toBeNull();
+    expect(meta.response_text).toBeNull();
+  });
+
+  it("matches contracts.py key-for-key, against the fixture the python suite reads too", () => {
+    // Neither CI job compares the two languages. This file and
+    // `apps/ai-service/tests/test_contract_parity.py` assert against the SAME json, so a field
+    // added on one side only turns the other side red.
+    expect(Object.keys(AICallMetadataSchema.shape).sort()).toEqual(
+      [...aiCallMetadataKeys.AICallMetadata].sort(),
+    );
+    // ...and the text pair is named separately in the fixture, because it is the half with a
+    // privacy contract attached (`TRACE_TEXT_FIELDS` excludes exactly these from the ai-service's
+    // span metadata and its cost log). A third text field must update both lists.
+    for (const field of aiCallMetadataKeys._text_fields) {
+      expect(Object.keys(AICallMetadataSchema.shape)).toContain(field);
+    }
   });
 });
 

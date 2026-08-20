@@ -6,6 +6,7 @@ import { AdminEntitiesRepository } from "./admin-entities.repository";
 import { AdminEventsRepository } from "./admin-events.repository";
 import { AdminWorkerJourneyRepository } from "./admin-worker-journey.repository";
 import { AdminFeedbackRepository } from "./admin-feedback.repository";
+import { AdminAiTracesRepository } from "./admin-ai-traces.repository";
 
 /**
  * REGRESSION GUARD — keyset cursors must bind DRIVER-ENCODABLE parameters.
@@ -36,12 +37,15 @@ import { AdminFeedbackRepository } from "./admin-feedback.repository";
 
 const dialect = new PgDialect();
 
-/** Capture the rendered parameters of every SELECT a repository call issues. */
+/** Capture the rendered parameters — and the SQL TEXT — of every SELECT a call issues. */
 function makeDb() {
   const params: unknown[] = [];
+  const sqlText: string[] = [];
   const capture = (q: unknown) => {
     try {
-      params.push(...dialect.sqlToQuery(q as SQL).params);
+      const rendered = dialect.sqlToQuery(q as SQL);
+      params.push(...rendered.params);
+      sqlText.push(rendered.sql);
     } catch {
       /* not a renderable fragment */
     }
@@ -65,7 +69,7 @@ function makeDb() {
     },
   } as unknown as Database;
 
-  return { db, params };
+  return { db, params, sqlText };
 }
 
 /**
@@ -217,5 +221,82 @@ describe("Phase 6 journey keyset binds encodable parameters", () => {
       10,
     );
     expectAllEncodable(m.params, "AdminWorkerJourneyRepository.listSessions (filtered)");
+  });
+});
+
+/**
+ * 0083 — the same class of defect, one layer deeper, and it was LIVE on this branch.
+ *
+ * ── THE BUG ─────────────────────────────────────────────────────────────────────────────
+ * `ai_call_traces.created_at` is `timestamptz`, which Postgres keeps to MICROSECOND precision.
+ * postgres-js returns it as a JS `Date`, which holds MILLISECONDS, and the cursor was minted
+ * from `row.created_at.toISOString()`. So the bound was always ≤ the real value of the row it
+ * described, and every remaining row inside that millisecond failed BOTH halves of the keyset
+ * predicate — not `< at`, and not `= at` either, which is exactly what stops the `id`
+ * tie-breaker from saving it. Those rows were dropped permanently, with a `nextCursor` that
+ * looked healthy.
+ *
+ * Measured against a live Postgres: six rows seeded inside one millisecond, page size 2 →
+ * 2 returned, 4 skipped, second page empty. And under 60 concurrent `AiTraceRecorder.capture()`
+ * calls — one busy minute of interviews — 14 milliseconds held more than one trace. This is the
+ * one table on the spine written concurrently by every request path AND every queue worker, so
+ * sub-millisecond collisions are its normal case rather than its edge case.
+ *
+ * ── WHERE THE DIGITS ACTUALLY GO, measured rather than assumed ──────────────────────────
+ * Not the wire. On a drizzle-wrapped client — which is every connection this app has, because
+ * `createDbClient` calls `drizzle(sql)` immediately — postgres-js delivers a `timestamptz` as a
+ * RAW STRING with all six digits. It is drizzle's own `timestamp(..., { mode: "date" })` mapper
+ * that turns it into a `Date` and drops them. So the load-bearing half of the fix is the
+ * PROJECTION: `to_char(... .US ...)`, rendered by Postgres, because by the time a row is in JS
+ * the microseconds no longer exist to recover.
+ *
+ * `::text::timestamptz` on the bind side is belt to that brace. On a BARE postgres-js client
+ * `$1::timestamptz` genuinely does truncate (Postgres resolves the parameter as oid 1184, and
+ * postgres-js applies its own `date` serializer, round-tripping through `new Date`); on a
+ * wrapped one both forms are correct. Measured both ways, and pinned here because a repository
+ * should not silently depend on a mutation another library performs on a shared connection.
+ */
+describe("0083 ai-trace keyset survives the driver's timestamp serializer", () => {
+  const cursor = { createdAt: "2026-08-04T12:00:00.000600Z", id: CURSOR_ID };
+
+  it("binds encodable parameters (the original BP-1 property)", async () => {
+    const m = makeDb();
+    await new AdminAiTracesRepository(m.db).list({}, cursor, 10);
+    expectAllEncodable(m.params, "AdminAiTracesRepository.list");
+  });
+
+  it("binds the cursor timestamp at FULL microsecond precision, not a truncated Date", async () => {
+    const m = makeDb();
+    await new AdminAiTracesRepository(m.db).list({}, cursor, 10);
+    expect(m.params).toContain("2026-08-04T12:00:00.000600Z");
+    // The old form, byte for byte, so a revert to `new Date(cursor.createdAt)` fails here.
+    expect(m.params).not.toContain("2026-08-04T12:00:00.000Z");
+    for (const p of m.params) expect(p, "no Date may reach the driver").not.toBeInstanceOf(Date);
+  });
+
+  it("casts the bound cursor through ::text FIRST — correct on a wrapped OR bare client", async () => {
+    const m = makeDb();
+    await new AdminAiTracesRepository(m.db).list({}, cursor, 10);
+    const where = m.sqlText.join(" ");
+    expect(where, "the cursor bound must be ::text::timestamptz").toContain("::text::timestamptz");
+  });
+
+  it("projects the sort key from POSTGRES at microsecond precision, not from the Date", async () => {
+    // The other half. Even with a correct bound, a cursor minted from the returned JS `Date`
+    // is already truncated — the microseconds do not survive the driver, so the only place the
+    // full-precision string can be made is inside the query.
+    const m = makeDb();
+    await new AdminAiTracesRepository(m.db).list({}, cursor, 10);
+    const projected = m.sqlText.join(" ");
+    expect(projected).toContain("to_char");
+    expect(projected, "US = microseconds; MS would truncate exactly as the Date did").toContain(
+      ".US",
+    );
+  });
+
+  it("an unfiltered first page (no cursor) binds nothing unencodable either", async () => {
+    const m = makeDb();
+    await new AdminAiTracesRepository(m.db).list({}, null, 10);
+    expectAllEncodable(m.params, "AdminAiTracesRepository.list (first page)");
   });
 });

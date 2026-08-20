@@ -27,7 +27,7 @@ from abc import ABC, abstractmethod
 from datetime import UTC, date, datetime, timedelta
 
 from ..config import ConfigError, Settings
-from ..contracts import AICallMetadata
+from ..contracts import TRACE_TEXT_FIELDS, AICallMetadata
 from ..logging_config import get_logger
 from .model_config import provider_for_model, rate_inr_per_1k
 
@@ -120,7 +120,14 @@ def build_call_metadata(
         created_at=datetime.now(UTC).isoformat(),
     )
     # No PII here — only ids, model name, tokens, cost, closed-set reason codes.
-    logger.info("ai_call", extra={"extra": meta.model_dump()})
+    #
+    # ``exclude=TRACE_TEXT_FIELDS`` is what keeps that sentence TRUE of the model rather than
+    # true by accident of ordering. ``prompt_text``/``response_text`` are ``None`` at this point
+    # (``AIRouter._record_trace_text`` writes them later, from ``_finish_task``), so this line
+    # emitted them as ``null`` — harmless today, and one reordering away from writing an entire
+    # worker prompt into the structured logs. A dump that names what it will not emit does not
+    # depend on the caller's sequence.
+    logger.info("ai_call", extra={"extra": meta.model_dump(exclude=TRACE_TEXT_FIELDS)})
     return meta
 
 

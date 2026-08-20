@@ -649,6 +649,28 @@ class Settings(BaseSettings):
     # latency a prompt fetch can add and how stale a rollout can be.
     langfuse_prompt_cache_ttl_seconds: int = Field(default=300, ge=0, le=86_400)
 
+    # --- The AI-call trace store (apps/api `ai_call_traces`) ------------------
+    # Return the FINAL prompt and response text of each LLM call on `AICallMetadata`,
+    # so the backend can persist it encrypted for a super-admin-only read.
+    #
+    # OFF BY DEFAULT, AND THE DEFAULT IS THE WHOLE SAFETY ARGUMENT, exactly as it is for
+    # `langfuse_prompts_enabled` above. With it off, the two fields are `None` on every
+    # response and this service's egress is BYTE-IDENTICAL to what it was before they
+    # existed — no new text crosses the process boundary, and a backend that is not ready
+    # to encrypt it cannot be handed it by accident. Turning it on is a deliberate act
+    # taken together with the store's own gate (`ADMIN_AI_TRACE_READ_ENABLED`) and its
+    # `read_ai_traces` capability; neither side arms the other.
+    #
+    # FAIL CLOSED means SILENT, not raw: the writer emits text only on the flag's
+    # explicit `True`, and any failure while producing it leaves both fields `None`
+    # rather than falling back to unmasked content. An absent trace is a gap in an
+    # observability store; a leaked one is a §3 breach.
+    #
+    # COSTS, when on: one extra `pseudonymize` pass over the whole message set per call
+    # (7-12ms at the 20k cap, measured — see the note at `_CREDENTIAL_ID_RE`), and a
+    # response body that grows by roughly the size of the prompt.
+    ai_call_trace_text_enabled: bool = False
+
     # The build this trace came from — the dimension that makes "did the deploy on Tuesday
     # change extraction quality?" answerable at all. A trace with no version is
     # uncomparable to any other trace once anything ships. Defaults to the FastAPI app

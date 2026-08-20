@@ -17,6 +17,7 @@ import {
   MAX_EXPERIENCE_ENTRIES,
   EXPERIENCE_GATE_PROMPT,
 } from "./llm-turn.service";
+import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
 import { emptyProfilingEnvelope, type ProfilingEnvelope } from "./conversation-state";
 
 const CTX = {
@@ -62,8 +63,11 @@ function make(over: { turn?: unknown; enabled?: boolean } = {}) {
   };
   const config = { CHAT_LLM_INTERVIEW_ENABLED: over.enabled ?? true };
   const cost = { record: vi.fn(async () => undefined) };
-  const svc = new LlmTurnService(ai as never, config as never, cost as never);
-  return { svc, ai, cost };
+  // 0083: the SHARED trace fake. A profiling turn HAS a worker and a session, so this is
+  // one of the surfaces that actually stores — `traces.stored` is the assertion surface.
+  const traces = fakeAiTraceRecorder();
+  const svc = new LlmTurnService(ai as never, config as never, cost as never, traces.recorder);
+  return { svc, ai, cost, traces };
 }
 
 const env = (over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope => ({

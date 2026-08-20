@@ -32,6 +32,7 @@ import type { ServerConfig } from "@badabhai/config";
 
 import { AiService } from "../ai/ai.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
+import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { ProfilingEnvelope } from "./conversation-state";
 
@@ -96,6 +97,11 @@ export class LlmTurnService {
     // widened in the same change so a future rename cannot repeat it; the consistent name is
     // the belt to that pair of braces.
     private readonly aiCost: AiCostRecorder,
+    // 0083 — the sibling of `aiCost` above, and the answer to the question that one cannot
+    // reach: the cost row says a `profiling_chat_turn` happened and what it cost, and nothing
+    // anywhere said what was asked or what came back. Same six call sites, same metadata, same
+    // attribution; a different table and a much stricter read path.
+    private readonly aiTraces: AiTraceRecorder,
   ) {}
 
   /** Is the LLM path armed at all? Read by the orchestrator before anything else. */
@@ -167,19 +173,21 @@ export class LlmTurnService {
       return { kind: "done", patch: { ...closeGate, llmStage: "done" } };
     }
 
+    const request = {
+      schema_version: "oie.v1" as const,
+      worker_ref: ctx.workerId,
+      stage: envelope.llmStage,
+      message_text: text,
+      history: [...history],
+      draft: envelope.llmDraft,
+      experience_count: entries,
+      // THE LAST ASK, not a cap already hit: a hit cap returned above without calling at all.
+      // This is what lets the model spend its final question on the thing it most needs.
+      force_close: asks + 1 >= MAX_LLM_ASKS,
+    };
+
     const out = await this.ai.llmTurn(
-      {
-        schema_version: "oie.v1",
-        worker_ref: ctx.workerId,
-        stage: envelope.llmStage,
-        message_text: text,
-        history: [...history],
-        draft: envelope.llmDraft,
-        experience_count: entries,
-        // THE LAST ASK, not a cap already hit: a hit cap returned above without calling at all.
-        // This is what lets the model spend its final question on the thing it most needs.
-        force_close: asks + 1 >= MAX_LLM_ASKS,
-      },
+      request,
       // BL-19: the SAME pair the cost record below carries, so the far side's trace joins to
       // the request that made it rather than to an id minted inside the client.
       { correlationId: ctx.correlationId, requestId: ctx.requestId },
@@ -204,6 +212,24 @@ export class LlmTurnService {
       null,
       ctx.correlationId,
       ctx.requestId,
+      { workerId: ctx.workerId, sessionId: ctx.sessionId },
+    );
+
+    // AND THE TRACE (0083), on the same metadata and the same attribution. This is the surface
+    // the table was built for: an interview that goes wrong is a sequence of these turns, and
+    // until now none of them left any record of what was actually asked or answered — only what
+    // it cost. Both ids are present, so the trace is attributable and therefore storable; the
+    // session id is what makes "show me this interview, turn by turn" a query rather than a
+    // reconstruction.
+    //
+    // Placed AFTER the cost record and BEFORE the null check, for the same reason the cost
+    // record is: a turn that failed the contract is the turn most worth being able to read.
+    // Never throws, so it cannot fail the interview.
+    await this.aiTraces.capture(
+      out?.ai_metadata ?? null,
+      "profiling_chat_turn",
+      null,
+      ctx.correlationId,
       { workerId: ctx.workerId, sessionId: ctx.sessionId },
     );
 

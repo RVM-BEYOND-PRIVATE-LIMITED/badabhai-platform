@@ -1720,6 +1720,38 @@ textarea.field__input {
 }
 
 /* ==================================================================
+ * 0083 · AI CALL TRACES — the one block on this console that holds a whole request body.
+ * ================================================================== */
+
+/* `.code` is `overflow-x: auto`, which is right for an event payload: those are pretty-printed
+   JSON of a few short lines, and a horizontal scrollbar on the rare long value costs nothing.
+   It is wrong for a stored AI request, which arrives as ONE serialised line and runs to tens of
+   thousands of characters — under `overflow-x` that is a single line the reader drags sideways
+   for a screen and a half per sentence, i.e. a transcript that is technically present and
+   practically unreadable.
+
+   So this variant wraps instead. NOTHING IS CLAMPED OR TRUNCATED — the same ruling
+   `.cell--message` makes about a worker's complaint, and it matters more here: this text is read
+   during an incident, and an ellipsis with no way to recover what is behind it would make the
+   screen worse than useless at the moment it is needed. `overflow-wrap: anywhere` because a
+   serialised body has no spaces to break at for long stretches.
+
+   The height IS bounded, and scrolls rather than hides: a 40 000-character body would otherwise
+   push the whole page metadata off-screen and leave no way back to the row it describes. Every
+   character stays reachable inside the box.
+
+   No measure is imposed. `--reading-max` bounds PROSE, and this is not prose — a serialised
+   request body clipped to 68ch would fold structure the reader is scanning for onto four lines
+   where it occupied one. It fills the panel, which is what the panel is for. */
+.code--wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+  max-block-size: 60vh;
+  overflow-y: auto;
+}
+
+/* ==================================================================
  * PHASE 6 · A LINK THAT IS THE CURRENT VIEW
  * The worker-journey session filter is plain links, not a client form — the filter belongs
  * in the URL so it survives being pasted into an incident thread. `aria-current="page"`

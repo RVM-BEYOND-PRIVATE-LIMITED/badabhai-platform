@@ -45,7 +45,8 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 | `0080`        | Divyanshu | **APPLIED IN PRODUCTION** — worker app feedback table (#997, `ac3db91c`). Verified object-by-object 2026-08-19: 6 columns, 3 CHECKs, the FK, 3 indexes, RLS enabled + FORCED, all four REVOKEs, and two real rows written through the live path |
 | `0081`        | Prakash   | **APPLIED IN PRODUCTION** — `worker_feedback.screen_context` (#1036). Recorded in `drizzle.__drizzle_migrations` (`created_at=1787141865609`) and verified by `db:audit:schema-contract`. Note this migration is the ONLY one of `0076`–`0081` that is journal-recorded — see the drift note below |
 | `0082`        | Prakash   | **MERGED, NOT APPLIED** — R39: re-lock the seven public tables `db:audit:rls` reports open. Permissions only; no table, column, index or constraint moves. Minted as `0081` and renumbered after `#1036` took that slot. Rehearsed against production in a transaction that cannot commit (`db:verify:rls-lock`, 22/22 PASS, 2026-08-20) |
-| `0083`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own |
+| `0083`        | Prakash   | **MERGED, NOT APPLIED** — `ai_call_traces`: the prompt + completion of every AI call, AES-256-GCM at rest behind a shape CHECK that refuses prose, `worker_id NOT NULL ON DELETE cascade` (the DSAR erasure IS the cascade), RLS + FORCE + four REVOKEs. Additive: one new table, no column/constraint moves on anything existing. `when=1787230000000`, above the `1787141865609` watermark, so it replays cleanly |
+| `0084`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own |
 
 ### The journal is five files behind, and what that actually costs — corrected 2026-08-20
 
@@ -74,13 +75,18 @@ of band on 2026-08-20 and moved the watermark to `1787141865609`.
 
 | | |
 |---|---|
-| will REPLAY (above the watermark) | `0082` only |
+| will REPLAY (above the watermark) | `0082` **and `0083`** |
 | will SKIP (at or below, unrecorded) | `0076`, `0077`, `0078`, `0079`, `0080` |
-| genuinely pending | `0082` |
+| genuinely pending | `0082`, `0083` |
 
-`db:migrate` therefore **applies `0082` cleanly with no adoption first** — the "dies on 0076
-already-exists" blocker is gone, because those five are now under the watermark. Adoption is
+`db:migrate` therefore **applies `0082` and `0083` cleanly with no adoption first** — the "dies on
+0076 already-exists" blocker is gone, because those five are now under the watermark. Adoption is
 still worth doing, as hygiene rather than as a gate.
+
+⚠ **TWO FILES, NOT ONE.** This table read "`0082` only" while `0083` was already on the branch,
+which is the kind of stale row an operator reads as a checklist. They are independent — `0082` is
+permissions-only and `0083` is one new table — and applying them together is safe, but "the next
+`db:migrate` applies one migration" was not true and would have been discovered on the box.
 
 **The direction that is dangerous.** A genuinely-pending migration whose `when` is *below* the
 watermark is skipped **silently**: `db:migrate` exits 0, writes nothing, and the objects never
@@ -90,9 +96,9 @@ its own state in `db:audit:schema-contract`, reported first and without a `db:mi
 underneath it, and it exits non-zero.
 
 ```bash
-# APPLY 0082 (needs authorisation — see the R39 note)
+# APPLY 0082 + 0083 (0082 needs authorisation — see the R39 note)
 pnpm --filter @badabhai/db db:verify:rls-lock          # rehearse first; expect 22/22 PASS
-pnpm --filter @badabhai/db db:migrate                  # applies 0082 and nothing else
+pnpm --filter @badabhai/db db:migrate                  # applies 0082 AND 0083, in that order
 pnpm --filter @badabhai/db db:audit:rls                # expect: 0 deviating
 pnpm --filter @badabhai/db db:audit:schema-contract    # expect: READY
 
@@ -198,7 +204,10 @@ FILE recorded?" and none asked "is each RECORDED ROW a file?". That direction is
 `adopt-migrations.ts --doctor`. REGENERATED, NOT RENAMED (the `0071` rule): the snapshot was
 re-derived from `0081`'s, so `0082_snapshot.json.prevId == 0081_snapshot.json.id`, verified by a
 `db:generate` that emits nothing. The pre-renumber file was never applied anywhere, so its `when`
-needed no pinning. **OIE moves to `0083`.**
+needed no pinning. **OIE moves to `0084`.** *(Superseded 2026-08-20: `0083` went to `ai_call_traces`. The
+reserved-block table above is the authority — this is the fourth time the OIE block has been
+overtaken, and the paragraph is left rather than rewritten because it is the record of what was
+decided at the time.)*
 
 ### `0079` — renumbered from `0078` after a live collision — 2026-08-19
 

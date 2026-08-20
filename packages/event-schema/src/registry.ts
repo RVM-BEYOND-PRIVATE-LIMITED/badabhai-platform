@@ -631,6 +631,19 @@ export const EVENT_REGISTRY = {
     domain: "admin",
     payload: p.AdminIdentityCapExceededPayload,
   },
+  // Migration 0083 — an admin DECRYPTED one AI call trace: the prompt and the completion of a
+  // single AI call. The sibling of `admin.identity_viewed`, one privilege level up — a name is a
+  // field, this is everything a worker said on one turn. Emitted and AWAITED BEFORE the decrypt;
+  // a failed emit propagates and no text is computed (fail-closed, `admin.pii_viewed`'s
+  // ordering). Subject is the admin session, like both siblings, because the LIST beside this
+  // read spans every worker and a worker-axis subject would look complete when it cannot be.
+  // PII-free: opaque admin/trace/worker ids, a task-type label, and two LENGTHS — never the
+  // text, which lives only in that one HTTP response. v1.
+  "admin.ai_trace_viewed": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminAiTraceViewedPayload,
+  },
   // ADR-0025 ADMIN-3c (OQ-6) — an admin requested a SAFE-DIRECTION kill-switch PAUSE. The
   // audited INTENT only; it NEVER enables anything (enabling a real provider stays env/deploy-
   // gated, §2 #5). PII-free: opaque admin_id + a switch KEY enum + a reason CODE only. v1.

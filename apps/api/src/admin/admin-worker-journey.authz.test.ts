@@ -143,9 +143,16 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
     // half-added one would also leave `apps/admin-web`'s exhaustive CAPABILITY_LABELS
     // incomplete, which a backend-only PR cannot fix.
     //
-    // `read_identity` is the one addition since, and it belongs to the entity/directory NAME
-    // reads (owner ruling 2026-08-18), not to the journey: the journey returns opaque ids,
-    // enums, counts and timings, and shows no name on any of its three routes.
+    // TWO additions since, and NEITHER belongs to the journey:
+    //  * `read_identity` — the entity/directory NAME reads (owner ruling 2026-08-18). The
+    //    journey returns opaque ids, enums, counts and timings and shows no name on any of its
+    //    three routes.
+    //  * `read_ai_traces` — DECRYPTING a stored prompt/completion (migration 0083), super_admin
+    //    only. It is the capability this surface most conspicuously does NOT hold, and the
+    //    distinction is the journey's whole privacy argument: `admin-static-guards.test.ts`
+    //    build-blocks `body_text` and `transcript_text` out of the journey's projection, so the
+    //    journey can say a worker had 14 turns and can never say what any of them were. Reading
+    //    the words is a different route, a different table, and a different role.
     expect([...ADMIN_CAPABILITIES].sort()).toEqual(
       [
         "export",
@@ -153,6 +160,7 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
         "force_close_posting",
         "grant_credits",
         "manage_admins",
+        "read_ai_traces",
         "read_entities",
         "read_events",
         "read_identity",
@@ -161,6 +169,13 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
         "toggle_kill_switch",
       ].sort(),
     );
+    // ...and the journey holds NONE of the two disclosure capabilities, asserted positively so
+    // a future route on this controller cannot pick one up without failing here.
+    for (const route of JOURNEY_ROUTES) {
+      const capability = declaredCapability(AdminWorkerJourneyController, route);
+      expect(capability, `${route} must not decrypt anything`).not.toBe("read_ai_traces");
+      expect(capability, `${route} must not reveal PII`).not.toBe("reveal_pii");
+    }
     // ...and every journey route uses one of them.
     for (const route of JOURNEY_ROUTES) {
       expect(ADMIN_CAPABILITIES).toContain(declaredCapability(AdminWorkerJourneyController, route));

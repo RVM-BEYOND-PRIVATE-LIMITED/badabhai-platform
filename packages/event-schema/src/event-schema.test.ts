@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 166 event names (164 prior + the admin identity read audit and its cap breach)", () => {
-    expect(EVENT_NAMES).toHaveLength(166);
+  it("exposes all 167 event names (166 prior + the admin AI-trace decrypt audit)", () => {
+    expect(EVENT_NAMES).toHaveLength(167);
     // #997 — the worker addressing the platform in their own words. The only worker-authored
     // free text on the spine whose system-of-record row is deliberately allowed to hold the
     // worker's own PII; the EVENT carries the category, the length and the build, never the
@@ -3064,6 +3064,18 @@ describe("registry", () => {
     // records an actual PII disclosure; its cap breach is the identity twin of the reveal's.
     expect(isEventName("admin.identity_viewed")).toBe(true);
     expect(isEventName("admin.identity_cap_exceeded")).toBe(true);
+    // Migration 0083 — the FOURTH audited read, and the largest disclosure of the four: a
+    // NAME is a field, this is everything one worker said on one turn. Emitted BEFORE the
+    // decrypt and awaited, so no audit row means no text. It carries the two LENGTHS and
+    // never the words — the table's own §2 discipline, restated on the spine.
+    //
+    // NO CAP-BREACH TWIN, deliberately, unlike the reveal and the identity read. Their
+    // budgets are sized in the tens-to-hundreds where a breach is a plausible accident
+    // worth distinguishing from abuse; this one is 20/hour on a super_admin-only route
+    // behind a default-OFF flag, so a breach means "somebody is reading prompts in bulk"
+    // — a rare, high-signal fact that belongs in an alert, not as a fourth near-identical
+    // event in a stream people already filter.
+    expect(isEventName("admin.ai_trace_viewed")).toBe(true);
     // #931 — one physical submission arriving twice. Invisible on the spine otherwise: a
     // duplicate returns before the engine is consulted, so it writes no `chat_messages` row and
     // emits no `chat.message_received`, and everything downstream looks like a healthy session
@@ -4125,5 +4137,100 @@ describe("feedback.submitted (#997) — the SHAPE of a worker's feedback, never 
     expect(() =>
       make({ ...base, app_build: "a".repeat(WORKER_FEEDBACK_APP_BUILD_MAX + 1) }),
     ).toThrow(EventValidationException);
+  });
+});
+
+// ── admin.ai_trace_viewed (migration 0083) — the audit of a PROMPT/COMPLETION decrypt ──
+describe("admin.ai_trace_viewed — the largest disclosure on the admin surface, audited", () => {
+  const traceEvent = (payload: object) => ({
+    ...workerCreatedEvent(),
+    event_name: "admin.ai_trace_viewed",
+    actor: { actor_type: "admin", actor_id: UUID_A },
+    subject: { subject_type: "admin_session", subject_id: UUID_A },
+    payload,
+  });
+
+  const VALID = {
+    admin_id: UUID_A,
+    trace_id: UUID_B,
+    worker_id: UUID_C,
+    task_type: "profiling_chat_turn",
+    prompt_chars: 812,
+    response_chars: 46,
+  };
+
+  it("validates the six-field payload: three opaque ids, a task label, and two LENGTHS", () => {
+    const result = validateEvent(traceEvent(VALID));
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.ai_trace_viewed") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["admin_id", "prompt_chars", "response_chars", "task_type", "trace_id", "worker_id"].sort(),
+      );
+    }
+  });
+
+  it("REJECTS the TEXT under any key — the whole reason this event carries lengths", () => {
+    // THE NEGATIVE TEST THAT MATTERS. This event is emitted at the exact moment a prompt is
+    // about to be decrypted, so it is the most tempting payload in the registry to "just add the
+    // prompt to for debugging". `.strict()` is the structural refusal; this is the proof that it
+    // holds for every shape somebody would actually reach for — including the ones that look
+    // like a compromise (an excerpt, a hash, a redacted copy) and are not.
+    for (const extra of [
+      { prompt: "Main Pune mein CNC operator hoon" },
+      { response: "Aapko kaunsi machine chalani aati hai?" },
+      { prompt_enc: "v1.aa.bb.cc" },
+      { response_enc: "v1.dd.ee.ff" },
+      { prompt_excerpt: "Main Pune mein…" },
+      { prompt_hash: "a3f1c2" }, // a hash of what one person said is still about that person
+      { text: "…" },
+      { transcript: ["turn 1", "turn 2"] },
+      { full_name: "Ramesh Kumar" },
+      { phone_e164: "+919876543210" },
+    ]) {
+      const bad = validateEvent(traceEvent({ ...VALID, ...extra }));
+      expect(bad.success, JSON.stringify(extra)).toBe(false);
+      if (!bad.success) expect(bad.error.stage).toBe("payload");
+    }
+  });
+
+  it("requires all three ids to be OPAQUE UUIDs — never a name, never a label", () => {
+    for (const bad of [
+      { ...VALID, worker_id: "Ramesh Kumar" },
+      { ...VALID, trace_id: "the failing one" },
+      { ...VALID, admin_id: "prakash@example.com" },
+    ]) {
+      expect(validateEvent(traceEvent(bad)).success, JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it("requires a worker — an audited decrypt always names whose words were read", () => {
+    // Unlike `admin.feedback_viewed`, whose worker filter is optional because that route LISTS
+    // across workers. This one is single-subject by construction, so the worker axis is complete
+    // and omitting it would throw away the only field that makes "did anyone read this worker's
+    // interview?" answerable during a DSAR.
+    const { worker_id: _omitted, ...withoutWorker } = VALID;
+    expect(validateEvent(traceEvent(withoutWorker)).success).toBe(false);
+  });
+
+  it("keeps task_type a CLOSED enum, so it can never become a free-text label", () => {
+    expect(validateEvent(traceEvent({ ...VALID, task_type: "profile_parse" })).success).toBe(true);
+    expect(validateEvent(traceEvent({ ...VALID, task_type: "the interview one" })).success).toBe(
+      false,
+    );
+  });
+
+  it("accepts NULL lengths and zero, and rejects a negative or fractional one", () => {
+    // Nullable because the columns are: a failed call has no response, and STT has no prompt.
+    // `0` is a different claim from `null` and both are legitimate.
+    expect(
+      validateEvent(traceEvent({ ...VALID, prompt_chars: null, response_chars: null })).success,
+    ).toBe(true);
+    expect(validateEvent(traceEvent({ ...VALID, response_chars: 0 })).success).toBe(true);
+    expect(validateEvent(traceEvent({ ...VALID, prompt_chars: -1 })).success).toBe(false);
+    expect(validateEvent(traceEvent({ ...VALID, prompt_chars: 1.5 })).success).toBe(false);
+    // ...and a length may not be smuggled in as the text under a numeric-sounding key.
+    expect(validateEvent(traceEvent({ ...VALID, prompt_chars: "Main Pune mein" })).success).toBe(
+      false,
+    );
   });
 });

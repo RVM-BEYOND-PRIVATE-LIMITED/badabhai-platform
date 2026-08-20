@@ -127,6 +127,8 @@ const LOCKED_TABLES = [
   "platform_ai_cost_totals", // 0077: platform spend by (provider, task_type) — no worker linkage at all, locked anyway because the posture here is table-DEFAULT; RLS+FORCE+REVOKE in migration 0077
   // ── Worker app feedback (migration 0080) ────────────────────────────────────
   "worker_feedback", // 0080: worker-authored app feedback — the ONE table on this spine that may hold a worker's own free-text PII BY DESIGN, so a readable default here would leak personal prose across the whole worker base; DSAR erasure is the worker_id cascade; RLS+FORCE+REVOKE in migration 0080 (0081 adds screen_context, which inherits the table-level posture and re-applies nothing)
+  // ── AI call traces (migration 0083) ─────────────────────────────────────────
+  "ai_call_traces", // 0083: the prompt + completion of EVERY AI call, AES-256-GCM ciphertext with a CHECK that refuses prose — the largest concentration of worker text on the spine (worker_feedback is one worker's paragraph; this is every worker's every turn), so the ciphertext CHECK is the first lock and this is the second; DSAR erasure is the NOT NULL worker_id cascade; RLS+FORCE+REVOKE in migration 0083
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

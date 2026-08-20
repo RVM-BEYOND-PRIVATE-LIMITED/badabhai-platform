@@ -18,7 +18,7 @@ import time
 from typing import Any
 
 from ..config import Settings
-from ..contracts import AICallMetadata
+from ..contracts import TRACE_TEXT_FIELDS, AICallMetadata
 from ..logging_config import get_logger
 from . import cost_tracker, error_taxonomy, providers, trace_metadata
 from .errors import REASON_HTTP_429, REASON_MAX_TOKENS_NO_PARTS, LlmTransportError
@@ -28,6 +28,7 @@ from .langfuse_tracing import (
     Observation,
     current_workflow,
     get_tracer,
+    masked_trace_text,
 )
 from .model_config import get_route, provider_for_model, resolve_model
 from .provider_cooldown import get_cooldown
@@ -61,6 +62,20 @@ _NO_RETRY_REASONS: frozenset[str] = frozenset(
         REASON_HTTP_429,
     }
 )
+
+# The two `AICallMetadata` fields that carry TEXT rather than a count or a code, held
+# back from the Langfuse task-span metadata blob.
+#
+# NOT tidiness. `input`/`output` are NATIVE Langfuse fields and they are the ONLY two the
+# privacy mask rewrites (`trace_metadata`'s rule: never duplicate a native field). Letting
+# these ride the metadata dump would put the prompt and the response into the trace TWICE
+# — once where the mask governs them and once in a free-form blob — and would roughly
+# double the payload of every span on a service whose largest values are prompts.
+#
+# THE SET ITSELF MOVED TO `app/contracts.py`, beside the model that declares the fields,
+# because `ai/cost_tracker.py` needs the identical exclusion for its `ai_call` structured
+# log line and two copies of "which fields are the dangerous ones" is one copy too many.
+_TRACE_TEXT_FIELDS = TRACE_TEXT_FIELDS
 
 # MSG-1: an accurate headline per spend-ledger block reason. The ledger already
 # returns a CLOSED SET of distinct reasons; collapsing them into one "spend cap
@@ -428,6 +443,7 @@ class AIRouter:
                             )
                             self._finish_task(
                                 task,
+                                messages,
                                 result.content,
                                 meta,
                                 # The SUCCESS path needs the fallback dimension too. A
@@ -576,6 +592,7 @@ class AIRouter:
         )
         self._finish_task(
             task,
+            messages,
             mock_response,
             meta,
             # WHY no candidate ran, in the router's own words. The terminal
@@ -626,9 +643,55 @@ class AIRouter:
             candidates.append(fallback)
         return candidates
 
-    @staticmethod
+    def _record_trace_text(
+        self, meta: AICallMetadata, messages: list[Message], output: str
+    ) -> None:
+        """Put the FINAL prompt/response text on ``meta``, or leave both ``None``.
+
+        The ONLY writer of ``AICallMetadata.prompt_text`` / ``response_text``. It is
+        called from :meth:`_finish_task` and nowhere else, deliberately: that method is
+        already the one place that closes the Langfuse task span with the caller's
+        output, so the store and the trace are populated from the SAME arguments in the
+        SAME call. There is no second code path that could drift.
+
+        WHY THIS TEXT IS POST-BOUNDARY, which is the whole point of the feature:
+
+        - ``messages`` is pseudonymized by the ENDPOINT before ``run`` is ever reached
+          (the invariant at the top of this module), so it is post-boundary on arrival;
+        - and BOTH values are then run through :func:`masked_trace_text`, i.e. through
+          ``pseudonymize`` again, in the same module and by the same hook that masks what
+          Langfuse exports. So even a caller that hands the router raw text — and
+          ``mock_response`` on ``/profile/extract`` IS derived from raw worker text —
+          cannot get raw text into the store.
+
+        HONESTY ABOUT WHAT THAT PROVES. It proves the WIRING sits on the right side of
+        ``app/pseudonymize.py``. It does NOT prove the text is clean: R32 measured the
+        name gazetteer's recall as poor, and the residual gaps in R30 are open. That is
+        exactly why the store encrypts at rest and gates the read on a super-admin
+        capability rather than treating this text as safe.
+
+        GATED AND FAIL-CLOSED. Nothing is written unless ``AI_CALL_TRACE_TEXT_ENABLED``
+        is on. ``masked_trace_text`` cannot raise (``_mask`` swallows and returns
+        ``REDACTED``), but if it ever did, both fields are cleared rather than left
+        half-written — an absent trace, never an unmasked one.
+        """
+        if not self._settings.ai_call_trace_text_enabled:
+            return
+        try:
+            meta.prompt_text = masked_trace_text(messages)
+            meta.response_text = masked_trace_text(output)
+        except Exception as exc:  # pragma: no cover - defensive; the mask never raises
+            meta.prompt_text = None
+            meta.response_text = None
+            logger.warning(
+                "ai trace text dropped; the privacy mask failed",
+                extra={"extra": {"task": meta.task_type, "error_class": type(exc).__name__}},
+            )
+
     def _finish_task(
+        self,
         task: Observation,
+        messages: list[Message],
         output: str,
         meta: AICallMetadata,
         extra: dict[str, Any] | None = None,
@@ -646,6 +709,9 @@ class AIRouter:
         makes the failure visible in Langfuse without breaking the never-raise
         contract.
         """
+        # BEFORE the span update, so the store's text and the span's `output` come off
+        # the same `output` argument in the same call — see `_record_trace_text`.
+        self._record_trace_text(meta, messages, output)
         if meta.real_call and not meta.success:
             level, status = "ERROR", meta.failure_reason or meta.error_code or "llm_call_failed"
         elif meta.error_code is not None:
@@ -658,5 +724,10 @@ class AIRouter:
             output=output,
             level=level,
             status_message=status,
-            metadata={**meta.model_dump(), **(extra or {})},
+            # `exclude=` and not a hand-written subset: the docstring above commits to
+            # putting the WHOLE metadata record on the span so the two cannot drift, and
+            # an exclusion keeps that property while holding back exactly the two TEXT
+            # fields (see `_TRACE_TEXT_FIELDS`). A future field is included by default,
+            # which is the right default for a PII-free record.
+            metadata={**meta.model_dump(exclude=_TRACE_TEXT_FIELDS), **(extra or {})},
         )

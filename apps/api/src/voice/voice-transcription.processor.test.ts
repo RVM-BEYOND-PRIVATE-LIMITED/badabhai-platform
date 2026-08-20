@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { fakeAiCostTotals } from "../ai/ai-cost-totals.fake";
+import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
 import { VoiceTranscriptionProcessor } from "./voice-transcription.processor";
 import { VoiceTranscriptionService } from "./voice-transcription.service";
 import type { VoiceTranscriptionJobData } from "../queue/queue.constants";
@@ -122,6 +123,9 @@ function make(
   // is what makes this suite a regression proof that the extraction changed no behaviour, rather
   // than a rewritten suite testing the new shape and quietly forgiving a drift.
   const totals = fakeAiCostTotals();
+  // 0083: the SHARED trace fake. STT has a worker AND a session, so a transcription is one
+  // of the traces that actually stores.
+  const traces = fakeAiTraceRecorder();
   const service = new VoiceTranscriptionService(
     voice as never,
     aiJobs as never,
@@ -130,9 +134,10 @@ function make(
     // The REAL recorder over the same fake events service, so the cost assertions below are
     // about an event that was actually built rather than about a stub being called (#738).
     new AiCostRecorder(events as never, totals.repo),
+    traces.recorder,
   );
   const proc = new VoiceTranscriptionProcessor(service);
-  return { proc, service, voice, aiJobs, events, ai, totals };
+  return { proc, service, voice, aiJobs, events, ai, totals, traces };
 }
 
 describe("VoiceTranscriptionProcessor", () => {

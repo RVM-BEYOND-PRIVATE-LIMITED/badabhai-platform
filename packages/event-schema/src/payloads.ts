@@ -2518,6 +2518,95 @@ export const AdminIdentityCapExceededPayload = z
 export type AdminIdentityCapExceededPayload = z.infer<typeof AdminIdentityCapExceededPayload>;
 
 /**
+ * The CLOSED SET of failure codes an `ai_call_traces` row may carry (migration 0083).
+ *
+ * ── WHY A CLOSED SET, AND NOT "the provider's error_code, bounded to 64 chars" ────────────
+ * `AICallMetadata.error_code` is produced OUTSIDE this codebase. Its stated invariant is
+ * "either a closed-set transport reason code or a bare exception type name" — a claim about
+ * today's `router.py`, not a property this repository can enforce, and provider SDKs routinely
+ * echo the request back inside an exception message. On any other table that would be a bad log
+ * line. On THIS one it would be a prompt fragment in an UNENCRYPTED column, sitting beside the
+ * two the whole schema encrypts and CHECKs — the leak going around the lock rather than through
+ * it. The column's 64-char CHECK bounds the damage; it does not prevent it.
+ *
+ * So the recorder maps whatever arrives against this ALLOW-LIST and returns one of ITS OWN
+ * constants otherwise (`provider_error` / `unknown_error`). That is the difference between a
+ * charset rule ("this looks code-shaped") and a membership rule ("this IS one of ours"), and it
+ * is the only form that can be reasoned about: every value this column can hold is a literal in
+ * this file.
+ *
+ * The six spend-cap reasons are SPREAD from {@link AI_SPEND_CAP_REASONS} rather than retyped, so
+ * a code added there cannot become an unrecognised one here.
+ */
+export const AI_TRACE_ERROR_CODES = [
+  // Deliberate refusals — the gateway declined to make a real call (TD27).
+  ...AI_SPEND_CAP_REASONS,
+  // Per-surface terminal codes the ai-service returns today.
+  "stt_budget_blocked",
+  "stt_call_failed",
+  "stt_service_unreachable",
+  "translate_call_failed",
+  "extract_deadline_exceeded",
+  // The two the MAPPER itself produces, and the reason this set can be closed at all.
+  // `provider_error`: the call failed and reported something this list does not recognise —
+  // the signal kept is "it failed on the far side", which is what a triage query needs; the
+  // unrecognised string itself is DROPPED rather than stored.
+  "provider_error",
+  // `unknown_error`: the call failed and reported no code at all.
+  "unknown_error",
+] as const;
+export const AiTraceErrorCode = z.enum(AI_TRACE_ERROR_CODES);
+export type AiTraceErrorCode = z.infer<typeof AiTraceErrorCode>;
+
+/**
+ * An admin DECRYPTED one AI call trace — the prompt and the completion (migration 0083).
+ *
+ * ── THE MOST PRIVILEGED READ ON THE ADMIN SURFACE, AND THE AUDIT IS PART OF THE GATE ─────
+ * `admin.identity_viewed` records that a NAME was shown. This records that a whole PROMPT and
+ * COMPLETION were shown — text the ai-service pseudonymizes best-effort and R32 measured its
+ * name gazetteer dead on. It is emitted and AWAITED **before** any plaintext is computed, and a
+ * failed emit propagates: no audit row, no text. That ordering is `AdminPiiRevealService`'s
+ * audit-before-decrypt, applied to a bigger disclosure.
+ *
+ * ── SUBJECT: THE ADMIN SESSION, LIKE ITS TWO SIBLINGS ────────────────────────────────────
+ * Not the worker whose words were read, and the reasoning is `admin.feedback_viewed`'s verbatim:
+ * a subject axis is worth having only if the spine query over it is COMPLETE. It would not be —
+ * `GET /admin/ai-traces` lists across every worker, so filing the detail reads under `worker`
+ * would make "who has read worker W's prompts?" look answerable while silently omitting every
+ * list page that showed W's row. The worker is in the PAYLOAD instead, where it is honest about
+ * being one read rather than an index.
+ *
+ * ── PII-FREE BY CONSTRUCTION, AND ONE FIELD HERE IS LOAD-BEARING ─────────────────────────
+ * An opaque admin id, the opaque trace id, the opaque worker id, the task-type label, and TWO
+ * LENGTHS. The lengths are the whole §2 discipline of this table restated on the spine: what
+ * ships is `prompt_chars` / `response_chars`, a COUNT of characters, never the characters —
+ * exactly as `feedback.submitted` carries `message_length` and never the message. `.strict()` is
+ * the structural backstop against a `prompt` field arriving here later and looking ordinary.
+ */
+export const AdminAiTraceViewedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    /** The `ai_call_traces` row that was decrypted. Opaque; the detail read is single-subject. */
+    trace_id: uuidSchema,
+    /**
+     * WHOSE call it was. Present because this read IS single-subject (unlike the feedback list),
+     * so naming the worker costs nothing in completeness and is what makes "did anyone read this
+     * worker's interview?" answerable at all during a DSAR or an incident.
+     */
+    worker_id: uuidSchema,
+    /** `aiTaskType` as text — which surface's call was read. A label, never a value. */
+    task_type: aiTaskType,
+    /**
+     * How much text was disclosed, as LENGTHS. Nullable because the columns are: a trace may
+     * carry a prompt and no completion (a failed call), and 0 would be a different claim.
+     */
+    prompt_chars: z.number().int().nonnegative().nullable().default(null),
+    response_chars: z.number().int().nonnegative().nullable().default(null),
+  })
+  .strict();
+export type AdminAiTraceViewedPayload = z.infer<typeof AdminAiTraceViewedPayload>;
+
+/**
  * The CLOSED set of platform operational/provider kill-switches an admin may request a
  * safe-direction PAUSE for (ADR-0025 ADMIN-3c, OQ-6). A switch KEY enum — never free text,
  * never a secret/value. Each names an EXISTING env/config-governed switch (the pause is

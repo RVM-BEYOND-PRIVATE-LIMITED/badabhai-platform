@@ -1,0 +1,25 @@
+{
+  "_why": "Golden key list for AICallMetadata — the ONE contract carrying prompt/completion TEXT, asserted from BOTH the TypeScript and the Python suites. The gap this closes was live, not hypothetical: apps/ai-service populated `prompt_text`/`response_text` (post-pseudonymization) while `AICallMetadataSchema` was a bare `z.object` with no such fields, so Zod STRIPPED both — silently, no error, no data — and the trace writer fell back to the API-side request object, i.e. the worker's raw name, phone and address. Both suites were green throughout. A model this file does not list, or a field only one side declares, is now a failure on the other side.",
+  "AICallMetadata": [
+    "ai_call_id",
+    "task_type",
+    "model_name",
+    "provider",
+    "real_call",
+    "input_tokens",
+    "output_tokens",
+    "estimated_cost_inr",
+    "latency_ms",
+    "success",
+    "error_code",
+    "cost_alert",
+    "above_target",
+    "attempt_count",
+    "candidates_tried",
+    "failure_reason",
+    "prompt_text",
+    "response_text",
+    "created_at"
+  ],
+  "_text_fields": ["prompt_text", "response_text"]
+}

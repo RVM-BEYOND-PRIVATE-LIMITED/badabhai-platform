@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
+import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
 import { JobPostingsService } from "./job-postings.service";
 import {
   CreateJobPostingSchema,
@@ -162,6 +163,7 @@ function make(existing?: Row) {
       _requestId: string,
     ) => {},
   );
+  const traces = fakeAiTraceRecorder();
   const materializeReach = vi.fn().mockResolvedValue({
     jobPostingId: "posting",
     matchSkillIds: [],
@@ -191,6 +193,11 @@ function make(existing?: Row) {
     // #745: one `ai.cost_recorded` per canonicalized phrase. Stubbed so a test can count
     // the fan-out — a 3-skill posting must produce 3 records, not 1.
     { record: recordAiCost } as never,
+    // 0083: the trace recorder, as the SHARED fake rather than a stub — it reproduces the
+    // real recorder's short-circuits, so `traces.dropped` below is a claim about production
+    // behaviour (payer spend has no worker, so no trace is ever stored) rather than about
+    // this double.
+    traces.recorder,
     // ADR-0036 moment ③. These cases exercise the ops/payer lifecycle, not reach; a
     // resolving stub keeps `materializeIfNeeded` inert. Reach materialization has its
     // own coverage in `apps/api/src/match/`.
@@ -201,6 +208,7 @@ function make(existing?: Row) {
     emit,
     canonicalize,
     recordAiCost,
+    traces,
     materializeReach,
     create,
     findById,

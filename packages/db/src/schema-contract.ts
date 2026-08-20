@@ -186,6 +186,42 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
     failureMode:
       "identical to the 0080 table entry and for the same reason — both surfaces 500. Listed SEPARATELY because the table can be present while the column is not, which is exactly the state a deploy that skips this migration produces",
   },
+  {
+    id: "0083-ai-call-traces-table",
+    migration: "0083_ai_call_traces",
+    kind: "table",
+    table: "ai_call_traces",
+    requiredBy:
+      "AdminAiTracesRepository.list + .byId on GET /admin/ai-traces — named unconditionally in " +
+      "the SELECT. AiTraceRecorder names it too, on every AI call, but that write is deliberately " +
+      "OUTSIDE the caller's transaction inside its own catch, so it is NOT what puts this entry here",
+    failureMode:
+      "SPLIT, and that is why it is worth listing rather than assuming. The WRITE fails soft: " +
+      "every AI call still succeeds and every trace is silently dropped (counted, and logged once " +
+      "per process) — the 0078 shape exactly, a signal that stops being collected with nothing on " +
+      "fire. The READ is the loud half: GET /admin/ai-traces 500s on first page load. Neither " +
+      "half degrades in a way that names the missing table, which is the whole reason to be able " +
+      "to ASK",
+  },
+  {
+    id: "0083-ai-call-traces-rls",
+    migration: "0083_ai_call_traces",
+    kind: "rls",
+    table: "ai_call_traces",
+    requiredBy:
+      "no code path — the FORCE + four REVOKEs are HAND-APPENDED to the migration (drizzle-kit " +
+      "models ENABLE and nothing else), so they are exactly the part a hand-run apply or a " +
+      "regenerate drops, and nothing in ordinary CI notices: tests/e2e/rls-spine.e2e.test.ts is " +
+      "skipIf-gated. Same exception the 0080 RLS entry already makes to this manifest's usual bar",
+    failureMode:
+      "SILENT, and the worst instance of it on this spine. This table holds the prompt and the " +
+      "completion of EVERY AI call for EVERY worker — `worker_feedback` is one worker's paragraph " +
+      "by comparison. The ciphertext CHECK still holds without RLS, so a reader gets tokens rather " +
+      "than prose; what a lost lock hands over is the LINKAGE (which worker, which session, which " +
+      "task, when, how long) across the entire worker base, to every PostgREST role. Without FORCE " +
+      "the owner — the only connection the backend uses — bypasses every policy. Both surfaces " +
+      "keep working, so nothing reports it",
+  },
   ...R39_RLS_REQUIREMENTS,
 ] as const;
 

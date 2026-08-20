@@ -99,10 +99,15 @@ describe("PII re-encrypt backfill covers every encrypted column the schema decla
     const found = declaredEncryptedColumns();
     // A regex over source can go silently empty when the schema's formatting changes, and an
     // empty derivation would make the assertion below pass while proving nothing.
-    expect(found.length).toBeGreaterThanOrEqual(13);
+    expect(found.length).toBeGreaterThanOrEqual(15);
     expect(found).toContainEqual({ table: "workers", column: "full_name" });
     expect(found).toContainEqual({ table: "admin_users", column: "name_enc" });
     expect(found).toContainEqual({ table: "payers", column: "org_name_enc" });
+    // 0083. Pinned by name because these two are the reason the floor moved from 13, and
+    // because they are the pair whose omission would be easiest to justify to oneself on volume
+    // grounds — see the decision recorded above their `target()` entries in the backfill.
+    expect(found).toContainEqual({ table: "ai_call_traces", column: "prompt_enc" });
+    expect(found).toContainEqual({ table: "ai_call_traces", column: "response_enc" });
   });
 
   it("every encrypted column has a backfill target, or is a NAMED exception", () => {

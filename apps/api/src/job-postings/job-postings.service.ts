@@ -14,6 +14,7 @@ import type { RequestContext } from "../common/request-context";
 import { EventsService, type EmitParams } from "../events/events.service";
 import { AiService } from "../ai/ai.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
+import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
 import { PublishReachService } from "../match/publish-reach.service";
 import {
   JobPostingsRepository,
@@ -97,6 +98,9 @@ export class JobPostingsService {
     private readonly events: EventsService,
     private readonly ai: AiService,
     private readonly aiCost: AiCostRecorder,
+    // 0083 — wired at the same call site as `aiCost` below, where every trace is DROPPED by
+    // design because payer-side spend has no worker to attribute it to. See the call site.
+    private readonly aiTraces: AiTraceRecorder,
     // ADR-0036 moment ③ — resolves the reach set server-side and materializes it.
     // MatchModule is @Global, so no new import edge on JobPostingsModule.
     private readonly publishReach: PublishReachService,
@@ -185,6 +189,27 @@ export class JobPostingsService {
         null,
         ctx.correlationId,
         ctx.requestId,
+      );
+
+      // AND THE TRACE (0083) — WHICH IS DROPPED HERE, BY DESIGN, ON EVERY PHRASE.
+      //
+      // WRITTEN OUT RATHER THAN OMITTED, and that is the whole point of these six lines. Passing
+      // no attribution means `AiTraceRecorder` refuses the row and counts it, because
+      // `ai_call_traces.worker_id` is NOT NULL and that cascade IS the DSAR erasure design — a
+      // nullable column would have created prompt text that survives a worker's deletion request
+      // forever. This is PAYER spend: an employer typed skill phrases onto a posting, and there
+      // is no worker in any sense, so there is nobody whose erasure would ever reach the row.
+      // A faceless trace is exactly the thing the schema refuses to store.
+      //
+      // The alternative — leaving this call site out — would make the drop INCIDENTAL: the next
+      // reader would find five of six surfaces traced and have to work out whether the sixth was
+      // a decision or an oversight. It is a decision, it is here, and it is counted.
+      //
+      await this.aiTraces.capture(
+        res?.ai_metadata ?? null,
+        "skill_embedding",
+        null,
+        ctx.correlationId,
       );
 
       if (res?.status === "matched" && res.skill_id && !ids.includes(res.skill_id)) {

@@ -611,6 +611,48 @@ export const serverEnvSchema = z.object({
   ADMIN_IDENTITY_MAX_PER_HOUR: z.coerce.number().int().positive().default(300),
   ADMIN_IDENTITY_MAX_PER_DAY: z.coerce.number().int().positive().default(1000),
 
+  // AI CALL TRACE READ (migration 0083) — the whole `/admin/ai-traces` surface, list and
+  // decrypt alike. Master switch, DEFAULT OFF, and `booleanFromString` so a falsey string stays
+  // OFF (the same fail-safe-to-inert posture as ADMIN_PII_REVEAL_ENABLED and
+  // AI_ENABLE_REAL_CALLS).
+  //
+  // OFF ⇒ a NEUTRAL 404 for EVERY authenticated admin role, on BOTH routes — indistinguishable
+  // from a route that does not exist, so the feature's existence is not observable while it is
+  // disabled. That is enforced by `AdminAiTraceFlagGuard`, which is listed AHEAD of
+  // `AdminRolesGuard` in the controller's `@UseGuards`. The ordering is the control: as a check
+  // inside the handler (where this started) the roles guard ran first and three of the four
+  // roles got a 403 — a clean oracle saying the surface is real and merely closed.
+  //
+  // ⚠ NOT DECLARED IN ANY COMPOSE FILE, deliberately and in line with its two siblings
+  // (ADMIN_PII_REVEAL_ENABLED and ADMIN_IDENTITY_* are likewise undeclared). Compose forwards
+  // only names it declares, so this flag cannot be armed from the staging box today, and that
+  // is the intended posture until the owner has ruled on the surface's capability split (see
+  // `admin-ai-traces.controller.ts`). Arming it is one `${ADMIN_AI_TRACE_READ_ENABLED:-false}`
+  // line in `docker-compose.staging.yml`'s `api.environment:` — `:-`, never a bare `-`.
+  ADMIN_AI_TRACE_READ_ENABLED: booleanFromString,
+  // Per-ADMIN trace-decrypt caps, over the same FIXED UTC hour + UTC day windows as the two caps
+  // above and on their OWN `admin_ai_trace:*` Redis namespace — a THIRD budget, not a share of
+  // either existing one. The reveal budget bounds phone disclosures on an incident route; the
+  // identity budget bounds names, and is sized in the hundreds because a page of fifty names is
+  // one ordinary screen. Charging trace decrypts to either would mean one afternoon of debugging
+  // an interview exhausts an incident-response budget, or — worse in the other direction —
+  // that 300/hour of name headroom silently authorises 300 whole prompts.
+  //
+  // Sized in DISCLOSURES, and deliberately small: 20/hour and 60/day is a debugging session, not
+  // a corpus. Reading traces is what an engineer does with ONE reported bad interview; anything
+  // that looks like bulk export of what workers said is the thing this cap exists to stop, and
+  // there is no list/range/batch decrypt route for it to hide behind (single `:id` only).
+  // Fail-closed: a Redis error DENIES, never uncaps.
+  //
+  // ⚠ IF THESE ARE EVER DECLARED IN COMPOSE, THE FORM IS `${VAR:-20}` / `${VAR:-60}` AND NEVER
+  // `${VAR:-}`. `z.coerce.number()` turns `""` into `0`, `.positive()` rejects it, and
+  // `loadServerConfig` throws — i.e. every boot on that box dies, which is the BL-21 trap
+  // `real-provider-boolean-flags-compose.guard.test.ts`'s `DEFERRED_STRING_SECRETS` block
+  // exists to keep people out of. Pinned by `config.test.ts`, which asserts the `""` throw
+  // rather than leaving it to be discovered on the box.
+  ADMIN_AI_TRACE_MAX_PER_HOUR: z.coerce.number().int().positive().default(20),
+  ADMIN_AI_TRACE_MAX_PER_DAY: z.coerce.number().int().positive().default(60),
+
   // Payer email-OTP delivery channel (ADR-0019; the email analogue of SMS_PROVIDER).
   // REAL-ONLY and RELEVANT when PAYER_LOGIN_METHOD="email_otp". There is NO "none"/mock
   // option — a real provider's credentials are REQUIRED at boot (assertPayerAuthConfig →

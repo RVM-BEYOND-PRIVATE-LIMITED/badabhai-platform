@@ -62,12 +62,37 @@ function apiSourceFiles(dir: string): string[] {
  * Two unrelated `this.X.record(` calls exist in apps/api (`actions.record`,
  * `erasureAudit.record`); neither carries a quoted lowercase literal in its argument window, so
  * neither contributes. The pinned set in the first test below is what keeps that true.
+ *
+ * ── COMMENTS ARE STRIPPED FIRST, AND THIS IS A MEASURED FIX, NOT TIDINESS ────────────────
+ * The window is bounded at 400 characters and ends at the FIRST `)`, so anything sitting between
+ * a call's task-type literal and that paren competes for the budget — including the comment
+ * lines this codebase puts INSIDE argument lists to explain a null or a flag. Migration 0083
+ * added a `text` argument to `ProfileExtractionProcessor.recordAiCost` with a short rationale
+ * comment above each of the four call sites, and three of the four immediately fell out of this
+ * scan: `profile_parse` went from ledgered to "unclassified" with its emitter untouched, ten
+ * lines from where it had always been. That is the failure this file's own header warns about
+ * ("a reformat that outruns the window") arriving as a comment rather than as a reformat, and
+ * only the pinned set in the first test stopped it reading as a real regression.
+ *
+ * Stripping is also a CORRECTNESS fix in the other direction, which is why it beats simply
+ * raising the cap: a comment inside an argument list is not an argument, so a quoted lowercase
+ * word in one (`// see "profile_parse" above`) would otherwise register as an emitted task type
+ * that nothing emits. Same technique, same reason, as `admin-static-guards.test.ts`.
  */
+const stripComments = (src: string): string =>
+  src
+    .split("\n")
+    .filter((line) => {
+      const t = line.trimStart();
+      return !t.startsWith("//") && !t.startsWith("*") && !t.startsWith("/*");
+    })
+    .join("\n");
+
 function emittedTaskTypes(): Set<string> {
   const found = new Set<string>();
   const call = /\b(?:this\.[\w$]+\.record|this\.recordAiCost)\s*\(([\s\S]{0,400}?)\)/g;
   for (const file of apiSourceFiles(join(__dirname, ".."))) {
-    const src = readFileSync(file, "utf8");
+    const src = stripComments(readFileSync(file, "utf8"));
     for (const match of src.matchAll(call)) {
       for (const literal of match[1]!.matchAll(/"([a-z_]+)"/g)) found.add(literal[1]!);
     }

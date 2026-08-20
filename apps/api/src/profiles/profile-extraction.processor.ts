@@ -33,6 +33,7 @@ import type { NewWorkerProfile } from "@badabhai/db";
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { EventsService } from "../events/events.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
+import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
 import { toAiJobUsage } from "../ai/ai-job-usage";
 import { AiService } from "../ai/ai.service";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -200,6 +201,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // spend was emitted by nobody even though `aiTaskType` already listed it. `AiModule` is
     // @Global, so ProfilesModule needs no new import edge.
     private readonly aiCost: AiCostRecorder,
+    // 0083 — the prompt/completion sibling of `aiCost`, emitted from the SAME delegate
+    // ({@link recordAiCost}) so the two cannot drift apart call site by call site.
+    private readonly aiTraces: AiTraceRecorder,
     // Phase C reads ONE flag: `CHAT_LLM_INTERVIEW_ENABLED`. Off, and this processor makes exactly
     // the calls it made before — the whole LLM-led change stays behind a single switch, on the
     // extraction side as much as on the interview side.
@@ -481,10 +485,19 @@ export class ProfileExtractionProcessor extends WorkerHost {
 
       // Record AI usage/cost on the dedicated observability event. Guarded: an
       // observability emit must never turn a SUCCESSFUL extraction into a failure.
-      await this.recordAiCost(aiMeta, "profile_extraction", aiJobId, correlationId, requestId, {
-        workerId,
-        sessionId,
-      });
+      await this.recordAiCost(
+        aiMeta,
+        "profile_extraction",
+        aiJobId,
+        correlationId,
+        requestId,
+        { workerId, sessionId },
+        // 0083. TRACED. `aiMeta` came off `result`, so the prompt/completion pair it carries
+        // describes exactly the call this cost row describes. Which leg ran does not matter to
+        // the trace any more: whichever one produced `aiMeta` also produced the masked text on
+        // it, so there is no way for this row to end up holding another call's request.
+        true,
+      );
 
       // #745: THE CANONICALIZATION PASS'S EMBEDS — a SECOND set of billable calls on this
       // same job, and the one this issue's first cut missed.
@@ -507,10 +520,26 @@ export class ProfileExtractionProcessor extends WorkerHost {
       // here, so these attribute to it. Sequential and awaited to match the sibling calls;
       // `record` never throws and no-ops on an empty list.
       for (const embedMeta of result.skill_embedding_metadata) {
-        await this.recordAiCost(embedMeta, "skill_embedding", aiJobId, correlationId, requestId, {
-          workerId,
-          sessionId,
-        });
+        await this.recordAiCost(
+          embedMeta,
+          "skill_embedding",
+          aiJobId,
+          correlationId,
+          requestId,
+          { workerId, sessionId },
+          // 0083: DELIBERATELY UNTRACED, and the only `false` in this file.
+          //
+          // These embeds happen INSIDE the ai-service, as part of the `/profile/extract` call
+          // above, and they do not go through `AIRouter` — `app/ai/embeddings.py` is a separate
+          // path with no task span and therefore no `_record_trace_text`. So `embedMeta` carries
+          // no `prompt_text` and no `response_text`, and a row here would have both encrypted
+          // columns NULL: one per skill label, on the table whose own header warns it will
+          // outgrow `ai_jobs`, carrying nothing `ai.cost_recorded` does not already carry.
+          //
+          // The fix is upstream — the embeddings path would have to populate the same two
+          // fields — and until it does, an honest absence beats an empty row.
+          false,
+        );
       }
 
       // TD27: if the gateway BLOCKED a real call because a spend cap / circuit
@@ -698,14 +727,15 @@ export class ProfileExtractionProcessor extends WorkerHost {
     if (answerMap.length === 0) {
       // No deterministic record: a pre-cutover session, or an interview that collected nothing.
       // The legacy route is unchanged and still live.
-      const legacy = await this.ai.extractProfile(
-        {
-          worker_ref: job.workerId,
-          transcript,
-          messages: [...messages],
-        },
-        { requestId: job.requestId, correlationId: job.correlationId },
-      );
+      const legacyRequest = {
+        worker_ref: job.workerId,
+        transcript,
+        messages: [...messages],
+      };
+      const legacy = await this.ai.extractProfile(legacyRequest, {
+        requestId: job.requestId,
+        correlationId: job.correlationId,
+      });
       return {
         result: legacy,
         pin: null,
@@ -754,19 +784,21 @@ export class ProfileExtractionProcessor extends WorkerHost {
     });
 
     const occupation = OccupationPinSchema.safeParse(state?.occupation);
-    const parsed = await this.ai.parseProfile(
-      {
-        schema_version: "oie.v1",
-        // PSEUDONYMOUS. The worker's real id is the correlation key on our side of the wire and
-        // never crosses it — the same discipline `/profile/extract` already used.
-        worker_ref: job.workerId,
-        occupation: occupation.success ? occupation.data : null,
-        answer_map: answerMap,
-        transcript: lines,
-        target_fields: targets,
-      },
-      { requestId: job.requestId, correlationId: job.correlationId },
-    );
+    // Hoisted so the 0083 trace can record WHAT WAS ASKED, not only what came back.
+    const parseRequest = {
+      schema_version: "oie.v1" as const,
+      // PSEUDONYMOUS. The worker's real id is the correlation key on our side of the wire and
+      // never crosses it — the same discipline `/profile/extract` already used.
+      worker_ref: job.workerId,
+      occupation: occupation.success ? occupation.data : null,
+      answer_map: answerMap,
+      transcript: lines,
+      target_fields: targets,
+    };
+    const parsed = await this.ai.parseProfile(parseRequest, {
+      requestId: job.requestId,
+      correlationId: job.correlationId,
+    });
 
     // THE INTERVIEW'S ENTIRE MODEL SPEND, LEDGERED — for the first time.
     //
@@ -788,6 +820,10 @@ export class ProfileExtractionProcessor extends WorkerHost {
       job.correlationId ?? "",
       job.requestId ?? "",
       { workerId: job.workerId, sessionId: job.sessionId },
+      // 0083. TRACED — the most valuable trace in the system after the interview turns
+      // themselves: the OIE cutover collapsed ~12 capable calls into THIS one, so "the profile
+      // came out wrong" is now a question about exactly this request and exactly this reply.
+      true,
     );
 
     // ── THE SECOND WALL ────────────────────────────────────────────────────────────────
@@ -1222,16 +1258,17 @@ export class ProfileExtractionProcessor extends WorkerHost {
     // anyway" escape hatch) would spend a capable call to be told the conversation was empty.
     if (transcript.length === 0) return null;
 
-    const out = await this.ai.extractInterview(
-      {
-        schema_version: "oie.v1",
-        // PSEUDONYMOUS on the far side; the id is our correlation key and carries no identity.
-        worker_ref: job.workerId,
-        transcript: [...transcript],
-        occupation,
-      },
-      { requestId: job.requestId, correlationId: job.correlationId },
-    );
+    const extractRequest = {
+      schema_version: "oie.v1" as const,
+      // PSEUDONYMOUS on the far side; the id is our correlation key and carries no identity.
+      worker_ref: job.workerId,
+      transcript: [...transcript],
+      occupation,
+    };
+    const out = await this.ai.extractInterview(extractRequest, {
+      requestId: job.requestId,
+      correlationId: job.correlationId,
+    });
 
     // ATTRIBUTED TO `profile_extraction`, WHICH IS WHAT THE AI-SERVICE ITSELF STAMPS on this
     // route's metadata. Passing anything else here would make our event disagree with the
@@ -1245,6 +1282,9 @@ export class ProfileExtractionProcessor extends WorkerHost {
       job.correlationId ?? "",
       job.requestId ?? "",
       { workerId: job.workerId, sessionId: job.sessionId },
+      // 0083. TRACED — the transcript that went in and the experiences that came out, the pair a
+      // "these are not the jobs I described" report cannot be investigated without.
+      true,
     );
 
     if (out === null || out.blocked) {
@@ -1276,6 +1316,24 @@ export class ProfileExtractionProcessor extends WorkerHost {
    * the class where attribution used to work, by joining `ai_jobs.input_ref`. Now it travels
    * on the event too, so the extraction path and the four surfaces with no `ai_jobs` row are
    * read the SAME way, rather than one dashboard query per surface.
+   *
+   * @param trace whether this call gets a row in `ai_call_traces` (migration 0083). REQUIRED,
+   * and not defaulted, on purpose: this processor has four call sites and a default would let a
+   * fifth arrive untraced without anyone having decided that — the same argument the paragraph
+   * above makes for `attribution`. An explicit `false` is a decision a reader can see; an
+   * omitted argument is not.
+   *
+   * IT IS A BOOLEAN AND NOT A TEXT SUPPLIER, and the change is a privacy fix rather than a
+   * simplification. The recorder used to take the strings from HERE — the request objects this
+   * processor assembles — which are on the near side of the pseudonymization hop and therefore
+   * hold the worker's raw words. The text now comes off `AICallMetadata`, already masked by the
+   * ai-service. All this flag decides is whether a row is written at all.
+   *
+   * ONE DELEGATE FOR BOTH RECORDS, rather than a second `this.aiTraces.capture(...)` beside each
+   * of the four. The cost row and the trace describe the SAME provider call and take the same
+   * metadata, job id and attribution, so emitting them from one place is what stops a future
+   * call site wiring one and forgetting the other — which is precisely how `stt_transcription`
+   * shipped unledgered in the first place.
    */
   private async recordAiCost(
     meta: AICallMetadata | null,
@@ -1284,11 +1342,17 @@ export class ProfileExtractionProcessor extends WorkerHost {
     correlationId: string,
     requestId: string,
     attribution: { workerId: string; sessionId: string | null },
+    trace: boolean,
   ): Promise<void> {
     // The body moved to `AiCostRecorder` unchanged (#738). Kept as a one-line delegate rather
     // than inlined at both call sites so this class's two callers, and the tests that drive
     // them, stay exactly as they were — the change is WHO ELSE can emit, not what this emits.
     await this.aiCost.record(meta, taskType, aiJobId, correlationId, requestId, attribution);
+    // 0083. Never throws, opens no transaction, and drops the row outright when there is no
+    // worker — so it cannot fail an extraction that has already succeeded.
+    if (trace) {
+      await this.aiTraces.capture(meta, taskType, aiJobId, correlationId, attribution);
+    }
   }
 
   /**
