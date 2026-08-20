@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -82,6 +84,22 @@ void main() {
       throwsA(isA<http.ClientException>()),
     );
     expect(calls, 1, reason: 'buying credits twice would double-charge');
+  });
+
+  test('a TIMEOUT is NOT retried — bounds the wait to one timeout, no 45s spinner',
+      () async {
+    int calls = 0;
+    final PayerHttp http0 = _client(MockClient((http.Request _) async {
+      calls++;
+      throw TimeoutException('server accepted but never answered');
+    }));
+
+    await expectLater(
+      http0.send(PayerMethod.get, '/payer/job-postings'),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(calls, 1,
+        reason: 'retrying a hung server multiplies the wait without helping');
   });
 
   test('a GET that keeps failing gives up after the bounded attempts', () async {

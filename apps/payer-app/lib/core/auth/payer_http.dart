@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -182,10 +183,18 @@ class PayerHttp {
         // rethrows.
         await _adoptRollingToken(path, res, authed: authed);
         return _decode(res);
+      } on TimeoutException {
+        // A timeout means the server ACCEPTED the request but did not answer inside
+        // kRequestTimeout. Retrying would just multiply the wait (up to N×15s) on a
+        // genuinely slow/hung server without helping — so surface it AT ONCE. This
+        // is what keeps the worst case one timeout, never a ~45s spinner (the "late
+        // out" the retry must not cause). The screen shows the honest 'server slow'
+        // reason and a manual Retry.
+        rethrow;
       } on Exception {
-        // Transport failure (TimeoutException / SocketException / ClientException —
-        // a cold first-connection or a dropped socket on a weak link). Retry an
-        // idempotent GET; otherwise surface it so the caller shows an honest error.
+        // A FAST transport failure — connection refused/reset: a cold first-
+        // connection or a dropped socket on a weak link. It fails in well under the
+        // timeout, so retrying an idempotent GET is cheap and heals the common blip.
         if (!retriable || lastAttempt) rethrow;
         await Future<void>.delayed(_kRetryBackoff * (attempt + 1));
       }
