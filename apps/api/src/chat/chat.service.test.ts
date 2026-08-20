@@ -81,6 +81,7 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     llmLedTurns: 0,
     llmFallback: false,
     llmGateOpen: false,
+    llmGateAsked: false,
     ...over,
   };
 }

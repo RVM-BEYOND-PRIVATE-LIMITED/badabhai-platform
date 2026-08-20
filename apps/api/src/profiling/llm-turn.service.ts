@@ -248,6 +248,64 @@ export class LlmTurnService {
           llmDraft: draft,
           llmStage: "experience",
           llmGateOpen: true,
+          llmGateAsked: true,
+          llmLedTurns: ledTurns,
+        },
+      };
+    }
+
+    // 3b. THE ENGINE ASKS THE GATE ITSELF BEFORE IT ACCEPTS A CLOSE (#1016) — because branch 3
+    //     is not enough, and #1017 could not make it enough.
+    //
+    //     Branch 3 fires on `experience_entry`, which is the MODEL'S OWN OUTPUT. A model that
+    //     runs the experience stretch conversationally and never fills that field takes the gate
+    //     off the air for the entire session, then returns `phase_a_done` and lands here — no
+    //     error, no fallback, nothing in the logs that names it. That is not hypothetical: it is
+    //     the welder session recorded in `llm-interview.orchestrator.test.ts`, where the model
+    //     wrote its own gate-shaped question and the worker's "Nahi" ended Phase A. #1017
+    //     sharpened the prompt so the model fills the field more reliably, and said in its own
+    //     commit message that the API "cannot invent a job the model did not report" — true, and
+    //     beside the point. The engine does not need the job to ask the QUESTION.
+    //
+    //     §3: whether a worker is asked "do you have another job?" is a business decision, and a
+    //     decision that evaporates when a model declines to populate a field was never the
+    //     engine's. This is the same move #949 made for pack selection, which took that trigger
+    //     off model output onto `llmLedTurns`; the gate's own trigger was left behind, and this
+    //     is it.
+    //
+    //     ONCE PER INTERVIEW, and `llmGateAsked` — not the entry count — is what bounds it. A
+    //     model that keeps returning `phase_a_done` would otherwise be handed the gate on every
+    //     one of those turns, and a worker who already answered it would be asked again, which
+    //     is the "asked twice" failure the prompt itself warns the model about.
+    //
+    //     ONLY WHEN THERE IS ROOM. At the entry cap there is no second job to add, so the
+    //     question would be a lie; branch 4 closes as before. The ask budget needs no check —
+    //     `llmAsks` is NOT incremented here (branch 3's reasoning verbatim: the model's closing
+    //     words are discarded in favour of the gate, so the question it wrote was never asked),
+    //     and this turn already passed branch 2, so a "Haan" is guaranteed a real model turn.
+    if (
+      out.phase_a_done &&
+      !envelope.llmGateAsked &&
+      draft.experiences.length < MAX_EXPERIENCE_ENTRIES
+    ) {
+      this.logger.log(
+        `Phase A gate served by the engine at phase_a_done ` +
+          `experiences=${draft.experiences.length}/${MAX_EXPERIENCE_ENTRIES} asks=${asks}; ` +
+          `the model never opened it`,
+      );
+      return {
+        kind: "ask",
+        reply: EXPERIENCE_GATE_PROMPT,
+        chips: [GATE_YES, GATE_NO],
+        inputMode: "options_only",
+        patch: {
+          llmDraft: draft,
+          // `experience`, the last non-terminal rung — the same stage branch 3 writes. A "Haan"
+          // falls through to the model on the next turn and it must arrive there knowing the
+          // interview is in the experience stretch, not at whatever rung it thought it had left.
+          llmStage: "experience",
+          llmGateOpen: true,
+          llmGateAsked: true,
           llmLedTurns: ledTurns,
         },
       };
