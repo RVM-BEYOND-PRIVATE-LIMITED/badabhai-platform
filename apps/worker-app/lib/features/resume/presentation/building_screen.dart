@@ -159,7 +159,7 @@ class _BuildingBody extends StatelessWidget {
                         child: LinearProgressIndicator(
                           value: t,
                           minHeight: 9,
-                          backgroundColor: Colors.white.withValues(alpha: 0.15),
+                          backgroundColor: AppColors.onBlue.withValues(alpha: 0.15),
                           valueColor: const AlwaysStoppedAnimation<Color>(
                               AppColors.haldi),
                         ),
@@ -205,8 +205,8 @@ class _Checklist extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.s3),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        color: AppColors.onBlue.withValues(alpha: 0.08),
+        border: Border.all(color: AppColors.onBlue.withValues(alpha: 0.18)),
         borderRadius: BorderRadius.circular(AppRadii.sm),
       ),
       child: Text(
