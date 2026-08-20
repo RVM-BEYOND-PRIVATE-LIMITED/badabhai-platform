@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { WORKER_FEEDBACK_CATEGORIES, WORKER_FEEDBACK_APP_BUILD_MAX } from "@badabhai/types";
+import {
+  WORKER_FEEDBACK_CATEGORIES,
+  WORKER_FEEDBACK_APP_BUILD_MAX,
+  WORKER_APP_SCREEN_TEMPLATES,
+} from "@badabhai/types";
 import {
   validateEvent,
   createEvent,
@@ -1919,6 +1923,106 @@ describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/
     expect(validateEvent(evt).success).toBe(false);
   });
 
+  // ── admin.feedback_viewed (ADR-0025 Amendment 1) — the audit of reading a worker's WORDS ─
+  // The journey read's sibling, for the one admin surface that projects worker-authored free
+  // text. Same capability floor, higher stake: `message` may hold the worker's own name and
+  // phone number, which is why the row is sanctioned and the SPINE is not. These tests are what
+  // stop a "just include an excerpt so the audit is useful" change from landing.
+
+  it("validates admin.feedback_viewed with an admin, the filters and a count", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.feedback_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, worker_id: UUID_B, category: "problem", result_count: 3 },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.feedback_viewed") {
+      expect(Object.keys(result.event.payload).sort()).toEqual([
+        "admin_id",
+        "category",
+        "result_count",
+        "worker_id",
+      ]);
+    }
+  });
+
+  it("defaults both filters to null — an UNFILTERED read is a fact, not a gap", () => {
+    // "This admin read everyone's feedback" is a stronger fact than "this admin read one
+    // worker's", so it has to be legible on the row rather than inferred from a missing key.
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.feedback_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, result_count: 50 },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.feedback_viewed") {
+      expect(result.event.payload.worker_id).toBeNull();
+      expect(result.event.payload.category).toBeNull();
+    }
+  });
+
+  it("REJECTS message text under any name, and a LENGTH too (.strict)", () => {
+    // The length is the interesting refusal. `feedback.submitted` carries one, because that is
+    // the shape of a submission the WORKER chose to make. Here it would be a fact about what an
+    // admin was SHOWN — it adds nothing to `result_count` and starts the audit spine down the
+    // road of describing the content it exists not to hold.
+    for (const extra of [
+      { message: "mera naam Ramesh hai, 9876543210" },
+      { message_text: "the app keeps logging me out" },
+      { message_excerpt: "the app keeps" },
+      { message_length: 142 },
+      { messages: ["a", "b"] },
+    ]) {
+      const evt = {
+        ...workerCreatedEvent(),
+        event_name: "admin.feedback_viewed",
+        actor: { actor_type: "admin", actor_id: UUID_A },
+        subject: { subject_type: "admin_session", subject_id: UUID_A },
+        payload: { admin_id: UUID_A, result_count: 1, ...extra },
+      };
+      const bad = validateEvent(evt);
+      expect(bad.success, JSON.stringify(extra)).toBe(false);
+      if (!bad.success) expect(bad.error.stage).toBe("payload");
+    }
+  });
+
+  it("rejects an unknown category and a non-uuid worker filter", () => {
+    const evt = (payload: object) => ({
+      ...workerCreatedEvent(),
+      event_name: "admin.feedback_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload,
+    });
+    expect(
+      validateEvent(evt({ admin_id: UUID_A, category: "spam", result_count: 1 })).success,
+    ).toBe(false);
+    // A name where an opaque id belongs is the shape this whole surface exists to prevent.
+    expect(
+      validateEvent(evt({ admin_id: UUID_A, worker_id: "Ramesh Kumar", result_count: 1 })).success,
+    ).toBe(false);
+  });
+
+  it("rejects a negative or fractional result_count", () => {
+    const evt = (result_count: unknown) => ({
+      ...workerCreatedEvent(),
+      event_name: "admin.feedback_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, result_count },
+    });
+    expect(validateEvent(evt(-1)).success).toBe(false);
+    expect(validateEvent(evt(1.5)).success).toBe(false);
+    // Zero is legitimate: a read that found nothing is still a read, and the trail must say so.
+    expect(validateEvent(evt(0)).success).toBe(true);
+  });
+
   it("validates admin.pii_reveal_cap_exceeded with admin_id + window enum and NO subject/value (ADMIN-3b)", () => {
     const evt = {
       ...workerCreatedEvent(),
@@ -2777,7 +2881,7 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 
 describe("registry", () => {
   it("exposes all 163 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed + chat.session_abandoned + the duplicate submission + skill.phrase_unresolved_v2 + the admin worker-journey read audit + worker feedback)", () => {
-    expect(EVENT_NAMES).toHaveLength(163);
+    expect(EVENT_NAMES).toHaveLength(164);
     // #997 — the worker addressing the platform in their own words. The only worker-authored
     // free text on the spine whose system-of-record row is deliberately allowed to hold the
     // worker's own PII; the EVENT carries the category, the length and the build, never the
@@ -2789,6 +2893,10 @@ describe("registry", () => {
     // Phase 6 — the ONE audited READ outside the PII reveal. A worker's journey is a
     // behavioural profile, so who looked at it is spine data even though the response is not.
     expect(isEventName("admin.worker_journey_viewed")).toBe(true);
+    // ADR-0025 Amendment 1 — the sibling of the journey read, for the surface that returns the
+    // worker's actual WORDS. Reading a worker's step counts already left a trail; reading their
+    // prose left none, which made FeedbackService's own "behind an audited surface" claim false.
+    expect(isEventName("admin.feedback_viewed")).toBe(true);
     // #931 — one physical submission arriving twice. Invisible on the spine otherwise: a
     // duplicate returns before the engine is consulted, so it writes no `chat_messages` row and
     // emits no `chat.message_received`, and everything downstream looks like a healthy session
@@ -3735,15 +3843,17 @@ describe("feedback.submitted (#997) — the SHAPE of a worker's feedback, never 
 
   it("carries NO field that could hold free text at all", () => {
     // The structural version of the test above, so it keeps holding for a field nobody has
-    // thought of yet: every key in this payload is an id, a closed enum, a bounded count or a
-    // charset-restricted build stamp. If a plain unbounded string ever appears here, the
-    // smuggling tests above stop being the last line of defence and this one says so.
+    // thought of yet: every key in this payload is an id, a closed enum, a bounded count, a
+    // charset-restricted build stamp, or a charset-restricted ROUTE PATTERN. If a plain
+    // unbounded string ever appears here, the smuggling tests above stop being the last line of
+    // defence and this one says so.
     const shape = FeedbackSubmittedPayload.shape;
     expect(Object.keys(shape).sort()).toEqual([
       "app_build",
       "category",
       "feedback_id",
       "message_length",
+      "screen_context",
       "worker_id",
     ]);
     // `message_length` is the only field named after the message, and it is a number.
@@ -3774,6 +3884,71 @@ describe("feedback.submitted (#997) — the SHAPE of a worker's feedback, never 
   it("rejects a negative message length (a length is evidence; a negative one is a bug)", () => {
     expect(() => make({ ...base, message_length: -1 })).toThrow(EventValidationException);
     expect(() => make({ ...base, message_length: 1.5 })).toThrow(EventValidationException);
+  });
+
+  it("accepts a SCREEN NAME, and defaults an absent one to null", () => {
+    // ADDITIVE WIDENING, STILL v1 (the `AgencyInviteCreatedPayload` precedent). The default is
+    // what makes an event written before this field re-validate as `screen_context: null`
+    // rather than as a missing key — so a consumer never has to tell "we did not know the
+    // screen" from "this event predates the field".
+    const withScreen = validateEvent(make({ ...base, screen_context: "/jobs/detail/:id" }));
+    expect(withScreen.success).toBe(true);
+    const without = validateEvent(make(base));
+    expect(without.success).toBe(true);
+    if (without.success && without.event.event_name === "feedback.submitted") {
+      expect(without.event.payload.screen_context).toBeNull();
+    }
+    expect(validateEvent(make({ ...base, screen_context: null })).success).toBe(true);
+  });
+
+  it("REJECTS anything that is not one of the app's screens", () => {
+    // THE PROPERTY THAT MAKES THIS FIELD PERMISSIBLE AT ALL, and it is now MEMBERSHIP rather
+    // than a shape rule. A screen name says WHICH SCREEN; anything else can say which JOB, which
+    // SESSION, which application — an identifier linking this row to one thing the worker was
+    // looking at, which is exactly what §2 keeps off the events table. `resolveScreenTemplate`
+    // cannot produce a non-member (its return type forbids it), so this arm exists entirely to
+    // catch a SECOND emitter added later without one.
+    for (const bad of [
+      "/jobs/6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply", // a uuid
+      "/orders/91723", // a numeric id
+      "/search?q=welder mumbai", // a query string carrying worker input
+      "jobs/apply", // unrooted
+      "https://badabhai.ai/jobs", // a URL
+      "/jobs/<script>", // markup
+      "/jobs/my job", // whitespace
+      "/नौकरी", // non-ASCII
+      "", // empty
+      // ⚠ THE SHAPES THE PREVIOUS BACKSTOPS WAVED THROUGH, kept as cases because each was
+      // MEASURED passing at the time. The first version anchored its id arms to whole segments,
+      // so an id sharing a segment with one other character satisfied it.
+      "/jobs/id-6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply", // a uuid behind a prefix
+      "/jobs/6f2c04e04f8941d39a0c0305e82c3301/apply", // the dash-less uuid form
+      "/w/9876543210-ravi", // a phone number and a name
+      "/AADHAAR/1234-5678-9012", // a grouped 12-digit number
+      // ...and the residual the SECOND version could not see at all: an opaque token is
+      // indistinguishable from a route word by any structural rule. Membership does not care.
+      "/u/dGVzdEBleGFtcGxlLmNvbQ", // base64url of an email address
+      "/x/AKIAIOSFODNN7EXAMPLE", // a credential-shaped token
+      // The old regex-shaped "patterns" a normalizer used to be able to emit. None of them is a
+      // screen this app has, so none of them may ride the spine any more either.
+      "/jobs/:id/apply",
+      "/jobs/id-:id/apply",
+      "/workers/:id/sessions/:id",
+      "/v2/jobs",
+      "/settings/notifications",
+    ]) {
+      expect(() => make({ ...base, screen_context: bad }), bad).toThrow(EventValidationException);
+    }
+  });
+
+  it("ACCEPTS every screen the worker app actually has", () => {
+    // The other half of the arm above, and the one that matters more: a backstop tightened past
+    // the app's own route table would turn real screens into "unknown screen" on the admin list,
+    // silently and forever. Asserted over the whole table rather than a sample, because a
+    // sample is exactly how one entry gets left behind.
+    for (const good of WORKER_APP_SCREEN_TEMPLATES) {
+      expect(validateEvent(make({ ...base, screen_context: good })).success, good).toBe(true);
+    }
   });
 
   it("accepts a null app_build, and rejects one past the header's bound", () => {

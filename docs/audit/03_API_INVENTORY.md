@@ -17,7 +17,11 @@ and #997 adds two more.
 > `docs/audit/` cross-reference them. Routes added since are listed in the tables below (they are
 > the useful part of this register) WITHOUT bumping the totals, because a count moved here and
 > not in the files that quote it is worse than a count that is openly a snapshot. Added after the
-> snapshot: `GET /admin/dashboard/summary` (BP-5).
+> snapshot: `GET /admin/dashboard/summary` (BP-5). Added 2026-08-19: the three ADR-0025 Phase 6
+> **admin worker-journey** reads — those were MISSING rather than new (they shipped before the
+> re-derive and no row was written for them), which is worth recording as the failure mode this
+> register actually has: a route lands with its own tests and its own docstring, and the only
+> thing nobody updates is the one file that claims to list every route.
 
 ## Criticality classes
 
@@ -98,7 +102,10 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | GET | /admin/workers(/:id), /admin/payers(/:id)(/credits), /admin/job-postings(/:id), /admin/applications | AAG+ARG | read_entities | F | built, no confirmed admin-web caller yet |
 | GET | /admin/finance/{summary,ledger,orders} | AAG+ARG | read_entities | F | |
 | GET | /admin/dashboard/summary | AAG+ARG | read_entities | F | BP-5; platform AI spend (`platform_ai_cost_totals`) + volume counts; `windowDays` scopes the cap-breach block only |
-| GET | /admin/feedback | AAG+ARG | read_entities | B | #997; called by admin-web `/feedback`. Worker-authored free text — the one admin read whose rows are not faceless. No name join, no free-text search: `worker_id` only, and `reveal-contact` stays the sole identity egress |
+| GET | /admin/feedback | AAG+ARG | read_entities | B | #997; called by admin-web `/feedback`. Worker-authored free text — the one admin read whose rows are not faceless. Filters: `category`, `workerId` (a uuid LOOKUP, never a free-text search over `message` — that stays refused in writing). Projects `screen_context`, one of the worker app's own screen names (`/jobs/detail/:id`), never a concrete path. Emits `admin.feedback_viewed` (ADR-0025 Amendment 1) — awaited, fail-closed, filters + result count, never any message text. No name join; `reveal-contact` stays the sole identity egress |
+| GET | /admin/workers/:id/journey-summary | AAG+ARG | read_entities | B | Phase 6; called by admin-web. The 7-step funnel for ONE worker. Emits `admin.worker_journey_viewed` — awaited, fail-closed, emitted AFTER the 404 check so an unknown id leaves no row. Profiling `completed` counts SETTLED answers only (`answered`+`declined`) |
+| GET | /admin/workers/:id/chat-sessions | AAG+ARG | read_entities | B | Phase 6; keyset-paginated on `(started_at, id)` DESC (index from migration 0079). Deliberately NOT audited — a per-worker index of session ids/timings/statuses, the entity-detail data class; both reads it leads to are audited themselves |
+| GET | /admin/chat-sessions/:id | AAG+ARG | read_entities | B | Phase 6; one interview session in depth (settled answers, voice retry chain, AI jobs, spend, derived stuck question). Returns NO transcript text. Emits `admin.worker_journey_viewed` with the worker read off the session ROW, never from the path |
 | GET | /admin/events(/:id/metrics/export/trace) | AAG+ARG | read_events | F/B | metrics called by admin-web |
 | GET | /admin/kill-switch/status | AAG+ARG | toggle_kill_switch | B | called by admin-web |
 | POST | /admin/kill-switch/pause-request | AAG+ARG | toggle_kill_switch | F | no pairing enable action found |
@@ -202,7 +209,7 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | GET | /health | none | A | |
 | POST | /actions, /actions/batch | ISG | C | |
 | POST | /workers/me/actions, /actions/batch | WAG,CG | A | |
-| POST | /workers/me/feedback | WAG,CG | A | #997; event: feedback.submitted (message LENGTH only, never the text). Per-worker minute cap then hour cap (`WORKER_FEEDBACK_PER_MINUTE`/`_PER_HOUR`). Row + event share one transaction |
+| POST | /workers/me/feedback | WAG,CG | A | #997; event: feedback.submitted (message LENGTH only, never the text). Optional `screen` field — matched server-side against the app's finite route table and replaced by one of OUR constants, or NULL (`resolveScreenTemplate`), sanitize-never-reject like `x-app-build`. Per-worker minute cap then hour cap (`WORKER_FEEDBACK_PER_MINUTE`/`_PER_HOUR`). Row + event share one transaction |
 
 ---
 

@@ -51,6 +51,15 @@ export const workerFeedback = pgTable(
     message: text("message").notNull(),
     // `x-app-build` (#966): a commit SHA / build number, or NULL when absent or malformed.
     appBuild: text("app_build"),
+    // WHICH SCREEN of the worker app the feedback was about — one of the app's own route
+    // constants (`/jobs/detail/:id`), NEVER the concrete path. That distinction is the privacy
+    // design and not a tidying step: a raw path carries an entity id, which links this row to one
+    // specific job or session — a fact about the worker nobody asked them to disclose. Resolved
+    // server-side by `resolveScreenTemplate`, which matches the untrusted client value against
+    // the app's finite route table and binds ITS OWN CONSTANT, so no byte a caller chose can
+    // reach this column. NULL when absent or matching no screen, because losing a worker's typed
+    // feedback over a route string their client got wrong is the wrong failure direction.
+    screenContext: text("screen_context"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -93,5 +102,31 @@ export const workerFeedback = pgTable(
       "worker_feedback_app_build_len_chk",
       sql`${t.appBuild} IS NULL OR char_length(${t.appBuild}) BETWEEN 1 AND 64`,
     ),
+    // And for the screen name: WORKER_FEEDBACK_SCREEN_MAX. A LENGTH bound only — DELIBERATELY,
+    // and re-examined when the request-edge normalizer became an allowlist.
+    //
+    // ⚠ SQL COULD NOW PIN MEMBERSHIP (`screen_context IN ('/', '/login', …)`) and that would be
+    // strictly stronger than a length. It is still the wrong constraint, for two reasons that
+    // outrank the strength:
+    //   1. IT TURNS THE ORDINARY EVENT INTO LOST FEEDBACK. The app gaining a screen is routine.
+    //      With an IN-list CHECK, the widening becomes a MIGRATION that must be applied before
+    //      the code that emits the new constant deploys; get that order wrong and every INSERT
+    //      carrying the new screen is a 23514 inside the same transaction as the event, which
+    //      costs the worker the paragraph they typed. A telemetry label must never be able to do
+    //      that (the same reasoning migration 0081 already records).
+    //   2. IT WOULD BE THE THIRD COPY OF THE TABLE. `WORKER_APP_SCREEN_TEMPLATES` is already
+    //      mirrored by the resolver's return TYPE and by the event payload's `z.enum`; a SQL
+    //      literal list cannot import, so it could only be kept honest by yet another
+    //      equality test — one more thing to drift, guarding a value only one writer produces.
+    // Where membership IS enforced: `resolveScreenTemplate` (the sole writer — it returns a table
+    // constant or null, and the compiler refuses anything else) and `FeedbackSubmittedPayload`
+    // (the spine's own refusal, which is where a SECOND emitter added later must fail closed).
+    // What is left for SQL is the case neither reaches — a backfill or an ops script writing the
+    // column directly — and against that a length bound still keeps the column from being
+    // repurposed as a second free-text channel around the `message` bound.
+    check(
+      "worker_feedback_screen_context_len_chk",
+      sql`${t.screenContext} IS NULL OR char_length(${t.screenContext}) BETWEEN 1 AND 128`,
+    ),
   ],
-).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0079
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0080

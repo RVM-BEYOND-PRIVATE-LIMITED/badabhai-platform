@@ -44,28 +44,29 @@ describe("the capture helper is CAPABLE of failing (guards every assertion below
 });
 
 describe("the projection — worker-authored text, and an OPAQUE worker", () => {
-  it("selects EXACTLY the six contracted columns — no more, no fewer", async () => {
-    // Asserted as an equality, not as six `toContain` checks: the interface in the dto is the
-    // entire contract, so "a seventh column appeared" has to fail here, and a containment
+  it("selects EXACTLY the seven contracted columns — no more, no fewer", async () => {
+    // Asserted as an equality, not as seven `toContain` checks: the interface in the dto is the
+    // entire contract, so "an eighth column appeared" has to fail here, and a containment
     // assertion cannot see one.
     const c = captureQueries();
     await new AdminFeedbackRepository(c.db).list({}, null, 10);
     // The projection is captured first, one statement per column, before WHERE and ORDER BY.
-    expect(c.statements.slice(0, 6)).toEqual([
+    expect(c.statements.slice(0, 7)).toEqual([
       '"worker_feedback"."id"',
       '"worker_feedback"."worker_id"',
       '"worker_feedback"."category"',
       '"worker_feedback"."message"',
       '"worker_feedback"."app_build"',
+      '"worker_feedback"."screen_context"',
       '"worker_feedback"."created_at"',
     ]);
     // The FROM source is captured too — BP-5 (#1005) taught the harness to record it. Asserting
     // it HERE is what makes "this read has a single source" a property of the projection test
     // rather than an inference from the absence test below: one table, named, with nothing else
     // in scope to project from.
-    expect(c.statements[6]).toBe('"worker_feedback"');
+    expect(c.statements[7]).toBe('"worker_feedback"');
     // ...and the only remaining statements on an unfiltered first page are the ORDER BY pair.
-    expect(c.statements).toHaveLength(9);
+    expect(c.statements).toHaveLength(10);
   });
 
   it("never touches a `workers` identity column, for any filter or cursor combination", async () => {
@@ -103,6 +104,7 @@ describe("the projection — worker-authored text, and an OPAQUE worker", () => 
         category: "problem",
         message: "the supervisor keeps my wages",
         appBuild: "abc1234",
+        screenContext: "/jobs/:id/apply",
         createdAt: created,
       },
     ]);
@@ -113,13 +115,15 @@ describe("the projection — worker-authored text, and an OPAQUE worker", () => 
       category: "problem",
       message: "the supervisor keeps my wages",
       app_build: "abc1234",
+      screen_context: "/jobs/:id/apply",
       created_at: created,
     });
   });
 
-  it("a null category and a null app_build survive the mapping as null", async () => {
-    // "Untagged" and "build unknown" are real answers. Coercing either to a string here would
-    // put a value into the ops histogram that no worker ever produced.
+  it("a null category, app_build and screen_context survive the mapping as null", async () => {
+    // "Untagged", "build unknown" and "screen unknown" are all real answers — and the last one
+    // is what every row written before migration 0081 has. Coercing any of them to a string
+    // here would put a value into the ops histogram that no worker ever produced.
     const c = captureQueries([
       {
         id: "f-2",
@@ -127,12 +131,14 @@ describe("the projection — worker-authored text, and an OPAQUE worker", () => 
         category: null,
         message: "m",
         appBuild: null,
+        screenContext: null,
         createdAt: new Date(CURSOR_TS),
       },
     ]);
     const [row] = await new AdminFeedbackRepository(c.db).list({}, null, 10);
     expect(row?.category).toBeNull();
     expect(row?.app_build).toBeNull();
+    expect(row?.screen_context).toBeNull();
   });
 });
 
@@ -250,7 +256,22 @@ describe("query contract — bounded and closed", () => {
     // `q` in particular: the free-text search that must not exist must also not be silently
     // accepted-and-dropped, which is how a client ships a search box that never worked.
     expect(AdminFeedbackQuerySchema.safeParse({ q: "phone" }).success).toBe(false);
-    expect(AdminFeedbackQuerySchema.safeParse({ workerId: CURSOR_ID }).success).toBe(false);
+    expect(AdminFeedbackQuerySchema.safeParse({ search: "phone" }).success).toBe(false);
+    expect(AdminFeedbackQuerySchema.safeParse({ message: "phone" }).success).toBe(false);
+  });
+
+  it("ACCEPTS a uuid workerId, and rejects anything that is not one", () => {
+    // `workerId` was refused here until the LOOKUP filter shipped, and what changed is not that
+    // the rule was relaxed: a substring search takes CONTENT and returns a set of people, while
+    // an id filter takes an id the admin already holds and returns a subset of a page they
+    // could already read. `q`/`search`/`message` above stay refused — that is the line that
+    // must not move, and it is asserted in the same test as the one that did.
+    expect(AdminFeedbackQuerySchema.safeParse({ workerId: CURSOR_ID }).success).toBe(true);
+    // A non-uuid can only ever fail at BIND against a `uuid` column (22P02) — a 500 for a
+    // caller whose address bar is wrong. `.uuid()` turns that into a 400 that says so.
+    for (const bad of ["", "not-a-uuid", `${CURSOR_ID}' or '1'='1`, CURSOR_ID.slice(0, 20)]) {
+      expect(AdminFeedbackQuerySchema.safeParse({ workerId: bad }).success, bad).toBe(false);
+    }
   });
 
   it("a real cursor round-trips through the schema; an over-long one does not", () => {
@@ -258,5 +279,46 @@ describe("query contract — bounded and closed", () => {
     expect(AdminFeedbackQuerySchema.parse({ cursor }).cursor).toBe(cursor);
     expect(AdminFeedbackQuerySchema.safeParse({ cursor: "x".repeat(257) }).success).toBe(false);
     expect(AdminFeedbackQuerySchema.safeParse({ cursor: "" }).success).toBe(false);
+  });
+});
+
+describe("the worker filter — a LOOKUP, and it must not become a search", () => {
+  it("binds an equality on `worker_id` when one is requested", async () => {
+    const c = captureQueries();
+    await new AdminFeedbackRepository(c.db).list({ workerId: CURSOR_ID }, null, 10);
+    expect(c.sql()).toMatch(/"worker_id"\s*=\s*\$/);
+    expect(c.params).toContain(CURSOR_ID);
+  });
+
+  it("binds NO worker predicate when none is requested", async () => {
+    const c = captureQueries();
+    await new AdminFeedbackRepository(c.db).list({}, null, 10);
+    expect(c.sql()).not.toMatch(/"worker_id"\s*=\s*\$/);
+  });
+
+  it("combines with the category filter AND the cursor rather than replacing either", async () => {
+    // Three independent narrowings on one statement. A builder that overwrote instead of
+    // appending would return a page the URL does not describe — and on THIS screen that means
+    // showing an operator other workers' free text while the filter claims one worker.
+    const c = captureQueries();
+    await new AdminFeedbackRepository(c.db).list(
+      { category: "problem", workerId: CURSOR_ID },
+      { createdAt: CURSOR_TS, id: CURSOR_ID },
+      10,
+    );
+    const sql = c.sql();
+    expect(sql).toMatch(/"category"\s*=\s*\$/);
+    expect(sql).toMatch(/"worker_id"\s*=\s*\$/);
+    expect(sql).toMatch(/created_at["\s]*<\s*\$/);
+  });
+
+  it("stays a filter, never a join — the worker is still an opaque id", async () => {
+    // The whole reason an id filter is acceptable is that it resolves nothing. If narrowing by
+    // worker ever grew a join to `workers` "so the screen can show who it was", this read would
+    // become a second identity egress. The query has no route to those columns; this pins it.
+    const c = captureQueries();
+    await new AdminFeedbackRepository(c.db).list({ workerId: CURSOR_ID }, null, 10);
+    expectColumnsAbsent(c, WORKER_IDENTITY_COLUMNS);
+    expect(c.sql().toLowerCase()).not.toContain("join");
   });
 });

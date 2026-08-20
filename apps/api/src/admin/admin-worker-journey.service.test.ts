@@ -90,6 +90,32 @@ function fakeRepo(over: Partial<Record<keyof Repo | JourneySpineRead, unknown>> 
       askedForPairs.push(...pairs);
       return [];
     }),
+    // "Every settled answer this worker holds is a question one of the contributing packs
+    // still owns" — the healthy case, so a test that means to exercise a retired question has
+    // to say so explicitly rather than inheriting it.
+    countSettledKeysOutsidePacks: vi.fn(async () => 0),
+    /**
+     * The NUMERATOR — distinct settled question keys the contributing packs own.
+     *
+     * DERIVED FROM THIS HARNESS'S OWN `packAnswerStatusCounts` rather than hand-fed, because
+     * every fixture in this file describes a worker interviewed ONCE, and in that world the
+     * two are equal by definition: one settled row per settled question. Hard-coding a second
+     * number would let a fixture drift into describing a world the database cannot produce —
+     * the failure the db suite exists to catch — and would silently satisfy `completed`
+     * assertions that mean to be about the status split.
+     *
+     * A test that means to exercise a RE-INTERVIEW (rows > distinct questions) overrides this
+     * explicitly, which is the only shape where the two numbers legitimately differ.
+     */
+    countSettledKeysInPacks: vi.fn(async (): Promise<number> => {
+      const stats = (await repo.packAnswerStatusCounts()) as ReadonlyArray<{
+        status: string;
+        n: number;
+      }>;
+      return stats
+        .filter((s) => s.status === "answered" || s.status === "declined")
+        .reduce((sum, s) => sum + s.n, 0);
+    }),
     countSessions: vi.fn(async () => 0),
     resumeStats: vi.fn(async () => ({ n: 0, rendered: 0, firstAt: null, lastAt: null })),
     currentProfile: vi.fn(async () => ({
@@ -253,6 +279,180 @@ describe("step 1: login", () => {
 // Step 2 — profiling, and the denominator property this whole PR turns on
 // ---------------------------------------------------------------------------
 
+/**
+ * ⚠ READ THIS BEFORE ADDING A FIXTURE HERE.
+ *
+ * Every fixture in this block below the first four tests describes a SELF-CONSISTENT world:
+ * the worker's answers are stamped with the pack that owns those question keys. Production is
+ * not that world. `packAnswerRowFor` takes ONE `packId` per call and both callers pass the
+ * SESSION'S pack — the OCCUPATION pin — so a universal answer is written with
+ * `pack_id = 'qp_welding'`.
+ *
+ * That gap is why this suite was fully green while `GET /admin/workers/:id/journey-summary`
+ * reported `completed 12, total 6, status done` on 17 of 21 `(worker, pack)` groups of the
+ * verification database, and `done` for 21 of 21 workers who had all left questions
+ * unanswered. A fixture that stamps universal answers with a universal pack cannot express
+ * the bug; the four tests immediately below stamp them the way the writer really does.
+ */
+describe("step 2: profiling — the REAL stamping shape (universal answers under the occupation pack)", () => {
+  /** 6 occupation items + 8 universal items, the shipped `qp_welding` / `qp_universal` sizes. */
+  const OCCUPATION_ITEMS = 6;
+  const UNIVERSAL_ITEMS = 8;
+
+  /**
+   * The production shape exactly: ONE stamped pair, `qp_welding:1`, carrying twelve settled
+   * answers — six of `qp_welding`'s own questions and six of `qp_universal`'s eight.
+   */
+  function realShape(over: Record<string, unknown> = {}) {
+    // Its OWN recorder, because this helper overrides `countPackItems` and would otherwise
+    // silence `fakeRepo`'s. Recording WHICH pairs were asked for is what makes these tests
+    // capable of failing on a mutation that reaches the right total by the wrong route.
+    const asked: string[] = [];
+    const harness = fakeRepo({
+      answeredPackVersions: vi.fn(async () => [
+        { packId: "qp_welding", packVersion: 1, answerCount: 12 },
+      ]),
+      countPackItems: vi.fn(async (pairs: Array<{ packId: string; packVersion: number }>) => {
+        asked.push(...pairs.map((p) => `${p.packId}:${p.packVersion}`));
+        const byPair: Record<string, number> = {
+          "qp_welding:1": OCCUPATION_ITEMS,
+          "qp_universal:1": UNIVERSAL_ITEMS,
+          "qp_universal:2": UNIVERSAL_ITEMS,
+        };
+        return pairs.flatMap((p) => {
+          const itemCount = byPair[`${p.packId}:${p.packVersion}`];
+          return itemCount === undefined
+            ? []
+            : [{ packId: p.packId, packVersion: p.packVersion, itemCount }];
+        });
+      }),
+      packAnswerStatusCounts: vi.fn(async () => [
+        { status: "answered", n: 12, firstAt: CREATED, lastAt: CREATED },
+      ]),
+      findActiveUniversalPack: vi.fn(async () => ({ packId: "qp_universal", packVersion: 1 })),
+      ...over,
+    });
+    return { ...harness, asked };
+  }
+
+  it("counts the UNIVERSAL tail no answer row names, so 12 settled reads `12 of 14` and not `12 of 6`", async () => {
+    const { service, asked } = realShape();
+    const summary = await service.getJourneySummary(ADMIN, WORKER, CTX);
+    const profiling = step(summary, "profiling") as AdminJourneyProfilingStep;
+
+    // THE BUG, STATED AS A NUMBER. Pre-fix this was `12 of 6` — a progress figure larger than
+    // its own denominator — and `progressStatus(12, 6)` therefore said `done` for a worker who
+    // had two questions left. 6 + 8 is also what the engine's `progressOf` shows the WORKER.
+    expect(profiling.completed).toBe(12);
+    expect(profiling.total).toBe(OCCUPATION_ITEMS + UNIVERSAL_ITEMS);
+    expect(profiling.status).toBe("in_progress");
+
+    // The direct evidence, so a mutation that reached 14 some other way still fails: the read
+    // asked for the stamped pair AND the active universal one, in that precedence.
+    expect(asked).toEqual(["qp_welding:1", "qp_universal:1"]);
+
+    // ...and `packs[]` is untouched: it describes the STAMP, so one row carrying twelve
+    // answers against six questions is the true reading of a mis-stamped corpus, not a second
+    // progress figure to be reconciled with the headline.
+    expect(profiling.packs).toEqual([
+      { pack_id: "qp_welding", pack_version: 1, item_count: OCCUPATION_ITEMS, answer_count: 12 },
+    ]);
+    expect(summary.caveats).not.toContain("pack_version_retired");
+  });
+
+  it("does NOT add today's universal pack when the worker's own rows already name one", async () => {
+    // Durable evidence beats the approximation. `qp_universal:1` is stamped, the ACTIVE
+    // version is v2 — adding v2 would count the same eight-question tail twice (`6 + 8 + 8`).
+    const { service, asked } = realShape({
+      answeredPackVersions: vi.fn(async () => [
+        { packId: "qp_welding", packVersion: 1, answerCount: 6 },
+        { packId: "qp_universal", packVersion: 1, answerCount: 6 },
+      ]),
+      findActiveUniversalPack: vi.fn(async () => ({ packId: "qp_universal", packVersion: 2 })),
+    });
+    const profiling = step(
+      await service.getJourneySummary(ADMIN, WORKER, CTX),
+      "profiling",
+    ) as AdminJourneyProfilingStep;
+
+    expect(profiling.total).toBe(OCCUPATION_ITEMS + UNIVERSAL_ITEMS);
+    expect(asked).toEqual(["qp_welding:1", "qp_universal:1"]);
+  });
+
+  it("gives a worker with NO answer rows no denominator at all, rather than the corpus's", async () => {
+    // `0 of 8` would be a number about the pack corpus wearing a progress bar about a person:
+    // nothing here is evidence that an interview ever ran for them.
+    const { service, asked } = realShape({
+      answeredPackVersions: vi.fn(async () => []),
+      packAnswerStatusCounts: vi.fn(async () => []),
+    });
+    const profiling = step(await service.getJourneySummary(ADMIN, WORKER, CTX), "profiling");
+    expect(profiling.total).toBeNull();
+    expect(profiling.completed).toBe(0);
+    expect(asked).toEqual([]);
+  });
+
+  it("caveats a settled answer no contributing pack still owns, and does NOT invent a second code", async () => {
+    // A pack re-seed that DROPS a question leaves the worker holding an answer to a question
+    // that no longer exists. `12 of 14` would then quietly mean "11 of the current 14, plus
+    // one nobody asks any more" — the only one of the three causes that never pushes the
+    // numerator past the denominator, so nothing else would notice it.
+    const { service } = realShape({
+      countSettledKeysOutsidePacks: vi.fn(async () => 1),
+    });
+    const summary = await service.getJourneySummary(ADMIN, WORKER, CTX);
+    expect(summary.caveats).toContain("pack_version_retired");
+    // Same class ⇒ same code. A second enum member would be a second sentence for an operator
+    // to learn about one fact: the corpus no longer accounts for these answers.
+    expect(summary.caveats.filter((c) => c === "pack_version_retired")).toHaveLength(1);
+    // The count is NOT silently absorbed into the numerator either — `completed` still reports
+    // what settled.
+    expect(step(summary, "profiling").completed).toBe(12);
+  });
+
+  /**
+   * ⚠ THE NUMERATOR IS QUESTIONS, NOT ROWS — and this is the fixture that tells them apart.
+   *
+   * A PARTIAL RE-INTERVIEW under a second trade. `wpa_worker_question_uq` is per PACK, so the
+   * universal answers are stamped a second time under the new occupation pack: twenty settled
+   * ROWS covering only twelve distinct QUESTIONS, against a denominator of fourteen.
+   *
+   * The rule this replaced counted rows and capped the result at the denominator, which read
+   * `14 of 14` → `done` for a worker with two questions still unanswered. That is the SAME
+   * false `done` this whole change exists to remove, re-entering through the numerator — and
+   * the cap is what manufactured it, not what caught it. Measured against a worker seeded in
+   * this shape on the verification database before it was fixed.
+   *
+   * The distinct-key numerator makes the cap unnecessary as well as wrong: it counts a SUBSET
+   * of the keys the denominator counts, so `completed > total` is unrepresentable.
+   */
+  it("counts QUESTIONS, not answer rows, so a partial re-interview cannot read `done`", async () => {
+    const { service } = realShape({
+      // Twenty settled rows...
+      packAnswerStatusCounts: vi.fn(async () => [
+        { status: "answered", n: 18, firstAt: CREATED, lastAt: CREATED },
+        { status: "declined", n: 2, firstAt: CREATED, lastAt: CREATED },
+      ]),
+      // ...over twelve distinct questions, of the fourteen the two packs ask.
+      countSettledKeysInPacks: vi.fn(async () => 12),
+    });
+    const summary = await service.getJourneySummary(ADMIN, WORKER, CTX);
+    const profiling = step(summary, "profiling") as AdminJourneyProfilingStep;
+
+    expect(profiling.total).toBe(14);
+    // 12, NOT 20 (the row count) and NOT 14 (the row count capped at the denominator).
+    expect(profiling.completed).toBe(12);
+    // The whole point: two questions outstanding means this worker is not finished.
+    expect(profiling.status).toBe("in_progress");
+    // NOT SILENTLY: rows disagreeing with questions is exactly what the caveat names, so an
+    // operator reading `12 of 14` beside `18 answered` is told why they do not reconcile.
+    expect(summary.caveats).toContain("pack_version_retired");
+    // ...and the ROW counts are still on the response, exact and unrounded.
+    expect(profiling.answered_count).toBe(18);
+    expect(profiling.declined_count).toBe(2);
+  });
+});
+
 describe("step 2: profiling — the denominator comes from the ANSWERS' OWN pack versions", () => {
   /**
    * ⚠ THE PROPERTY THIS FILE EXISTS FOR.
@@ -353,7 +553,20 @@ describe("step 2: profiling — the denominator comes from the ANSWERS' OWN pack
     expect(step(summary, "profiling").total).toBeNull();
   });
 
-  it("counts answered + declined + unanswered as the numerator, and breaks them out", async () => {
+  /**
+   * THE RULE: the numerator is the SETTLED set only — `answered` + `declined`. `unanswered` is
+   * counted and reported, never added in.
+   *
+   * The fixture is built so that the difference is the whole test: 6 + 2 + 1 against an
+   * `item_count` of 9, so the wrong rule reads `9 of 9` → `done` and the right one reads
+   * `8 of 9` → `in_progress`. That is the exact shape of the bug this replaced — a worker who
+   * settled nothing at all would have reported `done` under it.
+   *
+   * The answered/declined/unanswered/total assertions are deliberately left alone: they are
+   * what make this prove the SPLIT rather than re-baseline a number. A version that dropped
+   * unanswered rows on the floor entirely would pass a `completed: 8` assertion and fail here.
+   */
+  it("counts ONLY answered + declined as the numerator, and reports unanswered separately", async () => {
     const { service } = fakeRepo({
       answeredPackVersions: vi.fn(async () => [
         { packId: "qp_welding", packVersion: 1, answerCount: 9 },
@@ -374,9 +587,11 @@ describe("step 2: profiling — the denominator comes from the ANSWERS' OWN pack
     expect(profiling.answered_count).toBe(6);
     expect(profiling.declined_count).toBe(2);
     expect(profiling.unanswered_count).toBe(1);
-    expect(profiling.completed).toBe(9);
+    // 6 + 2, NOT 6 + 2 + 1. The unanswered row is visible in its own field and absent here.
+    expect(profiling.completed).toBe(8);
     expect(profiling.total).toBe(9);
-    expect(profiling.status).toBe("done");
+    // ...so 8 of 9, not 9 of 9. A worker with a question still hanging is not finished.
+    expect(profiling.status).toBe("in_progress");
     // first/last span every status bucket, not just the answered one.
     expect(profiling.first_at).toEqual(new Date("2026-04-30"));
     expect(profiling.last_at).toEqual(new Date("2026-05-03"));

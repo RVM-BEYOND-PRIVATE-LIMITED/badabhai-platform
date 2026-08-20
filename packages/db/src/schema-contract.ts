@@ -117,6 +117,19 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "owner — the only connection the backend uses — bypasses every policy, and without the " +
       "REVOKEs every PostgREST role can read it. Both surfaces keep working, so nothing reports it",
   },
+  {
+    id: "0081-screen-context-column",
+    migration: "0081_worker_feedback_screen_context",
+    kind: "column",
+    table: "worker_feedback",
+    object: "screen_context",
+    requiredBy:
+      "FeedbackRepository.insert (the drizzle model's full column list, on POST /workers/me/feedback) " +
+      "and AdminFeedbackRepository.list (an explicit SELECT column on GET /admin/feedback) — " +
+      "neither is behind a flag",
+    failureMode:
+      "identical to the 0080 table entry and for the same reason — both surfaces 500. Listed SEPARATELY because the table can be present while the column is not, which is exactly the state a deploy that skips this migration produces",
+  },
 ] as const;
 
 /** What the live database actually has, keyed by requirement id. */
