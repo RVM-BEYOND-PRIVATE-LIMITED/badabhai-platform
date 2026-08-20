@@ -108,6 +108,17 @@ export class IpRateLimit {
     }
 
     if (count > cap) {
+      // LOGGED, because a silent cap is unanswerable from outside (#1019). This throws the same
+      // neutral 429 as four throttles in `OtpService`, so without a line here "which limit did
+      // this worker hit?" can only be answered by reading Redis on the box by hand. The kind and
+      // the scope together say which bucket it was; the count says how far over.
+      //
+      // WARN, NOT ERROR: a cap firing is the limiter working, not the platform failing. The
+      // `error` above is a different event — Redis was unreachable and we refused blind.
+      this.logger.warn(
+        `${sender.kind} rate-limit cap reached scope=${scope} ` +
+          `hash=${hash.slice(0, 8)}… count=${count}/${cap}; refusing`,
+      );
       // ONE WORDING FOR BOTH KINDS, deliberately. The message a worker sees must not reveal
       // which bucket they landed in — that would tell a prober whether their device id was
       // accepted, and it is the same neutral 429 every other OTP throttle answers with.

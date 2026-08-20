@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { HttpException, HttpStatus } from "@nestjs/common";
+import { HttpException, HttpStatus, Logger } from "@nestjs/common";
 import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
@@ -423,4 +423,128 @@ describe("OtpService error semantics", () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe("#1019 — a refused OTP names its throttle in the log, and only there", () => {
+  // WHY THIS SUITE EXISTS. Five throttles on this path answer with one of two byte-identical
+  // 429s, and four of them used to throw in complete silence — only the global breaker logged.
+  // So "OTP bhejne ki limit ho gayi" produced NOTHING on the server, and the only way to learn
+  // which throttle fired was to open a shell on the box and read Redis keys by hand. That is
+  // literally what #1019's verification checklist asks somebody to do, and it is why the issue
+  // could not be closed from the code alone.
+  //
+  // THE PAIR OF PROPERTIES IS THE POINT: the LOG must distinguish them and the RESPONSE must
+  // not. Either half alone is a bug — a silent log leaves an outage unanswerable, a talkative
+  // response opens the enumeration oracle the tombstone check exists to avoid.
+
+  /** A service with a cap or two lowered, so a loop can trip them. The daily suite's idiom. */
+  function capped(over: Record<string, unknown> = {}) {
+    const redis = makeRedis();
+    const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
+    const sms: SmsProvider = { sendOtp: vi.fn().mockResolvedValue(undefined) };
+    const cfg = {
+      ...(config as unknown as Record<string, unknown>),
+      ...over,
+    } as unknown as ServerConfig;
+    return { svc: new OtpService(cfg, pii, sms, queue), redis };
+  }
+
+  let warn: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+  });
+
+  const refusalLine = (): string | undefined =>
+    warn.mock.calls.map((c) => String(c[0])).find((m) => m.startsWith("OTP refused"));
+  const reason = (): string | undefined => /reason=([a-z_]+)/.exec(refusalLine() ?? "")?.[1];
+
+  it("names the deleted-phone tombstone", async () => {
+    const { svc, redis } = setup();
+    redis.store.set(deletedPhoneKey, "1");
+    await expect(svc.issueAndSend(PHONE)).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+    });
+    expect(reason()).toBe("deleted_phone_tombstone");
+  });
+
+  it("names the resend cooldown", async () => {
+    const { svc, redis } = setup();
+    redis.store.set(cooldownKey, "1");
+    await expect(svc.issueAndSend(PHONE)).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+    });
+    expect(reason()).toBe("resend_cooldown");
+  });
+
+  it("names the per-phone HOURLY cap, and says how far over it went", async () => {
+    // THE BUDGET IS WHAT MAKES IT A DIAGNOSTIC rather than a note. #1019's symptom was a cap
+    // tripping far below its configured value — one tap counted three times — and `count=4/3`
+    // on a number that was tapped twice is exactly that bug, visible in one line.
+    const { svc, redis } = capped({ OTP_MAX_SENDS_PER_HOUR: 3, OTP_MAX_SENDS_PER_DAY: 1000 });
+    for (let i = 0; i < 3; i += 1) {
+      redis.store.delete(cooldownKey);
+      await svc.issueAndSend(PHONE);
+    }
+    redis.store.delete(cooldownKey);
+    await expect(svc.issueAndSend(PHONE)).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+    });
+    expect(reason()).toBe("phone_hourly_cap");
+    expect(refusalLine()).toMatch(/count=4\/3/);
+  });
+
+  it("names the per-phone DAILY cap — distinct from the hourly one it shares a 429 with", async () => {
+    const { svc, redis } = capped({ OTP_MAX_SENDS_PER_HOUR: 100, OTP_MAX_SENDS_PER_DAY: 3 });
+    for (let i = 0; i < 3; i += 1) {
+      redis.store.delete(cooldownKey);
+      await svc.issueAndSend(PHONE);
+    }
+    redis.store.delete(cooldownKey);
+    await expect(svc.issueAndSend(PHONE)).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+    });
+    // The two caps answer with the SAME string. Before this, the log could not tell them apart
+    // either, so "which window tripped?" had no answer anywhere.
+    expect(reason()).toBe("phone_daily_cap");
+    expect(refusalLine()).toMatch(/count=4\/3/);
+  });
+
+  it("THE TOMBSTONE AND THE COOLDOWN STAY INDISTINGUISHABLE TO THE CALLER", async () => {
+    // The property the neutral wording exists for: if these two responses ever differ, a caller
+    // can enumerate which numbers once held a deleted account. The log may tell them apart; the
+    // wire may not.
+    const a = setup();
+    a.redis.store.set(deletedPhoneKey, "1");
+    const errA = await a.svc.issueAndSend(PHONE).catch((e: HttpException) => e);
+    const reasonA = reason();
+
+    warn.mockClear();
+    const b = setup();
+    b.redis.store.set(cooldownKey, "1");
+    const errB = await b.svc.issueAndSend(PHONE).catch((e: HttpException) => e);
+    const reasonB = reason();
+
+    expect((errA as HttpException).message).toBe((errB as HttpException).message);
+    expect((errA as HttpException).getStatus()).toBe((errB as HttpException).getStatus());
+    // ...while the operator's side of the wire learns which one it was.
+    expect(reasonA).toBe("deleted_phone_tombstone");
+    expect(reasonB).toBe("resend_cooldown");
+  });
+
+  it("THE LOG CARRIES NO PHONE NUMBER — a hash prefix, a slug, and integers", async () => {
+    const { svc, redis } = setup();
+    redis.store.set(cooldownKey, "1");
+    await expect(svc.issueAndSend(PHONE)).rejects.toBeInstanceOf(HttpException);
+    const line = refusalLine()!;
+    expect(line).not.toContain(PHONE);
+    // Not even the subscriber part on its own — a partial number is still a number.
+    expect(line).not.toContain(PHONE.slice(-10));
+    expect(line).toMatch(/^OTP refused phone_hash=\S+ reason=[a-z_]+/);
+  });
+
+  it("a SUCCESSFUL send logs no refusal at all", async () => {
+    const { svc } = setup();
+    await svc.issueAndSend(PHONE);
+    expect(refusalLine()).toBeUndefined();
+  });
 });
