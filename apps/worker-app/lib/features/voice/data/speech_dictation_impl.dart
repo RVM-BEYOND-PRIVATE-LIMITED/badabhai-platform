@@ -9,13 +9,14 @@ import '../domain/speech_dictation.dart';
 /// speech recogniser (Android SpeechRecognizer / iOS Speech). No BadaBhai server
 /// and no `/voice/*` endpoint are involved.
 ///
-/// PRIVACY — WHERE THE AUDIO GOES: [listen] requests `onDevice: true`, so on a
-/// device/locale that has a local model the audio is transcribed ON-DEVICE and
-/// leaves nowhere. Where no local model exists the plugin falls back to the
-/// platform recogniser, which on most Android devices routes the audio to
-/// GOOGLE's cloud speech service — i.e. voice can be shared with Google as a
-/// third party. That must stay disclosed to the worker + declared on the Play
-/// Data Safety form; it is NOT "no network involved".
+/// PRIVACY — WHERE THE AUDIO GOES: [listen] uses the device's BEST recogniser
+/// (`onDevice: false`) because forcing the offline engine transcribed almost
+/// nothing on handsets without a good local model. On most Android devices that
+/// recogniser routes audio to GOOGLE's cloud speech service — i.e. voice can be
+/// shared with Google as a third party. That MUST stay disclosed to the worker +
+/// declared on the Play Data Safety form; it is NOT "no network involved". Keeping
+/// audio strictly on-device again needs a real BUNDLED model, not the `onDevice`
+/// flag (which silently degrades to unusable).
 ///
 /// CONTINUOUS-WHILE-HELD. The platform recogniser stops itself on its own
 /// silence/idle timeout (Android fires `ERROR_SPEECH_TIMEOUT` after a few
@@ -151,14 +152,20 @@ class RealSpeechDictation implements SpeechDictation {
           listenMode: ListenMode.dictation,
           // Partial results fill the composer live as the worker speaks.
           partialResults: true,
-          // PREFER ON-DEVICE recognition so the worker's spoken answers are NOT
-          // sent to Google's cloud speech service where the device can transcribe
-          // locally. The plugin checks SpeechRecognizer.isOnDeviceRecognitionAvailable
-          // (Android 12+) and only uses the on-device recogniser when present; on
-          // an older device or a locale with no local model it falls back to the
-          // platform recogniser automatically, so dictation never breaks — it just
-          // keeps audio on-device wherever the device allows.
-          onDevice: true,
+          // RECOGNITION RELIABILITY over forced-offline. `onDevice: true` sets the
+          // platform's PREFER_OFFLINE flag, which does NOT gracefully fall back: on
+          // the many handsets/locales without a good on-device model it uses a
+          // weak/absent offline engine and transcribes almost nothing — the "not
+          // listening" report. `false` lets the device use its best recogniser
+          // (cloud where needed), which is what actually works for a low-end,
+          // multi-locale audience.
+          //
+          // PRIVACY: audio may then reach the platform speech service (Google on
+          // most Android) as a third party — this MUST stay disclosed to the worker
+          // and declared on the Play Data Safety form. A dictation feature that does
+          // not transcribe helps nobody; truly on-device needs a real bundled model,
+          // not a flag that silently degrades to unusable.
+          onDevice: false,
           listenFor: _session,
           pauseFor: _session,
           localeId: _localeId,

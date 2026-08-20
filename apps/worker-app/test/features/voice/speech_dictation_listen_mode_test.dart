@@ -38,6 +38,8 @@ void main() {
     expect(used!.listenMode, ListenMode.dictation);
     // Guard the two options the fix must leave intact.
     expect(used!.partialResults, isTrue);
-    expect(used!.onDevice, isTrue);
+    // NOT forced on-device: the offline engine transcribed almost nothing on
+    // devices without a local model ("not listening"); use the best recogniser.
+    expect(used!.onDevice, isFalse);
   });
 }
