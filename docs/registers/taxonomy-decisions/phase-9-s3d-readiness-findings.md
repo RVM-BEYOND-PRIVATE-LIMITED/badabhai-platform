@@ -400,10 +400,24 @@ would put `mskill_mig_welder` on a worker's card in the reading position of a jo
 `job_postings` arm, and that no matched-skill id is reachable from the statement at all;
 mutation-verified — adding the coalesce turns it red.
 
-**#1027 stands, re-scoped.** It is not "a worker sees a raw id"; it is "the client-side trade
-filter reads an internal id as if it were a trade slug". Frontend Platform owns the fix (F1: the
-filter should key on a field that is a trade, or the API should stop being the source of a
-pseudo-trade). Still crosses ownership, still needs no taxonomy decision.
+**#1027 stood, re-scoped, and closed on 2026-08-20.** It was not "a worker sees a raw id"; it
+was "the client-side trade filter reads an internal id as if it were a trade slug". Frontend
+Platform closed it in `54134971` by rendering `matched_skill_label` in the Applied Jobs subtitle
+and documenting `tradeKey` as an internal key. The filter half — `jobMatchesTrades` matching
+keywords against an id's spelling — is untouched and still latent.
+
+**The fix carried a defect larger than the risk it removed, raised as #1051.**
+`GET /workers/me/applications` does not send `matched_skill_label` — the service maps eleven
+keys and that is not one of them — so the new field is always null and the subtitle always takes
+its place-only branch. Counted on production the same day: **17 applications, all 17 on the
+legacy `jobs` side with a non-empty `trade_key`, 0 on the V1 postings side.** So every live card
+went from `cnc_operator · Pimpri, Pune` to `Pimpri, Pune`, guarding a path with no rows in it.
+
+Worth recording as a pattern rather than a one-off: **this is the third time in this
+investigation that the two `trade_key`s have been conflated** — once by the original finding
+above, once by me repeating it, and once by the fix. A field name shared across two DTOs with
+different provenance is the whole hazard, and only a `fromJson`-level test against a real
+response body catches the third instance.
 
 ---
 

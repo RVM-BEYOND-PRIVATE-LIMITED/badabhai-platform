@@ -311,10 +311,26 @@ id on a card.
 **Exposure today, measured:** `MATCH_V1_ENABLED` is **off**, `job_reach` holds **4 rows**, none
 carrying a welding skill.
 
-**Routed.** Assigned to **@RishiBamako**, re-titled to what it actually is, labelled
-`area:worker-app` / `tech-debt` / **P3** — latent rather than closed, because the coincidence
-that hides it will not hold. Backend side is complete. It needs no taxonomy decision and should
-not wait on one.
+**Routed, and shipped the same day.** Assigned to **@RishiBamako**, re-titled, labelled
+`area:worker-app` / `tech-debt` / **P3**. Frontend Platform closed it in `54134971`:
+`AppliedJob` now parses `matched_skill_label` and the subtitle renders that instead of
+`tradeKey`, with `tradeKey` newly documented as an internal key that must never reach a worker.
+That rule is the right one to hold even where the current projection makes the id unreachable.
+
+**One defect came with it, and it is bigger than the thing it guarded against — raised as
+#1051.** `GET /workers/me/applications` does not send `matched_skill_label`:
+`applications.service.ts` maps eleven keys explicitly and that is not one of them. So the new
+field is always `null`, the subtitle always takes its place-only branch, and — counted on
+production the same day — **all 17 live applications are on the legacy `jobs` side with a
+non-empty `trade_key`, and 0 are on the V1 postings side.** Every applied-jobs card went from
+`cnc_operator · Pimpri, Pune` to `Pimpri, Pune`, to protect a path that has no rows in it. Both
+new tests build `AppliedJob(...)` with the label supplied, so they never reach `fromJson` and
+cannot observe that nothing populates it.
+
+The cheap fix is frontend and is one expression: fall back to `tradeKey` **only when it is not
+an `mskill_*` id**. The API-side option is additive but does not help the 17 — legacy rows have
+no matched skill, so the field would be null for exactly the rows that regressed. Backend
+Platform's side of both #1027 and #1051 is complete; neither needs a taxonomy decision.
 
 ---
 
@@ -327,7 +343,7 @@ not wait on one.
 | 3 | OIE canonicalization | product: *should it canonicalize at all?* | — | 0 rows carry `job_domain_id`; fully observable in the shadow |
 | 4 | TD-01 seed timing | taxonomy owner | S3-A not dated | seeding creates Path A behaviour where there is none |
 | 5 | `EVAL_COVERED` E1/E2/E3 | eval owner | — | 0 live promotions; 6 trainer cases if E1 |
-| 6 | `#1027` | ~~assign a frontend owner~~ **done — @RishiBamako, P3** | — | 0 workers exposed. Re-scoped: no raw id is rendered anywhere; the defect is a client-side filter keyed on an id's spelling |
+| 6 | `#1027` | ~~assign a frontend owner~~ **closed — fixed in `54134971`** | — | 0 workers were exposed. Re-scoped before the fix: no raw id was rendered anywhere; the defect is a client-side filter keyed on an id's spelling, which is still open. The fix also regressed the applied-jobs subtitle for **all 17** live applications — **#1051** |
 
 Every one of the six is at its cheapest right now, for the same reason: **`job_domain_skill` is
 empty, the 98-skill corpus behind it is unseeded, and the match spine holds 6 worker-skill rows
