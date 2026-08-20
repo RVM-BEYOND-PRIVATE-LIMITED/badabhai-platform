@@ -97,8 +97,9 @@ void main() {
     expect(cubit.state.balance, isNull);
     expect(cubit.state.balance, isNot(0),
         reason: 'a 0-mask reads as "out of credits" and blocks every unlock');
-    expect(api.calls, <String>['balance'],
-        reason: 'the ledger read is pointless once the balance read failed');
+    // The four reads now fire concurrently (one round trip, not four), so the
+    // balance read is attempted; its failure is what drives the error state above.
+    expect(api.calls, contains('balance'));
   });
 
   test('a failed LEDGER read never emits a half-true ready state', () async {

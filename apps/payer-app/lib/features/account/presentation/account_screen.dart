@@ -609,10 +609,12 @@ String _initials(String orgName) {
   final List<String> parts =
       orgName.trim().split(RegExp(r'\s+')).where((String p) => p.isNotEmpty).toList();
   if (parts.isEmpty) return '?';
+  // First GRAPHEME (not UTF-16 code unit) of each word — an org whose name starts
+  // with an emoji / non-BMP glyph must not render a broken half-surrogate.
   if (parts.length == 1) {
-    return parts.first.substring(0, 1).toUpperCase();
+    return parts.first.characters.first.toUpperCase();
   }
-  return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
+  return (parts[0].characters.first + parts[1].characters.first).toUpperCase();
 }
 
 /// `employer` → Company, `agent` → Agency (matches the wire role).
