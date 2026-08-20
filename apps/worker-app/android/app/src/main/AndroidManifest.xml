@@ -93,13 +93,13 @@
             </intent-filter>
             <!-- B4 ATTRIBUTION — verified App Link for the REAL shared link.
                  `kInviteLinkBase` (core/config/app_config.dart) composes
-                 https://app.badabhai.in/i/<code>, so until now EVERY shared
+                 https://payer.43-204-36-199.sslip.io/i/<code>, so until now EVERY shared
                  invite opened a browser instead of the app: the custom scheme
                  above matched nothing a share sheet ever produced, which is what
                  makes commission-only agents unattributable.
 
                  VERIFICATION IS AN INFRA DEPENDENCY, NOT A CODE ONE. Android
-                 only honours `autoVerify` if https://app.badabhai.in/.well-known/
+                 only honours `autoVerify` if https://payer.43-204-36-199.sslip.io/.well-known/
                  assetlinks.json is served (200, `application/json`, no redirect)
                  and lists this app's package name + the **Play App Signing**
                  SHA-256 cert fingerprint (the upload key's fingerprint is the
@@ -116,7 +116,7 @@
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="https"
-                      android:host="app.badabhai.in"
+                      android:host="payer.43-204-36-199.sslip.io"
                       android:pathPrefix="/i/"/>
             </intent-filter>
         </activity>

@@ -1,28 +1,6 @@
-import { HttpException, HttpStatus, Injectable, Logger } from "@nestjs/common";
-import { InjectQueue } from "@nestjs/bullmq";
-import { Queue } from "bullmq";
+import { Injectable } from "@nestjs/common";
 import { PiiCryptoService } from "../common/pii-crypto.service";
-import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
-
-/**
- * Minimal typed view of the Redis commands this seam needs. BullMQ's `IRedisClient` declares
- * only the subset BullMQ itself uses; the runtime client is ioredis, which has these. Narrowed
- * to an interface rather than `any` so the call sites below stay type-checked — the same idiom
- * `OtpService` and `IpRateLimit` already use.
- */
-interface RedisIdemClient {
-  set(key: string, value: string, mode: "EX", seconds: number, nx: "NX"): Promise<string | null>;
-  set(key: string, value: string, mode: "EX", seconds: number): Promise<unknown>;
-  get(key: string): Promise<string | null>;
-}
-
-/** What a completed attempt left behind, as stored. */
-type StoredOutcome =
-  | { readonly ok: true; readonly value: unknown }
-  | { readonly ok: false; readonly status: number; readonly message: string };
-
-/** The sentinel written by the winning reservation, before the work has finished. */
-const IN_FLIGHT = "in_flight";
+import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 
 /**
  * Makes an OTP-send route idempotent under a client-supplied `Idempotency-Key` (#1019).
@@ -40,55 +18,34 @@ const IN_FLIGHT = "in_flight";
  * taps could exhaust a per-phone hourly cap of five, and the same amplification burned the
  * global breaker — which, once tripped, 429s EVERY worker on EVERY device until UTC midnight.
  *
- * ONE KEY IS ONE SEND, INCLUDING WHEN IT FAILED. A reservation is taken with `SET NX` BEFORE
- * any counter moves, and the outcome — success or failure — is then stored under that same key
- * and replayed to every later attempt. The seam deliberately does NOT release on failure:
- * "retry the send" is not what a transport retry is asking for, it is asking for the result of
- * the request it already made, and re-running the work is precisely what re-increments the
- * counters. A worker whose send genuinely failed recovers through the resend cooldown with a
- * FRESH key (the client mints a new UUID per user-initiated call), which is the shorter window
- * of the two and therefore the one that governs.
+ * NOW A THIN WRAPPER over {@link RequestIdempotency} (#1046). The reserve-run-store-replay
+ * algorithm was never OTP-specific — it is the answer to "a POST whose response was lost" on any
+ * route — and `POST /payer/credits` needed exactly the same thing to stop double-granting a
+ * credit pack. Rather than copy logic whose correctness lives in the ORDER of four steps, the
+ * core moved to `common/idempotency` and this class kept the OTP-specific policy: the phone is
+ * the subject and must be hashed, and the key family stays `otp_idem`.
  *
- * PRIVACY (§2). The key namespace carries `hashPhone(phone)`, never the number itself — the
- * same rule `OtpService` follows for every one of its keys.
+ * THE STORED KEY IS BYTE-IDENTICAL to what this class wrote before the extraction —
+ * `otp_idem:<scope>:<phoneHash>:<keyHash>` — so in-flight dedupe windows keep working across the
+ * deploy that ships it, rather than every caller silently getting a fresh window mid-retry.
  *
- * Whether the stored VALUE needs encrypting depends on the route, so the caller says
- * (`secret: true`). For the send routes it does not: the value is `{ success, channel,
- * resend_in_seconds }`, a response that already went over the wire to this caller and carries
- * no credential. `/auth/otp/verify` is the opposite case — its 200 is a `LoginResponse` holding
- * an access JWT and a refresh token — so it stores CIPHERTEXT, exactly as
- * `SessionService`'s refresh grace does with the pair it mints (§11: never plaintext bearer
- * secrets at rest). The flag is on the call site rather than inferred, because "does this
- * response contain a credential" is a fact about the route that a reader of the route should
- * have to state.
+ * PRIVACY (§2). The key namespace carries `hashPhone(phone)`, never the number itself — the same
+ * rule `OtpService` follows for every one of its keys.
  *
- * SCOPED PER ROUTE AND PER PHONE. `otp_idem:<scope>:<phoneHash>:<keyHash>` — so a key captured from
- * one flow cannot replay into another, and login and PIN-reset never collide on a client that
- * happens to reuse a UUID across them.
+ * SCOPED PER ROUTE AND PER PHONE, so a key captured from one flow cannot replay into another,
+ * and login and PIN-reset never collide on a client that happens to reuse a UUID across them.
  */
 @Injectable()
 export class OtpRequestIdempotency {
-  private readonly logger = new Logger(OtpRequestIdempotency.name);
-
   /**
-   * How long one key's outcome is honoured, in seconds.
-   *
-   * 180, THE SAME NUMBER AND THE SAME REASONING AS `SessionService.IDEM_GRACE_SECONDS`, because
-   * it is the same client on the same retry ladder: #999 measured the last honest retry landing
-   * at t≈30.9s, and 180 is ~6× that, so a device on a slower ladder — or one that suspends
-   * mid-retry — still lands inside the window.
-   *
-   * WIDER THAN THE 30s RESEND COOLDOWN ON PURPOSE, and it does not extend anything a worker can
-   * feel. The key is minted per `AuthedClient.send()` call, so a worker who waits out the
-   * cooldown and taps "resend" arrives with a NEW key and is never served from here. Only a
-   * transport retry — which is not a second request — reuses one.
+   * Re-exported so existing callers and tests keep one name for the window. The value lives on
+   * {@link RequestIdempotency}; duplicating the number here would let the two drift.
    */
-  static readonly WINDOW_SECONDS = 180;
+  static readonly WINDOW_SECONDS = RequestIdempotency.WINDOW_SECONDS;
 
   constructor(
     private readonly pii: PiiCryptoService,
-    // Reuse BullMQ's existing Redis connection — do NOT add a second client.
-    @InjectQueue(RESUME_RENDER_QUEUE) private readonly queue: Queue,
+    private readonly idempotency: RequestIdempotency,
   ) {}
 
   /**
@@ -102,9 +59,9 @@ export class OtpRequestIdempotency {
    *
    * `inFlight` supplies what a duplicate gets while the first attempt is still running — the
    * case the whole bug is made of, since the client's 15s timeout is shorter than a slow
-   * Fast2SMS send. Answering it optimistically is correct: either the in-flight attempt lands
-   * and the worker has their code, or it does not and the cooldown lets them ask again. What it
-   * must never do is start a second send.
+   * Fast2SMS send. Answering it optimistically is correct HERE: either the in-flight attempt
+   * lands and the worker has their code, or it does not and the cooldown lets them ask again.
+   * (A financial route cannot answer optimistically — see `RunOnceOptions.inFlight`.)
    */
   async runOnce<T>(opts: {
     readonly scope: string;
@@ -114,194 +71,24 @@ export class OtpRequestIdempotency {
     readonly inFlight: () => T;
     /**
      * Encrypt the stored outcome at rest. Set it on any route whose response carries a
-     * credential — see the class header. Off by default so the send routes are unchanged, and
-     * so adding a route that DOES carry one is a deliberate decision rather than an omission.
+     * credential. Off by default so the send routes are unchanged, and so adding a route that
+     * DOES carry one is a deliberate decision rather than an omission.
      */
     readonly secret?: boolean;
   }): Promise<T> {
-    const key = opts.idempotencyKey?.trim();
-    if (!key) return opts.work();
-
-    const phoneHash = this.pii.hashPhone(opts.phoneE164);
-    // HASHED AND TRUNCATED, NOT INTERPOLATED RAW — the `IpRateLimit.assertWithinHourlyIpCap`
-    // idiom ("Truncate to keep the Redis key bounded"), and load-bearing for a different reason
-    // here than there.
-    //
-    // The reservation below is written BEFORE `work()`, and `work()` is now where this route's
-    // only rate limit lives. So on an UNAUTHENTICATED front-door route, the client would
-    // otherwise be choosing the size of a Redis write that happens ahead of every limiter:
-    // Node accepts a ~16KB header block, this Redis runs `--maxmemory-policy noeviction` with
-    // no `maxmemory`, and the keys live their full 180s. That converts attacker bandwidth into
-    // non-evictable memory on the box that holds the session store — and when that Redis fills,
-    // `IpRateLimit` 429s, `OtpService` 503s and `SessionService` 401s, which is the
-    // platform-wide lockout this change exists to END, handed to anyone with a socket.
-    //
-    // Fixed 64 hex chars regardless of what arrives. A collision merges two keys into one
-    // dedupe bucket, which can only ever suppress a duplicate — never send an extra SMS.
-    const keyHash = this.pii.hmac(key).slice(0, 64);
-    const redisKey = OtpRequestIdempotency.key(opts.scope, phoneHash, keyHash);
-    const hashPrefix = phoneHash.slice(0, 8);
-
-    let redis: RedisIdemClient;
-    let reserved: string | null;
-    try {
-      redis = (await this.queue.client) as unknown as RedisIdemClient;
-      // RESERVE BEFORE ANY COUNTER MOVES. `NX` is what makes this a mutex and not merely a
-      // cache: two attempts racing in the same millisecond both reach here, exactly one wins,
-      // and the loser cannot start a second send.
-      reserved = await redis.set(
-        redisKey,
-        IN_FLIGHT,
-        "EX",
-        OtpRequestIdempotency.WINDOW_SECONDS,
-        "NX",
-      );
-    } catch (err) {
-      // FAIL OPEN, and only here. Everything downstream of this line already fails CLOSED on a
-      // Redis error — the caps, the cooldown, the code store — so a Redis outage still cannot
-      // send an SMS or move a counter. Refusing the request at THIS line would add a new way to
-      // lock every worker out during an outage in exchange for deduplication we cannot perform
-      // anyway. Never logs the phone; the hash prefix is the same handle used elsewhere.
-      this.logger.warn(
-        `OTP idempotency unavailable scope=${opts.scope} phone_hash=${hashPrefix}; ` +
-          `proceeding undeduplicated (reason: ${err instanceof Error ? err.message : String(err)})`,
-      );
-      return opts.work();
-    }
-
-    if (reserved === null) return this.replay(redis, redisKey, opts, hashPrefix);
-
-    try {
-      const value = await opts.work();
-      await this.store(redis, redisKey, { ok: true, value }, opts.scope, hashPrefix, opts.secret);
-      return value;
-    } catch (err) {
-      // STORED, NOT RELEASED. By the time most failures are thrown the counters have already
-      // moved (the hourly cap increments before it checks, and a provider 502 is thrown after
-      // all three counters and the global breaker), so releasing would let the retry ladder
-      // spend the budget a second and third time — the exact amplification this class exists to
-      // stop. An HttpException replays as itself; anything else is not ours to reinterpret, so
-      // it replays as the 503 the OTP path already returns for an unexpected fault.
-      const outcome: StoredOutcome =
-        err instanceof HttpException
-          ? { ok: false, status: err.getStatus(), message: OtpRequestIdempotency.messageOf(err) }
-          : {
-              ok: false,
-              status: HttpStatus.SERVICE_UNAVAILABLE,
-              message: "This is temporarily unavailable; please retry shortly",
-            };
-      await this.store(redis, redisKey, outcome, opts.scope, hashPrefix, opts.secret);
-      throw err;
-    }
-  }
-
-  /**
-   * Persist what happened, best effort.
-   *
-   * A failed write leaves the `in_flight` sentinel, whose TTL is already set — so duplicates get
-   * the optimistic answer instead of a second send. It degrades to the safe side either way, and
-   * it must never convert a completed request into a failed one, which is why the throw is
-   * swallowed rather than propagated.
-   */
-  private async store(
-    redis: RedisIdemClient,
-    redisKey: string,
-    outcome: StoredOutcome,
-    scope: string,
-    hashPrefix: string,
-    secret = false,
-  ): Promise<void> {
-    try {
-      // The WHOLE outcome, not just the success value. A failure shape carries only a
-      // client-visible status and message today, but branching on `ok` here would mean a future
-      // field added to the failure side silently lands in plaintext — and the cost of
-      // encrypting a 60-byte object once per 180s window is nothing.
-      const payload = JSON.stringify(outcome);
-      await redis.set(
-        redisKey,
-        secret ? this.pii.encrypt(payload) : payload,
-        "EX",
-        OtpRequestIdempotency.WINDOW_SECONDS,
-      );
-    } catch (err) {
-      this.logger.warn(
-        `OTP idempotency outcome not stored scope=${scope} phone_hash=${hashPrefix} ` +
-          `(reason: ${err instanceof Error ? err.message : String(err)})`,
-      );
-    }
-  }
-
-  /** Serve a duplicate: the stored outcome if the first attempt finished, else the optimist. */
-  private async replay<T>(
-    redis: RedisIdemClient,
-    redisKey: string,
-    opts: {
-      readonly scope: string;
-      readonly inFlight: () => T;
-      readonly work: () => Promise<T>;
-      readonly secret?: boolean;
-    },
-    hashPrefix: string,
-  ): Promise<T> {
-    let stored: string | null;
-    try {
-      stored = await redis.get(redisKey);
-    } catch (err) {
-      // We KNOW a reservation exists — the NX above lost to it — so the one thing we must not
-      // do is run the work. The optimistic answer is the safe read of "somebody else has this".
-      this.logger.warn(
-        `OTP idempotency replay read failed scope=${opts.scope} phone_hash=${hashPrefix} ` +
-          `(reason: ${err instanceof Error ? err.message : String(err)})`,
-      );
-      return opts.inFlight();
-    }
-
-    // Expired between the NX and the GET, which is a genuine race rather than a duplicate: the
-    // window has closed, so this attempt is entitled to be a request of its own.
-    if (stored === null) return opts.work();
-    if (stored === IN_FLIGHT) return opts.inFlight();
-
-    let outcome: StoredOutcome;
-    try {
-      // Symmetric with `store()`: the flag comes from the CALL SITE, so a scope always reads
-      // back the way it wrote. A blob written before this route was marked `secret` (or under a
-      // retired key) fails to decrypt and lands in the catch below — which is the safe side.
-      outcome = JSON.parse(opts.secret ? this.pii.decrypt(stored) : stored) as StoredOutcome;
-    } catch {
-      // Unreadable is not a licence to run the work again — the reservation still means an
-      // attempt owns this key. Treat it as in flight.
-      return opts.inFlight();
-    }
-
-    if (outcome.ok) return outcome.value as T;
-    // The SAME status and the SAME wording the first attempt produced. Replaying the response
-    // rather than the exception CLASS is deliberate: the tagged send-failure and cap-breach
-    // exceptions exist so `AuthService` emits ONE monitoring event per real occurrence, and a
-    // retry of a request that already happened is not a second occurrence.
-    throw new HttpException(outcome.message, outcome.status);
-  }
-
-  /**
-   * `otp_idem:<scope>:<phoneHash>:<keyHash>` — fixed width, and neither the raw phone (§2)
-   * nor the raw client header (see the bound at the call site).
-   */
-  private static key(scope: string, phoneHash: string, idempotencyKeyHash: string): string {
-    return `otp_idem:${scope}:${phoneHash}:${idempotencyKeyHash}`;
-  }
-
-  /**
-   * The client-visible message of an HttpException, whether it was built from a string or from
-   * Nest's `{ message }` object form. Falls back to the generic throttle wording rather than
-   * risking an internal detail reaching a worker.
-   */
-  private static messageOf(err: HttpException): string {
-    const res = err.getResponse();
-    if (typeof res === "string") return res;
-    if (res && typeof res === "object" && "message" in res) {
-      const m = (res as { message: unknown }).message;
-      if (typeof m === "string") return m;
-      if (Array.isArray(m) && typeof m[0] === "string") return m[0];
-    }
-    return "Please wait before requesting another code";
+    return this.idempotency.runOnce({
+      namespace: "otp_idem",
+      scope: opts.scope,
+      // THE ONLY OTP-SPECIFIC LINE THAT MATTERS. The subject is a phone number, so it is hashed
+      // before it can reach a Redis key; the generic seam does not hash, because a caller
+      // passing an internal uuid must not have it double-hashed.
+      subject: this.pii.hashPhone(opts.phoneE164),
+      subjectLabel: "phone_hash",
+      logLabel: "OTP",
+      ...(opts.idempotencyKey === undefined ? {} : { idempotencyKey: opts.idempotencyKey }),
+      ...(opts.secret === undefined ? {} : { secret: opts.secret }),
+      work: opts.work,
+      inFlight: opts.inFlight,
+    });
   }
 }

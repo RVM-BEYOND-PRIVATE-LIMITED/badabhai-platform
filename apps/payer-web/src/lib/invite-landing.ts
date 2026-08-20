@@ -1,7 +1,7 @@
 /**
  * Config + link building for the PUBLIC `/i/<code>` referral landing page (blocker B4).
  *
- * WHY THIS EXISTS. A shared referral link is `https://app.badabhai.in/i/<code>` — that is
+ * WHY THIS EXISTS. A shared referral link is `https://payer.43-204-36-199.sslip.io/i/<code>` — that is
  * literally `kInviteLinkBase` in the worker app — but no such route existed, so every share
  * to somebody who does not have the app yet hit a 404 and the referral died there. With
  * Firebase Dynamic Links shut down (2025-08-25), this page plus Play Install Referrer IS
@@ -67,7 +67,7 @@ export function playStoreBrowseUrl(): string {
  * `/r/`. Whatever host it points at MUST serve this Next app.
  */
 export function shortLinkOrigin(): string {
-  return (env("NEXT_PUBLIC_SHORT_LINK_BASE") ?? "https://app.badabhai.in").replace(/\/+$/, "");
+  return (env("NEXT_PUBLIC_SHORT_LINK_BASE") ?? "https://payer.43-204-36-199.sslip.io").replace(/\/+$/, "");
 }
 
 /**
