@@ -148,12 +148,11 @@ export default async function DashboardPage() {
           icon="wallet"
           href="/credits"
           ariaLabel={`Credit balance ${data.credits.balance} credits — open wallet`}
-          delta={
+          caption={
             <>
               <span className="bb-mono">{formatInr(40)}</span> per unlock
             </>
           }
-          deltaDir="flat"
         />
         {isAgency ? null : (
           <StatTile
@@ -162,8 +161,7 @@ export default async function DashboardPage() {
             icon="briefcase"
             href="/postings"
             ariaLabel={`Open postings ${openCount} — manage postings`}
-            delta={`${data.postings.length} total`}
-            deltaDir="flat"
+            caption={`${data.postings.length} total`}
           />
         )}
         {/* PARKED, not removed. /agency/revenue renders a real page explaining what is
@@ -176,8 +174,7 @@ export default async function DashboardPage() {
             icon="currency-inr"
             href="/agency/revenue"
             ariaLabel="Revenue — coming soon"
-            delta="Coming soon"
-            deltaDir="flat"
+            caption="Coming soon"
           />
         ) : null}
         <StatTile
@@ -186,8 +183,7 @@ export default async function DashboardPage() {
           icon="lock-key-open"
           href="/postings"
           ariaLabel={`Contacts unlocked ${data.unlocks.length} — manage postings`}
-          delta="1 credit each"
-          deltaDir="flat"
+          caption="1 credit each"
         />
       </div>
 
