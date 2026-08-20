@@ -4,17 +4,24 @@ import { AdminEventsRepository, type AdminPayloadGroupField } from "./admin-even
 import {
   AI_COST_CAVEAT_SINCE_0077,
   CAP_BREACH_SCOPE_PROFILE_EXTRACTION,
+  COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
+  COST_PER_PROFILE_ERASURE_BIAS,
+  COST_PER_PROFILE_WINDOW_EDGE_SKEW,
   DASHBOARD_JOB_POSTING_STATUSES,
   DASHBOARD_OTHER_BUCKET,
   DASHBOARD_PAYER_ROLES,
   DASHBOARD_PAYER_STATUSES,
   DASHBOARD_PROFILE_STATUSES,
   DASHBOARD_WORKER_STATUSES,
+  PROFILE_COMPLETED_STATUSES,
+  PROFILING_TASK_TYPES,
   type AdminCapBreachBucket,
+  type AdminCostPerProfile,
   type AdminDashboardSummary,
   type AdminDashboardSummaryQueryDto,
   type AdminEnumBuckets,
 } from "./admin-dashboard.dto";
+import type { AdminProfilingCostSubtotal } from "./admin-dashboard.repository";
 
 /**
  * The admin DASHBOARD summary service (BP-5) — "what have we spent on AI, and how big are we".
@@ -38,6 +45,13 @@ import {
  *     from `min(first_recorded_at)`, so a partial figure cannot render as a lifetime total; and
  *     `cap_breaches.scope` says which surfaces that count actually covers.
  *  3. WHICH EVENT AND WHICH FIELD the breach split reads.
+ *  4. THE COST-PER-PROFILE RATIO, and both of its classifications. Which task types count as
+ *     profiling spend, which profile statuses count as a produced profile, that BOTH halves are
+ *     scoped to the bound the PROFILING SUBTOTAL begins at (which is NOT `accruing_since` —
+ *     that one is table-wide and can belong to a task type the numerator excludes), that no
+ *     profiling accrual at all means the block is ABSENT rather than ₹0.00, and that a zero
+ *     denominator yields a NULL average. The repository holds none of that: it is handed the
+ *     bound and the two sets and runs the query. See {@link AdminDashboardService.perProfile}.
  *
  * ── NO EVENTS EMITTED ───────────────────────────────────────────────────────────────────
  * A read is not a state change (CLAUDE.md §1). The audited `admin.action_performed` belongs to
@@ -119,15 +133,124 @@ export class AdminDashboardService {
     return buckets.reduce((n, b) => n + b.count, 0);
   }
 
+  /**
+   * The exact-decimal scale the wire and `numeric(16,6)` agree on, and the smallest non-zero
+   * amount representable at it. A quotient below `SMALLEST` is positive but unrenderable.
+   */
+  private static readonly INR_SCALE = 6;
+  private static readonly SMALLEST_INR = "0.000001";
+
+  /**
+   * The cost-per-profile block — or NULL when there is no PROFILING accrual window to compute
+   * it over.
+   *
+   * ── THE DIVISION IS DONE IN JAVASCRIPT, AND THAT IS NOT THE FLOAT-DRIFT CASE ────────────
+   * The repository sums `numeric` IN POSTGRES and returns `::text` because ADDING MANY ROWS in
+   * IEEE-754 is neither exact nor associative, and a total that changes with row order is
+   * indefensible on a page labelled "spend". A single division of one exact subtotal by one
+   * integer has neither property to lose: there is one operation, the true quotient rarely
+   * terminates in decimal anyway, and `toFixed(6)` renders it at the same scale
+   * `numeric(16,6)` stores. Pushing this into SQL and reading it back would buy no precision
+   * and cost a round trip — so the next reader does not "fix" it, this paragraph exists.
+   *
+   * The one thing that argument does NOT cover, and which is recorded here rather than left to
+   * be rediscovered: `Number()` on the string is a decimal→binary conversion, and at the very
+   * top of `numeric(16,6)`'s range (16 significant digits against a double's ~15–17) it is
+   * lossy — `Number("9999999999.999999")` is `9999999999.999998`. That is ₹10 billion of
+   * profiling spend against a lifetime total presently measured in tens of rupees, so it is
+   * noted as a known bound of this approach and not treated as a live defect.
+   *
+   * ── A ZERO DENOMINATOR IS AN ABSENT AVERAGE, NEVER ₹0.00 ────────────────────────────────
+   * Spend in the window with no completed profile means every interview is still in flight or
+   * was abandoned. `null` says that; `0.00` says profiles are free, which is the strongest
+   * available claim and the wrong one. Same discipline as `accruing_since` refusing to coalesce.
+   *
+   * ── A POSITIVE QUOTIENT NEVER RENDERS AS ZERO ───────────────────────────────────────────
+   * `toFixed(6)` ROUNDS, and a true quotient under ₹0.0000005 rounds to `"0.000000"` — which
+   * `formatExactRupees` then renders as `₹0.00` while its own header promises the opposite
+   * ("a sub-paisa figure renders all six of its places rather than collapsing to ₹0.00, because
+   * 'we spent a fraction of a paisa' and 'we spent nothing' are different facts"). Rounding is
+   * already accepted everywhere else in this expression — ₹5.9857754 ships as `"5.985775"` — so
+   * the objection is not to rounding but to the ONE rounding that changes the qualitative claim
+   * from "small" to "free". A positive quotient is therefore clamped UP to the smallest
+   * representable amount: an error of under one micro-rupee, strictly smaller than the rounding
+   * already tolerated, and it never says the platform got something for nothing.
+   */
+  private static perProfile(
+    since: Date | null,
+    subtotal: AdminProfilingCostSubtotal,
+    profilesCompleted: number,
+  ): AdminCostPerProfile | null {
+    // NO PROFILING WINDOW, NO RATIO. `since` here is `min(first_recorded_at)` over the PROFILING
+    // task types, so null means no profiling call has ever been recorded — and then there is no
+    // period for a profile count to cover. The whole block is absent rather than ₹0 over a real
+    // profile count, which is the state a table holding only `resume_generation` or a payer-side
+    // `skill_embedding` is in, and which would otherwise render a confident "profiles are free".
+    // The caller does not even issue the count query in this case.
+    if (since === null) return null;
+
+    return {
+      since,
+      profiling_task_types: PROFILING_TASK_TYPES,
+      profiling_cost_inr: subtotal.totalCostInr,
+      profiling_calls: subtotal.callCount,
+      profiling_real_calls: subtotal.realCallCount,
+      profiles_extracted_or_confirmed: profilesCompleted,
+      cost_per_profile_inr: AdminDashboardService.average(subtotal.totalCostInr, profilesCompleted),
+      basis: COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED,
+      window_caveat: COST_PER_PROFILE_WINDOW_EDGE_SKEW,
+      erasure_caveat: COST_PER_PROFILE_ERASURE_BIAS,
+    };
+  }
+
+  /**
+   * `numerator / count` as an exact-decimal string at {@link INR_SCALE} — null on a zero
+   * denominator, and never `"0.000000"` for a numerator that is not itself zero. See the two
+   * final paragraphs of {@link perProfile} for why each of those is the honest answer.
+   */
+  private static average(numerator: string, count: number): string | null {
+    if (count === 0) return null;
+    const exact = Number(numerator) / count;
+    const rendered = exact.toFixed(AdminDashboardService.INR_SCALE);
+    // `Number(rendered) === 0` rather than a string compare: it catches "0.000000" and the
+    // "-0.000000" a negative zero would produce, without either literal appearing here.
+    if (Number(rendered) === 0 && exact > 0) return AdminDashboardService.SMALLEST_INR;
+    return rendered;
+  }
+
   async summary(dto: AdminDashboardSummaryQueryDto): Promise<AdminDashboardSummary> {
-    const since = new Date(Date.now() - dto.windowDays * 24 * 60 * 60 * 1000);
+    // The CAP-BREACH window — a rolling `windowDays` back from now, and nothing to do with the
+    // accrual bound below. Two different "since" values on one page is exactly the confusion
+    // the cost-per-profile figure exists to avoid, so neither of them is called `since`.
+    const breachWindowSince = new Date(Date.now() - dto.windowDays * 24 * 60 * 60 * 1000);
+
+    // ── READ ONE: THE TWO BOUNDS, AND THEY MUST COME FIRST ──────────────────────────────
+    // The profile count is scoped to the bound the PROFILING SUBTOTAL begins at, so it cannot be
+    // issued until that value is known. Both aggregates are read here, concurrently, because the
+    // section's bound (`accruing_since`, table-wide) and the ratio's bound (profiling rows only)
+    // are DIFFERENT INSTANTS with different jobs — see `AdminCostPerProfile`. This costs one
+    // extra round trip, deliberately: both are aggregates over `platform_ai_cost_totals`, which
+    // is ~4 providers x ~9 task types by construction, so they scan a few dozen rows and are not
+    // a page-latency term.
+    //
+    // THE COUNT'S BOUND IS READ OFF THE SAME AGGREGATE THAT PRODUCED THE NUMERATOR, which is
+    // what makes the two halves of the ratio structurally incapable of covering different
+    // periods. Bounding the count by `costTotals.since` instead — the value the section
+    // displays, and the obvious-looking choice — is a measured 22× error the moment any
+    // non-profiling task type accrued first.
+    const [costTotals, profilingSubtotal] = await Promise.all([
+      this.repo.platformCostTotals(),
+      // The profiling SLICE of the same table, not a sum of the buckets below — see the
+      // repository header for why that sum belongs in Postgres.
+      this.repo.profilingCostSubtotal(PROFILING_TASK_TYPES),
+    ]);
 
     // Thirteen independent aggregates. Run concurrently so the page's latency is the slowest
     // ONE, not their sum — the same reason `AdminFinanceService.summary` does it.
     const [
-      costTotals,
       byProvider,
       byTaskType,
+      profilesCompleted,
       breaches,
       workerStatuses,
       pendingDeletion,
@@ -139,13 +262,23 @@ export class AdminDashboardService {
       unlocksIssued,
       resumes,
     ] = await Promise.all([
-      this.repo.platformCostTotals(),
       this.repo.costByProvider(),
       this.repo.costByTaskType(),
+      // NOT ISSUED AT ALL when no PROFILING spend has accrued: with no window there is no
+      // "profiles in the same period" to count, and a count over all time would be the wrong
+      // number rather than an unused one. Note this is the PROFILING bound, not `costTotals`':
+      // a table holding only `resume_generation` has a non-null `accruing_since` and still has
+      // no profiling window at all.
+      profilingSubtotal.since === null
+        ? Promise.resolve(0)
+        : this.repo.countCurrentProfilesCompletedSince(
+            profilingSubtotal.since,
+            PROFILE_COMPLETED_STATUSES,
+          ),
       this.events.countByPayloadField(
         AdminDashboardService.CAP_BREACH_EVENT,
         AdminDashboardService.CAP_BREACH_FIELD,
-        since,
+        breachWindowSince,
       ),
       this.repo.countWorkersByStatus(),
       this.repo.countWorkersPendingDeletion(),
@@ -194,6 +327,16 @@ export class AdminDashboardService {
         // would also relabel every genuinely-unlabelled call.
         by_provider: byProvider,
         by_task_type: byTaskType,
+        // What a finished profile costs, over the bound the PROFILING spend itself begins at —
+        // null when no profiling call has ever been recorded. The numerator is the profiling
+        // slice, never the total: `resume_generation` is rendered FROM a profile and must not
+        // be billed to producing one. Its `since` is at or after `accruing_since` above and is
+        // deliberately a different field; the portal labels this block's tiles from it.
+        per_profile: AdminDashboardService.perProfile(
+          profilingSubtotal.since,
+          profilingSubtotal,
+          profilesCompleted,
+        ),
         cap_breaches: {
           window_days: dto.windowDays,
           total: AdminDashboardService.sum(byReason),
