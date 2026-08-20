@@ -65,7 +65,7 @@ the canonicalizer hard-codes `cnc-machining` or supplies a `jd_*` id that nothin
 | caller | scope it sends | evidence |
 |---|---|---|
 | job posting create/update | `job_domain_id` if the posting has one, else the literal `"cnc-machining"` | [job-postings.service.ts:139-142](../../../apps/api/src/job-postings/job-postings.service.ts#L139-L142), anchor defined at [:45](../../../apps/api/src/job-postings/job-postings.service.ts#L45) — and **nothing writes `job_postings.job_domain_id`**: no DTO field, no backfill |
-| `/profile/extract` canonicalize pass | `body.job_domain_id` if supplied, else `settings.skill_canonicalize_default_domain` | [profile.py:268-271](../../../apps/ai-service/app/routers/profile.py#L268-L271) — nothing populates the request field ([profile-extraction.processor.ts:701](../../../apps/api/src/profiles/profile-extraction.processor.ts#L701)) |
+| `/profile/extract` canonicalize pass | `body.job_domain_id` if supplied, else `settings.skill_canonicalize_default_domain` | [profile.py:268-271](../../../apps/ai-service/app/routers/profile.py#L268-L271). **Corrected 2026-08-20:** OIE O2 now populates that field from a matched occupation pin, so the caller CAN send a `jd_*` scope. It changes nothing here — measured coverage is **0.00%** (the pinned and canonicalizing populations are disjoint on production, 0 of 92 sessions), and the pass itself is behind `skill_canonicalize_enabled`, off. See `phase-9-decision-record.md` §5 |
 | `map_rich_to_legacy` backfill | the same default | [profile_extractor.py:653](../../../apps/ai-service/app/profiling/profile_extractor.py#L653) — and its own comment records that it "is not wired to any route today" |
 | `POST /skills/canonicalize` | whatever the body carries | its only caller is row 1 |
 

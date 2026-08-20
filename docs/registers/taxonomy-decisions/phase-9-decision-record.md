@@ -18,9 +18,9 @@
 
 | # | decision | ruling | status |
 |---|---|---|---|
-| 1 | `cnc-programming` | **A — accept the gap.** Do not build the new runner / embed path. | accepted; pinned by test |
+| 1 | `cnc-programming` | **A — accept the gap.** Do not build the new runner / embed path. | **accepted**; inexpressibility pinned by test |
 | 2 | TD-07 | **T4 now, T1 at the first real welder.** | **shipped** |
-| 3 | TD-01 seeding | **D2 — seed + embed, then promote**, trainer cases handled as specified. | sequenced; awaiting owner run |
+| 3 | TD-01 seeding | **D2 — seed + embed, then promote**, trainer cases handled as specified. | **runbook written, NOT run** — awaiting the owner |
 | 4 | `EVAL_COVERED` | **E1 — keep the stricter promotion gate.** | **shipped**; 6 cases await a trainer |
 | 5 | OIE canonicalization | **O2 now, O1 as the eventual proper fix.** | **shipped**; measured 0% coverage — O1 is now the whole fix |
 | 6 | four unmodelled tables | **Keep and model them. Do not drop.** | **shipped** — model + migration `0084`, unapplied |
@@ -32,6 +32,45 @@ Two constraints applied across all six:
 - **S3-D is not activated.** The shadow re-run stands as the readiness instrument; the switch is
   not flipped. See the measurement in `phase-9-recommendations.md`: the binding constraint is
   embedding coverage, not promotion.
+
+---
+
+## 1 — `cnc-programming`: option A, the gap is accepted
+
+**Ruling:** accept the loss. Do not build the compatibility-alias runner or the per-row embed
+path option B needs.
+
+**What is being accepted, precisely.** When S3-D retags `skill_cad_interpretation` onto
+`skill_drawing_reading`, a caller scoped to the legacy slug `cnc-programming` loses **3 embedded
+candidate rows** — the `en` aliases *CAD*, *technical drawing*, *read engineering drawings* —
+and gains nothing back. Path B candidate rows under that slug go **11 → 8**, distinct skills
+**4 → 3**.
+
+**Three measurements make it cheap.**
+
+| | |
+|---|---|
+| workers reaching Path B today | **0** — `SKILL_CANONICALIZE_ENABLED=false` |
+| rows actually lost | **3, not 4** — `drawing padhna` (hi) has `embedding IS NULL` and was never a candidate, so Hindi drawing-reading is unserved under this slug *already*, before S3-D touches anything |
+| callers that can scope to `cnc-programming` at all | **none** — every live path hard-codes `cnc-machining` or supplies a `jd_*` id |
+
+**Why not B.** It is not "one additive row". Every shipped `skill_alias` writer derives
+`domain_id` from the alias's own parent skill, so a cross-slug row is currently **inexpressible**
+and needs a dedicated runner; it needs its own embed call (`db:embed:skills` has no per-row
+scope); its only semantically correct target, `skill_drawing_reading`, **does not exist in
+production**; and it would establish a cross-slug compatibility-alias pattern with no precedent
+in the repository — a new data shape adopted to protect three rows on a switched-off path.
+
+**Accepting a gap needs a guard, or it decays into an oversight.** `cross-slug-alias.test.ts`
+pins the inexpressibility itself: it finds every file holding an `.insert(skillAliases)` call and
+requires each `domainId:` expression to be one of a named, reasoned allow-list, all of which
+resolve to the parent skill's own slug, to NULL, or to a value the database already had.
+
+**When that test fails, this decision is back open.** A new writer that can set `domainId` from
+somewhere else IS option B's machinery, whatever it was added for.
+
+**What would change the ruling:** a dated S10. Option C ("moot") is only defensible with one, and
+nobody has dated it — if S10 lands inside the S3-D window, C and A are the same decision.
 
 ---
 
@@ -69,6 +108,50 @@ to the rows that exist when it lands, so it is cheapest at 1.
 only, so a denial keeps its welding skill ids. That is a pre-existing, documented
 gazetteer-family limitation, and a different failure class from writing a specific id off an
 unspecific signal.
+
+---
+
+## 3 — TD-01 seeding: D2, sequenced and NOT run
+
+**Ruling:** D2 — seed with the promotion pass — re-read as **seed + embed, *then* promote**,
+with the trainer cases handled as specified.
+
+**The sequencing correction is the substance of the ruling.** Promotion on its own buys **one**
+rankable skill: retrievability needs a retrievable status *and* an alias with a vector, and
+exactly 1 of 111 provisional skills has the second. A run that promotes before it embeds looks
+like progress and produces none.
+
+```
+seed job_domain_skill (236 edges) + the 98-skill corpus
+  -> embed its 225 unvectored aliases        <- the step that actually moves coverage
+    -> promote
+      -> re-measure (shadow, parity, coverage)
+        -> only THEN consider S3-D
+```
+
+**Why D2 and not D1 or D3.** All three differ only in *when*, and the risk is real and was
+under-weighted: **seeding is the step that turns Path A on in fact, whatever the flags say** —
+`DOMAIN_MATCH_ENABLED` gates the ANN fallback, not the presence of edges, and no flag un-seeds a
+table. D1 takes that irreversible step furthest from the observation that justifies it. D3
+concentrates seeding, embedding, promotion and the read switch into one window, so a regression
+would have four candidate causes and no way to bisect them.
+
+**What shipped: the runbook, not the run.**
+[`phase-9-d2-seed-embed-promote-runbook.md`](./phase-9-d2-seed-embed-promote-runbook.md) — five
+read-only preconditions to record first, the four steps with their real commands and what each
+writes, and an honest rollback table (step 1 is **not** reversible; step 3 is).
+
+**It surfaced a blocker worth insisting on.** Every runner on the D2 path — `seed-skills`,
+`match-v1-cli` (which `seed:domain-skills` uses), `embed-skill-aliases` and `promote-skills` —
+still guards on `process.env.NODE_ENV === "production"`. `ops-guard.ts` exists precisely because
+that guard protects the wrong thing (the process, not the target) and four other runners have
+already moved to it. Since this repository's local `.env` points at production and `NODE_ENV` is
+not normally set there, **the largest irreversible write in the phase would currently proceed
+with no authorisation signal at all** — the "FALSE PERMIT" that file names. Migrating those four
+is recommended *before* D2 runs, and is raised separately rather than folded into this decision.
+
+**What would change the ruling:** a dated S3-A. If S3-A slips indefinitely, D2 becomes "never"
+and the choice is genuinely between D1 and D3.
 
 ---
 
@@ -272,6 +355,7 @@ Nothing on this row list has been executed. Each is a production mutation.
 | date | what |
 |---|---|
 | 2026-08-20 | Record opened. Ruling on all six recorded; TD-07 T4 shipped. |
+| 2026-08-20 | `cnc-programming` A accepted and pinned; D2 sequenced into a runbook that has not been run. |
 | 2026-08-20 | `EVAL_COVERED` E1 shipped, with the trainer pack for the six skills it demotes. |
 | 2026-08-20 | GAP-DB-21 modelled: schema file + migration `0084`, verified read-only against production as a no-op. Found two unrotatable encrypted columns on the way. |
 | 2026-08-20 | OIE O2 shipped with its coverage report. Measured **0.00%** on n=92 — the covered population is empty and structurally so, and O1 now carries the whole decision. |
