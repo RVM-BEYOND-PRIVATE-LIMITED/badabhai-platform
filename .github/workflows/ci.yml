@@ -1724,6 +1724,36 @@ jobs:
     #     taxonomy gates stay `false` in that same scope; Phase-9 activation is unrelated
     #     to this change and is not authorized.
     environment: production
+    # #1131 — SERIALISE THE DEPLOY ITSELF, at the job level, without touching the workflow-level
+    # concurrency rule above.
+    #
+    # The workflow-level `group: ci-${{ github.ref }}` / `cancel-in-progress: false` (on main)
+    # already stops the NEWEST main run being cancelled, so the tip of `main` always reaches this
+    # job (#1041/#1117). What it deliberately does NOT do is protect the box from two deploys of
+    # DIFFERENT commits landing on it at once, and it cannot be widened to do so: GitHub forbids
+    # `cancel-in-progress: true` together with an unbounded pending queue, and after #1117 that
+    # expression already evaluates `true` on PR branches — adding a workflow-level `queue`/`true`
+    # combination makes ci.yml fail validation and produce ZERO checks (worse than a red X,
+    # because the required check never appears at all). So the serialisation lives HERE instead.
+    #
+    # GROUP: a fixed, deploy-scoped constant — NOT keyed on `github.ref`. This job's `if:` already
+    # restricts it to `refs/heads/main`, so every instance shares this one group and the deploys
+    # run strictly one-at-a-time in merge order. Keying on `github.ref` would put each ref in its
+    # own group and defeat the point; there is only ever one production box.
+    #
+    # cancel-in-progress: false — QUEUE deploys, never cancel a running one. Cancelling a deploy
+    # mid-flight can leave the box half-updated; a queued deploy only waits. Mirrors
+    # `staging-cd.yml`, the other deploy workflow in this repo.
+    #
+    # CAVEAT FOR THE OWNER (weigh this on review): `environment: production` carries required
+    # reviewers, and a run parked in approval HOLDS this concurrency slot the entire time it
+    # waits (measured up to ~29m). Because the deploys already serialise behind a human gate, a
+    # job-level queue can ACCUMULATE approval-pending deploys rather than smooth them out. This is
+    # the issue's stated safe shape and is implemented as recommended, but the interaction with
+    # the approval gate is real and is called out in the PR body.
+    concurrency:
+      group: deploy-lightsail-main
+      cancel-in-progress: false
     steps:
       # ---- M2: EVERY IMAGE THIS RUN BUILDS MUST HAVE SOMEWHERE TO GO ----
       #
