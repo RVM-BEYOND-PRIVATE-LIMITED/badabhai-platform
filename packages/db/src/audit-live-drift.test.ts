@@ -1,6 +1,18 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
-import { declaredTables, drift, isClean, isNotOurs, type DeclaredTable, type LiveTable } from "./audit-live-drift";
+import {
+  declaredRoutines,
+  declaredTables,
+  drift,
+  isClean,
+  isNotOurs,
+  type DeclaredTable,
+  type LiveTable,
+} from "./audit-live-drift";
 
 const t = (table: string, ...columns: string[]): LiveTable & DeclaredTable => ({ table, columns });
 
@@ -67,5 +79,44 @@ describe("declaredTables — reads the real Drizzle schema", () => {
     for (const t of ["agency_profiles", "employer_profiles", "payer_capabilities", "payer_member_invites"]) {
       expect(names.has(t)).toBe(false);
     }
+  });
+});
+
+describe("declaredRoutines — the migration text is the only declaration there is", () => {
+  const dir = join(__dirname, "..", "migrations");
+
+  it("reads CREATE TRIGGER and CREATE [OR REPLACE] FUNCTION out of the real migrations", () => {
+    // As of 2026-08-20 both sets are EMPTY, and that is the finding rather than a parser bug:
+    // 83 migration files create no trigger and no function, while production runs two triggers,
+    // three non-extension functions and an `ensure_rls` event trigger that changes what a
+    // CREATE TABLE means. The assertion is deliberately not `toEqual(new Set())` — it must keep
+    // passing on the day someone declares one.
+    const r = declaredRoutines(dir);
+    expect(r.triggers).toBeInstanceOf(Set);
+    expect(r.functions).toBeInstanceOf(Set);
+  });
+
+  it("parses each form, including quoted and schema-qualified names", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "live-drift-"));
+    writeFileSync(
+      join(tmp, "0001_x.sql"),
+      [
+        `CREATE FUNCTION public._log_delete() RETURNS trigger AS $$ BEGIN END $$ LANGUAGE plpgsql;`,
+        `CREATE OR REPLACE FUNCTION "rls_auto_enable"() RETURNS event_trigger AS $$ BEGIN END $$ LANGUAGE plpgsql;`,
+        `CREATE TRIGGER _t_log_del_workers AFTER DELETE ON workers FOR EACH ROW EXECUTE FUNCTION _log_delete();`,
+        `CREATE CONSTRAINT TRIGGER "deferred_check" AFTER INSERT ON t DEFERRABLE FOR EACH ROW EXECUTE FUNCTION f();`,
+      ].join("\n"),
+      "utf8",
+    );
+
+    const r = declaredRoutines(tmp);
+    expect([...r.functions].sort()).toEqual(["_log_delete", "rls_auto_enable"]);
+    expect([...r.triggers].sort()).toEqual(["_t_log_del_workers", "deferred_check"]);
+  });
+
+  it("ignores non-.sql files, so a stray note cannot declare a trigger", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "live-drift-"));
+    writeFileSync(join(tmp, "README.md"), "CREATE TRIGGER not_real ON t ...", "utf8");
+    expect(declaredRoutines(tmp).triggers.size).toBe(0);
   });
 });
