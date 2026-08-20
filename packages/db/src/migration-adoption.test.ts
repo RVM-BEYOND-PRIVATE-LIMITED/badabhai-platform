@@ -25,9 +25,11 @@ import {
   verifyAgainst,
   EFFECT_VERIFIERS,
   effectVerifierFor,
+  UNDECLARED_DEFINER_FUNCTIONS,
   type Expect,
   type LiveCatalog,
 } from "./migration-adoption";
+import { declaredRoutines } from "./audit-live-drift";
 import { DATA_API_ROLES, R39_TABLES } from "./schema-contract";
 
 const MIGRATIONS = join(__dirname, "..", "migrations");
@@ -42,6 +44,7 @@ const emptyCatalog: LiveCatalog = {
   rlsEnabled: new Set(),
   rlsForced: new Set(),
   grants: new Set(),
+  functionGrants: new Set(),
 };
 
 /** A catalog that satisfies everything a migration declares — optionally minus/plus some grants. */
@@ -54,6 +57,7 @@ function catalogSatisfying(e: Expect, grants: string[] = []): LiveCatalog {
     rlsEnabled: new Set([...e.rlsEnabled, ...e.rlsForced]),
     rlsForced: new Set(e.rlsForced),
     grants: new Set(grants),
+    functionGrants: new Set(),
   };
 }
 
@@ -311,6 +315,7 @@ describe("effect verifiers — the one narrow way past the dynamic-SQL refusal",
       rlsEnabled: new Set(R39_TABLES.map((t) => t.table)),
       rlsForced: new Set(R39_TABLES.map((t) => t.table)),
       grants: new Set(),
+      functionGrants: new Set(),
     };
   }
 
@@ -331,9 +336,13 @@ describe("effect verifiers — the one narrow way past the dynamic-SQL refusal",
     // 0084 joined it because its `auth.users` foreign key is `to_regclass`-guarded — that
     // schema exists on Supabase and nowhere else — while everything else in the file is plain
     // text the static parse still checks in full.
+    //
+    // 0085 joined it because EVERY one of its REVOKEs is inside `format()`, behind a
+    // `to_regprocedure` guard, behind a loop — the file states not one of them in plain text.
     expect(EFFECT_VERIFIERS.map((v) => v.tag)).toEqual([
       TAG,
       "0084_model_gap_db_21_payer_onboarding",
+      "0085_revoke_execute_undeclared_routines",
     ]);
     for (const v of EFFECT_VERIFIERS) {
       expect(v.assertions).toBeGreaterThan(0);
@@ -387,5 +396,109 @@ describe("effect verifiers — the one narrow way past the dynamic-SQL refusal",
       forced.delete(t);
       expect(adoptionProblems(read(TAG), { ...live, rlsForced: forced }, TAG).join(" ")).toContain(t);
     }
+  });
+});
+
+describe("0085 — the REVOKE nobody can read off the file", () => {
+  const TAG_85 = "0085_revoke_execute_undeclared_routines";
+
+  /** A catalog in which the three functions exist and NOBODY but the owner may execute them. */
+  function revoked(): LiveCatalog {
+    return { ...emptyCatalog, functionGrants: new Set(["_log_delete:postgres"]) };
+  }
+
+  it("the static parse reads NOTHING out of it — which is why the verifier exists", () => {
+    const e = parseMigration(read(TAG_85));
+    expect([...e.tables]).toEqual([]);
+    expect([...e.revoked]).toEqual([]);
+    expect(e.columns.size).toBe(0);
+  });
+
+  it("asserts a non-zero, exactly-stated number of facts", () => {
+    const v = effectVerifierFor(TAG_85);
+    expect(v).toBeDefined();
+    expect(v!.assertions).toBe(UNDECLARED_DEFINER_FUNCTIONS.length * DATA_API_ROLES.length);
+    expect(v!.assertions).toBeGreaterThan(0);
+  });
+
+  it("PASSES on a database where the three functions carry no Data-API EXECUTE", () => {
+    expect(adoptionProblems(read(TAG_85), revoked(), TAG_85)).toEqual([]);
+  });
+
+  it("PASSES on a fresh database that has none of the three — absence is a pass HERE, and only here", () => {
+    // The opposite of 0082/0084, and the reason it is argued in the verifier's own docblock:
+    // 0085 creates nothing. It constrains three functions that NO migration declares, so a
+    // database built from this repository correctly does not have them and there is no
+    // privilege left to take. Requiring their presence would make 0085 unadoptable on exactly
+    // the databases where it correctly did nothing.
+    expect(adoptionProblems(read(TAG_85), emptyCatalog, TAG_85)).toEqual([]);
+  });
+
+  it("REFUSES when a single Data-API role still holds EXECUTE on a single function", () => {
+    for (const fn of UNDECLARED_DEFINER_FUNCTIONS) {
+      for (const role of DATA_API_ROLES) {
+        const live = revoked();
+        const functionGrants = new Set(live.functionGrants);
+        functionGrants.add(`${fn}:${role.toLowerCase()}`);
+        const problems = adoptionProblems(read(TAG_85), { ...live, functionGrants }, TAG_85);
+        expect(problems).toContain(`${fn}(): ${role} still holds EXECUTE — the REVOKE did not take`);
+      }
+    }
+  });
+
+  it("REFUSES the exact production state this migration was written against", () => {
+    // 2026-08-20: all three SECURITY DEFINER, all three =X/postgres + anon + authenticated +
+    // service_role. Twelve grants, twelve problems — the verifier must see every one.
+    const functionGrants = new Set(
+      UNDECLARED_DEFINER_FUNCTIONS.flatMap((fn) =>
+        DATA_API_ROLES.map((r) => `${fn}:${r.toLowerCase()}`),
+      ),
+    );
+    const problems = adoptionProblems(read(TAG_85), { ...emptyCatalog, functionGrants }, TAG_85);
+    expect(problems).toHaveLength(UNDECLARED_DEFINER_FUNCTIONS.length * DATA_API_ROLES.length);
+  });
+
+  it("catches PUBLIC, which is the grant the default privileges actually create", () => {
+    // `information_schema.routine_privileges` omits PUBLIC entirely. If the catalog reader used
+    // it, the broadest grant of the four would be invisible and this migration would adopt
+    // clean with PUBLIC still holding EXECUTE.
+    const functionGrants = new Set(["_log_delete:public"]);
+    expect(adoptionProblems(read(TAG_85), { ...emptyCatalog, functionGrants }, TAG_85)).toContain(
+      "_log_delete(): PUBLIC still holds EXECUTE — the REVOKE did not take",
+    );
+  });
+
+  it("does NOT make the three functions look declared to the drift audit", () => {
+    // THE TRAP THIS TEST EXISTS FOR. `declaredRoutines` scans every migration for CREATE
+    // FUNCTION / CREATE TRIGGER. 0085 names all three functions in plain text — if it ever
+    // named them in a CREATE, `db:audit:live-drift` would stop reporting them as undeclared
+    // and #1110's open ownership question would silently go green without anyone deciding it.
+    const declared = declaredRoutines(MIGRATIONS);
+    for (const fn of UNDECLARED_DEFINER_FUNCTIONS) expect(declared.functions.has(fn)).toBe(false);
+    for (const t of ["_t_log_del_workers", "_t_log_del_worker_profiles"]) {
+      expect(declared.triggers.has(t)).toBe(false);
+    }
+  });
+
+  it("guards every REVOKE, so a database without the functions or the roles does not abort", () => {
+    const sql = read(TAG_85);
+    const body = sql.replace(/^\s*--.*$/gm, "");
+    expect(body).toContain("to_regprocedure(target) IS NULL");
+    expect(body).toContain("FROM pg_roles WHERE rolname = role_name");
+    // No unguarded REVOKE outside the DO block — the guard is the whole safety argument.
+    expect(/^\s*REVOKE/im.test(body)).toBe(false);
+  });
+
+  it("is stamped ABOVE the newest journal entry before it — the silent-skip trap", () => {
+    // drizzle-kit migrate branches on a HIGH-WATER MARK, not set membership: an entry stamped
+    // at or below the newest recorded `created_at` is skipped silently and permanently.
+    // drizzle-kit's own stamp has been below it twice in a row on this repository.
+    const journal = JSON.parse(readFileSync(join(MIGRATIONS, "meta", "_journal.json"), "utf8")) as {
+      entries: { when: number; tag: string }[];
+    };
+    const mine = journal.entries.find((e) => e.tag === TAG_85);
+    expect(mine).toBeDefined();
+    const others = journal.entries.filter((e) => e.tag !== TAG_85).map((e) => e.when);
+    expect(mine!.when).toBeGreaterThan(Math.max(...others));
   });
 });
