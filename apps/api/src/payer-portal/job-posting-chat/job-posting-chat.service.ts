@@ -19,6 +19,7 @@ import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
 import { AiService } from "../../ai/ai.service";
 import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
+import { AiTraceRecorder } from "../../ai/ai-trace-recorder.service";
 import { PiiCryptoService } from "../../common/pii-crypto.service";
 import { PayersRepository } from "../../payers/payers.repository";
 import { JobPostingsService } from "../../job-postings/job-postings.service";
@@ -89,6 +90,9 @@ export class JobPostingChatService {
     private readonly events: EventsService,
     private readonly ai: AiService,
     private readonly aiCost: AiCostRecorder,
+    // 0083 — wired at the same call site as `aiCost` below, where every trace is DROPPED by
+    // design: a payer composing a posting has no worker to attribute it to.
+    private readonly aiTraces: AiTraceRecorder,
     private readonly payers: PayersRepository,
     private readonly pii: PiiCryptoService,
     private readonly jobPostings: JobPostingsService,
@@ -268,6 +272,27 @@ export class JobPostingChatService {
       null,
       ctx.correlationId,
       ctx.requestId,
+    );
+
+    // AND THE TRACE (0083) — DROPPED HERE, BY DESIGN, LIKE THE SKILL-EMBEDDING FAN-OUT.
+    //
+    // Passing no attribution means `AiTraceRecorder` refuses the row and counts it, because
+    // `ai_call_traces.worker_id` is NOT NULL and that cascade IS the DSAR erasure design. The
+    // reasoning the cost record above gives for having no worker and no session applies verbatim
+    // and is, if anything, stronger here: `session.id` is a `payer_job_posting_chat_sessions`
+    // row, a DIFFERENT table in a different id space from `chat_sessions`, so passing it would
+    // violate the `ai_call_traces.session_id` FK exactly as it would the cost totals' — and the
+    // payer typing a job description is not a worker whose erasure could ever reach this row.
+    //
+    // WIRED AHEAD OF THE SPEND, for the same reason the cost record is: this route makes zero
+    // LLM calls today, and whoever arms the documented rephrase seam is editing Python, not this
+    // file. When that lands, this line is already correct — and it will still drop, which is the
+    // honest outcome for an employer's composer turn.
+    await this.aiTraces.capture(
+      aiResult.ai_metadata ?? null,
+      "job_posting_chat_turn",
+      null,
+      ctx.correlationId,
     );
 
     // 4. Store the engine's reply + put it on the spine.

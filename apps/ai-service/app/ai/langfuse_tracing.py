@@ -216,6 +216,50 @@ def _mask(*, data: Any, **_kwargs: Any) -> Any:
         return REDACTED
 
 
+def masked_trace_text(value: Any) -> str:
+    """One traced value — a messages list or an output string — as the masked TEXT.
+
+    THE REASON THIS IS HERE, in the tracing module, and not next to its only caller:
+    the ``ai_call_traces`` store and Langfuse must never be able to disagree about what
+    was sent. They are two independent sinks for the same two values, and the failure
+    mode of two renderings is silent — the store says one thing, the trace says another,
+    and the person reading them has no way to tell which is the call that happened. So
+    both go through :func:`_mask`, the SAME hook the SDK is handed, from the same module
+    that owns the privacy contract. Change the mask and BOTH sinks move together.
+
+    MASKING IS NOT BELT-AND-BRACES ON THIS PATH, whatever the module docstring says about
+    callers passing already-pseudonymized text. It is load-bearing for the RESPONSE:
+    ``mock_response`` is what the router returns on the mock posture and on every
+    real-call failure, and for ``/profile/extract`` that payload is derived from the
+    worker's RAW text (``routers/profile.py`` says so in as many words). Persisting it
+    unmasked would put raw worker text at rest.
+
+    Flattening a messages list to ``"\\n".join(contents)`` matches how the ledger already
+    measures the same prompt (``router._dispatch``'s ``input_text``), so ``prompt_chars``
+    and the token estimate describe the same string. Each message is masked
+    INDIVIDUALLY first — that is what the SDK's hook does when it recurses into the list,
+    so the stored text is per-message identical to the exported one.
+
+    Total by construction: every path returns a ``str``, and a shape this function does
+    not recognise yields ``""`` rather than a repr of an object nobody vetted.
+    """
+    masked = _mask(data=value)
+    if isinstance(masked, str):
+        return masked
+    if isinstance(masked, Sequence):
+        parts: list[str] = []
+        for item in masked:
+            if isinstance(item, Mapping):
+                content = item.get("content")
+                parts.append(content if isinstance(content, str) else "")
+            elif isinstance(item, str):
+                parts.append(item)
+            else:
+                parts.append("")
+        return "\n".join(parts)
+    return ""
+
+
 class Observation:
     """A traced step. Wraps a Langfuse span/generation, or NOTHING when tracing is
     disabled — callers write the same code either way and never branch on ``enabled``.

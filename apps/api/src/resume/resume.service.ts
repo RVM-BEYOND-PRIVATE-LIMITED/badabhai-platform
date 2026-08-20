@@ -18,6 +18,7 @@ import { WorkersRepository } from "../workers/workers.repository";
 import { ProfilesRepository } from "../profiles/profiles.repository";
 import { AiService } from "../ai/ai.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
+import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { StorageService } from "../storage/storage.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
@@ -36,6 +37,8 @@ export class ResumeService {
     private readonly events: EventsService,
     private readonly ai: AiService,
     private readonly aiCost: AiCostRecorder,
+    // 0083 — the prompt/completion sibling of `aiCost`. See the call site in `generate`.
+    private readonly aiTraces: AiTraceRecorder,
     private readonly pii: PiiCryptoService,
     private readonly rateLimit: ResumeRateLimit,
     private readonly storage: StorageService,
@@ -105,6 +108,28 @@ export class ResumeService {
       null,
       ctx.correlationId,
       ctx.requestId,
+      { workerId: dto.worker_id },
+    );
+
+    // AND THE TRACE (0083). "The résumé came out wrong" is unanswerable without the structured
+    // profile that went in and the copy that came back, and neither has ever been stored: the
+    // generated PDF is the artefact, not the model's output.
+    //
+    // NO SESSION, for exactly the reason the cost record above gives: a résumé is generated from
+    // a CONFIRMED PROFILE, possibly days and several interviews later, so naming one interview
+    // would be a guess dressed as a fact. The worker id is the same ownership-checked one the
+    // write uses.
+    //
+    // ⚠ THE PROMPT HERE CARRIES NO NAME, ON TWO INDEPENDENT COUNTS. TD21 injects the worker's
+    // real name AFTER this call (see below), precisely so it never reaches the LLM — so the
+    // ai-service only ever rendered a name-free payload — and the text this row stores is the
+    // ai-service's own masked copy of that prompt, not anything assembled on this side. Both
+    // properties are load-bearing; the TD21 ordering must not be moved.
+    await this.aiTraces.capture(
+      result.ai_metadata ?? null,
+      "resume_generation",
+      null,
+      ctx.correlationId,
       { workerId: dto.worker_id },
     );
 

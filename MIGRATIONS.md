@@ -26,7 +26,7 @@ This has already cost the project real work:
 ## Reserved blocks
 
 Numbers are reserved **up front**, per developer, per workstream. Current head:
-**`0081_worker_feedback_screen_context`** (journal has 82 entries, `idx` 0–81).
+**`0083_ai_call_traces`** (journal has 84 entries, `idx` 0–83).
 
 | Block         | Owner     | Workstream                                                    |
 | ------------- | --------- | ------------------------------------------------------------- |
@@ -45,7 +45,8 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 | `0080`        | Divyanshu | **APPLIED IN PRODUCTION** — worker app feedback table (#997, `ac3db91c`). Verified object-by-object 2026-08-19: 6 columns, 3 CHECKs, the FK, 3 indexes, RLS enabled + FORCED, all four REVOKEs, and two real rows written through the live path |
 | `0081`        | Prakash   | **APPLIED IN PRODUCTION** — `worker_feedback.screen_context` (#1036). Recorded in `drizzle.__drizzle_migrations` (`created_at=1787141865609`) and verified by `db:audit:schema-contract`. Note this migration is the ONLY one of `0076`–`0081` that is journal-recorded — see the drift note below |
 | `0082`        | Prakash   | **APPLIED IN PRODUCTION 2026-08-20, AND NOW RECORDED** — R39: re-lock the seven public tables `db:audit:rls` reported open. Permissions only; no table, column, index or constraint moves. Minted as `0081` and renumbered after `#1036` took that slot. Rehearsed first (`db:verify:rls-lock`, 22/22 PASS), then applied **by hand rather than through `db:migrate`**, so its objects are live and `drizzle.__drizzle_migrations` has no row for it. Verified after the fact: `db:audit:rls` = **77/77 locked, 0 deviating**; `db:audit:schema-contract` = **READY**. Recorded by adoption on 2026-08-20 — not by `db:migrate`, which can no longer reach it; see the drift note below |
-| `0083`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own |
+| `0083`        | Prakash   | **APPLIED IN PRODUCTION 2026-08-20, RECORDED, AND NOW MERGED** — `ai_call_traces`: the prompt + completion of every AI call, AES-256-GCM at rest behind a shape CHECK that refuses prose, `worker_id NOT NULL ON DELETE cascade` (the DSAR erasure IS the cascade), RLS + FORCE + four REVOKEs. Additive: one new table, nothing existing moves. Applied by hand with `created_at = 1787230000000` hand-pinned ABOVE `0082`'s `1787220000000` — deliberately, because `db:generate` stamped it at `1787213473538`, i.e. BELOW, and it would otherwise have been skipped silently and forever. **This is the "orphan row" the section below describes; merging this PR is what resolves it.** |
+| `0084`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own |
 
 ### The journal is five files behind, and what that actually costs — corrected 2026-08-20
 
@@ -69,16 +70,16 @@ models agreed on 2026-08-19 only by coincidence — the watermark sat at `0075`,
 and "above the watermark" named the same five files. They came apart when `0081` was applied out
 of band on 2026-08-20 and moved the watermark to `1787141865609`.
 
-**RESOLVED 2026-08-20. The journal now matches the database: `--doctor` reads 83/83, and
+**RESOLVED 2026-08-20. The journal now matches the database: `--doctor` reads 84/84, and
 `db:migrate` will attempt no DDL.** What follows is how it got there, because the route changed
 twice in one day and the second change is the one worth remembering.
 
 | | |
 |---|---|
-| journal entries | 83 |
-| recorded, matching a journal entry | **83** |
+| journal entries | 84 (`0000`–`0083`) |
+| recorded, matching a journal entry | **84** |
 | unrecorded | **0** |
-| recorded rows matching NO journal entry (orphans) | **1** — see below |
+| recorded rows matching NO journal entry (orphans) | **0** — the one below closes with this merge |
 
 **The plan that stopped working.** `0082` was applied by hand, so it was live and unrecorded but
 *above* the watermark — which meant `db:migrate` would replay it (a measured no-op) and write the
@@ -106,12 +107,21 @@ adoption refuses. The property the runbook needs — *cannot record a migration 
 absent* — is preserved exactly, and now covers the four GAP-DB-21 tables the parse could never
 see.
 
-**The orphan row stays, and it is not ours to remove.** `created_at=1787230000000`,
-hash `b70e16df…`, matching no migration file in this checkout and no open PR. Production carries
-a table this repository does not model as a result — `db:audit:live-drift` reports **78 live
-public tables against 72 declared**. It is locked (`db:audit:rls`: 78/78, 0 deviating), so there
-is no exposure; it is a reconciliation the migration's author owes. Both `--doctor` and the
-`[adopt]` header now name it rather than absorbing it into a subtraction.
+**The orphan row — RESOLVED BY THIS MERGE.** `created_at=1787230000000`, hash `b70e16df…`. When
+that paragraph was written it matched no migration file in this checkout and no open PR, and
+production carried a table this repository did not model: `db:audit:live-drift` read **78 live
+public tables against 72 declared**. It was locked throughout (`db:audit:rls`: 78/78, 0
+deviating), so there was never exposure — only an unreconciled record.
+
+It is `0083_ai_call_traces`, applied to production ahead of its own PR. The row is now backed by
+a file, the table by a Drizzle model, and the drift count closes. **The diagnosis was exactly
+right, and worth keeping:** an orphan row is what "applied out of band, from a checkout that has
+not reached `main`" looks like from the database's side, and naming it beat absorbing it into a
+subtraction. The lesson is the ordering, not the tooling — a migration applied before its PR
+merges is an orphan for as long as the PR takes, and during that window every drift audit reports
+a discrepancy that is real but not actionable. Apply-before-merge remains correct for a table
+whose absence breaks a deploy; it just needs the open PR named in this file at the time, so the
+next person reading a drift report can tell "in flight" from "nobody knows what this is".
 
 **What to run, and when.** The journal is clean, so there is nothing owed today. Keep these for
 the next time it is not:
@@ -119,7 +129,7 @@ the next time it is not:
 ```bash
 # STATE OF PLAY — run these three before believing anything about the journal.
 cd packages/db
-npx tsx adopt-migrations.ts --doctor                   # 83/83 today; names orphan rows
+npx tsx adopt-migrations.ts --doctor                   # 84/84 today; names orphan rows
 npx tsx reconcile-migrations.ts                        # per file: RECORDED / LIVE / ABSENT / PARTIAL
 pnpm --filter @badabhai/db db:audit:live-drift         # live schema vs the Drizzle schema, both ways
 
@@ -135,7 +145,7 @@ cd packages/db
 npx tsx reconcile-migrations.ts                        # per file: RECORDED / LIVE / ABSENT / PARTIAL
 npx tsx adopt-migrations.ts --only 0076_canonical_domain_skill_taxonomy,0077_ai_cost_running_totals,0078_unresolved_phrase_job_domain_id,0079_journey_read_indexes,0080_worker_feedback
 npx tsx adopt-migrations.ts --only 0076_canonical_domain_skill_taxonomy,0077_ai_cost_running_totals,0078_unresolved_phrase_job_domain_id,0079_journey_read_indexes,0080_worker_feedback --apply --expect-host aws-1-ap-south-1.pooler.supabase.com
-npx tsx adopt-migrations.ts --doctor                   # expect 83/83 match, 0 orphan rows
+npx tsx adopt-migrations.ts --doctor                   # expect 84/84 match, 0 orphan rows
 ```
 
 **The `--only` list is spelled out twice on purpose, and it is not padding.** Adoption is
@@ -286,7 +296,7 @@ including the `events` write-lock caveat, is in the migration's own header.
 One new table, `worker_feedback`: the worker taps the app-wide Feedback button (#997), types free
 text, optionally tags it, and it lands here for ops to read in the admin portal.
 
-**Renumbered `0079` → `0080` mid-review**, after `#992` took `0079` while this branch was in flight — the third time the OIE block has been overtaken, and the second collision this file has recorded in one day. REGENERATED, NOT RENAMED (the `0071` rule): the snapshot was deleted and `db:generate` re-run against a tree that already contained `0079_journey_read_indexes`, so `0080_snapshot.json.prevId == 0079_snapshot.json.id` and a second `db:generate` emits nothing. The pre-renumber file was never applied to any database, so nothing needed its `when` pinned. **OIE moves to `0081`.** *(Superseded twice. 2026-08-19: `0081` went to `worker_feedback.screen_context`, the #997 follow-up. 2026-08-20: `0082` went to the R39 lock, itself renumbered out of `0081` after `#1036` took that slot AND applied it to production mid-flight. **OIE's block is `0083`+ — and the reserved-block table above is the authority, not this line.** Left here rather than rewritten, because this paragraph is the record of what was decided at the time; a stale forward-pointer in a slot register is exactly what the fourth collision was made of.)*
+**Renumbered `0079` → `0080` mid-review**, after `#992` took `0079` while this branch was in flight — the third time the OIE block has been overtaken, and the second collision this file has recorded in one day. REGENERATED, NOT RENAMED (the `0071` rule): the snapshot was deleted and `db:generate` re-run against a tree that already contained `0079_journey_read_indexes`, so `0080_snapshot.json.prevId == 0079_snapshot.json.id` and a second `db:generate` emits nothing. The pre-renumber file was never applied to any database, so nothing needed its `when` pinned. **OIE moves to `0081`.** *(Superseded twice. 2026-08-19: `0081` went to `worker_feedback.screen_context`, the #997 follow-up. 2026-08-20: `0082` went to the R39 lock, itself renumbered out of `0081` after `#1036` took that slot AND applied it to production mid-flight. **OIE's block is `0084`+ — and the reserved-block table above is the authority, not this line.** Left here rather than rewritten, because this paragraph is the record of what was decided at the time; a stale forward-pointer in a slot register is exactly what the fourth collision was made of.)*
 
 **APPLY BEFORE DEPLOY**, and unlike `0077` there is no savepoint softening it.
 `FeedbackRepository.insert` names `worker_feedback` unconditionally on the request path of

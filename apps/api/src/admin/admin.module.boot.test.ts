@@ -13,6 +13,7 @@ import { AdminActionsController } from "./admin-actions.controller";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminDashboardController } from "./admin-dashboard.controller";
 import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
+import { AdminAiTracesController } from "./admin-ai-traces.controller";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
 
@@ -108,6 +109,32 @@ describe("AdminModule wiring (DI regression guard)", () => {
     const tokens = providerTokens();
     expect(tokens).toContain("AdminWorkerJourneyService");
     expect(tokens).toContain("AdminWorkerJourneyRepository");
+  });
+
+  it("declares the 0083 ai-trace controller + provides its service/repository/cap", () => {
+    // One new module edge is all it takes to make the app fail to BOOT while typecheck, lint,
+    // build and every unit suite stay green — a controller declared with a provider missing
+    // resolves to null at container build, not at compile. `AdminAiTracesService` takes FOUR
+    // injected dependencies, and only two of them are `@Global`: `AdminAiTracesRepository` and
+    // `AdminAiTraceCapService` must be registered HERE or the route 500s on first request.
+    expect(getMeta("controllers", AdminModule)).toContain(AdminAiTracesController);
+    const tokens = providerTokens();
+    expect(tokens).toContain("AdminAiTracesService");
+    expect(tokens).toContain("AdminAiTracesRepository");
+    expect(tokens).toContain("AdminAiTraceCapService");
+  });
+
+  it("the cap service can reach the Redis queue it is constructed with", () => {
+    // `AdminAiTraceCapService` takes `@InjectQueue(RESUME_RENDER_QUEUE)`, exactly like the reveal
+    // and identity caps. That token exists only because this module registers the queue — a
+    // failure invisible to typecheck (the decorator's argument is a string) and to every unit
+    // test (they construct the class directly). Asserted as METADATA rather than by booting,
+    // like every sibling in this file.
+    const imports = getMeta("imports", AdminModule);
+    const queueModules = imports.filter(
+      (i) => (i as { module?: { name?: string } })?.module?.name === "BullModule",
+    );
+    expect(queueModules.length, "AdminModule must register the BullMQ queue").toBeGreaterThan(0);
   });
 
   it("the providers reference the real classes (no accidental shadowing)", () => {

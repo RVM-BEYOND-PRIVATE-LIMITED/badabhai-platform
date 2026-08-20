@@ -176,9 +176,16 @@ export class AdminEntitiesService {
     admin: AuthenticatedAdmin,
     id: string,
     ctx: RequestContext,
+    opts: { faceless?: boolean } = {},
   ): Promise<AdminPayerDetail> {
     const payer = await this.repo.findPayer(id);
     if (!payer) throw new NotFoundException("Payer not found");
+    // The caller said it does not want the name (the timeline page — see the DTO). Return
+    // BEFORE `resolve`, so nothing is charged and nothing is audited: an identity read that
+    // discloses no identity should leave no trace of having happened, exactly as the 404 above
+    // does. Returning after resolve with the name stripped would be the same response and a
+    // false audit row.
+    if (opts.faceless) return payer;
     const names = await this.identity.resolve(admin, "payers", [id], id, ctx);
     if (!names) return payer;
     return { ...payer, org_name: names.get(id) ?? null };

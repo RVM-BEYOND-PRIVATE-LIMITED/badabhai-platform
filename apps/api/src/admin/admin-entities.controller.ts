@@ -8,6 +8,8 @@ import {
   AdminApplicationsQuerySchema,
   AdminCreditLedgerQuerySchema,
   AdminEntityParamsSchema,
+  AdminPayerDetailQuerySchema,
+  type AdminPayerDetailQueryDto,
   AdminJobPostingsQuerySchema,
   AdminPayersQuerySchema,
   AdminWorkersQuerySchema,
@@ -108,9 +110,10 @@ export class AdminEntitiesController {
   getPayer(
     @CurrentAdmin() admin: AuthenticatedAdmin,
     @Param(new ZodValidationPipe(AdminEntityParamsSchema)) params: AdminEntityParamsDto,
+    @Query(new ZodValidationPipe(AdminPayerDetailQuerySchema)) query: AdminPayerDetailQueryDto,
     @Ctx() ctx: RequestContext,
   ) {
-    return this.service.getPayer(admin, params.id, ctx);
+    return this.service.getPayer(admin, params.id, ctx, { faceless: query.faceless === "1" });
   }
 
   /**

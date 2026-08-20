@@ -113,6 +113,7 @@ import {
 } from "./ops";
 import { platformAiCostTotals, sessionAiCostTotals, workerAiCostTotals } from "./ai-cost";
 import { workerFeedback } from "./feedback";
+import { aiCallTraces } from "./ai-trace";
 
 export * from "./worker";
 export * from "./skill";
@@ -130,6 +131,7 @@ export * from "./referral";
 export * from "./ops";
 export * from "./ai-cost";
 export * from "./feedback";
+export * from "./ai-trace";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -266,6 +268,8 @@ export type PlatformAiCostTotal = typeof platformAiCostTotals.$inferSelect;
 export type NewPlatformAiCostTotal = typeof platformAiCostTotals.$inferInsert;
 export type WorkerFeedback = typeof workerFeedback.$inferSelect;
 export type NewWorkerFeedback = typeof workerFeedback.$inferInsert;
+export type AiCallTrace = typeof aiCallTraces.$inferSelect;
+export type NewAiCallTrace = typeof aiCallTraces.$inferInsert;
 
 /** All tables, handy for migrations/tests. */
 export const schema = {
@@ -341,4 +345,5 @@ export const schema = {
   sessionAiCostTotals,
   platformAiCostTotals,
   workerFeedback,
+  aiCallTraces,
 };

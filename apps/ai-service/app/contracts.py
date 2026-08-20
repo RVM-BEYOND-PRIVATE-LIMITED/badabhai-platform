@@ -56,7 +56,49 @@ class AICallMetadata(BaseModel):
     attempt_count: int = 0
     candidates_tried: list[str] = Field(default_factory=list)
     failure_reason: str | None = None
+    # --- THE AI-TRACE TEXT (additive, defaulted -> back-compat; GATED) ---------
+    # The FINAL prompt and the FINAL response of this call, for the backend's
+    # `ai_call_traces` store — the one place on the platform allowed to hold this text,
+    # encrypted at rest behind a super-admin-only read.
+    #
+    # WHY THEY LIVE ON *THIS* MODEL AND NOT A NEW ONE. Every existing consumer already
+    # receives `ai_metadata` from every LLM surface, and every surface already agrees on
+    # its shape. A parallel channel would need six new plumbings and would be free to
+    # disagree with the cost record about which call it describes; here `ai_call_id` ties
+    # the text to the spend row by construction.
+    #
+    # MVP SCOPE LIMIT, stated so nobody reads more into a stored row than is there: this
+    # is the FINAL pair only — the messages the router was handed, and the string the
+    # caller actually got back. A dispatch that failed on Gemini twice and succeeded on
+    # the Haiku fallback stores ONE prompt and ONE response, not three attempts. The
+    # per-attempt detail already exists in Langfuse (one generation per attempt) and in
+    # `attempt_count` / `candidates_tried` beside these fields; duplicating it into a
+    # persisted store would multiply the most sensitive payload on the platform by the
+    # retry count to answer a question the trace layer already answers.
+    #
+    # NULL IS THE DEFAULT AND THE NORMAL CASE. They are populated only when
+    # AI_CALL_TRACE_TEXT_ENABLED is on (default OFF, see `Settings`), and the values are
+    # always run back through the pseudonymization gate first — see
+    # `AIRouter._record_trace_text`, which is the only writer.
+    prompt_text: str | None = None
+    response_text: str | None = None
     created_at: str
+
+
+#: The two ``AICallMetadata`` fields that carry TEXT rather than a count or a code.
+#:
+#: LIVES HERE, BESIDE THE MODEL, because more than one module has to hold them back and a
+#: second copy is a second thing to forget: ``ai/router.py`` excludes them from the Langfuse
+#: task-span metadata blob (they are already the span's native ``input``/``output``, which is
+#: what the privacy mask rewrites), and ``ai/cost_tracker.py`` excludes them from the
+#: ``ai_call`` structured log line, whose own comment promises "No PII here".
+#:
+#: THE LOG EXCLUSION IS NOT COSMETIC. ``build_call_metadata`` happens to run BEFORE
+#: ``_record_trace_text`` populates these, so the line emits ``null`` for both today — which is
+#: exactly the kind of safety that is one reordering, or one future ``logger.*(… meta …)``,
+#: away from putting a whole worker prompt into structured logs. That is §2 sink #2, on the most
+#: sensitive text on the platform, and an ordering accident is not a control.
+TRACE_TEXT_FIELDS = frozenset({"prompt_text", "response_text"})
 
 
 # --- Pseudonymization summary (label-only; safe to return/trace) ------------

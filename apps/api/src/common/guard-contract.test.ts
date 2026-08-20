@@ -44,6 +44,7 @@ import { AdminAuthController } from "../admin/admin-auth.controller";
 import { AdminEventsController } from "../admin/admin-events.controller";
 import { AdminActionsController } from "../admin/admin-actions.controller";
 import { AdminPiiRevealController } from "../admin/admin-pii-reveal.controller";
+import { AdminAiTracesController } from "../admin/admin-ai-traces.controller";
 import { NotificationsController } from "../notifications/notifications.controller";
 import { NotificationPrefsController } from "../notifications/notification-prefs.controller";
 import { SkillsController } from "../skills/skills.controller";
@@ -120,6 +121,7 @@ const SI = "SkillsInternalGuard";
 const TL = "TestLoginGuard";
 const PTL = "PayerTestLoginGuard";
 const PE = "AgencyPayoutsEnabledGuard";
+const ATF = "AdminAiTraceFlagGuard";
 /**
  * ⚠ NOT AN AUTH GUARD. `OptionalWorkerAuthGuard` attaches `req.worker` when a valid session
  * token happens to ride along and ALWAYS returns true — its `canActivate` has one return
@@ -492,6 +494,17 @@ const CONTRACT: ControllerContract[] = [
     name: "AdminPiiReveal",
     ctor: AdminPiiRevealController,
     routes: { revealContact: [A, AR] },
+  },
+  // 0083 — the AI-call-trace read. THREE guards, and the ORDER of the middle one is the
+  // control rather than its presence: `AdminAiTraceFlagGuard` is declared BEFORE
+  // `AdminRolesGuard`, so with ADMIN_AI_TRACE_READ_ENABLED off every authenticated role gets
+  // the same neutral 404. When the flag check lived in the handler body instead, Nest ran the
+  // roles guard first and ops_admin/support/analyst each got a 403 — an oracle confirming the
+  // surface exists. Both routes are `read_ai_traces` (super_admin only) per the owner ruling.
+  {
+    name: "AdminAiTraces",
+    ctor: AdminAiTracesController,
+    routes: { list: [A, ATF, AR], readOne: [A, ATF, AR] },
   },
   // FORK-B-1 seam A (ADR-0030): the ai-service's ONLY api credential. SCOPED
   // SkillsInternalGuard (SKILLS_INTERNAL_TOKEN) by design — NOT InternalServiceGuard,

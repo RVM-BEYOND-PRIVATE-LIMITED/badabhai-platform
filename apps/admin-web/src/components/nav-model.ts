@@ -44,6 +44,21 @@ export const NAV: NavSection[] = [
       // `read_entities` mirrors the route's own guard exactly — the nav hides a door it
       // cannot open, it does not decide who may go through it.
       { href: "/feedback", label: "Feedback", capability: "read_entities" },
+      // Beside Feedback, and for the mirror reason: Feedback is what a worker chose to tell
+      // us, this is every AI call the platform made on their behalf. Both link back into the
+      // roster above, and both answer "what happened to this worker" from a different side.
+      //
+      // `read_ai_traces`, NOT `read_entities`, AND IT MIRRORS THE ROUTE. The API gates BOTH
+      // legs of `/admin/ai-traces` on `read_ai_traces` (super_admin only) behind a default-off
+      // flag, per the owner ruling — the list included, because walked end to end it is an index
+      // of which worker spoke, in which interview, when, and how much.
+      //
+      // This entry declared `read_entities` while the API gated the list the same way, and the
+      // two agreed. They must keep agreeing: the nav's job is to hide a door the session cannot
+      // open, so a nav entry looser than its route puts three of four roles one click from a
+      // 403, and a nav entry tighter than its route hides a screen they are entitled to. If the
+      // owner reopens the list to ops, this line moves back in the SAME change as the decorator.
+      { href: "/ai-calls", label: "AI calls", capability: "read_ai_traces" },
       { href: "/companies", label: "Companies", capability: "read_entities" },
       { href: "/agencies", label: "Agencies", capability: "read_entities" },
       { href: "/jobs", label: "Jobs", capability: "read_entities" },

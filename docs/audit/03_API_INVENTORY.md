@@ -59,7 +59,10 @@ Every admin-portal route beyond `/admin/login/*`, `/admin/mfa/verify`, `/admin/l
 `/admin/me`, `/admin/capabilities`, `/admin/kill-switch/status`, `/admin/events/metrics` and
 `/admin/feedback` (#997 lands the route and its portal page together) is fully built, guarded
 (`AdminAuthGuard` + `AdminRolesGuard` + capability check), and service/authz-tested, but has
-no confirmed `apps/admin-web` caller today. This matches the repo's documented
+no confirmed `apps/admin-web` caller today. (`AAG` = `AdminAuthGuard`, `ARG` = `AdminRolesGuard`
+in the Auth column below. `ATFG` = `AdminAiTraceFlagGuard`, migration 0083's default-OFF master
+switch, listed BEFORE `ARG` so a flag-off request answers a uniform neutral 404 for every role
+rather than a 403 that confirms the surface exists.) This matches the repo's documented
 "build-ahead-of-UI" pattern (ADMIN-4..8/OBS-4 are explicitly deferred in the
 routes' own docstrings) — it is not evidence of dead code, and Class F is deliberately kept
 distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
@@ -110,6 +113,8 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | GET | /admin/kill-switch/status | AAG+ARG | toggle_kill_switch | B | called by admin-web |
 | POST | /admin/kill-switch/pause-request | AAG+ARG | toggle_kill_switch | F | no pairing enable action found |
 | POST | /admin/workers/:id/reveal-contact | AAG+ARG | reveal_pii | F | **default-OFF flag `ADMIN_PII_REVEAL_ENABLED`, 404 while off** — R24's most sensitive route, 8 documented controls, see [15_SECURITY_AUDIT.md](15_SECURITY_AUDIT.md) |
+| GET | /admin/ai-traces | AAG+**ATFG**+ARG | read_ai_traces | F | 0083; called by admin-web `/ai-calls`. PII-FREE keyset page — task type, model, `real_call`, outcome, the closed-set error code, the two character LENGTHS, opaque ids. No ciphertext leaves the repository and nothing is decrypted, so no cap and no audit event. Filters: `taskType`, `success`, `workerId` (a uuid LOOKUP — there is no search over the text, here or anywhere). Page ceiling 50, half the entity ceiling: walked end to end this list is an index of which worker spoke, in which interview, when, and how much. **`super_admin` only, per the 2026-08-20 ruling** — the case for reopening it to `read_entities` for ops triage is argued in the controller header and is OPEN |
+| GET | /admin/ai-traces/:id | AAG+**ATFG**+ARG | read_ai_traces | F | 0083; the DECRYPT — one stored prompt + completion. **Default-OFF flag `ADMIN_AI_TRACE_READ_ENABLED`, neutral 404 while off for EVERY role** (`AdminAiTraceFlagGuard` is ordered ahead of `AdminRolesGuard`, so a lesser role cannot get a 403 that confirms the surface exists). Charges a per-admin cap on its own `admin_ai_trace:*` namespace (20/hour, 60/day, fail-closed) BEFORE the lookup, then emits `admin.ai_trace_viewed` AWAITED and fail-closed — no audit row, no text; the payload carries the two LENGTHS and never the text. `Cache-Control: no-store`. Single `:id` only: no export, no range, no batch decrypt, and there must never be one |
 | POST | /admin/payers/:id/{suspend,reinstate,credits}, /admin/job-postings/:id/close, /admin/workers/:id/{flag,unflag}, /admin/admins* | AAG+ARG | per-action capability | F | all built/guarded/tested, no confirmed FE caller |
 
 ### chat, profiling, profiles, voice, resume (worker AI path)

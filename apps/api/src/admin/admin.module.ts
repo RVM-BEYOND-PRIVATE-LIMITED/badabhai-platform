@@ -13,6 +13,7 @@ import { AdminOtpService } from "./admin-otp.service";
 import { AdminMfaSecretStore } from "./admin-mfa.store";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard } from "./admin-roles.guard";
+import { AdminAiTraceFlagGuard } from "./admin-ai-trace-flag.guard";
 import { AdminAuthService } from "./admin-auth.service";
 import { AdminAuthController } from "./admin-auth.controller";
 import { AdminEventsRepository } from "./admin-events.repository";
@@ -48,6 +49,10 @@ import { AdminWorkerJourneyController } from "./admin-worker-journey.controller"
 import { AdminFeedbackRepository } from "./admin-feedback.repository";
 import { AdminFeedbackService } from "./admin-feedback.service";
 import { AdminFeedbackController } from "./admin-feedback.controller";
+import { AdminAiTracesRepository } from "./admin-ai-traces.repository";
+import { AdminAiTraceCapService } from "./admin-ai-trace-cap.service";
+import { AdminAiTracesService } from "./admin-ai-traces.service";
+import { AdminAiTracesController } from "./admin-ai-traces.controller";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -137,6 +142,7 @@ import { AdminFeedbackController } from "./admin-feedback.controller";
     AdminDashboardController,
     AdminWorkerJourneyController,
     AdminFeedbackController,
+    AdminAiTracesController,
   ],
   providers: [
     AdminRepository,
@@ -146,6 +152,9 @@ import { AdminFeedbackController } from "./admin-feedback.controller";
     AdminAuthService,
     AdminAuthGuard,
     AdminRolesGuard,
+    // 0083 — the ADMIN_AI_TRACE_READ_ENABLED master switch, listed AHEAD of AdminRolesGuard in
+    // AdminAiTracesController so the flag-off answer is a uniform neutral 404 for every role.
+    AdminAiTraceFlagGuard,
     // ADMIN-2: read-only event-spine query API (select-only over `events`).
     AdminEventsRepository,
     AdminEventsService,
@@ -226,6 +235,22 @@ import { AdminFeedbackController } from "./admin-feedback.controller";
     // reading their step counts — hence EventsService in its constructor too.
     AdminFeedbackRepository,
     AdminFeedbackService,
+    // Migration 0083: the AI CALL TRACE read — two routes at two privilege levels over one
+    // table. The LIST is PII-free (`read_entities`): task type, model, success, and the two
+    // LENGTHS, so ops can answer "which calls are failing" without reading anyone's words.
+    // The DETAIL DECRYPTS, and is the narrowest surface in this module: `read_ai_traces`
+    // (super_admin ONLY) + the default-OFF `ADMIN_AI_TRACE_READ_ENABLED` flag (a NEUTRAL 404
+    // when off, never a 403) + its OWN `admin_ai_trace:*` egress budget on the shared
+    // `AdminEgressCapService` + a fail-closed `admin.ai_trace_viewed` audit row that must
+    // commit BEFORE any plaintext exists — hence EventsService and PiiCryptoService.
+    //
+    // Its repository is SELECT-ONLY and is NOT `AiTracesRepository`: that class can insert,
+    // and it stays unexported from the @Global `AiModule` so no class capable of writing a
+    // trace enters this injector — the same rule that keeps `AiCostTotalsRepository` out, and
+    // the same FeedbackRepository/AdminFeedbackRepository split.
+    AdminAiTracesRepository,
+    AdminAiTraceCapService,
+    AdminAiTracesService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

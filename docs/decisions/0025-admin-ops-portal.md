@@ -313,10 +313,33 @@ guard's fail-closed `role: null`).
 | Flag / unflag a worker | ✅ | ✅ | ❌ | ❌ |
 | Toggle a feature flag / kill-switch | ✅ | ❌ | ❌ | ❌ |
 | **Reveal worker PII (reason-gated, single-subject)** | ✅ | ❌ | ✅ | ❌ |
+| **Read AI call traces (the prompt + completion of one AI call, and the list of them)** — `read_ai_traces`, migration 0083, owner ruling 2026-08-20 | ✅ | ❌ | ❌ | ❌ |
 | Manage admin users (invite / change role / suspend) | ✅ | ❌ | ❌ | ❌ |
 
 ✅ = allow, ❌ = deny. **Every cell not marked ✅ is denied.** (Export-for-`support` is denied so
 the PII-reveal role cannot also bulk-export; this separation is deliberate — see Decision 4.)
+
+**`read_ai_traces` IS a gate on the route, and on BOTH legs of it.** Unlike `read_identity`
+above, this capability does not decide whether a field appears — it decides whether
+`GET /admin/ai-traces` and `GET /admin/ai-traces/:id` are reachable at all. Both sit behind it,
+and behind the default-OFF `ADMIN_AI_TRACE_READ_ENABLED` flag, which is enforced by a guard
+ordered AHEAD of `AdminRolesGuard` so that with the flag off every role gets an identical neutral
+404 rather than a 403 that confirms the surface exists.
+
+The LIST is included deliberately, and it is the part worth reading twice. Its projection carries
+no ciphertext and decrypts nothing — task type, model, outcome, the two character LENGTHS, opaque
+ids — so there is a real argument for putting it on the `read_entities` floor and letting ops
+triage failing calls without being entitled to read what workers said. That argument is written
+out at `apps/api/src/admin/admin-ai-traces.controller.ts` and is **open, pending an owner
+ruling**. What it has to weigh: walked end to end the list is an index of which worker spoke, in
+which interview, when, and how much — the LINKAGE `packages/db/src/schema-contract.ts` names as
+the worst silent leak on this spine. Until that ruling, both legs are `super_admin`.
+
+The decrypt additionally charges a per-admin hourly/daily budget on its own `admin_ai_trace:*`
+Redis namespace (`ADMIN_AI_TRACE_MAX_PER_{HOUR,DAY}`, default 20/60 — a debugging session, not a
+corpus) and writes an `admin.ai_trace_viewed` row **before** any plaintext exists; that row
+carries the two character LENGTHS and never the text. `read_ai_traces` is a strict subset of
+`reveal_pii`: a role that may read a worker's words is one that may already resolve who they are.
 
 **`read_identity` is ADDITIVE, never a gate on the route.** All four roles keep reaching the five
 reads on `read_entities`; the capability decides only whether that response carries the NAME field

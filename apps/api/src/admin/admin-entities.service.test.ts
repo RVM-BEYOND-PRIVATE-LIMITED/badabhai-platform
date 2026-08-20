@@ -344,6 +344,40 @@ describe("names — the service merges exactly what identity disclosed", () => {
     expect(resolve).toHaveBeenCalledWith(expect.anything(), "payers", ["p-1"], "p-1", CTX);
   });
 
+  it("getPayer with faceless:true spends NO budget and writes NO audit row", async () => {
+    // The timeline page reads `role` and `id` and renders no name, so resolving one charged the
+    // egress budget and wrote an `admin.identity_viewed` row per PAGE-TURN. At the shipped
+    // ADMIN_IDENTITY_MAX_PER_HOUR of 300 that is ~300 turns to exhaust the hour — after which
+    // `resolve` returns null for EVERY read and the console's real name features go faceless.
+    //
+    // MUTATION THIS CATCHES: returning AFTER `resolve` with the name stripped instead of before
+    // it. Byte-identical response, and the defect fully intact — the budget still spent, the
+    // audit row still written, describing a disclosure that never reached a screen.
+    const resolve = vi.fn(async () => new Map([["p-1", "Sharma Fabrication Pvt Ltd"]]));
+    const svc = service(
+      { findPayer: vi.fn(async () => ({ id: "p-1", role: "employer" })) } as never,
+      identityStub(resolve as never),
+    );
+    const payer = await svc.getPayer(admin(), "p-1", CTX, { faceless: true });
+    expect(resolve).not.toHaveBeenCalled();
+    expect(payer).toMatchObject({ id: "p-1", role: "employer" });
+    expect(payer).not.toHaveProperty("org_name");
+  });
+
+  it("getPayer STILL resolves by default — the opt-out must not become the behaviour", async () => {
+    // Testing what the switch PERMITS, not only what it suppresses. A default flipped to
+    // faceless would pass every assertion above while silently deleting names from the
+    // Companies and Agencies detail pages, which is the bug this whole surface exists to undo.
+    const resolve = vi.fn(async () => new Map([["p-1", "Sharma Fabrication Pvt Ltd"]]));
+    const svc = service(
+      { findPayer: vi.fn(async () => ({ id: "p-1", role: "employer" })) } as never,
+      identityStub(resolve as never),
+    );
+    const payer = await svc.getPayer(admin(), "p-1", CTX);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(payer).toMatchObject({ org_name: "Sharma Fabrication Pvt Ltd" });
+  });
+
   it("getPayer keeps org_name ABSENT when identity disclosed nothing", async () => {
     // The other half of the three-state contract on the detail read: not a null, which would
     // claim the name was disclosed and found empty.

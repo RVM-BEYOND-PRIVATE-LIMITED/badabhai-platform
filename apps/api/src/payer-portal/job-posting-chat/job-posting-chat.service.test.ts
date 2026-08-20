@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import { createEvent } from "@badabhai/event-schema";
 import type { RequestContext } from "../../common/request-context";
+import { fakeAiTraceRecorder } from "../../ai/ai-trace-recorder.fake";
 import { JobPostingChatService } from "./job-posting-chat.service";
 
 const PAYER_A = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -212,16 +213,22 @@ function make(
     ),
   };
 
+  // 0083: the SHARED trace fake. It reproduces the real recorder's short-circuits, so
+  // `traces.dropped` is a claim about production (a payer turn has no worker, so nothing is
+  // ever stored) rather than about this double.
+  const traces = fakeAiTraceRecorder();
+
   const svc = new JobPostingChatService(
     chat as never,
     events as never,
     ai as never,
     aiCost as never,
+    traces.recorder,
     payers as never,
     pii as never,
     jobPostings as never,
   );
-  return { svc, chat, events, emitted, ai, aiCost, payers, pii, jobPostings };
+  return { svc, chat, events, emitted, ai, aiCost, traces, payers, pii, jobPostings };
 }
 
 /** Re-build each recorded emit through `createEvent` — proves it is registry-valid. */

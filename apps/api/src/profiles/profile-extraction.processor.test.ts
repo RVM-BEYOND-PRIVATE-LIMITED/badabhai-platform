@@ -9,6 +9,7 @@ import {
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
 import { fakeAiCostTotals } from "../ai/ai-cost-totals.fake";
+import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
 import { ProfileExtractionProcessor } from "./profile-extraction.processor";
 import type { ProfileExtractionJobData } from "../queue/queue.constants";
 
@@ -211,6 +212,7 @@ function make(
   const workerAttributes = {
     upsertMany: vi.fn(async (rows: unknown[]) => rows.length),
   };
+  const traces = fakeAiTraceRecorder();
   const proc = new ProfileExtractionProcessor(
     profiles as never,
     aiJobs as never,
@@ -227,6 +229,10 @@ function make(
     // are about what actually reaches `events.emit`, and a stubbed recorder would make every
     // one of them pass without an event ever being built (#738).
     new AiCostRecorder(events as never, fakeAiCostTotals().repo),
+    // 0083: the SHARED trace fake, for the same reason the cost recorder above is REAL and
+    // opposite in form — the trace assertions are about which of the four call sites stores
+    // and which deliberately does not, which is what the fake makes visible.
+    traces.recorder,
     { CHAT_LLM_INTERVIEW_ENABLED: opts.llmInterview ?? false } as never,
   );
   return {
@@ -242,6 +248,7 @@ function make(
     matchSkills,
     skills,
     workerAttributes,
+    traces,
   };
 }
 

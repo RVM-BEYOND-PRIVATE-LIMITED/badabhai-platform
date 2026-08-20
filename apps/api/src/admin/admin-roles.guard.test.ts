@@ -154,6 +154,10 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     // Owner ruling 2026-08-18 (reversing Decision 4's faceless contract): the NAMES behind the
     // ids, on both the list and the detail. `analyst` DENIED.
     read_identity: ["super_admin", "ops_admin", "support"],
+    // Migration 0083 — DECRYPT a stored prompt/completion. SUPER_ADMIN ONLY, and not held
+    // by `support` even though `reveal_pii` is: revealing one worker's phone on a
+    // reason-gated route and reading what every worker has said are different acts.
+    read_ai_traces: ["super_admin"],
     export: ["super_admin", "ops_admin"],
     suspend_payer: ["super_admin", "ops_admin"],
     grant_credits: ["super_admin", "ops_admin"],

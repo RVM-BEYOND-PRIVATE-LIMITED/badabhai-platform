@@ -17,6 +17,7 @@ import type { WorkersRepository } from "../workers/workers.repository";
 import type { EventsService } from "../events/events.service";
 import type { AiService } from "../ai/ai.service";
 import type { AiCostRecorder } from "../ai/ai-cost-recorder.service";
+import { fakeAiTraceRecorder } from "../ai/ai-trace-recorder.fake";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import type { StorageService } from "../storage/storage.service";
 import type { ResumeRenderJobData } from "../queue/queue.constants";
@@ -126,6 +127,10 @@ function setup(
     ),
   };
 
+  // 0083: the SHARED trace fake — a résumé call HAS a worker, so `traces.stored` is where
+  // the prompt/response pair actually lands.
+  const traces = fakeAiTraceRecorder();
+
   const svc = new ResumeService(
     resumes as unknown as ResumeRepository,
     profiles as unknown as ProfilesRepository,
@@ -133,6 +138,7 @@ function setup(
     events as unknown as EventsService,
     ai as unknown as AiService,
     aiCost as unknown as AiCostRecorder,
+    traces.recorder,
     pii as unknown as PiiCryptoService,
     rateLimit as unknown as ResumeRateLimit,
     storage as unknown as StorageService,
@@ -144,6 +150,7 @@ function setup(
     svc,
     ai,
     aiCost,
+    traces,
     pii,
     profiles,
     resumes,

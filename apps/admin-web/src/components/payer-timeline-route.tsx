@@ -28,7 +28,10 @@ export async function PayerTimelineRoute({
 
   let payer: Awaited<ReturnType<typeof getPayer>>;
   try {
-    payer = await getPayer(id);
+    // FACELESS: this page reads `role` and `id` and renders no name (the heading is `kind`,
+    // the literal word "Company"/"Agency"). Asking for the name would charge the egress budget
+    // and write an audit row on every page-turn for a disclosure that never reaches a screen.
+    payer = await getPayer(id, { faceless: true });
   } catch (err) {
     if (isAdminRequestError(err) && (err.status === 404 || err.status === 400)) notFound();
     throw err;

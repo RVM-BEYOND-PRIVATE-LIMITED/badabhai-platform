@@ -13,8 +13,10 @@ import { AdminFinanceController } from "./admin-finance.controller";
 import { AdminDirectoryController } from "./admin-directory.controller";
 import { AdminDashboardController } from "./admin-dashboard.controller";
 import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
+import { AdminAiTracesController } from "./admin-ai-traces.controller";
 import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard, ADMIN_CAPABILITY_KEY } from "./admin-roles.guard";
+import { AdminAiTraceFlagGuard } from "./admin-ai-trace-flag.guard";
 import { type AdminCapability } from "./admin-capabilities";
 import { ADMIN_ENTITIES_PAGE_MAX, ADMIN_IDENTITY_PAGE_MAX } from "./admin-entities.dto";
 import { ADMIN_IDENTITY_MAX_SUBJECTS } from "./admin-identity.service";
@@ -590,14 +592,21 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
     expect(sqlTemplates("const x = { full_name: names.get(id) ?? null };")).toEqual([]);
   });
 
-  it("the decrypt ALLOW-LIST is exactly three files — matched on `.decrypt(`, not on a count", () => {
+  it("the decrypt ALLOW-LIST is exactly four files — matched on `.decrypt(`, not on a count", () => {
     // Decryption is the moment PII exists in this process, so the set of places it can happen is
     // pinned as a SET rather than a number. The whole list, and why each is in it:
     //   admin-identity.service  — names, at the response boundary, after the audit row commits
     //   admin-pii-reveal.service— one worker phone, on the reason-gated + flagged route
     //   admin-mfa.store         — the admin's OWN TOTP seed, for verification. Authentication,
     //                             not disclosure: the plaintext never leaves the comparison.
-    // A fourth entry has to be a deliberate edit to this list, reviewed as one.
+    //   admin-ai-traces.service — ONE stored prompt/completion (migration 0083), on the route
+    //                             that is `read_ai_traces` (super_admin only) + default-OFF
+    //                             flagged + egress-capped + audited fail-closed before the
+    //                             decrypt. This is the LARGEST disclosure of the four — a phone
+    //                             is a field, a prompt is everything somebody said on one turn —
+    //                             and it was added by a deliberate edit to this list, which is
+    //                             exactly what the list is for.
+    // A fifth entry has to be a deliberate edit to this list, reviewed as one.
     //
     // TWO THINGS THIS DELIBERATELY IS NOT:
     //  - NOT a COUNT (`toHaveLength(3)` / `<= 3`). A count cannot tell "the identity service was
@@ -624,6 +633,7 @@ describe("identity reads — one reader, one decrypter, and no name search", () 
       .sort();
     expect(decrypters).toEqual(
       [
+        "admin/admin-ai-traces.service.ts",
         "admin/admin-identity.service.ts",
         "admin/admin-mfa.store.ts",
         "admin/admin-pii-reveal.service.ts",
@@ -1317,5 +1327,250 @@ describe("Phase 6 journey routes — guarded, read-only, and transcript-free", (
         forbidden,
       );
     }
+  });
+});
+
+/**
+ * Migration 0083 AI-CALL-TRACE routes — guarded, read-only, and SPLIT BY DATA CLASS.
+ *
+ * This block is longer than its siblings for the same reason the journey block is: the table
+ * behind these two routes holds the prompt and the completion of every AI call the platform has
+ * ever made, unmasked (the ai-service pseudonymizer runs on the far side and R32 measured its
+ * name gazetteer dead), and the ONLY thing standing between that and an ordinary admin is which
+ * of the two routes a query reaches.
+ *
+ * The property these guards pin is therefore not "is it authorized" but "did the SPLIT hold":
+ * the list must stay incapable of returning ciphertext, and the detail must stay the single,
+ * flagged, capped, audited, single-subject way text leaves. A source scan is the right layer,
+ * because a runtime test only sees the queries a test happens to call.
+ */
+describe("0083 ai-trace routes — one ruling, one gate, and the flag ahead of the roles", () => {
+  /**
+   * A reference to the WRITER (`AiTracesRepository`, in `AiModule`) — and deliberately NOT to the
+   * admin surface's own select-only reader, whose name is the writer's with an `Admin` prefix.
+   * Lookbehind rather than `\b`, because the two differ by a PREFIX: `\b` matches happily inside
+   * `AdminAiTracesRepository` and would report the reader as an offender.
+   */
+  const WRITER_REF = /(?<!Admin)AiTracesRepository|(?<!admin-)ai-traces\.repository/;
+
+  const proto = AdminAiTracesController.prototype as unknown as Record<string, unknown>;
+  const routeMethods = Object.getOwnPropertyNames(AdminAiTracesController.prototype).filter(
+    (m) =>
+      m !== "constructor" &&
+      typeof proto[m] === "function" &&
+      Reflect.getMetadata("path", proto[m] as object) !== undefined,
+  );
+
+  /** Non-comment source of a file under admin/**. */
+  const code = (file: string): string =>
+    readFileSync(join(ADMIN_DIR, file), "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+
+  const capOf = (m: string): AdminCapability | undefined =>
+    Reflect.getMetadata(ADMIN_CAPABILITY_KEY, proto[m] as object) as AdminCapability | undefined;
+
+  const cacheControlOf = (m: string): string | undefined => {
+    const headers = (Reflect.getMetadata("__headers__", proto[m] as object) ?? []) as Array<{
+      name: string;
+      value: string;
+    }>;
+    return headers.find((h) => h.name.toLowerCase() === "cache-control")?.value;
+  };
+
+  it("discovers EXACTLY the two routes — one list, one single-subject detail (no export, no batch)", () => {
+    // Structural, not conventional. Every control on the detail route assumes it is the only way
+    // text leaves: an export, a range read or a batch decrypt would go around the cap, the audit
+    // granularity and the single-subject assumption in one edit. Adding a third route here has
+    // to fail this assertion first.
+    expect(routeMethods.sort()).toEqual(["list", "readOne"].sort());
+    for (const m of routeMethods) {
+      expect(m.toLowerCase()).not.toMatch(/export|bulk|batch|search|all/);
+    }
+  });
+
+  it("BOTH routes carry AdminAuthGuard AND AdminRolesGuard (no open privileged route)", () => {
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminAiTracesController, method);
+      expect(guards, `${method} must be behind AdminAuthGuard`).toContain(AdminAuthGuard.name);
+      expect(guards, `${method} must be behind AdminRolesGuard`).toContain(AdminRolesGuard.name);
+    }
+  });
+
+  it("the FLAG guard runs BEFORE the roles guard — the ordering IS the neutral 404", () => {
+    // NOT "the flag is checked somewhere". Nest runs guards in declared order and a handler body
+    // runs after all of them, so a flag check inside `readOne` was unreachable for any role the
+    // roles guard rejected first. Measured against the real guard and the real controller with
+    // ADMIN_AI_TRACE_READ_ENABLED=false, before this moved:
+    //
+    //     super_admin  guard PASS → handler 404      ops_admin  guard 403 → handler never reached
+    //     support      guard 403  → never reached    analyst    guard 403 → never reached
+    //
+    // Three of four roles got a 403 that CONFIRMS the surface exists, which is precisely what the
+    // owner ruling said must not happen ("a NEUTRAL 404 when off — not a 403"). Position, not
+    // presence, is the property, so this asserts the index.
+    for (const method of routeMethods) {
+      const guards = effectiveGuards(AdminAiTracesController, method);
+      expect(guards, `${method} must mount the flag guard`).toContain(AdminAiTraceFlagGuard.name);
+      expect(
+        guards.indexOf(AdminAiTraceFlagGuard.name),
+        `${method}: the flag guard must be declared BEFORE AdminRolesGuard, or a lesser role ` +
+          `gets a 403 that confirms the feature exists`,
+      ).toBeLessThan(guards.indexOf(AdminRolesGuard.name));
+      // ...and AFTER the auth guard: an unauthenticated caller should get 401, not a 404 that
+      // makes the whole admin surface look absent to the internet.
+      expect(guards.indexOf(AdminAuthGuard.name)).toBeLessThan(
+        guards.indexOf(AdminAiTraceFlagGuard.name),
+      );
+    }
+  });
+
+  it("the handler body no longer re-implements the flag check the guard owns", () => {
+    // Belt-and-braces would be fine; a SECOND place that decides is not. The service still
+    // re-checks `isEnabled()` (defence in depth, same neutral shape) — the controller must not,
+    // because a body check is exactly the shape that read as a control and was not one.
+    const src = code("admin-ai-traces.controller.ts");
+    expect(src).not.toMatch(/isEnabled\s*\(/);
+    expect(src).not.toMatch(/NotFoundException/);
+  });
+
+  it("BOTH routes are read_ai_traces — declared per METHOD, never read_entities", () => {
+    // THE ASSERTION THIS WHOLE BLOCK EXISTS FOR. If either route drops to `read_entities`, every
+    // role on the admin read floor — including `analyst`, which the 2026-08-18 ruling deliberately
+    // left faceless — reaches this table, and nothing else in this repository would notice: the
+    // flag would still be off by default, the cap would still charge, the audit row would still be
+    // written. They would simply be written for the wrong people.
+    //
+    // The LIST is included because it is not a lesser disclosure. Walked end to end it is an index
+    // of which worker spoke, in which interview, when, and how much — the LINKAGE that
+    // `packages/db/src/schema-contract.ts` names as the worst silent leak on this spine. The case
+    // for reopening it to ops is written out in the controller header and is an OWNER call.
+    //
+    // Method-level, because a class-level declaration is inherited by every route added later,
+    // which is precisely how a third route would arrive on the wrong gate.
+    const onClass = Reflect.getMetadata(ADMIN_CAPABILITY_KEY, AdminAiTracesController) as
+      | AdminCapability
+      | undefined;
+    expect(
+      onClass,
+      "AdminAiTracesController must NOT declare a class-level capability",
+    ).toBeUndefined();
+    expect(capOf("list")).toBe("read_ai_traces");
+    expect(capOf("readOne")).toBe("read_ai_traces");
+    for (const m of routeMethods) expect(capOf(m), m).not.toBe("read_entities");
+  });
+
+  it("the surface is READ-ONLY by construction — both routes are GETs", () => {
+    // `ai_call_traces` is append-only and its one writer lives in the @Global `AiModule`, which
+    // does not export the repository. A POST/PATCH/DELETE here would be a write with no audit.
+    for (const method of routeMethods) {
+      expect(Reflect.getMetadata("method", proto[method] as object) as number).toBe(0);
+    }
+  });
+
+  it("only the DECRYPTING route sets Cache-Control: no-store", () => {
+    // Both halves matter. On the detail route the header is Control 8 — a body carrying a
+    // worker's own words must not land in a shared proxy, a disk cache or a bfcache entry that
+    // outlives the session. On the list route its ABSENCE is what keeps it meaningful: a header
+    // sprayed across routes that disclose nothing can no longer be read as "this response may
+    // contain plaintext".
+    expect(cacheControlOf("readOne")).toBe("no-store");
+    expect(cacheControlOf("list")).toBeUndefined();
+  });
+
+  it("the repository issues no write against any table, and never reads a whole row", () => {
+    const src = code("admin-ai-traces.repository.ts");
+    expect(src).not.toMatch(/\.(insert|update|delete)\s*\(/);
+    expect(src).not.toMatch(/\.select\(\s*\)/); // an unprojected read returns the ciphertext too
+  });
+
+  it("the repository never joins `workers` and never searches the stored text", () => {
+    // A join to `workers` is how an opaque `worker_id` becomes a name. An `ilike` / full-text
+    // predicate over `prompt_enc` would be a search over everything every worker has ever said
+    // — impossible today only because the column is non-deterministic AES ciphertext, which is
+    // exactly why a plaintext or hashed sibling must never be added. Comments are stripped
+    // first: the file names both constructs in prose explaining why they are absent.
+    const src = code("admin-ai-traces.repository.ts");
+    for (const join of ["innerJoin", "leftJoin", "rightJoin", "fullJoin"]) {
+      expect(src, `admin-ai-traces.repository must not ${join}`).not.toContain(join);
+    }
+    for (const search of [/\bilike\b/i, /\bto_tsquery\b/i, /\bsimilar\s+to\b/i]) {
+      expect(src, "admin-ai-traces.repository must not search the stored text").not.toMatch(search);
+    }
+  });
+
+  it("the LIST projection cannot return ciphertext — the two columns appear ONLY in byId", () => {
+    // The positive half, and the one that holds. A negative "the DTO has no `prompt_enc` field"
+    // would pass for a repository that selected the column and let a mapper drop it, leaving the
+    // token in a variable one `return row` away from a response. This pins WHERE the column may
+    // be named at all: the shared `SCALARS` projection must not mention it, and neither may the
+    // `list` method — so the only reachable path to a token is the gated `byId`.
+    const src = code("admin-ai-traces.repository.ts");
+    const scalars = /SCALARS\s*=\s*\{([\s\S]*?)\}\s*as const;/.exec(src)?.[1] ?? "";
+    expect(
+      scalars.length,
+      "the SCALARS projection must be found (the scan is not vacuous)",
+    ).toBeGreaterThan(100);
+    for (const col of ["promptEnc", "responseEnc"]) {
+      expect(scalars, `the shared projection must not name ${col}`).not.toContain(col);
+    }
+    // ` {2}async byId\(` rather than two literal spaces: `no-regex-spaces` refuses the literal
+    // form, correctly — an indentation-sensitive anchor is exactly the kind of pattern a
+    // reformat breaks silently, and the quantifier makes the count explicit.
+    const listBody = /async list\(([\s\S]*?)\n {2}async byId\(/.exec(src)?.[1] ?? "";
+    expect(
+      listBody.length,
+      "the list method must be found (the scan is not vacuous)",
+    ).toBeGreaterThan(100);
+    for (const col of ["promptEnc", "responseEnc"]) {
+      expect(listBody, `list() must not name ${col}`).not.toContain(col);
+    }
+    // ...and byId DOES, so the extraction above is testing something real.
+    const byIdBody = src.slice(src.indexOf("async byId("));
+    expect(byIdBody).toContain("promptEnc");
+    expect(byIdBody).toContain("responseEnc");
+  });
+
+  it("the service gates the decrypt on the flag AND the capability, in its own body", () => {
+    // Both checks are duplicated from the controller/decorator ON PURPOSE (defence in depth), and
+    // a source scan is the only thing standing between them and being dropped in a refactor as
+    // "already handled upstream" — which is true right up until someone adds a second caller.
+    const svc = code("admin-ai-traces.service.ts");
+    expect(svc).toContain("ADMIN_AI_TRACE_READ_ENABLED");
+    expect(svc).toContain('can(admin.role, "read_ai_traces")');
+    // The cap is charged BEFORE the row is fetched, and the audit is emitted BEFORE the decrypt.
+    expect(svc.indexOf("this.cap.consume")).toBeLessThan(svc.indexOf("this.repo.byId"));
+    expect(svc.indexOf("this.events.emit")).toBeLessThan(svc.indexOf("this.decryptOrNull"));
+  });
+
+  it("nothing under admin/** can WRITE a trace (the writer stays in AiModule)", () => {
+    // `AiTracesRepository` owns the insert and is unexported from the @Global `AiModule`. The
+    // same rule, and the same reason, as the `AiCostTotalsRepository` scan above: a class that
+    // can write to this table must not sit in the admin injector, or the next person who wants
+    // "just fix up this one row" finds it already wired next to a console.
+    const offenders = tsFiles(ADMIN_DIR)
+      .filter((f) => {
+        const src = readFileSync(f, "utf8").replace(/^\s*(\/\/|\*|\/\*).*$/gm, "");
+        return WRITER_REF.test(src);
+      })
+      .map((f) => relative(SRC_DIR, f).replace(/\\/g, "/"));
+    expect(
+      offenders,
+      `admin must read traces through its OWN select-only repository. Offenders: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("...and that writer rule is CAPABLE of failing, and does NOT fire on the reader", () => {
+    // The two classes differ by a PREFIX, not a suffix, so `\b` is useless here and a bare
+    // substring match reports the admin module's own select-only repository as an offender —
+    // measured, on the first run of the assertion above. A negative lookbehind is what
+    // distinguishes them, and a rule that cannot tell the reader from the writer is a rule
+    // somebody deletes the first time it blocks legitimate work.
+    expect(WRITER_REF.test('import { AiTracesRepository } from "../ai/ai-traces.repository";')).toBe(
+      true,
+    );
+    expect(WRITER_REF.test("private readonly repo: AiTracesRepository,")).toBe(true);
+    expect(
+      WRITER_REF.test('import { AdminAiTracesRepository } from "./admin-ai-traces.repository";'),
+    ).toBe(false);
+    expect(WRITER_REF.test("private readonly repo: AdminAiTracesRepository,")).toBe(false);
   });
 });

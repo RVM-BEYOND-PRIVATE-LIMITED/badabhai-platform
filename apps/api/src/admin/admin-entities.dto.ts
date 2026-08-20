@@ -157,6 +157,35 @@ export type AdminCreditLedgerQueryDto = z.infer<typeof AdminCreditLedgerQuerySch
 export const AdminEntityParamsSchema = z.object({ id: z.string().uuid() }).strict();
 export type AdminEntityParamsDto = z.infer<typeof AdminEntityParamsSchema>;
 
+/**
+ * `GET /admin/payers/:id?faceless=1` — the caller declares it does not want the name.
+ *
+ * WHY A CALLER-SETTABLE PRIVACY SWITCH IS SAFE HERE, which is normally a smell: this one can
+ * only ever REDUCE disclosure. There is no value of it that discloses more than the default,
+ * so the worst a hostile caller achieves is a response with `org_name: null` — which is the
+ * faceless projection every role could already read. Contrast a `?reveal=1`, which would be
+ * the same shape pointed the other way and must never exist.
+ *
+ * WHY IT EXISTS. The Companies/Agencies TIMELINE page fetches this row for exactly two fields
+ * — `id` and `role`, to tell a 404 from a wrong-section redirect — and renders NO name (its
+ * heading is the literal word "Company"). Resolving one anyway charged the name-egress budget
+ * and wrote an `admin.identity_viewed` row on every page-turn, so the trail recorded reading
+ * that did not happen and, worse, ~300 page-turns exhausted `ADMIN_IDENTITY_MAX_PER_HOUR` —
+ * after which `AdminIdentityService.resolve` returns null for EVERY read that hour and the
+ * console's real name features go silently faceless. A budget spent on a page with no names
+ * is a budget stolen from the pages that have them.
+ *
+ * NOT `z.coerce.boolean()`, which is the trap next door in this file: it maps the STRING
+ * `"false"` to `true` (every non-empty string is truthy), so `?faceless=false` would opt IN to
+ * facelessness. Here that direction happens to fail safe, which is exactly why it would have
+ * survived review and gone on to be copied somewhere it does not. One exact literal, no
+ * coercion, no surprises.
+ */
+export const AdminPayerDetailQuerySchema = z
+  .object({ faceless: z.literal("1").optional() })
+  .strict();
+export type AdminPayerDetailQueryDto = z.infer<typeof AdminPayerDetailQuerySchema>;
+
 // ---------------------------------------------------------------------------
 // Response projections — FACELESS by construction (ids + enums + timestamps + counts).
 // ---------------------------------------------------------------------------

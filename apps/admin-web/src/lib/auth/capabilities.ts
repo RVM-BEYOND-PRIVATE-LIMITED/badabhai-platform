@@ -29,6 +29,14 @@ export const ADMIN_CAPABILITIES = [
   // render from THIS capability, not from a null name (a null name also means "this person has
   // not given us one", which is a different fact).
   "read_identity",
+  // DECRYPT a stored AI prompt/completion (migration 0083). Distinct from `read_entities`,
+  // which is what the trace LIST sits on: that list serves task types, models, success flags
+  // and character LENGTHS, and this capability gates only the step that turns a length back
+  // into a worker's words. Without it in this vocabulary `currentSession()` would filter the
+  // capability out of the session as an unknown string and `can(...)` would answer false for
+  // an admin the server had actually granted it — the portal would render no door for a read
+  // the API would happily serve.
+  "read_ai_traces",
   "export",
   "suspend_payer",
   "grant_credits",
@@ -57,6 +65,10 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   read_events: "Read events",
   read_entities: "Read workers, companies, agencies and jobs",
   read_identity: "See names on worker, company, agency and admin records",
+  // Says what it DISCLOSES, not what it unlocks. "Read AI traces" would read as telemetry to
+  // an operator scanning the Roles screen; what the capability actually permits is reading the
+  // text of a call, which for a worker surface is the worker speaking.
+  read_ai_traces: "Read the text of an AI call — what was sent and what came back",
   export: "Export data",
   suspend_payer: "Suspend payers",
   grant_credits: "Grant credits",
