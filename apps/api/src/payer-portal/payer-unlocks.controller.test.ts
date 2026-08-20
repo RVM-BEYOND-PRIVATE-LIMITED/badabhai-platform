@@ -1,9 +1,19 @@
 import "reflect-metadata";
+import { createHash } from "node:crypto";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { NotFoundException } from "@nestjs/common";
+import { ConflictException, NotFoundException } from "@nestjs/common";
+import type { Request } from "express";
+import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { PayerUnlocksController } from "./payer-unlocks.controller";
 import type { AuthenticatedPayer } from "../payers/payer-auth.guard";
 import type { RequestContext } from "../common/request-context";
+
+/** A request carrying no `Idempotency-Key` — the unguarded path every legacy case takes. */
+const NO_KEY = { header: () => undefined } as unknown as Request;
+
+/** A request carrying one, so a case can exercise the real dedupe. */
+const withKey = (key: string): Request =>
+  ({ header: (n: string) => (n.toLowerCase() === "idempotency-key" ? key : undefined) }) as unknown as Request;
 
 const PAYER_A: AuthenticatedPayer = { id: "aaaaaaaa-0000-4000-8000-000000000001", sid: "sid-a", role: "employer" };
 const CTX: RequestContext = {
@@ -48,8 +58,19 @@ function makeCtrl() {
     })),
   };
   const disclosureRate = { assertWithinHourlyCap: vi.fn(async () => undefined) };
-  const ctrl = new PayerUnlocksController(unlocks as never, disclosureRate as never);
-  return { ctrl, unlocks, disclosureRate };
+  // #1046 — a PASS-THROUGH double. Every case in this file sends NO Idempotency-Key, which is
+  // exactly the path where runOnce must run the work unchanged, so each assertion below keeps
+  // testing the handler rather than the seam. The seam has its own suite, and the cases that
+  // exercise it through this controller use the REAL one (see the #1046 describe).
+  const idempotency = {
+    runOnce: vi.fn(async (o: { work: () => Promise<unknown> }) => o.work()),
+  };
+  const ctrl = new PayerUnlocksController(
+    unlocks as never,
+    disclosureRate as never,
+    idempotency as never,
+  );
+  return { ctrl, unlocks, disclosureRate, idempotency };
 }
 
 /**
@@ -108,16 +129,16 @@ describe("PayerUnlocksController — identity from the session, never the body (
   });
 
   it("buyPack binds payer_id to the SESSION payer (the body carries only pack_code)", async () => {
-    const out = await d.ctrl.buyPack({ pack_code: "starter" }, PAYER_A, CTX);
+    const out = await d.ctrl.buyPack({ pack_code: "starter" }, PAYER_A, NO_KEY, CTX);
     expect(d.unlocks.purchaseCredits).toHaveBeenCalledWith(PAYER_A.id, "starter", CTX);
     expect(out).toEqual({ payer_id: PAYER_A.id, balance: 50, credits: 50, pack_code: "starter" });
   });
 
   it("buyPack on an UNKNOWN pack (service → null) throws a real 404 (NotFoundException)", async () => {
     d.unlocks.purchaseCredits.mockResolvedValueOnce(null as never);
-    await expect(d.ctrl.buyPack({ pack_code: "nope" }, PAYER_A, CTX)).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      d.ctrl.buyPack({ pack_code: "nope" }, PAYER_A, NO_KEY, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   /**
@@ -129,16 +150,16 @@ describe("PayerUnlocksController — identity from the session, never the body (
    */
   it("buyPack is a NEUTRAL 404 once PAYMENTS_ENABLE_REAL is live (no free credits beside the paywall)", async () => {
     d.unlocks.realPaymentsLive = true;
-    await expect(d.ctrl.buyPack({ pack_code: "starter" }, PAYER_A, CTX)).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      d.ctrl.buyPack({ pack_code: "starter" }, PAYER_A, NO_KEY, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
     // The grant must not even be attempted — not merely discarded after the fact.
     expect(d.unlocks.purchaseCredits).not.toHaveBeenCalled();
   });
 
   it("buyPack still GRANTS while PAYMENTS_ENABLE_REAL is off (the alpha default is untouched)", async () => {
     d.unlocks.realPaymentsLive = false;
-    const out = await d.ctrl.buyPack({ pack_code: "starter" }, PAYER_A, CTX);
+    const out = await d.ctrl.buyPack({ pack_code: "starter" }, PAYER_A, NO_KEY, CTX);
     expect(d.unlocks.purchaseCredits).toHaveBeenCalledWith(PAYER_A.id, "starter", CTX);
     expect(out).toMatchObject({ credits: 50 });
   });
@@ -248,5 +269,220 @@ describe("PayerUnlocksController — real-payment routes (order + verify)", () =
       expect(errs.every((e) => e instanceof NotFoundException)).toBe(true);
       expect(messages.size).toBe(1); // byte-identical refusal — no oracle
     });
+  });
+});
+
+describe("#1046 — POST /payer/credits is idempotent on Idempotency-Key", () => {
+  // THE BUG, AS REPORTED. The payer app posts `{pack_code}` with no key. On a 15s timeout the
+  // server may already have committed the grant, but the app re-enables the Buy button, the
+  // user taps again, and a second identical POST grants the pack a SECOND time — silently
+  // corrupting a balance that is money. Nothing on the wire let the server tell the two apart.
+  //
+  // WHY A NATURAL KEY CANNOT FIX THIS, which is the reason it needs a client-supplied one.
+  // `POST /payer/unlocks` — the route that SPENDS credits — is already idempotent by
+  // `(payer, worker)`: a live grant is returned rather than debited twice. That works because
+  // unlocking the same worker twice is meaningless. Buying the same pack twice is a legitimate
+  // action, so there is no natural key here, and only the caller can say "this is the same
+  // purchase" by reusing a key.
+  //
+  // These cases drive the REAL seam against an in-memory Redis, so the mutex, the replay and
+  // the in-flight branch are exercised rather than described.
+
+  /** In-memory Redis covering the three commands the seam uses, with NX semantics. */
+  function makeRedis() {
+    const store = new Map<string, string>();
+    return {
+      store,
+      client: {
+        async set(key: string, value: string, _m: string, _s: number, nx?: string) {
+          if (nx === "NX") {
+            if (store.has(key)) return null;
+            store.set(key, value);
+            return "OK";
+          }
+          store.set(key, value);
+          return "OK";
+        },
+        async get(key: string) {
+          return store.get(key) ?? null;
+        },
+      },
+    };
+  }
+
+  function realSeam() {
+    const redis = makeRedis();
+    const pii = {
+      // A REAL digest, not `hmac_${v}`. An echoing double would make the "never the raw header"
+      // case below pass for the wrong reason — and that case exists precisely because an
+      // unauthenticated-ish header must not land in a Redis key verbatim.
+      hmac: (v: string) => createHash("sha256").update(v).digest("hex"),
+      hashPhone: (v: string) => `phash_${v}`,
+      encrypt: (v: string) => `enc(${v})`,
+      decrypt: (v: string) => v.replace(/^enc\(|\)$/g, ""),
+    };
+    const queue = { client: Promise.resolve(redis.client) };
+    return { seam: new RequestIdempotency(pii as never, queue as never), redis };
+  }
+
+  function ctrlWithRealSeam() {
+    const purchaseCredits = vi.fn(async (payerId: string, packCode: string) => ({
+      payer_id: payerId,
+      balance: 50,
+      credits: 50,
+      pack_code: packCode,
+    }));
+    const unlocks = { realPaymentsLive: false, purchaseCredits };
+    const { seam, redis } = realSeam();
+    const ctrl = new PayerUnlocksController(
+      unlocks as never,
+      { assertWithinHourlyCap: vi.fn(async () => undefined) } as never,
+      seam,
+    );
+    return { ctrl, unlocks, purchaseCredits, redis };
+  }
+
+  it("THE DOUBLE-GRANT: the same key twice grants ONCE and replays the original result", async () => {
+    const { ctrl, purchaseCredits } = ctrlWithRealSeam();
+    const req = withKey("purchase-1");
+
+    const first = await ctrl.buyPack({ pack_code: "starter" }, PAYER_A, req, CTX);
+    const second = await ctrl.buyPack({ pack_code: "starter" }, PAYER_A, req, CTX);
+
+    expect(purchaseCredits).toHaveBeenCalledTimes(1);
+    expect(second).toEqual(first);
+  });
+
+  it("a duplicate landing MID-FLIGHT is refused 409, and does NOT start a second grant", async () => {
+    // THE CASE THE BUG IS ACTUALLY MADE OF. A timeout means the first attempt is still running,
+    // so there is no stored result yet — a result cache alone would miss this entirely and let
+    // the second grant through. Only the NX reservation taken BEFORE the work stops it.
+    const { ctrl, unlocks } = ctrlWithRealSeam();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    (unlocks.purchaseCredits as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
+      await gate;
+      return { payer_id: PAYER_A.id, balance: 50, credits: 50, pack_code: "starter" };
+    });
+    const req = withKey("purchase-2");
+
+    const inflight = ctrl.buyPack({ pack_code: "starter" }, PAYER_A, req, CTX);
+    await expect(
+      ctrl.buyPack({ pack_code: "starter" }, PAYER_A, req, CTX),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    release();
+    await inflight;
+    expect(unlocks.purchaseCredits).toHaveBeenCalledTimes(1);
+  });
+
+  it("409 RATHER THAN AN OPTIMISTIC BALANCE — the seam must not invent a number", async () => {
+    // The deliberate divergence from the OTP path, which CAN answer optimistically because
+    // "a code is on its way" is honest. A guessed balance is not: the client would render a
+    // figure that never existed, which is worse than the double-grant this prevents.
+    const { ctrl, unlocks } = ctrlWithRealSeam();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    (unlocks.purchaseCredits as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
+      await gate;
+      return { payer_id: PAYER_A.id, balance: 999, credits: 50, pack_code: "starter" };
+    });
+    const req = withKey("purchase-3");
+
+    const inflight = ctrl.buyPack({ pack_code: "starter" }, PAYER_A, req, CTX);
+    const err = await ctrl
+      .buyPack({ pack_code: "starter" }, PAYER_A, req, CTX)
+      .catch((e: ConflictException) => e);
+
+    expect((err as ConflictException).getStatus()).toBe(409);
+    // The advice copy may SAY "balance"; what it must never carry is a NUMBER a client could
+    // render as one, or any field of the result shape.
+    const body = JSON.stringify((err as ConflictException).getResponse());
+    expect(body).not.toContain("999");
+    expect(body).not.toMatch(/"balance"|"credits"|"pack_code"/);
+    release();
+    await inflight;
+  });
+
+  it("A SAME-TICK DEAD HEAT grants exactly once", async () => {
+    const { ctrl, purchaseCredits } = ctrlWithRealSeam();
+    const req = withKey("purchase-4");
+    const results = await Promise.allSettled([
+      ctrl.buyPack({ pack_code: "starter" }, PAYER_A, req, CTX),
+      ctrl.buyPack({ pack_code: "starter" }, PAYER_A, req, CTX),
+      ctrl.buyPack({ pack_code: "starter" }, PAYER_A, req, CTX),
+    ]);
+    expect(purchaseCredits).toHaveBeenCalledTimes(1);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  });
+
+  it("A DIFFERENT KEY IS A DIFFERENT PURCHASE — a genuine second buy still works", async () => {
+    // The property that stops this becoming a bug of its own. A payer who really does want two
+    // packs taps twice, the client mints two keys, and both grants happen.
+    const { ctrl, purchaseCredits } = ctrlWithRealSeam();
+    await ctrl.buyPack({ pack_code: "starter" }, PAYER_A, withKey("tap-1"), CTX);
+    await ctrl.buyPack({ pack_code: "starter" }, PAYER_A, withKey("tap-2"), CTX);
+    expect(purchaseCredits).toHaveBeenCalledTimes(2);
+  });
+
+  it("ANOTHER PAYER'S KEY IS NOT THIS PAYER'S KEY — the bucket is scoped by session payer", async () => {
+    // A safety property, not bookkeeping: without the subject in the key, one tenant presenting
+    // another's key would be served that tenant's stored purchase result.
+    const { ctrl, purchaseCredits } = ctrlWithRealSeam();
+    const PAYER_B: typeof PAYER_A = { ...PAYER_A, id: "bbbbbbbb-0000-4000-8000-000000000002" };
+    const shared = withKey("same-key");
+    await ctrl.buyPack({ pack_code: "starter" }, PAYER_A, shared, CTX);
+    await ctrl.buyPack({ pack_code: "starter" }, PAYER_B, shared, CTX);
+    expect(purchaseCredits).toHaveBeenCalledTimes(2);
+    expect(purchaseCredits.mock.calls.map((c) => c[0])).toEqual([PAYER_A.id, PAYER_B.id]);
+  });
+
+  it("NO KEY, NO GUARD — an older client behaves exactly as before (§3)", async () => {
+    // The header stays OPTIONAL. 400-ing a caller that omits a header it was never asked for
+    // would be a breaking change to fix a bug that only affects callers who DO send one.
+    const { ctrl, purchaseCredits } = ctrlWithRealSeam();
+    await ctrl.buyPack({ pack_code: "starter" }, PAYER_A, NO_KEY, CTX);
+    await ctrl.buyPack({ pack_code: "starter" }, PAYER_A, NO_KEY, CTX);
+    expect(purchaseCredits).toHaveBeenCalledTimes(2);
+  });
+
+  it("AN UNKNOWN PACK replays its 404 rather than re-running the lookup", async () => {
+    const { ctrl, unlocks } = ctrlWithRealSeam();
+    (unlocks.purchaseCredits as ReturnType<typeof vi.fn>).mockResolvedValue(null as never);
+    const req = withKey("purchase-5");
+    await expect(ctrl.buyPack({ pack_code: "nope" }, PAYER_A, req, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    await expect(ctrl.buyPack({ pack_code: "nope" }, PAYER_A, req, CTX)).rejects.toMatchObject({
+      status: 404,
+    });
+    expect(unlocks.purchaseCredits).toHaveBeenCalledTimes(1);
+  });
+
+  it("THE REAL-PAYMENTS 404 IS NOT STORED — it is a config gate, not a request outcome", async () => {
+    // Storing it would pin that answer for the whole window, so a payer who tapped during a
+    // config flip would keep being told the route does not exist for three minutes after it did.
+    const { ctrl, unlocks, purchaseCredits } = ctrlWithRealSeam();
+    const req = withKey("purchase-6");
+
+    unlocks.realPaymentsLive = true;
+    await expect(ctrl.buyPack({ pack_code: "starter" }, PAYER_A, req, CTX)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(purchaseCredits).not.toHaveBeenCalled();
+
+    unlocks.realPaymentsLive = false;
+    const out = await ctrl.buyPack({ pack_code: "starter" }, PAYER_A, req, CTX);
+    expect(out).toMatchObject({ credits: 50 });
+    expect(purchaseCredits).toHaveBeenCalledTimes(1);
+  });
+
+  it("the Redis key carries the payer and the HASHED client key, never the raw header", async () => {
+    const { ctrl, redis } = ctrlWithRealSeam();
+    await ctrl.buyPack({ pack_code: "starter" }, PAYER_A, withKey("secret-key-value"), CTX);
+    const keys = [...redis.store.keys()];
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).toContain(`payer_idem:credits_purchase:${PAYER_A.id}:`);
+    expect(keys[0]).not.toContain("secret-key-value");
   });
 });

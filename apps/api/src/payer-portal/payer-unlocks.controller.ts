@@ -1,5 +1,6 @@
 import {
   Body,
+  ConflictException,
   Controller,
   Get,
   HttpCode,
@@ -8,9 +9,12 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  Req,
   UseGuards,
 } from "@nestjs/common";
+import type { Request } from "express";
 import { Ctx, type RequestContext } from "../common/request-context";
+import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { PayerAuthGuard, CurrentPayer, type AuthenticatedPayer } from "../payers/payer-auth.guard";
 import { PayerDisclosureRateLimit } from "../payers/payer-disclosure-rate-limit.service";
@@ -49,6 +53,7 @@ export class PayerUnlocksController {
   constructor(
     private readonly unlocks: UnlockService,
     private readonly disclosureRate: PayerDisclosureRateLimit,
+    private readonly idempotency: RequestIdempotency,
   ) {}
 
   /**
@@ -140,12 +145,45 @@ export class PayerUnlocksController {
   async buyPack(
     @Body(new ZodValidationPipe(PayerBuyPackSchema)) dto: PayerBuyPackDto,
     @CurrentPayer() payer: AuthenticatedPayer,
+    @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ) {
+    // OUTSIDE THE GUARD, deliberately. This is a deployment-mode gate, not a side effect, and
+    // storing a 404 under an idempotency key would pin that answer for the whole window — so a
+    // payer who happened to tap during a config flip would keep being told the route does not
+    // exist for three minutes after it did.
     if (this.unlocks.realPaymentsLive) throw new NotFoundException();
-    const result = await this.unlocks.purchaseCredits(payer.id, dto.pack_code, ctx);
-    if (!result) throw new NotFoundException(`Unknown credit pack: ${dto.pack_code}`);
-    return result;
+
+    return this.idempotency.runOnce({
+      namespace: "payer_idem",
+      scope: "credits_purchase",
+      // The SESSION payer, never a body value (XB-A) — and scoping the key by it is a safety
+      // property, not bookkeeping: without it one payer could present another's key and be
+      // served their stored purchase result.
+      subject: payer.id,
+      subjectLabel: "payer",
+      logLabel: "payer",
+      idempotencyKey: req.header("idempotency-key"),
+      // 409, NOT AN OPTIMISTIC ANSWER — the one place this route's policy differs from the OTP
+      // path's, and it differs because the OTP path can honestly say "a code is on its way"
+      // while this one cannot invent a balance it has not computed. Returning a guessed balance
+      // to a duplicate would be worse than the double-grant it prevents: the client would render
+      // a number that never existed. The client's correct response is to RE-READ the balance,
+      // which is exactly what the payer app is being changed to do on a timeout.
+      inFlight: (): never => {
+        throw new ConflictException(
+          "This purchase is already being processed; check your balance before trying again",
+        );
+      },
+      work: async () => {
+        const result = await this.unlocks.purchaseCredits(payer.id, dto.pack_code, ctx);
+        // INSIDE the guard: an unknown pack is a property of THIS request, so a retry under the
+        // same key replays the 404 rather than re-running the lookup. A different pack code is a
+        // different logical request and carries its own key.
+        if (!result) throw new NotFoundException(`Unknown credit pack: ${dto.pack_code}`);
+        return result;
+      },
+    });
   }
 
   /**

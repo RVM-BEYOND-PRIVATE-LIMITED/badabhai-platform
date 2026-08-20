@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { HttpException, HttpStatus } from "@nestjs/common";
 import { OtpRequestIdempotency } from "./otp-request-idempotency.service";
+import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 
 /**
@@ -56,7 +57,10 @@ function make(over: { redis?: unknown; failClient?: boolean } = {}) {
       return Buffer.from(token.slice(4), "base64").toString("utf8");
     },
   } as unknown as PiiCryptoService;
-  const svc = new OtpRequestIdempotency(pii, queue as never);
+  // THROUGH THE REAL EXTRACTED CORE, not a double (#1046). Every assertion below was written
+  // against the pre-extraction implementation and is unchanged, so this suite is the proof that
+  // moving the reserve-run-store-replay logic into RequestIdempotency changed no behaviour.
+  const svc = new OtpRequestIdempotency(pii, new RequestIdempotency(pii, queue as never));
   return { svc, client, store };
 }
 
@@ -499,8 +503,10 @@ describe("a credential-bearing outcome is stored as ciphertext (#1023)", () => {
     // consumed and the session minted, and the worker would get a 500 for a login that
     // succeeded, with no way to reach the session that now exists.
     const { svc, store } = make();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (svc as any).pii.encrypt = () => {
+    // The crypto object is SHARED by the wrapper and the extracted core (see `make`), so
+    // breaking it here reaches the encrypt call inside RequestIdempotency — which is where it
+    // now happens. A stale eslint-disable sat on this line on main; the rule does not fire.
+    (svc as unknown as { pii: { encrypt: () => string } }).pii.encrypt = () => {
       throw new Error("keyring unavailable");
     };
 
