@@ -11,6 +11,15 @@ plugins {
     id "com.google.firebase.crashlytics"
 }
 
+// Optional release-signing credentials. Loaded from a gitignored properties file
+// (keys: storeFile / storePassword / keyAlias / keyPassword) that CI/DevOps
+// provisions as a secret. Absent by default, which is intentional.
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
 android {
     namespace = "com.badabhai.payerapp"
     compileSdk = flutter.compileSdkVersion
@@ -37,11 +46,26 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        // Populated only when the gitignored properties file is present (CI/DevOps
+        // secret). When absent, this config stays empty and is never selected below.
+        release {
+            if (keystorePropertiesFile.exists()) {
+                storeFile = keystoreProperties["storeFile"] ? file(keystoreProperties["storeFile"]) : null
+                storePassword = keystoreProperties["storePassword"]
+                keyAlias = keystoreProperties["keyAlias"]
+                keyPassword = keystoreProperties["keyPassword"]
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.debug
+            // Release-signs when a gitignored properties file (storeFile /
+            // storePassword / keyAlias / keyPassword), provisioned by CI/DevOps as a
+            // secret, is present. Otherwise falls back to the debug keys so local and
+            // CI builds keep working until the secret is provisioned.
+            signingConfig = keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
         }
     }
 }
