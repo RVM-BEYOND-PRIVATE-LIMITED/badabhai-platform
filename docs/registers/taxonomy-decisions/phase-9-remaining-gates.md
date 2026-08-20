@@ -13,19 +13,33 @@
 >
 > The production writes made by the owner — `0078`, `0080`, and stamping 76 `embedding_model`
 > values (proven, never assumed) — are recorded below with their evidence.
+>
+> **Sixth pass, 2026-08-20.** `0081_worker_feedback_screen_context` was merged (`#1036`) and
+> applied out of band, which took the migration slot this session was minting into — R39's fix is
+> therefore `0082`. Every open judgement call now has a costed options table in
+> **[`phase-9-open-decisions.md`](./phase-9-open-decisions.md)**, re-measured against production
+> the same day. The measurement that reframes most of them: **the canonical taxonomy is schema
+> without data** — `job_domain_skill` holds **0 edges**, production carries **51 skills** (all
+> `active`, none of them canonical corpus skills), `worker_skill` **6 rows**, `job_reach` **4
+> rows**. Every taxonomy decision below is at its cheapest right now, and that window closes at
+> the first seed.
 
 | # | gate | blocked on | state |
 |---|---|---|---|
 | 0 | `0078` / S3-C | — | ✅ **APPLIED & VERIFIED** — object-by-object, write path exercised |
 | 1 | Embedding provenance (76 unstamped rows) | — | ✅ **CLOSED** — proven `gemini-embedding-001`, stamped |
-| 2 | `cnc-programming` scope decision | **product / taxonomy owner** | ⏸ **decision package complete** — `phase-9-cnc-programming-decision.md` |
+| 2 | `cnc-programming` scope decision | **product / taxonomy owner** | ⏸ **costed, re-measured 2026-08-20** — 11 candidate rows / 4 skills, unchanged. `phase-9-cnc-programming-decision.md` + options table |
 | 3 | 11 provider evaluation cases | — | ✅ **EXECUTED**; replay gap closed; harness defect fixed; **US-04 resolved** |
-| 4 | 5 TD-01 trainer slots | **trade trainer** | ⏸ worksheet ready |
-| 5 | TD-07 | **product + trainer** | ⏸ worksheet ready; engineering evidence complete |
+| 4 | 5 TD-01 trainer slots | **trade trainer** | ⏸ worksheet ready. Separately: TD-01's ratified re-point is **corpus-only** — `skill_drawing_reading` is ABSENT from production and `job_domain_skill` has 0 edges, so seeding is its own owner decision (D1/D2/D3) |
+| 5 | TD-07 | **product + trainer** | ⏸ **four costed remedies (T1–T4)**; engineering evidence complete. Live blast radius measured: **0 welding rows anywhere** — the fix is free today and acquires a backfill at the first welder |
 | 6 | R38 residual | **host-only** | 🔴 open — CD cannot fix it (see below) |
 | 7 | Path A miss recording | — | ✅ **CLOSED** (#1024) — `job_domain_id` reaches `unresolved_phrase`; the thresholds' own inputs are now collectable |
 | 8 | `0080` applied to production | — | ✅ **APPLIED & VERIFIED** object-by-object, RLS included — see below |
-| 9 | **7 tables keep their Data-API grants** (R39) | **owner — production write** | 🔴 open — found by the new `db:audit:rls` sweep |
+| 9 | **7 tables keep their Data-API grants** (R39) | **owner — production write** | 🟡 **fix written, rehearsed, NOT applied** — `0082_rls_lock_seven_tables` (#1037). `db:verify:rls-lock` runs the real statements against production inside a transaction that cannot commit: **22/22 PASS** |
+| 10 | `EVAL_COVERED` — spec and code disagree | **eval owner** | ⏸ **three costed options (E1/E2/E3)**. The 6 mechanical-only skills are now named and all are ABSENT from production, so the stricter reading blocks **0 live promotions** and costs 6 trainer cases |
+| 11 | OIE canonicalization — should the OIE path populate `job_domain_id`? | **product** | ⏸ **three costed options (O1/O2/O3)**. Recommendation on record is the OIE occupation pin; the blocker is that the pin and the canonicalize pass sit on mutually exclusive branches |
+| 12 | `#1027` raw `trade_key` on the worker card | **assign a frontend owner** | ⏸ backend work complete and deliberately unchanged (the id reaching the audit trail is a tested property). **F1** is a one-widget frontend fix. 0 workers exposed today |
+| 13 | Five live migrations unrecorded in the journal (`0076`–`0080`) | **owner — production write** | 🟡 **no longer a blocker.** `0081`'s out-of-band apply moved drizzle's watermark past them, so `db:migrate` reaches `0082` without adoption. Adoption is now hygiene: the journal is a false record until it runs |
 
 ---
 
