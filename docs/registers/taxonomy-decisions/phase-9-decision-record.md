@@ -21,7 +21,7 @@
 | 1 | `cnc-programming` | **A — accept the gap.** Do not build the new runner / embed path. | accepted; pinned by test |
 | 2 | TD-07 | **T4 now, T1 at the first real welder.** | **shipped** |
 | 3 | TD-01 seeding | **D2 — seed + embed, then promote**, trainer cases handled as specified. | sequenced; awaiting owner run |
-| 4 | `EVAL_COVERED` | **E1 — keep the stricter promotion gate.** | shipped (code); 6 cases await a trainer |
+| 4 | `EVAL_COVERED` | **E1 — keep the stricter promotion gate.** | **shipped**; 6 cases await a trainer |
 | 5 | OIE canonicalization | **O2 now, O1 as the eventual proper fix.** | shipped, default-off |
 | 6 | four unmodelled tables | **Keep and model them. Do not drop.** | shipped (declaration) |
 
@@ -72,6 +72,54 @@ unspecific signal.
 
 ---
 
+## 4 — `EVAL_COVERED`: E1, shipped
+
+**What changed.** The gate reads a new predicate, `countsAsEvalCoverage` — *the case is
+`reviewed`* — instead of `isScoreable`, which excluded only `pending_review`.
+
+The two are kept SEPARATE rather than one being redefined, because they answer different
+questions and conflating them is exactly how this drifted:
+
+| predicate | question | a `mechanical` case |
+|---|---|---|
+| `isScoreable` | does this case produce a number? | **yes** — a real retrieval that can fail; excluding it would silently move every published metric |
+| `countsAsEvalCoverage` | does this case prove the skill is findable? | **no** — its query is the skill's own alias, so it asks the index whether an exact string matches itself |
+
+**Measured effect** on `retrieval-v2.jsonl`:
+
+| | before | after |
+|---|---|---|
+| skills covered | 65 | **59** |
+| of the 98-skill growth corpus | 61 | **55** |
+| **live promotions blocked** | — | **0** |
+
+Zero because all six demoted skills belong to the growth corpus, which is **0% seeded**;
+production holds the disjoint wedge corpus. Asserted structurally in the tests, not claimed.
+
+**Two things that were also wrong and are fixed with it.** The `demoted` list was
+*unreachable* — with no `pending_review` cases in the fixture, `isScoreable` never demoted
+anything, so the operator warning had never once printed. It now prints and **names** the
+skills. And `embed-replay-queries` / `replay-path-a` printed `REVIEWED` for every mechanical
+case, from the same conflation; both print the status verbatim now.
+
+**The 6 trainer cases.** Generated as a pack of EMPTY slots, never as authored ground truth:
+
+```
+pnpm --filter @badabhai/db db:review-pack:eval-coverage
+  -> data/taxonomy/eval/review-pack/e1-eval-coverage-trainer-pack.{json,md}
+```
+
+The pack calls `evalCoverage()` — the gate's own function — so it cannot describe a different
+set from the one blocking, and it shrinks as slots are filled. **Engineering must not write
+these six phrases.** A paraphrase authored by the process that then scores it measures nothing,
+and here it would re-open precisely the hole E1 closed, one layer up.
+`phase-9-trainer-worksheet.md` **Part 3** is the human-facing instruction.
+
+**Rollback.** One predicate and its call site. `--waive EVAL_COVERED` was always the escape
+hatch and is now, for the first time, reachable.
+
+---
+
 ## Owner actions still outstanding
 
 Nothing on this row list has been executed. Each is a production mutation.
@@ -79,6 +127,7 @@ Nothing on this row list has been executed. Each is a production mutation.
 | what | why it needs the owner | where it is written down |
 |---|---|---|
 | the TD-01 seed + embed + promote run | writes to production, and seeding creates Path A behaviour that no flag reverses | see the D2 section, added with that work |
+| six trainer phrases for the E1-demoted skills | ground truth a trade trainer must author; engineering writing them would re-open the hole E1 closed | `e1-eval-coverage-trainer-pack.md`, and Part 3 of the trainer worksheet |
 
 ---
 
@@ -87,3 +136,4 @@ Nothing on this row list has been executed. Each is a production mutation.
 | date | what |
 |---|---|
 | 2026-08-20 | Record opened. Ruling on all six recorded; TD-07 T4 shipped. |
+| 2026-08-20 | `EVAL_COVERED` E1 shipped, with the trainer pack for the six skills it demotes. |
