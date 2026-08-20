@@ -42,6 +42,7 @@
     "db:eval:occupation": "tsx src/eval-occupation-retrieval.ts",
     "db:seed:packs": "tsx src/seed-question-packs.ts",
     "db:verify:packs": "tsx src/verify-question-packs.ts",
+    "db:verify:trainer-pack": "tsx src/verify-trainer-pack.ts",
     "db:gen:aliases": "tsx src/generate-domain-aliases.ts",
     "db:gen:domain-skills": "tsx src/generate-domain-skills.ts",
     "db:seed:domain-skills": "tsx src/seed-domain-skills.ts",

@@ -82,6 +82,13 @@ const ALLOWED_DOMAIN_EXPRESSIONS: Record<string, string> = {
   "domainId: r.domain_id":
     "s3d-rollback: reading a recorded row out of the rollback artifact into its own type",
   "domainId: string | null;": "s3d-rollback: a TYPE declaration, not a value",
+  "domainId: string;":
+    "seed-skills `LiveSkillRow`: a TYPE declaration on the READ-ONLY `--plan` snapshot of the " +
+    "`skill` table. It is compared against the corpus to report a domain change and is never " +
+    "written anywhere, least of all to `skill_alias`",
+  "domainId: r.domain_id,":
+    "seed-skills `--plan`: maps the snapshot row's OWN `skill.domain_id` into that type. A " +
+    "read, of the parent skill, on a path that returns before any write pass",
 };
 
 describe("no shipped writer can create a cross-slug alias", () => {

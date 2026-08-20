@@ -16,6 +16,35 @@ answer it; a `pending_review` slot stays out of every metric and costs nothing.
 paraphrase that repeats an alias tests nothing, which is the whole reason the mechanical case
 stopped counting.
 
+## Checking your work
+
+Engineering does not write the phrases — a paraphrase written by the same side that scores it
+measures nothing, which is the reason this pack exists at all. What engineering provides is the
+checker:
+
+```
+pnpm --filter @badabhai/db db:verify:trainer-pack
+```
+
+It is offline and reads only this pack and the fixture. For each slot you fill it answers one
+question — **would this case actually measure something?** — and reports every problem at once
+rather than one per round trip. It will tell you if:
+
+- the phrase is an existing alias of the same skill (the mechanical case again);
+- the two slots for one skill hold the same phrase;
+- `review_status` is not `reviewed`, so the gate still will not count it;
+- `provenance` is still `pending_reviewer_authorship`, or was set back to a `corpus_alias:*`;
+- the Hindi slot was answered in Latin script, or the English slot in Devanagari;
+- the scope is a domain this skill is not wired to, so the case cannot pass however good the
+  phrase is;
+- the `case_id` collides with one already in the fixture.
+
+**It has no opinion on whether a phrase is a good description of the trade.** That judgement is
+yours, and nothing in the tool second-guesses it. Every rule above is a way a case would measure
+*nothing*. A slot left empty is not an error and costs nothing.
+
+---
+
 > Built without alias vectors, so the *nearest other skills* section is absent. Re-run with
 > `--vectors=<tsv>` from `db:export:alias-vectors` to include it. Its absence means it was
 > not computed — not that these skills have no near neighbours.
