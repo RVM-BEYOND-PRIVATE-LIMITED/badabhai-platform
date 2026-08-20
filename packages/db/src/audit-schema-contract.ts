@@ -26,6 +26,7 @@ import {
   uniqueIndexMatches,
   type JournalEntry,
   type PresenceMap,
+  type RecordedState,
 } from "./schema-contract";
 
 // EXPLICIT PATH, matching every other runner in this package. A bare `config()` resolves
@@ -40,29 +41,39 @@ const MIGRATIONS_DIR = join(__dirname, "..", "migrations");
 /** The repo's migration files, in journal order, keyed the way drizzle keys them. */
 function readJournal(): JournalEntry[] {
   const meta = JSON.parse(readFileSync(join(MIGRATIONS_DIR, "meta", "_journal.json"), "utf8")) as {
-    entries: { tag: string }[];
+    entries: { tag: string; when: number }[];
   };
   return meta.entries.map((e) => ({
     tag: e.tag,
     hash: createHash("sha256").update(readFileSync(join(MIGRATIONS_DIR, `${e.tag}.sql`), "utf8")).digest("hex"),
+    when: e.when,
   }));
 }
 
 /**
- * What the database has RECORDED. Absent-table tolerant: a database that has never been
- * migrated has no `drizzle.__drizzle_migrations`, and that is a legitimate state to audit
- * rather than a crash.
+ * What the database has RECORDED, in the two forms the two questions need: every hash (journal
+ * honesty) and `max(created_at)` (the watermark drizzle actually branches on — see
+ * `migrationDrift`). Both come from one read so they cannot disagree with each other.
+ *
+ * Absent-table tolerant: a database that has never been migrated has no
+ * `drizzle.__drizzle_migrations`, and that is a legitimate state to audit rather than a crash.
+ * It maps to `watermark: null`, which is drizzle's own `!lastDbMigration` branch — apply
+ * everything — rather than to zero, which would mean the opposite.
  */
-async function recordedHashes(db: {
+async function recordedState(db: {
   execute: (q: ReturnType<typeof dsql>) => Promise<unknown>;
-}): Promise<Set<string>> {
+}): Promise<RecordedState> {
   try {
     const rows = (await db.execute(
-      dsql`SELECT hash FROM drizzle.__drizzle_migrations`,
-    )) as unknown as { hash: string }[];
-    return new Set(rows.map((r) => r.hash));
+      dsql`SELECT hash, created_at FROM drizzle.__drizzle_migrations`,
+    )) as unknown as { hash: string; created_at: string | number }[];
+    const whens = rows.map((r) => Number(r.created_at)).filter((n) => Number.isFinite(n));
+    return {
+      hashes: new Set(rows.map((r) => r.hash)),
+      watermark: whens.length > 0 ? Math.max(...whens) : null,
+    };
   } catch {
-    return new Set();
+    return { hashes: new Set(), watermark: null };
   }
 }
 
@@ -180,24 +191,32 @@ async function main(): Promise<void> {
     ];
 
     // THE SECOND QUESTION — can the remedy run? See `migrationDrift` for the incident.
-    const drift = migrationDrift(readJournal(), await recordedHashes(db), missingMigrations);
+    const recorded = await recordedState(db);
+    const drift = migrationDrift(readJournal(), recorded, missingMigrations);
 
     console.log(`\n  ready for the code on main? = ${blocked === null ? "YES" : `NO — ${blocked}`}`);
-    if (blocked !== null) {
+    if (blocked !== null || drift.silentlySkipped.length > 0) {
       console.log("");
       console.log(
         `  migration journal        = ${drift.unrecorded.length} of ${readJournal().length} file(s) unrecorded` +
           (drift.unrecorded.length > 0 ? `: ${drift.unrecorded.join(", ")}` : ""),
       );
+      console.log(
+        `  migrate watermark        = ${recorded.watermark ?? "none (no journal table)"}` +
+          `  ->  will replay ${drift.willReplay.length}, will skip ${drift.willSkip.length}`,
+      );
       for (const line of driftRemedy(drift)) console.log(`  ${line}`);
       // THE OTHER EXPLANATION, stated before the remedy is attempted a second time. If the
       // migration was already applied, the two candidate causes are "it did not commit" and
       // "it landed on a different cluster", and only the operator can tell them apart —
-      // cheaply, with one query.
-      console.log("");
-      console.log(`  If this migration was ALREADY applied, it did not land on THIS cluster.`);
-      console.log(`  Run  ${CLUSTER_IDENTITY_SQL}  where you applied it and compare to`);
-      console.log(`  the cluster line above. Different number = a different database.`);
+      // cheaply, with one query. Only when something is actually MISSING: the silent-skip case
+      // has its own, different explanation and this one would send the reader after a ghost.
+      if (blocked !== null) {
+        console.log("");
+        console.log(`  If this migration was ALREADY applied, it did not land on THIS cluster.`);
+        console.log(`  Run  ${CLUSTER_IDENTITY_SQL}  where you applied it and compare to`);
+        console.log(`  the cluster line above. Different number = a different database.`);
+      }
       process.exitCode = 1;
     } else if (!drift.migrateAloneIsSafe) {
       // The objects are all there, so nothing is broken TODAY — but the journal is behind and
@@ -205,9 +224,10 @@ async function main(): Promise<void> {
       // readiness audit for the code on `main`, and by that measure the database passes.
       console.log("");
       console.log(
-        `  note: the journal is behind by ${drift.unclassified.length} file(s) whose objects are ` +
-          `already live (${drift.unclassified.join(", ")}). Nothing is broken now, and the next ` +
-          `pending migration will not apply until they are adopted.`,
+        `  note: ${drift.willSkip.length} file(s) sit at or below the migrate watermark and are ` +
+          `unrecorded (${drift.willSkip.join(", ")}). Their objects are live, so nothing is ` +
+          `broken — but drizzle will skip them forever, and the journal stays a false record ` +
+          `of what this database has. Adopt them; see driftRemedy above.`,
       );
     }
 
@@ -232,7 +252,11 @@ async function main(): Promise<void> {
             journal: {
               unrecorded: drift.unrecorded,
               pending: drift.pending,
-              unclassified: drift.unclassified,
+              watermark: recorded.watermark,
+              will_replay: drift.willReplay,
+              will_skip: drift.willSkip,
+              replay_collides: drift.replayCollides,
+              silently_skipped: drift.silentlySkipped,
               migrate_alone_is_safe: drift.migrateAloneIsSafe,
             },
           },

@@ -1,7 +1,7 @@
 /**
- * The 0081 rehearsal's pure parts — and one test that is not about this file at all.
+ * The 0082 rehearsal's pure parts — and one test that is not about this file at all.
  *
- * `the rehearsal matches the migration` reads `0081_rls_lock_seven_tables.sql` off disk and
+ * `the rehearsal matches the migration` reads `0082_rls_lock_seven_tables.sql` off disk and
  * asserts the statements this runner executes are the statements that file will apply. Without
  * it the tool proves something adjacent to the migration rather than the migration: someone
  * edits the SQL, the rehearsal keeps passing against its own private copy of the plan, and the
@@ -22,7 +22,7 @@ import {
 } from "./verify-rls-lock";
 
 const MIGRATION = readFileSync(
-  join(__dirname, "..", "migrations", "0081_rls_lock_seven_tables.sql"),
+  join(__dirname, "..", "migrations", "0082_rls_lock_seven_tables.sql"),
   "utf8",
 );
 /** The DDL, with the header comment block stripped — every line of it starts with `--`. */
@@ -87,13 +87,13 @@ describe("lockStatements — what the rehearsal actually runs", () => {
 });
 
 describe("the rehearsal matches the migration it rehearses", () => {
-  it("names every one of the seven tables in 0081's DDL", () => {
+  it("names every one of the seven tables in 0082's DDL", () => {
     for (const { table } of R39_TABLES) {
-      expect(DDL, `0081 must mention ${table}`).toContain(table);
+      expect(DDL, `0082 must mention ${table}`).toContain(table);
     }
   });
 
-  it("0081 REVOKEs from all four roles for each Section-A table, unconditionally", () => {
+  it("0082 REVOKEs from all four roles for each Section-A table, unconditionally", () => {
     for (const { table, cls } of R39_TABLES) {
       if (cls !== "declared-by-0048") continue;
       for (const role of ["PUBLIC", "anon", "authenticated", "service_role"]) {
@@ -104,7 +104,7 @@ describe("the rehearsal matches the migration it rehearses", () => {
   });
 
   it("guards every Section-B table behind to_regclass, so a fresh database does not abort", () => {
-    // The four exist only on production. An unconditional ALTER would fail migration 0081 in
+    // The four exist only on production. An unconditional ALTER would fail migration 0082 in
     // CI, in the e2e job, and on every new developer's machine — and take the slot with it.
     expect(DDL).toContain("to_regclass");
     for (const { table, cls } of R39_TABLES) {
@@ -116,7 +116,7 @@ describe("the rehearsal matches the migration it rehearses", () => {
     }
   });
 
-  it("adds no table, column, index or constraint — 0081 is a permissions change only", () => {
+  it("adds no table, column, index or constraint — 0082 is a permissions change only", () => {
     expect(DDL).not.toMatch(/\bCREATE\s+(TABLE|INDEX|UNIQUE)\b/i);
     expect(DDL).not.toMatch(/\bADD\s+(COLUMN|CONSTRAINT)\b/i);
     expect(DDL).not.toMatch(/\bDROP\b/i);

@@ -1,5 +1,5 @@
 /**
- * Prove migration 0081 will actually lock the seven R39 tables — WITHOUT applying it.
+ * Prove migration 0082 will actually lock the seven R39 tables — WITHOUT applying it.
  *
  * ===========================================================================
  * WHY THIS EXISTS
@@ -7,11 +7,11 @@
  * `db:audit:rls` says the seven tables are open. That is the diagnosis. It does not say the
  * prescription works, and for a REVOKE that is not a rhetorical distinction: **a REVOKE only
  * removes privileges the executing role is entitled to remove.** If the grants were made by a
- * role the migration's connection is not a member of, every REVOKE in 0081 is a silent no-op —
+ * role the migration's connection is not a member of, every REVOKE in 0082 is a silent no-op —
  * no error, no warning, and an audit run afterwards reports the same seven tables. The migration
  * would be recorded as applied and would have changed nothing.
  *
- * There are two more ways 0081 could be wrong in a way review cannot catch:
+ * There are two more ways 0082 could be wrong in a way review cannot catch:
  *
  *   FORCE LOCKS THE APP OUT. FORCE makes RLS apply to the table OWNER, and this schema has zero
  *   policies anywhere — so on a connection without `rolbypassrls` it is a total denial of a
@@ -19,7 +19,7 @@
  *   is correct, and reasoning is not measurement.
  *
  *   THE SECTION-B GUARD MISFIRES. Four of the seven exist on production and in no migration, so
- *   0081 wraps them in a `to_regclass` guard. A guard that silently skips a table that IS there
+ *   0082 wraps them in a `to_regclass` guard. A guard that silently skips a table that IS there
  *   looks exactly like success.
  *
  * This runner answers all three by DOING it — the real statements, in the real order, against
@@ -73,7 +73,7 @@ const SCRIPT = "verify:rls-lock";
 const scalar = <T,>(rows: readonly T[], what: string): T => scalarRow(rows, what, SCRIPT);
 
 /**
- * Which half of 0081 a table belongs to. The distinction is not cosmetic: it decides whether
+ * Which half of 0082 a table belongs to. The distinction is not cosmetic: it decides whether
  * "table absent" is a failure or the expected state.
  */
 export type R39Class = "declared-by-0048" | "unmodelled";
@@ -84,7 +84,7 @@ export interface R39Table {
 }
 
 /**
- * The seven, in the order 0081 locks them.
+ * The seven, in the order 0082 locks them.
  *
  * `declared-by-0048` tables exist in every environment — migration 0048 creates them — so their
  * absence here is a real failure. `unmodelled` tables (GAP-DB-21) exist on production and in no
@@ -108,7 +108,7 @@ export const DML = ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFEREN
 export const REVOKED_ROLES = DATA_API_ROLES.filter((r) => r !== "PUBLIC");
 
 /**
- * Exactly what 0081 runs for one table, in 0081's order.
+ * Exactly what 0082 runs for one table, in 0082's order.
  *
  * Shared by the probe and by the migration's own text — a test asserts the two agree, so the
  * thing this proves is the thing that will be applied rather than a paraphrase of it.
@@ -126,7 +126,7 @@ export function expectationFor(id: string): string {
   const [table, kind] = id.split(":");
   switch (kind) {
     case "lock-takes":
-      return `${table}: after 0081's statements the table reads back ENABLED + FORCED + no Data-API grant`;
+      return `${table}: after 0082's statements the table reads back ENABLED + FORCED + no Data-API grant`;
     case "owner-can-read":
       return `${table}: the backend's own connection can still read it once FORCE is on`;
     case "privileges-zero":
@@ -193,7 +193,7 @@ async function main(): Promise<void> {
     mutating: false,
   });
   if (verdict.warning) console.log(verdict.warning);
-  console.log(`[${SCRIPT}] 0081 REHEARSAL inside a transaction that CANNOT commit.`);
+  console.log(`[${SCRIPT}] 0082 REHEARSAL inside a transaction that CANNOT commit.`);
   console.log(`  target = ${hostClass(url)}`);
 
   const { db, sql } = createDbClient(url, { max: 1 });
@@ -313,7 +313,7 @@ async function main(): Promise<void> {
 
     const ok = allPassed(results);
     console.log(
-      `\n  would 0081 lock these tables? = ${ok ? "YES" : "NO — see the FAIL lines above"}`,
+      `\n  would 0082 lock these tables? = ${ok ? "YES" : "NO — see the FAIL lines above"}`,
     );
     console.log(`  rehearsed ${results.length - 1} probe(s) over ${R39_TABLES.length - skipped.length} live table(s); nothing was committed.`);
     if (!ok) process.exitCode = 1;
@@ -330,7 +330,7 @@ async function main(): Promise<void> {
         `${JSON.stringify(
           {
             kind: "rls-lock-rehearsal",
-            migration: "0081_rls_lock_seven_tables",
+            migration: "0082_rls_lock_seven_tables",
             target: hostClass(url),
             role: { name: who.role, bypassrls: who.bypass, superuser: who.super },
             would_lock: ok,
