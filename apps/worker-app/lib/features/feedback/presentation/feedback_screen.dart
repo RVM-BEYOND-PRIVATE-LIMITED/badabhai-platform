@@ -16,11 +16,45 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
+import '../../chat/presentation/widgets/voice_wave_visualizer.dart';
+import '../../consent/presentation/consent_screen.dart';
 import '../../voice/presentation/dictation_controller.dart';
-import '../../voice/presentation/widgets/dictation_bar.dart';
 import '../domain/feedback_category.dart';
 import '../domain/feedback_limits.dart';
 import '../domain/feedback_repository.dart';
+
+/// Visible caption on the IDLE voice control — the mic that lives INSIDE the
+/// message box, at its trailing edge.
+const String kFeedbackSpeakLabel = 'Bolein';
+
+/// Visible caption on the same control while the recogniser is running.
+const String kFeedbackStopLabel = 'Rokein';
+
+/// Accessible name of the idle control. Contains the visible caption (a screen
+/// reader and a sighted worker must be told the same thing), then says what it
+/// does for someone who cannot read the mic glyph.
+const String kFeedbackSpeakSemantics = 'Bolein — bolkar likhein';
+
+/// Accessible name of the control while listening.
+const String kFeedbackStopSemantics = 'Rokein — sunna band karein';
+
+/// Visible AND spoken state of the listening strip. It is a live region: the
+/// most important state on this screen must reach a screen reader the moment it
+/// changes, not only when the worker happens to swipe onto the waveform.
+const String kFeedbackListeningLabel = 'Sun rahe hain…';
+
+/// The ONE voice control on the screen: mic when idle, stop while listening.
+/// Public so tests can assert it is BUILT AND TAPPABLE on a real budget-phone
+/// viewport, which is the whole reason it moved into the field.
+const Key kFeedbackVoiceControlKey = ValueKey<String>('feedbackVoiceControl');
+
+/// The waveform slot in the listening strip.
+const Key kFeedbackVoiceWaveKey = ValueKey<String>('feedbackVoiceWave');
+
+/// Side of the square voice control, and therefore the width the message box
+/// reserves for it. Comfortably past the 48dp worker touch floor
+/// ([AppSpacing.tap]) because it holds an icon AND its caption.
+const double _kVoiceControlSide = 60;
 
 /// The app-wide feedback page (opened by the floating "Feedback" button on every
 /// non-auth screen).
@@ -38,6 +72,25 @@ import '../domain/feedback_repository.dart';
 /// tap to start, tap Stop to end — so a worker who has been through the
 /// interview already knows the gesture. There is no second gesture vocabulary
 /// here on purpose.
+///
+/// WHERE THE MIC IS, AND WHY IT MOVED (owner ruling). It sits INSIDE the message
+/// box at the trailing edge — the chat composer's slot — and the SAME control
+/// becomes Stop while the recogniser runs. Two reasons, in order:
+///
+///  1. A worker who finished the profiling interview already knows that control:
+///     same place, same gesture, same meaning. Inventing a second interaction
+///     vocabulary for the same job is the expensive kind of inconsistency.
+///  2. It was MEASURED unreachable where it used to live. Under the box, in a
+///     lazy [ListView], on a 360x640dp budget Android viewport with the keyboard
+///     up, the mic row was 100dp past the fold and the list never BUILT it — so
+///     on the hardware this product targets the mic did not exist. The screen's
+///     own test had to ask for a 900x1900 canvas to see it, which is the defect
+///     written into the test setup. The control is now anchored to the TOP of the
+///     box, so it is on screen whenever the box's first line is.
+///
+/// The listening state gets its own strip directly ABOVE the box (waveform +
+/// "Sun rahe hain…", a semantics live region), because the box itself keeps
+/// showing what the worker already wrote.
 ///
 /// The recognised words land in the SAME text box, where the worker can fix them
 /// before sending. No audio is uploaded, no `/voice/*` endpoint is called, no AI
@@ -178,21 +231,6 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     _landDictation(heard);
   }
 
-  /// Send from the listening row: end listening, land the words, and submit in
-  /// one tap — the chat composer's second control, behaving the same way.
-  void _sendFromDictation() {
-    final String heard = _dictation.stopForSend();
-    if (heard.isEmpty) {
-      // Nothing was recognised, so there is nothing to send. Without this the
-      // worker tapped the primary control and the app did not react AT ALL:
-      // [_submit] returned on the empty field, no snackbar, no busy state.
-      _showTransientNotice(kVoiceToTextUnavailable);
-      return;
-    }
-    _landDictation(heard);
-    unawaited(_submit());
-  }
-
   /// Put recognised [text] in the field with the caret at the end, so the next
   /// thing the worker types continues their sentence.
   void _landDictation(String text) {
@@ -312,6 +350,11 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         iconRight: Icons.send_rounded,
         onPressed: canSend ? _submit : null,
       ),
+      // ORDER IS LOAD-BEARING. The box (and with it the mic anchored to its top
+      // corner) comes BEFORE the optional category chips, so that on a 360x640dp
+      // budget viewport with the keyboard up — about 284dp of body — the voice
+      // control is on screen without scrolling. The chips are optional and the
+      // hint is prose; the box is the job, so the box goes first.
       body: ListView(
         controller: _scroll,
         children: <Widget>[
@@ -323,15 +366,25 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
               color: AppColors.textSecondary,
             ),
           ),
-          const SizedBox(height: AppSpacing.s1),
+          const SizedBox(height: AppSpacing.s3),
+          Text('AAPKI BAAT',
+              style: AppTypography.eyebrow(color: AppColors.textMuted)),
+          const SizedBox(height: AppSpacing.s2),
+          _messageBox(),
+          const SizedBox(height: AppSpacing.s2),
+          if (_remaining <= kFeedbackCounterShowsWithin)
+            Align(alignment: Alignment.centerRight, child: _counter()),
           Text(
-            'Likhna mushkil ho to mic dabakar boliye — aapki baat yahin likhi jayegi.',
+            // Points at the control by the word printed ON it, because "mic" is
+            // a glyph a worker may not read and "upar" is where it now is.
+            'Likhna mushkil ho to box ke "$kFeedbackSpeakLabel" par tap karke '
+            'boliye — aapki baat yahin likhi jayegi.',
             style: AppTypography.body(
               size: AppTypography.sizeSm,
               color: AppColors.textMuted,
             ),
           ),
-          const SizedBox(height: AppSpacing.s4),
+          const SizedBox(height: AppSpacing.s5),
           Text('KIS BAARE MEIN? (OPTIONAL)',
               style: AppTypography.eyebrow(color: AppColors.textMuted)),
           const SizedBox(height: AppSpacing.s2),
@@ -350,58 +403,6 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                 ),
             ],
           ),
-          const SizedBox(height: AppSpacing.s5),
-          Text('AAPKI BAAT',
-              style: AppTypography.eyebrow(color: AppColors.textMuted)),
-          const SizedBox(height: AppSpacing.s2),
-          TextField(
-            controller: _controller,
-            // Free-form: multi-line and it grows as they type. The ONLY rule is
-            // the server's own ceiling (#1013) — enforced here so a worker
-            // physically cannot type their way into a 400 they can never clear.
-            minLines: 5,
-            maxLines: null,
-            maxLength: kWorkerFeedbackMessageMax,
-            maxLengthEnforcement: MaxLengthEnforcement.enforced,
-            // Suppress Material's own "123/4000" counter: it would sit under an
-            // EMPTY box announcing a quota. Ours appears only near the ceiling.
-            buildCounter: (BuildContext context,
-                    {required int currentLength,
-                    required bool isFocused,
-                    required int? maxLength}) =>
-                null,
-            keyboardType: TextInputType.multiline,
-            textCapitalization: TextCapitalization.sentences,
-            autofocus: true,
-            // While the mic runs the box is READ-ONLY. The recognised block is
-            // assigned over the field wholesale when it lands, built on the text
-            // snapshotted at the moment the mic started — so anything typed in
-            // between would be destroyed without a word. The chat composer never
-            // hits this because it SWAPS the field out for the waveform; this
-            // screen keeps the field visible (the worker wants to see what they
-            // already wrote), so it has to stop accepting edits instead.
-            readOnly: _dictation.listening,
-            style: AppTypography.body(size: AppTypography.sizeMd),
-            decoration: InputDecoration(
-              hintText: 'Yahan likhein…',
-              filled: true,
-              fillColor: AppColors.paper,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.s3,
-                vertical: AppSpacing.s3,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppRadii.sm),
-                borderSide: const BorderSide(color: AppColors.borderSubtle),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppRadii.sm),
-                borderSide: const BorderSide(color: AppColors.blue, width: 1.5),
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          _voiceRow(),
           if (_blocked != null) ...<Widget>[
             const SizedBox(height: AppSpacing.s3),
             _blockedPanel(_blocked!),
@@ -412,36 +413,195 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     );
   }
 
-  /// The row under the box: the mic (idle) or the full-width listening bar, plus
-  /// the character counter once the ceiling is close.
-  Widget _voiceRow() {
-    if (_dictation.listening) {
-      return DictationBar(
-        level: _dictation.level,
-        waveKey: const ValueKey<String>('feedbackVoiceWave'),
-        onStop: _stopDictation,
-        onSend: _sendFromDictation,
-      );
-    }
-    return Row(
+  /// The message box: the listening strip (only while the recogniser runs) over
+  /// the text field, with the ONE voice control pinned inside the field at its
+  /// TOP-trailing corner.
+  ///
+  /// TOP, not centre: the control's reachability then depends only on the box's
+  /// FIRST line being on screen. Centring it on a five-line box (the chat
+  /// composer's look, on a field four times the height) put it back within a few
+  /// dp of the keyboard line on a 360x640 device — the defect this moved to fix.
+  Widget _messageBox() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        TextButton.icon(
-          onPressed: _startDictation,
-          icon: const Icon(Icons.mic, size: 20, color: AppColors.blue),
-          label: Text(
-            // The SAME words the chat composer's mic uses, so the two surfaces
-            // read as one feature.
-            'Bolkar likhein',
-            style: AppTypography.body(
-              size: AppTypography.sizeSm,
-              weight: FontWeight.w700,
-              color: AppColors.blue,
+        if (_dictation.listening) ...<Widget>[
+          _listeningStrip(),
+          const SizedBox(height: AppSpacing.s2),
+        ],
+        Stack(
+          children: <Widget>[
+            _messageField(),
+            // Non-positioned child above sizes the Stack, so this rides the
+            // field's own top-right corner at any height it grows to.
+            Positioned(top: 1, right: 1, child: _voiceControl()),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _messageField() {
+    return TextField(
+      controller: _controller,
+      // Free-form: multi-line and it grows as they type. The ONLY rule is
+      // the server's own ceiling (#1013) — enforced here so a worker
+      // physically cannot type their way into a 400 they can never clear.
+      minLines: 5,
+      maxLines: null,
+      maxLength: kWorkerFeedbackMessageMax,
+      maxLengthEnforcement: MaxLengthEnforcement.enforced,
+      // Suppress Material's own "123/4000" counter: it would sit under an
+      // EMPTY box announcing a quota. Ours appears only near the ceiling.
+      buildCounter: (BuildContext context,
+              {required int currentLength,
+              required bool isFocused,
+              required int? maxLength}) =>
+          null,
+      keyboardType: TextInputType.multiline,
+      textCapitalization: TextCapitalization.sentences,
+      autofocus: true,
+      // While the mic runs the box is READ-ONLY. The recognised block is
+      // assigned over the field wholesale when it lands, built on the text
+      // snapshotted at the moment the mic started — so anything typed in
+      // between would be destroyed without a word. The chat composer never
+      // hits this because it SWAPS the field out for the waveform; this
+      // screen keeps the field visible (the worker wants to see what they
+      // already wrote), so it has to stop accepting edits instead.
+      readOnly: _dictation.listening,
+      style: AppTypography.body(size: AppTypography.sizeMd),
+      decoration: InputDecoration(
+        hintText: 'Yahan likhein…',
+        filled: true,
+        fillColor: AppColors.paper,
+        // The trailing inset RESERVES the voice control's column, so no line of
+        // the worker's text ever runs underneath it.
+        contentPadding: const EdgeInsets.fromLTRB(
+          AppSpacing.s3,
+          AppSpacing.s3,
+          _kVoiceControlSide + AppSpacing.s2,
+          AppSpacing.s3,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          borderSide: const BorderSide(color: AppColors.borderSubtle),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          borderSide: const BorderSide(color: AppColors.blue, width: 1.5),
+        ),
+      ),
+    );
+  }
+
+  /// The ONE voice control, inside the box at its trailing edge: MIC when idle,
+  /// STOP while listening. Same slot, same tap, both states — the chat
+  /// composer's control, so a worker who finished the interview already knows it.
+  ///
+  /// ACCESSIBILITY: it carries a VISIBLE Hinglish caption and an explicit
+  /// accessible name that contains that caption. A tooltip is not a label — it
+  /// needs a long-press to appear, which a worker who cannot read a mic glyph has
+  /// no reason to try. [Semantics.excludeSemantics] collapses the icon and the
+  /// caption into that one node (so it is announced once, not three times) and
+  /// [Semantics.onTap] re-publishes the action the excluded [InkWell] would have.
+  Widget _voiceControl() {
+    final bool live = _dictation.listening;
+    final VoidCallback onTap = live ? _stopDictation : _startDictation;
+    return Semantics(
+      container: true,
+      button: true,
+      label: live ? kFeedbackStopSemantics : kFeedbackSpeakSemantics,
+      excludeSemantics: true,
+      onTap: onTap,
+      // Its OWN transparent Material: the ripple otherwise renders on the
+      // Scaffold's material, underneath the field's own fill, and the control
+      // gives no press feedback at all.
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          key: kFeedbackVoiceControlKey,
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          child: SizedBox(
+            width: _kVoiceControlSide,
+            height: _kVoiceControlSide,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: <Widget>[
+                Icon(
+                  live ? Icons.stop_circle_rounded : Icons.mic,
+                  size: 24,
+                  // The stop takes the chat composer's stop colour, not crimson:
+                  // ending dictation is not a destructive action, and this design
+                  // system reserves danger for ones that are.
+                  color: live ? AppColors.textSecondary : AppColors.blue,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  live ? kFeedbackStopLabel : kFeedbackSpeakLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.clip,
+                  style: AppTypography.body(
+                    size: AppTypography.sizeXs,
+                    weight: FontWeight.w700,
+                    color: live ? AppColors.textSecondary : AppColors.blue,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-        const Spacer(),
-        if (_remaining <= kFeedbackCounterShowsWithin) _counter(),
-      ],
+      ),
+    );
+  }
+
+  /// The listening cue, directly above the box: the live waveform plus the words
+  /// "Sun rahe hain…". It sits ABOVE rather than below because the box grows with
+  /// the worker's report — anything under it walks off the bottom of a small
+  /// screen, which is exactly how the mic went missing in the first place.
+  ///
+  /// One semantics node, [Semantics.liveRegion], so a screen reader is TOLD the
+  /// mic went live instead of having to find a painted waveform.
+  Widget _listeningStrip() {
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      label: kFeedbackListeningLabel,
+      excludeSemantics: true,
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.infoTint,
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          border: Border.all(color: AppColors.borderSubtle),
+        ),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.s3,
+          vertical: AppSpacing.s1,
+        ),
+        child: Row(
+          children: <Widget>[
+            Text(
+              kFeedbackListeningLabel,
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                weight: FontWeight.w700,
+                color: AppColors.blue,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.s3),
+            Expanded(
+              child: SizedBox(
+                key: kFeedbackVoiceWaveKey,
+                // A SLIM strip on purpose. It is a cue, not a control (the stop
+                // is the box's own trailing button), and every dp it takes pushes
+                // that stop closer to the fold on a 640dp-tall phone.
+                height: 28,
+                child: VoiceWaveVisualizer(level: _dictation.level),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -459,12 +619,45 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     );
   }
 
+  /// Open consent as a ROUND TRIP, not a one-way door.
+  ///
+  /// `context.go(Routes.consent)` REPLACED the stack: the worker landed on
+  /// consent with no back button, and accepting carried them on into the name
+  /// step and the profiling interview — an onboarding flow an onboarded worker
+  /// had already completed — with no way back to the report they were writing.
+  /// Two dead ends bolted onto the screen that exists to remove dead ends.
+  ///
+  /// So it is PUSHED, with [ConsentReturnIntent] as `extra`. That marker is what
+  /// tells [ConsentScreen] this is a recovery and not the first onboarding step:
+  /// it shows a back arrow (decline and return) and pops on success instead of
+  /// walking on to `/name`. Either way the worker comes back HERE, with their
+  /// paragraph still in the box.
+  ///
+  /// Safe against the router: `_authRedirect` only forces `/consent` when consent
+  /// is a definitive `false`, and in that state the Feedback button is hidden and
+  /// this screen is unreachable — so this push is never swallowed or bounced.
+  Future<void> _openConsent() async {
+    final bool? accepted = await context.push<bool>(
+      Routes.consent,
+      extra: const ConsentReturnIntent(),
+    );
+    if (!mounted) return;
+    // Back from consent either way: the refusal panel describes an attempt that
+    // is now over, so clear it and let them press Bhejein again. Deliberately NOT
+    // an automatic re-send — posting a worker's words the instant they tick a
+    // consent box is exactly the tap that should stay theirs.
+    setState(() => _blocked = null);
+    if (accepted == true) {
+      _showTransientNotice('Consent ho gaya. Ab "Bhejein" dabayein.');
+    }
+  }
+
   /// The persistent panel for a refusal the worker has to act on.
   ///
   /// Consent (403) is the one that had NOTHING on the screen to act on: the
   /// worker typed a paragraph, tapped Bhejein, read "consent dena hoga" in a
   /// snackbar, and was left on a screen with no consent anywhere on it. It now
-  /// carries the way out.
+  /// carries the way out — see [_openConsent] for why that way out is a push.
   Widget _blockedPanel(Failure failure) {
     final bool consent = failure is ConsentRequiredFailure;
     final ({IconData icon, String reason}) shown = failureReason(failure);
@@ -496,11 +689,12 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
           if (consent) ...<Widget>[
             const SizedBox(height: AppSpacing.s2),
             Text(
-              // Honest about the cost: consent replaces this screen, so the text
-              // in the box does NOT survive it. Nothing they typed is stored
-              // anywhere before they have consented, and it must not be.
-              'Aapki baat abhi nahi bheji gayi. Consent ke baad Feedback dobara '
-              'kholkar bhejein.',
+              // Honest, and now TRUE: consent is PUSHED over this screen, so the
+              // box — and the paragraph in it — is still here when they come
+              // back. Nothing they typed is stored anywhere before they have
+              // consented, and it must not be; it simply stays on the device.
+              'Aapki baat abhi nahi bheji gayi. Consent dene ke baad wapas aakar '
+              'Bhejein dabayein — aapki baat yahin rahegi.',
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
                 color: AppColors.textSecondary,
@@ -509,10 +703,17 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
             const SizedBox(height: AppSpacing.s3),
             BbButton(
               label: 'Consent dein',
-              size: BbButtonSize.md,
+              // lg (52dp), NOT md. `BbButtonSize.md` is 44dp, under the 48dp
+              // worker touch floor this design system states in its own spacing
+              // tokens ("touch targets are sacred"). The TOKEN is deliberately
+              // left alone — `controlMd` is mirrored in payer-app and in the
+              // design system, so widening it here would fork the DS to fix one
+              // button. This call site simply asks for a size that clears the
+              // floor.
+              size: BbButtonSize.lg,
               variant: BbButtonVariant.navy,
               iconRight: Icons.arrow_forward_rounded,
-              onPressed: () => context.go(Routes.consent),
+              onPressed: _openConsent,
             ),
           ],
         ],

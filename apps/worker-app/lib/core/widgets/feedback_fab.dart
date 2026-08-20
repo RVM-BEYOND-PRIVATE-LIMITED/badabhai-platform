@@ -32,14 +32,22 @@ const List<String> _kHiddenPrefixes = <String>[
 /// [consentAccepted] is the router's TRI-STATE consent signal, and ONLY when the
 /// gate is live (see [feedbackConsentSignal]) — otherwise null.
 ///
-/// A DEFINITIVE `false` hides the button EVERYWHERE. That is not a policy choice
-/// about who may send feedback; it is the same rule the rest of this file already
-/// states — a dead button is worse than no button. `_authRedirect`
-/// (`router.dart`) bounces any push to `/feedback` straight back to `/consent`
-/// while consent is false, so the worker taps Feedback and NOTHING VISIBLY
-/// HAPPENS AT ALL: no screen, no error, no explanation. (In that state /consent
-/// is the only reachable route anyway, so this hides the button on exactly one
-/// screen — the one where it is dead.)
+/// RULING — a DEFINITIVE `false` hides the button EVERYWHERE. Settled; do not
+/// re-open it as "the worker should still be able to send feedback". Two reasons,
+/// and the first one is the binding one:
+///
+///  1. LAWFULNESS. Pre-consent there is nothing this screen could do with the
+///     worker's free text. §6's `ConsentGuard` refuses the submit server-side,
+///     and storing or transmitting a worker's own words before they have
+///     consented is not lawful processing under DPDP. A button whose only
+///     possible outcome is an unlawful write or a refusal is not a feature.
+///  2. It would be DEAD. `_authRedirect` (`router.dart`) bounces any push to
+///     `/feedback` straight back to `/consent` while consent is false, so the
+///     worker taps Feedback and NOTHING VISIBLY HAPPENS AT ALL: no screen, no
+///     error, no explanation — and a dead button is worse than no button, the
+///     same rule the rest of this file already states. (In that state /consent is
+///     the only reachable route anyway, so this hides the button on exactly one
+///     screen — the one where it is dead.)
 ///
 /// `null` — the tri-state unknown, i.e. an older server that never sent the field
 /// — deliberately still SHOWS it: the worker may well have consented, the push

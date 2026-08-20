@@ -383,7 +383,13 @@ GoRouter _buildRouter() {
       ),
       GoRoute(
         path: Routes.consent,
-        builder: (_, __) => const ConsentScreen(),
+        // Two arrivals, one screen. ONBOARDING (the default): consent is the
+        // first step and continues into /name. RECOVERY: a screen the worker was
+        // already using pushed consent to unblock itself and handed over a
+        // [ConsentReturnIntent] — that one gets a back arrow and pops its
+        // outcome instead of walking on into onboarding.
+        builder: (_, GoRouterState state) =>
+            ConsentScreen.fromExtra(state.extra),
       ),
       GoRoute(
         path: Routes.name,

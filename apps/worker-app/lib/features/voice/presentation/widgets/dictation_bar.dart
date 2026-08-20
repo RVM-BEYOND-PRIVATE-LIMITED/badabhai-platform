@@ -37,40 +37,61 @@ class DictationBar extends StatelessWidget {
   /// Optional key on the waveform slot, so a host's tests can find it.
   final Key? waveKey;
 
-  /// Hinglish tooltip on the stop control.
+  /// Hinglish name of the stop control — its tooltip AND its accessible name.
   static const String kStopLabel = 'Rokein';
 
-  /// Hinglish tooltip on the send control.
+  /// Hinglish name of the send control — its tooltip AND its accessible name.
   static const String kSendLabel = 'Bhejein';
+
+  /// What a screen reader is told about the waveform. Without it the most
+  /// important state on the surface — the mic is live — reaches a blind worker
+  /// as nothing at all: a [CustomPaint] has no semantics of its own.
+  static const String kListeningLabel = 'Sun rahe hain…';
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: <Widget>[
         Expanded(
-          child: SizedBox(
-            key: waveKey,
-            height: AppSpacing.tap,
-            child: VoiceWaveVisualizer(level: level),
+          // liveRegion: announce the moment the mic goes hot, rather than only
+          // if the worker happens to swipe onto this node.
+          child: Semantics(
+            container: true,
+            liveRegion: true,
+            label: kListeningLabel,
+            child: SizedBox(
+              key: waveKey,
+              height: AppSpacing.tap,
+              child: VoiceWaveVisualizer(level: level),
+            ),
           ),
         ),
         const SizedBox(width: AppSpacing.s1),
-        IconButton(
-          tooltip: kStopLabel,
-          onPressed: onStop,
-          icon: const Icon(
-            Icons.stop_circle_rounded,
-            color: AppColors.textSecondary,
-            size: 30,
+        // An explicit `label`, not the tooltip alone: a tooltip is published as a
+        // semantics TOOLTIP, needs a long-press to be seen, and leaves an
+        // icon-only control with no NAME for a worker who cannot read the glyph.
+        Semantics(
+          label: kStopLabel,
+          child: IconButton(
+            tooltip: kStopLabel,
+            onPressed: onStop,
+            icon: const Icon(
+              Icons.stop_circle_rounded,
+              color: AppColors.textSecondary,
+              size: 30,
+            ),
           ),
         ),
-        IconButton(
-          tooltip: kSendLabel,
-          onPressed: onSend,
-          icon: const Icon(
-            Icons.send_rounded,
-            color: AppColors.blue,
-            size: 24,
+        Semantics(
+          label: kSendLabel,
+          child: IconButton(
+            tooltip: kSendLabel,
+            onPressed: onSend,
+            icon: const Icon(
+              Icons.send_rounded,
+              color: AppColors.blue,
+              size: 24,
+            ),
           ),
         ),
       ],
