@@ -19,7 +19,7 @@ import type { OtpService } from "./otp.service";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import type { AccountDeletionService } from "./account-deletion.service";
 import type { WorkersRepository } from "../workers/workers.repository";
-import type { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
+import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import type { ConsentRepository } from "../consent/consent.repository";
 import type { AuthenticatedWorker } from "./worker-auth.guard";
 import type { RequestContext } from "../common/request-context";
@@ -113,6 +113,8 @@ function make() {
   };
   const config = {
     OTP_MAX_SENDS_PER_HOUR: 5,
+    OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR: 100,
+    OTP_MAX_VERIFY_PER_IP_PER_HOUR: 5000,
     OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: 20,
     // THREE DISTINCT VALUES ON PURPOSE (#1035 widened the pair to a trio). A per-phone SMS
     // budget, a per-handset send gate and a per-network flood ceiling are three different
@@ -329,6 +331,49 @@ describe("AuthController", () => {
     expect(auth.verifyOtp).toHaveBeenCalledWith("+91999", "1234", CTX, undefined);
     // ADR-0026 Phase 4 — the controller surfaces pin_set unchanged from the service.
     expect(res.pin_set).toBe(false);
+  });
+
+  // ---- #1132 — /auth/otp/verify carries the two-tier cap (device then network) ----
+
+  it("verifyOtp caps the HANDSET first (senderOf), then the network — with the verify scopes (#1132)", async () => {
+    const { controller, ipRateLimit, config } = make();
+    await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, reqWithDevice(), CTX);
+    // Keyed on the DEVICE the client named, at the per-DEVICE knob — NOT req.ip (the #1035 rule).
+    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
+      "otp_verify",
+      { kind: "device", value: DEVICE },
+      config.OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR,
+    );
+    // Its OWN network scope, at the flood-ceiling knob — never the per-device one.
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
+      "otp_verify_net",
+      "1.2.3.4",
+      config.OTP_MAX_VERIFY_PER_IP_PER_HOUR,
+    );
+    // ...and its own knobs, NOT the send route's: a verify is not a send, each send licenses up
+    // to OTP_MAX_ATTEMPTS of them, and these run outside `runOnce` so a retry ladder spends
+    // three units where the send route spends one. Reusing the send budget would lock a worker
+    // out of spending a code they are already holding.
+    expect(config.OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR).not.toBe(
+      config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
+    );
+    expect(config.OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR).toBeGreaterThan(
+      config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
+    );
+  });
+
+  it("verifyOtp: a sender-cap rejection blocks the verify device-first (no network charge, no work)", async () => {
+    const { controller, auth, ipRateLimit } = make();
+    (ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ConflictException("cap"),
+    );
+    await expect(
+      controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, reqWithDevice(), CTX),
+    ).rejects.toBeTruthy();
+    // Device-first: a handset over its budget never charges the shared network bucket, and the
+    // verify work never runs.
+    expect(ipRateLimit.assertWithinHourlyIpCap).not.toHaveBeenCalled();
+    expect(auth.verifyOtp).not.toHaveBeenCalled();
   });
 
   // ---- TD62 — additive consent_accepted on the login response ----
@@ -912,13 +957,23 @@ describe("#1023 — verify and account-delete honour Idempotency-Key", () => {
     };
     const workers = { findById: vi.fn(async () => ({ phoneE164: "+919876543210" })) };
     const consents = { findLatestByWorker: vi.fn(async () => ({ revokedAt: null })) };
-    const config = { OTP_RESEND_COOLDOWN_SECONDS: 30 } as ServerConfig;
+    // #1132 — verify now caps the handset+network BEFORE the reservation. A pass-through double
+    // here: these cases exercise the idempotency ladder, not the cap, so the caps must resolve.
+    const ipRateLimit = {
+      assertWithinHourlySenderCap: vi.fn(async () => undefined),
+      assertWithinHourlyIpCap: vi.fn(async () => undefined),
+    };
+    const config = {
+      OTP_RESEND_COOLDOWN_SECONDS: 30,
+      OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: 20,
+      OTP_MAX_SENDS_PER_IP_PER_HOUR: 1000,
+    } as ServerConfig;
 
     const controller = new AuthController(
       auth as unknown as AuthService,
       {} as unknown as SessionService,
       workers as unknown as WorkersRepository,
-      {} as unknown as IpRateLimit,
+      ipRateLimit as unknown as IpRateLimit,
       {} as unknown as OtpService,
       pii,
       {} as unknown as AccountDeletionService,
@@ -1024,5 +1079,166 @@ describe("#1023 — verify and account-delete honour Idempotency-Key", () => {
 
     expect(auth.verifyOtp).toHaveBeenCalledTimes(1);
     expect(auth.issueAndSendWithSignals).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * #1132 — POST /auth/otp/verify is rate-capped, and the cap runs BEFORE the reservation.
+ *
+ * Wires the REAL `IpRateLimit` and the REAL idempotency seam over ONE in-memory Redis, so these
+ * assert BEHAVIOUR the mocked double cannot: the per-DEVICE budget actually trips (a), two
+ * handsets on one address stay independent — the #1035 CGNAT guard (b) — and a throttled call
+ * mints NO reservation because the limiter runs in FRONT of `runOnce`'s `SET NX` (c).
+ */
+describe("#1132 — /auth/otp/verify device-first cap, ahead of the idempotency reservation", () => {
+  function harness(deviceCap: number) {
+    // ONE store, two consumers: `incr`/`expire` back the rate-limit counters and `set`/`get`
+    // back the idempotency reservation. Their key namespaces (`ratelimit:…` vs `otp_idem:…`)
+    // never collide, so a single map faithfully models the shared Redis both write to.
+    const store = new Map<string, string>();
+    const redis = {
+      incr: async (k: string) => {
+        const n = Number(store.get(k) ?? "0") + 1;
+        store.set(k, String(n));
+        return n;
+      },
+      expire: async () => 1,
+      set: async (k: string, v: string, _m?: string, _t?: number, nx?: string) => {
+        if (nx === "NX" && store.has(k)) return null;
+        store.set(k, v);
+        return "OK";
+      },
+      get: async (k: string) => store.get(k) ?? null,
+    };
+    const queue = {
+      get client() {
+        return Promise.resolve(redis);
+      },
+    };
+    const pii = {
+      hashPhone: (p: string) => createHash("sha256").update(p).digest("hex"),
+      hmac: (v: string) => createHash("sha256").update(v).digest("hex"),
+      hashIp: (v: string) => createHash("sha256").update(`ip:${v}`).digest("hex"),
+      encrypt: (t: string) => `enc:${Buffer.from(t, "utf8").toString("base64")}`,
+      decrypt: (t: string) =>
+        t.startsWith("enc:") ? Buffer.from(t.slice(4), "base64").toString("utf8") : t,
+    } as unknown as PiiCryptoService;
+
+    const ipRateLimit = new IpRateLimit(pii, queue as never);
+    const seam = new OtpRequestIdempotency(pii, new RequestIdempotency(pii, queue as never));
+
+    const auth = {
+      verifyOtp: vi.fn(async () => ({ access_token: "at", refresh_token: "rt", pin_set: false })),
+    };
+    const consents = { findLatestByWorker: vi.fn(async () => ({ revokedAt: null })) };
+    const config = {
+      // The SEND knobs are set to a sentinel deliberately far from `deviceCap`: if verifyOtp
+      // ever reads them again instead of its own pair, every cap assertion in this block stops
+      // tripping and fails loudly, rather than passing for the wrong reason.
+      OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: 9999,
+      OTP_MAX_SENDS_PER_IP_PER_HOUR: 9999,
+      OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR: deviceCap,
+      OTP_MAX_VERIFY_PER_IP_PER_HOUR: 1000,
+    } as ServerConfig;
+
+    const controller = new AuthController(
+      auth as unknown as AuthService,
+      {} as unknown as SessionService,
+      {} as unknown as WorkersRepository,
+      ipRateLimit,
+      {} as unknown as OtpService,
+      pii,
+      {} as unknown as AccountDeletionService,
+      consents as unknown as ConsentRepository,
+      seam,
+      config,
+    );
+    return { controller, auth, store };
+  }
+
+  const body = { phone: "+919876543210", otp: "1234" } as never;
+  /** A request carrying BOTH the handset id and an idempotency key (the (c) case). */
+  const deviceKeyReq = (deviceId: string, idemKey: string): Request =>
+    ({
+      ip: "1.2.3.4",
+      header: (k: string) =>
+        k === "x-device-id" ? deviceId : k === "idempotency-key" ? idemKey : undefined,
+    }) as unknown as Request;
+
+  it("(a) throttles a single handset after its per-device budget — the (cap+1)th verify is 429", async () => {
+    const { controller, auth } = harness(3);
+    // Three verifies from ONE handset land inside the budget...
+    for (let i = 0; i < 3; i++) {
+      await controller.verifyOtp(body, reqWithDevice("device-throttle-a"), CTX);
+    }
+    // ...the fourth trips the per-DEVICE cap with the neutral 429 every OTP throttle answers.
+    await expect(
+      controller.verifyOtp(body, reqWithDevice("device-throttle-a"), CTX),
+    ).rejects.toMatchObject({ status: 429 });
+    // The throttled call never reached the verify work — fail closed.
+    expect(auth.verifyOtp).toHaveBeenCalledTimes(3);
+  });
+
+  it("(b) CGNAT guard — a second handset on the SAME address is NOT locked out by the first (#1035)", async () => {
+    // THE REGRESSION #1035 FIXED, as an assertion. Both requests carry the SAME `req.ip`
+    // (1.2.3.4) — the NAT egress / carrier-CGNAT address. Keyed on the address, device A
+    // exhausting the budget would 429 device B too, locking out everyone behind the pool.
+    // Keyed on the HANDSET, device B keeps its own full budget.
+    const { controller } = harness(2);
+    // Device A spends its entire budget and then trips.
+    await controller.verifyOtp(body, reqWithDevice("device-aaa1"), CTX);
+    await controller.verifyOtp(body, reqWithDevice("device-aaa1"), CTX);
+    await expect(
+      controller.verifyOtp(body, reqWithDevice("device-aaa1"), CTX),
+    ).rejects.toMatchObject({ status: 429 });
+    // Device B, on the SAME address, is untouched: two clean verifies, no 429.
+    await expect(controller.verifyOtp(body, reqWithDevice("device-bbb2"), CTX)).resolves.toBeTruthy();
+    await expect(controller.verifyOtp(body, reqWithDevice("device-bbb2"), CTX)).resolves.toBeTruthy();
+  });
+
+  it("(d) verify spends its OWN budget — the send buckets are untouched, at its own cap", async () => {
+    // TWO PROPERTIES, both regressions waiting to happen if someone "tidies" the knobs back
+    // together. (1) The verify caps read OTP_MAX_VERIFY_* — the harness sets the SEND knobs to
+    // 9999, so a route reading those would never trip at all and (a) plus the 429 below would
+    // both go green-but-wrong. (2) The buckets are scoped `otp_verify` / `otp_verify_net`, so
+    // burning the verify budget does NOT spend the send budget: a worker throttled on verify
+    // can still request a fresh code, which is the whole point of separating them.
+    const { controller, store } = harness(2);
+    await controller.verifyOtp(body, reqWithDevice("device-ddd4"), CTX);
+    await controller.verifyOtp(body, reqWithDevice("device-ddd4"), CTX);
+    await expect(
+      controller.verifyOtp(body, reqWithDevice("device-ddd4"), CTX),
+    ).rejects.toMatchObject({ status: 429 });
+
+    const rateKeys = [...store.keys()].filter((k) => k.startsWith("ratelimit:"));
+    // The device tier counted under the VERIFY scope...
+    expect(rateKeys.some((k) => k.startsWith("ratelimit:dev:otp_verify:"))).toBe(true);
+    // ...the network tier under its own...
+    expect(rateKeys.some((k) => k.startsWith("ratelimit:ip:otp_verify_net:"))).toBe(true);
+    // ...and NOTHING landed in the send route's buckets, so the code-request path is unspent.
+    expect(rateKeys.some((k) => k.includes(":otp_request:"))).toBe(false);
+    expect(rateKeys.some((k) => k.includes(":otp_request_net:"))).toBe(false);
+  });
+
+  it("(c) a throttled verify writes NO idempotency reservation (the limiter runs BEFORE runOnce)", async () => {
+    // The core of #1132: the cap sits in FRONT of `runOnce`'s `SET NX`, so a call that is over
+    // budget is refused before any reservation key is minted — an unauthenticated flood cannot
+    // fill the noeviction Redis with idempotency keys. cap=1 so the SECOND call is throttled.
+    const { controller, auth, store } = harness(1);
+    const idemKeys = () => [...store.keys()].filter((k) => k.startsWith("otp_idem:"));
+
+    await controller.verifyOtp(body, deviceKeyReq("device-ccc3", "k-1"), CTX);
+    const afterFirst = idemKeys().length; // the first (accepted) call reserved exactly one key.
+    expect(afterFirst).toBe(1);
+
+    await expect(
+      controller.verifyOtp(body, deviceKeyReq("device-ccc3", "k-2"), CTX),
+    ).rejects.toMatchObject({ status: 429 });
+
+    // No NEW reservation for the throttled key — proof the cap ran before the reservation write.
+    // (Move the caps inside `runOnce.work` and this count becomes 2 and the test fails.)
+    expect(idemKeys().length).toBe(afterFirst);
+    // ...and the throttled call never ran the verify work.
+    expect(auth.verifyOtp).toHaveBeenCalledTimes(1);
   });
 });

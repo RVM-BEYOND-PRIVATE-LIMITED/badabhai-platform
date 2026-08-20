@@ -176,6 +176,39 @@ export class AuthController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<LoginResponse> {
+    // TWO CAPS BEFORE THE RESERVATION (#1132), and OUTSIDE `runOnce` on purpose — the one place
+    // in this file a limiter runs in FRONT of the idempotency reservation rather than inside the
+    // guarded work. `runOnce` reserves with `SET NX` BEFORE it runs the work (correctly — see its
+    // header), so on this UNAUTHENTICATED route that Redis write used to be the first thing to
+    // run, ahead of every control there was. An unauthenticated caller could therefore mint one
+    // non-evictable idempotency key per distinct key/phone into a `noeviction` Redis and wedge it
+    // — the platform-wide 429/503/401 lockout #1019 exists to end. Capping here means the
+    // reservation is only ever written for a caller already inside its device+network budget.
+    //
+    // KEYED ON THE HANDSET FIRST, exactly as /auth/otp/request (#1035): `senderOf(req)` is the
+    // device the client named via `X-Device-Id`, the address only as a fallback for a caller that
+    // sent none. Keyed on `req.ip` this would be the NAT egress / carrier-CGNAT bucket, and a
+    // handful of legitimate sign-ins would lock out everyone else behind the same pool — the exact
+    // outage #1035 fixed on the send route. Same device-then-network ORDER as the send
+    // route, but its OWN scopes (`otp_verify` / `otp_verify_net`) and its OWN knobs — a verify
+    // is not a send, and each send licenses up to OTP_MAX_ATTEMPTS of them, so the send budget
+    // is the wrong ceiling here (see the derivation on OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR). The
+    // rate-limit namespace (`ratelimit:…`) cannot collide with the idempotency one (`otp_idem:…`).
+    //
+    // ONE LOGICAL VERIFY CAN SPEND UP TO THREE UNITS, because these run OUTSIDE `runOnce` while
+    // `AuthedClient` reuses one key across three transport retries — the price of capping ahead
+    // of the reservation, and the reason the verify budget carries headroom the send budget does
+    // not need.
+    await this.ipRateLimit.assertWithinHourlySenderCap(
+      "otp_verify",
+      senderOf(req),
+      this.config.OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR,
+    );
+    await this.ipRateLimit.assertWithinHourlyIpCap(
+      "otp_verify_net",
+      req.ip ?? "unknown",
+      this.config.OTP_MAX_VERIFY_PER_IP_PER_HOUR,
+    );
     return this.otpIdempotency.runOnce({
       scope: "otp_verify",
       phoneE164: dto.phone,
