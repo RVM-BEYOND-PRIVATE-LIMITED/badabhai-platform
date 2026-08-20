@@ -29,14 +29,25 @@ class PayerApp extends StatelessWidget {
         // Crashlytics isn't ready (tests / non-GMS devices).
         navigatorObservers: <NavigatorObserver>[CrashNavigatorObserver()],
         home: const _Root(),
-        builder: kUseMocks
-            ? (BuildContext context, Widget? child) => Banner(
-                  message: 'MOCK',
-                  location: BannerLocation.topEnd,
-                  color: Colors.deepOrange,
-                  child: child ?? const SizedBox.shrink(),
-                )
-            : null,
+        builder: (BuildContext context, Widget? child) {
+          Widget content = child ?? const SizedBox.shrink();
+          if (kUseMocks) {
+            content = Banner(
+              message: 'MOCK',
+              location: BannerLocation.topEnd,
+              color: Colors.deepOrange,
+              child: content,
+            );
+          }
+          // Clamp the app-wide text scale so a very large system font can't
+          // break fixed-height controls into a RenderFlex overflow. 1.3x
+          // mirrors the worker app (#1072); the payer audience (employers /
+          // agents) is less text-scale-sensitive than workers (#1088).
+          return MediaQuery.withClampedTextScaling(
+            maxScaleFactor: 1.3,
+            child: content,
+          );
+        },
       ),
     );
   }
