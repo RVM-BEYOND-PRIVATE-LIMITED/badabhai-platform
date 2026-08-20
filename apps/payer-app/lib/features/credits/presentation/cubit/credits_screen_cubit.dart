@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
@@ -13,6 +15,16 @@ class CreditsScreenCubit extends Cubit<CreditsScreenState> {
   CreditsScreenCubit(this._api) : super(const CreditsScreenState());
 
   final PayerApiClient _api;
+
+  final Random _rng = Random();
+
+  /// The idempotency key for the CURRENT in-flight-or-failed purchase intent,
+  /// plus the pack it belongs to. Minted once per intent and REUSED across a
+  /// safe retry of the SAME pack after a failure — so the server dedupes a
+  /// re-tap into a replay, never a second grant. Cleared on a confirmed success;
+  /// a NEW pack (or a fresh intent after success) mints a new key.
+  String? _pendingKey;
+  String? _pendingKeyPack;
 
   Future<void> load() async {
     emit(state.copyWith(status: CreditsScreenStatus.loading));
@@ -47,35 +59,96 @@ class CreditsScreenCubit extends Cubit<CreditsScreenState> {
     }
   }
 
-  /// Buy the pack with [code] (MOCK). On success the new balance is applied and
-  /// the ledger re-read so the purchase row shows; a failure surfaces via
-  /// [CreditsScreenState.purchaseFailed] without touching the balance/ledger.
+  /// Buy the pack with [code]. On success the new balance is applied and the
+  /// ledger re-read so the purchase row shows.
+  ///
+  /// SAFE RETRY: every attempt carries a stable idempotency key so a re-tap after
+  /// a timeout can never double-grant. On a FAILURE the server may already have
+  /// committed the grant (a timeout / 409 / dropped socket AFTER the write), so
+  /// instead of a blind `purchaseFailed` we RE-READ the balance: if it went up
+  /// the grant landed and we report success; if not, we keep the pending key so
+  /// the next tap of the SAME pack replays it (server dedupes) and surface the
+  /// honest, retryable failure.
   Future<void> buyPack(String code) async {
     if (state.purchasing != null) return; // one purchase at a time
+
+    // Snapshot the balance BEFORE the write — the reconciliation baseline.
+    final int? preBalance = state.balance;
+
+    // Reuse the pending key ONLY for a retry of the same pack; otherwise this is
+    // a fresh intent (first buy, a different pack, or a buy after a clean
+    // success) and gets a new key.
+    if (_pendingKey == null || _pendingKeyPack != code) {
+      _pendingKey = _mintIdempotencyKey(code);
+      _pendingKeyPack = code;
+    }
+    final String key = _pendingKey!;
+
     emit(state.copyWith(
         purchasing: code, purchaseFailed: false, purchased: false));
     try {
-      final int balance = await _api.buyCreditPack(code);
-      // Re-read the ledger so the pack-purchase row appears; keep the last ledger
-      // if that read blips (the balance is authoritative and already updated).
-      List<LedgerEntry> ledger;
-      try {
-        ledger = await _api.fetchCreditLedger();
-      } catch (_) {
-        ledger = state.ledger;
-      }
-      if (isClosed) return;
-      emit(state.copyWith(
-        balance: balance,
-        ledger: ledger,
-        clearPurchasing: true,
-        purchased: true,
-      ));
+      final int balance = await _api.buyCreditPack(code, idempotencyKey: key);
+      await _applyPurchased(balance);
     } catch (_) {
-      if (isClosed) return;
-      emit(state.copyWith(clearPurchasing: true, purchaseFailed: true));
+      // The write threw — but a timeout / 409 (in-flight) / dropped socket can
+      // hide a grant the server DID commit. Reconcile against the real balance
+      // before declaring failure (a 409 is handled the same as "not yet up").
+      await _reconcileAfterFailedBuy(preBalance);
     }
   }
+
+  /// A confirmed purchase: re-read the ledger (best-effort), clear the pending
+  /// key, and emit the applied balance + the one-shot `purchased` cue.
+  Future<void> _applyPurchased(int balance) async {
+    // Re-read the ledger so the pack-purchase row appears; keep the last ledger
+    // if that read blips (the balance is authoritative and already updated).
+    List<LedgerEntry> ledger;
+    try {
+      ledger = await _api.fetchCreditLedger();
+    } catch (_) {
+      ledger = state.ledger;
+    }
+    if (isClosed) return;
+    _pendingKey = null;
+    _pendingKeyPack = null;
+    emit(state.copyWith(
+      balance: balance,
+      ledger: ledger,
+      clearPurchasing: true,
+      purchased: true,
+    ));
+  }
+
+  /// Runs after `buyCreditPack` threw. Re-reads the balance: if it INCREASED vs
+  /// [preBalance] the grant committed despite the error → treat as success
+  /// (no double-grant). Otherwise keep the pending key for a safe retry and
+  /// surface `purchaseFailed`.
+  Future<void> _reconcileAfterFailedBuy(int? preBalance) async {
+    int? postBalance;
+    try {
+      postBalance = await _api.fetchCreditBalance();
+    } catch (_) {
+      postBalance = null; // can't prove a grant → fall through to failure
+    }
+    if (isClosed) return;
+
+    final bool committed = preBalance != null &&
+        postBalance != null &&
+        postBalance > preBalance;
+    if (committed) {
+      await _applyPurchased(postBalance);
+      return;
+    }
+
+    // Not committed (or unprovable): keep _pendingKey so the next tap of this
+    // pack reuses it and the server dedupes. Balance/ledger untouched.
+    emit(state.copyWith(clearPurchasing: true, purchaseFailed: true));
+  }
+
+  /// A PII-free, single-purchase idempotency token: a monotonic timestamp, the
+  /// pack code, and a 32-bit random tail. No `uuid` package (removed in #1090).
+  String _mintIdempotencyKey(String code) =>
+      '${DateTime.now().microsecondsSinceEpoch}-$code-${_rng.nextInt(1 << 32)}';
 }
 
 enum CreditsScreenStatus { initial, loading, ready, error }

@@ -95,14 +95,19 @@ class PayerHttp {
   /// On a 401 for an authed call it transparently refreshes + retries once (see
   /// the class doc). The refresh/logout calls themselves never trigger a nested
   /// refresh — that would loop.
+  /// [idempotencyKey], when non-null, is sent as the `idempotency-key` request
+  /// header. It lets the SERVER dedupe a repeated write (a user re-tap after a
+  /// timeout) — it does NOT make this method auto-retry. Writes still run exactly
+  /// once per call here; the key only makes a *caller-driven* retry safe.
   Future<PayerResponse> send(
     PayerMethod method,
     String path, {
     Map<String, dynamic>? body,
     bool authed = true,
+    String? idempotencyKey,
   }) async {
-    final PayerResponse res =
-        await _rawSend(method, path, body: body, authed: authed);
+    final PayerResponse res = await _rawSend(method, path,
+        body: body, authed: authed, idempotencyKey: idempotencyKey);
 
     // Only authed calls take part in the 401 → refresh → retry dance.
     if (!authed || res.statusCode != 401) return res;
@@ -122,9 +127,11 @@ class PayerHttp {
     }
 
     // Persist the rotated bearer and retry the original request exactly once.
+    // The same [idempotencyKey] rides along so the post-refresh retry replays
+    // (not re-grants) if the pre-refresh attempt had already reached the server.
     await _tokenStore.saveAccessToken(newToken);
-    final PayerResponse retry =
-        await _rawSend(method, path, body: body, authed: authed);
+    final PayerResponse retry = await _rawSend(method, path,
+        body: body, authed: authed, idempotencyKey: idempotencyKey);
     if (retry.statusCode == 401) await _forceReauth();
     return retry;
   }
@@ -136,12 +143,19 @@ class PayerHttp {
     String path, {
     Map<String, dynamic>? body,
     bool authed = true,
+    String? idempotencyKey,
   }) async {
     final Uri uri = Uri.parse('$baseUrl$path');
     final Map<String, String> headers = <String, String>{
       'accept': 'application/json',
     };
     if (body != null) headers['content-type'] = 'application/json';
+    // A caller-supplied idempotency key lets the server collapse a repeated
+    // write (reserve-before-grant, replay the original balance) — never a PII
+    // value; a random, single-purchase token.
+    if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
+      headers['idempotency-key'] = idempotencyKey;
+    }
     if (authed) {
       final String? token = _tokenStore.accessToken;
       if (token != null && token.isNotEmpty) {

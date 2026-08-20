@@ -227,7 +227,13 @@ abstract class PayerApiClient {
   /// Buy a credit pack by [code] (`POST /payer/credits {pack_code}`, the MOCK
   /// path — no real money). Returns the NEW balance. Throws on error (unknown
   /// pack, or a 404 when real payments are live).
-  Future<int> buyCreditPack(String code);
+  ///
+  /// [idempotencyKey], when supplied, is sent as the `Idempotency-Key` header so
+  /// a repeated tap of the SAME purchase intent (after a timeout / a safe retry)
+  /// REPLAYS the original balance server-side instead of granting twice. Callers
+  /// must reuse ONE key across retries of the same purchase and mint a fresh one
+  /// per new intent.
+  Future<int> buyCreditPack(String code, {String? idempotencyKey});
 
   // --- Agency · Supply ------------------------------------------------------
   // The referral LINK + funnel summary are the supply surfaces with a real
