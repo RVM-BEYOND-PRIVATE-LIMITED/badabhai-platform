@@ -806,9 +806,12 @@ services:
       # empty as well as on unset, so it resolves to 3003 either way.
       #
       # NOTE for whoever adds the next service here: `published-port-binding-compose.guard`
-      # (apps/api) enforces exactly this rule, but it reads ONLY docker-compose.yml and
-      # docker-compose.e2e.yml — it does NOT read this overlay, so it did not and cannot
-      # check this line. The bind above is a deliberate choice, not a guard-enforced one.
+      # (apps/api) enforces exactly this rule, and SINCE 2026-08-20 IT READS THIS OVERLAY TOO.
+      # It did not until then — the previous version of this note said so, and a correct bind
+      # that nothing enforces is one edit away from being wrong, which is the entire content of
+      # R38. The guard resolves `${VAR:-default}` to the default the box actually gets, so an
+      # interpolated bind is checked rather than skipped; a new published port here must be
+      # loopback or be added to its INTENTIONALLY_PUBLIC allowlist with a reason.
       - "127.0.0.1:${ADMIN_WEB_PORT:-3003}:3003"
     environment:
       NODE_ENV: production
