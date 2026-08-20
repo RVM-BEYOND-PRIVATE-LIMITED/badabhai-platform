@@ -491,6 +491,31 @@ describe("a credential-bearing outcome is stored as ciphertext (#1023)", () => {
     expect(work).toHaveBeenCalledTimes(1);
   });
 
+  it("a failing encrypt must NOT turn a completed login into a 500", async () => {
+    // The hazard in putting crypto on this path at all. `store()` swallows write failures ON
+    // PURPOSE — its contract is that it must never convert a completed request into a failed
+    // one — so the encrypt call has to sit INSIDE that same try. If it were hoisted above it
+    // (the obvious way to write this), a key-rotation fault would throw AFTER the code was
+    // consumed and the session minted, and the worker would get a 500 for a login that
+    // succeeded, with no way to reach the session that now exists.
+    const { svc, store } = make();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (svc as any).pii.encrypt = () => {
+      throw new Error("keyring unavailable");
+    };
+
+    const out = await run(svc, async () => LOGIN, { scope: "otp_verify", secret: true });
+
+    // The caller still gets their session.
+    expect(out).toEqual(LOGIN);
+    // And nothing leaked as a consolation prize: what is left is the reservation sentinel, not
+    // a plaintext outcome, so a duplicate is answered as in-flight rather than served tokens.
+    const written = [...store.values()].join("\n");
+    expect(written).not.toContain(LOGIN.access_token);
+    expect(written).not.toContain(LOGIN.refresh_token);
+    expect(written).toContain("in_flight");
+  });
+
   it("account-delete and login never collide, even on one phone and one reused key", async () => {
     // Both routes resolve the SAME phone, so the phone half of the namespace cannot separate
     // them — the scope is what does. A client that reuses a UUID across the two must get two
