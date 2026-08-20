@@ -177,11 +177,72 @@ decision on aesthetics.
 
 ---
 
+# Part 3 — the six skills the promotion gate now blocks
+
+**Added 2026-08-20, after the owner chose E1 for `EVAL_COVERED`.** This part is separate from
+Parts 1 and 2 and can be done by a different person: it needs a trade phrase, not a taxonomy
+ruling.
+
+## What changed
+
+`EVAL_COVERED` used to accept a **mechanical** case as proof a skill had been measured. A
+mechanical case is one where the query IS the skill's own catalogue phrase — so it asks the
+search index whether an exact string matches itself. It cannot fail, and it says nothing about
+whether a worker who describes the skill in their own words would be found.
+
+Six skills are covered by nothing else. Under the new reading they can no longer be promoted.
+
+| skill | the phrase that used to count | trade |
+|---|---|---|
+| Earthing and bonding | `earthing work` | Electrician, General |
+| Order picking and packing | `ऑर्डर तैयार करना` | Warehouse Picker |
+| Pipe support and clamping | `pipe clamping` | Pipe Fitter |
+| Punching machine operation | `punching operation` | Sheet Metal Machine Operator |
+| Structural fit-up and tacking | `fit up and tack` | Fitter — Fabrication |
+| Suspension and steering repair | `suspension repair` | Fitter Automobile |
+
+**Nothing is broken and no worker is affected.** None of the six exists in the production
+database — they belong to a corpus that has never been seeded — so this blocks zero live
+promotions. It is the cheapest this will ever be, which is why it was done now.
+
+## What is needed
+
+**One line per skill: how would a worker in that trade describe this, in their own words?**
+
+Do not reuse the phrase in the table above, or any phrase the pack lists as already known. A
+paraphrase that repeats an existing phrase tests nothing — that is the exact problem being
+fixed here.
+
+**The blanks are in the pack, not on this page**, so that filling them in is the same action as
+updating the fixture:
+
+> `packages/db/data/taxonomy/eval/review-pack/e1-eval-coverage-trainer-pack.md` — read this one
+> `packages/db/data/taxonomy/eval/review-pack/e1-eval-coverage-trainer-pack.json` — write here
+
+For each skill the pack gives the skill's known phrases, every trade it is wired to, and two
+empty slots (English and Hindi). **One filled slot per skill clears the gate.** Set that slot's
+`query`, change its `review_status` from `pending_review` to `reviewed`, and leave anything you
+are unsure about as `pending_review` — it stays out of every metric and costs nothing.
+
+Regenerate the pack any time with `pnpm --filter @badabhai/db db:review-pack:eval-coverage`
+(delete the old files first; the runner refuses to overwrite evidence). It reads the promotion
+gate's own function, so it can never list a different set from the one actually blocking.
+
+**Why engineering did not just write the six phrases:** the same reason as Part 1. A paraphrase
+written by the process that then scores it measures nothing — and here it would be worse, since
+the entire point of the change is that self-certifying evidence must not unlock a promotion.
+
+---
+
 ## Where the answers go
 
 - **TD-01 slots** → `packages/db/data/taxonomy/eval/review-pack/td01-drawing-reading-trainer-pack.json`,
   setting each slot's `query` and flipping `review_status` from `pending_review` to `reviewed`.
 - **TD-07** → a new decision entry in `phase-8-taxonomy-decisions.md` §TD-07, which currently
-  reads *"GAP, not a merge"*.
+  reads *"GAP, not a merge"*. **Partly answered already:** the owner chose **T4 now, T1 at the
+  first real welder** on 2026-08-20 and T4 has shipped. Part 2 below is still open for the
+  `skill_welder_occupation → mskill_mig_welder` mapping and for T1's shape.
+- **Part 3 (the six blocked skills)** → the pack itself:
+  `packages/db/data/taxonomy/eval/review-pack/e1-eval-coverage-trainer-pack.json`.
 
 Or hand this page back filled in and engineering will transcribe it.

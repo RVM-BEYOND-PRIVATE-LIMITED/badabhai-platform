@@ -79,6 +79,7 @@
     "db:audit:labels": "tsx src/taxonomy-label-audit.ts",
     "db:review-pack:fixture": "tsx src/taxonomy-fixture-review-pack.ts",
     "db:review-pack:td01": "tsx src/td01-review-pack.ts",
+    "db:review-pack:eval-coverage": "tsx src/eval-coverage-review-pack.ts",
     "db:audit:embeddings": "tsx src/audit-embedding-provenance.ts",
     "db:verify:embeddings": "tsx src/verify-embedding-provenance.ts",
     "db:audit:schema-contract": "tsx src/audit-schema-contract.ts",

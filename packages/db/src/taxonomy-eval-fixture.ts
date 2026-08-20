@@ -120,6 +120,35 @@ export function isScoreable(c: Pick<EvalCase, "provenance" | "review_status">): 
   return reviewStatusOf(c) !== "pending_review";
 }
 
+/**
+ * Cases that count as EVIDENCE THAT A SKILL WAS MEASURED — the `EVAL_COVERED` promotion gate.
+ *
+ * DELIBERATELY NOT {@link isScoreable}, and the difference is the whole point of E1 (owner
+ * ruling 2026-08-20). The two predicates answer two different questions and had been sharing
+ * one implementation:
+ *
+ * - `isScoreable` — *"does this case produce a number?"* A `mechanical` case does: it is a real
+ *   retrieval, it can fail, and excluding it would silently change every published metric.
+ * - `countsAsEvalCoverage` — *"does this case prove the skill is findable?"* A `mechanical` case
+ *   does **not**. Its query IS an alias of the expected skill, so it asks the index whether an
+ *   exact string matches itself. That is true of every alias in the corpus and is evidence about
+ *   none of them. A skill covered solely by one is self-certifying, and `EVAL_COVERED` exists to
+ *   say *"we only promote what we have actually MEASURED"*.
+ *
+ * The C5 spec has said *"Mechanical `corpus_alias:*` cases do NOT count"* in prose the whole
+ * time; the gate read `isScoreable`, which excludes only `pending_review` — the one status the
+ * spec never mentions. Since the shipped fixture holds ZERO `pending_review` cases, that made
+ * the gate a no-op and the earlier `#953` fix behaviourally inert.
+ *
+ * Measured on `retrieval-v2.jsonl` when this landed: covered skills 65 -> 59, and 61 -> 55
+ * restricted to the 98-skill growth corpus. All 6 that leave are ABSENT from production, so
+ * this blocks ZERO live promotions today. `--waive EVAL_COVERED` remains the escape hatch and
+ * records the waiver in the report.
+ */
+export function countsAsEvalCoverage(c: Pick<EvalCase, "provenance" | "review_status">): boolean {
+  return reviewStatusOf(c) === "reviewed";
+}
+
 /** The fixture manifest — what this dataset IS, so a report can name its instrument. */
 export interface EvalFixtureManifest {
   fixture_id: string;

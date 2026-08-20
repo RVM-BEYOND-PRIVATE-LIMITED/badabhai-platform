@@ -48,7 +48,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { SKILL_CORPUS, ratifiedWedgeAliases } from "@badabhai/taxonomy";
 import { EMBEDDING_MODEL } from "./taxonomy-alias-experiment";
-import { isScoreable, loadEvalFixture, type EvalCase } from "./taxonomy-eval-fixture";
+import { isScoreable, reviewStatusOf, loadEvalFixture, type EvalCase } from "./taxonomy-eval-fixture";
 import { loadTaxonomyCorpus } from "./taxonomy-corpus";
 import { COVERAGE_ONLY_CATEGORIES } from "./taxonomy-retrieval-eval";
 import { argFlag, argValue } from "./match-v1-cli";
@@ -244,7 +244,9 @@ function main(): void {
   if (skipped.length > 0) {
     console.log(`  skipped (${skipped.filter(isScoreable).length} of them scoreable/reviewed):`);
     for (const c of skipped) {
-      console.log(`     ${c.case_id.padEnd(8)} ${isScoreable(c) ? "REVIEWED  " : "mechanical"} ${c.job_domain_id.padEnd(18)} ${JSON.stringify(c.query)}`);
+      // The status verbatim. `isScoreable` stood here and is true for `mechanical` too, so
+      // every mechanical case printed as REVIEWED.
+      console.log(`     ${c.case_id.padEnd(8)} ${reviewStatusOf(c).padEnd(14)} ${c.job_domain_id.padEnd(18)} ${JSON.stringify(c.query)}`);
     }
   }
 

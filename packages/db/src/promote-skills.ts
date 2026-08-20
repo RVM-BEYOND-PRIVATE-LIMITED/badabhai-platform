@@ -83,7 +83,7 @@ import {
   type CorpusFingerprint,
   type FingerprintComponent,
 } from "./corpus-fingerprint";
-import { isScoreable, loadEvalFixture } from "./taxonomy-eval-fixture";
+import { countsAsEvalCoverage, loadEvalFixture, type EvalFixture } from "./taxonomy-eval-fixture";
 import { DEFAULT_FIXTURE, MOCK_MODEL_TAG } from "./taxonomy-retrieval-eval";
 
 config({ path: "../../.env" });
@@ -508,6 +508,42 @@ export function writeReport(report: PromotionReport, path: string): string {
 // CLI
 // ===========================================================================
 
+/**
+ * The `EVAL_COVERED` set, and the skills that ALMOST made it — E1, owner ruling 2026-08-20.
+ *
+ * Extracted from `main` so the gate's answer is assertable without a database. It was eight
+ * lines inside a 400-line function, which is why its predicate could disagree with the C5 spec
+ * for two phases without a test noticing.
+ *
+ * `covered` unlocks promotion. `demoted` is the operator's worklist, sorted: skills touched
+ * ONLY by a mechanical or pending case, i.e. exactly one reviewed case away from promotable.
+ *
+ * WHY NOT `isScoreable`, WHICH STOOD HERE. It excludes only `pending_review`, so all 39
+ * `corpus_alias:*` MECHANICAL cases counted as coverage — and since the shipped fixture holds
+ * ZERO `pending_review` cases, the filter was a no-op: `demoted` was always empty and the
+ * operator warning unreachable. `#953`'s commit message asserts the opposite.
+ *
+ * The two predicates stay SEPARATE rather than one being redefined, because they answer
+ * different questions and conflating them is how this drifted. A mechanical case must still
+ * SCORE — excluding it would silently move every published metric — it just must not UNLOCK A
+ * PROMOTION, because its query is an alias of the expected skill and so asks the index whether
+ * an exact string matches itself.
+ *
+ * Effect when this landed, on `retrieval-v2.jsonl`: covered 65 -> 59, and 61 -> 55 restricted
+ * to the 98-skill growth corpus. All 6 that leave are ABSENT from production, so it blocks zero
+ * live promotions. `--waive EVAL_COVERED` is unchanged and records the waiver in the report.
+ */
+export function evalCoverage(fixture: EvalFixture): { covered: Set<string>; demoted: string[] } {
+  const covered = new Set<string>();
+  const coverageOnly = new Set<string>();
+  for (const c of fixture.cases) {
+    const sink = countsAsEvalCoverage(c) ? covered : coverageOnly;
+    if (c.expected_skill_id !== null) sink.add(c.expected_skill_id);
+    for (const a of c.acceptable_skill_ids ?? []) sink.add(a);
+  }
+  return { covered, demoted: [...coverageOnly].filter((s) => !covered.has(s)).sort() };
+}
+
 async function main(): Promise<void> {
   // GUARDED, as retag-skills.ts and seed-skills.ts are. Promotion is what makes a skill
   // publishable; the production run is a deliberate, separately-gated step.
@@ -615,27 +651,16 @@ async function main(): Promise<void> {
 
     const fixturePath = requiredArg(argv, "--fixture") ?? DEFAULT_FIXTURE;
     const fixture = loadEvalFixture(fixturePath);
-    // EVAL_COVERED counts ONLY human-reviewed cases.
-    //
-    // It used to count every case, including the 39 `corpus_alias:*` MECHANICAL ones, which
-    // are exact echoes of a skill's own alias. A skill covered solely by those is
-    // self-certifying: the "measurement" proves only that an exact string matches itself,
-    // which is true of every alias in the corpus and evidence about none of them.
-    // `isScoreable` is the same predicate the evaluator uses to decide what counts toward a
-    // metric, so coverage and scoring can no longer disagree about what a real case is.
-    const covered = new Set<string>();
-    const coverageOnly = new Set<string>();
-    for (const c of fixture.cases) {
-      const sink = isScoreable(c) ? covered : coverageOnly;
-      if (c.expected_skill_id !== null) sink.add(c.expected_skill_id);
-      for (const a of c.acceptable_skill_ids ?? []) sink.add(a);
-    }
-    const demoted = [...coverageOnly].filter((s) => !covered.has(s));
+    const { covered, demoted } = evalCoverage(fixture);
     if (demoted.length > 0) {
+      // Reachable for the first time, and it NAMES them: the operator's next action is one
+      // trainer case per skill, and they cannot ask for one without knowing which.
+      // `db:review-pack:eval-coverage` turns this list into a pack a trainer can fill in.
       console.log(
         `[${SCRIPT}] ${demoted.length} skill(s) are touched ONLY by mechanical/pending cases and ` +
-          "therefore do NOT count as EVAL_COVERED. They need a reviewed case.",
+          "therefore do NOT count as EVAL_COVERED. They need a reviewed case:",
       );
+      for (const s of demoted) console.log(`[${SCRIPT}]     ${s}`);
     }
 
     const rows = (await sql.unsafe(
