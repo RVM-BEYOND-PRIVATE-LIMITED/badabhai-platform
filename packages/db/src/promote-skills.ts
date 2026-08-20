@@ -72,6 +72,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 
 import { createDbClient } from "./client";
+import { enforceOpsGuard } from "./ops-guard";
 import { skills } from "./schema";
 import { batchScopeSkillIds, hasFlag, requiredArg } from "./embed-skill-aliases";
 import {
@@ -545,14 +546,22 @@ export function evalCoverage(fixture: EvalFixture): { covered: Set<string>; demo
 }
 
 async function main(): Promise<void> {
-  // GUARDED, as retag-skills.ts and seed-skills.ts are. Promotion is what makes a skill
-  // publishable; the production run is a deliberate, separately-gated step.
-  if (process.env.NODE_ENV === "production") {
-    throw new Error(`[${SCRIPT}] refusing to promote in production (promotion is a gated ops action).`);
-  }
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error(`[${SCRIPT}] DATABASE_URL is not set`);
   const argv = process.argv;
+
+  // GUARDED, as retag-skills.ts is. Promotion is what makes a skill publishable, so the
+  // production run is a deliberate, separately-gated step — but the gate used to key on
+  // `NODE_ENV`, which labels the PROCESS while the blast radius is decided by `DATABASE_URL`.
+  // Here that label happens to come from a gitignored `.env`, so the protection was real and
+  // was also one deleted line from being absent. See `ops-guard.ts`.
+  //
+  // Both write paths take `--apply`: the ordinary promotion and `--revert`. Asking for the flag
+  // rather than enumerating the modes means a third write path added later is MUTATING by
+  // default instead of unguarded by omission.
+  const { connectionString: url } = enforceOpsGuard({
+    script: SCRIPT,
+    connectionString: process.env.DATABASE_URL,
+    mutating: hasFlag(argv, "--apply"),
+  });
 
   const waivedRaw = requiredArg(argv, "--waive");
   const waived = new Set<Criterion>();

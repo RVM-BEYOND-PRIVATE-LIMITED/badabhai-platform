@@ -161,3 +161,86 @@ export function opsGuard(input: OpsGuardInput): OpsGuardVerdict {
     target,
   };
 }
+
+/**
+ * ===========================================================================
+ * THE ONE CALL A RUNNER MAKES
+ * ===========================================================================
+ * {@link opsGuard} is pure and every branch of it is tested. That is necessary and it is not
+ * sufficient: a guard is only as good as its weakest CALL SITE, and the call site is eight lines
+ * of read-env / print-warning / throw-on-refusal that each runner would otherwise copy. Four
+ * copies is how one of them ends up reading `argv` instead of `argv.slice(2)`, or printing the
+ * warning and forgetting to throw.
+ *
+ * So the eight lines live here once, and a runner writes:
+ *
+ *     enforceOpsGuard({ script: "seed:skills", connectionString: url, mutating: true });
+ *
+ * IT ALSO OWNS THE MISSING-TARGET CASE. Every runner used to open with its own
+ * `if (!url) throw new Error("DATABASE_URL is not set")`, which is the right refusal for the
+ * wrong reason: an absent connection string is not a configuration nit, it is an UNKNOWN BLAST
+ * RADIUS, and it belongs in the same decision as every other target question. Handing this
+ * function `undefined` refuses — for a write AND for a dry run, which is the one place a read is
+ * not waved through, because "read-only" is a claim about a database nobody has identified.
+ */
+export interface EnforceOpsGuardInput {
+  readonly script: string;
+  /** `process.env.DATABASE_URL`. `undefined` or empty REFUSES, both modes. */
+  readonly connectionString: string | undefined;
+  /** Does this invocation WRITE? A dry run passes false. */
+  readonly mutating: boolean;
+  /** Injected for tests. Defaults to `process.env`. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  /** Injected for tests. Defaults to `process.argv.slice(2)`. */
+  readonly argv?: readonly string[];
+  /** Injected for tests. Defaults to `console.log`. */
+  readonly log?: (line: string) => void;
+}
+
+/**
+ * The verdict, plus the connection string it was reached about.
+ *
+ * Returning the URL is not a convenience. A runner that reads `process.env.DATABASE_URL` a
+ * second time, after the guard, is a runner whose guard and whose connection can disagree —
+ * and it is also where `string | undefined` gets silently cast back to `string`. Taking the
+ * target FROM the guard makes "the database you connect to is the database that was approved"
+ * a property of the types rather than of everybody remembering.
+ */
+export interface EnforcedOpsGuard extends OpsGuardVerdict {
+  /** The validated, non-empty connection string. Narrowed, so no caller needs a cast. */
+  readonly connectionString: string;
+}
+
+/**
+ * Enforce the guard, or throw. Returns the verdict AND the approved connection string.
+ *
+ * @throws when the target is unidentified, or when a mutating run against a production-like
+ *         target lacks either authorisation signal.
+ */
+export function enforceOpsGuard(input: EnforceOpsGuardInput): EnforcedOpsGuard {
+  const env = input.env ?? process.env;
+  const argv = input.argv ?? process.argv.slice(2);
+  const log = input.log ?? ((l: string) => console.log(l));
+
+  const url = input.connectionString;
+  if (url === undefined || url.trim() === "") {
+    throw new Error(
+      `[${input.script}] REFUSING: DATABASE_URL is not set. There is no localhost fallback, on ` +
+        `purpose — a run whose target is unknown has an unknown blast radius, and that is refused ` +
+        `for a dry run too: "read-only" is a claim about a database nobody has identified.`,
+    );
+  }
+
+  const verdict = opsGuard({
+    script: input.script,
+    connectionString: url,
+    nodeEnv: env["NODE_ENV"],
+    allowEnv: env[PRODUCTION_WRITE_ENV],
+    argv,
+    mutating: input.mutating,
+  });
+
+  if (verdict.warning !== null) log(verdict.warning);
+  if (!verdict.allowed) throw new Error(verdict.refusal ?? `[${input.script}] refused`);
+  return { ...verdict, connectionString: url };
+}
