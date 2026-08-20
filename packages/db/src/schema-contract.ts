@@ -67,11 +67,12 @@ export interface SchemaRequirement {
  * enable/force — a check that does not look at GRANTS. So the one tool positioned to catch this
  * passed it. 0082 re-states the lock and these entries make the state askable.
  *
- * WHY ONLY THREE OF THE SEVEN. `agency_profiles`, `employer_profiles`, `payer_capabilities` and
- * `payer_member_invites` exist on production and in NO migration and NO schema file (GAP-DB-21).
- * A manifest entry for them would report MISSING on every correctly-migrated fresh database,
- * which inverts the question this file exists to answer. `db:audit:rls` is their authority: it
- * sweeps what is actually there, so it covers a table no manifest could name.
+ * WHY ONLY THREE OF THE SEVEN HERE. `agency_profiles`, `employer_profiles`,
+ * `payer_capabilities` and `payer_member_invites` were GAP-DB-21 — production-only, in NO
+ * migration and NO schema file — so a manifest entry would have reported MISSING on every
+ * correctly-migrated fresh database, inverting the question this file exists to answer. The
+ * owner ruled on 2026-08-20 to model them, and `0084` now creates and locks them everywhere, so
+ * they get their own entries below under that migration rather than this one.
  */
 const R39_LOCKED_BY_0082: readonly { readonly table: string; readonly holds: string }[] = [
   {
@@ -91,14 +92,19 @@ const R39_LOCKED_BY_0082: readonly { readonly table: string; readonly holds: str
 ];
 
 /**
- * How `0082` reaches a table: through a schema file, or only through `to_regclass`.
+ * WHICH MIGRATION CREATES A TABLE — which is what decides whether its absence is a failure.
  *
- * `declared-by-0048` tables exist in every environment — migration `0048` creates them — so
- * their absence is a real failure. `unmodelled` tables (GAP-DB-21) exist on production and in no
- * migration and no schema file, so their absence is the CORRECT state everywhere else, and
- * `0082` reaches them only inside a guarded `DO $$` block.
+ * `declared-by-0048` tables exist wherever `0048` has run. `declared-by-0084` were GAP-DB-21:
+ * they existed on production and in NO migration and no schema file, so `0082` could only reach
+ * them inside a guarded `DO $$` block and their absence elsewhere was the CORRECT state. The
+ * owner ruled on 2026-08-20 to keep and MODEL them, and `0084` now creates them everywhere.
+ *
+ * The tolerance for absence is deliberately KEPT for that half, because it is still right for a
+ * database that has not applied `0084` yet — production had these tables before it and every
+ * other environment gets them from it. What changed is that absence is now temporary and
+ * fixable rather than permanent and expected.
  */
-export type R39Class = "declared-by-0048" | "unmodelled";
+export type R39Class = "declared-by-0048" | "declared-by-0084";
 
 export interface R39Table {
   readonly table: string;
@@ -118,10 +124,10 @@ export const R39_TABLES: readonly R39Table[] = [
   { table: "agency_kyc", cls: "declared-by-0048" },
   { table: "agency_payout_accruals", cls: "declared-by-0048" },
   { table: "agency_payout_requests", cls: "declared-by-0048" },
-  { table: "agency_profiles", cls: "unmodelled" },
-  { table: "employer_profiles", cls: "unmodelled" },
-  { table: "payer_capabilities", cls: "unmodelled" },
-  { table: "payer_member_invites", cls: "unmodelled" },
+  { table: "agency_profiles", cls: "declared-by-0084" },
+  { table: "employer_profiles", cls: "declared-by-0084" },
+  { table: "payer_capabilities", cls: "declared-by-0084" },
+  { table: "payer_member_invites", cls: "declared-by-0084" },
 ];
 
 const R39_RLS_REQUIREMENTS: readonly SchemaRequirement[] = R39_LOCKED_BY_0082.map(({ table, holds }) => ({
@@ -138,6 +144,55 @@ const R39_RLS_REQUIREMENTS: readonly SchemaRequirement[] = R39_LOCKED_BY_0082.ma
     `SILENT and permanent. ${table} holds ${holds}. It is empty today, so nothing is exposed ` +
     "yet — the exposure begins with the first row written, and no surface degrades to announce " +
     "it. Only db:audit:rls or this audit will ever say so",
+}));
+
+/**
+ * The four GAP-DB-21 tables, now that `0084` creates them everywhere.
+ *
+ * They could not be listed while they existed on production alone — the entry would have read
+ * MISSING on every correctly-migrated fresh database. `0084` removes that asymmetry, so the
+ * manifest can finally say the thing that was true all along: these tables must be locked.
+ *
+ * The requirement is attributed to `0084` rather than `0082` deliberately. `0082` locked them
+ * behind a `to_regclass` guard that no-ops where they are absent, so it CANNOT be the migration
+ * an operator is told to apply to make a fresh database compliant — `0084` is, because it
+ * creates them and then locks them in the same file.
+ */
+const GAP_DB_21_RLS_REQUIREMENTS: readonly SchemaRequirement[] = [
+  {
+    table: "agency_profiles",
+    holds: "the agency-side 1:1 extension of a payer — no PII columns today, but payer-scoped",
+  },
+  {
+    table: "employer_profiles",
+    holds:
+      "`gst_number_enc`, business PII ciphertext (and, since it became visible to the schema, a " +
+      "re-encrypt backfill target)",
+  },
+  {
+    table: "payer_capabilities",
+    holds:
+      "the superseded per-payer boolean permission matrix — an AUTHORIZATION table, so a " +
+      "readable default publishes who may do what",
+  },
+  {
+    table: "payer_member_invites",
+    holds:
+      "`invited_email_enc` ciphertext plus `invite_token_hash`, a BEARER credential: a client " +
+      "that could read it could accept another person's invite into a payer org",
+  },
+].map(({ table, holds }) => ({
+  id: `0084-${table.replace(/_/g, "-")}-rls`,
+  migration: "0084_model_gap_db_21_payer_onboarding",
+  kind: "rls" as const,
+  table,
+  requiredBy:
+    "no code path — nothing in this repository reads these four. This is the platform-wide " +
+    "table-DEFAULT lock (TD20), and it is listed because 0083 CREATES the table on every fresh " +
+    "database, where Supabase's default privileges would grant the Data-API roles at CREATE time",
+  failureMode:
+    `SILENT. ${table} holds ${holds}. All four are empty today, so nothing is exposed yet — the ` +
+    "exposure begins with the first row written, and no surface degrades to announce it",
 }));
 
 /**
@@ -221,7 +276,7 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "identical to the 0080 table entry and for the same reason — both surfaces 500. Listed SEPARATELY because the table can be present while the column is not, which is exactly the state a deploy that skips this migration produces",
   },
   {
-    id: "0083-ai-call-traces-table",
+    id: "0084-ai-call-traces-table",
     migration: "0083_ai_call_traces",
     kind: "table",
     table: "ai_call_traces",
@@ -238,7 +293,7 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "to ASK",
   },
   {
-    id: "0083-ai-call-traces-rls",
+    id: "0084-ai-call-traces-rls",
     migration: "0083_ai_call_traces",
     kind: "rls",
     table: "ai_call_traces",
@@ -257,6 +312,7 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "keep working, so nothing reports it",
   },
   ...R39_RLS_REQUIREMENTS,
+  ...GAP_DB_21_RLS_REQUIREMENTS,
 ] as const;
 
 /** What the live database actually has, keyed by requirement id. */
