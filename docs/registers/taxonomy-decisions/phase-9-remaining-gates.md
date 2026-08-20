@@ -1,22 +1,89 @@
 # Phase 9 — the remaining gates, and exactly who can close each
 
-> **Updated 2026-08-19 (third pass).** `0078` is applied and verified, so **S3-C is EXECUTED**.
-> Three of the original five gates are now closed by measurement. What remains is two taxonomy
-> judgement calls, one product/trainer gap, and two host-only actions.
+> **Updated 2026-08-19 (fifth pass).** `0078` **and `0080`** are applied and verified
+> object-by-object, so the schema contract reads **`ready for the code on main? = YES`** and
+> **S3-C is EXECUTED**. The S3-C read switch is wired end to end (#1024) — every remaining S3-D
+> blocker that was engineering work is closed. What remains is two taxonomy judgement calls, one
+> product/trainer gap, two host-only actions, and two production writes (adopting the five
+> unrecorded journal entries, and the R39 REVOKEs).
 >
-> Everything read-only was run against production. The two production writes made this pass —
-> applying `0078` (owner) and stamping 76 `embedding_model` values (proven, never assumed) — are
-> recorded below with their evidence artifacts.
+> Everything read-only was run against production, on cluster `7642734024280108049` — the audit
+> prints that id now, because "applied" and "reports missing" can both be true of two different
+> databases and nothing in the output used to distinguish them.
+>
+> The production writes made by the owner — `0078`, `0080`, and stamping 76 `embedding_model`
+> values (proven, never assumed) — are recorded below with their evidence.
 
 | # | gate | blocked on | state |
 |---|---|---|---|
 | 0 | `0078` / S3-C | — | ✅ **APPLIED & VERIFIED** — object-by-object, write path exercised |
 | 1 | Embedding provenance (76 unstamped rows) | — | ✅ **CLOSED** — proven `gemini-embedding-001`, stamped |
-| 2 | `cnc-programming` scope decision | **product / taxonomy owner** | ⏸ quantified against production |
+| 2 | `cnc-programming` scope decision | **product / taxonomy owner** | ⏸ **decision package complete** — `phase-9-cnc-programming-decision.md` |
 | 3 | 11 provider evaluation cases | — | ✅ **EXECUTED**; replay gap closed; harness defect fixed; **US-04 resolved** |
 | 4 | 5 TD-01 trainer slots | **trade trainer** | ⏸ worksheet ready |
-| 5 | TD-07 | **product + trainer** | ⏸ worksheet ready, five options costed |
+| 5 | TD-07 | **product + trainer** | ⏸ worksheet ready; engineering evidence complete |
 | 6 | R38 residual | **host-only** | 🔴 open — CD cannot fix it (see below) |
+| 7 | Path A miss recording | — | ✅ **CLOSED** (#1024) — `job_domain_id` reaches `unresolved_phrase`; the thresholds' own inputs are now collectable |
+| 8 | `0080` applied to production | — | ✅ **APPLIED & VERIFIED** object-by-object, RLS included — see below |
+| 9 | **7 tables keep their Data-API grants** (R39) | **owner — production write** | 🔴 open — found by the new `db:audit:rls` sweep |
+
+---
+
+## 8. `0080_worker_feedback` — applied, and verified object-by-object
+
+Applied by the owner on 2026-08-19, out of band like `0076`–`0079`. Verified against the live
+database rather than taken on report — `db:audit:schema-contract` now says
+**`ready for the code on main? = YES`**, on cluster `7642734024280108049`.
+
+| object | state |
+|---|---|
+| 6 columns | `id` uuid PK `gen_random_uuid()` · `worker_id` uuid NOT NULL · `category` text NULL · `message` text NOT NULL · `app_build` text NULL · `created_at` timestamptz NOT NULL `now()` |
+| `worker_feedback_message_len_chk` | `char_length(message) BETWEEN 1 AND 4000` |
+| `worker_feedback_app_build_len_chk` | `app_build IS NULL OR char_length BETWEEN 1 AND 64` |
+| `worker_feedback_category_chk` | `category IS NULL OR category IN ('suggestion','problem','other')` |
+| FK | `worker_id → workers(id) ON DELETE CASCADE` |
+| 3 indexes + PK | `worker_id` · `(created_at DESC, id DESC)` · `(category, created_at DESC, id DESC)` |
+| RLS | **enabled + FORCED** |
+| REVOKEs | all four confirmed individually — `anon`, `authenticated`, `service_role`, `PUBLIC`. Sole grantee is `postgres` |
+| rows | 0 — new table, no backfill, as the migration states |
+
+**The `FORCE`-with-no-policies question, answered.** `FORCE` plus zero policies would deny the
+owner too, which would take both surfaces down. It does not, because `postgres` carries
+`rolbypassrls = true` — `has_table_privilege` confirms SELECT and INSERT. And this is not a
+special case: all five sampled spine tables (`workers`, `worker_profiles`, `chat_messages`,
+`unresolved_phrase`, `worker_feedback`) are enabled + forced with **0 policies**, and there are
+zero RLS policies anywhere in the schema. "No policies" is the house pattern, not a gap.
+
+**The two keyset indexes match the admin read exactly** — `AdminFeedbackRepository.list` orders
+`created_at DESC, id DESC` with an optional `category` equality, which is the first index and
+the second respectively.
+
+**The journal is now 5 files behind, all LIVE** (`0076`–`0080`), 0 absent, 0 PARTIAL — confirmed
+by `reconcile-migrations.ts`, which depth-checks columns, types, indexes, constraints and RLS
+rather than trusting the row count. Nothing is broken by this, and the audit reports it as a
+non-fatal note; but **the next new migration will not apply until those five are adopted**, so
+adoption is now a prerequisite of any further schema work. Procedure in `MIGRATIONS.md`.
+
+---
+
+## 9. Seven tables keep their Data-API grants — R39
+
+Found on 2026-08-19 by `db:audit:rls`, a new sweep over **every** public table rather than a
+hand-maintained list. 70 of 77 are fully locked; seven are not: `agency_kyc`,
+`agency_payout_accruals`, `agency_payout_requests`, `agency_profiles`, `employer_profiles`,
+`payer_capabilities`, `payer_member_invites`.
+
+Nothing was watching them: `tests/e2e/rls-spine.e2e.test.ts` is `skipIf`-gated **and** names
+none of the seven.
+
+**Not a live leak — all seven are empty, and with zero policies `anon`/`authenticated`
+(`rolbypassrls=false`) are denied every row.** The exception is `service_role`, which has
+`rolbypassrls = true`: RLS never filters it, so the grant is the only control, and here it is
+open where the other 70 revoke it. Latent while the tables are empty; live the moment KYC or
+payout rows land.
+
+Full entry, with the per-table remediation, in the risks register as **R39**. The fix is a
+migration — and it lands behind the adoption above.
 
 ---
 
@@ -198,6 +265,12 @@ said before the defect was found.
 ---
 
 ## 2. `cnc-programming` — quantified, still a taxonomy decision
+
+> **The full package is now `phase-9-cnc-programming-decision.md`** — one page, costed both
+> ways, with the measurement that reframes it: **no live caller can scope a query to
+> `cnc-programming`.** Every production path hard-codes `cnc-machining` or supplies a `jd_*` id
+> that nothing populates, and `SKILL_CANONICALIZE_DEFAULT_DOMAIN` is not bridged into the deploy
+> at all. The loss is real in the data and unobservable in traffic. The summary below stands.
 
 Production holds the PRE-merge state (`skill_gdt_reading` and `skill_cad_interpretation` both
 `active`; `skill_drawing_reading` does not exist there), so this is a forecast of S3-D measured on

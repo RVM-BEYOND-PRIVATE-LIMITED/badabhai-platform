@@ -4,12 +4,10 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
 
-/// Loads the Credits screen: the REAL balance (`GET /payer/credits`) and the
-/// REAL credit ledger (`GET /payer/credits/ledger`).
-///
-/// READ-ONLY. The pack catalogue (config-only, no endpoint — its prices were
-/// hardcoded client-side and contradicted the server pricing catalog) and the
-/// purchase action were REMOVED: there is no payment provider behind them.
+/// Loads the Credits screen: the REAL balance (`GET /payer/credits`), the REAL
+/// credit ledger (`GET /payer/credits/ledger`), and the buyable packs
+/// (`GET /payer/pricing/catalog`); [buyPack] runs the MOCK purchase
+/// (`POST /payer/credits`).
 class CreditsScreenCubit extends Cubit<CreditsScreenState> {
   CreditsScreenCubit(this._api) : super(const CreditsScreenState());
 
@@ -29,16 +27,53 @@ class CreditsScreenCubit extends Cubit<CreditsScreenState> {
       } catch (_) {
         unlockLedger = const <LedgerEntry>[];
       }
+      // Packs are best-effort too: a pricing-catalog blip hides the buy section
+      // but must not fail the whole screen (balance + ledger stay).
+      List<CreditPack> packs;
+      try {
+        packs = await _api.fetchCreditPacks();
+      } catch (_) {
+        packs = const <CreditPack>[];
+      }
       emit(
         CreditsScreenState(
           status: CreditsScreenStatus.ready,
           ledger: ledger,
           unlockLedger: unlockLedger,
           balance: balance,
+          packs: packs,
         ),
       );
     } catch (_) {
       emit(state.copyWith(status: CreditsScreenStatus.error));
+    }
+  }
+
+  /// Buy the pack with [code] (MOCK). On success the new balance is applied and
+  /// the ledger re-read so the purchase row shows; a failure surfaces via
+  /// [CreditsScreenState.purchaseFailed] without touching the balance/ledger.
+  Future<void> buyPack(String code) async {
+    if (state.purchasing != null) return; // one purchase at a time
+    emit(state.copyWith(
+        purchasing: code, purchaseFailed: false, purchased: false));
+    try {
+      final int balance = await _api.buyCreditPack(code);
+      // Re-read the ledger so the pack-purchase row appears; keep the last ledger
+      // if that read blips (the balance is authoritative and already updated).
+      List<LedgerEntry> ledger;
+      try {
+        ledger = await _api.fetchCreditLedger();
+      } catch (_) {
+        ledger = state.ledger;
+      }
+      emit(state.copyWith(
+        balance: balance,
+        ledger: ledger,
+        clearPurchasing: true,
+        purchased: true,
+      ));
+    } catch (_) {
+      emit(state.copyWith(clearPurchasing: true, purchaseFailed: true));
     }
   }
 }
@@ -51,6 +86,10 @@ class CreditsScreenState extends Equatable {
     this.ledger = const <LedgerEntry>[],
     this.unlockLedger = const <LedgerEntry>[],
     this.balance,
+    this.packs = const <CreditPack>[],
+    this.purchasing,
+    this.purchaseFailed = false,
+    this.purchased = false,
   });
 
   final CreditsScreenStatus status;
@@ -66,20 +105,51 @@ class CreditsScreenState extends Equatable {
   /// The REAL balance (`null` until first load).
   final int? balance;
 
+  /// The buyable packs from the server pricing catalog; empty when none / a blip.
+  final List<CreditPack> packs;
+
+  /// The pack code currently being bought (its card shows a spinner); null when
+  /// idle.
+  final String? purchasing;
+
+  /// The last purchase attempt failed — the UI shows an honest retry, transient.
+  final bool purchaseFailed;
+
+  /// A purchase just succeeded — drives the one-shot "credits added" cue.
+  final bool purchased;
+
   CreditsScreenState copyWith({
     CreditsScreenStatus? status,
     List<LedgerEntry>? ledger,
     List<LedgerEntry>? unlockLedger,
     int? balance,
+    List<CreditPack>? packs,
+    String? purchasing,
+    bool clearPurchasing = false,
+    bool? purchaseFailed,
+    bool? purchased,
   }) {
     return CreditsScreenState(
       status: status ?? this.status,
       ledger: ledger ?? this.ledger,
       unlockLedger: unlockLedger ?? this.unlockLedger,
       balance: balance ?? this.balance,
+      packs: packs ?? this.packs,
+      purchasing: clearPurchasing ? null : (purchasing ?? this.purchasing),
+      purchaseFailed: purchaseFailed ?? this.purchaseFailed,
+      purchased: purchased ?? this.purchased,
     );
   }
 
   @override
-  List<Object?> get props => <Object?>[status, ledger, unlockLedger, balance];
+  List<Object?> get props => <Object?>[
+        status,
+        ledger,
+        unlockLedger,
+        balance,
+        packs,
+        purchasing,
+        purchaseFailed,
+        purchased,
+      ];
 }

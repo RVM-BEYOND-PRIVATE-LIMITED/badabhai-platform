@@ -5,14 +5,14 @@ import 'package:get_it/get_it.dart';
 import 'package:payer_app/core/auth/payer_token_store.dart';
 import 'package:payer_app/core/data/mock_payer_api_client.dart';
 import 'package:payer_app/core/di/locator.dart';
+import 'package:payer_app/core/widgets/bb_button.dart';
 import 'package:payer_app/features/credits/presentation/credits_screen.dart';
 
-/// #376 — the screen is REPORT-ONLY: the purchase surface (pack catalogue,
-/// prices, "Secure checkout · Razorpay · UPI / card") was deliberately removed
-/// because there is no payment provider. It was still titled 'Buy credits',
-/// promising the one capability it does not have — a payer arriving from Home's
-/// "View ledger" with 0 credits would hunt for a buy button that does not exist
-/// and read the app as broken. These tests pin the honest title + disclosure.
+/// The purchase surface is RESTORED: the two reasons #376 removed it are gone —
+/// packs + prices now come from the SERVER pricing catalog (never hardcoded), and
+/// a MOCK buy endpoint (`POST /payer/credits`) grants credits with no real money.
+/// These tests pin the buy section + a working (mock) purchase, plus that the
+/// screen still reports the balance + ledger.
 void main() {
   setUp(() async {
     await GetIt.instance.reset();
@@ -30,24 +30,28 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('titled "Credits", never "Buy credits"', (
+  testWidgets('shows a Buy credits section with server-priced packs', (
     WidgetTester tester,
   ) async {
     await pump(tester);
 
-    expect(find.text('Credits'), findsOneWidget);
-    expect(find.text('Buy credits'), findsNothing);
+    expect(find.text('Credits'), findsOneWidget); // title
+    expect(find.text('Buy credits'), findsOneWidget); // restored section
+    // Packs from the (mock) catalog render with a Buy button each.
+    expect(find.widgetWithText(BbButton, 'Buy'), findsWidgets);
+    expect(find.textContaining('₹'), findsWidgets);
   });
 
-  testWidgets('states that buying is unavailable in the app', (
+  testWidgets('tapping Buy runs the (mock) purchase and confirms', (
     WidgetTester tester,
   ) async {
     await pump(tester);
 
-    expect(
-      find.text('Buying credits is not available in the app yet.'),
-      findsOneWidget,
-    );
+    await tester.tap(find.widgetWithText(BbButton, 'Buy').first);
+    await tester.pumpAndSettle();
+
+    // The mock buy grants credits + the screen confirms with a snackbar.
+    expect(find.text('Credits add ho gaye.'), findsOneWidget);
   });
 
   testWidgets('still reports the server balance + ledger', (
@@ -55,13 +59,19 @@ void main() {
   ) async {
     await pump(tester);
 
-    // Retitling must not have cost the screen its actual job.
+    // Adding the buy section must not have cost the screen its actual job.
     expect(find.text('Current balance'), findsOneWidget);
     // The credit-account ledger (`/payer/credits/ledger`) — the old 'Unlock
     // ledger' heading mislabelled it; the real per-unlock history is separate.
     expect(find.text('Credit ledger'), findsOneWidget);
-    // The per-unlock history (`/payer/unlocks`) now has its own section (the
-    // mock seam returns a non-empty unlock ledger).
+    // The per-unlock history (`/payer/unlocks`) has its own section further down
+    // the lazy ListView (the mock seam returns a non-empty unlock ledger) — scroll
+    // it into view before asserting.
+    await tester.scrollUntilVisible(
+      find.text('Unlock history'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Unlock history'), findsOneWidget);
   });
 }
