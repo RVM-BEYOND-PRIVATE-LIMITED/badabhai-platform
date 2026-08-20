@@ -50,6 +50,22 @@ const nextConfig = {
           { key: "Referrer-Policy", value: "no-referrer" },
           // The portal renders operator data; nothing here should ever be indexed.
           { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+          // Since the 2026-08-18 ruling these pages carry decrypted worker, organisation and
+          // admin NAMES. A shared cache holding one is a name disclosed outside the audited,
+          // capped read that produced it — served to whoever asks next, with no
+          // `admin.identity_viewed` row and no budget charged.
+          //
+          // ASSERTED AT THE ORIGIN, NOT DELEGATED. The box is nginx-fronted and that config
+          // lives outside this repo, so a proxy adding the header is something this app cannot
+          // see, test, or be sure survives the next box change. `no-store` here is also the
+          // exact directive the API sets on the five name-bearing routes, so the two hops
+          // agree rather than each assuming the other did it.
+          //
+          // Applied to `/:path*` unconditionally rather than only to the name-bearing routes:
+          // a caching header that varies by page is one refactor away from being wrong, and
+          // there is nothing under this origin worth caching in the first place — every page
+          // is `force-dynamic` operational data behind an admin session.
+          { key: "Cache-Control", value: "no-store" },
         ],
       },
     ];

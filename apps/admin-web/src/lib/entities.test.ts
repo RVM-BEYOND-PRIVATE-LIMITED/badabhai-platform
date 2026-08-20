@@ -366,14 +366,18 @@ const ADMIN_ROW = {
   is_self: true,
 };
 
-describe("admin directory schema — the faceless contract", () => {
-  it("parses a faceless admin row", () => {
+describe("admin directory schema", () => {
+  it("parses an admin row", () => {
     expect(adminRowSchema.parse(ADMIN_ROW).role).toBe("super_admin");
   });
 
-  it("a row is valid WITHOUT any identity field — faceless is the contract", () => {
-    // Guards the owner ruling: nothing in the schema requires a name or an email, so the
-    // UI can never come to depend on one arriving.
+  it("a row is valid WITHOUT a name — an undisclosed read must still parse", () => {
+    // The 2026-08-18 ruling made `name` OPTIONAL, not required: an analyst, a capped read and a
+    // >50-account directory all come back without it, and a schema that demanded one would turn
+    // every such response into an error state instead of a faceless screen.
+    //
+    // The EMAIL half of that ruling did not reverse, and this is where that is pinned: no email
+    // key exists on this shape at all. The three name STATES live in `entities.identity.test.ts`.
     const parsed = adminRowSchema.parse(ADMIN_ROW);
     expect(parsed).not.toHaveProperty("email");
     expect(parsed).not.toHaveProperty("name");

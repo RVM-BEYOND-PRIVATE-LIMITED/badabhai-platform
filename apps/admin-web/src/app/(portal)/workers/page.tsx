@@ -1,8 +1,12 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
+import { can } from "../../../lib/auth/capabilities";
 import { listWorkers } from "../../../lib/entities";
+import { identityPosture } from "../../../lib/identity";
 import { formatRelative, formatTimestamp, shortId } from "../../../lib/format";
 import { StatusPill } from "../../../components/status-pill";
+import { NameCell } from "../../../components/name-cell";
+import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Pager } from "../../../components/pager";
 import { WorkerFilterBar } from "./filter-bar";
 
@@ -10,23 +14,32 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Workers" };
 
 /**
- * Workers — the faceless supply-side roster.
+ * Workers — the supply-side roster.
  *
- * There is NO name, phone or photo here, and there is no search-by-phone box, because the
- * server does not serve any of it. That is the design, not a gap: a bulk-readable roster
- * of contactable workers is the single most sensitive thing this platform could expose,
- * and the reveal path is deliberately a separate, reason-gated, audited, single-subject
- * capability (`reveal_pii`) rather than a column on a list.
+ * ── NAMES, SINCE THE 2026-08-18 RULING ──────────────────────────────────────────────────
+ * A Name column is rendered to a role holding `read_identity` (super_admin / ops_admin /
+ * support), and the server audits every one of those reads and charges them against an hourly
+ * per-admin budget. An `analyst` is denied, and their screen is the roster exactly as it shipped
+ * before the ruling — no column, no dashes, no header promising data they will never be shown.
+ * Which of the three states this render is in is decided by `identityPosture`, from the rows
+ * that actually arrived rather than from the capability alone.
  *
- * So this screen answers operational questions — how many, in what state, how far through
- * profiling, who is pending deletion — and hands off to the event timeline for the rest.
+ * ── WHAT IS STILL NOT HERE, AND WHY THAT IS NOT THE SAME QUESTION ───────────────────────
+ * NO phone, no photo, and — the load-bearing one — no search box of any kind. The ruling
+ * reversed "the roster is anonymous"; it did not reverse "the roster is not a lookup tool". A
+ * field that turns a name into a row is what makes a roster of contactable workers bulk
+ * queryable by identity, and contact itself stays on the separate, reason-gated, audited,
+ * single-subject `reveal_pii` path rather than becoming a column on a list.
+ *
+ * So this screen still answers operational questions — how many, in what state, how far through
+ * profiling, who is pending deletion — and now says who each row is while doing it.
  */
 export default async function WorkersPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireCapability("read_entities");
+  const session = await requireCapability("read_entities");
 
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) =>
@@ -48,17 +61,33 @@ export default async function WorkersPage({
 
   const filtered = Boolean(status) || pendingDeletion;
 
+  const posture = identityPosture(
+    page?.items ?? [],
+    "full_name",
+    can(session.capabilities, "read_identity"),
+  );
+
   return (
     <div className="page">
       <header className="page__head">
         <div>
           <h1 className="page__title">Workers</h1>
           <p className="page__sub">
-            Faceless roster. Contact details are never listed — revealing one worker&apos;s
-            contact is a separate, reason-gated action.
+            {posture === "faceless"
+              ? "Workers are identified by id here — your role does not include name access."
+              : "Names are shown to your role, and each name read is capped and audited."}{" "}
+            Contact details are never listed — revealing one worker&apos;s contact is a
+            separate, reason-gated action.
           </p>
         </div>
       </header>
+
+      {posture === "capped" && (
+        <IdentityCapNotice>
+          Your role may see them, so this is a limit on the read: this admin account has spent
+          its hourly name budget.
+        </IdentityCapNotice>
+      )}
 
       <section className="panel" aria-labelledby="wf-heading">
         <h2 className="sr-only" id="wf-heading">
@@ -106,6 +135,9 @@ export default async function WorkersPage({
               <caption className="sr-only">Workers, newest first</caption>
               <thead>
                 <tr>
+                  {/* Only in the `named` posture. A Name heading over dashes would state that
+                      these workers have no name on record, which is what a dash MEANS here. */}
+                  {posture === "named" && <th scope="col">Name</th>}
                   <th scope="col">Worker</th>
                   <th scope="col">Status</th>
                   <th scope="col">Language</th>
@@ -117,6 +149,14 @@ export default async function WorkersPage({
               <tbody>
                 {page.items.map((w) => (
                   <tr key={w.id}>
+                    {posture === "named" && (
+                      <td>
+                        <NameCell value={w.full_name} />
+                      </td>
+                    )}
+                    {/* The id column stays even when a name is beside it: it is the join key
+                        onto the audit spine, the value an operator copies into a query, and
+                        the only stable handle for a worker who has never given us a name. */}
                     <td>
                       <Link className="link mono" href={`/workers/${w.id}`} title={w.id}>
                         {shortId(w.id)}
