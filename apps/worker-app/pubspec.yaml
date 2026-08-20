@@ -43,7 +43,6 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   intl: any
-  cupertino_icons: ^1.0.8
   http: ^1.2.0
   # Crash reporting (FlutterFire). firebase_core boots the SDK from the native
   # config files (android/app/google-services.json, ios GoogleService-Info.plist);
