@@ -50,9 +50,17 @@ const IN_FLIGHT = "in_flight";
  * of the two and therefore the one that governs.
  *
  * PRIVACY (§2). The key namespace carries `hashPhone(phone)`, never the number itself — the
- * same rule `OtpService` follows for every one of its keys. The stored value is a route response
- * that already went over the wire to this caller (`{ success, channel, resend_in_seconds }`), so
- * unlike the refresh grace there is no credential at rest here and nothing to encrypt.
+ * same rule `OtpService` follows for every one of its keys.
+ *
+ * Whether the stored VALUE needs encrypting depends on the route, so the caller says
+ * (`secret: true`). For the send routes it does not: the value is `{ success, channel,
+ * resend_in_seconds }`, a response that already went over the wire to this caller and carries
+ * no credential. `/auth/otp/verify` is the opposite case — its 200 is a `LoginResponse` holding
+ * an access JWT and a refresh token — so it stores CIPHERTEXT, exactly as
+ * `SessionService`'s refresh grace does with the pair it mints (§11: never plaintext bearer
+ * secrets at rest). The flag is on the call site rather than inferred, because "does this
+ * response contain a credential" is a fact about the route that a reader of the route should
+ * have to state.
  *
  * SCOPED PER ROUTE AND PER PHONE. `otp_idem:<scope>:<phoneHash>:<keyHash>` — so a key captured from
  * one flow cannot replay into another, and login and PIN-reset never collide on a client that
@@ -104,6 +112,12 @@ export class OtpRequestIdempotency {
     readonly idempotencyKey?: string;
     readonly work: () => Promise<T>;
     readonly inFlight: () => T;
+    /**
+     * Encrypt the stored outcome at rest. Set it on any route whose response carries a
+     * credential — see the class header. Off by default so the send routes are unchanged, and
+     * so adding a route that DOES carry one is a deliberate decision rather than an omission.
+     */
+    readonly secret?: boolean;
   }): Promise<T> {
     const key = opts.idempotencyKey?.trim();
     if (!key) return opts.work();
@@ -159,7 +173,7 @@ export class OtpRequestIdempotency {
 
     try {
       const value = await opts.work();
-      await this.store(redis, redisKey, { ok: true, value }, opts.scope, hashPrefix);
+      await this.store(redis, redisKey, { ok: true, value }, opts.scope, hashPrefix, opts.secret);
       return value;
     } catch (err) {
       // STORED, NOT RELEASED. By the time most failures are thrown the counters have already
@@ -176,7 +190,7 @@ export class OtpRequestIdempotency {
               status: HttpStatus.SERVICE_UNAVAILABLE,
               message: "This is temporarily unavailable; please retry shortly",
             };
-      await this.store(redis, redisKey, outcome, opts.scope, hashPrefix);
+      await this.store(redis, redisKey, outcome, opts.scope, hashPrefix, opts.secret);
       throw err;
     }
   }
@@ -195,11 +209,17 @@ export class OtpRequestIdempotency {
     outcome: StoredOutcome,
     scope: string,
     hashPrefix: string,
+    secret = false,
   ): Promise<void> {
     try {
+      // The WHOLE outcome, not just the success value. A failure shape carries only a
+      // client-visible status and message today, but branching on `ok` here would mean a future
+      // field added to the failure side silently lands in plaintext — and the cost of
+      // encrypting a 60-byte object once per 180s window is nothing.
+      const payload = JSON.stringify(outcome);
       await redis.set(
         redisKey,
-        JSON.stringify(outcome),
+        secret ? this.pii.encrypt(payload) : payload,
         "EX",
         OtpRequestIdempotency.WINDOW_SECONDS,
       );
@@ -215,7 +235,12 @@ export class OtpRequestIdempotency {
   private async replay<T>(
     redis: RedisIdemClient,
     redisKey: string,
-    opts: { readonly scope: string; readonly inFlight: () => T; readonly work: () => Promise<T> },
+    opts: {
+      readonly scope: string;
+      readonly inFlight: () => T;
+      readonly work: () => Promise<T>;
+      readonly secret?: boolean;
+    },
     hashPrefix: string,
   ): Promise<T> {
     let stored: string | null;
@@ -238,10 +263,13 @@ export class OtpRequestIdempotency {
 
     let outcome: StoredOutcome;
     try {
-      outcome = JSON.parse(stored) as StoredOutcome;
+      // Symmetric with `store()`: the flag comes from the CALL SITE, so a scope always reads
+      // back the way it wrote. A blob written before this route was marked `secret` (or under a
+      // retired key) fails to decrypt and lands in the catch below — which is the safe side.
+      outcome = JSON.parse(opts.secret ? this.pii.decrypt(stored) : stored) as StoredOutcome;
     } catch {
-      // Unreadable is not a licence to send again — the reservation still means an attempt owns
-      // this key. Treat it as in flight.
+      // Unreadable is not a licence to run the work again — the reservation still means an
+      // attempt owns this key. Treat it as in flight.
       return opts.inFlight();
     }
 
