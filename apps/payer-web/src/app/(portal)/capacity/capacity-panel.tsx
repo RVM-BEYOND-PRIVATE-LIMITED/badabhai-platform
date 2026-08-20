@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Badge, Button, Card, Toast } from "../../../components/ds";
+import { Badge, Button, Card, Dialog, Toast } from "../../../components/ds";
 import { formatInr } from "../../../lib/format";
 import { upgradeCapacityAction } from "./actions";
 
@@ -15,15 +15,16 @@ import { upgradeCapacityAction } from "./actions";
  * field, no real money — the backend mock-upgrades (real_call:false).
  *
  * Each tier renders as a DS Card with the ₹ price + concurrent-vacancy allowance in mono
- * tabular and a DS Button wired to the EXISTING live POST /payer/capacity action. A
- * window.confirm step precedes the buy (mock-money copy), the buttons disable while
- * submitting, and the result region is aria-live='polite' (DS Toast).
+ * tabular and a DS Button wired to the EXISTING live POST /payer/capacity action. A DS
+ * Dialog confirm step precedes the buy (mock-money copy) instead of a native window.confirm,
+ * the buttons disable while submitting, and the result region is aria-live='polite' (DS Toast).
  */
 export type CapacityTier = { code: string; priceInr: number; maxActiveVacancies: number };
 
 export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
   const router = useRouter();
   const [pendingCode, setPendingCode] = useState<string | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<CapacityTier | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
@@ -35,13 +36,18 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
       ? tiers.reduce((a, b) => (a.maxActiveVacancies >= b.maxActiveVacancies ? a : b)).code
       : null;
 
+  /** Clicking a tier ARMS a DS confirm Dialog (no native window.confirm). */
   function onUpgrade(tier: CapacityTier) {
-    // Confirm step. Money is MOCK — the copy says so; no real payment is taken.
-    const ok = window.confirm(
-      `Upgrade to the ${tier.maxActiveVacancies}-vacancy tier for ${formatInr(tier.priceInr)}? ` +
-        "This is a mock upgrade — no real payment is taken.",
-    );
-    if (!ok) return;
+    setError(null);
+    setMessage(null);
+    setPendingConfirm(tier);
+  }
+
+  /** The dialog's Confirm — mock-upgrade the armed tier, then refresh. */
+  function confirmUpgrade(): void {
+    const tier = pendingConfirm;
+    if (!tier) return;
+    setPendingConfirm(null);
     setError(null);
     setMessage(null);
     setPendingCode(tier.code);
@@ -105,6 +111,33 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
         {message ? <Toast tone="success">{message}</Toast> : null}
         {error ? <Toast tone="danger">{error}</Toast> : null}
       </div>
+
+      {/* Confirm-on-spend — the DS Dialog replaces the native window.confirm. Copy names the
+          tier allowance + price (mock-money); the post-confirm logic lives on Confirm. */}
+      <Dialog
+        open={pendingConfirm !== null}
+        onClose={() => setPendingConfirm(null)}
+        title="Upgrade capacity?"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPendingConfirm(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={confirmUpgrade}>
+              Upgrade
+            </Button>
+          </>
+        }
+      >
+        {pendingConfirm ? (
+          <>
+            Upgrade to the <span className="bb-mono">{pendingConfirm.maxActiveVacancies}</span>
+            -vacancy tier for{" "}
+            <span className="bb-mono">{formatInr(pendingConfirm.priceInr)}</span>? This is a mock
+            upgrade — no real payment is taken.
+          </>
+        ) : null}
+      </Dialog>
     </>
   );
 }

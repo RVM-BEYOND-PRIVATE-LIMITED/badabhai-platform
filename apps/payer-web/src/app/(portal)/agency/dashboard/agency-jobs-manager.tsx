@@ -187,6 +187,7 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                         variant="secondary"
                         size="sm"
                         disabled={busy}
+                        loading={busy}
                         iconLeft="pause"
                         onClick={() => runLifecycle(j.id, () => pauseAgencyJobAction({ jobId: j.id }))}
                       >
@@ -196,6 +197,7 @@ export function AgencyJobsManager({ jobs }: { jobs: AgencyJob[] }) {
                         variant="secondary"
                         size="sm"
                         disabled={busy}
+                        loading={busy}
                         iconLeft="x-circle"
                         onClick={() => runLifecycle(j.id, () => closeAgencyJobAction({ jobId: j.id }))}
                       >

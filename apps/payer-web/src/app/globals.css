@@ -2044,9 +2044,9 @@ textarea.input {
  * MANAGE POSTINGS (DS2.2) — the EMPLOYER postings list + manager re-skinned onto the
  * design system. Each posting is a DS Card with its REAL status Badge, mono-tabular
  * applicant counts, and a link to its faceless applicant feed (a LIVE payer-authed read).
- * The pause / resume / quota top-up trio renders as DISABLED "coming soon" DS Buttons —
- * no payer-authed lifecycle route exists yet. Every value resolves from tokens (no raw
- * hex/px); visual layer only — the live read + the gated-trio flagging are unchanged.
+ * The pause / resume / quota top-up trio ships LIVE — enabled Resume/Pause/Top-up/Close DS
+ * Buttons wired to the payer-authed lifecycle actions (busy-guarded per row). Every value
+ * resolves from tokens (no raw hex/px); visual layer only.
  * ------------------------------------------------------------------ */
 .postings-back {
   color: var(--text-muted);
@@ -2138,6 +2138,13 @@ textarea.input {
   color: var(--text-muted);
   font-size: var(--text-sm);
 }
+/* The middot separator is generated on each segment after the first so it stays ATTACHED to
+   its following segment: on a wrap the glyph moves down with that segment instead of orphaning
+   at the end of the previous line. */
+.posting-card__meta > span:not(:first-child)::before {
+  content: "·";
+  margin-right: var(--space-2);
+}
 .posting-card__actions {
   display: grid;
   gap: var(--space-2);
@@ -2149,16 +2156,6 @@ textarea.input {
   gap: var(--space-2);
   flex-wrap: wrap;
   justify-content: flex-end;
-}
-.posting-card__soon {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  line-height: var(--leading-normal);
-  max-width: 22rem;
-}
-.posting-card__soon strong {
-  color: var(--text-secondary);
 }
 
 /* ------------------------------------------------------------------
@@ -3420,34 +3417,6 @@ img.agency-qr__code,
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
 }
-.team-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: var(--space-2);
-  background: var(--surface-card);
-  border: var(--border-hairline) solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-.team-table th,
-.team-table td {
-  text-align: left;
-  padding: var(--space-3);
-  border-bottom: var(--border-hairline) solid var(--border-subtle);
-  vertical-align: middle;
-}
-.team-table th {
-  background: var(--surface-sunken);
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-  font-weight: var(--weight-semibold);
-}
-.team-table tr:last-child td {
-  border-bottom: none;
-}
-
 /* ------------------------------------------------------------------
  * ENTERPRISE POLISH (DS5) — wavy org label, button-ized dashboard links with
  * continuous affordance motion, the exciting Post-job CTA shine, and the accessible

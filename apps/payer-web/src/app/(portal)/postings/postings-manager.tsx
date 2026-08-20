@@ -133,20 +133,19 @@ export function PostingsManager({ postings }: { postings: PostingSummary[] }) {
                   {p.status}
                 </Badge>
               </div>
+              {/* The middot separators are drawn by CSS (`::before` on every span after the
+                  first) so the glyph travels with its following segment and can't orphan on a
+                  wrap — see `.posting-card__meta` in globals.css. */}
               <div className="posting-card__meta">
                 <span>{p.locationLabel ?? "Location flexible"}</span>
-                <span aria-hidden="true">·</span>
                 <span>{p.vacancyBand} vacancies</span>
-                <span aria-hidden="true">·</span>
                 <span>
                   <span className="bb-mono">{p.applicantCount}</span> /{" "}
                   <span className="bb-mono">{p.applicantQuota ?? NONE}</span> applicants
                 </span>
-                <span aria-hidden="true">·</span>
                 <span>
                   Posted <span className="bb-mono">{day(p.createdAt)}</span>
                 </span>
-                <span aria-hidden="true">·</span>
                 <span>
                   <Link className="postings-link" href={`/postings/${p.id}`}>
                     Details

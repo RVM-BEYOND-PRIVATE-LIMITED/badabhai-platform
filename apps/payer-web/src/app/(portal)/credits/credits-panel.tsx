@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { CreditPack } from "../../../lib/contracts";
-import { Badge, Button, Card, Toast } from "../../../components/ds";
+import { Badge, Button, Card, Dialog, Toast } from "../../../components/ds";
 import { formatInr } from "../../../lib/format";
 import { createOrderAction, topUpAction, verifyPaymentAction } from "./actions";
 import { loadCheckoutScript, openCheckout } from "./razorpay-checkout";
@@ -29,6 +29,7 @@ import { loadCheckoutScript, openCheckout } from "./razorpay-checkout";
 export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; real?: boolean }) {
   const router = useRouter();
   const [pendingCode, setPendingCode] = useState<string | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<CreditPack | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -47,13 +48,21 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
     setNotice(null);
   }
 
-  /** MOCK mode — unchanged behaviour (PAYMENTS_ENABLE_REAL off, the default). */
+  /**
+   * MOCK mode — the buy opens a DS confirm Dialog (no native `window.confirm`). Clicking a
+   * pack only ARMS the confirmation; {@link confirmMockTopUp}, wired to the dialog's Confirm
+   * button, runs the actual (mock) top-up. Behaviour is otherwise unchanged.
+   */
   function onBuyMock(pack: CreditPack): void {
-    const ok = window.confirm(
-      `Add ${pack.credits} credits for ${formatInr(pack.priceInr)}? ` +
-        "This is a mock top-up — no real payment is taken.",
-    );
-    if (!ok) return;
+    resetBanners();
+    setPendingConfirm(pack);
+  }
+
+  /** The dialog's Confirm — run the mock top-up for the armed pack, then refresh the balance. */
+  function confirmMockTopUp(): void {
+    const pack = pendingConfirm;
+    if (!pack) return;
+    setPendingConfirm(null);
     resetBanners();
     setPendingCode(pack.code);
     startTransition(async () => {
@@ -186,6 +195,32 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
         {notice ? <Toast tone="neutral">{notice}</Toast> : null}
         {error ? <Toast tone="danger">{error}</Toast> : null}
       </div>
+
+      {/* Confirm-on-spend — the DS Dialog replaces the native `window.confirm`. Copy names the
+          pack + price (mock-money), and the post-confirm logic lives on the Confirm button. */}
+      <Dialog
+        open={pendingConfirm !== null}
+        onClose={() => setPendingConfirm(null)}
+        title="Add credits?"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setPendingConfirm(null)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={confirmMockTopUp}>
+              Add credits
+            </Button>
+          </>
+        }
+      >
+        {pendingConfirm ? (
+          <>
+            Add <span className="bb-mono">{pendingConfirm.credits}</span> credits for{" "}
+            <span className="bb-mono">{formatInr(pendingConfirm.priceInr)}</span>? This is a mock
+            top-up — no real payment is taken.
+          </>
+        ) : null}
+      </Dialog>
     </>
   );
 }
