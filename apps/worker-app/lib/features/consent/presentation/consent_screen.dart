@@ -11,20 +11,48 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../router.dart';
 import 'cubit/consent_cubit.dart';
 
+/// Handed to `/consent` as go_router `extra` when the screen is PUSHED over a
+/// surface the worker must be able to get back to, rather than entered as the
+/// FIRST step of onboarding.
+///
+/// Today that is the feedback screen recovering from a `ConsentGuard` 403: the
+/// worker has a paragraph in a box and only came here to unblock sending it.
+/// Carrying them on into `/name` → the profiling interview would be hijacking an
+/// already-onboarded worker into a flow they finished long ago.
+///
+/// A marker TYPE rather than a bool or a magic string, so a stray `extra` from
+/// some other caller can never accidentally mean "this is a recovery".
+class ConsentReturnIntent {
+  const ConsentReturnIntent();
+}
+
 class ConsentScreen extends StatelessWidget {
-  const ConsentScreen({super.key});
+  const ConsentScreen({super.key, this.returnToCaller = false});
+
+  /// Build from a go_router `extra`. The ONE rule that decides
+  /// onboarding-vs-recovery lives here rather than in the route table, so it is
+  /// exercised by the tests that drive this screen instead of being a line in
+  /// `router.dart` that nothing reads.
+  factory ConsentScreen.fromExtra(Object? extra) =>
+      ConsentScreen(returnToCaller: extra is ConsentReturnIntent);
+
+  /// True when this screen was pushed with [ConsentReturnIntent] — offer a way
+  /// back, and pop with the outcome instead of continuing into onboarding.
+  final bool returnToCaller;
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider<ConsentCubit>(
       create: (_) => locator<ConsentCubit>(),
-      child: const _ConsentView(),
+      child: _ConsentView(returnToCaller: returnToCaller),
     );
   }
 }
 
 class _ConsentView extends StatelessWidget {
-  const _ConsentView();
+  const _ConsentView({required this.returnToCaller});
+
+  final bool returnToCaller;
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +60,14 @@ class _ConsentView extends StatelessWidget {
       listenWhen: (prev, curr) => prev.status != curr.status,
       listener: (BuildContext context, ConsentState state) {
         if (state.status == ConsentStatus.success) {
+          if (returnToCaller && context.canPop()) {
+            // A RECOVERY, not onboarding (see [ConsentReturnIntent]). Hand the
+            // outcome back and return the worker to the screen they were working
+            // on. `go` is what used to drop an onboarded worker into the name
+            // step and then the interview, with nothing to press but forward.
+            context.pop(true);
+            return;
+          }
           // Capture the worker's name once (consent-gated) before chat profiling.
           //
           // #381 — go, NOT push. Pushing left the ACCEPTED consent screen alive
@@ -48,8 +84,14 @@ class _ConsentView extends StatelessWidget {
         final ConsentCubit cubit = context.read<ConsentCubit>();
         // Kit auth chrome: blue header carries the title; the body holds the
         // trust mark + processing description + the 'I agree' row; the haldi CTA
-        // is pinned to the bottom (kit sticky-primary pattern). No back button —
-        // consent is a gate you pass through once (#381), not a page to browse.
+        // is pinned to the bottom (kit sticky-primary pattern).
+        //
+        // BACK BUTTON: none on the onboarding path — consent is a gate you pass
+        // through once (#381), not a page to browse. It appears ONLY on the
+        // pushed recovery path ([ConsentReturnIntent]), where the worker arrived
+        // from a screen they were in the middle of using and must be able to
+        // decline and go back to it. Declining is not a dead end and must not
+        // look like one.
         return Scaffold(
           bottomNavigationBar: SafeArea(
             top: false,
@@ -71,7 +113,12 @@ class _ConsentView extends StatelessWidget {
           ),
           body: Column(
             children: <Widget>[
-              const BbBlueHeader(title: 'Your privacy'),
+              BbBlueHeader(
+                title: 'Your privacy',
+                onBack: returnToCaller && context.canPop()
+                    ? () => context.pop(false)
+                    : null,
+              ),
               Expanded(
                 child: SafeArea(
                   top: false,

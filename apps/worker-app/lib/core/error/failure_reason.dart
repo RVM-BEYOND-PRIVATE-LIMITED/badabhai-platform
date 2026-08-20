@@ -29,6 +29,14 @@ import 'failure.dart';
     icon: Icons.hourglass_empty_rounded,
     reason: 'Bahut requests. Thodi der baad dobara try karein.',
   ),
+  // #1013 — NEVER "thodi der baad". A 400 is the server's considered answer
+  // about this exact content; waiting changes nothing, so the copy names the
+  // only move that can work. Client-side constant (see [mapError]) — no server
+  // body is ever forwarded into it.
+  InvalidRequestFailure(:final String message) => (
+    icon: Icons.edit_note_rounded,
+    reason: message,
+  ),
   ProfileTimeoutFailure() => (
     icon: Icons.hourglass_top_rounded,
     reason: 'Zyada time lag raha hai. Dobara try karein.',
