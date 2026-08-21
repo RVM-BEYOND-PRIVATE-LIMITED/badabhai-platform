@@ -223,6 +223,7 @@ export * from "./skill-corpus";
 // Matching V1 — the `mskill_*` posting-level vocabulary, the curated symmetric
 // relation, and the three deterministic bridges from today's data into it.
 export * from "./match-skills";
+export * from "./crosswalk-integrity";
 
 // ADR-0030 / TAX-5 — PROPOSED vernacular wedge aliases (RVM ratification-gated).
 export * from "./wedge-aliases";
