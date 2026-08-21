@@ -42,6 +42,7 @@ import { config } from "dotenv";
 import { isNull, isNotNull, and, eq, inArray, notInArray, sql as sqlTag, type SQL } from "drizzle-orm";
 
 import { createDbClient } from "./client";
+import { ALIAS_EXCLUSIONS_PATH, excludedAliasIds } from "./alias-exclusions";
 import { enforceOpsGuard } from "./ops-guard";
 import { parseEmbedResponse } from "./embed-response";
 import { skillAliases } from "./schema";
@@ -271,6 +272,21 @@ async function main(): Promise<void> {
 
   const { db, sql } = createDbClient(url, { max: 1 });
 
+  // DELIBERATELY DE-ELECTED ROWS (duplicate election, `alias-exclusions.ts`).
+  //
+  // These are alias rows whose `embedding` was NULLed on purpose, to take them out of Path B
+  // without deleting them. This runner fetches `WHERE embedding IS NULL`, so WITHOUT this list
+  // the next routine backfill would re-embed them and silently reverse a reviewed decision —
+  // and it would look like a normal successful run while doing it.
+  //
+  // Seeded into the SAME `blocked` list the runner already keeps for rows the provider refused,
+  // so the predicate is unchanged; the list just starts non-empty. Loaded here, before --plan,
+  // so the plan describes the job that will actually execute.
+  const excluded = excludedAliasIds();
+  if (excluded.length > 0) {
+    console.log(`[embed:skills] ${excluded.length} alias(es) excluded by ${ALIAS_EXCLUSIONS_PATH} (duplicate election)`);
+  }
+
   // --plan: inventory what WOULD be embedded and exit. No ai-service call, no write. The
   // pre-execution numbers ("how many calls, how many tokens") have to come from the same
   // predicate the run uses, or they describe a different job than the one that executes.
@@ -279,7 +295,7 @@ async function main(): Promise<void> {
       const pending = await db
         .select({ id: skillAliases.id, text: skillAliases.text, skillId: skillAliases.skillId })
         .from(skillAliases)
-        .where(pendingAliasWhere([], scopeSkillIds, onlyActiveSkills));
+        .where(pendingAliasWhere(excluded, scopeSkillIds, onlyActiveSkills));
       const tokens = pending.reduce((n, r) => n + estimateTokens(r.text), 0);
       console.log(`[embed:skills] PLAN — nothing called, nothing written`);
       // Describe the EFFECTIVE scope. Printing "(entire table)" while --only-active-skills
@@ -306,6 +322,10 @@ async function main(): Promise<void> {
     return;
   }
 
+  // PROVIDER-refused rows only. The de-elected ids are kept OUT of this list and unioned at
+  // the fetch instead, so the run's "blocked" report keeps meaning "the provider would not
+  // embed these, go and look at the source text" rather than quietly absorbing four rows that
+  // are excluded by an editorial decision and need no investigation.
   const blocked: string[] = [];
   let embedded = 0;
   let providerErrors = 0;
@@ -321,7 +341,7 @@ async function main(): Promise<void> {
       const rows = await db
         .select({ id: skillAliases.id, text: skillAliases.text })
         .from(skillAliases)
-        .where(pendingAliasWhere(blocked, scopeSkillIds, onlyActiveSkills))
+        .where(pendingAliasWhere([...excluded, ...blocked], scopeSkillIds, onlyActiveSkills))
         .orderBy(skillAliases.id)
         .limit(BATCH_SIZE);
       if (rows.length === 0) break;

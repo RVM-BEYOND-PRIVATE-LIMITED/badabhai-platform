@@ -1,0 +1,1521 @@
+{
+  "experiment": "EXP-P9-TRAINER-V3",
+  "run_id": "floor-sweep-2026-08-21T08:24:53.784Z",
+  "recorded_at": "2026-08-21T08:24:53.784Z",
+  "purpose": "Gate C canonicalization-floor sweep — query->alias over the complete corpus.",
+  "evaluator_version": 0,
+  "fixture_id": "taxonomy-retrieval-v1",
+  "fixture_version": 3,
+  "corpus_batch": "batch_2026-08-16T14-30-41Z-remediation",
+  "model": null,
+  "embedding_model": "gemini-embedding-001",
+  "query_count": 164,
+  "failure_count": 0,
+  "latency_ms": 210387,
+  "recall_at_1": null,
+  "recall_at_3": null,
+  "recall_at_5": null,
+  "mrr": null,
+  "input_tokens": null,
+  "cost_inr_metered": null,
+  "cost_inr_estimated": 0.013969,
+  "ann": {
+    "corpus_rows": 332,
+    "hnsw_used": null,
+    "ef_search": null,
+    "iterative_scan": null,
+    "k": 5,
+    "alias_overfetch": 8
+  },
+  "detail": {
+    "current_floor": 0.75,
+    "skill_statuses": [
+      "active",
+      "provisional"
+    ],
+    "includes_provisional": true,
+    "tp_distribution": {
+      "n": 147,
+      "min": 0.5986,
+      "p05": 0.6639,
+      "p50": 0.8128,
+      "p95": 1,
+      "max": 1
+    },
+    "fp_distribution": {
+      "n": 17,
+      "min": 0.5065,
+      "p05": 0.5065,
+      "p50": 0.5981,
+      "p95": 0.7216,
+      "max": 0.7216
+    },
+    "safe_band": {
+      "admits_all_tp_below": 0.5986,
+      "excludes_all_fp_at_or_above": 0.7216,
+      "separable": false
+    },
+    "thresholds": [
+      {
+        "threshold": 0.5,
+        "true_positives": 147,
+        "false_positives": 17,
+        "false_negatives": 0,
+        "true_negatives": 0,
+        "precision": 0.8963,
+        "recall": 1,
+        "assignment_rate": 1
+      },
+      {
+        "threshold": 0.55,
+        "true_positives": 147,
+        "false_positives": 14,
+        "false_negatives": 0,
+        "true_negatives": 3,
+        "precision": 0.913,
+        "recall": 1,
+        "assignment_rate": 0.9817
+      },
+      {
+        "threshold": 0.6,
+        "true_positives": 146,
+        "false_positives": 8,
+        "false_negatives": 1,
+        "true_negatives": 9,
+        "precision": 0.9481,
+        "recall": 0.9932,
+        "assignment_rate": 0.939
+      },
+      {
+        "threshold": 0.65,
+        "true_positives": 141,
+        "false_positives": 7,
+        "false_negatives": 6,
+        "true_negatives": 10,
+        "precision": 0.9527,
+        "recall": 0.9592,
+        "assignment_rate": 0.9024
+      },
+      {
+        "threshold": 0.7,
+        "true_positives": 126,
+        "false_positives": 3,
+        "false_negatives": 21,
+        "true_negatives": 14,
+        "precision": 0.9767,
+        "recall": 0.8571,
+        "assignment_rate": 0.7866
+      },
+      {
+        "threshold": 0.72,
+        "true_positives": 119,
+        "false_positives": 2,
+        "false_negatives": 28,
+        "true_negatives": 15,
+        "precision": 0.9835,
+        "recall": 0.8095,
+        "assignment_rate": 0.7378
+      },
+      {
+        "threshold": 0.75,
+        "true_positives": 109,
+        "false_positives": 0,
+        "false_negatives": 38,
+        "true_negatives": 17,
+        "precision": 1,
+        "recall": 0.7415,
+        "assignment_rate": 0.6646
+      },
+      {
+        "threshold": 0.78,
+        "true_positives": 88,
+        "false_positives": 0,
+        "false_negatives": 59,
+        "true_negatives": 17,
+        "precision": 1,
+        "recall": 0.5986,
+        "assignment_rate": 0.5366
+      },
+      {
+        "threshold": 0.8,
+        "true_positives": 79,
+        "false_positives": 0,
+        "false_negatives": 68,
+        "true_negatives": 17,
+        "precision": 1,
+        "recall": 0.5374,
+        "assignment_rate": 0.4817
+      },
+      {
+        "threshold": 0.82,
+        "true_positives": 72,
+        "false_positives": 0,
+        "false_negatives": 75,
+        "true_negatives": 17,
+        "precision": 1,
+        "recall": 0.4898,
+        "assignment_rate": 0.439
+      },
+      {
+        "threshold": 0.85,
+        "true_positives": 65,
+        "false_positives": 0,
+        "false_negatives": 82,
+        "true_negatives": 17,
+        "precision": 1,
+        "recall": 0.4422,
+        "assignment_rate": 0.3963
+      },
+      {
+        "threshold": 0.88,
+        "true_positives": 59,
+        "false_positives": 0,
+        "false_negatives": 88,
+        "true_negatives": 17,
+        "precision": 1,
+        "recall": 0.4014,
+        "assignment_rate": 0.3598
+      },
+      {
+        "threshold": 0.9,
+        "true_positives": 57,
+        "false_positives": 0,
+        "false_negatives": 90,
+        "true_negatives": 17,
+        "precision": 1,
+        "recall": 0.3878,
+        "assignment_rate": 0.3476
+      },
+      {
+        "threshold": 0.95,
+        "true_positives": 56,
+        "false_positives": 0,
+        "false_negatives": 91,
+        "true_negatives": 17,
+        "precision": 1,
+        "recall": 0.381,
+        "assignment_rate": 0.3415
+      }
+    ],
+    "per_case": [
+      {
+        "case_id": "EX-EN-01",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_4321_0601",
+        "score": 1,
+        "top_skill_id": "skill_forklift_operation",
+        "correct": true
+      },
+      {
+        "case_id": "EX-EN-02",
+        "category": "exact_alias",
+        "job_domain_id": "jd_isco_4321",
+        "score": 1,
+        "top_skill_id": "skill_stock_counting",
+        "correct": true
+      },
+      {
+        "case_id": "EX-EN-03",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 1,
+        "top_skill_id": "skill_mortar_mixing",
+        "correct": true
+      },
+      {
+        "case_id": "EX-EN-04",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 1,
+        "top_skill_id": "skill_plastering",
+        "correct": true
+      },
+      {
+        "case_id": "EX-EN-05",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7212_0100",
+        "score": 1,
+        "top_skill_id": "skill_weld_bead_inspection",
+        "correct": true
+      },
+      {
+        "case_id": "EX-EN-06",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7212_0301",
+        "score": 1,
+        "top_skill_id": "skill_electrode_selection",
+        "correct": true
+      },
+      {
+        "case_id": "EX-EN-07",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7223_0701",
+        "score": 1,
+        "top_skill_id": "skill_coolant_management",
+        "correct": true
+      },
+      {
+        "case_id": "EX-EN-08",
+        "category": "exact_alias",
+        "job_domain_id": "jd_isco_4321",
+        "score": 1,
+        "top_skill_id": "skill_goods_receipt_verification",
+        "correct": true
+      },
+      {
+        "case_id": "EX-EN-09",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7313_2601",
+        "score": 1,
+        "top_skill_id": "skill_visual_defect_identification",
+        "correct": true
+      },
+      {
+        "case_id": "EX-EN-10",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 1,
+        "top_skill_id": "skill_stone_dressing",
+        "correct": true
+      },
+      {
+        "case_id": "EX-EN-11",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_4321_0601",
+        "score": 1,
+        "top_skill_id": "skill_barcode_scanning",
+        "correct": true
+      },
+      {
+        "case_id": "EX-EN-12",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 1,
+        "top_skill_id": "skill_scaffolding_erection",
+        "correct": true
+      },
+      {
+        "case_id": "EX-HI-01",
+        "category": "devanagari_alias",
+        "job_domain_id": "jd_nco_4321_0601",
+        "score": 1,
+        "top_skill_id": "skill_forklift_operation",
+        "correct": true
+      },
+      {
+        "case_id": "EX-HI-02",
+        "category": "devanagari_alias",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 1,
+        "top_skill_id": "skill_mortar_mixing",
+        "correct": true
+      },
+      {
+        "case_id": "EX-HI-03",
+        "category": "devanagari_alias",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 1,
+        "top_skill_id": "skill_plastering",
+        "correct": true
+      },
+      {
+        "case_id": "EX-HI-04",
+        "category": "devanagari_alias",
+        "job_domain_id": "jd_nco_7212_0100",
+        "score": 1,
+        "top_skill_id": "skill_weld_bead_inspection",
+        "correct": true
+      },
+      {
+        "case_id": "EX-HI-05",
+        "category": "devanagari_alias",
+        "job_domain_id": "jd_nco_7223_0701",
+        "score": 1,
+        "top_skill_id": "skill_coolant_management",
+        "correct": true
+      },
+      {
+        "case_id": "EX-HI-06",
+        "category": "devanagari_alias",
+        "job_domain_id": "jd_isco_4321",
+        "score": 1,
+        "top_skill_id": "skill_stock_counting",
+        "correct": true
+      },
+      {
+        "case_id": "EX-HI-07",
+        "category": "devanagari_alias",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 1,
+        "top_skill_id": "skill_brick_and_block_laying",
+        "correct": true
+      },
+      {
+        "case_id": "EX-HI-08",
+        "category": "devanagari_alias",
+        "job_domain_id": "jd_nco_7543_2001",
+        "score": 1,
+        "top_skill_id": "skill_hardness_testing",
+        "correct": true
+      },
+      {
+        "case_id": "EX-HI-09",
+        "category": "devanagari_alias",
+        "job_domain_id": "jd_nco_4321_0601",
+        "score": 1,
+        "top_skill_id": "skill_order_picking_and_packing",
+        "correct": true
+      },
+      {
+        "case_id": "EX-HI-10",
+        "category": "devanagari_alias",
+        "job_domain_id": "jd_nco_7212_0100",
+        "score": 1,
+        "top_skill_id": "skill_gas_torch_flame_setting",
+        "correct": true
+      },
+      {
+        "case_id": "PA-01",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_4321_0601",
+        "score": 0.8789,
+        "top_skill_id": "skill_forklift_operation",
+        "correct": true
+      },
+      {
+        "case_id": "PA-02",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_isco_4321",
+        "score": 0.8113,
+        "top_skill_id": "skill_stock_counting",
+        "correct": true
+      },
+      {
+        "case_id": "PA-03",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 0.7482,
+        "top_skill_id": "skill_mortar_mixing",
+        "correct": true
+      },
+      {
+        "case_id": "PA-04",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7212_0100",
+        "score": 0.6938,
+        "top_skill_id": "skill_weld_bead_inspection",
+        "correct": true
+      },
+      {
+        "case_id": "PA-05",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7212_0301",
+        "score": 0.7568,
+        "top_skill_id": "skill_electrode_selection",
+        "correct": true
+      },
+      {
+        "case_id": "PA-06",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7223_0701",
+        "score": 0.797,
+        "top_skill_id": "skill_coolant_management",
+        "correct": true
+      },
+      {
+        "case_id": "PA-07",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7543_2001",
+        "score": 0.7698,
+        "top_skill_id": "skill_hardness_testing",
+        "correct": true
+      },
+      {
+        "case_id": "PA-08",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 0.7696,
+        "top_skill_id": "skill_scaffolding_erection",
+        "correct": true
+      },
+      {
+        "case_id": "PA-09",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_isco_4321",
+        "score": 0.8063,
+        "top_skill_id": "skill_pallet_stacking_and_loading",
+        "correct": true
+      },
+      {
+        "case_id": "PA-10",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7313_2601",
+        "score": 0.752,
+        "top_skill_id": "skill_visual_defect_identification",
+        "correct": true
+      },
+      {
+        "case_id": "PA-11",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7212_0100",
+        "score": 0.8825,
+        "top_skill_id": "skill_weld_spatter_cleaning",
+        "correct": true
+      },
+      {
+        "case_id": "PA-12",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 0.7051,
+        "top_skill_id": "skill_wall_plumb_and_level_checking",
+        "correct": true
+      },
+      {
+        "case_id": "PH-01",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_4321_0601",
+        "score": 0.8341,
+        "top_skill_id": "skill_forklift_operation",
+        "correct": true
+      },
+      {
+        "case_id": "PH-02",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 0.8304,
+        "top_skill_id": "skill_mortar_mixing",
+        "correct": true
+      },
+      {
+        "case_id": "PH-03",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_7212_0100",
+        "score": 0.7576,
+        "top_skill_id": "skill_weld_spatter_cleaning",
+        "correct": true
+      },
+      {
+        "case_id": "PH-04",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_isco_4321",
+        "score": 0.9546,
+        "top_skill_id": "skill_stock_counting",
+        "correct": true
+      },
+      {
+        "case_id": "PH-05",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 0.8536,
+        "top_skill_id": "skill_plastering",
+        "correct": true
+      },
+      {
+        "case_id": "PH-06",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 0.7639,
+        "top_skill_id": "skill_brick_and_block_laying",
+        "correct": true
+      },
+      {
+        "case_id": "MD-01",
+        "category": "multi_domain_reach",
+        "job_domain_id": "jd_nco_4321_0601",
+        "score": 1,
+        "top_skill_id": "skill_stock_counting",
+        "correct": true
+      },
+      {
+        "case_id": "MD-02",
+        "category": "multi_domain_reach",
+        "job_domain_id": "jd_nco_4321_0100",
+        "score": 1,
+        "top_skill_id": "skill_stock_counting",
+        "correct": true
+      },
+      {
+        "case_id": "MD-03",
+        "category": "multi_domain_reach",
+        "job_domain_id": "jd_nco_7212_0300",
+        "score": 1,
+        "top_skill_id": "skill_weld_bead_inspection",
+        "correct": true
+      },
+      {
+        "case_id": "MD-04",
+        "category": "multi_domain_reach",
+        "job_domain_id": "jd_nco_8212_0100",
+        "score": 1,
+        "top_skill_id": "skill_torque_wrench_operation",
+        "correct": true
+      },
+      {
+        "case_id": "MD-05",
+        "category": "multi_domain_reach",
+        "job_domain_id": "jd_nco_4321_0100",
+        "score": 1,
+        "top_skill_id": "skill_material_handling_equipment_operation",
+        "correct": true
+      },
+      {
+        "case_id": "CV-01",
+        "category": "canonical_convergence",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 0.7865,
+        "top_skill_id": "skill_mortar_mixing",
+        "correct": true
+      },
+      {
+        "case_id": "CV-02",
+        "category": "canonical_convergence",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 0.8641,
+        "top_skill_id": "skill_mortar_mixing",
+        "correct": true
+      },
+      {
+        "case_id": "CV-03",
+        "category": "canonical_convergence",
+        "job_domain_id": "jd_nco_4321_0601",
+        "score": 0.8689,
+        "top_skill_id": "skill_forklift_operation",
+        "correct": true
+      },
+      {
+        "case_id": "CV-04",
+        "category": "canonical_convergence",
+        "job_domain_id": "jd_nco_4321_0601",
+        "score": 0.9069,
+        "top_skill_id": "skill_forklift_operation",
+        "correct": true
+      },
+      {
+        "case_id": "CV-05",
+        "category": "canonical_convergence",
+        "job_domain_id": "jd_isco_4321",
+        "score": 0.7518,
+        "top_skill_id": "skill_stock_counting",
+        "correct": true
+      },
+      {
+        "case_id": "CV-06",
+        "category": "canonical_convergence",
+        "job_domain_id": "jd_isco_4321",
+        "score": 0.7919,
+        "top_skill_id": "skill_stock_counting",
+        "correct": true
+      },
+      {
+        "case_id": "AM-01",
+        "category": "lexical_ambiguity",
+        "job_domain_id": "jd_nco_7543_2001",
+        "score": 1,
+        "top_skill_id": "skill_hardness_testing",
+        "correct": true
+      },
+      {
+        "case_id": "AM-02",
+        "category": "lexical_ambiguity",
+        "job_domain_id": "jd_nco_7313_2601",
+        "score": 1,
+        "top_skill_id": "skill_surface_finish_inspection",
+        "correct": true
+      },
+      {
+        "case_id": "AM-03",
+        "category": "lexical_ambiguity",
+        "job_domain_id": "jd_nco_7223_0701",
+        "score": 1,
+        "top_skill_id": "skill_lathe_chuck_mounting",
+        "correct": true
+      },
+      {
+        "case_id": "AM-04",
+        "category": "lexical_ambiguity",
+        "job_domain_id": "jd_nco_7212_0100",
+        "score": 1,
+        "top_skill_id": "skill_gas_torch_flame_setting",
+        "correct": true
+      },
+      {
+        "case_id": "AM-05",
+        "category": "lexical_ambiguity",
+        "job_domain_id": "jd_nco_7212_0300",
+        "score": 1,
+        "top_skill_id": "skill_weld_program_parameter_setting",
+        "correct": true
+      },
+      {
+        "case_id": "AM-06",
+        "category": "lexical_ambiguity",
+        "job_domain_id": "jd_nco_7212_0100",
+        "score": 1,
+        "top_skill_id": "skill_welding_joint_preparation",
+        "correct": true
+      },
+      {
+        "case_id": "AM-07",
+        "category": "lexical_ambiguity",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 1,
+        "top_skill_id": "skill_stone_joint_pointing",
+        "correct": true
+      },
+      {
+        "case_id": "AL-01",
+        "category": "lexical_ambiguity",
+        "job_domain_id": "jd_nco_4321_0601",
+        "score": 0.6778,
+        "top_skill_id": "skill_forklift_operation",
+        "correct": true
+      },
+      {
+        "case_id": "AL-02",
+        "category": "lexical_ambiguity",
+        "job_domain_id": "jd_isco_4321",
+        "score": 0.8435,
+        "top_skill_id": "skill_inventory_record_keeping",
+        "correct": true
+      },
+      {
+        "case_id": "XD-01",
+        "category": "cross_domain_isolation",
+        "job_domain_id": "jd_nco_7112_0601",
+        "score": 0.5065,
+        "top_skill_id": "skill_mortar_mixing",
+        "correct": false
+      },
+      {
+        "case_id": "XD-02",
+        "category": "cross_domain_isolation",
+        "job_domain_id": "jd_nco_4321_0601",
+        "score": 0.5709,
+        "top_skill_id": "skill_forklift_operation",
+        "correct": false
+      },
+      {
+        "case_id": "XD-03",
+        "category": "cross_domain_isolation",
+        "job_domain_id": "jd_nco_7223_6002",
+        "score": 0.5611,
+        "top_skill_id": "skill_turning",
+        "correct": false
+      },
+      {
+        "case_id": "XD-04",
+        "category": "cross_domain_isolation",
+        "job_domain_id": "jd_nco_7212_0301",
+        "score": 0.5905,
+        "top_skill_id": "skill_gas_cutting",
+        "correct": false
+      },
+      {
+        "case_id": "XD-05",
+        "category": "cross_domain_isolation",
+        "job_domain_id": "jd_isco_4321",
+        "score": 0.5523,
+        "top_skill_id": "skill_material_handling_equipment_operation",
+        "correct": false
+      },
+      {
+        "case_id": "XD-06",
+        "category": "cross_domain_isolation",
+        "job_domain_id": "jd_nco_7543_2001",
+        "score": 0.5981,
+        "top_skill_id": "skill_drawing_reading",
+        "correct": false
+      },
+      {
+        "case_id": "XD-07",
+        "category": "cross_domain_isolation",
+        "job_domain_id": "jd_nco_7223_6003",
+        "score": 0.5401,
+        "top_skill_id": "skill_drawing_reading",
+        "correct": false
+      },
+      {
+        "case_id": "XD-08",
+        "category": "cross_domain_isolation",
+        "job_domain_id": "jd_isco_7127",
+        "score": 0.5827,
+        "top_skill_id": "skill_refrigerant_leak_detection",
+        "correct": false
+      },
+      {
+        "case_id": "XD-09",
+        "category": "cross_domain_isolation",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 0.5354,
+        "top_skill_id": "skill_stone_joint_pointing",
+        "correct": false
+      },
+      {
+        "case_id": "XD-10",
+        "category": "cross_domain_isolation",
+        "job_domain_id": "jd_nco_7231_0100",
+        "score": 0.6976,
+        "top_skill_id": "skill_vehicle_diagnostic_scanning",
+        "correct": false
+      },
+      {
+        "case_id": "NL-01",
+        "category": "null_legacy_domain",
+        "job_domain_id": "jd_nco_7112_0601",
+        "score": 1,
+        "top_skill_id": "skill_mortar_mixing",
+        "correct": true
+      },
+      {
+        "case_id": "NL-02",
+        "category": "null_legacy_domain",
+        "job_domain_id": "jd_isco_4321",
+        "score": 1,
+        "top_skill_id": "skill_bin_location_management",
+        "correct": true
+      },
+      {
+        "case_id": "NL-03",
+        "category": "null_legacy_domain",
+        "job_domain_id": "jd_isco_4321",
+        "score": 1,
+        "top_skill_id": "skill_dispatch_documentation",
+        "correct": true
+      },
+      {
+        "case_id": "DC-01",
+        "category": "exact_alias",
+        "job_domain_id": "jd_isco_7213",
+        "score": 1,
+        "top_skill_id": "skill_press_brake_bending",
+        "correct": true
+      },
+      {
+        "case_id": "DC-02",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7223_2400",
+        "score": 1,
+        "top_skill_id": "skill_punching_machine_operation",
+        "correct": true
+      },
+      {
+        "case_id": "DC-03",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7224_0102",
+        "score": 1,
+        "top_skill_id": "skill_structural_fit_up_and_tacking",
+        "correct": true
+      },
+      {
+        "case_id": "DC-04",
+        "category": "exact_alias",
+        "job_domain_id": "jd_isco_7233",
+        "score": 1,
+        "top_skill_id": "skill_bearing_replacement",
+        "correct": true
+      },
+      {
+        "case_id": "DC-05",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7233_0101",
+        "score": 1,
+        "top_skill_id": "skill_shaft_and_coupling_alignment",
+        "correct": true
+      },
+      {
+        "case_id": "DC-06",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7126_0101",
+        "score": 1,
+        "top_skill_id": "skill_drain_cleaning_and_unclogging",
+        "correct": true
+      },
+      {
+        "case_id": "DC-07",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7126_0301",
+        "score": 1,
+        "top_skill_id": "skill_pipe_support_and_clamping",
+        "correct": true
+      },
+      {
+        "case_id": "DC-08",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7231_0400",
+        "score": 1,
+        "top_skill_id": "skill_suspension_and_steering_repair",
+        "correct": true
+      },
+      {
+        "case_id": "DC-09",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7411_0100",
+        "score": 1,
+        "top_skill_id": "skill_earthing_and_bonding",
+        "correct": true
+      },
+      {
+        "case_id": "DC-10",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7412_0200",
+        "score": 1,
+        "top_skill_id": "skill_control_panel_wiring",
+        "correct": true
+      },
+      {
+        "case_id": "DC-11",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_7421_0401",
+        "score": 1,
+        "top_skill_id": "skill_refrigerant_charging",
+        "correct": true
+      },
+      {
+        "case_id": "DC-12",
+        "category": "exact_alias",
+        "job_domain_id": "jd_nco_8211_1200",
+        "score": 1,
+        "top_skill_id": "skill_fastener_selection_and_tightening",
+        "correct": true
+      },
+      {
+        "case_id": "DC-13",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_isco_7213",
+        "score": 0.822,
+        "top_skill_id": "skill_press_brake_bending",
+        "correct": true
+      },
+      {
+        "case_id": "DC-14",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_isco_7233",
+        "score": 0.7668,
+        "top_skill_id": "skill_bearing_replacement",
+        "correct": true
+      },
+      {
+        "case_id": "DC-15",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7126_0101",
+        "score": 0.7077,
+        "top_skill_id": "skill_drain_cleaning_and_unclogging",
+        "correct": true
+      },
+      {
+        "case_id": "DC-16",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7421_0401",
+        "score": 0.765,
+        "top_skill_id": "skill_refrigerant_charging",
+        "correct": true
+      },
+      {
+        "case_id": "DC-17",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7412_0200",
+        "score": 0.8106,
+        "top_skill_id": "skill_control_panel_wiring",
+        "correct": true
+      },
+      {
+        "case_id": "DC-18",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_8211_1200",
+        "score": 0.787,
+        "top_skill_id": "skill_torque_wrench_operation",
+        "correct": true
+      },
+      {
+        "case_id": "DC-19",
+        "category": "devanagari_alias",
+        "job_domain_id": "jd_nco_7411_0100",
+        "score": 1,
+        "top_skill_id": "skill_earthing_and_bonding",
+        "correct": true
+      },
+      {
+        "case_id": "DC-20",
+        "category": "devanagari_alias",
+        "job_domain_id": "jd_nco_7421_0401",
+        "score": 1,
+        "top_skill_id": "skill_refrigerant_charging",
+        "correct": true
+      },
+      {
+        "case_id": "DC-21",
+        "category": "devanagari_alias",
+        "job_domain_id": "jd_isco_7233",
+        "score": 1,
+        "top_skill_id": "skill_bearing_replacement",
+        "correct": true
+      },
+      {
+        "case_id": "DC-22",
+        "category": "devanagari_alias",
+        "job_domain_id": "jd_nco_7126_0101",
+        "score": 1,
+        "top_skill_id": "skill_drain_cleaning_and_unclogging",
+        "correct": true
+      },
+      {
+        "case_id": "DC-23",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_7126_0301",
+        "score": 0.8998,
+        "top_skill_id": "skill_leak_repair_in_water_lines",
+        "correct": true
+      },
+      {
+        "case_id": "DC-24",
+        "category": "devanagari_alias",
+        "job_domain_id": "jd_nco_8211_1200",
+        "score": 1,
+        "top_skill_id": "skill_fastener_selection_and_tightening",
+        "correct": true
+      },
+      {
+        "case_id": "DC-25",
+        "category": "lexical_ambiguity",
+        "job_domain_id": "jd_nco_7233_0101",
+        "score": 0.7977,
+        "top_skill_id": "skill_shaft_and_coupling_alignment",
+        "correct": true
+      },
+      {
+        "case_id": "DC-26",
+        "category": "lexical_ambiguity",
+        "job_domain_id": "jd_nco_7411_0100",
+        "score": 1,
+        "top_skill_id": "skill_conduit_bending_and_laying",
+        "correct": true
+      },
+      {
+        "case_id": "GP-01",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_isco_7127",
+        "score": 0.7677,
+        "top_skill_id": "skill_refrigerant_charging",
+        "correct": true
+      },
+      {
+        "case_id": "GP-02",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_isco_7127",
+        "score": 0.686,
+        "top_skill_id": "skill_refrigerant_leak_detection",
+        "correct": true
+      },
+      {
+        "case_id": "GP-03",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_isco_7127",
+        "score": 0.7635,
+        "top_skill_id": "skill_vacuum_pump_evacuation",
+        "correct": true
+      },
+      {
+        "case_id": "GP-04",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7223_6002",
+        "score": 0.7031,
+        "top_skill_id": "skill_turning",
+        "correct": false
+      },
+      {
+        "case_id": "GP-05",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7223_6002",
+        "score": 0.6933,
+        "top_skill_id": "skill_first_piece_approval",
+        "correct": true
+      },
+      {
+        "case_id": "GP-06",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7223_6003",
+        "score": 0.7148,
+        "top_skill_id": "skill_cutting_tool_selection",
+        "correct": true
+      },
+      {
+        "case_id": "GP-07",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7231_0100",
+        "score": 0.7598,
+        "top_skill_id": "skill_engine_overhauling",
+        "correct": true
+      },
+      {
+        "case_id": "GP-08",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7231_0100",
+        "score": 0.7949,
+        "top_skill_id": "skill_brake_system_servicing",
+        "correct": true
+      },
+      {
+        "case_id": "GP-09",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7231_0100",
+        "score": 0.7181,
+        "top_skill_id": "skill_vehicle_diagnostic_scanning",
+        "correct": true
+      },
+      {
+        "case_id": "GP-10",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7231_0100",
+        "score": 0.7616,
+        "top_skill_id": "skill_wheel_alignment_and_balancing",
+        "correct": true
+      },
+      {
+        "case_id": "GP-11",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_isco_7127",
+        "score": 0.8134,
+        "top_skill_id": "skill_brazing_of_copper_lines",
+        "correct": true
+      },
+      {
+        "case_id": "GP-12",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_isco_7127",
+        "score": 0.849,
+        "top_skill_id": "skill_compressor_replacement",
+        "correct": true
+      },
+      {
+        "case_id": "PX-01",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 0.6972,
+        "top_skill_id": "skill_brick_and_block_laying",
+        "correct": true
+      },
+      {
+        "case_id": "PX-02",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_isco_7213",
+        "score": 0.8227,
+        "top_skill_id": "skill_shearing_machine_operation",
+        "correct": true
+      },
+      {
+        "case_id": "PX-03",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_isco_7233",
+        "score": 0.7874,
+        "top_skill_id": "skill_lubrication_schedule_execution",
+        "correct": true
+      },
+      {
+        "case_id": "PX-04",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7233_0101",
+        "score": 0.7202,
+        "top_skill_id": "skill_vibration_and_noise_fault_diagnosis",
+        "correct": true
+      },
+      {
+        "case_id": "PX-05",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7126_0101",
+        "score": 0.7773,
+        "top_skill_id": "skill_pressure_testing_of_pipelines",
+        "correct": true
+      },
+      {
+        "case_id": "PX-06",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7411_0100",
+        "score": 0.8397,
+        "top_skill_id": "skill_cable_termination_and_jointing",
+        "correct": true
+      },
+      {
+        "case_id": "PX-07",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_8211_1200",
+        "score": 0.7043,
+        "top_skill_id": "skill_assembly_line_sequencing",
+        "correct": true
+      },
+      {
+        "case_id": "PX-08",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7543_2001",
+        "score": 0.7736,
+        "top_skill_id": "skill_inspection_report_recording",
+        "correct": true
+      },
+      {
+        "case_id": "PX-09",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7543_2001",
+        "score": 0.8128,
+        "top_skill_id": "skill_rejection_tagging_and_segregation",
+        "correct": true
+      },
+      {
+        "case_id": "PX-10",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_4321_0601",
+        "score": 0.6853,
+        "top_skill_id": "skill_barcode_scanning",
+        "correct": true
+      },
+      {
+        "case_id": "PX-11",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7112_0100",
+        "score": 0.8552,
+        "top_skill_id": "skill_stone_dressing",
+        "correct": true
+      },
+      {
+        "case_id": "PX-12",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_isco_4321",
+        "score": 0.7786,
+        "top_skill_id": "skill_goods_receipt_verification",
+        "correct": true
+      },
+      {
+        "case_id": "TP-01",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_8212_0100",
+        "score": 0.651,
+        "top_skill_id": "skill_battery_pack_leak_testing",
+        "correct": false
+      },
+      {
+        "case_id": "TP-02",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_8212_0100",
+        "score": 0.6874,
+        "top_skill_id": "skill_battery_cell_stacking",
+        "correct": true
+      },
+      {
+        "case_id": "TP-03",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_8212_0100",
+        "score": 0.8048,
+        "top_skill_id": "skill_battery_pack_leak_testing",
+        "correct": true
+      },
+      {
+        "case_id": "TP-04",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_8212_0100",
+        "score": 0.6797,
+        "top_skill_id": "skill_battery_terminal_crimping",
+        "correct": true
+      },
+      {
+        "case_id": "TP-05",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_8212_0100",
+        "score": 0.7591,
+        "top_skill_id": "skill_chemical_handling_safety",
+        "correct": true
+      },
+      {
+        "case_id": "TP-06",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_8212_0100",
+        "score": 0.8064,
+        "top_skill_id": "skill_electrolyte_filling",
+        "correct": true
+      },
+      {
+        "case_id": "TP-07",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_isco_7233",
+        "score": 0.6666,
+        "top_skill_id": "skill_belt_and_chain_drive_alignment",
+        "correct": true
+      },
+      {
+        "case_id": "TP-08",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_isco_7233",
+        "score": 0.6695,
+        "top_skill_id": "skill_machine_maintenance",
+        "correct": false
+      },
+      {
+        "case_id": "TP-09",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7231_0400",
+        "score": 0.6827,
+        "top_skill_id": "skill_body_panel_alignment",
+        "correct": true
+      },
+      {
+        "case_id": "TP-10",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_7231_0100",
+        "score": 0.6951,
+        "top_skill_id": "skill_clutch_and_gearbox_repair",
+        "correct": true
+      },
+      {
+        "case_id": "TP-11",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7231_0100",
+        "score": 0.6313,
+        "top_skill_id": "skill_suspension_and_steering_repair",
+        "correct": true
+      },
+      {
+        "case_id": "TP-12",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_7112_0601",
+        "score": 0.6399,
+        "top_skill_id": "skill_concrete_curing",
+        "correct": true
+      },
+      {
+        "case_id": "TP-13",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7112_0601",
+        "score": 0.7186,
+        "top_skill_id": "skill_site_material_stacking",
+        "correct": true
+      },
+      {
+        "case_id": "TP-14",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7421_0401",
+        "score": 0.7245,
+        "top_skill_id": "skill_customer_site_handover",
+        "correct": true
+      },
+      {
+        "case_id": "TP-15",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_7421_0401",
+        "score": 0.6389,
+        "top_skill_id": "skill_split_unit_installation",
+        "correct": false
+      },
+      {
+        "case_id": "TP-16",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7421_0401",
+        "score": 0.725,
+        "top_skill_id": "skill_split_unit_installation",
+        "correct": true
+      },
+      {
+        "case_id": "TP-17",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7212_0301",
+        "score": 0.7302,
+        "top_skill_id": "skill_distortion_control_in_weldments",
+        "correct": true
+      },
+      {
+        "case_id": "TP-18",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_7212_0100",
+        "score": 0.7721,
+        "top_skill_id": "skill_oxy_acetylene_cylinder_handling",
+        "correct": true
+      },
+      {
+        "case_id": "TP-19",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7212_0300",
+        "score": 0.6923,
+        "top_skill_id": "skill_mig_welding",
+        "correct": false
+      },
+      {
+        "case_id": "TP-20",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7411_0100",
+        "score": 0.7886,
+        "top_skill_id": "skill_distribution_board_assembly",
+        "correct": true
+      },
+      {
+        "case_id": "TP-21",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_7411_0100",
+        "score": 0.7618,
+        "top_skill_id": "skill_earthing_and_bonding",
+        "correct": true
+      },
+      {
+        "case_id": "TP-22",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7411_0100",
+        "score": 0.6419,
+        "top_skill_id": "skill_electrical_fault_finding",
+        "correct": true
+      },
+      {
+        "case_id": "TP-23",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_7411_0100",
+        "score": 0.6515,
+        "top_skill_id": "skill_electrical_safety_and_lockout",
+        "correct": true
+      },
+      {
+        "case_id": "TP-24",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7411_0100",
+        "score": 0.6836,
+        "top_skill_id": "skill_house_wiring_installation",
+        "correct": true
+      },
+      {
+        "case_id": "TP-25",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7412_0200",
+        "score": 0.6395,
+        "top_skill_id": "skill_insulation_resistance_testing",
+        "correct": true
+      },
+      {
+        "case_id": "TP-26",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_7412_0200",
+        "score": 0.7379,
+        "top_skill_id": "skill_motor_connection_and_starter_wiring",
+        "correct": true
+      },
+      {
+        "case_id": "TP-27",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7412_0200",
+        "score": 0.7211,
+        "top_skill_id": "skill_control_panel_wiring",
+        "correct": false
+      },
+      {
+        "case_id": "TP-28",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_4321_0100",
+        "score": 0.7356,
+        "top_skill_id": "skill_issue_and_requisition_control",
+        "correct": true
+      },
+      {
+        "case_id": "TP-29",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_4321_0601",
+        "score": 0.7285,
+        "top_skill_id": "skill_order_picking_and_packing",
+        "correct": true
+      },
+      {
+        "case_id": "TP-30",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7543_2001",
+        "score": 0.6639,
+        "top_skill_id": "skill_non_destructive_testing_of_castings",
+        "correct": true
+      },
+      {
+        "case_id": "TP-31",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_7126_0301",
+        "score": 0.8542,
+        "top_skill_id": "skill_pipe_bending",
+        "correct": true
+      },
+      {
+        "case_id": "TP-32",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7126_0301",
+        "score": 0.6139,
+        "top_skill_id": "skill_pipe_support_and_clamping",
+        "correct": true
+      },
+      {
+        "case_id": "TP-33",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_7126_0101",
+        "score": 0.7184,
+        "top_skill_id": "skill_sanitary_fixture_installation",
+        "correct": true
+      },
+      {
+        "case_id": "TP-34",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7126_0101",
+        "score": 0.7801,
+        "top_skill_id": "skill_solvent_cement_jointing",
+        "correct": true
+      },
+      {
+        "case_id": "TP-35",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_7223_2400",
+        "score": 0.7613,
+        "top_skill_id": "skill_punching_machine_operation",
+        "correct": true
+      },
+      {
+        "case_id": "TP-36",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_isco_7213",
+        "score": 0.7216,
+        "top_skill_id": "skill_shearing_machine_operation",
+        "correct": false
+      },
+      {
+        "case_id": "TP-37",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_7224_0102",
+        "score": 0.6853,
+        "top_skill_id": "skill_structural_fit_up_and_tacking",
+        "correct": true
+      },
+      {
+        "case_id": "TP-38",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_isco_7127",
+        "score": 0.7639,
+        "top_skill_id": "skill_ducting_installation",
+        "correct": true
+      },
+      {
+        "case_id": "TP-39",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_isco_7127",
+        "score": 0.7466,
+        "top_skill_id": "skill_thermostat_and_control_wiring",
+        "correct": true
+      },
+      {
+        "case_id": "TP-40",
+        "category": "paraphrase_latin",
+        "job_domain_id": "jd_nco_8211_1200",
+        "score": 0.7443,
+        "top_skill_id": "skill_sub_assembly_quality_checking",
+        "correct": true
+      },
+      {
+        "case_id": "TP-41",
+        "category": "devanagari_paraphrase",
+        "job_domain_id": "jd_nco_8211_1200",
+        "score": 0.5986,
+        "top_skill_id": "skill_wiring_harness_routing",
+        "correct": true
+      }
+    ]
+  },
+  "notes": [
+    "Measures the ASSIGNMENT decision the floor governs, not ranking. A case can be a Recall@1 hit and a floor rejection at the same time; only this sweep bears on the threshold.",
+    "Supersedes the Gate C preparatory alias<->alias pass, whose 'true positive' was the best score between two aliases of the same skill — including across languages, which measures translation distance rather than the resolution decision. That earlier figure is evidence only and must not select a threshold.",
+    "NO database writes. Query embeddings are not persisted.",
+    "The production floor is NOT changed by this run."
+  ]
+}
