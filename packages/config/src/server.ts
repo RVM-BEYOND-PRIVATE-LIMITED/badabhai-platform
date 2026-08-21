@@ -395,6 +395,23 @@ export const serverEnvSchema = z.object({
   // hours allowed for tests/staging (cadence precedent: PACE_WAVE_INTERVAL_HOURS).
   ACCOUNT_DELETION_SWEEP_INTERVAL_HOURS: z.coerce.number().positive().default(1),
 
+  // QA-ONLY immediate hard-delete seam (TD — testing) — arms POST /auth/account/delete/immediate,
+  // which hard-deletes the CALLING worker's row RIGHT NOW (no OTP, no 7-day grace), so QA can
+  // reproduce the out-of-band `DELETE FROM workers` scenario the app's 410 WORKER_ACCOUNT_DELETED
+  // path handles WITHOUT a DBA. Posture:
+  //   - DEFAULT OFF. booleanFromString so a falsey string ("false"/"0"/"") stays OFF — fail-safe
+  //     to inert, the same idiom as TEST_LOGIN_ENABLED / ADMIN_PII_REVEAL_ENABLED. While OFF the
+  //     route answers a NEUTRAL 404 (behaves as if it does not exist).
+  //   - DELIBERATELY SEPARATE from the DPDP AccountDeletionService flow (the real user-facing
+  //     path — step-up OTP + grace + storage sweep + worker.account_deleted). This seam does NONE
+  //     of that: it replicates a raw row delete (session left intact on purpose, so the worker's
+  //     NEXT authed call returns the reserved 410).
+  //   - MUST ONLY EVER be enabled on a test/QA server, NEVER a real production tenant: it is an
+  //     immediate, no-confirmation self-delete. Unlike TEST_LOGIN_ENABLED there is no boot-refusal
+  //     wired for this flag yet (see the PR note) — treat OFF-by-default + never-committed-true as
+  //     the control until one lands.
+  TEST_IMMEDIATE_DELETE_ENABLED: booleanFromString,
+
   // PERF-3 — ai_jobs retention window (days). OWNER DECISION (2026-07-21): TERMINAL
   // (completed/failed) rows older than 90 days are pruned. DPDP rationale is DATA
   // MINIMISATION of operational metadata: ai_jobs rows are PII-free by construction
