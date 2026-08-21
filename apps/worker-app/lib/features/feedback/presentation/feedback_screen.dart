@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show MaxLengthEnforcement;
@@ -19,7 +20,9 @@ import '../../../router.dart';
 import '../../chat/presentation/widgets/voice_wave_visualizer.dart';
 import '../../consent/presentation/consent_screen.dart';
 import '../../voice/presentation/dictation_controller.dart';
+import '../domain/feedback_attachment_uploader.dart';
 import '../domain/feedback_category.dart';
+import '../domain/feedback_image_picker.dart';
 import '../domain/feedback_limits.dart';
 import '../domain/feedback_repository.dart';
 
@@ -50,6 +53,26 @@ const Key kFeedbackVoiceControlKey = ValueKey<String>('feedbackVoiceControl');
 
 /// The waveform slot in the listening strip.
 const Key kFeedbackVoiceWaveKey = ValueKey<String>('feedbackVoiceWave');
+
+/// The "attach a photo" control. Public so a test can assert it is present, and
+/// GONE once the worker has picked [kFeedbackMaxImages].
+const Key kFeedbackAddImageKey = ValueKey<String>('feedbackAddImage');
+
+/// The horizontal strip that holds the picked-image thumbnails.
+const Key kFeedbackImageStripKey = ValueKey<String>('feedbackImageStrip');
+
+/// The remove (X) control on the thumbnail at [index].
+Key feedbackRemoveImageKey(int index) =>
+    ValueKey<String>('feedbackRemoveImage_$index');
+
+/// Visible label on the add-photo control. Points at the ACTION in words a worker
+/// who cannot read the glyph still understands.
+const String kFeedbackAddImageLabel = 'Photo jodein';
+
+/// Shown after a submit whose text sent but whose image(s) did not — honest, not
+/// a silent drop. The feedback DID go; only the photo did not attach.
+const String kFeedbackPhotoDroppedNotice =
+    'Aapka feedback bhej diya. Photo attach nahi ho payi.';
 
 /// The voice control's WIDTH, and its MINIMUM height — therefore also the column
 /// the message box reserves for it. Comfortably past the 48dp worker touch floor
@@ -161,7 +184,18 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   /// consent one gets a button that resolves it.
   Failure? _blocked;
 
+  /// The images the worker attached, resized to JPEG bytes and held IN MEMORY
+  /// only (never written to disk here) until submit uploads them. Capped at
+  /// [kFeedbackMaxImages]; the add control disappears at the cap.
+  final List<Uint8List> _images = <Uint8List>[];
+
   FeedbackRepository get _repo => locator<FeedbackRepository>();
+
+  /// Resolved lazily so the plugin-free widget-test graph — which registers only
+  /// the repository — is untouched unless the worker actually picks/uploads.
+  FeedbackImagePicker get _picker => locator<FeedbackImagePicker>();
+  FeedbackAttachmentUploader get _uploader =>
+      locator<FeedbackAttachmentUploader>();
 
   /// Drives the ListView, so a refusal panel appended at the bottom can be
   /// scrolled INTO VIEW instead of being created below the fold.
@@ -277,17 +311,23 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       _blocked = null; // a fresh attempt clears the last refusal
     });
     try {
-      await _repo.submit(
-        message: text,
-        category: _category,
-        screen: widget.fromRoute,
-      );
+      // Upload the images FIRST and best-effort: a per-image failure drops that
+      // image but never blocks the text (see [_uploadAttachments]). The text is
+      // the job; the photos are the "other option that makes it better".
+      final List<String> paths = await _uploadAttachments();
+      await _sendFeedback(text, paths);
       if (!mounted) return;
       _dictation.discard();
+      // Honest when a photo did not make it: the feedback DID send, so this is a
+      // partial-success notice, not a failure. Only when the worker actually
+      // attached something and NONE of it uploaded.
+      final bool photosDropped = _images.isNotEmpty && paths.isEmpty;
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
-        ..showSnackBar(const SnackBar(
-          content: Text('Shukriya, aapka feedback mil gaya.'),
+        ..showSnackBar(SnackBar(
+          content: Text(photosDropped
+              ? kFeedbackPhotoDroppedNotice
+              : 'Shukriya, aapka feedback mil gaya.'),
         ));
       context.pop();
     } catch (error) {
@@ -314,6 +354,90 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
               SnackBar(content: Text(failureReason(failure).reason)));
       }
     }
+  }
+
+  /// Uploads each attached image best-effort, returning the storage_paths that
+  /// SUCCEEDED. A per-image failure (mint 404 = endpoint not deployed, 503 =
+  /// bucket dormant, or a PUT failure) drops THAT image and is swallowed — the
+  /// worker's text must always send, so an image is never allowed to throw out of
+  /// here. Sequential on purpose: at most three images, on a metered 2G uplink,
+  /// where three parallel PUTs would fight for the same thin pipe.
+  Future<List<String>> _uploadAttachments() async {
+    if (_images.isEmpty) return const <String>[];
+    final List<String> paths = <String>[];
+    for (final Uint8List bytes in _images) {
+      try {
+        paths.add(await _uploader.upload(bytes));
+      } catch (_) {
+        // Dropped. A failed image never costs the worker their feedback.
+      }
+    }
+    return paths;
+  }
+
+  /// Posts the feedback. Passes `attachmentPaths` ONLY when something uploaded, so
+  /// a no-image (or all-dropped) submission is byte-identical to a released build
+  /// — the repository/API then omit the key entirely.
+  Future<void> _sendFeedback(String text, List<String> paths) {
+    return paths.isEmpty
+        ? _repo.submit(
+            message: text, category: _category, screen: widget.fromRoute)
+        : _repo.submit(
+            message: text,
+            category: _category,
+            screen: widget.fromRoute,
+            attachmentPaths: paths,
+          );
+  }
+
+  /// Open the Camera/Gallery chooser, pick + resize one image, and append it.
+  ///
+  /// Guarded against the cap and an in-flight send. A cancelled pick or a picker
+  /// failure simply adds nothing (see [FeedbackImagePicker.pick]) — never a scary
+  /// error, because it is not the worker's fault.
+  Future<void> _addImage() async {
+    if (_sending || _images.length >= kFeedbackMaxImages) return;
+    final FeedbackImageSource? source = await _chooseImageSource();
+    if (source == null || !mounted) return;
+    final Uint8List? bytes = await _picker.pick(source);
+    if (bytes == null || !mounted) return;
+    setState(() {
+      // Re-check the cap: an await gap could have let a second pick land.
+      if (_images.length < kFeedbackMaxImages) _images.add(bytes);
+    });
+  }
+
+  /// The Camera / Gallery source chooser — the profile-photo sheet's shape, minus
+  /// the "remove" row (there is a per-thumbnail X for that). Returns null when
+  /// dismissed.
+  Future<FeedbackImageSource?> _chooseImageSource() {
+    return showModalBottomSheet<FeedbackImageSource>(
+      context: context,
+      builder: (BuildContext sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Camera'),
+              onTap: () => Navigator.of(sheetContext)
+                  .pop(FeedbackImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Gallery'),
+              onTap: () => Navigator.of(sheetContext)
+                  .pop(FeedbackImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _removeImage(int index) {
+    if (_sending || index < 0 || index >= _images.length) return;
+    setState(() => _images.removeAt(index));
   }
 
   /// Bring the refusal panel on screen after the frame that creates it. It is the
@@ -426,6 +550,8 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                   ),
               ],
             ),
+            const SizedBox(height: AppSpacing.s5),
+            _photoSection(),
             if (_blocked != null) ...<Widget>[
               const SizedBox(height: AppSpacing.s3),
               _blockedPanel(_blocked!),
@@ -662,6 +788,151 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     );
   }
 
+  /// The OPTIONAL "attach a photo" block: a one-line prompt, the picked-image
+  /// thumbnails, and the add control — which DISAPPEARS at [kFeedbackMaxImages] so
+  /// the worker cannot pick a fourth the server would reject.
+  Widget _photoSection() {
+    final bool canAdd = _images.length < kFeedbackMaxImages;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text('PHOTO (OPTIONAL)',
+            style: AppTypography.eyebrow(color: AppColors.textMuted)),
+        const SizedBox(height: AppSpacing.s1),
+        Text(
+          'Dikkat ki photo laga sakte hain — screenshot, machine, ya parchi. '
+          '$kFeedbackMaxImages tak.',
+          style: AppTypography.body(
+            size: AppTypography.sizeSm,
+            color: AppColors.textMuted,
+          ),
+        ),
+        if (_images.isNotEmpty) ...<Widget>[
+          const SizedBox(height: AppSpacing.s2),
+          _thumbnailStrip(),
+        ],
+        if (canAdd) ...<Widget>[
+          const SizedBox(height: AppSpacing.s2),
+          _addPhotoButton(),
+        ],
+      ],
+    );
+  }
+
+  /// The add-photo affordance. A bordered, icon-led control at the 48dp worker
+  /// touch floor, labelled in words (not just a glyph). Full-width with an
+  /// [Expanded] label so it wraps instead of overflowing at the large text sizes
+  /// this audience uses. Disabled while a send is in flight so the picked set
+  /// cannot change under an upload.
+  Widget _addPhotoButton() {
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        key: kFeedbackAddImageKey,
+        onTap: _sending ? null : _addImage,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.s3,
+            vertical: AppSpacing.s2,
+          ),
+          decoration: BoxDecoration(
+            color: AppColors.paper,
+            borderRadius: BorderRadius.circular(AppRadii.sm),
+            border: Border.all(color: AppColors.borderSubtle),
+          ),
+          child: Row(
+            children: <Widget>[
+              const Icon(Icons.add_a_photo_outlined,
+                  size: 20, color: AppColors.blue),
+              const SizedBox(width: AppSpacing.s2),
+              Expanded(
+                child: Text(
+                  kFeedbackAddImageLabel,
+                  style: AppTypography.body(
+                    size: AppTypography.sizeMd,
+                    weight: FontWeight.w700,
+                    color: AppColors.blue,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The horizontal thumbnail strip. One [_thumbnail] per picked image; scrolls
+  /// when three tiles overrun a narrow screen.
+  Widget _thumbnailStrip() {
+    const double side = 96;
+    return SizedBox(
+      key: kFeedbackImageStripKey,
+      height: side,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: _images.length,
+        separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.s2),
+        itemBuilder: (BuildContext c, int i) => _thumbnail(i, side),
+      ),
+    );
+  }
+
+  /// One image tile ([Image.memory] — the bytes never touch disk here) with a
+  /// remove (X) whose TAP area clears the 48dp floor even though the glyph is
+  /// small, so a wrong pick is one tap to undo.
+  Widget _thumbnail(int index, double side) {
+    return SizedBox(
+      width: side,
+      height: side,
+      child: Stack(
+        children: <Widget>[
+          Positioned.fill(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadii.sm),
+              child: Image.memory(
+                _images[index],
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                // A corrupt/undecodable pick must never paint a red error box on
+                // the one screen whose job is reporting problems — neutral tile.
+                errorBuilder: (_, __, ___) => Container(
+                  color: AppColors.surfaceSunken,
+                  child: const Icon(Icons.broken_image_outlined,
+                      color: AppColors.textMuted),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 0,
+            right: 0,
+            child: Semantics(
+              button: true,
+              label: 'Photo hatayein',
+              child: InkWell(
+                key: feedbackRemoveImageKey(index),
+                onTap: _sending ? null : () => _removeImage(index),
+                customBorder: const CircleBorder(),
+                // A 48dp hit area (the worker touch floor) around a compact glyph;
+                // it sits inside the 96dp tile, so it never overlaps a neighbour.
+                child: const SizedBox(
+                  width: AppSpacing.tap,
+                  height: AppSpacing.tap,
+                  child: Center(
+                    child: _RemoveBadge(),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Open consent as a ROUND TRIP, not a one-way door.
   ///
   /// `context.go(Routes.consent)` REPLACED the stack: the worker landed on
@@ -761,6 +1032,26 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// The small dark circular X painted at the centre of a thumbnail's 48dp remove
+/// hit area. Split out as a `const` widget so the [Image.memory] tile above it
+/// stays a `const`-friendly, cheap-to-rebuild subtree.
+class _RemoveBadge extends StatelessWidget {
+  const _RemoveBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 26,
+      height: 26,
+      decoration: const BoxDecoration(
+        color: AppColors.ink900,
+        shape: BoxShape.circle,
+      ),
+      child: const Icon(Icons.close, size: 16, color: AppColors.paper),
     );
   }
 }

@@ -23,6 +23,7 @@ class FeedbackRepositoryImpl implements FeedbackRepository {
     required String message,
     FeedbackCategory? category,
     String? screen,
+    List<String> attachmentPaths = const <String>[],
   }) async {
     final String? token = _session.sessionToken;
     if (token == null) {
@@ -32,12 +33,18 @@ class FeedbackRepositoryImpl implements FeedbackRepository {
     // site, so every caller present and future gets a route PATTERN and no
     // identifier can reach the endpoint by way of a screen that forgot.
     final String? normalized = normalizeScreenContext(screen);
+    // An empty list becomes ABSENT on the wire (the ApiClient omits the key), so
+    // a no-image submission is byte-identical to a released build — which is what
+    // keeps the retry-without-`screen` path below safe.
+    final List<String>? paths =
+        attachmentPaths.isEmpty ? null : attachmentPaths;
     try {
       await _api.submitFeedback(
         authToken: token,
         message: message,
         category: category?.wire,
         screen: normalized,
+        attachmentPaths: paths,
       );
     } on ApiException catch (error) {
       // `screen` is a NEW key on a DTO the server declares `.strict()`, so an API
@@ -57,6 +64,12 @@ class FeedbackRepositoryImpl implements FeedbackRepository {
             authToken: token,
             message: message,
             category: category?.wire,
+            // The images already uploaded — only `screen` is being dropped as
+            // the unknown key, so the attachments stay on the retry. Safe to keep:
+            // a non-empty `paths` means the mint endpoint answered, and that same
+            // deploy accepts `attachment_paths` on submit (the two ship together),
+            // so re-sending them cannot itself re-trigger an unknown-key 400.
+            attachmentPaths: paths,
           );
           return;
         } catch (retried) {

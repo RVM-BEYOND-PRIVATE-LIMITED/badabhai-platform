@@ -199,6 +199,83 @@ void main() {
     });
   });
 
+  group('attachment_paths', () {
+    test('uploaded paths reach the wire unchanged', () async {
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+            attachmentPaths: any(named: 'attachmentPaths'),
+          )).thenAnswer((_) async {});
+
+      await repo.submit(
+        message: 'photo ke saath',
+        screen: '/settings/notifications',
+        attachmentPaths: const <String>[
+          'feedback-attachments/w1/a.jpg',
+          'feedback-attachments/w1/b.jpg',
+        ],
+      );
+
+      verify(() => api.submitFeedback(
+            authToken: 'tok',
+            message: 'photo ke saath',
+            category: null,
+            screen: '/settings/notifications',
+            attachmentPaths: const <String>[
+              'feedback-attachments/w1/a.jpg',
+              'feedback-attachments/w1/b.jpg',
+            ],
+          )).called(1);
+    });
+
+    test('an EMPTY list is sent as null — never `[]` on the wire', () async {
+      // A no-image submission must stay byte-identical to a released build, so
+      // the key is absent (null), not an empty array.
+      await repo.submit(message: 'seedha', attachmentPaths: const <String>[]);
+      verify(() => api.submitFeedback(
+            authToken: 'tok',
+            message: 'seedha',
+            category: null,
+            screen: null,
+            attachmentPaths: null,
+          )).called(1);
+    });
+
+    test('a 400 on the screen body retries WITHOUT screen but KEEPS the paths',
+        () async {
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+            attachmentPaths: any(named: 'attachmentPaths'),
+          )).thenThrow(ApiException(400, "Unrecognized key(s): 'screen'"));
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            attachmentPaths: any(named: 'attachmentPaths'),
+          )).thenAnswer((_) async {});
+
+      await repo.submit(
+        message: 'meri baat',
+        screen: '/jobs',
+        attachmentPaths: const <String>['feedback-attachments/w1/a.jpg'],
+      );
+
+      // The images already uploaded — only `screen` is the unknown key, so the
+      // attachments ride the retry.
+      verify(() => api.submitFeedback(
+            authToken: 'tok',
+            message: 'meri baat',
+            category: null,
+            attachmentPaths: const <String>['feedback-attachments/w1/a.jpg'],
+          )).called(1);
+    });
+  });
+
   test('no session token is a 401-shaped failure, never an anonymous post',
       () async {
     final FeedbackRepositoryImpl anon =
