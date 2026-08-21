@@ -51,57 +51,192 @@ never ranking (invariant #4).
 `score: 0`, with the source comment *"Honest unranked values — nothing scored this alpha
 surface."*
 
-### B. Phase status
+### B. Two tracks — Track B is not a subset of Track A
 
-| stage | state | evidence |
-|---|---|---|
-| **A Observe** | **DONE** | committed pre-D2 baseline |
-| **B Backfill** | **DONE** | P1-B PASS on all four rules; 102 candidates |
-| **C Dual-read shadow** | **DONE (offline)** | two evidence files committed today |
-| **D Parity** | **BLOCKED — on promotion, not on engineering** | see below |
-| **E Read switch** | **NOT STARTED — and must NOT start** | Path A empty on 52.8% of cases today |
-| **F Rollback window** | NOT STARTED | |
-| **G Legacy retirement** | NOT STARTED | |
+The single most important correction in this document: **finishing Phase 9 does not give the
+product relevance.** Phase 9 is the taxonomy foundation. Coverage is a separate, larger track,
+and it must not be reported behind Phase 9's stage letters.
 
-**The Stage C finding, which inverts the plan's ordering.**
+```
+TRACK A — Taxonomy activation          TRACK B — Relevance coverage
+  Phase 9  A ✅ B ✅ C ✅                 Occupation coverage      0.69%
+           D ⛔ promotion readiness      Skill matching           NOT ACTIVE
+           E ⛔  F ⛔  G ⛔                Relevance ranking        NOT ACTIVE
+  Phase 10 ⛔                            Job visibility relevance NOT ACTIVE
+```
 
-| signal | today (30 active skills) | if promotion happened |
+#### Track A — Phase 9 stages
+
+| stage | status | evidence | remaining work | blocker |
+|---|---|---|---|---|
+| **A Observe** | ✅ DONE | committed pre-D2 baseline | — | — |
+| **B Backfill** | ✅ DONE | P1-B PASS all 4 rules; 102 candidates | — | — |
+| **C Shadow** | ✅ DONE (offline) | 2 evidence files, post-D2 corpus | live shadow deferred (would observe ~0 traffic) | — |
+| **D Parity** | ⛔ BLOCKED | gate audit: 55/41/2 of 98 | promotion readiness | **41 skills have no eval coverage** |
+| **E Read switch** | ⛔ NOT STARTED | Path A empty 52.8% | — | Stage D |
+| **F Rollback window** | ⛔ NOT STARTED | — | — | Stage E |
+| **G Legacy retirement** | ⛔ NOT STARTED | — | — | Stage F |
+| **Phase 10** | ⛔ NOT STARTED | — | promotion → canonicalize ON → pilot → rollout | Phase 9 |
+
+#### Promotion readiness — the 98 accepted skills
+
+Confirmed against production 2026-08-21 (`db:audit:promotion-gates`, read-only):
+
+| category | count | action |
+|---|---:|---|
+| accepted + provisional + eval-covered | **55** | candidate |
+| accepted + provisional + **no eval coverage** | **41** | needs decision |
+| accepted but now deprecated (stale batch list) | **2** | remove from batch |
+| | **98** | |
+
+The 2 stale rows are `skill_chassis_fitting` (→ `skill_mechanical_assembly`) and
+`skill_go_no_go_gauge_checking` (→ `skill_measuring_instruments`), both deprecated by D2's
+crosswalk *after* the batch's accepted list was written.
+
+Promotion is **fail-closed and all-or-nothing per batch**, so the batch as it stands promotes
+**zero** — even with the two paid evidence gates green.
+
+**What the 41 are.** All legitimate blue-collar trade skills, each with 1–3 active edges and
+exactly 2 aliases, clustered in the trades the growth corpus ADDED beyond the original CNC
+wedge: electrical (8), HVAC (5), plumbing (4), automotive (3), battery manufacturing (5),
+welding (4), sheet metal (2), warehouse (2), construction (2), QC/inspection (2), other (4).
+
+**Why they are not eval-covered.** The evaluation fixture (`retrieval-v2.jsonl`, 127 cases) was
+authored around the CNC/manufacturing wedge. Nobody has written trainer phrases for electrical,
+HVAC, plumbing, automotive or battery work. This is a gap in the FIXTURE, not a defect in the
+skills — which is exactly why the honest fix is trainer phrases, not a waiver.
+
+**Can they wait? Yes.** They are provisional, therefore invisible to production; no production
+path reads either retrieval path; and the feed does no relevance ranking at all. Nothing
+degrades by leaving them provisional.
+
+### B2. Track B — occupation → skill coverage
+
+`job_domain` is the full ISCO-08 + NCO-2015 occupation tree, not a curated list.
+
+| metric | count | % of 4,071 |
 |---|---:|---:|
-| Path A returned nothing | **65 / 123 (52.8%)** | **0** |
-| Path B returned nothing | 0 | 0 |
-| empty-rate delta (A−B) | **+52.8%** | **0.00%** |
-| top-1 agreement | 15.5% | 1.6% |
-| score delta A−B, median | 0 | **+0.276** |
-| score delta A−B, p95 | +0.141 | **+0.430** |
+| Active job domains | 4,071 | 100% |
+| Non-selectable hierarchy aggregates (levels 1–3) | 186 | 4.6% |
+| **Selectable** (levels 4–5) | **3,885** | 95.4% |
+| With ≥1 alias | 3,885 | 95.4% — **100% of selectable** |
+| With ≥1 active skill edge | **28** | **0.69%** |
+| With ≥2 skill edges | 28 | 0.69% *(minimum observed is 6)* |
+| **Usable by Path A today** | **19** | **0.47%** |
+| Usable by Path A after promoting all provisional | 28 | 0.69% |
 
-The plan aborts the read switch "if A exceeds B by any margin". **Today it exceeds it by 52.8
-points** — Stage E would be a catastrophic recall loss. After promotion it is 0, and Path A is
-better by a median +0.28 similarity.
+**Alias coverage is already complete.** All 9,121 `job_domain_alias` rows are embedded and every
+selectable domain has at least one. Aliases are not the gap and generating more would not help.
 
-The low agreement is not a regression. It is Path A being right where Path B is wrong: Path B is
-hard-coded to the single legacy anchor `cnc-machining` for every caller
-(`job-postings.service.ts:146`), so it answers a warehouse job with `skill_turning` and a
-construction job with `skill_drilling`. Path A answers them with `skill_forklift_operation` and
-`skill_mortar_mixing`.
+**Promotion moves Path A from 19 to 28 usable domains — +9, out of 3,885.**
 
-**Exit criteria for Stage D**, stated so it can be checked rather than argued:
-1. Promotion executed, or explicitly declined with the consequence accepted.
-2. Empty-rate delta (A−B) ≤ 0 on the fixture. *(Currently +52.8%. After promotion: 0.)*
-3. Every top-1 disagreement classified by a human. *(121 enumerated in the committed evidence.)*
-4. The 5 legacy-only skills resolved — see the table in C.
-5. P1 (not P1-B) green for the switch itself, since Stage E's contract IS "no behaviour change".
+#### Classification of the 4,043 domains without edges
 
+| class | count | do they need edges? |
+|---|---:|---|
+| Non-selectable hierarchy aggregates | 186 | **No** — structural nodes, never selected |
+| ISCO 0/1/2 — armed forces, managers, professionals | 953 | **No** — outside a blue-collar platform |
+| ISCO 6 — agricultural/forestry/fishery | 137 | **Not now** — product-scope judgement |
+| ISCO 3/4/5 — technicians, clerical, service | 968 | **Partially** — warehouse/clerical already proven relevant |
+| **ISCO 7/8/9 — craft, machine operators, elementary** | **1,799** | **Yes — the real backlog** |
+| | **4,043** | |
+
+Duplicate/merge candidates are negligible: only **19** labels are shared by more than one
+selectable domain.
+
+#### Sizing the work
+
+Observed density over the 28 covered domains: **236 edges / 28 = 8.4 edges per domain.**
+
+| target | domains | edges at 8.4/domain |
+|---|---:|---:|
+| **Minimum viable** — the occupations behind actual demand | ~25 | ~210 *(already exceeded: 28 covered)* |
+| **Recommended** — ISCO 7/8/9 | 1,824 | **~15,300** |
+| **Full** — ISCO 3/4/5/7/8/9 | 2,795 | **~23,500** |
+
+**Minimum viable is already met.** Production has shown **25 distinct jobs** in the feed, ever
+(7,616 `feed.shown` events keyed on 25 jobs; 92 applications across 21 jobs). Coverage is a
+SCALING requirement, not a current-traffic blocker.
+
+**Skill vocabulary needed.** 165 skills serve 28 domains today. Skills are shared across
+occupations (236 edges / 130 skills = 1.8 domains per skill), and sharing rises with scale. For
+1,824 blue-collar occupations, a realistic target is **2,000–3,000 skills** — ESCO carries
+~13,900 across ALL occupations including professional ones.
+
+**What can be automated.** The generation pipeline already exists and is proven: batched LLM
+generation → quality gate → `accepted-skills.jsonl` → seed → embed. One batch produced 98
+accepted skills and 236 edges. Edges can additionally be derived from published ESCO
+occupation↔skill relations via NCO→ISCO→ESCO crosswalk — this is the single largest lever and
+requires no generation at all.
+
+**What needs humans.** The quality gate's accept/reject calls, and trainer phrases for the
+evaluation fixture — currently the binding constraint at 41 skills, and the thing that does not
+scale by machine, because a self-generated trainer phrase certifies nothing.
+
+### B3. Production relevance is NOT implemented
+
+Stated plainly so it cannot be read any other way. The production feed
+(`applications.repository.ts`, `findOpenJobs`) is:
+
+```
+open jobs
+  + city filter
+  + trade_key filter
+  + exclude already-applied
+  + ORDER BY created_at ASC, id ASC
+```
+
+It does **not** use worker skills, job skills, job domain, experience, salary, or any relevance
+score. `score: 0` is emitted honestly and is not a ranking.
+
+**Therefore the objective is not "finish Phase 9."** The objective is a trustworthy worker→job
+relevance system. Phase 9 is its taxonomy foundation.
+
+### B4. How a phrase travels the graph
+
+```
+    job_domain_alias                              skill_alias
+    (9,121, all embedded)                         (336, 332 embedded)
+           │  ANN on the phrase                          ▲  ANN on the phrase
+           ▼                                             │
+      job_domain  ────── job_domain_skill ──────────► skill
+      (4,071)            (236 edges, 28 domains)      (165)
+```
+
+**A JOB phrase** (employer posts "CNC turner needed, must read GD&T"):
+1. The job title embeds and ANN-searches `job_domain_alias` → resolves a `jd_*` id
+   (`nearestDomains`, gated by `DOMAIN_MATCH_ENABLED`).
+2. Each skill phrase embeds and ANN-searches `skill_alias`, **scoped through
+   `job_domain_skill` to that `jd_*`** (Path A, `nearestAliasesByJobDomain`).
+3. Above the 0.75 floor it becomes a canonical `skill_id` in `job_posting_skill`.
+   *(0 rows today — this path has never run in production.)*
+
+**A WORKER phrase** ("main kharad chalata hoon"):
+1. Extraction produces skill LABELS (**ACTIVE** — 223 real extractions).
+2. Each label embeds and ANN-searches `skill_alias` → canonical `skill_id` in `worker_skill`
+   (**DISABLED** — `SKILL_CANONICALIZE_ENABLED=false`; 8 rows exist from earlier work).
+
+**They meet** on `skill_id` by **exact equality** in the reach engine — no embedding, no
+similarity, no model (`scoring.ts`, invariant #4). Embeddings assign ids upstream; they never
+rank.
+
+**Where it breaks today:** both ANN steps are flag-off, `job_posting_skill` is empty, so the two
+sides never meet and the feed falls back to recency.
 ### C. Work remaining
 
 Already-built functionality is **not** counted here.
 
 | area | class | status | remaining work | blocker | effort |
 |---|---|---|---|---|---|
-| Promote 111 provisional skills | **DECISION** | runner BUILT, never run | run `db:promote:skills`, verify 7 gates | **product decision** | 1 session |
-| 5 skills reachable only via legacy slug | **DECISION** | measured | add `job_domain_skill` edges, or accept the loss | taxonomy call | 0.5 session |
+| Trainer phrases for the 41 uncovered skills | **BUILD (human)** | fixture gap, not a code gap | write + review 41 trainer phrases | **the binding Phase 9 constraint** | 1-2 sessions |
+| Re-scope the batch (drop the 2 deprecated) | **BUILD** | measured | new accepted-skills.jsonl, or a scoped waiver | — | 15 min |
+| Floor sweep + evaluation evidence | **VERIFY** | stale (no `corpus_fingerprint`) | re-run both `--run --experiment` | **paid provider runs — not authorised** | 0.5 session |
+| Promote the accepted batch | **DECISION** | runner BUILT, never run | fail-closed: promotes 0 until the above clears | above | 1 session |
+| 5 skills reachable only via legacy slug | **CLOSED — no action** | 3 are `*_occupation` (belong in `job_domain`); 2 are TD-01 merge predecessors whose successor holds the edges | — | — | — |
 | Classify 121 top-1 disagreements | **VERIFY** | enumerated | human read of the committed list | needs promotion first | 1 session |
-| `cnc-programming` A/B/C ruling | **DECISION** | open | — | product decision | — |
-| US-04 ruling | **DECISION** | open | — | product decision | — |
+| ~~`cnc-programming` A/B/C ruling~~ | **CLOSED** | decided — `phase-9-cnc-programming-decision.md` | — | — | — |
+| ~~US-04 ruling~~ | **CLOSED** | re-pointed with TD-02, 2026-08-18 | — | — | — |
+| **Occupation→skill edges (Track B)** | **BUILD** | 28 of 3,885 selectable domains | ~15,300 edges for ISCO 7/8/9 | not a Phase 9 blocker | large — see §B2 |
 | Stage D parity report | **BUILD** | not started | thresholds from Stage C data | Stage D inputs | 0.5 session |
 | Stage E read switch | **BUILD** | not started | pass `job_domain_id` at the caller | gates above | 0.5 session |
 | Stage F rollback window | **VERIFY** | not started | observation period | E | — |
