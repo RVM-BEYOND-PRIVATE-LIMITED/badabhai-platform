@@ -47,8 +47,66 @@ export const LocationPreferenceSchema = z.object({
   willing_to_relocate: z.boolean().nullable().default(null),
 });
 
+// ---------------------------------------------------------------------------
+// Availability — the model's vocabulary is WIDER than the canonical enum
+// ---------------------------------------------------------------------------
+
+/**
+ * The canonical availability enum. Business logic (reach-engine scoring) reads only these.
+ */
+export const AVAILABILITY_VALUES = ["immediate", "notice_period", "not_looking", "unknown"] as const;
+
+/**
+ * Notice-period tokens the INTERVIEW PROMPT ASKS THE MODEL TO PRODUCE and this enum never
+ * accepted. `interview_prompts.py` specifies `"immediate" | "15_days" | "1_month" | "unknown"`;
+ * this schema specifies `immediate | notice_period | not_looking | unknown`. The two contracts
+ * disagree on two of five values BY CONSTRUCTION, and both sides are documented — the resume
+ * text builder (`extraction.py::_MODEL_AVAILABILITY`) and the PDF renderer
+ * (`resume-render-input.ts::humanizeAvailability`) each learned to speak both vocabularies.
+ *
+ * NOBODY TAUGHT THE VALIDATOR. Measured on production 2026-08-21: `profile.extraction_failed`
+ * = 53, of which **48 are this** — 26 × `15_days` and 22 × `1_month`, the newest minutes before
+ * this was written. A single unrecognised token on ONE optional field threw away the ENTIRE
+ * extraction: role, skills, experience, salary, city, everything. That is 21% of all extractions
+ * discarded over a field the prompt itself asked for.
+ *
+ * Both tokens mean the same canonical thing — a worker who can start after a notice period — so
+ * the mapping is semantic, not a guess. The DAY COUNT is not lost: `notice_period_days` carries
+ * it on `AvailabilitySchema`, and the presentation layers keep reading the raw container.
+ */
+const AVAILABILITY_ALIASES: Readonly<Record<string, (typeof AVAILABILITY_VALUES)[number]>> = {
+  "15_days": "notice_period",
+  "1_month": "notice_period",
+  "2_months": "notice_period",
+  "3_months": "notice_period",
+  notice: "notice_period",
+};
+
+/**
+ * Normalise an availability token before the enum sees it.
+ *
+ * FAIL-SOFT ON THIS FIELD, DELIBERATELY, AND ONLY THIS FIELD. An unrecognised token becomes
+ * `unknown` — the value the field ALREADY defaults to when absent — instead of rejecting the
+ * whole profile. This is not a loosening of AI validation: the output is still constrained to
+ * the canonical enum and the mapping is a fixed table, never the model's choice. What changes is
+ * the blast radius of one bad token, from "discard everything the model extracted" to "record
+ * this one field as unknown", which is what an absent field would have produced anyway.
+ *
+ * Non-strings and null fall through untouched so `.default()` and `.nullable()` still own them.
+ */
+const normalizeAvailability = (v: unknown): unknown => {
+  if (typeof v !== "string") return v;
+  const key = v.trim().toLowerCase();
+  if ((AVAILABILITY_VALUES as readonly string[]).includes(key)) return key;
+  return AVAILABILITY_ALIASES[key] ?? "unknown";
+};
+
+/** The canonical enum, preceded by the normaliser. Use this everywhere availability is parsed. */
+export const availabilityEnum = () =>
+  z.preprocess(normalizeAvailability, z.enum(AVAILABILITY_VALUES).default("unknown"));
+
 export const AvailabilitySchema = z.object({
-  status: z.enum(["immediate", "notice_period", "not_looking", "unknown"]).default("unknown"),
+  status: availabilityEnum().default("unknown"),
   notice_period_days: z.number().int().nonnegative().nullable().default(null),
 });
 
@@ -298,7 +356,9 @@ export const WorkerProfileDraftSchema = z.object({
   relocation_willingness: z.boolean().nullable().default(null),
   current_salary: z.number().int().nonnegative().nullable().default(null),
   expected_salary: z.number().int().nonnegative().nullable().default(null),
-  availability: z.enum(["immediate", "notice_period", "not_looking", "unknown"]).default("unknown"),
+  // Normalised, not strict — see `availabilityEnum`. The prompt asks the model for `15_days`
+  // and `1_month`; rejecting them discarded 48 whole extractions in production.
+  availability: availabilityEnum().default("unknown"),
   education: z.array(z.string()).default([]),
   certifications: z.array(z.string()).default([]),
   // Highest academic level ("10th", "12th", "ITI", "Diploma", "B.Tech", …) and the

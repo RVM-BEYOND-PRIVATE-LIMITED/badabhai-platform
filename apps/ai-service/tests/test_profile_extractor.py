@@ -135,3 +135,47 @@ def test_issue_423_no_stated_preference_leaves_preferred_empty_not_the_current_c
 
     assert loc.current_city == "Faridabad"
     assert loc.preferred_cities == []
+
+
+class TestAvailabilityNormalisation:
+    """The prompt's availability vocabulary is wider than the canonical enum.
+
+    ``interview_prompts.py`` asks the model for ``"immediate" | "15_days" | "1_month" |
+    "unknown"``; the canonical enum is ``immediate | notice_period | not_looking | unknown``.
+    Before 2026-08-21 this side silently DROPPED the two extra tokens (the field stayed
+    "unknown", losing what the worker said) and the TypeScript side rejected the WHOLE
+    extraction — 48 profiles lost in production, 26 x ``15_days`` and 22 x ``1_month``.
+
+    Mirrors ``AVAILABILITY_ALIASES`` in packages/ai-contracts/src/profile.ts (§7 parity).
+    """
+
+    def test_canonical_values_pass_through(self) -> None:
+        from app.profiling.profile_extractor import _normalize_availability
+
+        for v in ("immediate", "notice_period", "not_looking", "unknown"):
+            assert _normalize_availability(v) == v
+
+    def test_prompt_tokens_map_to_notice_period(self) -> None:
+        from app.profiling.profile_extractor import _normalize_availability
+
+        assert _normalize_availability("15_days") == "notice_period"
+        assert _normalize_availability("1_month") == "notice_period"
+
+    def test_case_and_whitespace_are_normalised(self) -> None:
+        from app.profiling.profile_extractor import _normalize_availability
+
+        assert _normalize_availability("  1_MONTH ") == "notice_period"
+
+    def test_unknown_token_returns_none_so_the_field_is_left_alone(self) -> None:
+        # None means "leave it" — this must never INVENT an availability the worker did not
+        # express. That is the one thing worse than losing the value.
+        from app.profiling.profile_extractor import _normalize_availability
+
+        assert _normalize_availability("whenever_you_like") is None
+        assert _normalize_availability(None) is None
+        assert _normalize_availability(42) is None
+
+    def test_alias_table_only_ever_yields_canonical_values(self) -> None:
+        from app.profiling.profile_extractor import _AVAILABILITY, _AVAILABILITY_ALIASES
+
+        assert set(_AVAILABILITY_ALIASES.values()) <= _AVAILABILITY

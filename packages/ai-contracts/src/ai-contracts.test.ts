@@ -63,6 +63,7 @@ import {
   SkillCanonicalizationSchema,
   TranscriptionInputSchema,
   TranscriptionOutputSchema,
+  AvailabilitySchema,
   WorkerProfileDraftSchema,
 } from "./index";
 
@@ -942,5 +943,60 @@ describe("OIE contract parity (contracts.py mirror)", () => {
     expect(parsed.occupation).toBeNull();
     expect(parsed.answer_map).toEqual([]);
     expect(parsed.transcript).toEqual([]);
+  });
+});
+
+describe("availability — the model's vocabulary vs the canonical enum (production defect 2026-08-21)", () => {
+  /**
+   * `interview_prompts.py` asks the model for `"immediate" | "15_days" | "1_month" | "unknown"`.
+   * This schema accepted `immediate | notice_period | not_looking | unknown`. The two contracts
+   * disagreed on two of five values BY CONSTRUCTION, and the validator was the only layer that
+   * had not been taught both — the resume text builder and the PDF renderer already had.
+   *
+   * Measured on production: 53 `profile.extraction_failed`, of which 48 were exactly this
+   * (26 x `15_days`, 22 x `1_month`). Each one discarded a WHOLE extraction — role, skills,
+   * experience, salary, city — over one optional field the prompt itself asked for.
+   */
+  it("accepts the notice-period tokens the prompt asks for, as notice_period", () => {
+    expect(WorkerProfileDraftSchema.parse({ availability: "15_days" }).availability).toBe("notice_period");
+    expect(WorkerProfileDraftSchema.parse({ availability: "1_month" }).availability).toBe("notice_period");
+  });
+
+  it("still accepts every canonical value unchanged", () => {
+    for (const v of ["immediate", "notice_period", "not_looking", "unknown"] as const) {
+      expect(WorkerProfileDraftSchema.parse({ availability: v }).availability).toBe(v);
+    }
+  });
+
+  it("DOES NOT DISCARD THE REST OF THE PROFILE over one unrecognised token", () => {
+    // This is the whole point. Before the fix this parse THREW and the worker got no profile
+    // and no resume; the 21% of extractions that died did so with everything else intact.
+    const parsed = WorkerProfileDraftSchema.parse({
+      availability: "whenever_you_like",
+      canonical_role_id: "vmc_operator",
+      current_city: "Pune",
+      expected_salary: 25000,
+    });
+    expect(parsed.availability).toBe("unknown");
+    expect(parsed.canonical_role_id).toBe("vmc_operator");
+    expect(parsed.current_city).toBe("Pune");
+    expect(parsed.expected_salary).toBe(25000);
+  });
+
+  it("normalises case and surrounding whitespace", () => {
+    expect(WorkerProfileDraftSchema.parse({ availability: "  15_DAYS " }).availability).toBe("notice_period");
+  });
+
+  it("leaves absent/null to the existing default rather than the normaliser", () => {
+    expect(WorkerProfileDraftSchema.parse({}).availability).toBe("unknown");
+  });
+
+  it("AvailabilitySchema.status normalises identically — one rule, both sites", () => {
+    // The two used to be independent copies of the same enum literal, which is how one of them
+    // ended up taught and the other not.
+    expect(AvailabilitySchema.parse({ status: "1_month" }).status).toBe("notice_period");
+    expect(AvailabilitySchema.parse({ status: "immediate" }).status).toBe("immediate");
+    // The day count is where the granularity lives, and it is untouched.
+    expect(AvailabilitySchema.parse({ status: "15_days", notice_period_days: 15 }).notice_period_days).toBe(15);
   });
 });
