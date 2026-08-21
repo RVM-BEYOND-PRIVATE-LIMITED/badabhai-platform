@@ -213,3 +213,70 @@ describe("account-deletion grace knobs (ADR-0031)", () => {
     expect(c.ACCOUNT_DELETION_COOLDOWN_SECONDS).toBe(0); // cooldown still disable-able
   });
 });
+
+// ===========================================================================
+// #1187 — TEST_IMMEDIATE_DELETE_ENABLED: the QA-only immediate hard-delete seam.
+//
+// Mirrors the TEST_LOGIN_ENABLED structural block above, for a strictly worse failure: test-login
+// mints a session, this seam DESTROYS a worker row with no OTP, no ADR-0031 grace and no undo.
+// OFF-by-default alone was never enough — it left ONE env var between production and permanent
+// data loss. These tests exist so that guarantee cannot be quietly removed.
+// ===========================================================================
+describe("assertAuthConfig — TEST_IMMEDIATE_DELETE_ENABLED (#1187)", () => {
+  const PROD = { JWT_SECRET: REAL_JWT, PIN_PEPPER: REAL_PIN_PEPPER };
+  const armed = () =>
+    cfg({ ...FAST2SMS_CREDS, ...PROD, TEST_IMMEDIATE_DELETE_ENABLED: "true" });
+
+  it("defaults OFF, and a falsey string stays OFF (fail-safe to inert)", () => {
+    expect(cfg().TEST_IMMEDIATE_DELETE_ENABLED).toBe(false);
+    expect(cfg({ TEST_IMMEDIATE_DELETE_ENABLED: "false" }).TEST_IMMEDIATE_DELETE_ENABLED).toBe(
+      false,
+    );
+    expect(cfg({ TEST_IMMEDIATE_DELETE_ENABLED: "0" }).TEST_IMMEDIATE_DELETE_ENABLED).toBe(false);
+    expect(cfg({ TEST_IMMEDIATE_DELETE_ENABLED: "" }).TEST_IMMEDIATE_DELETE_ENABLED).toBe(false);
+  });
+
+  it("a non-boolean string is a PARSE error, never a silent arm", () => {
+    // booleanFromString is a strict enum union, so "yes"/"TRUE" cannot coerce to true. A
+    // fat-fingered value fails loudly at boot rather than arming irreversible deletion.
+    expect(() => cfg({ TEST_IMMEDIATE_DELETE_ENABLED: "yes" })).toThrow();
+    expect(() => cfg({ TEST_IMMEDIATE_DELETE_ENABLED: "TRUE" })).toThrow();
+  });
+
+  it("armed in PRODUCTION refuses to boot, even fully configured (hard structural block)", () => {
+    expect(() => assertAuthConfig(armed(), "production")).toThrow(/TEST_IMMEDIATE_DELETE_ENABLED/i);
+  });
+
+  it("armed with an UNSET / unknown / mis-cased NODE_ENV refuses to boot", () => {
+    const c = armed();
+    expect(() => assertAuthConfig(c, "")).toThrow(/TEST_IMMEDIATE_DELETE_ENABLED/i);
+    expect(() => assertAuthConfig(c, "prod")).toThrow(/TEST_IMMEDIATE_DELETE_ENABLED/i);
+    // The allow-list match is EXACT, never case-folded — a typo must never arm the seam.
+    for (const typo of ["Production", "PRODUCTION", "Staging", "STAGING", "DEVELOPMENT", "Test"]) {
+      expect(() => assertAuthConfig(c, typo), `${typo} must not arm the seam`).toThrow(
+        /TEST_IMMEDIATE_DELETE_ENABLED/i,
+      );
+    }
+    // Truly UNSET: an explicit `undefined` falls back to process.env.NODE_ENV (the default
+    // param), so delete it for the assertion — the same pattern the test-login block uses.
+    const prev = process.env.NODE_ENV;
+    delete process.env.NODE_ENV;
+    try {
+      expect(() => assertAuthConfig(c)).toThrow(/TEST_IMMEDIATE_DELETE_ENABLED/i);
+    } finally {
+      if (prev === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prev;
+    }
+  });
+
+  it("armed in development/test/staging boots — staging IS the QA box this seam serves", () => {
+    for (const env of ["development", "test", "staging"]) {
+      expect(() => assertAuthConfig(armed(), env), `${env} must be allowed`).not.toThrow();
+    }
+  });
+
+  it("OFF in production boots normally — the flag only ever blocks when explicitly armed", () => {
+    const c = cfg({ ...FAST2SMS_CREDS, ...PROD });
+    expect(() => assertAuthConfig(c, "production")).not.toThrow();
+  });
+});

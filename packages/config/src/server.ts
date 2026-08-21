@@ -407,9 +407,17 @@ export const serverEnvSchema = z.object({
   //     of that: it replicates a raw row delete (session left intact on purpose, so the worker's
   //     NEXT authed call returns the reserved 410).
   //   - MUST ONLY EVER be enabled on a test/QA server, NEVER a real production tenant: it is an
-  //     immediate, no-confirmation self-delete. Unlike TEST_LOGIN_ENABLED there is no boot-refusal
-  //     wired for this flag yet (see the PR note) — treat OFF-by-default + never-committed-true as
-  //     the control until one lands.
+  //     immediate, no-confirmation self-delete. `assertAuthConfig` REFUSES TO BOOT if this is true
+  //     and the RAW NODE_ENV is not explicitly development/test/staging, so — exactly like
+  //     TEST_LOGIN_ENABLED — the flag is structurally impossible to arm in production, not merely
+  //     discouraged.
+  //   - DEVOPS, BEFORE WIRING THIS INTO COMPOSE: the argument that makes TEST_LOGIN_ENABLED safe
+  //     to pass through docker-compose.staging.yml does NOT transfer. That flag needs a SECOND
+  //     name (a >=32-char TEST_LOGIN_TOKEN) before it arms anything — "never arm vacuously" — so a
+  //     box exporting only the boolean still gets a neutral 404. THIS flag has no second name: the
+  //     boolean alone is the whole gate. The boot-refusal below is therefore the only second
+  //     factor, and #872 (a stale MEMBER_INVITES_ENABLE_REAL=true sitting in the box env, inert
+  //     until compose gave it a path in) is the precedent for why that matters.
   TEST_IMMEDIATE_DELETE_ENABLED: booleanFromString,
 
   // PERF-3 — ai_jobs retention window (days). OWNER DECISION (2026-07-21): TERMINAL
@@ -1726,6 +1734,29 @@ export function assertAuthConfig(
     if (!config.TEST_LOGIN_TOKEN || config.TEST_LOGIN_TOKEN.length < 32) {
       problems.push(
         "TEST_LOGIN_ENABLED is true but TEST_LOGIN_TOKEN is not set to a >=32-char secret — refusing to arm a half-configured test-login gate (TD67, fail closed)",
+      );
+    }
+  }
+
+  // #1187 — the QA-only immediate hard-delete seam. The SAME hard structural production block as
+  // TEST_LOGIN_ENABLED above, and this seam earns it more: test-login mints a session, this one
+  // DESTROYS a worker row outright — no step-up OTP, no ADR-0031 grace, no cancel, no undo. Without
+  // this check a single env var on a production box arms irreversible data destruction, which is
+  // precisely the fail-closed rule CLAUDE.md makes non-negotiable.
+  //
+  // Permitted ONLY when the RAW NODE_ENV is EXPLICITLY development/test/staging. "production", an
+  // UNSET env, an empty string, or any typo ("prod", "Staging") all REFUSE TO BOOT — we never trust
+  // the PARSED NODE_ENV here, because it defaults to "development" when unset and is therefore
+  // fail-OPEN (see the FOOTGUN WARNING on nodeEnvSchema). Staging IS allowed: it is the QA box this
+  // seam exists to serve.
+  //
+  // Unlike D-3 there is no token half to this gate — the seam takes no secret — so this is the
+  // single invariant.
+  if (config.TEST_IMMEDIATE_DELETE_ENABLED) {
+    const immediateDeleteAllowedEnvs = ["development", "test", "staging"];
+    if (!immediateDeleteAllowedEnvs.includes(rawNodeEnv ?? "")) {
+      problems.push(
+        "TEST_IMMEDIATE_DELETE_ENABLED must be false in production (#1187): it hard-deletes the calling worker with no OTP and no grace, and is only permitted when NODE_ENV is explicitly development, test, or staging",
       );
     }
   }

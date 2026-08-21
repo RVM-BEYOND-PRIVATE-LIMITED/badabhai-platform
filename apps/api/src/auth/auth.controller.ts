@@ -534,9 +534,17 @@ export class AuthController {
    *     deletion event (worker.account_deleted) carries counts that ASSERT a full graceful erasure
    *     (sessions_revoked / storage_objects_deleted / had_pin) this seam deliberately never
    *     performs — emitting it with zeroed counts would misrepresent an erasure that did not
-   *     happen. Faithfully reproducing the out-of-band scenario means emitting nothing. (Flagged
-   *     for review — see the PR note; a boot-refusal + a dedicated test-only event are the two
-   *     follow-ups @divyuuu may want.)
+   *     happen. Faithfully reproducing the out-of-band scenario means emitting nothing. RULED
+   *     (#1187): no event. Emitting the graceful-erasure event with zeroed counts would assert an
+   *     erasure that never ran, and minting a new test-only event type is an event-contract change
+   *     needing Architect sign-off — neither is worth it for a seam that `assertAuthConfig` now
+   *     makes structurally unreachable in production. The PII-free warn log below is the audit
+   *     trail instead.
+   *
+   * BOOT-REFUSAL (#1187, ruled and implemented): `assertAuthConfig` refuses to boot when this flag
+   * is true and the RAW NODE_ENV is not explicitly development/test/staging — the same structural
+   * production block TEST_LOGIN_ENABLED carries. OFF-by-default was never sufficient on its own for
+   * an irreversible-destruction seam: it left one env var between production and permanent data loss.
    */
   @Post("account/delete/immediate")
   @HttpCode(200)
@@ -550,7 +558,17 @@ export class AuthController {
     // Reuse the existing transactional cascade delete (never new SQL). Idempotent — a re-run on an
     // already-deleted worker returns false and we STILL answer { ok: true } (the caller's account
     // is gone either way, which is the QA outcome).
-    await this.workers.hardDelete(worker.id);
+    const deleted = await this.workers.hardDelete(worker.id);
+
+    // AUDIT: no EVENT is emitted (see the doc comment), but a destroyed worker must not be
+    // completely traceless on the box where this is armed. PII-FREE (CLAUDE.md §2): an 8-char id
+    // prefix only — never the phone, name, or full id — the same idiom AccountDeletionService uses.
+    // `warn`, not `log`: on any box where this line can appear, someone armed irreversible
+    // deletion, and that deserves to stand out in the QA box's logs.
+    this.logger.warn(
+      `QA immediate hard-delete worker=${worker.id.slice(0, 8)} (row ${deleted ? "deleted" : "already gone"}); no OTP, no grace, no storage sweep, session left intact`,
+    );
+
     return { ok: true };
   }
 
