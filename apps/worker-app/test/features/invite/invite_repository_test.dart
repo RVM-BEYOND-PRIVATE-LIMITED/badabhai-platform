@@ -51,8 +51,8 @@ void main() {
     expect(body, isEmpty);
 
     expect(link.code, 'abcdef012345');
-    // kInviteLinkBase (default) + server-relative link.
-    expect(link.url, 'https://app.badabhai.in/i/abcdef012345');
+    // kInviteLinkBase (default, the #1144 ruled interim origin) + server-relative link.
+    expect(link.url, 'https://payer.43-204-36-199.sslip.io/i/abcdef012345');
   });
 
   test('passes campaign through when supplied', () async {
