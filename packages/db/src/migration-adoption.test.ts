@@ -37,6 +37,29 @@ import { DATA_API_ROLES, R39_TABLES } from "./schema-contract";
 const MIGRATIONS = join(__dirname, "..", "migrations");
 const read = (tag: string): string => readFileSync(join(MIGRATIONS, `${tag}.sql`), "utf8");
 
+/**
+ * The silent-skip trap, as a reusable assertion.
+ *
+ * drizzle-kit migrate branches on a HIGH-WATER MARK, not set membership: an entry stamped at or
+ * below the newest `when` recorded BEFORE it is skipped silently and permanently. drizzle-kit's
+ * own stamp has been below it twice on this repository, so every migration added by hand asserts
+ * this for itself.
+ *
+ * Compares against PREDECESSORS ONLY — entries added later have their own watermark and say
+ * nothing about this one. An assertion against every entry passes only while the migration under
+ * test is the newest in the file, which makes it fail the day another one lands.
+ */
+function expectStampedAboveItsPredecessors(tag: string): void {
+  const journal = JSON.parse(readFileSync(join(MIGRATIONS, "meta", "_journal.json"), "utf8")) as {
+    entries: { when: number; tag: string }[];
+  };
+  const at = journal.entries.findIndex((e) => e.tag === tag);
+  expect(at, `${tag} has no journal entry`).toBeGreaterThanOrEqual(0);
+  const before = journal.entries.slice(0, at).map((e) => e.when);
+  if (before.length === 0) return;
+  expect(journal.entries[at]!.when).toBeGreaterThan(Math.max(...before));
+}
+
 /** An empty database. Every expectation fails against it, which is the point. */
 const emptyCatalog: LiveCatalog = {
   tables: new Set(),
@@ -487,23 +510,38 @@ describe("0085 — the REVOKE nobody can read off the file", () => {
     // CREATE, `db:audit:live-drift` stops reporting it and the open ownership question goes
     // green WITHOUT ANYONE DECIDING IT.
     //
-    // UPDATED 2026-08-21, and the update is the interesting part. `_log_delete` and both
-    // triggers are now genuinely declared — by 0086, because the owner ruled that the deletion
-    // trail stays, bounded. That is a decision being recorded, which is exactly what should
-    // flip this. `rls_auto_enable` and `is_active_payer_member` have had NO such ruling, so
-    // they must still read as undeclared; if either ever flips, it has to be for the same
-    // reason and not by accident.
+    // UPDATED 2026-08-21 (second time), and the update is still the interesting part. Each name
+    // below moves ONLY because an owner ruled on it, and the ruling is named beside the
+    // assertion. All three of #1110's routines now have one, and they were ruled DIFFERENT WAYS
+    // — which is why this test can no longer be satisfied by a single blanket expectation.
     const declared = declaredRoutines(MIGRATIONS);
 
+    // 0086 — the deletion trail stays, bounded.
     expect(declared.functions.has("_log_delete"), "0086 declares it — owner decision").toBe(true);
     for (const t of ["_t_log_del_workers", "_t_log_del_worker_profiles"]) {
       expect(declared.triggers.has(t), "0086 declares it — owner decision").toBe(true);
     }
 
-    for (const fn of ["rls_auto_enable", "is_active_payer_member"]) {
-      expect(declared.functions.has(fn), `${fn} has no owner ruling yet`).toBe(false);
-    }
+    // 0088 — "keep it, declare it, and harden it". Declared, so the drift audit stops asking.
+    expect(declared.functions.has("rls_auto_enable"), "0088 declares it — owner decision").toBe(true);
+    expect(
+      declared.eventTriggers.has("ensure_rls"),
+      "0088 declares it as an EVENT trigger — and it must land in that set, not `triggers`",
+    ).toBe(true);
+
+    // ...and NOT in the table-trigger set. `pg_event_trigger` and `pg_trigger` are read
+    // separately, so crossing them would let a future table trigger called `ensure_rls` read as
+    // declared because an event trigger happens to share the name.
     expect(declared.triggers.has("ensure_rls")).toBe(false);
+
+    // 0088 — "drop it". A DROPPED routine must NEVER read as declared: declaring is endorsing,
+    // and the ruling was the opposite. It disappears from the audit by ceasing to exist in the
+    // live catalog, not by being claimed in a migration. If this ever flips to true, someone has
+    // written a CREATE for a function the owner decided to remove.
+    expect(
+      declared.functions.has("is_active_payer_member"),
+      "0088 DROPS it — dropping is not declaring",
+    ).toBe(false);
   });
 
   it("guards every REVOKE, so a database without the functions or the roles does not abort", () => {
@@ -528,6 +566,57 @@ describe("0085 — the REVOKE nobody can read off the file", () => {
     expect(idx).toBeGreaterThanOrEqual(0);
     const mine = journal.entries[idx]!;
     for (const e of journal.entries.slice(0, idx)) expect(e.when).toBeLessThan(mine.when);
+  });
+});
+
+describe("0087 + 0088 — #1110's remaining routines, once an owner ruled on them", () => {
+  it("0087 and 0088 guard every role reference, so a plain container does not abort", () => {
+    // Same argument as 0085's guard test, and it matters more here: 0088 deliberately has NO
+    // exception handler, so an unguarded `REVOKE ... FROM anon` on a database without Supabase
+    // roles would abort a legitimate CREATE TABLE rather than log and continue.
+    for (const tag of ["0087_default_privileges_tables", "0088_declare_ensure_rls_drop_policy_helper"]) {
+      const body = read(tag).replace(/^\s*--.*$/gm, "");
+      expect(body, `${tag}: every role must be existence-checked`).toContain(
+        "FROM pg_roles WHERE rolname = role_name",
+      );
+    }
+  });
+
+  it("0088 removes the swallow — a failure to lock a table must not be invisible", () => {
+    // The whole reason the trigger is being replaced rather than merely written down. The live
+    // function ended with `EXCEPTION WHEN OTHERS THEN RAISE LOG`, so a table created during a
+    // failure window was simply unprotected and nothing said so.
+    const body = read("0088_declare_ensure_rls_drop_policy_helper").replace(/^\s*--.*$/gm, "");
+    expect(body).not.toMatch(/EXCEPTION\s+WHEN\s+OTHERS/i);
+    // And it must apply all three conditions, not just the one the live version did.
+    expect(body).toContain("ENABLE ROW LEVEL SECURITY");
+    expect(body).toContain("FORCE ROW LEVEL SECURITY");
+    expect(body).toMatch(/REVOKE ALL ON TABLE %s FROM PUBLIC/);
+  });
+
+  it("0088's event trigger is tag-filtered, which is what stops it recursing", () => {
+    // The function issues ALTER TABLE and REVOKE, which are themselves DDL and raise their own
+    // ddl_command_end. Without the tag filter the trigger re-enters on its own work.
+    const body = read("0088_declare_ensure_rls_drop_policy_helper").replace(/^\s*--.*$/gm, "");
+    expect(body).toMatch(/WHEN TAG IN \(/);
+    expect(body).toContain("'CREATE TABLE'");
+    expect(body).not.toMatch(/WHEN TAG IN \([^)]*ALTER TABLE/);
+  });
+
+  it("0087 and 0088 are each stamped above their predecessors — the silent-skip trap", () => {
+    // Both were added by hand, so drizzle-kit never stamped them and the value is whatever the
+    // author typed. This is the assertion that catches a typo that would strand every later
+    // migration without a word.
+    expectStampedAboveItsPredecessors("0087_default_privileges_tables");
+    expectStampedAboveItsPredecessors("0088_declare_ensure_rls_drop_policy_helper");
+  });
+
+  it("0088 drops the policy helper WITHOUT cascade", () => {
+    // If anything ever does depend on it, the migration must fail loudly rather than quietly
+    // take the dependent object with it.
+    const body = read("0088_declare_ensure_rls_drop_policy_helper").replace(/^\s*--.*$/gm, "");
+    expect(body).toContain("DROP FUNCTION IF EXISTS public.is_active_payer_member(uuid);");
+    expect(body).not.toMatch(/DROP FUNCTION[^;]*CASCADE/i);
   });
 });
 
@@ -643,13 +732,15 @@ describe("0086 — narrowing a table the file cannot describe", () => {
   });
 
   it("is stamped above every entry before it", () => {
-    const journal = JSON.parse(readFileSync(join(MIGRATIONS, "meta", "_journal.json"), "utf8")) as {
-      entries: { when: number; tag: string }[];
-    };
-    const mine = journal.entries.find((e) => e.tag === TAG_86);
-    expect(mine).toBeDefined();
-    const others = journal.entries.filter((e) => e.tag !== TAG_86).map((e) => e.when);
-    expect(mine!.when).toBeGreaterThan(Math.max(...others));
+    // FIXED 2026-08-21. This compared `when` against EVERY other entry, which is a stricter
+    // claim than the title and than the invariant: it only held while 0086 happened to be the
+    // newest migration in the file. 0087 lands after it and the assertion started failing for a
+    // reason that is not a defect.
+    //
+    // The property drizzle-kit actually branches on is a HIGH-WATER MARK over what came BEFORE:
+    // an entry stamped at or below the newest entry preceding it is skipped silently and
+    // permanently. Entries that come after are irrelevant to it — they have their own.
+    expectStampedAboveItsPredecessors(TAG_86);
   });
 });
 
