@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../../features/job_search/domain/job_search_item.dart';
 import '../../features/swipe/domain/job_detail.dart';
+import '../auth/account_deleted_signal.dart';
 import '../config/app_config.dart' show resolveApiBaseUrl;
 import '../config/build_info.dart';
 import 'api_models.dart';
@@ -1277,8 +1278,7 @@ class ApiClient {
       // hard-logout signal, then STILL throw below so this in-flight call fails
       // cleanly (never swallowed). Guarded on BOTH the status AND the code so a
       // bare 410 — or any other 410 — can never cause a false destructive logout.
-      if (res.statusCode == 410 &&
-          errorBody?['code'] == 'WORKER_ACCOUNT_DELETED') {
+      if (isWorkerAccountDeletedResponse(res.statusCode, errorBody)) {
         onAccountDeleted?.call();
       }
       throw ApiException(

@@ -42,6 +42,15 @@ abstract final class AuthErrorCode {
   /// EXPLICIT failure so a shape drift never masquerades as an empty result —
   /// the empty view can then distinguish "no devices" from "couldn't parse".
   static const String contractError = 'CONTRACT_ERROR';
+
+  /// The RESERVED account-deleted signal: an authed call came back HTTP 410 (the
+  /// backend reserves 410 exclusively for `WORKER_ACCOUNT_DELETED` — a valid
+  /// token whose worker row no longer exists). The global [AccountDeletedSignal]
+  /// already drives the dialog + hard-logout; this code exists so the auth layer
+  /// NEVER mislabels that 410 as a wrong PIN / generic "unknown" error while the
+  /// dialog comes up. Distinct from [reauthRequired] (a recoverable expired
+  /// session) — this account is GONE.
+  static const String accountDeleted = 'WORKER_ACCOUNT_DELETED';
 }
 
 /// A typed auth error built by [AuthApi]'s `(endpoint, status)` mapper.
@@ -75,6 +84,7 @@ class AuthFailure extends Equatable implements Exception {
 
   bool get isReauthRequired => code == AuthErrorCode.reauthRequired;
   bool get isNetwork => code == AuthErrorCode.network;
+  bool get isAccountDeleted => code == AuthErrorCode.accountDeleted;
 
   @override
   List<Object?> get props => <Object?>[code, statusCode, message];
