@@ -1,0 +1,46 @@
+{
+  "kind": "alias-exclusions",
+  "why": "Alias rows deliberately removed from retrieval by duplicate election. The row, its id and its text are KEPT (CLAUDE.md section 10 — nothing is deleted); only `embedding` is NULLed, so the row stops being a Path B candidate. This file is the DURABLE half: `db:embed:skills` seeds its blocked-id list from here, so neither a routine backfill nor `--reset-embeddings` can silently re-embed a row that was de-elected on purpose.",
+  "exclusions": [
+    {
+      "alias_id": "d197cbbe-350d-5de3-8fee-f0a37aecfe58",
+      "skill_id": "skill_gdt_reading",
+      "text": "blueprint reading",
+      "domain_id": "cnc-machining",
+      "winner_skill_id": "skill_drawing_reading",
+      "reason": "cross-skill alias collision inside one legacy slug; general drawing comprehension belongs to skill_drawing_reading, not to the GD&T competency",
+      "decided_by": "product owner, 2026-08-21",
+      "phase": "9 / Stage B (P1-B rule 4)"
+    },
+    {
+      "alias_id": "401212eb-e7f2-57ba-853a-7a4f7515fb24",
+      "skill_id": "skill_gdt_reading",
+      "text": "drawing reading",
+      "domain_id": "cnc-machining",
+      "winner_skill_id": "skill_drawing_reading",
+      "reason": "cross-skill alias collision inside one legacy slug; general drawing comprehension belongs to skill_drawing_reading, not to the GD&T competency",
+      "decided_by": "product owner, 2026-08-21",
+      "phase": "9 / Stage B (P1-B rule 4)"
+    },
+    {
+      "alias_id": "60913ff3-3420-511e-8ec4-4605afe6d970",
+      "skill_id": "skill_drawing_reading",
+      "text": "GD&T",
+      "domain_id": "cnc-machining",
+      "winner_skill_id": "skill_gdt_reading",
+      "reason": "cross-skill alias collision inside one legacy slug; GD&T is a distinct, narrower competency and keeps its own skill id",
+      "decided_by": "product owner, 2026-08-21",
+      "phase": "9 / Stage B (P1-B rule 4)"
+    },
+    {
+      "alias_id": "b6cf46a9-3cdb-560c-8b40-7a166b226d2d",
+      "skill_id": "skill_drawing_reading",
+      "text": "geometric dimensioning and tolerancing",
+      "domain_id": "cnc-machining",
+      "winner_skill_id": "skill_gdt_reading",
+      "reason": "cross-skill alias collision inside one legacy slug; GD&T is a distinct, narrower competency and keeps its own skill id",
+      "decided_by": "product owner, 2026-08-21",
+      "phase": "9 / Stage B (P1-B rule 4)"
+    }
+  ]
+}
