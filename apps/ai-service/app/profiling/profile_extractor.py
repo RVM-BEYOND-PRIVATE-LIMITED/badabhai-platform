@@ -49,6 +49,38 @@ _EXPERIENCE_LEVELS = {"fresher", "junior", "experienced", "senior", "unknown"}
 _KNOWLEDGE_LEVELS = {"none", "basic", "strong", "unknown"}
 _AVAILABILITY = {"immediate", "notice_period", "not_looking", "unknown"}
 
+# The INTERVIEW PROMPT asks the model for a vocabulary this set does not contain.
+# `interview_prompts.py` specifies `"immediate" | "15_days" | "1_month" | "unknown"`, so a
+# worker who gives a notice period produces a token that fails the `in _AVAILABILITY` test
+# below and is DROPPED — the field silently stays "unknown" rather than recording what the
+# worker actually said. Dropping is better than the TS side's old behaviour (which rejected
+# the entire extraction: 48 whole profiles lost in production before 2026-08-21), but it is
+# still a loss, and it is a loss on a field the reach engine scores.
+#
+# Both tokens mean the same canonical thing. Mirrors `AVAILABILITY_ALIASES` in
+# packages/ai-contracts/src/profile.ts — §7 parity, one rule on both sides of the seam.
+_AVAILABILITY_ALIASES = {
+    "15_days": "notice_period",
+    "1_month": "notice_period",
+    "2_months": "notice_period",
+    "3_months": "notice_period",
+    "notice": "notice_period",
+}
+
+
+def _normalize_availability(value: object) -> str | None:
+    """Canonical availability for a model-supplied token, or None if it is not usable.
+
+    None means "leave the field alone" — the caller's existing behaviour for an unrecognised
+    value. This never invents an availability the model did not express.
+    """
+    if not isinstance(value, str):
+        return None
+    key = value.strip().lower()
+    if key in _AVAILABILITY:
+        return key
+    return _AVAILABILITY_ALIASES.get(key)
+
 # missing-field -> neutral mentor clarification question (AI-PERSONA-1: no
 # vocative, no gush, "aap"/present tense, one question, <=20 words).
 _CLARIFY: dict[str, str] = {
@@ -380,8 +412,9 @@ def merge_model_draft(base: WorkerProfileDraft, content: str) -> WorkerProfileDr
             setattr(out, field, level)
 
     availability = data.get("availability")
-    if isinstance(availability, str) and availability in _AVAILABILITY:
-        out.availability = availability
+    normalized_availability = _normalize_availability(availability)
+    if normalized_availability is not None:
+        out.availability = normalized_availability
 
     if isinstance(data.get("drawing_reading"), bool):
         out.drawing_reading = data["drawing_reading"]
@@ -508,8 +541,9 @@ def merge_collected(base: WorkerProfileDraft, collected: dict | None) -> WorkerP
                 out.experience_years = years
                 out.experience_level = _experience_level(years)  # keep level consistent
         elif field == "availability":
-            if isinstance(raw, str) and raw in _AVAILABILITY:
-                out.availability = raw
+            normalized = _normalize_availability(raw)
+            if normalized is not None:
+                out.availability = normalized
         else:  # primary_role / current_city — non-empty text only
             text = _as_text(raw)
             if text is not None:

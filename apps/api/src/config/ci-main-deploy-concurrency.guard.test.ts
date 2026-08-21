@@ -55,6 +55,35 @@ export function topLevelConcurrency(yaml: string): string | null {
   return lines.slice(start, end).join("\n");
 }
 
+/**
+ * The `concurrency:` mapping of ONE job, as written.
+ *
+ * A separate parser from {@link topLevelConcurrency} on purpose: that one is anchored to column
+ * 0 so a job-level block can never be mistaken for the workflow-level one. The consequence was
+ * that it is also blind to the job-level block — #1147 added one to `deploy-lightsail` and every
+ * assertion in this file stayed green, so the serialisation it shipped was pinned by nothing and
+ * could have been deleted without a word.
+ */
+export function jobConcurrency(yaml: string, job: string): string | null {
+  const lines = yaml.split("\n");
+  const start = lines.findIndex((l) => l === `  ${job}:`);
+  if (start < 0) return null;
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i] as string;
+    // The next top-level job ends this one's body.
+    if (/^ {2}[A-Za-z0-9_-]+:$/.test(line)) return null;
+    if (line !== "    concurrency:") continue;
+    const out = [line];
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const l = lines[j] as string;
+      if (!/^ {6}\S/.test(l) && l.trim() !== "") break;
+      out.push(l);
+    }
+    return out.join("\n");
+  }
+  return null;
+}
+
 describe("ci.yml — a main run is a deploy and must not be cancelled by the next merge", () => {
   it("declares a top-level concurrency block at all", () => {
     // Deleting the block entirely would remove the cancellation AND the serialisation, letting
@@ -76,13 +105,71 @@ describe("ci.yml — a main run is a deploy and must not be cancelled by the nex
     // The fix must not be implemented by widening the group (e.g. per-sha), which would stop
     // main runs cancelling each other by letting them all run CONCURRENTLY — reintroducing the
     // racing-deploys failure this block prevents.
-    expect(topLevelConcurrency(CI) as string).toContain("group: ci-${{ github.ref }}");
+    // An EXACT line, not `toContain`. `toContain` would happily accept
+    // `group: ci-${{ github.ref }}-${{ github.run_id }}`, which gives every main run its OWN
+    // group — so no run is ever pending, nothing is ever cancelled, and every main run goes
+    // CONCURRENT. That reads like a fix for the pending-run residual and is precisely the
+    // racing-deploys failure the job-level block below exists to prevent.
+    const lines = (topLevelConcurrency(CI) as string).split("\n").map((l) => l.trim());
+    expect(lines).toContain("group: ci-${{ github.ref }}");
   });
 
   it("names the deploy job the cancellation was killing, so a rename cannot orphan this guard", () => {
     // If `deploy-lightsail` is ever renamed or removed, the reasoning above stops applying and
     // whoever does it should be forced to read this file.
     expect(CI).toContain("  deploy-lightsail:");
+  });
+});
+
+describe("deploy-lightsail serialises against itself — #1147, which nothing else pins", () => {
+  /**
+   * Two different jobs, two different failures, and both settings are needed.
+   *
+   *   workflow level (#1117) — a main run must not be CANCELLED by the next merge, so the tip
+   *                            of main always reaches the deploy job.
+   *   job level      (#1147) — two deploys must not run at once against ONE box, which is a
+   *                            worse failure than a deploy waiting.
+   *
+   * Deleting either one leaves the other looking correct.
+   */
+  it("declares a job-level concurrency group on deploy-lightsail", () => {
+    expect(jobConcurrency(CI, "deploy-lightsail")).not.toBeNull();
+  });
+
+  it("never cancels a deploy in progress — a half-applied deploy is the thing to avoid", () => {
+    const block = jobConcurrency(CI, "deploy-lightsail") as string;
+    expect(block).toMatch(/cancel-in-progress:\s*false\b/);
+    // The complement: in a YAML mapping the LAST duplicate key wins, so a stray `true` appended
+    // below would be indistinguishable from the bug while a `toMatch` alone stayed green.
+    expect(block).not.toMatch(/cancel-in-progress:\s*true\b/);
+  });
+
+  it("uses a FIXED group, so every deploy contends with every other deploy", () => {
+    // A group interpolating `github.sha` or `github.run_id` would give each deploy its own
+    // group and serialise nothing at all — the same shape of mistake as the workflow-level one
+    // above, and just as invisible.
+    const block = jobConcurrency(CI, "deploy-lightsail") as string;
+    expect(block).toContain("group: deploy-lightsail-main");
+    expect(block).not.toContain("${{");
+  });
+
+  it("the two blocks are distinct — the parsers must not read each other's", () => {
+    // Non-vacuity for the split. If `jobConcurrency` fell through to the workflow-level block,
+    // every assertion above would pass while testing the wrong thing entirely.
+    const job = jobConcurrency(CI, "deploy-lightsail") as string;
+    const top = topLevelConcurrency(CI) as string;
+    expect(job).not.toBe(top);
+    expect(top).toContain("ci-${{ github.ref }}");
+    expect(job).not.toContain("ci-${{ github.ref }}");
+    // And the workflow-level parser must stay blind to the job-level one, which is what its
+    // column-0 anchor buys.
+    expect(top).not.toContain("deploy-lightsail-main");
+  });
+
+  it("the job-level parser returns null for a job that has no concurrency block", () => {
+    // Otherwise "not.toBeNull()" above proves nothing about `deploy-lightsail` specifically.
+    expect(jobConcurrency(CI, "ci-required")).toBeNull();
+    expect(jobConcurrency(CI, "no-such-job")).toBeNull();
   });
 });
 

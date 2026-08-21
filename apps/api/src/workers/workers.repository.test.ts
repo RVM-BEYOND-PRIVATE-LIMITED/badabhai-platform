@@ -261,6 +261,25 @@ describe("WorkersRepository.findById — SELECT * by id (internal use only, carr
   });
 });
 
+describe("WorkersRepository.existsById — PK-only existence probe (PII-free, hot auth path)", () => {
+  it("projects the id ONLY (no PII column), scopes to id, limits to one", async () => {
+    const { db, captured } = makeDb({ rows: [{ id: WORKER_ID }] });
+    const exists = await new WorkersRepository(db).existsById(WORKER_ID);
+    expect(captured.selectTable).toBe(workers);
+    // The projection is id-only — the whole point vs findById's SELECT * (no phone/name/hash).
+    expect(captured.selection).toEqual({ id: workers.id });
+    expect(text(captured.where)).toBe('"workers"."id" = $1');
+    expect(params(captured.where)).toEqual([WORKER_ID]);
+    expect(captured.limit).toBe(1);
+    expect(exists).toBe(true);
+  });
+
+  it("returns false when the row is gone (the out-of-band-deletion signal)", async () => {
+    const { db } = makeDb({ rows: [] });
+    expect(await new WorkersRepository(db).existsById(WORKER_ID)).toBe(false);
+  });
+});
+
 describe("WorkersRepository.findByPhoneHash — the OTP-verify identity lookup", () => {
   it("scopes to phone_hash and limits to one", async () => {
     const { db, captured } = makeDb({ rows: [] });
