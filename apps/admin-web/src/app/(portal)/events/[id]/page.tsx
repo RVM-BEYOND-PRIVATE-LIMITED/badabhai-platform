@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import type { ReactNode } from "react";
 import { requireCapability } from "../../../../lib/auth";
 import { getEvent, getTrace } from "../../../../lib/events";
 import { AdminRequestError } from "../../../../lib/admin-http";
@@ -66,7 +67,17 @@ export default async function EventDetailPage({
           </h2>
         </div>
         <dl className="kv">
-          <Row k="Event" v={`${event.event_name} (v${event.event_version})`} mono />
+          <Row
+            k="Event"
+            v={
+              <>
+                {humanizeEventName(event.event_name)}{" "}
+                <code className="mono">
+                  {event.event_name} (v{event.event_version})
+                </code>
+              </>
+            }
+          />
           <Row k="Event id" v={event.id} mono />
           <Row k="Actor" v={`${event.actor_type} · ${event.actor_id ?? "—"}`} mono />
           <Row k="Subject" v={`${event.subject_type} · ${event.subject_id ?? "—"}`} mono />
@@ -162,7 +173,7 @@ export default async function EventDetailPage({
   );
 }
 
-function Row({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
+function Row({ k, v, mono }: { k: string; v: ReactNode; mono?: boolean }) {
   return (
     <>
       <dt className="kv__k">{k}</dt>

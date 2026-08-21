@@ -66,6 +66,9 @@ function setup(opts: {
   renderResult?: Buffer | null;
   renderThrows?: boolean;
   renderEnabled?: boolean;
+  // #947 — the worker's own "Night shift ke liye taiyaar" toggle, as the column stores it.
+  // Undefined here means the column DEFAULT, which is what nearly every real row holds.
+  nightShiftReady?: boolean;
 } = {}) {
   const resumeRow = opts.resume === undefined ? DEFAULT_ROW : opts.resume ?? undefined;
 
@@ -75,7 +78,11 @@ function setup(opts: {
     markRenderFailed: vi.fn(async () => undefined),
   };
   const workers = {
-    findById: vi.fn(async () => ({ id: WORKER_ID, fullName: opts.fullName ?? null })),
+    findById: vi.fn(async () => ({
+      id: WORKER_ID,
+      fullName: opts.fullName ?? null,
+      resumeNightShiftReady: opts.nightShiftReady ?? false,
+    })),
   };
   const pii = {
     decrypt: vi.fn(() => {
@@ -105,6 +112,36 @@ function setup(opts: {
   );
   return { proc, resumes, workers, pii, renderer, storage };
 }
+
+/**
+ * #947 — THE WIRING, which is the half of the fix `resume-render-input.test.ts` cannot see.
+ *
+ * The mapper composes the line correctly whatever it is handed; these two assert that what it
+ * is HANDED is the worker's actual column and not a hardcoded literal. That is the failure mode
+ * #947 asks to be protected against for good ("value must never be dropped in future") — a
+ * silent `false` at the call site looks exactly like a worker who never set the toggle.
+ */
+describe("ResumeRenderProcessor — the worker's night-shift toggle (#947)", () => {
+  it("reads the toggle off the worker row and puts it on the worker's own PDF", async () => {
+    // The snapshot mentions no shift and no availability, which is the point: before this the
+    // toggle had no route onto the page, so `{{availability}}` rendered empty for a worker who
+    // had explicitly said they would work nights. No extra query — this is the same row already
+    // fetched for the name and the photo.
+    const { proc, renderer } = setup({ fullName: NAME_TOKEN, nightShiftReady: true });
+    await proc.process(makeJob());
+    expect(renderer.renderPdf.mock.calls[0]![0].availability).toBe("Night shift ke liye taiyaar");
+  });
+
+  it("says nothing at all for a worker still on the column default", async () => {
+    // `resume_night_shift_ready` is `notNull().default(false)`, so this row is indistinguishable
+    // from one whose owner answered No — and it is what every worker who has never opened the
+    // Edit-Resume screen carries. Their PDF must not acquire a refusal they never gave.
+    const { proc, renderer } = setup({ fullName: NAME_TOKEN });
+    expect(renderer.renderPdf).not.toHaveBeenCalled();
+    await proc.process(makeJob());
+    expect(renderer.renderPdf.mock.calls[0]![0].availability).toBeNull();
+  });
+});
 
 describe("ResumeRenderProcessor — security (TD5)", () => {
   it("decrypts the name SERVER-SIDE and feeds it to the renderer as displayName", async () => {

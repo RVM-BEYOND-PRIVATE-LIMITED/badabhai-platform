@@ -1,0 +1,2 @@
+{"kind":"domain_skill","job_domain_id":"jd_nco_7223_6002","skill_id":"skill_fanuc_cnc","default_requirement":"required","relevance":90,"confidence":0.9,"source":"llm_bootstrap"}
+{"kind":"domain_skill","job_domain_id":"jd_nco_7212_0300","skill_id":"skill_oxy_fuel_cutting","default_requirement":"required","relevance":85,"confidence":0.8,"source":"llm_bootstrap"}

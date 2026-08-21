@@ -149,6 +149,20 @@ h3 {
 .btn--block {
   width: 100%;
 }
+/* Phase 2 — governed admin actions. The CONFIRM step of a two-click destructive action
+   (suspend, force-close, flag, suspend admin). Uses the same danger tokens `.notice--bad` /
+   `.pill--bad` / `.state--error` already carry — no new colour is introduced. */
+.btn--danger {
+  background: var(--danger);
+  color: var(--text-inverse);
+  border-color: var(--danger-press);
+}
+.btn--danger:hover:not(:disabled) {
+  background: var(--danger-press);
+}
+.btn--danger:active:not(:disabled) {
+  background: var(--danger-press);
+}
 
 .field {
   display: flex;
@@ -738,6 +752,11 @@ h3 {
   font-size: var(--text-xl);
   font-weight: var(--weight-bold);
   line-height: 1.1;
+  /* `.stats` tracks have a FIXED 11rem minimum, so an over-long value does not widen its
+     track — it spills out of the card. AI spend is `numeric(16,6)` and renders every place
+     it has rather than rounding (see `formatExactRupees`), so "₹1,23,456.789012" is a
+     reachable value, not a hypothetical. Wrap it instead. */
+  overflow-wrap: break-word;
 }
 .stat__label {
   font-size: var(--text-sm);
@@ -1322,6 +1341,21 @@ h3 {
   letter-spacing: var(--ui-kpi-tracking);
   font-variant-numeric: tabular-nums slashed-zero;
 }
+/* An ABSENT statistic must not look like a measured one — the rule
+   `.funnel__distinct.is-suppressed` already states for a funnel row, applied to a tile.
+   The KPI face is reserved for figures: a sentence set in it ("No profile finished yet")
+   reads as a number that happens to be words, and it is set at the KPI size precisely
+   where the card has the least room. Declared AFTER the rule above because both are
+   single-class selectors — an earlier `.stat__value--absent` would lose the tie on
+   `font-size` and inherit the 30px KPI ramp it exists to escape. */
+.stat__value--absent {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  font-style: italic;
+  font-weight: var(--weight-regular);
+  letter-spacing: normal;
+  color: var(--text-muted);
+}
 .table {
   font-size: var(--ui-td-size);
   line-height: var(--ui-td-leading);
@@ -1602,6 +1636,51 @@ textarea.field__input {
 }
 
 /* ==================================================================
+ * Phase 2 · GOVERNED ADMIN ACTIONS — AdminActionButton + per-row action clusters.
+ * Additions only; the result banner reuses the existing `.alert` primitive above.
+ * ================================================================== */
+.admin-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+/* `.admin-action__error` used to live here for the button's own inline failure text. That
+   text is gone: every caller renders `AdminActionResultBanner` from the same outcome, so a
+   409 was printed twice. The banner is the single owner of result copy, and this rule had no
+   markup left behind it. */
+/* A table cell holding more than one action (e.g. the admins directory's per-row Change
+   role / Reset MFA / Suspend). Stacked, not a row: a `.field__input` select at width:100%
+   fighting a flex row's shrink-to-fit sizing is the wrong problem to solve for three
+   infrequently-used controls. */
+.row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 12rem;
+}
+.row-actions .field {
+  gap: var(--space-1);
+}
+/* The result banner INSIDE a table cell. `.alert` is a full-width page band: text and
+   actions side by side with the page's block gap under it. In this ~12rem column that
+   leaves the message and the timeline button a few characters wide each, and the trailing
+   margin is dead space inside the cell. Same primitive, stacked and tightened for the
+   narrow case — a contextual override, not a second banner component. */
+.row-actions .alert {
+  align-self: stretch;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: 0;
+}
+.row-actions .alert__actions {
+  align-self: flex-start;
+}
+
+/* ==================================================================
  * UI-1 · ORPHANED CLASS SWEEP
  * `.auth-card__head` was rendered by the login form with no rule behind it, so the sign-in
  * heading and its sub-line had no grouping of their own and inherited the card's flex gap
@@ -1612,4 +1691,96 @@ textarea.field__input {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+/* ==================================================================
+ * #997 · WORKER FEEDBACK — the one table on this console whose cells hold a sentence.
+ * Two rules, no new tokens: everything below is the existing token layer applied to a
+ * column of prose rather than a column of ids.
+ * ================================================================== */
+
+/* `.table th, .table td` is `white-space: nowrap`, and that is right for every other cell
+   on this surface — an id, an enum, a timestamp — and wrong for exactly one. A worker's
+   message runs to 4000 characters; on a single line it pushes the horizontal scrollbar out
+   to a width where reading a complaint means dragging it past the four columns in front of
+   it. So this cell, and only this cell, wraps.
+
+   NOT clamped and NOT truncated either. An ops console that hides the second half of a
+   worker's complaint behind an ellipsis, with no affordance to recover it, is worse than a
+   tall row — the same ruling `shortId` makes when it keeps the full value in `title`, and
+   the one `.prose__body` makes about a poster's own line breaks. `pre-wrap` for the same
+   reason: the paragraph breaks a worker typed are part of what they wrote.
+
+   The measure is the shared reading token, so this column is bounded by the same 68ch every
+   other block of prose in the portal is, rather than by a number invented here. */
+.table--prose .cell--message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-inline-size: var(--reading-max);
+}
+
+/* A wrapped message makes its row as tall as the paragraph. Centred, the four short cells
+   beside it float in the middle of that height and stop reading as one row; topped, they
+   line up with the message's first line, which is where the eye enters the row. */
+.table--prose td {
+  vertical-align: top;
+}
+
+/* The SCREEN column holds a route pattern, and the server accepts one up to 128 characters.
+   Under the table's `nowrap` a pathological value would push the message column off the
+   right edge and turn the one screen that exists to be read into a horizontal drag — the
+   same failure the message cell above was carved out to avoid, arriving through a different
+   column. So this cell wraps too, bounded to the width a route actually needs (`/jobs/:id
+   /apply` is sixteen characters); anything longer breaks onto a second line instead of
+   widening the table, and nothing is truncated, so the full pattern is always readable. */
+.table--prose .cell--screen {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  max-inline-size: 24ch;
+}
+
+/* ==================================================================
+ * 0083 · AI CALL TRACES — the one block on this console that holds a whole request body.
+ * ================================================================== */
+
+/* `.code` is `overflow-x: auto`, which is right for an event payload: those are pretty-printed
+   JSON of a few short lines, and a horizontal scrollbar on the rare long value costs nothing.
+   It is wrong for a stored AI request, which arrives as ONE serialised line and runs to tens of
+   thousands of characters — under `overflow-x` that is a single line the reader drags sideways
+   for a screen and a half per sentence, i.e. a transcript that is technically present and
+   practically unreadable.
+
+   So this variant wraps instead. NOTHING IS CLAMPED OR TRUNCATED — the same ruling
+   `.cell--message` makes about a worker's complaint, and it matters more here: this text is read
+   during an incident, and an ellipsis with no way to recover what is behind it would make the
+   screen worse than useless at the moment it is needed. `overflow-wrap: anywhere` because a
+   serialised body has no spaces to break at for long stretches.
+
+   The height IS bounded, and scrolls rather than hides: a 40 000-character body would otherwise
+   push the whole page metadata off-screen and leave no way back to the row it describes. Every
+   character stays reachable inside the box.
+
+   No measure is imposed. `--reading-max` bounds PROSE, and this is not prose — a serialised
+   request body clipped to 68ch would fold structure the reader is scanning for onto four lines
+   where it occupied one. It fills the panel, which is what the panel is for. */
+.code--wrap {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+  max-block-size: 60vh;
+  overflow-y: auto;
+}
+
+/* ==================================================================
+ * PHASE 6 · A LINK THAT IS THE CURRENT VIEW
+ * The worker-journey session filter is plain links, not a client form — the filter belongs
+ * in the URL so it survives being pasted into an incident thread. `aria-current="page"`
+ * marks the active one for assistive tech; with no rule behind it the state would be
+ * announced and invisible, which is the mirror of the usual bug. Reuses the brand tokens
+ * `.btn--primary` already carries — no new colour is introduced.
+ * ================================================================== */
+.btn[aria-current="page"] {
+  background: var(--brand-tint);
+  color: var(--text-primary);
+  border-color: var(--brand-border);
 }

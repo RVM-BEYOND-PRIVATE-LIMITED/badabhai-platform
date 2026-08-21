@@ -11,11 +11,14 @@ import { StorageModule } from "../storage/storage.module";
 import { AuthController } from "./auth.controller";
 import { AuthService } from "./auth.service";
 import { OtpService } from "./otp.service";
+import { OtpRequestIdempotency } from "./otp-request-idempotency.service";
+import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { SessionService } from "./session.service";
 import { AccountDeletionService } from "./account-deletion.service";
 import { ErasureAuditRepository } from "./erasure-audit.repository";
 import { AccountDeletionSweepProcessor } from "./account-deletion-sweep.processor";
 import { WorkerAuthGuard } from "./worker-auth.guard";
+import { OptionalWorkerAuthGuard } from "./optional-worker-auth.guard";
 import { ConsentGuard, ConsentNotRevokedGuard } from "./consent.guard";
 import { TestLoginGuard } from "./test-login.guard";
 import { DevicesController } from "./devices.controller";
@@ -71,6 +74,36 @@ import { PinHasher } from "./pin-hasher.service";
   providers: [
     AuthService,
     OtpService,
+    // #1019/#1023 — the Idempotency-Key seam in front of every route the worker app retries on
+    // a flaky link under one key. ALL FOUR are now covered, each with its own scope so a key
+    // captured from one flow can never replay into another:
+    //
+    //   /auth/otp/request            otp_request              #1019
+    //   /auth/pin/reset/request      pin_reset_request        #1019
+    //   /auth/otp/verify             otp_verify               #1023, secret
+    //   /auth/account/delete/request account_delete_request   #1023
+    //
+    // The two SEND routes were the outage: one tap fanned out to as many as three paid SMS
+    // against four counters, including the platform-wide breaker that 429s every worker on
+    // every device until UTC midnight.
+    //
+    // /auth/otp/verify sends no SMS, so it is not about spend — `OtpService.verify` increments
+    // the attempt counter per CALL and deletes the code past OTP_MAX_ATTEMPTS, so a correct code
+    // could be counted three times and refused. It is the one scope marked `secret`, because its
+    // 200 is a LoginResponse carrying bearer credentials and those are never stored in the clear
+    // (§11) — the same rule SessionService follows for its own refresh grace.
+    //
+    // /auth/account/delete/request reaches the same counters as login via the shared
+    // issueAndSendWithSignals. Authenticated, deliberate and low-volume, so it is
+    // scope-completeness rather than a live defect — but the counters are shared, and it should
+    // not be the one route where a retry can still spend them.
+    //
+    // Composes PiiCryptoService (phone hashing for the key namespace, plus encrypt/decrypt for
+    // the secret scope) + the BullMQ queue, the same Redis client OtpService and SessionService
+    // already use; both are reachable here.
+    OtpRequestIdempotency,
+    // The generic seam OtpRequestIdempotency now delegates to (#1046).
+    RequestIdempotency,
     SessionService,
     AccountDeletionService,
     // TD58 (#712) — the write-only `audit_logs` record proving what each store erased. Reaches
@@ -78,6 +111,12 @@ import { PinHasher } from "./pin-hasher.service";
     ErasureAuditRepository,
     AccountDeletionSweepProcessor,
     WorkerAuthGuard,
+    // Attribution-only sibling of WorkerAuthGuard: attaches `req.worker` when a valid token
+    // rides along and ALWAYS allows the request. Used by the PUBLIC interview-kit download
+    // so `interview_kit.downloaded` can carry an optional `worker_id` without the route
+    // ever requiring a session. Its only dependency is SessionService, which this module
+    // exports — so an importing module resolves it (see the exports note below).
+    OptionalWorkerAuthGuard,
     ConsentGuard,
     ConsentNotRevokedGuard,
     // D-3 — gates POST /auth/test-login (neutral 404 while TEST_LOGIN_ENABLED is
@@ -102,6 +141,13 @@ import { PinHasher } from "./pin-hasher.service";
   // its module unless exported, so without this line PushService's 4th ctor param resolves
   // to null and the API fails to BOOT (exactly the failure this comment block warns about;
   // it took down the E2E run for #417 while every unit suite stayed green).
-  exports: [WorkerAuthGuard, ConsentGuard, SessionService, ConsentModule, DevicesRepository],
+  exports: [
+    WorkerAuthGuard,
+    OptionalWorkerAuthGuard,
+    ConsentGuard,
+    SessionService,
+    ConsentModule,
+    DevicesRepository,
+  ],
 })
 export class AuthModule {}

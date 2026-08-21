@@ -3,9 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/widgets/bb_spinner.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/cubit/set_pin_cubit.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/set_pin_screen.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
 
 class MockAuthSessionManager extends Mock implements AuthSessionManager {}
 
@@ -86,6 +88,32 @@ void main() {
 
     expect(find.text('PIN confirm karein'), findsOneWidget);
     expect(find.text(confirmMsg), findsOneWidget);
+  });
+
+  testWidgets('the 4th-dot pop plays first, THEN a 2-second loader, THEN confirm',
+      (WidgetTester tester) async {
+    await pumpScreen(tester);
+    await enterPin(tester, '3927'); // strong PIN → 4th digit lands
+
+    // Briefly the keypad is STILL up so the 4th dot's fill-pop can render — the
+    // loader has not swapped in yet (this is the fix: the swap no longer lands
+    // in the same frame and eats the 4th dot's pop).
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byType(BbPinKeypad), findsOneWidget);
+    expect(find.byType(BbSpinner), findsNothing);
+
+    // After the ~300ms pop beat, the loader takes over; confirm not reached yet.
+    await tester.pump(const Duration(milliseconds: 400)); // ~500ms in
+    expect(find.byType(BbSpinner), findsOneWidget);
+    expect(find.text('PIN set kar rahe hain…'), findsOneWidget);
+    expect(find.byType(BbPinKeypad), findsNothing);
+    expect(find.text('PIN confirm karein'), findsNothing);
+
+    // After the 2-second delay the loader clears into the confirm prompt.
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(find.byType(BbSpinner), findsNothing);
+    expect(find.text('PIN confirm karein'), findsOneWidget);
   });
 
   testWidgets('a guessable PIN is blocked with a dialog and never advances',

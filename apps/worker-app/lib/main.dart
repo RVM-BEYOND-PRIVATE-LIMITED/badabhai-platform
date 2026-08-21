@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart' show SchedulerBinding;
 import 'app.dart';
 import 'core/config/remote_config.dart';
 import 'core/di/locator.dart';
+import 'core/theme/app_typography.dart';
 import 'core/observability/crash_reporter.dart';
 import 'core/referral/install_referrer_reader.dart';
 import 'core/referral/pending_referral_store.dart';
@@ -13,6 +14,13 @@ import 'features/auth/domain/auth_session_manager.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Fonts must NEVER fetch over the network. A flaky-link google_fonts fetch
+  // threw an unhandled ClientException during the first frames — before the crash
+  // reporter was ready to swallow it — and crashed the app on a real worker
+  // device. Set BEFORE the first widget builds so no headline/PIN cell can
+  // trigger a fetch. See AppTypography.configureFontLoading.
+  AppTypography.configureFontLoading();
 
   // Wire the synchronous, plugin-free graph, then the async auth singletons
   // (LocaleStore + AuthApi + AuthSessionManager). The latter MUST be awaited

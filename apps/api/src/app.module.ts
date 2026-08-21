@@ -20,6 +20,7 @@ import { ProfilesModule } from "./profiles/profiles.module";
 import { ResumeModule } from "./resume/resume.module";
 import { InterviewKitModule } from "./interview-kit/interview-kit.module";
 import { ActionsModule } from "./actions/actions.module";
+import { FeedbackModule } from "./feedback/feedback.module";
 import { ApplicationsModule } from "./applications/applications.module";
 import { JobsModule } from "./jobs/jobs.module";
 import { JobPostingsModule } from "./job-postings/job-postings.module";
@@ -81,6 +82,11 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     ResumeModule,
     InterviewKitModule,
     ActionsModule,
+    // #997 — the worker's own feedback sink: POST /workers/me/feedback behind WorkerAuthGuard +
+    // ConsentGuard, storing the row and its `feedback.submitted` event in ONE transaction. Its
+    // own module because the route is its own controller, which is what keeps it out of
+    // `OPS_ROUTES` — see `worker-feedback.controller.ts`.
+    FeedbackModule,
     ApplicationsModule,
     // Worker-scoped job detail read (ADR-0024 final addendum): GET /jobs/:jobId,
     // WorkerAuthGuard + ConsentGuard, explicit PII-free projection, no event.

@@ -1,0 +1,427 @@
+{
+  "kind": "path-a-offline-replay",
+  "generated_for_corpus": "authoritative source files on main",
+  "embedding_model": "gemini-embedding-001",
+  "k": 5,
+  "fixture": {
+    "id": "taxonomy-retrieval-v1",
+    "version": 2,
+    "cases": 127
+  },
+  "replayed": 116,
+  "skipped": [
+    {
+      "case_id": "XD-01",
+      "query": "G code program editing",
+      "job_domain_id": "jd_nco_7112_0601",
+      "scoreable": true
+    },
+    {
+      "case_id": "XD-02",
+      "query": "fanuc controller",
+      "job_domain_id": "jd_nco_4321_0601",
+      "scoreable": true
+    },
+    {
+      "case_id": "XD-03",
+      "query": "mortar mixing",
+      "job_domain_id": "jd_nco_7223_6002",
+      "scoreable": true
+    },
+    {
+      "case_id": "XD-06",
+      "query": "brick laying",
+      "job_domain_id": "jd_nco_7543_2001",
+      "scoreable": true
+    },
+    {
+      "case_id": "XD-07",
+      "query": "स्टॉक गिनती",
+      "job_domain_id": "jd_nco_7223_6003",
+      "scoreable": true
+    },
+    {
+      "case_id": "XD-09",
+      "query": "hardness testing of castings",
+      "job_domain_id": "jd_nco_7112_0100",
+      "scoreable": true
+    },
+    {
+      "case_id": "XD-10",
+      "query": "barcode scanning",
+      "job_domain_id": "jd_nco_7231_0100",
+      "scoreable": true
+    },
+    {
+      "case_id": "US-01",
+      "query": "fanuc",
+      "job_domain_id": "jd_nco_7223_6002",
+      "scoreable": true
+    },
+    {
+      "case_id": "US-02",
+      "query": "cnc programming",
+      "job_domain_id": "jd_nco_7223_6003",
+      "scoreable": true
+    },
+    {
+      "case_id": "US-03",
+      "query": "tig welding",
+      "job_domain_id": "jd_nco_7212_0301",
+      "scoreable": true
+    },
+    {
+      "case_id": "US-04",
+      "query": "dimensional inspection",
+      "job_domain_id": "jd_nco_7313_2601",
+      "scoreable": true
+    }
+  ],
+  "corpus": {
+    "skills": 147,
+    "aliases": 335,
+    "aliases_with_vector": 303,
+    "edges": 238
+  },
+  "provenance": {
+    "pre_merge": {
+      "mintedSkillIds": [
+        "skill_drawing_reading"
+      ],
+      "restoredSkillIds": [
+        "skill_boring->active",
+        "skill_cad_interpretation->active",
+        "skill_chassis_fitting->provisional",
+        "skill_dimensional_inspection->active",
+        "skill_gdt_reading->active",
+        "skill_go_no_go_gauge_checking->provisional"
+      ],
+      "reassignedAliases": [
+        {
+          "text": "drawing padhna",
+          "to": "skill_cad_interpretation"
+        }
+      ],
+      "repointedEdges": []
+    },
+    "as_applied": {
+      "mintedSkillIds": [
+        "skill_drawing_reading"
+      ],
+      "restoredSkillIds": [],
+      "reassignedAliases": [],
+      "repointedEdges": []
+    },
+    "edges_repointed": {
+      "mintedSkillIds": [
+        "skill_drawing_reading"
+      ],
+      "restoredSkillIds": [],
+      "reassignedAliases": [],
+      "repointedEdges": [
+        {
+          "jobDomainId": "jd_nco_8211_1200",
+          "skillId": "skill_drawing_reading"
+        },
+        {
+          "jobDomainId": "jd_nco_7231_0400",
+          "skillId": "skill_drawing_reading"
+        },
+        {
+          "jobDomainId": "jd_nco_7223_0701",
+          "skillId": "skill_drawing_reading"
+        },
+        {
+          "jobDomainId": "jd_nco_7223_6002",
+          "skillId": "skill_drawing_reading"
+        },
+        {
+          "jobDomainId": "jd_nco_7223_6003",
+          "skillId": "skill_drawing_reading"
+        },
+        {
+          "jobDomainId": "jd_nco_7223_6003",
+          "skillId": "skill_drawing_reading"
+        },
+        {
+          "jobDomainId": "jd_nco_7412_0200",
+          "skillId": "skill_drawing_reading"
+        },
+        {
+          "jobDomainId": "jd_isco_7213",
+          "skillId": "skill_drawing_reading"
+        },
+        {
+          "jobDomainId": "jd_nco_7224_0102",
+          "skillId": "skill_drawing_reading"
+        },
+        {
+          "jobDomainId": "jd_nco_7224_0102",
+          "skillId": "skill_drawing_reading"
+        },
+        {
+          "jobDomainId": "jd_nco_7126_0301",
+          "skillId": "skill_drawing_reading"
+        },
+        {
+          "jobDomainId": "jd_nco_7313_2601",
+          "skillId": "skill_drawing_reading"
+        },
+        {
+          "jobDomainId": "jd_nco_7543_2001",
+          "skillId": "skill_drawing_reading"
+        },
+        {
+          "jobDomainId": "jd_nco_7212_0301",
+          "skillId": "skill_drawing_reading"
+        }
+      ]
+    }
+  },
+  "summaries": {
+    "pre_merge|path_a_canonical": {
+      "cases": 116,
+      "resolved": 116,
+      "unresolved": 0,
+      "scored": 113,
+      "hits": 112,
+      "recallAt1": 0.9911504424778761,
+      "mrr": 0.995575221238938,
+      "meanCandidates": 19.04310344827586,
+      "falsePositives": 0,
+      "falseNegatives": 0
+    },
+    "pre_merge|path_b_legacy": {
+      "cases": 116,
+      "resolved": 116,
+      "unresolved": 0,
+      "scored": 113,
+      "hits": 0,
+      "recallAt1": 0,
+      "mrr": 0,
+      "meanCandidates": 29,
+      "falsePositives": 0,
+      "falseNegatives": 113
+    },
+    "as_applied|path_a_canonical": {
+      "cases": 116,
+      "resolved": 116,
+      "unresolved": 0,
+      "scored": 113,
+      "hits": 112,
+      "recallAt1": 0.9911504424778761,
+      "mrr": 0.995575221238938,
+      "meanCandidates": 17.50862068965517,
+      "falsePositives": 0,
+      "falseNegatives": 0
+    },
+    "as_applied|path_b_legacy": {
+      "cases": 116,
+      "resolved": 116,
+      "unresolved": 0,
+      "scored": 113,
+      "hits": 0,
+      "recallAt1": 0,
+      "mrr": 0,
+      "meanCandidates": 32,
+      "falsePositives": 0,
+      "falseNegatives": 113
+    },
+    "edges_repointed|path_a_canonical": {
+      "cases": 116,
+      "resolved": 116,
+      "unresolved": 0,
+      "scored": 113,
+      "hits": 112,
+      "recallAt1": 0.9911504424778761,
+      "mrr": 0.995575221238938,
+      "meanCandidates": 19.646551724137932,
+      "falsePositives": 0,
+      "falseNegatives": 0
+    },
+    "edges_repointed|path_b_legacy": {
+      "cases": 116,
+      "resolved": 116,
+      "unresolved": 0,
+      "scored": 113,
+      "hits": 0,
+      "recallAt1": 0,
+      "mrr": 0,
+      "meanCandidates": 32,
+      "falsePositives": 0,
+      "falseNegatives": 113
+    }
+  },
+  "agreement_as_applied": {
+    "cases": 116,
+    "bothResolved": 116,
+    "agreeTop1": 1,
+    "disagreeTop1": 115,
+    "onlyAResolved": 0,
+    "onlyBResolved": 0,
+    "neitherResolved": 0,
+    "agreementRate": 0.008620689655172414
+  },
+  "td01_reachability_probe": {
+    "pre_merge": {
+      "probes": 96,
+      "familyReachable": 96,
+      "familyTop1": 94,
+      "winsInstead": [
+        {
+          "skillId": "skill_turning",
+          "count": 2
+        }
+      ]
+    },
+    "as_applied": {
+      "probes": 96,
+      "familyReachable": 0,
+      "familyTop1": 0,
+      "winsInstead": [
+        {
+          "skillId": "skill_measuring_instruments",
+          "count": 12
+        },
+        {
+          "skillId": "skill_sheet_metal_marking_and_layout",
+          "count": 11
+        },
+        {
+          "skillId": "skill_mechanical_assembly",
+          "count": 10
+        },
+        {
+          "skillId": "skill_gas_cutting",
+          "count": 7
+        },
+        {
+          "skillId": "skill_turning",
+          "count": 7
+        },
+        {
+          "skillId": "skill_cmm",
+          "count": 4
+        },
+        {
+          "skillId": "skill_cnc_programming",
+          "count": 4
+        },
+        {
+          "skillId": "skill_fixture_setup",
+          "count": 4
+        },
+        {
+          "skillId": "skill_visual_defect_identification",
+          "count": 4
+        },
+        {
+          "skillId": "skill_electrical_fault_finding",
+          "count": 3
+        },
+        {
+          "skillId": "skill_program_editing",
+          "count": 3
+        },
+        {
+          "skillId": "skill_tig_welding",
+          "count": 3
+        },
+        {
+          "skillId": "skill_arc_welding",
+          "count": 2
+        },
+        {
+          "skillId": "skill_assembly_line_sequencing",
+          "count": 2
+        },
+        {
+          "skillId": "skill_grinding_ops",
+          "count": 2
+        },
+        {
+          "skillId": "skill_quality_control",
+          "count": 2
+        },
+        {
+          "skillId": "skill_body_panel_alignment",
+          "count": 1
+        },
+        {
+          "skillId": "skill_cam_software",
+          "count": 1
+        },
+        {
+          "skillId": "skill_conduit_bending_and_laying",
+          "count": 1
+        },
+        {
+          "skillId": "skill_control_panel_wiring",
+          "count": 1
+        },
+        {
+          "skillId": "skill_distortion_control_in_weldments",
+          "count": 1
+        },
+        {
+          "skillId": "skill_drilling",
+          "count": 1
+        },
+        {
+          "skillId": "skill_earthing_and_bonding",
+          "count": 1
+        },
+        {
+          "skillId": "skill_hardness_testing",
+          "count": 1
+        },
+        {
+          "skillId": "skill_inspection_report_recording",
+          "count": 1
+        },
+        {
+          "skillId": "skill_insulation_resistance_testing",
+          "count": 1
+        },
+        {
+          "skillId": "skill_milling",
+          "count": 1
+        },
+        {
+          "skillId": "skill_motor_connection_and_starter_wiring",
+          "count": 1
+        },
+        {
+          "skillId": "skill_non_destructive_testing_of_castings",
+          "count": 1
+        },
+        {
+          "skillId": "skill_sheet_metal",
+          "count": 1
+        },
+        {
+          "skillId": "skill_tapping_threading",
+          "count": 1
+        },
+        {
+          "skillId": "skill_weld_bead_inspection",
+          "count": 1
+        }
+      ]
+    },
+    "edges_repointed": {
+      "probes": 96,
+      "familyReachable": 96,
+      "familyTop1": 96,
+      "winsInstead": []
+    }
+  },
+  "td_impact": {
+    "unchanged": 85,
+    "candidates_changed": 31
+  },
+  "edge_repoint_gain": {
+    "unchanged": 85,
+    "candidates_changed": 31
+  }
+}

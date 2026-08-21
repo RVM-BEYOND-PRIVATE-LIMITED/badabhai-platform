@@ -25,6 +25,7 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_action.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/bb_success_stamp.dart';
 import '../../../router.dart';
 import '../domain/resume_edit_repository.dart';
 import '../domain/resume_safe_fields.dart';
@@ -193,25 +194,37 @@ class _ResumeViewState extends State<_ResumeView> {
         AppSpacing.gutter,
         AppSpacing.s4,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: <Widget>[
-          Text(
-            'Resume taiyaar ✓',
-            style: AppTypography.display(
-              size: AppTypography.sizeLg,
-              weight: FontWeight.w800,
-              color: AppColors.haldi,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'Resume taiyaar ✓',
+                  style: AppTypography.display(
+                    size: AppTypography.sizeLg,
+                    weight: FontWeight.w800,
+                    color: AppColors.haldi,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.s1 / 2),
+                Text(
+                  'Bilkul free · share-ready',
+                  style: AppTypography.body(
+                    size: AppTypography.sizeXs,
+                    color: AppColors.onBlueMuted,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: AppSpacing.s1 / 2),
-          Text(
-            'Bilkul free · share-ready',
-            style: AppTypography.body(
-              size: AppTypography.sizeXs,
-              color: AppColors.onBlueMuted,
-            ),
-          ),
+          const SizedBox(width: AppSpacing.s3),
+          // #1058 — the green "stamp" seal lands once, on the transition INTO the
+          // ready state (this banner only mounts when the resume is ready). It is
+          // keyless so a background refresh/tab-refocus rebuild keeps the same
+          // State and never replays the animation.
+          const BbSuccessStamp(size: 44),
         ],
       ),
     );
@@ -270,9 +283,23 @@ class _ResumeViewState extends State<_ResumeView> {
                 // otherwise fall back to the raw text so an unexpected shape is
                 // shown in full rather than as a blank card (nothing is lost).
                 child: parsed.isEmpty
-                    ? Text(
-                        replaceTaxonomyIds(resumeText),
-                        style: AppTypography.body(size: AppTypography.sizeMd),
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            replaceTaxonomyIds(resumeText),
+                            style:
+                                AppTypography.body(size: AppTypography.sizeMd),
+                          ),
+                          // Night-shift readiness is a worker PREF carried OUTSIDE
+                          // the resume text (workers.resumeNightShiftReady), so it
+                          // must show even when the body falls back to raw prose —
+                          // never dropped just because the text did not parse into
+                          // sections. In the template path it lives in the Location
+                          // section; here it stands on its own so it is NEVER lost.
+                          const SizedBox(height: AppSpacing.s4),
+                          _nightShiftRow(nightShiftReady),
+                        ],
                       )
                     : ResumeSectionsView(parsed: parsed),
               ),
@@ -300,6 +327,34 @@ class _ResumeViewState extends State<_ResumeView> {
           ),
         ),
       ],
+    );
+  }
+
+  /// Night-shift readiness rendered as a standalone `Label: Yes/No` line for the
+  /// PROSE fallback (a resume body that did not parse into the template sections).
+  /// The template path shows the same fact inside the Location section; here it
+  /// carries on its own so the worker's answer is NEVER dropped from the tab.
+  Widget _nightShiftRow(bool ready) {
+    return Text.rich(
+      TextSpan(
+        children: <InlineSpan>[
+          TextSpan(
+            text: '$kNightShiftLabel: ',
+            style: AppTypography.body(
+              size: AppTypography.sizeMd,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          TextSpan(
+            text: ready ? 'Yes' : 'No',
+            style: AppTypography.body(
+              size: AppTypography.sizeMd,
+              weight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -438,7 +493,8 @@ const String kResumePreparingLabel = 'PDF taiyaar ho rahi hai…';
 /// Downloads folder does.
 Future<String> _loadResumeFileName() async {
   try {
-    final ResumeSafeFields fields = await locator<ResumeEditRepository>().load();
+    final ResumeSafeFields fields =
+        await locator<ResumeEditRepository>().load();
     return resumeDownloadFileName(fields.displayName);
   } catch (_) {
     return kFallbackResumeFileName;
@@ -552,8 +608,7 @@ class _DownloadResumeButtonState extends State<_DownloadResumeButton> {
     if (!mounted) return;
     await downloadSignedPdf(
       context,
-      resolve: () =>
-          resolveSignedResumeUrl(cubit, onPreparing: _markPreparing),
+      resolve: () => resolveSignedResumeUrl(cubit, onPreparing: _markPreparing),
       fileName: _fileName,
     );
     if (mounted) {

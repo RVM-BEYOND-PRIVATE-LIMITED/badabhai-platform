@@ -1,0 +1,70 @@
+{
+  "kind": "path-b-parity",
+  "target": {
+    "host_class": "SUPABASE (remote)",
+    "database": "postgres"
+  },
+  "slugs": [
+    {
+      "domainId": "cnc-machining",
+      "candidates": 22,
+      "skills": 10,
+      "digest": "d85ddf77b8ae278cbe59a288983a9cacf52ee50c31c8a27c011588255ba3f54d"
+    },
+    {
+      "domainId": "cnc-programming",
+      "candidates": 11,
+      "skills": 4,
+      "digest": "b98478d463fdc8b092f4c50a4090d25304d2e823ef66a59bc0ed46e52ffc3584"
+    },
+    {
+      "domainId": "fabrication",
+      "candidates": 6,
+      "skills": 3,
+      "digest": "4cf84c59d8251a3db22b5a5b07c252abe34854ff0dd42fc1bb27db46a97b371d"
+    },
+    {
+      "domainId": "fitting-assembly",
+      "candidates": 5,
+      "skills": 3,
+      "digest": "8d7683c180b70862007a0ae02272ce85b7e4f5144b9be2f1f28d41192ea1a566"
+    },
+    {
+      "domainId": "general-machining",
+      "candidates": 2,
+      "skills": 1,
+      "digest": "8eaa1219e414ab7e87b36fbe812e76230ffcd7609d63ef41230e1bce3be78e86"
+    },
+    {
+      "domainId": "grinding",
+      "candidates": 3,
+      "skills": 1,
+      "digest": "a7a96037fa1ee4b59055641af2ff4e307064e003741d765fc9c59e6af5bb19c2"
+    },
+    {
+      "domainId": "maintenance",
+      "candidates": 4,
+      "skills": 2,
+      "digest": "d2ea7c3edc6bcb12b697ff712bb1b2c3ff245f300be700258a1c637c1388f18f"
+    },
+    {
+      "domainId": "metrology-quality",
+      "candidates": 11,
+      "skills": 4,
+      "digest": "4633f42590375e65f117f7e8281c2bb56730311e7f4af816ef960a683c394525"
+    },
+    {
+      "domainId": "vmc-machining",
+      "candidates": 3,
+      "skills": 1,
+      "digest": "fadd9d6add808b957bd60463374e85dff634772f3a5d88cf248dad521b1c3447"
+    },
+    {
+      "domainId": "welding",
+      "candidates": 9,
+      "skills": 4,
+      "digest": "4f62901208a0878715fb2b66f49207004bcd04d14e91d6d57c50942c9674a3d0"
+    }
+  ],
+  "digest": "d7f6cd4ec713ae52ea5f15728b2820f869b5327cc773114684b829d3dc669425"
+}

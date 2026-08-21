@@ -90,12 +90,16 @@ class _ResumePhotoHeaderState extends State<ResumePhotoHeader> {
                 ],
                 Row(
                   children: <Widget>[
-                    Text(
-                      'WORKER PROFILE',
-                      style: AppTypography.body(
-                        size: AppTypography.sizeSm,
-                        weight: FontWeight.w700,
-                        color: AppColors.textSecondary,
+                    Flexible(
+                      child: Text(
+                        'WORKER PROFILE',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.body(
+                          size: AppTypography.sizeSm,
+                          weight: FontWeight.w700,
+                          color: AppColors.textSecondary,
+                        ),
                       ),
                     ),
                     if (widget.isDraft) ...<Widget>[

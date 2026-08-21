@@ -13,6 +13,28 @@ import { isSyntheticTestPhone, type LoginResponse, type OtpRequestResponse } fro
 import type { DeviceInfoDto } from "./devices.dto";
 
 /**
+ * The exact worker projection {@link AuthService.mintSessionForWorker} needs (#994) — the
+ * three fields the login response is built from, and nothing else. A caller that has already
+ * loaded a worker (e.g. `PinService.resetConfirm`, which resolves it by phone hash before
+ * writing the new PIN) narrows to this rather than making the mint re-read by phone.
+ *
+ * PRIVACY: no phone, phone_hash or name — and callers must NARROW to this shape rather than
+ * spread a whole `workers` row in, because `findByPhoneHash` is a `SELECT *` and structural
+ * typing would let the encrypted phone and the phone hash ride along at RUNTIME even though
+ * the type forbids them. Both call sites build the literal explicitly for that reason.
+ *
+ * EVERY FIELD IS REQUIRED, `deletionScheduledAt` included. Optional would let a future caller
+ * pass `{ id, status }` and silently drop `deletion_scheduled_for` from a login response — a
+ * worker inside the ADR-0031 grace window would never see the banner or the cancel prompt,
+ * with no compile error anywhere. Pass an explicit `null` when nothing is scheduled.
+ */
+export interface MintableWorker {
+  id: string;
+  status: string;
+  deletionScheduledAt: Date | null;
+}
+
+/**
  * Real OTP login.
  *
  * `requestOtp` issues + sends a one-time code (via OtpService → SmsProvider) and
@@ -215,12 +237,91 @@ export class AuthService {
   }
 
   /**
-   * The POST-VERIFICATION login mint — the single seam both {@link verifyOtp} (after
-   * a real OTP verify) and {@link testLogin} (after the TestLoginGuard gate) drive.
+   * #994 — THE SESSION MINT, for a worker whose identity has ALREADY been established on
+   * this request. The one public door onto the mint for callers outside this service, and
+   * the shared tail of {@link mintLoginForPhone}.
+   *
+   * PRECONDITION, and it is the caller's to hold: the caller must ALREADY have proven the
+   * right to a session for this worker — a verified OTP, or an equivalent gate — earlier in
+   * the same request. This method verifies NOTHING; it mints. Today's only external caller
+   * is `PinService.resetConfirm`, whose first statement is `OtpService.verify`.
+   *
+   * It takes a RESOLVED worker rather than a phone on purpose. Routing the PIN-reset path
+   * back through {@link mintLoginForPhone} would have made it create-or-get by phone hash —
+   * i.e. an endpoint whose stated contract is "reset an existing worker's PIN" would have
+   * become an account-creation path, and would have re-read a worker the caller had already
+   * loaded. Handing in the row keeps the mint honest and the lookup singular.
+   *
+   * WHY IT EXISTS: a forgot-PIN reset used to return 204 and leave the client on its OLD
+   * refresh token. When that token was already dead, the reset could not recover the worker —
+   * they re-entered the PIN they had just set and got "PIN sahi nahi" forever. Handing back a
+   * FRESH session makes the reset self-healing regardless of store state. Emits nothing of
+   * its own except the device-registration facts; the caller emits its own outcome event
+   * (`worker.otp_verified` / `worker.test_login` / `worker.pin_reset`).
+   */
+  async mintSessionForWorker(
+    worker: MintableWorker,
+    ctx: RequestContext,
+    deviceInfo?: DeviceInfoDto,
+    isNew = false,
+  ): Promise<Omit<LoginResponse, "consent_accepted">> {
+    // ADR-0026 Phase 2 — register the trusted device (only if the client sent device_info)
+    // and bind the new session to it via the `did` claim. BEST-EFFORT: a device failure
+    // returns undefined and login proceeds unbound — device binding never breaks login.
+    // TD95: the push_target nonce is now returned so the client can store it.
+    const deviceResult = await this.devices.registerOnLogin(worker.id, deviceInfo, ctx);
+    const deviceId = deviceResult?.deviceId;
+    const pushTarget = deviceResult?.pushTarget ?? null;
+
+    // Mint a rolling session for this worker: a short access JWT + Redis session record
+    // PLUS (ADR-0026) an opaque rotating refresh token + family. The legacy access-token
+    // fields are unchanged; the refresh token + session block are ADDED. When device-bound,
+    // the access JWT also carries the opaque `did` claim.
+    const minted = await this.sessions.create(worker.id, deviceId);
+
+    // ADR-0026 Phase 4 — does this worker already have a device-unlock PIN? The app routes a
+    // returning worker to enter-PIN (true) vs set-PIN (false). A brand-new worker has no
+    // worker_credentials row → false. Only the boolean is surfaced — never the PIN/hash.
+    const pinSet = !!(await this.pins.findByWorkerId(worker.id));
+
+    return {
+      access_token: minted.access.token,
+      token_type: "Bearer",
+      expires_in_seconds: minted.access.expiresInSeconds,
+      worker_id: worker.id,
+      is_new_worker: isNew,
+      status: worker.status,
+      // ADR-0026 Phase 4 — lets the app route enter-PIN (true) vs set-PIN (false).
+      pin_set: pinSet,
+      // ADR-0026 additive fields — the opaque rotating refresh token + session view.
+      refresh_token: minted.refresh.token,
+      refresh_expires_in_seconds: minted.refresh.expiresInSeconds,
+      session: {
+        tier: minted.session.tier,
+        expires_at: new Date(minted.session.expiresAtMs).toISOString(),
+        requires_otp_after:
+          minted.session.requiresOtpAfterMs === null
+            ? null
+            : new Date(minted.session.requiresOtpAfterMs).toISOString(),
+      },
+      // ADR-0031 — surfaced ONLY while a deletion is pending, so the app can show the
+      // grace banner + explicit cancel prompt (login NEVER auto-cancels — ruling (a)).
+      // A PII-free timestamp; login itself works unchanged during grace.
+      ...(worker.deletionScheduledAt
+        ? { deletion_scheduled_for: worker.deletionScheduledAt.toISOString() }
+        : {}),
+      // TD95 — the push_target nonce for the registered device. Present only when
+      // device_info with a push_token was sent on login; null/absent otherwise.
+      ...(pushTarget ? { push_target: pushTarget } : {}),
+    };
+  }
+
+  /**
+   * The POST-VERIFICATION login mint for a PHONE — the seam both {@link verifyOtp} (after a
+   * real OTP verify) and {@link testLogin} (after the TestLoginGuard gate) drive.
    * Create-or-get the worker for the phone's keyed hash (TD23 race-safe, emitting
-   * worker.created exactly once), register an optional trusted device, mint the
-   * rolling session + opaque refresh token, and surface pin_set. The caller emits
-   * its OWN outcome event (worker.otp_verified vs worker.test_login) — never here.
+   * worker.created exactly once), then hand off to {@link mintSessionForWorker}. The caller
+   * emits its OWN outcome event (worker.otp_verified vs worker.test_login) — never here.
    */
   private async mintLoginForPhone(
     phone: string,
@@ -264,55 +365,21 @@ export class AuthService {
       }
     }
 
-    // ADR-0026 Phase 2 — register the trusted device (only if the client sent device_info)
-    // and bind the new session to it via the `did` claim. BEST-EFFORT: a device failure
-    // returns undefined and login proceeds unbound — device binding never breaks login.
-    // TD95: the push_target nonce is now returned so the client can store it.
-    const deviceResult = await this.devices.registerOnLogin(worker.id, deviceInfo, ctx);
-    const deviceId = deviceResult?.deviceId;
-    const pushTarget = deviceResult?.pushTarget ?? null;
-
-    // Mint a rolling session for this worker: a short access JWT + Redis session record
-    // PLUS (ADR-0026) an opaque rotating refresh token + family. The legacy access-token
-    // fields are unchanged; the refresh token + session block are ADDED. When device-bound,
-    // the access JWT also carries the opaque `did` claim.
-    const minted = await this.sessions.create(worker.id, deviceId);
-
-    // ADR-0026 Phase 4 — does this worker already have a device-unlock PIN? The app routes a
-    // returning worker to enter-PIN (true) vs set-PIN (false). A brand-new worker has no
-    // worker_credentials row → false. Only the boolean is surfaced — never the PIN/hash.
-    const pinSet = !!(await this.pins.findByWorkerId(worker.id));
-
-    const response: Omit<LoginResponse, "consent_accepted"> = {
-      access_token: minted.access.token,
-      token_type: "Bearer",
-      expires_in_seconds: minted.access.expiresInSeconds,
-      worker_id: worker.id,
-      is_new_worker: isNew,
-      status: worker.status,
-      // ADR-0026 Phase 4 — lets the app route enter-PIN (true) vs set-PIN (false).
-      pin_set: pinSet,
-      // ADR-0026 additive fields — the opaque rotating refresh token + session view.
-      refresh_token: minted.refresh.token,
-      refresh_expires_in_seconds: minted.refresh.expiresInSeconds,
-      session: {
-        tier: minted.session.tier,
-        expires_at: new Date(minted.session.expiresAtMs).toISOString(),
-        requires_otp_after:
-          minted.session.requiresOtpAfterMs === null
-            ? null
-            : new Date(minted.session.requiresOtpAfterMs).toISOString(),
+    // The mint itself is the SHARED tail — the same code path the PIN-reset entry point
+    // (mintSessionForWorker) runs, so the two can never drift in session shape or binding.
+    // NARROWED explicitly, not spread: `worker` here is a full SELECT * row carrying the
+    // encrypted phone and the phone hash, and structural typing would hand them to the mint
+    // unnoticed. The mint must only ever receive what it reads.
+    const response = await this.mintSessionForWorker(
+      {
+        id: worker.id,
+        status: worker.status,
+        deletionScheduledAt: worker.deletionScheduledAt ?? null,
       },
-      // ADR-0031 — surfaced ONLY while a deletion is pending, so the app can show the
-      // grace banner + explicit cancel prompt (login NEVER auto-cancels — ruling (a)).
-      // A PII-free timestamp; login itself works unchanged during grace.
-      ...(worker.deletionScheduledAt
-        ? { deletion_scheduled_for: worker.deletionScheduledAt.toISOString() }
-        : {}),
-      // TD95 — the push_target nonce for the registered device. Present only when
-      // device_info with a push_token was sent on login; null/absent otherwise.
-      ...(pushTarget ? { push_target: pushTarget } : {}),
-    };
+      ctx,
+      deviceInfo,
+      isNew,
+    );
     return { response, worker, phoneHash, isNew };
   }
 }

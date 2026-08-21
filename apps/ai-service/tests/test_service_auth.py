@@ -116,10 +116,18 @@ class TestServiceAuthEnabled:
     def test_locked_health_is_liveness_plus_boolean_only(self, auth_enabled):
         """Under the locked posture the tokenless /health must NOT leak spend/caps/
         provider posture (recon data on a shared network — the review's /health finding).
-        The full snapshot stays on the token-gated /ai/spend."""
+        The full snapshot stays on the token-gated /ai/spend.
+
+        ``build`` is the ONE addition to this set (#965) and it is deliberate: a commit
+        sha is already public in the ghcr image tag, so it is not the recon data this
+        branch exists to withhold, and "which build is this box running?" must be
+        answerable in EVERY posture — the posture the deploy is being debugged in is
+        usually the locked one. Nothing else may join this set without the same argument.
+        """
         client = TestClient(app)
         body = client.get("/health").json()
-        assert set(body.keys()) == {"status", "service", "service_auth_enabled"}
+        assert set(body.keys()) == {"status", "service", "service_auth_enabled", "build"}
+        assert isinstance(body["build"], str) and body["build"]
         # And the gated route serves the full view WITH the token:
         assert client.get("/ai/spend", headers={HEADER: TOKEN}).status_code == 200
         assert client.get("/ai/spend").status_code == 401

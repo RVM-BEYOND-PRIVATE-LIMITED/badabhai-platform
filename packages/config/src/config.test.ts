@@ -178,6 +178,59 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(() => loadServerConfig({ ADMIN_PII_REVEAL_MAX_PER_HOUR: "0" })).toThrow();
   });
 
+  it("the NAME-egress caps are a SEPARATE, larger budget (300/hour, 1000/day) and positive-only", () => {
+    // A second budget, not a share of the reveal's: these count NAMES disclosed by a list read,
+    // where one page can be fifty, while the reveal's 10/hour counts single-subject phone
+    // reveals. Sharing either number would either strangle the console or gut the reveal cap.
+    const config = loadServerConfig({});
+    expect(config.ADMIN_IDENTITY_MAX_PER_HOUR).toBe(300);
+    expect(config.ADMIN_IDENTITY_MAX_PER_DAY).toBe(1000);
+    // ...and they are genuinely independent of the reveal's, not aliases of it.
+    expect(config.ADMIN_IDENTITY_MAX_PER_HOUR).not.toBe(config.ADMIN_PII_REVEAL_MAX_PER_HOUR);
+    expect(loadServerConfig({ ADMIN_IDENTITY_MAX_PER_HOUR: "7" }).ADMIN_IDENTITY_MAX_PER_HOUR).toBe(7);
+    expect(loadServerConfig({ ADMIN_IDENTITY_MAX_PER_DAY: "9" }).ADMIN_IDENTITY_MAX_PER_DAY).toBe(9);
+    // Zero would mean "names are off", which must be a capability decision, not an env typo.
+    expect(() => loadServerConfig({ ADMIN_IDENTITY_MAX_PER_HOUR: "0" })).toThrow();
+    expect(() => loadServerConfig({ ADMIN_IDENTITY_MAX_PER_DAY: "-1" })).toThrow();
+  });
+
+  it("the AI-TRACE read flag is OFF by default and stays off for every falsey string", () => {
+    // Migration 0083. This one gates a WHOLE SURFACE (list and decrypt), not just a field on a
+    // response — with it off, `AdminAiTraceFlagGuard` answers a neutral 404 to every admin role.
+    // Same `booleanFromString` posture as ADMIN_PII_REVEAL_ENABLED above, and the `""` case is
+    // the one that matters on the box: a compose `${VAR:-false}` pass-through with an unset
+    // GitHub secret arrives as an empty string, and that must read as OFF, not throw.
+    expect(loadServerConfig({}).ADMIN_AI_TRACE_READ_ENABLED).toBe(false);
+    expect(loadServerConfig({ ADMIN_AI_TRACE_READ_ENABLED: "true" }).ADMIN_AI_TRACE_READ_ENABLED).toBe(true);
+    expect(loadServerConfig({ ADMIN_AI_TRACE_READ_ENABLED: "1" }).ADMIN_AI_TRACE_READ_ENABLED).toBe(true);
+    expect(loadServerConfig({ ADMIN_AI_TRACE_READ_ENABLED: "false" }).ADMIN_AI_TRACE_READ_ENABLED).toBe(false);
+    expect(loadServerConfig({ ADMIN_AI_TRACE_READ_ENABLED: "0" }).ADMIN_AI_TRACE_READ_ENABLED).toBe(false);
+    expect(loadServerConfig({ ADMIN_AI_TRACE_READ_ENABLED: "" }).ADMIN_AI_TRACE_READ_ENABLED).toBe(false);
+  });
+
+  it("the AI-TRACE decrypt caps are a THIRD budget (20/hour, 60/day) and REJECT an empty string", () => {
+    // Sized in DISCLOSURES and deliberately small — a debugging session, not a corpus — and
+    // genuinely independent of the other two budgets rather than an alias of either.
+    const config = loadServerConfig({});
+    expect(config.ADMIN_AI_TRACE_MAX_PER_HOUR).toBe(20);
+    expect(config.ADMIN_AI_TRACE_MAX_PER_DAY).toBe(60);
+    expect(config.ADMIN_AI_TRACE_MAX_PER_HOUR).not.toBe(config.ADMIN_IDENTITY_MAX_PER_HOUR);
+    expect(config.ADMIN_AI_TRACE_MAX_PER_HOUR).not.toBe(config.ADMIN_PII_REVEAL_MAX_PER_HOUR);
+    expect(loadServerConfig({ ADMIN_AI_TRACE_MAX_PER_HOUR: "7" }).ADMIN_AI_TRACE_MAX_PER_HOUR).toBe(7);
+    expect(loadServerConfig({ ADMIN_AI_TRACE_MAX_PER_DAY: "9" }).ADMIN_AI_TRACE_MAX_PER_DAY).toBe(9);
+    // Zero/negative would mean "the read is off", which must be the FLAG's decision, not a typo.
+    expect(() => loadServerConfig({ ADMIN_AI_TRACE_MAX_PER_HOUR: "0" })).toThrow();
+    expect(() => loadServerConfig({ ADMIN_AI_TRACE_MAX_PER_DAY: "-1" })).toThrow();
+    // ⚠ THE BOOT-CRASH TRAP, PINNED. Unlike the flag above, these are `z.coerce.number()`:
+    // `""` coerces to 0, `.positive()` rejects it, and the WHOLE config parse throws — so a
+    // `${ADMIN_AI_TRACE_MAX_PER_HOUR:-}` pass-through in compose would kill every boot on that
+    // box (BL-21 / #858). This assertion is what makes that a known refusal rather than an
+    // outage somebody debugs at 2am, and it must fail if the schema is ever softened to
+    // `optionalSecret()`-style empty tolerance without the compose line being written first.
+    expect(() => loadServerConfig({ ADMIN_AI_TRACE_MAX_PER_HOUR: "" })).toThrow();
+    expect(() => loadServerConfig({ ADMIN_AI_TRACE_MAX_PER_DAY: "" })).toThrow();
+  });
+
   it("assertPaymentsConfig is a no-op in the alpha mock default", () => {
     expect(() => assertPaymentsConfig(loadServerConfig({}))).not.toThrow();
   });

@@ -14,6 +14,7 @@ import '../../../core/widgets/bb_badge.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_progress.dart';
+import '../../../core/error/payer_failure.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_toast.dart';
 import '../../job_posting_chat/presentation/cubit/chat_sessions_cubit.dart';
@@ -120,11 +121,14 @@ class _JobsView extends StatelessWidget {
           return const BbStatusView.loading();
         }
         if (state.status == JobsStatus.error) {
+          final PayerFailure failure =
+              state.failure ?? const PayerFailure(PayerFailureKind.unknown);
           return BbStatusView(
-            icon: Icons.wifi_off,
-            title: 'Could not load jobs',
+            icon: failure.icon,
+            title: failure.title,
+            subtitle: failure.message,
             action: BbButton(
-              label: 'Retry',
+              label: failure.isSessionExpired ? 'Log in' : 'Retry',
               onPressed: () => context.read<JobsCubit>().load(),
             ),
           );
@@ -162,7 +166,9 @@ class _JobsView extends StatelessWidget {
                 ),
                 BbButton(
                   label: 'Post',
-                  size: BbButtonSize.sm,
+                  // md (44px) not sm — a loud primary CTA clears the 48px tap
+                  // floor (#1082).
+                  size: BbButtonSize.md,
                   iconLeft: Icons.add,
                   onPressed: onPost,
                 ),
@@ -386,8 +392,8 @@ class _RealJobCard extends StatelessWidget {
           if (job.verified || job.boosted) ...<Widget>[
             const SizedBox(height: AppSpacing.s2),
             Wrap(
-              spacing: 7,
-              runSpacing: 7,
+              spacing: AppSpacing.chipGap,
+              runSpacing: AppSpacing.chipGap,
               children: <Widget>[
                 if (job.verified)
                   const BbBadge(
@@ -459,7 +465,7 @@ class _RealJobCard extends StatelessWidget {
                   // Navy commitment — the single haldi on this view is the header
                   // 'Post' CTA, so per-card actions never compete for it.
                   variant: BbButtonVariant.navy,
-                  size: BbButtonSize.sm,
+                  size: BbButtonSize.md,
                   iconLeft: Icons.send,
                   onPressed: () =>
                       _run(context, (JobsCubit c) => c.publish(id)),
@@ -512,7 +518,7 @@ class _RealJobCard extends StatelessWidget {
             label: 'Resume',
             // Navy commitment — keeps the header 'Post' as the view's sole haldi.
             variant: BbButtonVariant.navy,
-            size: BbButtonSize.sm,
+            size: BbButtonSize.md,
             iconLeft: Icons.play_arrow,
             block: true,
             onPressed: () => _run(context, (JobsCubit c) => c.resume(id)),
@@ -618,8 +624,8 @@ class _JobCard extends StatelessWidget {
           if (job.verified || job.boosted) ...<Widget>[
             const SizedBox(height: AppSpacing.s2),
             Wrap(
-              spacing: 7,
-              runSpacing: 7,
+              spacing: AppSpacing.chipGap,
+              runSpacing: AppSpacing.chipGap,
               children: <Widget>[
                 if (job.verified)
                   const BbBadge(

@@ -197,8 +197,13 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring -- `SCRIPT` is a module-level string constant declared in this file, never input. This is the CLI's terminal error line; no user- or worker-supplied value reaches the template.
-  console.error(`[${NAME}] failed:`, err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+// GUARDED ENTRYPOINT. This file exports `freeTierIdempotencyKey`, so it is importable — and an
+// unguarded `main()` means importing that one helper GRANTS FREE TIER. Nothing imports it today;
+// the guard is here so that staying true does not depend on anyone noticing.
+if (require.main === module) {
+  main().catch((err) => {
+    // nosemgrep: javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring -- `SCRIPT` is a module-level string constant declared in this file, never input. This is the CLI's terminal error line; no user- or worker-supplied value reaches the template.
+    console.error(`[${NAME}] failed:`, err instanceof Error ? err.message : err);
+    process.exit(1);
+  });
+}

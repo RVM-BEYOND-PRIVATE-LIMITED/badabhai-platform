@@ -11,6 +11,9 @@ import { AdminAuthGuard } from "./admin-auth.guard";
 import { AdminRolesGuard } from "./admin-roles.guard";
 import { AdminActionsController } from "./admin-actions.controller";
 import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
+import { AdminDashboardController } from "./admin-dashboard.controller";
+import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
+import { AdminAiTracesController } from "./admin-ai-traces.controller";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
 
@@ -53,6 +56,27 @@ describe("AdminModule wiring (DI regression guard)", () => {
     expect(tokens).toContain("AdminPiiRevealCapService");
   });
 
+  it("provides the identity layer the entity reads AND the directory both inject", () => {
+    // A dropped registration here is a BOOT failure that typecheck, lint and every unit test
+    // miss — `AdminEntitiesService` and `AdminDirectoryService` now take `AdminIdentityService`
+    // as a constructor dependency, and it in turn needs its own repository and cap service.
+    const tokens = providerTokens();
+    expect(tokens).toContain("AdminIdentityService");
+    expect(tokens).toContain("AdminIdentityRepository");
+    expect(tokens).toContain("AdminIdentityCapService");
+  });
+
+  it("declares the BP-5 dashboard controller + provides its service/repository AND the spine reader it depends on", () => {
+    expect(getMeta("controllers", AdminModule)).toContain(AdminDashboardController);
+    const tokens = providerTokens();
+    expect(tokens).toContain("AdminDashboardService");
+    expect(tokens).toContain("AdminDashboardRepository");
+    // `AdminDashboardService` injects `AdminEventsRepository` for the cap-breach-by-reason
+    // split. Nest resolves that only because the events repository is a provider here too —
+    // a dropped registration is a BOOT failure that typecheck, lint and every unit test miss.
+    expect(tokens).toContain("AdminEventsRepository");
+  });
+
   it("provides the repository, session, OTP, MFA-store, auth service, and both guards", () => {
     const tokens = providerTokens();
     expect(tokens).toContain("AdminRepository");
@@ -75,6 +99,42 @@ describe("AdminModule wiring (DI regression guard)", () => {
   it("the auth controller has NO class-level guard (login/MFA public; refresh/logout/me guarded per-method)", () => {
     // Mirrors PayerAuthController: the class metadata is empty; AdminAuthGuard is method-level.
     expect(getMeta("__guards__", AdminAuthController)).toHaveLength(0);
+  });
+
+  it("declares the Phase 6 worker-journey controller + provides its service/repository", () => {
+    // One new module edge is all it takes to make the app fail to BOOT while typecheck, lint,
+    // build and every unit suite stay green — a controller declared with a provider missing
+    // resolves to null at container build, not at compile.
+    expect(getMeta("controllers", AdminModule)).toContain(AdminWorkerJourneyController);
+    const tokens = providerTokens();
+    expect(tokens).toContain("AdminWorkerJourneyService");
+    expect(tokens).toContain("AdminWorkerJourneyRepository");
+  });
+
+  it("declares the 0083 ai-trace controller + provides its service/repository/cap", () => {
+    // One new module edge is all it takes to make the app fail to BOOT while typecheck, lint,
+    // build and every unit suite stay green — a controller declared with a provider missing
+    // resolves to null at container build, not at compile. `AdminAiTracesService` takes FOUR
+    // injected dependencies, and only two of them are `@Global`: `AdminAiTracesRepository` and
+    // `AdminAiTraceCapService` must be registered HERE or the route 500s on first request.
+    expect(getMeta("controllers", AdminModule)).toContain(AdminAiTracesController);
+    const tokens = providerTokens();
+    expect(tokens).toContain("AdminAiTracesService");
+    expect(tokens).toContain("AdminAiTracesRepository");
+    expect(tokens).toContain("AdminAiTraceCapService");
+  });
+
+  it("the cap service can reach the Redis queue it is constructed with", () => {
+    // `AdminAiTraceCapService` takes `@InjectQueue(RESUME_RENDER_QUEUE)`, exactly like the reveal
+    // and identity caps. That token exists only because this module registers the queue — a
+    // failure invisible to typecheck (the decorator's argument is a string) and to every unit
+    // test (they construct the class directly). Asserted as METADATA rather than by booting,
+    // like every sibling in this file.
+    const imports = getMeta("imports", AdminModule);
+    const queueModules = imports.filter(
+      (i) => (i as { module?: { name?: string } })?.module?.name === "BullModule",
+    );
+    expect(queueModules.length, "AdminModule must register the BullMQ queue").toBeGreaterThan(0);
   });
 
   it("the providers reference the real classes (no accidental shadowing)", () => {

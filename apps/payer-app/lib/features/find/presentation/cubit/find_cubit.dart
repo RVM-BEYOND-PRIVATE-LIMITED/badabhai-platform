@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/config/app_config.dart';
 import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
+import '../../../../core/error/payer_failure.dart';
 
 /// Loads the Find feed. Two shapes behind one cubit:
 ///
@@ -31,15 +32,21 @@ class FindCubit extends Cubit<FindState> {
         await _loadRealFeed();
       } else {
         final List<Candidate> candidates = await _api.fetchCandidates();
+        if (isClosed) return;
         emit(FindState(status: FindStatus.ready, candidates: candidates));
       }
-    } catch (_) {
-      emit(state.copyWith(status: FindStatus.error));
+    } catch (e) {
+      if (isClosed) return; // screen popped mid-load — emit would throw StateError
+      emit(state.copyWith(
+        status: FindStatus.error,
+        failure: PayerFailure.from(e),
+      ));
     }
   }
 
   Future<void> _loadRealFeed() async {
     final List<JobPosting> jobs = await _api.fetchJobs(status: 'open');
+    if (isClosed) return;
     final List<JobPosting> owned = jobs
         .where((JobPosting j) => (j.id ?? '').isNotEmpty)
         .toList(growable: false);
@@ -56,13 +63,18 @@ class FindCubit extends Cubit<FindState> {
     emit(state.copyWith(status: FindStatus.loading));
     try {
       await _loadApplicants(job, state.jobs);
-    } catch (_) {
-      emit(state.copyWith(status: FindStatus.error));
+    } catch (e) {
+      if (isClosed) return;
+      emit(state.copyWith(
+        status: FindStatus.error,
+        failure: PayerFailure.from(e),
+      ));
     }
   }
 
   Future<void> _loadApplicants(JobPosting job, List<JobPosting> jobs) async {
     final List<Applicant> applicants = await _api.fetchApplicants(job.id!);
+    if (isClosed) return;
     emit(FindState(
       status: FindStatus.ready,
       jobs: jobs,
@@ -89,10 +101,18 @@ class FindCubit extends Cubit<FindState> {
         workerId: applicant.workerId,
         jobId: state.selectedJob?.id,
       );
-    } catch (_) {
-      emit(state.copyWith(status: FindStatus.error));
+    } catch (e) {
+      // Keep the rethrow (the tap handler shows a retry toast) but never emit into
+      // a closed cubit if the screen was popped during the unlock round-trip.
+      if (!isClosed) {
+        emit(state.copyWith(
+          status: FindStatus.error,
+          failure: PayerFailure.from(e),
+        ));
+      }
       rethrow;
     }
+    if (isClosed) return result;
     if (result.granted) {
       emit(state.copyWith(
         applicants: state.applicants
@@ -129,9 +149,14 @@ class FindState extends Equatable {
     this.jobs = const <JobPosting>[],
     this.selectedJob,
     this.applicants = const <Applicant>[],
+    this.failure,
   });
 
   final FindStatus status;
+
+  /// The classified reason the last load failed — drives the honest error copy.
+  /// Null unless [status] is [FindStatus.error].
+  final PayerFailure? failure;
 
   /// MOCK feed rows.
   final List<Candidate> candidates;
@@ -154,6 +179,7 @@ class FindState extends Equatable {
     List<JobPosting>? jobs,
     JobPosting? selectedJob,
     List<Applicant>? applicants,
+    PayerFailure? failure,
   }) {
     return FindState(
       status: status ?? this.status,
@@ -161,10 +187,11 @@ class FindState extends Equatable {
       jobs: jobs ?? this.jobs,
       selectedJob: selectedJob ?? this.selectedJob,
       applicants: applicants ?? this.applicants,
+      failure: failure ?? this.failure,
     );
   }
 
   @override
   List<Object?> get props =>
-      <Object?>[status, candidates, jobs, selectedJob, applicants];
+      <Object?>[status, candidates, jobs, selectedJob, applicants, failure];
 }

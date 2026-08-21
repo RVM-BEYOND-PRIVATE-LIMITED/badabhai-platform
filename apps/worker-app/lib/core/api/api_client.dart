@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../../features/job_search/domain/job_search_item.dart';
 import '../../features/swipe/domain/job_detail.dart';
 import '../config/app_config.dart' show resolveApiBaseUrl;
+import '../config/build_info.dart';
 import 'api_models.dart';
 
 // Re-export the response models so screens that import this file get them too.
@@ -35,6 +36,46 @@ const int kAiJobPollMaxAttempts = 40;
 /// Base gap between AI-job polls — also the FIRST gap. See
 /// [buildAiJobPollSchedule].
 const Duration kAiJobPollInterval = Duration(milliseconds: 350);
+
+/// Poll BUDGET for a PROFILE EXTRACTION job — the same class of bug TD59 fixed
+/// for transcription, on the route it was never applied to.
+///
+/// THE SERVER'S STRUCTURAL CEILING IS ~50s OF AI ALONE. One extraction job makes
+/// TWO sequential provider calls, and the API allows each of them 25s
+/// (`PROFILE_JOB_TIMEOUT_MS` in `apps/api/src/ai/ai.service.ts`):
+///
+///   1. `/profile/parse`     — types the deterministic answer map
+///   2. `/profiling/extract` — Phase C, reads the conversation for
+///                             `experiences[]` ("A SECOND CALL, AND
+///                             DELIBERATELY SO"), when the LLM interview is on
+///
+/// On top of that sit BullMQ queue pickup, the provenance gates, the projector
+/// and the profile write. So the old default — [kAiJobPollMaxAttempts] x
+/// [kAiJobPollInterval] = **14s** — did not merely risk the failure, it
+/// GUARANTEED it on the real path: the worker was told "Profile taiyaar nahi ho
+/// payi. Zyada time lag raha hai." while the server was still working, then
+/// completed, billed and stored the profile they had just been told they did not
+/// have. Verified on a real device against the live backend.
+///
+/// The API comment that set 25s reasoned "safe to be this long because NOBODY IS
+/// WAITING: the only caller is the BullMQ extraction job, minutes after the
+/// interview closed." This screen is what was waiting. Both halves are corrected
+/// together, because that assumption is what would re-break this later.
+///
+/// 90s EXCEEDS THE CEILING WITH MARGIN, the same shape as
+/// [kVoiceTranscriptWaitBudget]'s 150s over its own ~140s ceiling. It is a
+/// ceiling to STOP the bug, not a tuned value — the real number should come from
+/// measured staging p50/p95, and the better fix is to stop BLOCKING on the job
+/// at all (show "profile ban rahi hai" and resolve when it lands), which removes
+/// the latency dependency instead of lengthening the wait.
+const Duration kProfileExtractWaitBudget = Duration(seconds: 90);
+
+/// [kProfileExtractWaitBudget] expressed as poll attempts for
+/// [ApiClient.awaitProfileId] (total budget is `attempts x`
+/// [kAiJobPollInterval]). [buildAiJobPollSchedule]'s exponential backoff keeps
+/// the request COUNT modest across the longer wait — this buys time, not traffic.
+const int kProfileExtractPollMaxAttempts =
+    90 * 1000 ~/ 350; // kProfileExtractWaitBudget / kAiJobPollInterval ~= 257
 
 /// Poll BUDGET for a VOICE TRANSCRIPTION job (#635 / TD59) — deliberately far
 /// larger than the extraction default of [kAiJobPollMaxAttempts] x
@@ -213,16 +254,23 @@ class ApiClient {
 
   /// Posts a worker message. Worker-scoped — requires [authToken]; the worker is
   /// taken from the token, never from the body.
+  ///
+  /// [submissionId] (#870) is the per-submission id minted by the caller once per
+  /// physical send and re-sent verbatim on a retry. ADDITIVE and backward-
+  /// compatible: the body stays `{session_id, text}` and the key is added ONLY
+  /// when non-null, so an older server (which strips unknown keys) is unaffected.
   Future<ChatReply> sendMessage({
     required String sessionId,
     required String authToken,
     required String text,
+    String? submissionId,
   }) async {
     final Map<String, dynamic> json = await _post(
       '/chat/message',
       <String, dynamic>{
         'session_id': sessionId,
         'text': text,
+        if (submissionId != null) 'submission_id': submissionId,
       },
       authToken: authToken,
     );
@@ -308,16 +356,21 @@ class ApiClient {
 
   /// Polls [getAiJob] until the job completes and yields a `profile_id`.
   ///
-  /// Bounded poll over a total budget of `maxAttempts * pollInterval` (14s by
-  /// default), spent on a jittered exponential-backoff schedule rather than a
-  /// flat 350ms drumbeat (#378 — same wait, ~5x fewer requests; see
-  /// [buildAiJobPollSchedule]). Throws [ApiException] if the job fails, or
-  /// [ProfileExtractionTimeout] if the budget is exhausted while still
-  /// queued/running.
+  /// Bounded poll over a total budget of `maxAttempts * pollInterval`
+  /// ([kProfileExtractWaitBudget], 90s by default), spent on a jittered
+  /// exponential-backoff schedule rather than a flat 350ms drumbeat (#378 —
+  /// same wait, far fewer requests; see [buildAiJobPollSchedule]). Throws
+  /// [ApiException] if the job fails, or [ProfileExtractionTimeout] if the
+  /// budget is exhausted while still queued/running.
+  ///
+  /// THE DEFAULT IS NOT [kAiJobPollMaxAttempts], and that is the fix rather than
+  /// a preference: 14s is under a THIRD of the server's ~50s structural ceiling
+  /// for this job, so it timed out on the real path every time. See
+  /// [kProfileExtractWaitBudget] for the arithmetic.
   Future<String> awaitProfileId(
     String aiJobId, {
     required String authToken,
-    int maxAttempts = kAiJobPollMaxAttempts,
+    int maxAttempts = kProfileExtractPollMaxAttempts,
     Duration pollInterval = kAiJobPollInterval,
   }) async {
     final List<Duration> schedule = buildAiJobPollSchedule(
@@ -389,6 +442,36 @@ class ApiClient {
     await _post(
       '/workers/me/actions/batch',
       <String, dynamic>{'actions': actions},
+      authToken: authToken,
+    );
+  }
+
+  /// POST /workers/me/feedback — the worker's free-text app feedback for the
+  /// admin console. Worker-scoped (WorkerAuthGuard + ConsentGuard); the worker
+  /// comes from [authToken], never the body. [category] is an OPTIONAL coarse tag
+  /// (a fixed enum wire token) and [message] is the worker's own words. The
+  /// response is only `{ ok: true }`, so nothing is parsed back.
+  ///
+  /// [screen] is the ROUTE PATTERN the worker was on when they tapped Feedback
+  /// (`/jobs/:id/apply`), already normalized by [normalizeScreenContext] — never a
+  /// concrete path, so it carries no identifier. OPTIONAL on the wire: the key is
+  /// omitted when it is null, which is what every already-released build sends.
+  ///
+  /// BACKEND: the endpoint is owned by the API/admin team (raised separately) —
+  /// this is the client half of the contract.
+  Future<void> submitFeedback({
+    required String authToken,
+    required String message,
+    String? category,
+    String? screen,
+  }) async {
+    await _post(
+      '/workers/me/feedback',
+      <String, dynamic>{
+        'message': message,
+        if (category != null) 'category': category,
+        if (screen != null) 'screen': screen,
+      },
       authToken: authToken,
     );
   }
@@ -1147,9 +1230,16 @@ class ApiClient {
   }
 
   /// Builds request headers, adding the bearer token only when present.
+  ///
+  /// EVERY request carries `x-app-build` (#966) — a PII-free commit SHA / build
+  /// number — so the server can attribute a request to a specific app build from
+  /// its logs and a client-side bug can be tied to a build without asking the
+  /// tester to dig. This is the single choke-point for outbound headers, so the
+  /// stamp rides uniformly on every call.
   Map<String, String> _headers({required bool contentType, String? authToken}) {
     final Map<String, String> headers = <String, String>{
       'accept': 'application/json',
+      'x-app-build': kAppBuild,
     };
     if (contentType) headers['content-type'] = 'application/json';
     if (authToken != null && authToken.isNotEmpty) {

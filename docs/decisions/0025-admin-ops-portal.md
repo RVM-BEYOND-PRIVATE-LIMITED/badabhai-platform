@@ -303,7 +303,8 @@ guard's fail-closed `role: null`).
 | Capability | `super_admin` | `ops_admin` | `support` | `analyst` |
 |---|:---:|:---:|:---:|:---:|
 | Read events (explorer, filter on the 4 indexes) | ✅ | ✅ | ✅ | ✅ |
-| Read entities (workers/payers/jobs/postings — **faceless**, no PII) — `read_entities`, implemented BP-1 (PR #574) | ✅ | ✅ | ✅ | ✅ |
+| Read entities (workers/payers/jobs/postings — ids, enums, counts; **no contact PII**) — `read_entities`, implemented BP-1 (PR #574) | ✅ | ✅ | ✅ | ✅ |
+| **Read identities (the NAME behind an id, on the five entity/directory reads)** — `read_identity`, owner ruling 2026-08-18 reversing Decision 4 | ✅ | ✅ | ✅ | ❌ |
 | Read metrics / dashboards | ✅ | ✅ | ✅ | ✅ |
 | Export (PII-free events / aggregates) | ✅ | ✅ | ❌ | ❌ |
 | Suspend / reinstate a payer | ✅ | ✅ | ❌ | ❌ |
@@ -312,10 +313,43 @@ guard's fail-closed `role: null`).
 | Flag / unflag a worker | ✅ | ✅ | ❌ | ❌ |
 | Toggle a feature flag / kill-switch | ✅ | ❌ | ❌ | ❌ |
 | **Reveal worker PII (reason-gated, single-subject)** | ✅ | ❌ | ✅ | ❌ |
+| **Read AI call traces (the prompt + completion of one AI call, and the list of them)** — `read_ai_traces`, migration 0083, owner ruling 2026-08-20 | ✅ | ❌ | ❌ | ❌ |
 | Manage admin users (invite / change role / suspend) | ✅ | ❌ | ❌ | ❌ |
 
 ✅ = allow, ❌ = deny. **Every cell not marked ✅ is denied.** (Export-for-`support` is denied so
 the PII-reveal role cannot also bulk-export; this separation is deliberate — see Decision 4.)
+
+**`read_ai_traces` IS a gate on the route, and on BOTH legs of it.** Unlike `read_identity`
+above, this capability does not decide whether a field appears — it decides whether
+`GET /admin/ai-traces` and `GET /admin/ai-traces/:id` are reachable at all. Both sit behind it,
+and behind the default-OFF `ADMIN_AI_TRACE_READ_ENABLED` flag, which is enforced by a guard
+ordered AHEAD of `AdminRolesGuard` so that with the flag off every role gets an identical neutral
+404 rather than a 403 that confirms the surface exists.
+
+The LIST is included deliberately, and it is the part worth reading twice. Its projection carries
+no ciphertext and decrypts nothing — task type, model, outcome, the two character LENGTHS, opaque
+ids — so there is a real argument for putting it on the `read_entities` floor and letting ops
+triage failing calls without being entitled to read what workers said. That argument is written
+out at `apps/api/src/admin/admin-ai-traces.controller.ts` and is **open, pending an owner
+ruling**. What it has to weigh: walked end to end the list is an index of which worker spoke, in
+which interview, when, and how much — the LINKAGE `packages/db/src/schema-contract.ts` names as
+the worst silent leak on this spine. Until that ruling, both legs are `super_admin`.
+
+The decrypt additionally charges a per-admin hourly/daily budget on its own `admin_ai_trace:*`
+Redis namespace (`ADMIN_AI_TRACE_MAX_PER_{HOUR,DAY}`, default 20/60 — a debugging session, not a
+corpus) and writes an `admin.ai_trace_viewed` row **before** any plaintext exists; that row
+carries the two character LENGTHS and never the text. `read_ai_traces` is a strict subset of
+`reveal_pii`: a role that may read a worker's words is one that may already resolve who they are.
+
+**`read_identity` is ADDITIVE, never a gate on the route.** All four roles keep reaching the five
+reads on `read_entities`; the capability decides only whether that response carries the NAME field
+(`full_name` / `org_name` / `name`). An `analyst` gets the pre-ruling response byte for byte. The
+check therefore lives in `AdminIdentityService`, not in a second `@RequireAdminRole` — a route
+declares exactly one capability by design. Every disclosure is charged to a per-admin hourly/daily
+name budget (`ADMIN_IDENTITY_MAX_PER_{HOUR,DAY}`, default 300/1000, its own `admin_identity:*`
+Redis namespace) and writes an `admin.identity_viewed` row **before** anything is decrypted; an
+over-budget read degrades to the faceless projection rather than failing, so an identity control
+can never take out the `read_entities` floor beside it.
 
 ### 3.2 Enforcement mechanism
 
@@ -331,6 +365,21 @@ failure. `null`/unknown role → **deny** (fail-closed), never a privileged defa
 ## Decision 4 — PII-reveal policy: reason-gated, role-gated, audited, rate-limited, never bulk
 
 **Decided + MANDATORY security-engineer sign-off. This is the most sensitive admin capability.**
+
+> **PARTIALLY REVERSED, 2026-08-18 (owner ruling).** The "faceless entity list" half of this
+> decision — every admin row an opaque uuid, no names anywhere — is withdrawn: a console in which
+> every row is a uuid cannot be used to operate the product. Worker names now appear on the
+> workers LIST and DETAIL, organisation names on Companies/Agencies, admin names on the directory,
+> behind the new `read_identity` capability (§3.1) for `super_admin` / `ops_admin` / `support`;
+> `analyst` is denied. The CTO was shown the detail-only recommendation for v1 and chose both.
+>
+> **Everything below still stands unchanged for CONTACT PII.** `workers.phone_e164` remains
+> reachable only through `POST /admin/workers/:id/reveal-contact` with all eight controls; the
+> name path is a separate capability, a separate Redis budget, a separate audit event, and it
+> never touches a phone, an email, or `mfa_secret_enc`. The two are deliberately not merged —
+> a name is a bulk egress that needed a bulk-shaped control (charged per name disclosed, bounded
+> at 50 per response), and a reveal is a single-subject act that needed a reason code. Sharing one
+> budget would have let routine console browsing exhaust the incident-response budget.
 
 Worker contact PII (`workers.phone_e164`) is encrypted at rest; the only decryptor is
 [`PiiCryptoService.decrypt`](../../apps/api/src/common/pii-crypto.service.ts). Support
@@ -412,8 +461,17 @@ enums + codes only:
 | `admin.action_performed` | the **target entity** (`payer`/`worker`/`job_posting`/…) | `{ admin_id, action_code, target_id }` — **action CODE + target id only, NO values** | one row per governed mutation; the *what-changed* is the action code, never old/new values |
 | `admin.pii_viewed` | `worker` | `{ admin_id, worker_id (== subject), reason_code }` — **NEVER the PII value** | the Decision-4 audit fact; emitted **before** the value is returned |
 
-The faceless rule holds: `admin_id`/`target_id`/`worker_id` are opaque UUIDs; admin email,
-worker phone/name, and any reveal value **never** appear. `admin.action_performed` carries an
+Two further events were added by the 2026-08-18 identity ruling, both PII-FREE on the same terms:
+
+| Event | Subject | Payload (PII-free) | Notes |
+|---|---|---|---|
+| `admin.identity_viewed` | `admin_session` | `{ admin_id, surface, subject_id, result_count }` — `surface` is a closed enum (`workers \| payers \| admins`); `subject_id` is the entity on a DETAIL read and **null on a list**; **never a name** | one row per RESPONSE, never per subject — fifty rows a page view would turn the spine into a queryable "which workers has anyone looked at" index, which is an inference surface a privacy control must not be the thing to create. Emitted **before** any decrypt; awaited, fail-closed |
+| `admin.identity_cap_exceeded` | `admin_session` | `{ admin_id, window }` (enum: `hour \| day`) — **no surface, no subject id, no name** | the velocity breach. A cap trip is about an ACCOUNT, and naming the screen would let the alert stream be read as a coarse browsing history. Emitted in addition to the degraded (faceless) response, and its own failure is logged rather than thrown — see Decision 4's reversal note |
+
+The faceless rule holds where it still applies: `admin_id`/`target_id`/`worker_id` are opaque
+UUIDs; admin email, worker phone, and any reveal value **never** appear. Since 2026-08-18 a
+worker/organisation/admin NAME may appear in a RESPONSE BODY on the five identity reads — never
+in an event payload, a log line, or a bound query parameter. `admin.action_performed` carries an
 **action code**, never the changed values, so the spine learns *that* a payer was suspended (and
 by whom) without leaking anything sensitive — consistent with how `pricing.*` records changed
 field **keys** not values.
@@ -569,3 +627,70 @@ actions, or the PII-reveal:
   [`main.ts`](../../apps/api/src/main.ts) (`assertPayerAuthConfig`)
 - The console: [`apps/web/src/lib/api.ts`](../../apps/web/src/lib/api.ts)
 - CLAUDE.md §2 invariants 1, 2, 7, 8; §3 locked stack; §7 escalation; §8 deferred
+
+---
+
+## Amendment 1 (2026-08-19) — the admin READ audit events (Decision 6 enumeration extended)
+
+**Status:** ACCEPTED. Additive amendment to a signed ADR — Decision 6's ENUMERATION is extended;
+none of its decisions, and no other decision in this document, is altered. The original text
+above stands unedited, per the amendment convention ADR-0022/ADR-0026 already use.
+
+**Why this exists.** Decision 6 enumerated four events, all of them audits of a MUTATION or of a
+PII reveal. Two audits of a READ have since shipped, and the enumeration did not follow them:
+
+- `admin.worker_journey_viewed` shipped with Phase 6 (the worker-journey reads) **without being
+  added here at all**. That is the drift this amendment closes first — the ADR is the document
+  reviewers check the event set against, so an event that exists only in `registry.ts` is one
+  nobody agreed to.
+- `admin.feedback_viewed` is added now, for `GET /admin/feedback`.
+
+**The principle Decision 6 did not state, because it had no read events yet:** an admin READ is
+audited when it returns something materially more sensitive than an entity snapshot — a
+BEHAVIOURAL profile of one person, or worker-authored FREE TEXT — even though the capability is
+the `read_entities` floor all four roles hold. Broad access is the reason the trail must exist,
+not a reason it need not. Ordinary faceless reads (`/admin/workers`, `/admin/payers`,
+`/admin/finance/*`, `/admin/dashboard/summary`) stay unaudited; a read is not a state change,
+and auditing all of them would bury the two that matter.
+
+**Amended 2026-08-18.** Those same routes now emit `admin.identity_viewed` **when, and only when,
+they actually disclose a name.** That is the principle above applied unchanged, not an exception
+to it: a decrypted name IS materially more sensitive than an entity snapshot. The faceless
+response on the identical route still emits nothing — an `analyst`'s `/admin/workers` is exactly
+as unaudited as it was — so what is audited is the disclosure, never the read.
+
+| Event | Subject | Payload (PII-free) | Notes |
+|---|---|---|---|
+| `admin.worker_journey_viewed` | `worker` | `{ admin_id, subject_id, view, chat_session_id }` — a closed `view` enum (`journey_summary \| chat_session`); **never a question key, status, count or free text** | the Phase-6 funnel / one interview session in depth. Emitted **after** the 404 check (so an unknown id leaves no row and the stream is not an enumeration oracle) and **before** the read completes; awaited, fail-closed. For the session read the subject worker is taken off the session ROW, never from the path. `GET /admin/workers/:id/chat-sessions` is deliberately NOT audited — it is an index of session ids/timings, and both reads it leads to are audited themselves |
+| `admin.feedback_viewed` | `admin_session` | `{ admin_id, worker_id, category, result_count }` — the filters as applied + how many rows came back; **never message text, an excerpt, or a length** | `GET /admin/feedback`, the ONE admin read that projects worker-authored prose. Awaited and fail-closed. Emitted **after the rows are fetched and before they are returned** — the one deviation from audit-before-read, because `result_count` does not exist until the query has run; the guarantee is unchanged, since an awaited emit means no words reach the caller unless the audit row committed first |
+
+**The subject-type decision on `admin.feedback_viewed`, recorded because it is the contestable
+one.** Decision 6 says an admin event's subject is "the target entity", and `admin.pii_viewed`
+and `admin.worker_journey_viewed` both follow it with `worker`. Neither route can do otherwise:
+their worker id is a PATH PARAMETER. `GET /admin/feedback` takes an OPTIONAL `workerId` filter,
+so the same route serves both a one-worker read and a page spanning many.
+
+A per-request subject type would be worse than a uniform one rather than more precise. Filing
+the filtered reads under `subject_type=worker` makes the obvious spine query — *"who has read
+worker W's feedback?"* — look COMPLETE while structurally omitting every unfiltered page that
+contained W's message; a reader would conclude nobody had read it. A trail that is silently
+partial on the axis people query it on is worse than one that is honestly about the reading ACT.
+So the subject is the `admin_session` (the `admin.pii_reveal_cap_exceeded` precedent, which uses
+it for the same reason), and the questions this event answers completely — *what did this admin
+read, under what narrowing, and how much came back* — are answered off `actor_id` +
+`event_name`. **Consequence, recorded rather than glossed:** `admin_session` is not in
+`ADMIN_TIMELINE_SUBJECT_TYPES`, so this event is not reachable from the admin-web entity
+timeline's subject filter — the same as `admin.pii_reveal_cap_exceeded` and
+`admin.kill_switch_pause_requested` today. Widening that enum is an admin-web-facing change and
+is deliberately NOT made here (CLAUDE.md §6).
+
+**Versioning.** Both are `version: 1` net-new names; nothing existing is mutated (§2 #8). The
+same release widens `feedback.submitted` with an OPTIONAL `screen_context` — one of the worker
+app's own screen constants (`WORKER_APP_SCREEN_TEMPLATES`), never a path — which stays v1 on the
+`agency_invite.created` precedent for an additive optional field.
+
+**Unchanged by this amendment:** the capability matrix (Decision 3 — no capability is minted;
+both reads stay on `read_entities`), the PII-reveal policy (Decision 4), the spine's
+append-only/read-only posture (Decision 5), and the OQ-7 review cadence. OQ-7 named
+`admin.pii_viewed` + `admin.action_performed` as the weekly review set; whether these two read
+audits join that cadence is an **owner process decision, not made here**.

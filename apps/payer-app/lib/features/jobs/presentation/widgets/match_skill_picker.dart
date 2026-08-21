@@ -85,8 +85,8 @@ class MatchSkillPicker extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.s3),
         Wrap(
-          spacing: 7,
-          runSpacing: 7,
+          spacing: AppSpacing.chipGap,
+          runSpacing: AppSpacing.chipGap,
           children: <Widget>[
             for (final MatchSkill skill in skills)
               _skillChip(skill),
@@ -229,8 +229,8 @@ class MatchSkillPicker extends StatelessWidget {
       if (s.related.isNotEmpty) ...<Widget>[
         const SizedBox(height: AppSpacing.s2),
         Wrap(
-          spacing: 7,
-          runSpacing: 7,
+          spacing: AppSpacing.chipGap,
+          runSpacing: AppSpacing.chipGap,
           children: <Widget>[
             for (final RelatedPreview rel in s.related)
               _relatedChip(rel),

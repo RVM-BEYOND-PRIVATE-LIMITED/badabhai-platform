@@ -47,8 +47,44 @@ import { SERVER_CONFIG } from "../config/config.module";
  * ABOVE the ai-service's own 20 s deadlines on both routes, so the SEMANTIC bound wins the race:
  * the far side degrades to a healthy 200 that says `parse_deadline_exceeded`, where this abort
  * would hand the processor a bare null indistinguishable from the service being down.
+ *
+ * ⚠ SPENT TWICE PER EXTRACTION JOB, and a WORKER IS BLOCKED ON THE TOTAL. `parseProfile` and
+ * Phase C's `extractInterview` both take this bound, sequentially, so one job's provider ceiling
+ * is 2 x this — and the worker app waits on that job behind a spinner. Raising this number
+ * without raising `kProfileExtractWaitBudget` in the worker app puts the timeout bug back.
  */
 const PROFILE_JOB_TIMEOUT_MS = 25_000;
+
+/**
+ * The transport budget for ONE Phase A interview turn.
+ *
+ * ABOVE THE FAR SIDE'S OWN DEADLINE (10 s — `profiling_turn_deadline_seconds`), which is the same
+ * discipline `parseProfile` states for itself (25 s over 20 s) and the opposite of what this call
+ * did. It passed no `timeoutMs` at all, so it took `post`'s 8 s default and ABORTED TWO SECONDS
+ * BEFORE the ai-service's own deadline could ever fire — making the far side's deadline
+ * unreachable from here by construction.
+ *
+ * WHY THAT INVERSION IS EXPENSIVE ON THIS ROUTE IN PARTICULAR. A `null` from a Phase A turn is
+ * not "retry it": `decide()` writes `llmFallback: true`, which `LlmTurnService.leads` treats as
+ * STICKY for the rest of the interview. So one turn that happened to take 8.5 s — a provider
+ * retry chain behind a 429, a cold model, a long transcript late in the conversation — ends the
+ * conversational interview permanently and hands the worker back to the deterministic pack, for a
+ * call that would have answered at 9 s. Every other consequence follows from that one: the
+ * fallback, the trade pack re-interrogating a worker the model had already interviewed, and the
+ * unsettled draft behind both.
+ *
+ * 13 s = the far side's 10 s deadline plus 3 s for request serialisation, the privacy gate, prompt
+ * resolution, `_parse_turn` and both HTTP hops. It is the SAME ratio `parseProfile` uses. IF
+ * `profiling_turn_deadline_seconds` MOVES, THIS MOVES WITH IT — a bound that drops back below it
+ * silently restores the inversion, and the only symptom is interviews that quietly stop being
+ * interviews.
+ *
+ * A WORKER IS WAITING ON THIS ONE, unlike the extraction bounds above. Thirteen seconds is a long
+ * chat turn; it is not longer than losing the interview, which is what the 8 s abort bought
+ * instead. The far side's 10 s deadline is what actually bounds the wait in the common case,
+ * because it degrades to a reply this client can read.
+ */
+const PROFILING_TURN_TIMEOUT_MS = 13_000;
 
 /**
  * TD81 — what the api can learn about the ai-service from ITS `GET /health`.
@@ -170,7 +206,10 @@ export class AiService {
    * session id, and never the payer's organisation name (ADR-0035 §Decision 3: the
    * chat does not ask for it and the AI service never receives it).
    */
-  async jobPostingChatOpening(tradeHint: string | null = null): Promise<string | null> {
+  async jobPostingChatOpening(
+    tradeHint: string | null = null,
+    ctx?: AiRequestContext,
+  ): Promise<string | null> {
     const key = tradeHint ?? "";
     const cached = this.jobPostingOpeningCache.get(key);
     if (cached !== undefined) return cached;
@@ -179,6 +218,8 @@ export class AiService {
       "/job-posting-chat/opening",
       { trade_hint: tradeHint },
       JobPostingChatOpeningOutputSchema,
+      undefined,
+      ctx,
     );
     const text = remote?.opening_text?.trim() ? remote.opening_text : null;
     if (text !== null) this.jobPostingOpeningCache.set(key, text);
@@ -207,8 +248,15 @@ export class AiService {
    */
   async jobPostingChatRespond(
     input: JobPostingChatTurnInput,
+    ctx?: AiRequestContext,
   ): Promise<JobPostingChatTurnOutput | null> {
-    return this.post("/job-posting-chat/respond", input, JobPostingChatTurnOutputSchema);
+    return this.post(
+      "/job-posting-chat/respond",
+      input,
+      JobPostingChatTurnOutputSchema,
+      undefined,
+      ctx,
+    );
   }
 
   async extractProfile(
@@ -409,9 +457,23 @@ export class AiService {
     // null the processor can only read as `parse_service_unreachable`. The informative failure
     // has to be the reachable one, so the transport budget sits ABOVE the semantic one.
     //
-    // Safe to be this long because NOBODY IS WAITING: the only caller is the BullMQ extraction
-    // job, minutes after the interview closed. The default 8 s was a chat-shaped budget applied
-    // to a queue-shaped call.
+    // SOMEBODY IS WAITING, and this comment used to say otherwise — "safe to be this long
+    // because NOBODY IS WAITING: the only caller is the BullMQ extraction job, minutes after the
+    // interview closed". The queue-shaped half is true; the conclusion was not. The worker app
+    // blocks on this job the moment they tap "Ho gaya — meri profile banaiye", polling
+    // `GET /workers/me/ai-jobs/{id}` on a fixed budget, and it showed them "Profile taiyaar nahi
+    // ho payi" while the server was still working — then completed, billed and stored the profile
+    // they had just been told they did not have.
+    //
+    // THE BUDGET STAYS 25 s. Shortening it would only fail extractions sooner and lose profiles;
+    // the client is what was mis-sized. But this job spends this bound TWICE — `/profile/parse`
+    // here and Phase C's `/profiling/extract` below, sequentially — so the STRUCTURAL CEILING a
+    // client must clear is ~50 s of provider time plus queue pickup, the gates, the projector and
+    // the write. `kProfileExtractWaitBudget` in `apps/worker-app/lib/core/api/api_client.dart`
+    // now carries that arithmetic and 90 s of margin.
+    //
+    // ANY CHANGE TO THIS CONSTANT MOVES THAT CEILING. Raise it and the client budget must move
+    // with it, or this bug comes back exactly as it was — silently, and only on the real path.
     return this.post(
       "/profile/parse",
       input,
@@ -433,8 +495,16 @@ export class AiService {
    * slow. The far side already collapses its own failures to an empty `reply_text`; this
    * normalises that to `null` so there is exactly one fallback trigger.
    */
-  async llmTurn(input: LlmTurnInput): Promise<LlmTurnOutput | null> {
-    const out = await this.post("/profiling/turn", input, LlmTurnOutputSchema);
+  async llmTurn(input: LlmTurnInput, ctx?: AiRequestContext): Promise<LlmTurnOutput | null> {
+    // BL-19: without the caller's ctx every turn of ONE interview minted its own id, so a
+    // twelve-turn conversation landed as twelve unrelated traces on the far side.
+    const out = await this.post(
+      "/profiling/turn",
+      input,
+      LlmTurnOutputSchema,
+      PROFILING_TURN_TIMEOUT_MS,
+      ctx,
+    );
     if (out === null || !out.reply_text.trim()) return null;
     return out;
   }
@@ -482,11 +552,17 @@ export class AiService {
    * must not be treated as one: it means the text carried PII the gateway would not mask, which
    * is a definitive "do not store this", not an outage.
    */
-  async pseudonymize(text: string): Promise<PseudonymizationOutput | null> {
+  async pseudonymize(text: string, ctx?: AiRequestContext): Promise<PseudonymizationOutput | null> {
+    // BL-19: the BODY's `request_id` is part of the Python contract and stays, but it is
+    // resolved HERE so it is the SAME value `post()` puts on `x-request-id` — it used to be a
+    // third, independently minted id that agreed with neither header.
+    const requestId = ctx?.requestId || randomUUID();
     return this.post(
       "/pseudonymize",
-      { text, request_id: randomUUID() },
+      { text, request_id: requestId },
       PseudonymizationOutputSchema,
+      undefined,
+      { requestId, correlationId: ctx?.correlationId ?? null },
     );
   }
 
@@ -496,11 +572,25 @@ export class AiService {
    * unreachable — the caller treats null exactly like UNRESOLVED (a posting is
    * NEVER blocked or failed by canonicalization; the raw phrase is kept either way).
    * SG-3 rides the contract: skill_id is only ever a vector-layer-assigned id.
+   *
+   * PHASE 1.5 — `input` carries EXACTLY ONE domain: the LEGACY `domain_id` slug or the
+   * CANONICAL `job_domain_id` (`jd_*`), which resolves candidates through
+   * `job_domain_skill` and is the only way to reach a skill whose legacy domain is NULL.
+   * The contract's refine states the rule; this method does not re-validate it, and that
+   * is deliberate — throwing here would convert a caller bug into a failed posting write,
+   * where the fail-soft posture is that a malformed body 422s on the far side, `post()`
+   * returns null, and the phrase is simply treated as UNRESOLVED.
+   *
+   * `phrase` is worker/payer free text and is pseudonymized FAIL-CLOSED on the other side
+   * before any embed (SG-1); neither domain id is PII.
    */
   async canonicalizeSkill(
     input: SkillCanonicalizationInput,
+    ctx?: AiRequestContext,
   ): Promise<SkillCanonicalization | null> {
-    return this.post("/skills/canonicalize", input, SkillCanonicalizationSchema);
+    // BL-19: the caller fans this out one call per phrase, so without a shared ctx a
+    // ten-skill posting produced ten disconnected traces for one write.
+    return this.post("/skills/canonicalize", input, SkillCanonicalizationSchema, undefined, ctx);
   }
 
   /**

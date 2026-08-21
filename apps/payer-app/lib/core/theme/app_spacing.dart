@@ -31,6 +31,19 @@ class AppSpacing {
   // layout rails
   static const double gutter = 20; // mobile screen padding
   static const double appMax = 440; // worker mobile canvas
+
+  // Sub-grid gaps — off the 4px grid but design-intentional and repeated across
+  // tight stacks (label→value, badge/chip rows). Named so the exact value is
+  // referenced, never re-picked ad hoc (#1080). Do NOT snap these to the grid.
+  static const double gap2 = 2;
+  static const double gap3 = 3;
+  static const double gap6 = 6;
+  static const double chipGap = 7; // Wrap spacing between chips/badges
+
+  // Fixed component dimensions — off-grid, exact pixel values (#1080). Kept
+  // named rather than snapped so the original size is preserved verbatim.
+  static const double brandMark = 56; // login brand tile (between s9=48/s10=64)
+  static const double labelCol = 104; // fixed label column (draft preview)
 }
 
 /// Corner radii — JUL31 "rounded voice on a disciplined skeleton": **hard cap

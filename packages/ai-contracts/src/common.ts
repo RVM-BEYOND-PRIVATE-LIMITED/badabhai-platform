@@ -39,6 +39,42 @@ export const AICallMetadataSchema = z.object({
   attempt_count: z.number().int().nonnegative().default(0),
   candidates_tried: z.array(z.string()).default([]),
   failure_reason: z.string().nullable().default(null),
+  /**
+   * THE FINAL PROMPT AND COMPLETION, ALREADY THROUGH THE PSEUDONYMIZATION GATE — the only
+   * text on this contract, and the only text `ai_call_traces` (migration 0083) may store.
+   *
+   * ── WHY THESE HAD TO BE ADDED HERE, AND WHAT BREAKS WITHOUT THEM ────────────────────
+   * `z.object` STRIPS unknown keys (zod 3), silently. The python side has populated
+   * `AICallMetadata.prompt_text` / `response_text` since `AIRouter._record_trace_text`
+   * landed, and every one of those values was being dropped on the floor at
+   * `AiService`'s `schema.parse(await res.json())` — no error, no warning, no data. The
+   * writer then fell back to the API-side REQUEST OBJECT, which on a worker surface is
+   * the worker's own words with nothing taken out of them, because the pseudonymizer runs
+   * on the FAR side of this hop. So the absence of these two fields was not a gap in a
+   * diagnostic: it was the difference between storing masked text and storing raw text.
+   *
+   * ── WHAT THE VALUES ARE ─────────────────────────────────────────────────────────────
+   * Both are produced by `apps/ai-service/app/ai/router.py::_record_trace_text`, which is
+   * their only writer. It runs each through the SAME mask object the Langfuse SDK is
+   * handed (`masked_trace_text` → `app/pseudonymize.py`), so the store and the tracer
+   * share one rendering and one privacy gate. `prompt_text` is the flattened message list
+   * the router dispatched; `response_text` is the string the caller got back.
+   *
+   * ── AND WHAT THEY ARE NOT ───────────────────────────────────────────────────────────
+   * NOT a guarantee the text is clean. A pseudonymizer is a best-effort transform over
+   * free text and R32 measured the name gazetteer's recall as poor. Post-boundary means
+   * the gate RAN, not that it caught everything — which is why the store encrypts at rest
+   * and gates the read on a super-admin capability rather than treating this as safe.
+   *
+   * NULL IS THE NORMAL CASE, on three counts, and every consumer must handle it: the
+   * ai-service flag `AI_CALL_TRACE_TEXT_ENABLED` is default OFF; the surfaces that do not
+   * go through `AIRouter` (embeddings, STT, translate) never populate them; and an older
+   * ai-service that predates the field sends nothing at all. `.default(null)` keeps that
+   * last case a successful parse rather than a 500 on every AI call — the same
+   * additive-and-defaulted rule the diagnostics block above follows.
+   */
+  prompt_text: z.string().nullable().default(null),
+  response_text: z.string().nullable().default(null),
   created_at: z.string(),
 });
 export type AICallMetadata = z.infer<typeof AICallMetadataSchema>;

@@ -147,6 +147,24 @@ export const serverEnvSchema = z.object({
   // above: a Redis outage rejects (429) rather than uncapping the events table.
   WORKER_ACTIONS_PER_HOUR: z.coerce.number().int().positive().default(500),
   /**
+   * #997 — feedback submissions one AUTHENTICATED worker may send from the app-wide Feedback
+   * button, per fixed UTC MINUTE and per fixed UTC HOUR. Both are applied, minute first.
+   *
+   * TWO BUCKETS BECAUSE THEY ANSWER DIFFERENT QUESTIONS, and one cannot express the other.
+   * The minute cap is the product rule: a human typing a paragraph about a problem cannot
+   * honestly exceed 3 in sixty seconds. The hour cap is the abuse backstop — a scripted client
+   * pacing itself at exactly 3/min stays under the minute rule forever, so without it the write
+   * path into an UNBOUNDED FREE-TEXT column is effectively uncapped. Expressing "3 per minute"
+   * as an hourly number is not equivalent either: 180/hour permits all 180 inside ten seconds,
+   * because `SubjectRateLimit` is a FIXED calendar bucket rather than a sliding window.
+   *
+   * Size both for 2x across their boundary (a caller may legitimately spend the full cap at
+   * :59 and again at :00), and expect no honest client to ever see either. Same fail-closed
+   * idiom as the caps above: a Redis outage rejects (429) rather than uncapping the write.
+   */
+  WORKER_FEEDBACK_PER_MINUTE: z.coerce.number().int().positive().default(3),
+  WORKER_FEEDBACK_PER_HOUR: z.coerce.number().int().positive().default(20),
+  /**
    * PAY-SEC-07 — per-payer hourly cap on the AI job-posting chat. Each message is a PAID LLM
    * call, so this route is a direct spend surface: uncapped, one authenticated payer can bill
    * the platform without limit. Sized for a generous drafting session (a posting takes ~10-20
@@ -408,9 +426,28 @@ export const serverEnvSchema = z.object({
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(30),
   OTP_MAX_SENDS_PER_HOUR: z.coerce.number().int().positive().default(5),
-  // Per-IP hourly cap on the UNAUTHENTICATED worker OTP endpoint — the worker analogue of
-  // PAYER_AUTH_MAX_PER_IP_PER_HOUR / ADMIN_AUTH_MAX_PER_IP_PER_HOUR, and deliberately the
-  // same magnitude as both.
+  // THE PRIMARY SENDER GATE on the unauthenticated worker OTP routes (#1035): how many sends
+  // one HANDSET may ask for in a rolling UTC hour, keyed on the `X-Device-Id` the worker app
+  // already puts on every request. A caller that sends no usable device id falls back to the
+  // per-IP bucket AT THIS SAME NUMBER, so an older client sees exactly the pre-#1035 ceiling.
+  //
+  // WHY THE DEVICE AND NOT THE ADDRESS. `TRUST_PROXY_HOP_COUNT` defaults to 0 and the shipped
+  // topology has no reverse proxy, so `req.ip` is the socket peer — i.e. the NAT egress
+  // address. Indian mobile carriers run large-scale CGNAT, so a single public IP can front
+  // thousands of Jio/Airtel subscribers, and a factory or office wifi fronts everyone
+  // standing in it. Keyed that way, a handful of legitimate sign-ins locks out every other
+  // worker behind the same NAT, the 429 they get is indistinguishable from the platform being
+  // down, and — because the bucket is the NETWORK — changing your phone number does not reset
+  // it. That is exactly how #1035 was reported.
+  //
+  // 20 IS A CEILING FOR ONE PHYSICAL HANDSET, not for a network, which is what lets it stay
+  // this tight: a worker signing in, mistyping and resending stays far below it, and so does
+  // a friend's handset borrowed by three people. Rotating device ids evades it (a reinstall
+  // mints a new one) and that is bounded deliberately by the SPEND caps below rather than
+  // here — see OTP_MAX_SENDS_PER_HOUR / _PER_DAY and the global breaker.
+  OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // THE CRUDE PER-NETWORK FLOOD CEILING ABOVE THAT SENDER GATE — no longer the limit a
+  // legitimate worker can hit, and it must never become one again (#1035).
   //
   // WHY IT IS ITS OWN KNOB. The controller used to pass OTP_MAX_SENDS_PER_HOUR here, which
   // reads as a tidy reuse and is a category error: that number is a per-PHONE SMS budget
@@ -420,20 +457,51 @@ export const serverEnvSchema = z.object({
   // accident — which made the WORKER path, the one used by the people this platform is
   // FOR, the tightest per-IP cap on the platform.
   //
-  // AND THE WORKER PATH IS THE WORST PLACE FOR THAT. `TRUST_PROXY_HOP_COUNT` defaults to 0
-  // and the shipped topology has no reverse proxy, so `req.ip` is the socket peer — i.e.
-  // the NAT egress address. Indian mobile carriers run large-scale CGNAT, so a single
-  // public IP can front thousands of Jio/Airtel subscribers, and a factory or office wifi
-  // fronts everyone standing in it. At 5/hour a handful of legitimate sign-ins locks out
-  // every other worker behind the same NAT, and the 429 they get is indistinguishable from
-  // the platform being down.
+  // WHY 1000 AND NOT SOMETHING TIGHTER. Whatever this number is, an attacker reaches it by
+  // rotating device ids — fifty of them at the per-device cap — so a tighter value buys no
+  // real defence while risking the outage above: this bucket can be an entire CGNAT pool, and
+  // the moment it is the binding constraint, workers who merely share a carrier lock each
+  // other out. Its only job is that one socket cannot trivially flood the send path. It is
+  // DELIBERATELY no longer the same magnitude as PAYER_AUTH_MAX_PER_IP_PER_HOUR /
+  // ADMIN_AUTH_MAX_PER_IP_PER_HOUR — those gate portal logins from office networks, not
+  // handsets behind carrier NAT. If a real shared network ever hits this, raise it.
   //
   // THE PER-PHONE CAPS ARE UNCHANGED AND ARE WHAT BOUND SMS SPEND: OTP_MAX_SENDS_PER_HOUR
   // (5/number/hour), OTP_MAX_SENDS_PER_DAY (10/number/day), the resend cooldown, and the
   // platform-wide OTP_GLOBAL_MAX_SENDS_PER_DAY breaker. Raising the per-IP cap widens how
   // many DISTINCT numbers may be tried from one network; it does not let any one number be
   // texted more, so the spend ceiling is untouched.
-  OTP_MAX_SENDS_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  OTP_MAX_SENDS_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(1000),
+  // THE SAME TWO-TIER SHAPE ON /auth/otp/verify (#1132), and its OWN pair of knobs rather
+  // than a reuse of the send caps above — that reuse reads tidy and is a category error, the
+  // same one the per-IP knob above was split out to fix.
+  //
+  // WHY VERIFY NEEDS A LOOSER NUMBER THAN SEND. Sends and verifies are not one-to-one: each
+  // send licenses up to OTP_MAX_ATTEMPTS (5) verify calls, so a handset INSIDE its send budget
+  // can legitimately produce 20 x 5 = 100 verifies in the same hour. That is where this
+  // default comes from — it is DERIVED from the two constants above, not picked.
+  //
+  // AND WHY THE HEADROOM ON TOP MATTERS. The verify caps run OUTSIDE `runOnce`, deliberately
+  // (see auth.controller.ts): that is the only placement that stops an unauthenticated caller
+  // minting idempotency reservations into a `noeviction` Redis ahead of every control. The
+  // cost of that placement is that `AuthedClient` reuses ONE key across up to three transport
+  // retries, so a single logical verify can spend up to THREE units here, where the send route
+  // — capping inside the guarded work — spends one. A worker on a flaky link mistyping a code
+  // must not exhaust this: being locked out of VERIFY is worse than being locked out of SEND,
+  // because they are holding a valid code they cannot spend.
+  //
+  // THIS IS NOT THE BRUTE-FORCE CONTROL and must not be tightened as though it were. Guessing
+  // one number stays bounded where it already was — `otp:attempts:<phoneHash>` + OTP_MAX_ATTEMPTS
+  // inside OtpService.verify, which is per PHONE and untouched by this. This cap bounds VOLUME
+  // from one handset, nothing else, and a verify costs no SMS and no provider call.
+  OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR: z.coerce.number().int().positive().default(100),
+  // The network backstop above that verify sender gate, at the same ~50x ratio the send pair
+  // uses and for the same reason: this bucket can be an entire CGNAT pool, so the moment it
+  // becomes the binding constraint, workers who merely share a carrier lock each other out
+  // (#1035). Its only job is that one socket cannot trivially flood the verify path. An
+  // attacker reaches any value here by rotating device ids, so a tighter number buys no real
+  // defence while risking that outage. If a real shared network ever hits this, raise it.
+  OTP_MAX_VERIFY_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(5000),
   // Per-phone DAILY send ceiling backstopping the hourly cap: an abuser pacing just
   // under OTP_MAX_SENDS_PER_HOUR could still burn paid SMS all day against one number.
   // Generous default — a legit worker re-logging in stays far below it. Trips the SAME
@@ -554,6 +622,66 @@ export const serverEnvSchema = z.object({
   // Redis error DENIES (never uncaps). An over-cap denial emits a PII-free breach event.
   ADMIN_PII_REVEAL_MAX_PER_HOUR: z.coerce.number().int().positive().default(10),
   ADMIN_PII_REVEAL_MAX_PER_DAY: z.coerce.number().int().positive().default(30),
+  // Per-ADMIN NAME-egress caps (ADR-0025 Decision 4, reversed 2026-08-18) over the same FIXED
+  // UTC hour + UTC day windows as the reveal cap above, counted in the SEPARATE
+  // `admin_identity:*` Redis namespace by the same fail-closed AdminEgressCapService. The
+  // windows are calendar-aligned, not sliding, so the hourly figure is burstable to ~2x across
+  // an hour boundary; the daily cap is what bounds that — see
+  // `AdminEgressCapService.utcHourStamp`. A SECOND budget rather than a share of the reveal's,
+  // because these bound a DIFFERENT egress: the reveal hands over one worker's phone on a
+  // reason-gated route, while an entity LIST hands over up to `limit` names in one request —
+  // one `?limit=100` page would consume ten times the entire hourly reveal budget, so without
+  // its own budget the reveal cap is bypassed simply by paging a list.
+  //
+  // The counters advance by the number of names ACTUALLY disclosed (never the page size), so
+  // the defaults are sized in names, not requests: 300/hour ≈ six full 50-row pages of named
+  // workers, 1000/day. An over-cap read still serves the FACELESS projection — the identity cap
+  // must never take out the `read_entities` floor beside it — and emits a PII-free
+  // `admin.identity_cap_exceeded`. Redis error ⇒ DENY (never uncaps).
+  ADMIN_IDENTITY_MAX_PER_HOUR: z.coerce.number().int().positive().default(300),
+  ADMIN_IDENTITY_MAX_PER_DAY: z.coerce.number().int().positive().default(1000),
+
+  // AI CALL TRACE READ (migration 0083) — the whole `/admin/ai-traces` surface, list and
+  // decrypt alike. Master switch, DEFAULT OFF, and `booleanFromString` so a falsey string stays
+  // OFF (the same fail-safe-to-inert posture as ADMIN_PII_REVEAL_ENABLED and
+  // AI_ENABLE_REAL_CALLS).
+  //
+  // OFF ⇒ a NEUTRAL 404 for EVERY authenticated admin role, on BOTH routes — indistinguishable
+  // from a route that does not exist, so the feature's existence is not observable while it is
+  // disabled. That is enforced by `AdminAiTraceFlagGuard`, which is listed AHEAD of
+  // `AdminRolesGuard` in the controller's `@UseGuards`. The ordering is the control: as a check
+  // inside the handler (where this started) the roles guard ran first and three of the four
+  // roles got a 403 — a clean oracle saying the surface is real and merely closed.
+  //
+  // ⚠ NOT DECLARED IN ANY COMPOSE FILE, deliberately and in line with its two siblings
+  // (ADMIN_PII_REVEAL_ENABLED and ADMIN_IDENTITY_* are likewise undeclared). Compose forwards
+  // only names it declares, so this flag cannot be armed from the staging box today, and that
+  // is the intended posture until the owner has ruled on the surface's capability split (see
+  // `admin-ai-traces.controller.ts`). Arming it is one `${ADMIN_AI_TRACE_READ_ENABLED:-false}`
+  // line in `docker-compose.staging.yml`'s `api.environment:` — `:-`, never a bare `-`.
+  ADMIN_AI_TRACE_READ_ENABLED: booleanFromString,
+  // Per-ADMIN trace-decrypt caps, over the same FIXED UTC hour + UTC day windows as the two caps
+  // above and on their OWN `admin_ai_trace:*` Redis namespace — a THIRD budget, not a share of
+  // either existing one. The reveal budget bounds phone disclosures on an incident route; the
+  // identity budget bounds names, and is sized in the hundreds because a page of fifty names is
+  // one ordinary screen. Charging trace decrypts to either would mean one afternoon of debugging
+  // an interview exhausts an incident-response budget, or — worse in the other direction —
+  // that 300/hour of name headroom silently authorises 300 whole prompts.
+  //
+  // Sized in DISCLOSURES, and deliberately small: 20/hour and 60/day is a debugging session, not
+  // a corpus. Reading traces is what an engineer does with ONE reported bad interview; anything
+  // that looks like bulk export of what workers said is the thing this cap exists to stop, and
+  // there is no list/range/batch decrypt route for it to hide behind (single `:id` only).
+  // Fail-closed: a Redis error DENIES, never uncaps.
+  //
+  // ⚠ IF THESE ARE EVER DECLARED IN COMPOSE, THE FORM IS `${VAR:-20}` / `${VAR:-60}` AND NEVER
+  // `${VAR:-}`. `z.coerce.number()` turns `""` into `0`, `.positive()` rejects it, and
+  // `loadServerConfig` throws — i.e. every boot on that box dies, which is the BL-21 trap
+  // `real-provider-boolean-flags-compose.guard.test.ts`'s `DEFERRED_STRING_SECRETS` block
+  // exists to keep people out of. Pinned by `config.test.ts`, which asserts the `""` throw
+  // rather than leaving it to be discovered on the box.
+  ADMIN_AI_TRACE_MAX_PER_HOUR: z.coerce.number().int().positive().default(20),
+  ADMIN_AI_TRACE_MAX_PER_DAY: z.coerce.number().int().positive().default(60),
 
   // Payer email-OTP delivery channel (ADR-0019; the email analogue of SMS_PROVIDER).
   // REAL-ONLY and RELEVANT when PAYER_LOGIN_METHOD="email_otp". There is NO "none"/mock

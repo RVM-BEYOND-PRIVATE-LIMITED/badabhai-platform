@@ -9,6 +9,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_scaffold.dart';
+import '../../../core/widgets/bb_scroll_safe_body.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../voice/data/session_voice_recorder.dart';
 import '../data/voice_preflight_probe.dart';
@@ -215,7 +216,9 @@ class _PreflightScreenState extends State<PreflightScreen> {
       PreflightVerdict.micDead => (_kMicDeadTitle, _kMicDeadBody),
     };
     final bool clean = state.verdict == PreflightVerdict.quiet;
-    return Center(
+    // Scroll-safe: the verdict + start CTA centre on a tall screen and scroll
+    // (never a RenderFlex overflow) on a short handset or at a large text scale.
+    return BbScrollSafeBody(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
@@ -226,7 +229,7 @@ class _PreflightScreenState extends State<PreflightScreen> {
           ),
           const SizedBox(height: AppSpacing.s4),
           Text(title,
-              style: AppTypography.display(size: 22),
+              style: AppTypography.display(size: AppTypography.sizeXl),
               textAlign: TextAlign.center),
           const SizedBox(height: AppSpacing.s2),
           Text(

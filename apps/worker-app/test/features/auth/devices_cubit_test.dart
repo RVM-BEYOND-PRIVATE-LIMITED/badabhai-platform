@@ -106,6 +106,9 @@ void main() {
     },
     act: (DevicesCubit c) => c.revoke('d-2'),
     expect: () => <DevicesState>[
+      // #1060 — revoke flags the in-flight device BEFORE awaiting, so the tile
+      // can show a spinner and block duplicate taps; the reload then clears it.
+      const DevicesState(status: DevicesStatus.loading, revokingId: 'd-2'),
       const DevicesState(status: DevicesStatus.loading),
       DevicesState(
         status: DevicesStatus.ready,
@@ -133,10 +136,12 @@ void main() {
     },
     act: (DevicesCubit c) => c.revoke('d-2'),
     expect: () => <DevicesState>[
+      // #1060 — the in-flight flag is emitted before the revoke is attempted…
+      const DevicesState(status: DevicesStatus.loading, revokingId: 'd-2'),
       const DevicesState(status: DevicesStatus.loading),
       DevicesState(
         status: DevicesStatus.ready,
-        // d-2 is STILL there — the revoke did not take.
+        // …and cleared by the reload — d-2 is STILL there, the revoke did not take.
         devices: <AuthDevice>[_device('d-1', isCurrent: true), _device('d-2')],
       ),
     ],
@@ -192,8 +197,10 @@ void main() {
     // The revoke itself still went out — the stolen device IS kicked off; only
     // the dead cubit's UI refresh is skipped.
     verify(() => manager.revokeDevice('d-2')).called(1);
-    // Nothing emitted, and no pointless re-fetch on a closed cubit.
-    expect(cubit.state, const DevicesState());
+    // #1060 — the in-flight flag was emitted while the cubit was still open
+    // (before the await), so it lingers harmlessly on the dead cubit; the reload
+    // is still skipped, so no pointless re-fetch on a closed cubit.
+    expect(cubit.state, const DevicesState(revokingId: 'd-2'));
     verifyNever(() => manager.listDevices());
   });
 

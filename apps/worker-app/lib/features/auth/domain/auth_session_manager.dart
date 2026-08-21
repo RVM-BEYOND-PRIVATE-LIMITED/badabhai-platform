@@ -148,6 +148,18 @@ class AuthSessionManager extends ChangeNotifier {
   /// Reset to 0 by a successful unlock and by a fresh OTP login.
   int _consecutivePinFailures = 0;
 
+  /// True from a successful forgot-PIN reset until the NEXT unlock attempt
+  /// resolves. The worker double-entered this PIN seconds ago via an OTP-verified
+  /// reset, so if that very next unlock is rejected the PIN cannot be the cause —
+  /// the stored refresh token is DEAD (the norm after the server DB is
+  /// re-created / a session is revoked), and `confirmPinReset` deliberately kept
+  /// that old token when it routed to [AuthStatus.locked]. Rather than trap the
+  /// worker on the keypad (type the PIN you JUST set → "wrong" → forever), the
+  /// first post-reset failure drops the dead session and routes to OTP login.
+  /// In-memory (the reset→unlock happens in one run); cleared as soon as an
+  /// attempt resolves either way. See [unlockWithPin] / [confirmPinReset].
+  bool _pinJustReset = false;
+
   /// After this many consecutive neutral PIN failures, stop blaming the PIN:
   /// drop the unusable session and send the worker to OTP login. Chosen to sit
   /// ABOVE the 3-try client nudge toward "PIN bhool gaye?" (so a worker who
@@ -401,6 +413,17 @@ class AuthSessionManager extends ChangeNotifier {
       // worker on the login screen where they choose to request one. It also
       // mirrors what the server already does on its own ladder (force_otp).
       if (failure.code == AuthErrorCode.pinVerifyFailed) {
+        // JUST RESET → a rejection is a DEAD TOKEN, not a wrong PIN. The worker
+        // double-entered this PIN seconds ago via an OTP-verified reset, so
+        // don't make them fail 5 times (or restart, which resets the counter)
+        // to escape the trap `confirmPinReset` leaves when it keeps the old
+        // token — drop it and route to OTP login on the FIRST failure.
+        if (_pinJustReset) {
+          _pinJustReset = false;
+          _consecutivePinFailures = 0;
+          await _wipeAndLogOut();
+          throw const AuthFailure(AuthErrorCode.reauthRequired);
+        }
         _consecutivePinFailures++;
         if (_consecutivePinFailures >= _maxPinFailuresBeforeReauth) {
           _consecutivePinFailures = 0;
@@ -410,9 +433,10 @@ class AuthSessionManager extends ChangeNotifier {
       }
       rethrow;
     }
-    // A verified PIN proves the session was alive — clear the trap counter so a
-    // later genuine typo starts from zero.
+    // A verified PIN proves the session was alive — clear the trap counter (and
+    // the post-reset flag) so a later genuine typo starts from zero.
     _consecutivePinFailures = 0;
+    _pinJustReset = false;
     _captureSessionView(result.tokens); // F5
     // GAP A: persist the rotated tokens so the next cold start stays on the fast
     // path with the freshest refresh token.
@@ -462,15 +486,49 @@ class AuthSessionManager extends ChangeNotifier {
   /// must log in again ([loggedOut]). Throws [AuthFailure] on a bad OTP (401 →
   /// otpInvalid) or a weak/format PIN (400 → pinWeak).
   Future<void> confirmPinReset(String phoneE164, String otp, String pin) async {
-    await _authApi.pinResetConfirm(phoneE164, otp, pin);
+    final OtpVerifyResult result =
+        await _authApi.pinResetConfirm(phoneE164, otp, pin);
     // #352: the reset just set a NEW PIN — record it, or the worker who resets
     // and then cold-starts would be sent to set-PIN again.
     _pinSet = true;
     if (_persistentAuthEnabled) await _tokenStore.writePinSet(true);
+
+    // A6/#998: the reset now returns a LIVE, device-bound session. When it carries
+    // real tokens, CONSUME them directly — persist + bridge + AUTHENTICATE — so the
+    // worker is not bounced to `locked` against the OLD (possibly dead) refresh
+    // token. That fallback is the trap that looped "reset PIN → told it's wrong"
+    // forever: the worker double-entered this PIN seconds ago via an OTP-verified
+    // reset, so there is nothing left to prove.
+    if (result.tokens.refresh.isNotEmpty && result.tokens.access.isNotEmpty) {
+      _consecutivePinFailures = 0;
+      _pinJustReset = false;
+      _captureSessionView(result.tokens);
+      if (_persistentAuthEnabled) {
+        await _persistTokens(result.tokens);
+        await _tokenStore.writeWorkerId(result.workerId);
+      }
+      _consentAccepted = result.consentAccepted;
+      _bridge(
+        accessToken: result.tokens.access,
+        workerId: result.workerId,
+        phone: phoneE164,
+      );
+      _session.setDeletionScheduledFor(result.deletionScheduledFor);
+      _setStatus(AuthStatus.authenticated);
+      return;
+    }
+
+    // LEGACY back-compat: an older server that still answers 204 (empty body)
+    // mints no session here, so keep the pre-A6 behaviour — unlock with the new
+    // PIN when a token is on file (armed with the dead-token escape in
+    // [unlockWithPin]), else a fresh OTP login.
     final String? refresh = await _tokenStore.readRefreshToken();
-    _setStatus((refresh != null && refresh.isNotEmpty)
-        ? AuthStatus.locked
-        : AuthStatus.loggedOut);
+    if (refresh != null && refresh.isNotEmpty) {
+      _pinJustReset = true;
+      _setStatus(AuthStatus.locked);
+    } else {
+      _setStatus(AuthStatus.loggedOut);
+    }
   }
 
   // --- Lifecycle re-lock ----------------------------------------------------

@@ -128,10 +128,10 @@ describe("DS1.2 · StatTiles read live counts (mono tabular)", () => {
     expect(p(byLabel("Contacts unlocked")!).value).toBe(2);
   });
 
-  it("shows the ₹ unlock price in mono tabular (.bb-mono) inside the balance tile", async () => {
+  it("shows the ₹ unlock price in mono tabular (.bb-mono) inside the balance tile caption", async () => {
     const tree = await render();
     const balance = findAll(tree, StatTile).find((t) => p(t).label === "Credit balance")!;
-    const monos = findByClass(p(balance).delta as ReactNode, "bb-mono");
+    const monos = findByClass(p(balance).caption as ReactNode, "bb-mono");
     expect(monos.length).toBeGreaterThan(0);
     expect(monos.map((m) => textOf(p(m).children as ReactNode)).join("")).toContain("₹40");
   });

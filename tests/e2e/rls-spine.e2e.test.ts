@@ -113,6 +113,33 @@ const LOCKED_TABLES = [
   // ── Voice profiling form (migration 0071) ───────────────────────────────────
   "worker_attributes", // 0071: the settled value of an `attribute`-kind answer (77% of the pack corpus had no destination before this) — trade facts keyed by an opaque worker_id, same class as worker_profiles; RLS+FORCE+REVOKE in migration 0071
   "profiling_voice_answer", // 0071: one row per recorded answer clip — opaque ids + question_key + status, NEVER a transcript (that stays on voice_notes); RLS+FORCE+REVOKE in migration 0071
+  // ── Canonical Domain→Skill taxonomy (migration 0076) ────────────────────────
+  // Listed late, and that is the finding rather than the fix: 0076 created these three
+  // tables and landed on `main` without this list being updated. The drift guard below did
+  // its job — it just had nothing to fail, because that commit bypassed `ci-required`. The
+  // first change in the workstream to actually run CI is what surfaced it.
+  "job_domain_skill", // 0076: the canonical trade -> skill materialization the employer's picker reads — reference data, PII-free (jd_*/skill_* ids, relevance, confidence); RLS+FORCE+REVOKE in migration 0076
+  "worker_profile_skill", // 0076: per-worker extracted skills keyed by an opaque worker_id — same class as worker_skill; evidence_ref is an OPAQUE INTERNAL ID, never a quote or transcript fragment; RLS+FORCE+REVOKE in migration 0076
+  "job_posting_skill", // 0076: the requirement an employer actually chose per posting — opaque posting id + closed-vocabulary skill id, PII-free; RLS+FORCE+REVOKE in migration 0076
+  // ── AI cost attribution (migration 0077) ────────────────────────────────────
+  "worker_ai_cost_totals", // 0077: per-worker running AI spend — opaque worker_id + ₹ + integer counts, no PII; the worker_id cascade IS the DSAR coverage; RLS+FORCE+REVOKE in migration 0077
+  "session_ai_cost_totals", // 0077: per-profiling-session running AI spend — opaque session/worker ids + ₹ + counts, never a transcript; RLS+FORCE+REVOKE in migration 0077
+  "platform_ai_cost_totals", // 0077: platform spend by (provider, task_type) — no worker linkage at all, locked anyway because the posture here is table-DEFAULT; RLS+FORCE+REVOKE in migration 0077
+  // ── Worker app feedback (migration 0080) ────────────────────────────────────
+  "worker_feedback", // 0080: worker-authored app feedback — the ONE table on this spine that may hold a worker's own free-text PII BY DESIGN, so a readable default here would leak personal prose across the whole worker base; DSAR erasure is the worker_id cascade; RLS+FORCE+REVOKE in migration 0080 (0081 adds screen_context, which inherits the table-level posture and re-applies nothing)
+  // ── AI call traces (migration 0083) ─────────────────────────
+  "ai_call_traces", // 0083: the prompt + completion of EVERY AI call, AES-256-GCM ciphertext with a CHECK that refuses prose — the largest concentration of worker text on the spine (worker_feedback is one worker's paragraph; this is every worker's every turn), so the ciphertext CHECK is the first lock and this is the second; DSAR erasure is the NOT NULL worker_id cascade; RLS+FORCE+REVOKE in migration 0083
+  // ── GAP-DB-21, modelled (migration 0084) ───────────────────────
+  // These four were the exception this list used to carry in prose: 0082 locked them on
+  // production behind a `to_regclass` guard and they were DELIBERATELY absent here, because
+  // this suite asserts set-equality against a freshly migrated database where they did not
+  // exist. 0084 creates them everywhere, so the exception is gone and they are ordinary
+  // members of the spine. All four hold 0 rows and nothing in the repository reads them.
+  "agency_profiles", // 0084: the agency-side 1:1 extension of a payer — PII-free today (type, cities, counts) but a payer-scoped table; RLS+FORCE+REVOKE in migration 0082, re-stated by 0084 for fresh databases
+  "employer_profiles", // 0084: the employer-side 1:1 extension of a payer — holds `gst_number_enc`, business PII ciphertext (and now a re-encrypt backfill target); RLS+FORCE+REVOKE in migration 0082, re-stated by 0084
+  "payer_capabilities", // 0084: the superseded per-payer boolean permission matrix (`payer_members.org_role` is the live model) — an authorization table, so a readable default would publish who may do what; RLS+FORCE+REVOKE in migration 0082, re-stated by 0084
+  "_delete_forensics", // 0086: the deletion trail #1110 found, DECLARED once the owner ruled it stays. It records that a worker row was destroyed and is keyed to the erased `worker_id`, so a readable default would publish exactly who has exercised their right to erasure — the one fact an erasure is supposed to end. `query` and `client_addr` were DROPPED by 0086; RLS+FORCE+REVOKE stated explicitly by 0086 (0082 had already swept it on production)
+  "payer_member_invites", // 0084: email invites into a payer org — `invited_email_enc` ciphertext plus `invite_token_hash`, a BEARER credential: a client that could read it could accept someone else's invite; RLS+FORCE+REVOKE in migration 0082, re-stated by 0084
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

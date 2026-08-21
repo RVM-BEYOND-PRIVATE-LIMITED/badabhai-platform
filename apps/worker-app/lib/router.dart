@@ -25,6 +25,7 @@ import 'features/kit/presentation/kit_detail_screen.dart';
 import 'features/kit/presentation/kit_screen.dart';
 import 'features/notifications/presentation/notifications_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
+import 'features/feedback/presentation/feedback_screen.dart';
 import 'features/invite/presentation/invite_screen.dart';
 import 'features/job_search/presentation/job_search_screen.dart';
 import 'features/applications/presentation/applied_jobs_screen.dart';
@@ -106,6 +107,10 @@ class Routes {
   static const String settings = '/profile/settings'; // (no bar)
   static const String appliedJobs =
       '/profile/applied'; // (no bar) — pushed from Profile, back → Profile
+
+  /// App-wide feedback page — pushed FULL-SCREEN from the floating Feedback
+  /// button that rides every non-auth screen (see [FeedbackFabOverlay]).
+  static const String feedback = '/feedback'; // (no bar)
 }
 
 /// Root navigator — onboarding routes and every "no bar" full-screen route render
@@ -378,7 +383,13 @@ GoRouter _buildRouter() {
       ),
       GoRoute(
         path: Routes.consent,
-        builder: (_, __) => const ConsentScreen(),
+        // Two arrivals, one screen. ONBOARDING (the default): consent is the
+        // first step and continues into /name. RECOVERY: a screen the worker was
+        // already using pushed consent to unblock itself and handed over a
+        // [ConsentReturnIntent] — that one gets a back arrow and pops its
+        // outcome instead of walking on into onboarding.
+        builder: (_, GoRouterState state) =>
+            ConsentScreen.fromExtra(state.extra),
       ),
       GoRoute(
         path: Routes.name,
@@ -395,6 +406,19 @@ GoRouter _buildRouter() {
       GoRoute(
         path: Routes.invite,
         builder: (_, __) => const InviteScreen(),
+      ),
+      // App-wide feedback page (CEO request) — pushed full-screen from the
+      // floating Feedback button on every non-auth screen. Root navigator so the
+      // push from any tab covers the shell; FeedbackScreen's BbAppBar has back.
+      GoRoute(
+        path: Routes.feedback,
+        // `extra` carries the route the worker was ON when they tapped the
+        // floating button — the one thing an admin reading "button kaam nahi kar
+        // raha" cannot otherwise recover. In-memory only (it survives neither a
+        // deep link nor state restoration), which is exactly right for OPTIONAL
+        // telemetry: absent, the feedback still sends.
+        builder: (BuildContext context, GoRouterState state) =>
+            FeedbackScreen(fromRoute: state.extra is String ? state.extra as String : null),
       ),
       GoRoute(
         path: Routes.profilePreview,

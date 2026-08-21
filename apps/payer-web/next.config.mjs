@@ -14,6 +14,11 @@
  * would pin the developer's browser to https for the whole domain.
  */
 
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 const securityHeaders = [
   // Stop the browser second-guessing a declared Content-Type.
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -39,6 +44,23 @@ const nextConfig = {
     // don't run Next's own ESLint during `next build`.
     ignoreDuringBuilds: true,
   },
+  // GAP-XC-06 (#920): the box container (apps/payer-web/Dockerfile) needs a lean,
+  // self-contained runtime image rather than shipping the whole builder tree —
+  // `standalone` traces only the files this app actually needs (including the
+  // workspace `@badabhai/config` / `@badabhai/pricing` / `@badabhai/validators`
+  // packages it imports) and emits a minimal `server.js`. VERIFIED SAFE for what
+  // this app actually uses, not assumed: no `middleware.ts` exists in this app;
+  // every Server Action / `next/headers` cookie read (`src/lib/auth/*`,
+  // `src/app/login/actions.ts`, etc.) is a standard App Router feature standalone
+  // output fully supports; there is no `next/image` usage anywhere in `src`, so no
+  // extra `sharp` dependency is needed in the runtime image.
+  output: "standalone",
+  // Monorepo root, explicit rather than inferred. Next infers the workspace root by
+  // walking up for a lockfile, which is usually right but prints a warning (and, in
+  // a Docker builder stage that COPYs the whole repo like apps/api/Dockerfile does,
+  // is worth pinning rather than trusting auto-detection silently picks the same
+  // root every time). This must match the Dockerfile's build context (repo root).
+  outputFileTracingRoot: path.join(__dirname, "../.."),
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

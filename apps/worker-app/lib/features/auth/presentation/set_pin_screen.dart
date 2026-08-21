@@ -6,6 +6,8 @@ import '../../../core/di/locator.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_blue_header.dart';
+import '../../../core/widgets/bb_scroll_safe_body.dart';
+import '../../../core/widgets/bb_spinner.dart';
 import '../../../router.dart';
 import '../domain/weak_pin.dart';
 import 'cubit/set_pin_cubit.dart';
@@ -65,9 +67,18 @@ class _SetPinViewState extends State<_SetPinView> {
   /// a second dialog on top of the first.
   bool _dialogOpen = false;
 
+  /// True during the brief "processing" beat between the first PIN and the
+  /// confirm step — the keypad is swapped for a loader and input is ignored.
+  bool _processing = false;
+
+  /// How long the loader shows before the confirm step. The instant switch was
+  /// too fast for the worker to register they'd moved to "confirm".
+  static const Duration _confirmDelay = Duration(seconds: 2);
+
   String get _buffer => _step == _Step.enter ? _first : _confirm;
 
   void _onDigit(String d) {
+    if (_processing) return;
     if (_buffer.length >= kPinLength) return;
     setState(() {
       if (_step == _Step.enter) {
@@ -80,6 +91,7 @@ class _SetPinViewState extends State<_SetPinView> {
   }
 
   void _onBackspace() {
+    if (_processing) return;
     setState(() {
       if (_step == _Step.enter && _first.isNotEmpty) {
         _first = _first.substring(0, _first.length - 1);
@@ -96,10 +108,7 @@ class _SetPinViewState extends State<_SetPinView> {
         _blockWeakPin();
         return;
       }
-      setState(() => _step = _Step.confirm);
-      // Explain the confirm step up front so the worker knows they must re-enter
-      // the SAME PIN (not a new one) — the header subtitle alone was easy to miss.
-      _promptConfirm();
+      _startConfirmTransition();
       return;
     }
     // Confirm step filled — must match.
@@ -114,6 +123,29 @@ class _SetPinViewState extends State<_SetPinView> {
       _confirm = '';
     });
     context.read<SetPinCubit>().submit(pin);
+  }
+
+  /// Hold a brief "processing" beat with a loader after the first PIN, THEN move
+  /// to the confirm step. The instant switch happened too fast for the worker to
+  /// notice they'd advanced; the loader makes the transition legible. Input is
+  /// ignored during the beat ([_processing]).
+  Future<void> _startConfirmTransition() async {
+    // Let the 4th dot finish its fill-pop BEFORE the keypad→loader swap (that
+    // same-frame layout change otherwise eats the pop the first three showed).
+    await Future<void>.delayed(BbPinView.fillPopSettle);
+    // A backspace during that beat drops the buffer below full — abort and let
+    // the worker keep typing rather than advancing a partial PIN.
+    if (!mounted || _first.length != kPinLength) return;
+    setState(() => _processing = true);
+    await Future<void>.delayed(_confirmDelay);
+    if (!mounted) return;
+    setState(() {
+      _processing = false;
+      _step = _Step.confirm;
+    });
+    // Explain the confirm step up front so the worker knows they must re-enter
+    // the SAME PIN (not a new one) — the header subtitle alone was easy to miss.
+    _promptConfirm();
   }
 
   /// Entering the confirm step — tell the worker, in a centred dialog, to type
@@ -218,37 +250,37 @@ class _SetPinViewState extends State<_SetPinView> {
                   top: false,
                   // Scroll-safe centring: the body sits centred when there is
                   // room and scrolls (never overflows) on a short screen.
-                  child: LayoutBuilder(
-                    builder: (BuildContext context, BoxConstraints constraints) {
-                      return SingleChildScrollView(
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                              minHeight: constraints.maxHeight),
-                          child: IntrinsicHeight(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.gutter),
-                              child: Column(
-                                children: <Widget>[
-                                  const Spacer(flex: 1),
-                                  BbPinView(
-                                    length: kPinLength,
-                                    filled: _buffer.length,
-                                  ),
-                                  const SizedBox(height: AppSpacing.s6),
-                                  BbPinKeypad(
-                                    enabled: !state.isSubmitting,
-                                    onDigit: _onDigit,
-                                    onBackspace: _onBackspace,
-                                  ),
-                                  const Spacer(flex: 2),
-                                ],
-                              ),
-                            ),
-                          ),
+                  child: BbScrollSafeBody(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.gutter),
+                    child: Column(
+                      children: <Widget>[
+                        const Spacer(flex: 1),
+                        BbPinView(
+                          length: kPinLength,
+                          filled: _buffer.length,
                         ),
-                      );
-                    },
+                        const SizedBox(height: AppSpacing.s6),
+                        // During the processing beat the keypad is swapped for a
+                        // loader so the worker sees the step is advancing, not
+                        // that nothing happened.
+                        if (_processing)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(
+                                vertical: AppSpacing.s6),
+                            child: BbSpinner(
+                              caption: 'PIN set kar rahe hain…',
+                            ),
+                          )
+                        else
+                          BbPinKeypad(
+                            enabled: !state.isSubmitting,
+                            onDigit: _onDigit,
+                            onBackspace: _onBackspace,
+                          ),
+                        const Spacer(flex: 2),
+                      ],
+                    ),
                   ),
                 ),
               ),

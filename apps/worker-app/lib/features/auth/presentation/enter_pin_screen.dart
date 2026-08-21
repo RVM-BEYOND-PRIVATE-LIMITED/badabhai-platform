@@ -8,6 +8,8 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_blue_header.dart';
+import '../../../core/widgets/bb_scroll_safe_body.dart';
+import '../../../core/widgets/bb_spinner.dart';
 import '../../../router.dart';
 import 'cubit/enter_pin_cubit.dart';
 import 'widgets/bb_pin_keypad.dart';
@@ -55,18 +57,31 @@ class _EnterPinViewState extends State<_EnterPinView> {
   /// a second dialog on top of the first.
   bool _dialogOpen = false;
 
-  void _onDigit(String d) {
+  /// True during the brief pop-beat after the 4th digit, before the PIN is
+  /// submitted — input is frozen so a stray tap can't corrupt the PIN mid-beat.
+  bool _submitting = false;
+
+  Future<void> _onDigit(String d) async {
+    if (_submitting) return;
     if (_pin.length >= kPinLength) return;
     setState(() => _pin += d);
-    if (_pin.length == kPinLength) {
-      final String pin = _pin;
-      // Clear the on-screen buffer immediately; the cubit holds nothing.
-      setState(() => _pin = '');
-      context.read<EnterPinCubit>().unlock(pin);
-    }
+    if (_pin.length < kPinLength) return;
+
+    // Let the 4th dot finish its fill-pop, THEN submit — but KEEP the dots
+    // FILLED through the verify. Blanking them the instant the 4th digit lands
+    // (as this used to) read like a reset / wrong PIN, and a worker re-entered a
+    // correct PIN. Instead the keypad is swapped for a loader (build) while the
+    // unlock is in flight, and the dots are cleared ONLY on a wrong PIN, after
+    // the worker has acknowledged it (see [_showError]).
+    _submitting = true;
+    await Future<void>.delayed(BbPinView.fillPopSettle);
+    if (!mounted) return;
+    _submitting = false;
+    context.read<EnterPinCubit>().unlock(_pin);
   }
 
   void _onBackspace() {
+    if (_submitting) return;
     if (_pin.isEmpty) return;
     setState(() => _pin = _pin.substring(0, _pin.length - 1));
   }
@@ -81,7 +96,13 @@ class _EnterPinViewState extends State<_EnterPinView> {
         ? 'PIN sahi nahi — dobara try karein, ya \'PIN bhool gaye?\''
         : message;
     await showBbAlert(context, title: 'PIN sahi nahi', message: text);
-    if (mounted) _dialogOpen = false;
+    if (mounted) {
+      _dialogOpen = false;
+      // Clear ONLY now — after the worker has seen the wrong-PIN dialog — so a
+      // fresh retry starts from empty dots. (On success the dots stay filled
+      // until the router navigates away; they never blank mid-verify.)
+      setState(() => _pin = '');
+    }
   }
 
   @override
@@ -111,7 +132,10 @@ class _EnterPinViewState extends State<_EnterPinView> {
               Expanded(
                 child: SafeArea(
                   top: false,
-                  child: Padding(
+                  // Scroll-safe: the keypad body centres when there is room and
+                  // scrolls (never a RenderFlex overflow) on a short handset or
+                  // at a large accessibility text scale.
+                  child: BbScrollSafeBody(
                     padding: const EdgeInsets.symmetric(
                         horizontal: AppSpacing.gutter),
                     child: Column(
@@ -125,12 +149,21 @@ class _EnterPinViewState extends State<_EnterPinView> {
                         // The wrong-PIN reason now lives in the centred dialog
                         // (see [_showError]) — no tiny inline line here.
                         const SizedBox(height: AppSpacing.s8),
-                        BbPinKeypad(
-                          // Keypad disables ONLY while submitting — no lockout.
-                          enabled: !state.isSubmitting,
-                          onDigit: _onDigit,
-                          onBackspace: _onBackspace,
-                        ),
+                        // While the PIN is being verified, swap the keypad for a
+                        // loader so the worker sees WORK IN PROGRESS — the dots
+                        // stay filled above and never blank mid-verify.
+                        if (state.isSubmitting)
+                          const Padding(
+                            padding:
+                                EdgeInsets.symmetric(vertical: AppSpacing.s4),
+                            child:
+                                BbSpinner(caption: 'PIN check kar rahe hain…'),
+                          )
+                        else
+                          BbPinKeypad(
+                            onDigit: _onDigit,
+                            onBackspace: _onBackspace,
+                          ),
                         const Spacer(flex: 1),
                         TextButton(
                           onPressed: () => context.push(Routes.forgotPin),

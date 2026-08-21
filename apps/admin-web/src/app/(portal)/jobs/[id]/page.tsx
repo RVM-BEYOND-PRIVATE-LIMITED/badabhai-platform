@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireCapability } from "../../../../lib/auth";
+import { can } from "../../../../lib/auth/capabilities";
 import { getJobPosting, listApplications } from "../../../../lib/entities";
 import { isAdminRequestError } from "../../../../lib/admin-http";
 import {
@@ -12,6 +13,7 @@ import {
 } from "../../../../lib/format";
 import { StatusPill } from "../../../../components/status-pill";
 import { DetailList } from "../../../../components/detail-list";
+import { JobDetailHeader } from "./job-detail-header";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Job posting" };
@@ -24,7 +26,7 @@ export const metadata = { title: "Job posting" };
  * or prettified version would be the wrong thing to judge. It is already worker-visible.
  */
 export default async function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireCapability("read_entities");
+  const session = await requireCapability("read_entities");
   const { id } = await params;
 
   let job: Awaited<ReturnType<typeof getJobPosting>>;
@@ -40,37 +42,34 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   // Only meaningful once anyone has seen it; 0/0 would render NaN%.
   const applyRate = total > 0 ? Math.round((job.applied_count / total) * 100) : null;
 
+  const timelineHref = `/jobs/${job.id}/timeline`;
+  const title = (
+    <div>
+      <p className="page__eyebrow">
+        <Link className="link" href="/jobs">
+          Jobs
+        </Link>
+      </p>
+      <h1 className="page__title">{job.role_title}</h1>
+      <p className="page__sub">
+        One posting exactly as workers see it, with its reach and its trust review. Published
+        as <strong>{job.org_label}</strong>
+        {job.city || job.location_label ? ` · ${job.city ?? job.location_label}` : ""} · created{" "}
+        {formatRelative(job.created_at)}.
+      </p>
+    </div>
+  );
+
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">
-            <Link className="link" href="/jobs">
-              Jobs
-            </Link>
-          </p>
-          <h1 className="page__title">{job.role_title}</h1>
-          <p className="page__sub">
-            One posting exactly as workers see it, with its reach and its trust review.
-            Published as <strong>{job.org_label}</strong>
-            {job.city || job.location_label ? ` · ${job.city ?? job.location_label}` : ""} ·
-            created {formatRelative(job.created_at)}.
-          </p>
-        </div>
-        <div className="page__actions">
-          {job.payer_id && (
-            <Link className="btn btn--ghost" href={`/companies/${job.payer_id}`}>
-              Owner account
-            </Link>
-          )}
-          <Link
-            className="btn btn--ghost"
-            href={`/events?subjectType=job_posting&subjectId=${job.id}`}
-          >
-            Event timeline
-          </Link>
-        </div>
-      </header>
+      <JobDetailHeader
+        title={title}
+        jobId={job.id}
+        status={job.status}
+        payerHref={job.payer_id ? `/companies/${job.payer_id}` : null}
+        canForceClose={can(session.capabilities, "force_close_posting")}
+        timelineHref={timelineHref}
+      />
 
       {job.status === "suspended" && (
         <section className="notice notice--bad" role="status">
@@ -237,10 +236,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
                 : `It is ${job.status}, so it is out of the worker feed and cannot collect decisions in this state.`}
             </p>
             <div className="state__actions">
-              <Link
-                className="btn btn--ghost"
-                href={`/events?subjectType=job_posting&subjectId=${job.id}`}
-              >
+              <Link className="btn btn--ghost" href={`/jobs/${job.id}/timeline`}>
                 Event timeline
               </Link>
             </div>

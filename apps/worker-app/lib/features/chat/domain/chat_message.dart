@@ -21,6 +21,8 @@ class ChatMessage extends Equatable {
     required this.text,
     required this.fromWorker,
     this.status = ChatSendStatus.sent,
+    this.submissionId,
+    this.ttsText,
   });
 
   final String text;
@@ -30,12 +32,32 @@ class ChatMessage extends Equatable {
   /// bada-bhai bubbles and the optimistic worker bubble read as normal.
   final ChatSendStatus status;
 
+  /// The per-submission id (#870) minted ONCE when this worker bubble was
+  /// created and carried on the bubble so a retry re-sends the SAME id. Lets the
+  /// server tell a retried POST of one answer from a worker genuinely repeating
+  /// the same words. Null on bada-bhai bubbles and any non-submission bubble; it
+  /// is never sent for them.
+  final String? submissionId;
+
+  /// The Devanagari read-aloud rendering of [text] (`tts_text`, #896), carried
+  /// on a BOT bubble so the on-device hi-IN voice pronounces the Hindi correctly
+  /// (romanized [text] reads as gibberish to every TTS voice). Null on a worker
+  /// bubble and on an older-API bot bubble — read-aloud then speaks [text]. Never
+  /// displayed; the bubble always shows [text].
+  final String? ttsText;
+
   ChatMessage copyWith({ChatSendStatus? status}) => ChatMessage(
         text: text,
         fromWorker: fromWorker,
         status: status ?? this.status,
+        // Preserved, never regenerated: a retry (which flips status) must keep
+        // the ORIGINAL id so the re-POST is recognisable as the same submission.
+        submissionId: submissionId,
+        // Preserved: flipping status must not drop the read-aloud script (#896).
+        ttsText: ttsText,
       );
 
   @override
-  List<Object?> get props => <Object?>[text, fromWorker, status];
+  List<Object?> get props =>
+      <Object?>[text, fromWorker, status, submissionId, ttsText];
 }

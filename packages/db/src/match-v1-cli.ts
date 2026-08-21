@@ -9,14 +9,26 @@
  * THE GUARDS
  *  1. DRY-RUN IS THE DEFAULT. Every mutating script plans and PRINTS, and writes nothing
  *     until `--apply`. There is no "it seemed fine so it wrote" path.
- *  2. PRODUCTION IS EXPLICIT. `NODE_ENV=production` refuses unless
- *     `MATCH_V1_PROD_CONFIRM=apply-matching-v1` is also set. Matching V1 migrations and
- *     backfills ARE applied to production by hand (see
- *     docs/ops/matching-v1-migration-runbook.md) — so, unlike a fixture seed, an outright
- *     refusal would make the runbook impossible. The confirm token makes the production
- *     run a deliberate two-key action instead of a one-character mistake.
+ *  2. PRODUCTION IS DECIDED BY THE TARGET, NOT BY A LABEL ON THE PROCESS. This used to read
+ *     `NODE_ENV === "production"` plus a `MATCH_V1_PROD_CONFIRM` token, and neither half asked
+ *     about the DATABASE. Two consequences, and the second is the one that cost something:
+ *
+ *       • a read-only DRY RUN was refused whenever the process was labelled production — and on
+ *         this repository it always is, because `.env` sets it and dotenv loads it right above;
+ *       • once the token was exported, `--apply` proceeded AGAINST ANY DATABASE. The token was
+ *         the production key and it said nothing about the target, so it authorised a write to
+ *         production and a write to a colleague's laptop with the same three words. And with
+ *         NODE_ENV merely unset — a fresh clone, or CI — the whole check was skipped.
+ *
+ *     `opsGuard` classifies the CONNECTION STRING and requires two independent signals before a
+ *     production write; NODE_ENV is kept as a second tripwire rather than as the authority.
+ *     Matching V1 backfills ARE applied to production by hand
+ *     (docs/ops/matching-v1-migration-runbook.md), so the point was never to refuse outright —
+ *     it was to make it deliberate, and to make it about the right thing.
  *  3. DATABASE_URL must be set. No localhost fallback — a backfill that silently targets
  *     the wrong database is the failure mode this whole file exists to prevent.
+ *     `enforceOpsGuard` owns that refusal now, and it refuses a DRY RUN too: "read-only" is a
+ *     claim about a database nobody has identified.
  *
  * PRIVACY: these runners read `worker_profiles` signal columns, `jobs`, `job_postings`
  * and the skill vocabulary. They MUST NOT read or print phone, name, or any other PII —
@@ -25,11 +37,55 @@
  */
 import { config } from "dotenv";
 
+import {
+  enforceOpsGuard,
+  PRODUCTION_WRITE_ENV,
+  PRODUCTION_WRITE_FLAG,
+} from "./ops-guard";
+
 // Load the repo-root .env (CWD is packages/db when run via a package script).
 config({ path: "../../.env" });
 
-export const PROD_CONFIRM_ENV = "MATCH_V1_PROD_CONFIRM";
-export const PROD_CONFIRM_TOKEN = "apply-matching-v1";
+/**
+ * RETIRED 2026-08-20. `MATCH_V1_PROD_CONFIRM=apply-matching-v1` was this harness's production
+ * key; `opsGuard`'s two signals replace it.
+ *
+ * The name is kept, and {@link retiredConfirmTokenProblem} still looks for it, for one reason:
+ * an operator following an older copy of the runbook would otherwise export it, see no
+ * complaint, and then be refused for what reads like an unrelated reason. Silently ignoring a
+ * retired security control is how somebody concludes the guard is broken and goes looking for a
+ * way around it.
+ */
+export const RETIRED_PROD_CONFIRM_ENV = "MATCH_V1_PROD_CONFIRM";
+
+/**
+ * `null`, or the refusal for an operator still carrying the retired production key.
+ *
+ * Pure and exported so a test can drive it: the interesting property is not that the old
+ * variable stops working, it is that it stops working LOUDLY, and only when it would have
+ * mattered. Setting it during a dry run is harmless and says nothing. Setting it for an
+ * `--apply` that is otherwise authorised is stale environment, and also says nothing — the run
+ * is already legitimate. Setting it for an `--apply` that is NOT otherwise authorised is
+ * somebody trying to unlock production with a key that no longer opens anything, and they need
+ * to be told which key does.
+ */
+export function retiredConfirmTokenProblem(
+  env: Readonly<Record<string, string | undefined>>,
+  argv: readonly string[],
+  scriptName: string,
+): string | null {
+  if (env[RETIRED_PROD_CONFIRM_ENV] === undefined) return null;
+  if (!argv.includes("--apply")) return null;
+  if (argv.includes(PRODUCTION_WRITE_FLAG) && env[PRODUCTION_WRITE_ENV] === scriptName) return null;
+  return (
+    `[${scriptName}] ${RETIRED_PROD_CONFIRM_ENV} is set, and it no longer authorises anything. ` +
+    `It was retired on 2026-08-20 because it keyed on NODE_ENV, which labels the PROCESS, while ` +
+    `the blast radius is decided by DATABASE_URL. A production write now needs BOTH ` +
+    `${PRODUCTION_WRITE_FLAG} on the command line and ${PRODUCTION_WRITE_ENV}=${scriptName} in ` +
+    `the environment. Unset ${RETIRED_PROD_CONFIRM_ENV} and see ` +
+    `docs/ops/matching-v1-migration-runbook.md.`
+  );
+}
 
 export interface CommonCliOptions {
   /** True when `--apply` was passed. Everything else is a dry run. */
@@ -61,26 +117,17 @@ export function argFlag(flag: string): boolean {
 export function parseCommonCli(scriptName: string): CommonCliOptions {
   const apply = argFlag("apply");
 
-  if (
-    process.env.NODE_ENV === "production" &&
-    process.env[PROD_CONFIRM_ENV] !== PROD_CONFIRM_TOKEN
-  ) {
-    throw new Error(
-      `[${scriptName}] refusing to run with NODE_ENV=production without ` +
-        `${PROD_CONFIRM_ENV}=${PROD_CONFIRM_TOKEN}.\n` +
-        `  Matching V1 backfills ARE run against production by hand — see\n` +
-        `  docs/ops/matching-v1-migration-runbook.md. Setting the token is the deliberate\n` +
-        `  second key. Do not set it in a deployed service's environment.`,
-    );
-  }
+  const retired = retiredConfirmTokenProblem(process.env, process.argv.slice(2), scriptName);
+  if (retired !== null) throw new Error(retired);
 
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error(
-      `[${scriptName}] DATABASE_URL is not set. There is no localhost fallback here on ` +
-        `purpose — a backfill pointed at the wrong database is unrecoverable.`,
-    );
-  }
+  // THE TARGET DECIDES, NOT `NODE_ENV`. See the header. `enforceOpsGuard` also owns the
+  // missing-DATABASE_URL refusal, so there is ONE place that answers "may this run touch the
+  // database in front of it" rather than two that can drift apart.
+  const { connectionString: databaseUrl } = enforceOpsGuard({
+    script: scriptName,
+    connectionString: process.env.DATABASE_URL,
+    mutating: apply,
+  });
 
   const rawBatch = argValue("batch-size");
   const batchSize = rawBatch === undefined ? 500 : Number.parseInt(rawBatch, 10);

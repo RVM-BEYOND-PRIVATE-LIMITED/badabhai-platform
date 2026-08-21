@@ -24,6 +24,7 @@ import {
 } from "../payers/payer-login-channel";
 import { ZeptoMailEmailLoginChannel } from "../payers/zeptomail-email-login-channel";
 import { PayerUnlocksController } from "./payer-unlocks.controller";
+import { RequestIdempotency } from "../common/idempotency/request-idempotency.service";
 import { PayerCapacityController } from "./payer-capacity.controller";
 import { PayerAuthController } from "./payer-auth.controller";
 import { PayerReachController } from "./payer-reach.controller";
@@ -105,6 +106,9 @@ import {
     PayerOrgInvitesController,
   ],
   providers: [
+    // #1046 — the reserve-run-store-replay seam POST /payer/credits is guarded by, so a retry
+    // after an ambiguous timeout replays the original grant instead of granting a second pack.
+    RequestIdempotency,
     PayerAuthService,
     PayerOrgMembersService,
     PayerOtpService,

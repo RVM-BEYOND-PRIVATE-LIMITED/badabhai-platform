@@ -50,7 +50,17 @@ import {
   isEncryptedPii,
   type PiiKeyring,
 } from "./crypto";
-import { adminUsers, agencyKyc, payerMembers, payerOrgs, payers, workers } from "./schema";
+import {
+  adminUsers,
+  agencyKyc,
+  aiCallTraces,
+  employerProfiles,
+  payerMemberInvites,
+  payerMembers,
+  payerOrgs,
+  payers,
+  workers,
+} from "./schema";
 
 config({ path: "../../.env" });
 
@@ -141,6 +151,78 @@ function buildTargets(db: Database): PiiTarget[] {
       "accountHolderNameEnc",
     ),
     target(adminUsers, adminUsers.id, adminUsers.emailEnc, "admin_users", "email_enc", "emailEnc"),
+    // `admin_users.name_enc` was missing from this list until the 2026-08-18 identity ruling gave
+    // it a READ site. It was always a rotatable `encryptPii` token (`bootstrap-admin.ts` writes
+    // one), but nothing ever decrypted it, so a rotation that skipped it was invisible. It is
+    // rendered on `/admins` now, and a skipped column surfaces there as every row showing the
+    // "No name on record" dash after a key retirement — the failure reported as benign absence.
+    target(adminUsers, adminUsers.id, adminUsers.nameEnc, "admin_users", "name_enc", "nameEnc"),
+    // ── ai_call_traces (0083): IN, and the volume argument is why it had to be argued ─────────
+    //
+    // These two hold the prompt and the completion of every AI call. They are `encryptPii`
+    // tokens written by `AiTraceRecorder` through the same `PiiCryptoService` as every column
+    // above, so they are rotatable in exactly the same sense — and the coverage guard's rule is
+    // "rotatable, or a NAMED exception with a reason".
+    //
+    // THE ARGUMENT FOR LEAVING THEM OUT IS VOLUME, AND IT DOES NOT SURVIVE. This table grows
+    // with every AI call and its own schema header says it will outgrow `ai_jobs`; retention is
+    // indefinite by owner ruling, so it never sheds rows. A full re-encrypt is therefore the
+    // largest run this script will ever do, by a wide margin, and it decrypts prompt text into
+    // process memory to do it. But "this run is big" is an argument about HOW TO RUN IT, not
+    // about whether the column may be rotated — and this runner already answers it: `--table=`
+    // scopes a run to these two, `--batch-size=` bounds each round trip, and the optimistic
+    // `WHERE id = ? AND col = ?` makes it resumable, so it can be split across as many windows
+    // as an operator wants. See docs/pii-key-rotation-runbook.md before running it.
+    //
+    // EXCLUDING THEM WOULD HAVE COST THE THING ROTATION EXISTS FOR. A kid cannot be retired
+    // while any row still depends on it, so an exception here would mean a compromised key can
+    // never be retired for the MOST sensitive text on the spine while the least sensitive is
+    // rotated on schedule. That is the inversion, and it is silent: nothing errors, the old kid
+    // simply stays in the keyring forever with no one able to say why.
+    //
+    // ⚠ THE ONE PROPERTY THAT IS DIFFERENT, stated so a reader does not have to infer it: for
+    // every other target the plaintext transiting this process is one short field (a phone, a
+    // name, a PAN). Here it is a whole prompt or completion. The runner's PII-free logging rule
+    // (a table, a column, a row id, a count — never a value, never a token) is doing more work
+    // on these two rows than on any other, and `processTarget` drops the reference immediately
+    // after re-encrypting. Do not add a value to a log line in this file.
+    target(aiCallTraces, aiCallTraces.id, aiCallTraces.promptEnc, "ai_call_traces", "prompt_enc", "promptEnc"),
+    target(
+      aiCallTraces,
+      aiCallTraces.id,
+      aiCallTraces.responseEnc,
+      "ai_call_traces",
+      "response_enc",
+      "responseEnc",
+    ),
+    // ── GAP-DB-21 (0084): the two encrypted columns modelling made VISIBLE ────────────────────
+    //
+    // `employer_profiles.gst_number_enc` and `payer_member_invites.invited_email_enc` have
+    // existed on production since those tables were created out of band. Because no schema file
+    // described them, `declaredEncryptedColumns()` could not see them and the coverage guard
+    // passed while two encrypted columns were unrotatable — a kid they depended on could never
+    // have been retired, and nothing would have said why. Declaring the tables surfaced it on
+    // the first test run.
+    //
+    // Both tables hold 0 rows, so these targets are no-ops today, and that is the point: added
+    // while the table is empty they cost nothing and make the FIRST row written rotatable,
+    // instead of the gap being found during a key retirement.
+    target(
+      employerProfiles,
+      employerProfiles.payerId,
+      employerProfiles.gstNumberEnc,
+      "employer_profiles",
+      "gst_number_enc",
+      "gstNumberEnc",
+    ),
+    target(
+      payerMemberInvites,
+      payerMemberInvites.id,
+      payerMemberInvites.invitedEmailEnc,
+      "payer_member_invites",
+      "invited_email_enc",
+      "invitedEmailEnc",
+    ),
   ];
 }
 

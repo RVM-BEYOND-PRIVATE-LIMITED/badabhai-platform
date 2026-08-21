@@ -5,8 +5,18 @@ import 'package:speech_to_text/speech_to_text.dart';
 
 import '../domain/speech_dictation.dart';
 
-/// Real [SpeechDictation] over the `speech_to_text` plugin — the device's own
-/// recogniser, no network of ours involved.
+/// Real [SpeechDictation] over the `speech_to_text` plugin — the platform's OWN
+/// speech recogniser (Android SpeechRecognizer / iOS Speech). No BadaBhai server
+/// and no `/voice/*` endpoint are involved.
+///
+/// PRIVACY — WHERE THE AUDIO GOES: [listen] uses the device's BEST recogniser
+/// (`onDevice: false`) because forcing the offline engine transcribed almost
+/// nothing on handsets without a good local model. On most Android devices that
+/// recogniser routes audio to GOOGLE's cloud speech service — i.e. voice can be
+/// shared with Google as a third party. That MUST stay disclosed to the worker +
+/// declared on the Play Data Safety form; it is NOT "no network involved". Keeping
+/// audio strictly on-device again needs a real BUNDLED model, not the `onDevice`
+/// flag (which silently degrades to unusable).
 ///
 /// CONTINUOUS-WHILE-HELD. The platform recogniser stops itself on its own
 /// silence/idle timeout (Android fires `ERROR_SPEECH_TIMEOUT` after a few
@@ -133,8 +143,29 @@ class RealSpeechDictation implements SpeechDictation {
         },
         onSoundLevelChange: (double level) => _onSoundLevel?.call(level),
         listenOptions: SpeechListenOptions(
+          // DICTATION, not the default confirmation. `ListenMode.confirmation`
+          // is a SHORT-COMMAND mode: the engine endpoints hard after the first
+          // phrase, so a worker speaking three sentences was finalised down to a
+          // single word ("me"). Dictation mode tunes the recogniser for
+          // sentences/paragraphs (relaxed endpointing) — the actual fix for the
+          // "only hears one word" report. MUST stay dictation; do not drop it.
+          listenMode: ListenMode.dictation,
           // Partial results fill the composer live as the worker speaks.
           partialResults: true,
+          // RECOGNITION RELIABILITY over forced-offline. `onDevice: true` sets the
+          // platform's PREFER_OFFLINE flag, which does NOT gracefully fall back: on
+          // the many handsets/locales without a good on-device model it uses a
+          // weak/absent offline engine and transcribes almost nothing — the "not
+          // listening" report. `false` lets the device use its best recogniser
+          // (cloud where needed), which is what actually works for a low-end,
+          // multi-locale audience.
+          //
+          // PRIVACY: audio may then reach the platform speech service (Google on
+          // most Android) as a third party — this MUST stay disclosed to the worker
+          // and declared on the Play Data Safety form. A dictation feature that does
+          // not transcribe helps nobody; truly on-device needs a real bundled model,
+          // not a flag that silently degrades to unusable.
+          onDevice: false,
           listenFor: _session,
           pauseFor: _session,
           localeId: _localeId,

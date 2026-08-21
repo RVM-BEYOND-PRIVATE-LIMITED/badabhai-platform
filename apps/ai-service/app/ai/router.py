@@ -18,13 +18,21 @@ import time
 from typing import Any
 
 from ..config import Settings
-from ..contracts import AICallMetadata
+from ..contracts import TRACE_TEXT_FIELDS, AICallMetadata
 from ..logging_config import get_logger
-from . import cost_tracker, providers
+from . import cost_tracker, error_taxonomy, providers, trace_metadata
 from .errors import REASON_HTTP_429, REASON_MAX_TOKENS_NO_PARTS, LlmTransportError
-from .langfuse_tracing import LLM_CALL, LangfuseTracer, Observation, get_tracer
+from .langfuse_tracing import (
+    LLM_CALL,
+    LangfuseTracer,
+    Observation,
+    current_workflow,
+    get_tracer,
+    masked_trace_text,
+)
 from .model_config import get_route, provider_for_model, resolve_model
 from .provider_cooldown import get_cooldown
+from .trace_metadata import AS_GENERATION
 
 logger = get_logger("ai.router")
 
@@ -54,6 +62,20 @@ _NO_RETRY_REASONS: frozenset[str] = frozenset(
         REASON_HTTP_429,
     }
 )
+
+# The two `AICallMetadata` fields that carry TEXT rather than a count or a code, held
+# back from the Langfuse task-span metadata blob.
+#
+# NOT tidiness. `input`/`output` are NATIVE Langfuse fields and they are the ONLY two the
+# privacy mask rewrites (`trace_metadata`'s rule: never duplicate a native field). Letting
+# these ride the metadata dump would put the prompt and the response into the trace TWICE
+# — once where the mask governs them and once in a free-form blob — and would roughly
+# double the payload of every span on a service whose largest values are prompts.
+#
+# THE SET ITSELF MOVED TO `app/contracts.py`, beside the model that declares the fields,
+# because `ai/cost_tracker.py` needs the identical exclusion for its `ai_call` structured
+# log line and two copies of "which fields are the dangerous ones" is one copy too many.
+_TRACE_TEXT_FIELDS = TRACE_TEXT_FIELDS
 
 # MSG-1: an accurate headline per spend-ledger block reason. The ledger already
 # returns a CLOSED SET of distinct reasons; collapsing them into one "spend cap
@@ -133,6 +155,7 @@ class AIRouter:
         mock_response: str,
         real_call_allowed: bool = True,
         user_ref: str | None = None,
+        prompt: Any = None,
     ) -> tuple[str, AICallMetadata]:
         """One unit of AI work, and therefore ONE Langfuse trace.
 
@@ -145,17 +168,33 @@ class AIRouter:
         ``messages`` (already pseudonymized) is the trace input verbatim: it is a
         role-labelled OpenAI-shaped list, which is what makes Langfuse render it as a
         conversation instead of a JSON blob.
+
+        ``prompt`` is an optional :class:`~app.ai.prompt_registry.ResolvedPrompt`. The
+        router does not build prompts and never will — the caller owns the messages — but
+        it is the only place that opens a generation, so it is the only place that CAN
+        record which prompt version produced the output. Callers that have one pass it;
+        callers that do not are unchanged and simply record no prompt dimension.
         """
         # Per-task gating: real only if the master flag + key are set AND this
         # task is allowlisted (empty allowlist = NO tasks; fail-closed). Lets
         # ONE role go real. Computed BEFORE the span so the posture can be a tag.
         real = self._settings.real_call_enabled_for(task_type) and real_call_allowed
+        workflow = current_workflow()
         with self._tracer.task(
             task_type=task_type,
             input=messages,
             user_ref=user_ref,
             real_call=real,
-            metadata={"real_call_allowed": real_call_allowed},
+            metadata=trace_metadata.build(
+                workflow=workflow.workflow if workflow else None,
+                task=task_type,
+                application_version=self._settings.app_version,
+                prompt_name=getattr(prompt, "name", None),
+                prompt_version=getattr(prompt, "version", None),
+                prompt_source=getattr(prompt, "source", None),
+                real_call=real,
+                extra={"real_call_allowed": real_call_allowed},
+            ),
         ) as task:
             return await self._dispatch(
                 task_type,
@@ -164,6 +203,7 @@ class AIRouter:
                 mock_response=mock_response,
                 real=real,
                 user_ref=user_ref,
+                prompt=prompt,
             )
 
     async def _dispatch(
@@ -175,11 +215,21 @@ class AIRouter:
         mock_response: str,
         real: bool,
         user_ref: str | None,
+        prompt: Any = None,
     ) -> tuple[str, AICallMetadata]:
         route = get_route(task_type, self._settings)
         primary_model = resolve_model(task_type, self._settings)
         input_text = "\n".join(m.get("content", "") for m in messages)
         start = time.perf_counter()
+        workflow = current_workflow()
+        # Sampling parameters are IDENTICAL for every attempt of a dispatch (the route
+        # decides them, and no retry path mutates them), so they are computed once here
+        # rather than rebuilt per attempt.
+        model_params = trace_metadata.model_parameters(
+            temperature=route.temperature,
+            max_output_tokens=route.max_output_tokens,
+            json_mode=route.json_mode,
+        )
 
         # Ordered provider-fallback chain: primary (Gemini) first, then the
         # configured cross-provider fallback (Claude Haiku) IFF its key is set
@@ -311,17 +361,40 @@ class AIRouter:
                     # so filters and dashboards keep matching.
                     with self._tracer.observation(
                         name=LLM_CALL,
-                        as_type="generation",
+                        as_type=AS_GENERATION,
                         input=messages,
                         model=model,
-                        metadata={
-                            "provider": provider_for_model(model),
-                            "attempt": attempt + 1,
-                            "max_attempts": route.max_retries + 1,
-                            "max_output_tokens": route.max_output_tokens,
-                            "temperature": route.temperature,
-                            "json_mode": route.json_mode,
-                        },
+                        # Sampling parameters move to the SDK's first-class field; they
+                        # used to sit in metadata, where an A/B on temperature could only
+                        # be run by diffing JSON blobs.
+                        model_parameters=model_params,
+                        # Only ever non-None for a Langfuse-MANAGED prompt — see
+                        # `prompt_registry`. A locally-built prompt records its content
+                        # hash in the metadata below instead, because linking a generation
+                        # to a managed prompt that did not produce it would corrupt that
+                        # prompt's own metrics.
+                        prompt=getattr(prompt, "client", None),
+                        metadata=trace_metadata.build(
+                            workflow=workflow.workflow if workflow else None,
+                            task=task_type,
+                            provider=provider_for_model(model),
+                            application_version=self._settings.app_version,
+                            prompt_name=getattr(prompt, "name", None),
+                            prompt_version=getattr(prompt, "version", None),
+                            prompt_source=getattr(prompt, "source", None),
+                            attempt=attempt + 1,
+                            max_attempts=route.max_retries + 1,
+                            real_call=True,
+                            extra={
+                                # WHICH candidate in the fallback chain this is. Without
+                                # it, "attempt 1" on the Haiku generation and "attempt 1"
+                                # on the Gemini one are indistinguishable, and the
+                                # fallback rate — the number Part 8 is actually about —
+                                # cannot be computed.
+                                "candidate_index": len(candidates_tried),
+                                "is_fallback_candidate": model != primary_model,
+                            },
+                        ),
                     ) as generation:
                         try:
                             result = await providers.complete(
@@ -368,7 +441,23 @@ class AIRouter:
                                     "estimated_cost_inr": meta.estimated_cost_inr,
                                 },
                             )
-                            self._finish_task(task, result.content, meta)
+                            self._finish_task(
+                                task,
+                                messages,
+                                result.content,
+                                meta,
+                                # The SUCCESS path needs the fallback dimension too. A
+                                # call served by Haiku after Gemini failed twice is a
+                                # success, and it is also the single most important thing
+                                # a provider-reliability dashboard has to count — reading
+                                # it only off the failure branch would undercount it to
+                                # zero.
+                                extra={
+                                    "primary_model": primary_model,
+                                    "candidates_considered": candidates,
+                                    "fell_back_to_another_provider": model != primary_model,
+                                },
+                            )
                             return result.content, meta
                         except Exception as exc:
                             # NEVER log the exception body (may echo pseudonymized
@@ -408,12 +497,24 @@ class AIRouter:
                             )
                             # The SAME closed-set code the log carries — never the
                             # exception body, which can echo pseudonymized content.
+                            #
+                            # BOTH grains ride along, deliberately: `status_message` keeps
+                            # the SPECIFIC code an operator needs to act on, while
+                            # `error_category` is the coarse axis a dashboard groups by.
+                            # Collapsing to one loses either the diagnosis or the ability
+                            # to ask "how often does any provider rate-limit us?".
                             generation.update(
                                 level="ERROR",
                                 status_message=reason,
                                 metadata={
                                     "status_code": status,
                                     "typed_transport_error": (transport is not None),
+                                    "error_category": error_taxonomy.categorize_transport(reason),
+                                    # Says whether the NEXT loop iteration will happen, so
+                                    # a trace shows the retry DECISION and not just its
+                                    # consequence. `http_429`/`max_tokens_no_parts` break
+                                    # the loop; everything else retries if budget remains.
+                                    "retryable": reason not in _NO_RETRY_REASONS,
                                 },
                             )
                             # ARM THE COOLDOWN, so the NEXT request skips this provider
@@ -491,16 +592,29 @@ class AIRouter:
         )
         self._finish_task(
             task,
+            messages,
             mock_response,
             meta,
             # WHY no candidate ran, in the router's own words. The terminal
             # `error_code` already names the outcome; these name the gates that
             # produced it, so a trace distinguishes "the ledger stopped us" from
             # "every model was too expensive" without reading the service logs.
+            #
+            # THE FULL ROUTING DECISION CHAIN LIVES HERE rather than in a span of its
+            # own. Part 8's question — initial model, attempts, failure reason, fallback,
+            # final result — is answerable from these attributes plus the per-attempt
+            # generations, and a candidate loop is ONE logical step: a span per gate
+            # would add four empty spans to every mock call, which is exactly the
+            # instrumentation noise a trace becomes useless from.
             extra={
                 "spend_block_reason": spend_block_reason,
                 "cost_ceiling_skipped_candidate": ceiling_skipped_any,
+                "provider_cooldown_skipped_candidate": cooldown_skipped_any,
                 "retry_budget_exhausted": retry_budget_hit,
+                "primary_model": primary_model,
+                "candidates_considered": candidates,
+                "fell_back_to_another_provider": len(candidates_tried) > 1,
+                "error_category": error_taxonomy.categorize_terminal(error_code),
             },
         )
         return mock_response, meta
@@ -529,9 +643,55 @@ class AIRouter:
             candidates.append(fallback)
         return candidates
 
-    @staticmethod
+    def _record_trace_text(
+        self, meta: AICallMetadata, messages: list[Message], output: str
+    ) -> None:
+        """Put the FINAL prompt/response text on ``meta``, or leave both ``None``.
+
+        The ONLY writer of ``AICallMetadata.prompt_text`` / ``response_text``. It is
+        called from :meth:`_finish_task` and nowhere else, deliberately: that method is
+        already the one place that closes the Langfuse task span with the caller's
+        output, so the store and the trace are populated from the SAME arguments in the
+        SAME call. There is no second code path that could drift.
+
+        WHY THIS TEXT IS POST-BOUNDARY, which is the whole point of the feature:
+
+        - ``messages`` is pseudonymized by the ENDPOINT before ``run`` is ever reached
+          (the invariant at the top of this module), so it is post-boundary on arrival;
+        - and BOTH values are then run through :func:`masked_trace_text`, i.e. through
+          ``pseudonymize`` again, in the same module and by the same hook that masks what
+          Langfuse exports. So even a caller that hands the router raw text — and
+          ``mock_response`` on ``/profile/extract`` IS derived from raw worker text —
+          cannot get raw text into the store.
+
+        HONESTY ABOUT WHAT THAT PROVES. It proves the WIRING sits on the right side of
+        ``app/pseudonymize.py``. It does NOT prove the text is clean: R32 measured the
+        name gazetteer's recall as poor, and the residual gaps in R30 are open. That is
+        exactly why the store encrypts at rest and gates the read on a super-admin
+        capability rather than treating this text as safe.
+
+        GATED AND FAIL-CLOSED. Nothing is written unless ``AI_CALL_TRACE_TEXT_ENABLED``
+        is on. ``masked_trace_text`` cannot raise (``_mask`` swallows and returns
+        ``REDACTED``), but if it ever did, both fields are cleared rather than left
+        half-written — an absent trace, never an unmasked one.
+        """
+        if not self._settings.ai_call_trace_text_enabled:
+            return
+        try:
+            meta.prompt_text = masked_trace_text(messages)
+            meta.response_text = masked_trace_text(output)
+        except Exception as exc:  # pragma: no cover - defensive; the mask never raises
+            meta.prompt_text = None
+            meta.response_text = None
+            logger.warning(
+                "ai trace text dropped; the privacy mask failed",
+                extra={"extra": {"task": meta.task_type, "error_class": type(exc).__name__}},
+            )
+
     def _finish_task(
+        self,
         task: Observation,
+        messages: list[Message],
         output: str,
         meta: AICallMetadata,
         extra: dict[str, Any] | None = None,
@@ -549,6 +709,9 @@ class AIRouter:
         makes the failure visible in Langfuse without breaking the never-raise
         contract.
         """
+        # BEFORE the span update, so the store's text and the span's `output` come off
+        # the same `output` argument in the same call — see `_record_trace_text`.
+        self._record_trace_text(meta, messages, output)
         if meta.real_call and not meta.success:
             level, status = "ERROR", meta.failure_reason or meta.error_code or "llm_call_failed"
         elif meta.error_code is not None:
@@ -561,5 +724,10 @@ class AIRouter:
             output=output,
             level=level,
             status_message=status,
-            metadata={**meta.model_dump(), **(extra or {})},
+            # `exclude=` and not a hand-written subset: the docstring above commits to
+            # putting the WHOLE metadata record on the span so the two cannot drift, and
+            # an exclusion keeps that property while holding back exactly the two TEXT
+            # fields (see `_TRACE_TEXT_FIELDS`). A future field is included by default,
+            # which is the right default for a PII-free record.
+            metadata={**meta.model_dump(exclude=_TRACE_TEXT_FIELDS), **(extra or {})},
         )

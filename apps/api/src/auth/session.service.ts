@@ -139,11 +139,50 @@ export class SessionService {
   private readonly logger = new Logger(SessionService.name);
 
   /**
-   * Idempotency-grace TTL (seconds) — an honest double-refresh returns the cached mint.
-   * Kept short (ample for a flaky-network retry) to narrow the by-design single-in-grace
-   * replay window (ADR-0026 residual risk).
+   * Idempotency-grace TTL (seconds) — an honest double-refresh returns the cached mint
+   * instead of tripping reuse detection.
+   *
+   * WAS 30, ON THE STATED GROUNDS THAT 30 WAS "ample for a flaky-network retry". Measured
+   * against the shipped client, it was not (#999). `AuthedClient._doRefresh` mints ONE
+   * idempotency key and retries the request under it up to `maxNetworkRetries + 1` = 3
+   * times, with a 15s per-attempt timeout (`kRequestTimeout`) and a 300ms × attempt backoff:
+   *
+   *     attempt 1 → t=0      attempt 2 → t≈15.3s      attempt 3 → t≈30.9s
+   *
+   * So the client's LAST honest retry lands just past a 30s window. When the server had
+   * already rotated on attempt 1 and only the response was lost, that retry missed the cache
+   * by under a second, hit the `rec.used` branch, and reuse detection destroyed the whole
+   * refresh family — logging the worker out of a session that was never compromised. Because
+   * PIN unlock is a refresh-token lookup behind a deliberately-neutral 401, they then saw
+   * "PIN sahi nahi" for a correct PIN (#994).
+   *
+   * 180 is not a guess: it is ~6× the measured 30.9s worst case, so a client on a slower
+   * ladder (or a device that suspends mid-retry) still lands inside it, while the window
+   * stays short in absolute terms.
+   *
+   * WHY WIDENING IT IS NOT A MEANINGFUL WEAKENING. The cache is addressed by
+   * `refresh_idem:<sid>:<idempotencyKey>`, where the key is a client-generated UUIDv4, and
+   * the stored value is ENCRYPTED at rest. To use this window an attacker needs the used
+   * token AND that exact 128-bit key AND the ability to decrypt — i.e. essentially the
+   * legitimate client. Anyone holding only a stolen token still lands on `rec.used` and
+   * still trips reuse detection, unchanged. What widens is the by-design "single-in-grace
+   * replay" residual ADR-0026 already accepted, and it returns the SAME already-minted pair
+   * rather than granting a fresh rotation.
    */
-  private static readonly IDEM_GRACE_SECONDS = 30;
+  private static readonly IDEM_GRACE_SECONDS = 180;
+
+  /**
+   * Rotation-lock TTL (seconds) — the `refresh_lock:<tokenHash>` mutex that stops two
+   * concurrent rotations of the SAME token both proceeding.
+   *
+   * DELIBERATELY NOT the idem grace above, though it used to share that constant (#999).
+   * This bounds a single in-flight rotation, not a client's retry ladder, and it is only
+   * ever observed when a rotation DIES mid-flight — the success path deletes it explicitly.
+   * Tying it to the widened grace would have turned a crashed rotation's dead window from
+   * 30s into 180s, during which every retry fails closed. Two different questions, so two
+   * different numbers.
+   */
+  private static readonly ROTATION_LOCK_SECONDS = 30;
 
   constructor(
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
@@ -482,6 +521,15 @@ export class SessionService {
 
     const tokenHash = sha256Hex(rawToken);
 
+    // The rotation-lock key + whether THIS call actually won it. Declared OUT here (not
+    // inside the try) so the `finally` below can release the lock on the ERROR path too
+    // (#1128): a transient Redis fault AFTER the lock write must not strand a STILL-VALID
+    // token for the full ROTATION_LOCK_SECONDS TTL. The guard releases ONLY when this call
+    // won the lock — releasing on a path where another in-flight rotation holds it would
+    // break that mutex, which is worse than the leak.
+    const lockKey = `refresh_lock:${tokenHash}`;
+    let wonLock = false;
+
     try {
       const raw = await redis.get(SessionService.refreshKey(tokenHash));
       if (!raw) return { ok: false, reason: "invalid" };
@@ -498,6 +546,46 @@ export class SessionService {
 
       // 3. Reuse detection — a replayed already-used token nukes the family.
       if (rec.used) {
+        // #999 — SAY WHICH KIND OF REUSE THIS LOOKS LIKE, without changing what we do about
+        // it. Revocation stays fail-closed and unconditional: distinguishing these two cases
+        // is a guess about intent, and a guess must not be what decides whether a possibly
+        // stolen token keeps working. That call is an ADR-0026 posture change and belongs to
+        // the owner, not to this branch.
+        //
+        // But the two cases are worth telling apart in the log, because they have opposite
+        // meanings and the event does not carry the difference. Its payload schema is NOT
+        // `.strict()` — WorkerRefreshReuseDetectedPayload (packages/event-schema) is a plain
+        // z.object that STRIPS unknown keys rather than rejecting them, so a `shape` rider
+        // would be silently dropped, never surfaced. Adding it as a real field is a §3 schema
+        // change (a new event version), not a rider on a bug fix — so it stays a log line.
+        // If the SUCCESSOR this token was rotated into is still UNUSED, nobody ever
+        // consumed the new pair, which is the signature of an honest retry whose response was
+        // lost — the client is presenting the only token it has. If the successor HAS been
+        // consumed, two parties are using this lineage, which is the signature of theft.
+        //
+        // Best-effort and PII-free: opaque ids only, and a failed lookup degrades to
+        // "unknown" rather than throwing out of a security path.
+        let shape = "unknown";
+        try {
+          if (rec.superseded_by) {
+            const successor = await redis.get(SessionService.refreshKey(rec.superseded_by));
+            if (successor) {
+              const parsed = JSON.parse(successor) as RefreshRecord;
+              shape = parsed.used ? "successor_consumed" : "successor_unused";
+            } else {
+              shape = "successor_gone";
+            }
+          } else {
+            shape = "no_successor";
+          }
+        } catch {
+          shape = "unknown";
+        }
+        this.logger.warn(
+          `refresh reuse detected worker=${rec.worker_id} family=${rec.family_id} shape=${shape} ` +
+            `(successor_unused = probably an honest lost-response retry, not theft — see #999)`,
+        );
+
         await this.revokeFamily(redis, rec.family_id, rec.sid, rec.worker_id);
         await this.events.emit({
           event_name: "worker.refresh_reuse_detected",
@@ -511,19 +599,23 @@ export class SessionService {
       // 4a. Rotation lock: SET NX so two concurrent rotations of the SAME token cannot
       // both proceed (the loser sees the lock and is treated as an honest retry that
       // missed the idem cache → invalid, never a false reuse-flag of the just-minted new
-      // token). The lock auto-expires with the grace window.
-      const lockKey = `refresh_lock:${tokenHash}`;
-      const locked = await redis.set(lockKey, "1", "NX", "EX", SessionService.IDEM_GRACE_SECONDS);
+      // token). The lock is released in the `finally` below, and ONLY when THIS call won
+      // it; otherwise it auto-expires after ROTATION_LOCK_SECONDS.
+      const locked = await redis.set(lockKey, "1", "NX", "EX", SessionService.ROTATION_LOCK_SECONDS);
       if (locked !== "OK") {
         // Another rotation of this exact token is in flight. If it cached an idem result
         // under this key, return that; otherwise fail closed (invalid) — never rotate
-        // twice and never flag reuse on a race.
+        // twice and never flag reuse on a race. `wonLock` stays false, so the `finally`
+        // never deletes the mutex that other rotation holds.
         if (idempotencyKey) {
           const cachedMint = await this.readIdem(redis, rec.sid, idempotencyKey);
           if (cachedMint) return { ok: true, minted: cachedMint };
         }
         return { ok: false, reason: "invalid" };
       }
+      // This call now owns the mutex — record it so the `finally` releases EXACTLY this
+      // lock (success, requires_otp, or a mid-rotation Redis fault) and no other path does.
+      wonLock = true;
 
       // 4b. Run the gated rolling-session update on the session record. The OTP anchor is
       // the IMMUTABLE absolute-cap clock carried on the refresh lineage — pass it through so
@@ -599,11 +691,6 @@ export class SessionService {
         );
       }
 
-      // 4e. Release the rotation lock on success so an honest sequential retry within the
-      // window hits the idem cache instead of being needlessly fail-closed (UX, no security
-      // impact — the presented token is already marked used, so it cannot re-rotate).
-      await redis.del(lockKey);
-
       return { ok: true, minted };
     } catch (err) {
       this.logger.error(
@@ -612,6 +699,23 @@ export class SessionService {
         })`,
       );
       return { ok: false, reason: "invalid" };
+    } finally {
+      // 4e. Release the rotation lock on EVERY exit this call took AFTER winning it —
+      // success, requires_otp, OR a transient Redis fault mid-rotation (#1128). Guarded by
+      // `wonLock` so a loser (locked !== "OK") never deletes the mutex another rotation
+      // holds. On success this lets an honest sequential retry hit the idem cache instead of
+      // being needlessly fail-closed (the presented token is already marked used, so it
+      // cannot re-rotate); on the error path it stops a still-valid token being stranded for
+      // the 30s TTL and force-logging-out the worker. Best-effort: a del that itself throws
+      // is swallowed (the lock auto-expires with ROTATION_LOCK_SECONDS) — never throw out of
+      // `finally`, which would mask the real return.
+      if (wonLock) {
+        try {
+          await redis.del(lockKey);
+        } catch {
+          /* auto-expires with ROTATION_LOCK_SECONDS */
+        }
+      }
     }
   }
 

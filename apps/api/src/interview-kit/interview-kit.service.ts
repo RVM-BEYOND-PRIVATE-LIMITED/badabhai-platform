@@ -54,7 +54,7 @@ export class InterviewKitService {
   async getDownload(
     tradeKey: string,
     ctx: RequestContext,
-    opts: { source?: KitSource } = {},
+    opts: { source?: KitSource; workerId?: string | null } = {},
   ): Promise<{
     url: string;
     expires_in: number;
@@ -72,6 +72,12 @@ export class InterviewKitService {
     const objectKey = `interview-kits/${tradeKey}/v${version}/interview-kit.pdf`;
     const bucket = this.config.INTERVIEW_KIT_BUCKET;
     const source = opts.source ?? "worker_app";
+    // OPTIONAL attribution. `null` when the caller had no valid worker session — which is the
+    // ordinary case on a public route, and is emitted as `worker_id: null` rather than
+    // omitted, so a consumer can tell "anonymous" from "field did not exist yet".
+    // It is an opaque internal UUID resolved from the SESSION by OptionalWorkerAuthGuard,
+    // never from the request; nothing else about the worker enters the payload.
+    const workerId = opts.workerId ?? null;
 
     try {
       // Render-once: reuse the stored file if present; otherwise render + store now.
@@ -102,9 +108,19 @@ export class InterviewKitService {
       const ttl = this.config.RESUME_SIGNED_URL_TTL_SECONDS;
       const url = await this.storage.createSignedUrl(objectKey, ttl, bucket);
 
+      const actorType = ACTOR_BY_SOURCE[source];
       await this.events.emit({
         event_name: "interview_kit.downloaded",
-        actor: { actor_type: ACTOR_BY_SOURCE[source] },
+        // `actor_id` is filled in ONLY when the actor really is the worker we identified.
+        // An `ops`/`system` actor never carries it, because attributing an ops download to
+        // whichever worker's token happened to be on the request would be a false audit row.
+        // The FUNNEL reads `payload.worker_id` (which has the partial index); this is here so
+        // the spine's own actor column stops saying "a worker did this, we have no idea which"
+        // when we plainly do.
+        actor:
+          actorType === "worker" && workerId !== null
+            ? { actor_type: actorType, actor_id: workerId }
+            : { actor_type: actorType },
         subject: { subject_type: "interview_kit", subject_id: null },
         payload: {
           trade_key: tradeKey,
@@ -112,6 +128,7 @@ export class InterviewKitService {
           kit_id: kitId,
           source,
           cache_hit: cacheHit,
+          worker_id: workerId,
         },
         correlationId: ctx.correlationId,
         requestId: ctx.requestId,

@@ -206,10 +206,18 @@ records where a worker *ended up* and overwrites the evidence of how they got th
 | `profile.interview_completed` | p95 turn latency (histogram), ask count, completion rate |
 | `profile.parse_disagreement` | Whether gate 4 is firing more than it used to |
 | `profile.parse_gates_rejected` | Which of the six gates is degrading |
+| `profile.submission_duplicated` | How often one physical submission arrives twice, and which rule absorbed it |
 | `occupation.phrase_unresolved` | The growth queue, as a `sha256` |
 
 Latency is a **histogram carried in the envelope and emitted once per interview**, not an event per
 turn: ~12 turns × 1M conversations would be 12M rows whose only reader is a dashboard.
+
+`profile.submission_duplicated` is the one per-turn-ish event, and it obeys that rule rather than
+breaking it: it fires only on a DUPLICATE (never on a healthy turn) and its idempotency key is the
+client's submission id, so a broken client hammering one submission collapses to a single row. It
+carries `absorbed_as` — `client_id` when the client's own per-submission id settled it, `budget` /
+`storm` / `stale` when a clock did — which is the rollout gate for retiring the four reply-cache
+time constants (#931 step 4); those stay in place until the clock branches go to zero in the field.
 
 ---
 

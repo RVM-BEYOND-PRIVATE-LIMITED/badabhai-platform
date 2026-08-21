@@ -7,6 +7,8 @@ import {
 } from "@nestjs/common";
 import { EventsService } from "../events/events.service";
 import { AiCostRecorder } from "../ai/ai-cost-recorder.service";
+import { AiTraceRecorder } from "../ai/ai-trace-recorder.service";
+import { toAiJobUsage } from "../ai/ai-job-usage";
 import { AiService } from "../ai/ai.service";
 import { AiJobsRepository } from "../profiles/ai-jobs.repository";
 import { VoiceRepository } from "./voice.repository";
@@ -40,6 +42,9 @@ export class VoiceTranscriptionService {
     // #738 — the emitter that was private to `ProfileExtractionProcessor`, which is why this
     // path recorded no spend at all. `AiModule` is @Global, so `VoiceModule` gains no import edge.
     private readonly aiCost: AiCostRecorder,
+    // 0083 — the same six call sites as `aiCost`, one table further. Also from the @Global
+    // `AiModule`, so this module still gains no import edge.
+    private readonly aiTraces: AiTraceRecorder,
   ) {}
 
   /**
@@ -224,8 +229,7 @@ export class VoiceTranscriptionService {
     try {
       await this.aiJobs.markRunning(aiJobId);
 
-      const result = await this.ai.transcribe(
-        {
+      const request = {
           voice_note_id: voiceNoteId,
           storage_path: storagePath,
           duration_seconds: durationSeconds,
@@ -237,9 +241,9 @@ export class VoiceTranscriptionService {
           // Omitted (rather than `true`) for every existing caller, so the ai-service default
           // governs exactly as it did before this parameter existed.
           ...(translateToEnglish === undefined ? {} : { translate_to_english: translateToEnglish }),
-        },
-        { correlationId, requestId },
-      );
+      };
+
+      const result = await this.ai.transcribe(request, { correlationId, requestId });
 
       // THE COST RECORD, EMITTED BEFORE THE DEGRADED-RESULT THROW BELOW — deliberately (#738).
       //
@@ -248,12 +252,45 @@ export class VoiceTranscriptionService {
       // the throw would drop precisely that spend: money spent on a call that then broke, which
       // is the spend most worth having a record of. It never throws, so it cannot convert a
       // transcription into a failure.
+      //
+      // BOTH IDS COME FROM THE ROW, NOT THE PAYLOAD — the same authority every other decision
+      // in this method takes (see the note above `ownerId`). `note.sessionId` is NOT NULL on
+      // `voice_notes`, so a clip always names the interview it was spoken into, and a
+      // voice-led interview's STT spend lands on the same session total as its model turns.
       await this.aiCost.record(
         result.ai_metadata ?? null,
         "stt_transcription",
         aiJobId,
         correlationId,
         requestId,
+        { workerId: ownerId, sessionId: note.sessionId },
+      );
+
+      // AND THE TRACE (0083), on the same metadata and the same row-derived ids.
+      //
+      // ⚠ THIS ROW CARRIES NO TEXT TODAY, AND SAYING SO IS THE POINT. The trace text comes off
+      // `AICallMetadata`, written by `AIRouter._record_trace_text` — and STT does not go through
+      // `AIRouter` at all (`app/stt.py` is its own path with no task span). So `prompt_text` and
+      // `response_text` are both absent and the row is metadata only: which call, which model,
+      // how long it took, whether it worked.
+      //
+      // THE EARLIER CUT STORED THE TRANSCRIPT HERE, AND THAT WAS THE WORST INSTANCE OF THE BUG
+      // this call site now avoids: the transcript is the worker's SPOKEN WORDS, straight off the
+      // provider with nothing taken out, and it was being written into `response_enc` verbatim.
+      // The transcript's system of record is `voice_notes.transcript_text`; a second, differently
+      // gated copy of it was never worth having, and an unpseudonymized one certainly was not.
+      //
+      // WIRED ANYWAY, and not deleted: the cost row and the trace row must stay 1:1 across all
+      // six surfaces (that symmetry is what `ai-cost-coverage.test.ts` and the six-call-site
+      // review both lean on), and the metadata a failed transcription leaves behind is exactly
+      // what a "why did this note come back empty" question needs. If STT is ever routed through
+      // `AIRouter`, this line starts carrying masked text with no edit here.
+      await this.aiTraces.capture(
+        result.ai_metadata ?? null,
+        "stt_transcription",
+        aiJobId,
+        correlationId,
+        { workerId: ownerId, sessionId: note.sessionId },
       );
 
       // A DEGRADED RESULT IS A FAILURE, AND IT USED TO BE RECORDED AS A SUCCESS.
@@ -288,7 +325,24 @@ export class VoiceTranscriptionService {
         result.confidence,
         result.english_text ?? "",
       );
-      await this.aiJobs.markCompleted(aiJobId, { voice_note_id: voiceNoteId });
+      // USAGE ON THE JOB ROW, AND IT WAS MISSING FOR EVERY TRANSCRIPTION EVER RUN.
+      //
+      // `markCompleted` has taken an optional `usage` since the extraction path needed it;
+      // this call site passed none, so `ai_jobs.cost_inr` / `model_name` / the three token
+      // columns stayed permanently NULL for `job_type = 'transcription'` — while the cost of
+      // the SAME call was being emitted to the event spine eleven lines above. Anything asking
+      // the jobs table "what did transcription cost?" got NULL, which reads as free.
+      //
+      // The mapper is shared (`ai/ai-job-usage.ts`) rather than re-implemented: it used to be
+      // private to `ProfileExtractionProcessor`, and being unreachable from here is precisely
+      // why this line was written without it. It returns `undefined` on null metadata, so the
+      // mock / blocked / unreachable paths still leave the columns null rather than writing a
+      // zero that cannot be told apart from a real free call.
+      await this.aiJobs.markCompleted(
+        aiJobId,
+        { voice_note_id: voiceNoteId },
+        toAiJobUsage(result.ai_metadata ?? null),
+      );
 
       await this.events.emit({
         event_name: "voice_note.transcription_completed",

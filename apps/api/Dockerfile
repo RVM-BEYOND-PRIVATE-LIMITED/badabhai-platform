@@ -45,6 +45,28 @@ WORKDIR /app
 # Robust: copy the built workspace as-is and run the API entrypoint. (Slimming to
 # prod-only deps is a follow-up; correctness first for the first image.)
 COPY --from=builder /app /app
+
+# ---- build identity (#965): make the running container say WHICH BUILD it is ----
+# Passed at build time (`--build-arg GIT_COMMIT_SHA=<short sha>`) and promoted to ENV so it
+# survives into the RUNNING container — that is the only way the API can know: there is no
+# .git in this image, so nothing can be derived at runtime. Surfaced as `build` in the
+# existing GET /health body.
+#
+# DECLARED HERE, LAST, ON PURPOSE. An ARG is not inert: Docker injects every declared ARG
+# into the environment of each subsequent RUN, so declaring it above the apt-get/WeasyPrint
+# layer would bust that expensive, otherwise-stable cache on every single commit. It is also
+# deliberately NOT declared in the builder stage — nothing there consumes it, and injecting a
+# per-commit value into `pnpm install` / `pnpm build` would do the same to their caches.
+#
+# NO DEFAULT, and none would help: an explicitly-passed empty value overrides a default, and
+# a GitHub Actions `build-args:` line referencing a var that does not exist resolves to the
+# EMPTY STRING (`--build-arg GIT_COMMIT_SHA=`). So the var can legitimately arrive
+# present-and-empty. That is handled at runtime, where "" and unset both read as "unknown"
+# (apps/api/src/health/health.service.ts:resolveBuildId) — the API must never fail to boot,
+# and /health must never fail, because the build id is missing.
+ARG GIT_COMMIT_SHA
+ENV GIT_COMMIT_SHA=$GIT_COMMIT_SHA
+
 # The API reads API_PORT (default 3001) from config.
 EXPOSE 3001
 USER node

@@ -3,6 +3,7 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { RESUME_RENDER_QUEUE } from "../../queue/queue.constants";
 import { PiiCryptoService } from "../pii-crypto.service";
+import type { Sender } from "./request-sender";
 
 /**
  * Minimal typed view of the raw Redis commands we need (BullMQ's IRedisClient
@@ -14,20 +15,30 @@ interface RedisCounter {
 }
 
 /**
- * Per-IP request cap over a rolling UTC hour — an abuse backstop for the public
- * download routes (resume PDF, interview kit), complementing the per-worker/global
- * DAY caps (TD24).
+ * Per-CALLER request cap over a rolling UTC hour — an abuse backstop for the public
+ * download routes (resume PDF, interview kit) and the unauthenticated auth routes,
+ * complementing the per-worker/global DAY caps (TD24).
  *
- * PRIVACY: the client IP is HMAC-hashed (keyed, peppered) BEFORE it is used in a
- * Redis key, and the raw IP is NEVER logged. Only the hash prefix appears in the
- * key namespace — consistent with the no-raw-PII invariant.
+ * TWO KINDS OF CALLER, TWO NAMESPACES (#1035). {@link assertWithinHourlyIpCap} keys on the
+ * address; {@link assertWithinHourlySenderCap} keys on whichever identifier the request
+ * actually carried — the device where the client named one, the address otherwise. They
+ * write `ratelimit:dev:…` and `ratelimit:ip:…` respectively, and the split is load-bearing
+ * rather than cosmetic: both hashes are 32 hex chars, so a shared namespace would let a
+ * device-id hash and an address hash land in one bucket with nothing in the key to say
+ * which was which.
+ *
+ * PRIVACY: the caller identifier — address or device id alike — is HMAC-hashed (keyed,
+ * peppered) BEFORE it is used in a Redis key, and the raw value is NEVER logged. Only the
+ * hash prefix appears in the key namespace, consistent with the no-raw-PII invariant and
+ * with `worker_devices.device_hash`, which already treats this same device id that way.
  *
  * FAIL CLOSED: if Redis is unavailable we REJECT (429) rather than allow, so an
  * outage can never uncap the download routes.
  *
  * NOTE (TD): behind a proxy/LB, `req.ip` is the proxy unless Express `trust proxy`
- * is set. Until that's configured the cap is coarse (per-egress-IP); it is still a
- * useful backstop. Tightening it to the real client IP rides the deployment work.
+ * is set. Until that's configured the address cap is coarse (per-egress-IP); it is still a
+ * useful backstop. Tightening it to the real client IP rides the deployment work. That
+ * coarseness is precisely why the OTP send routes moved OFF it — see `request-sender.ts`.
  */
 @Injectable()
 export class IpRateLimit {
@@ -44,11 +55,34 @@ export class IpRateLimit {
    * hour. `scope` is a short namespace, e.g. "resume_download" / "interview_kit".
    */
   async assertWithinHourlyIpCap(scope: string, ip: string, cap: number): Promise<void> {
-    // Hash the IP (keyed HMAC). Truncate to keep the Redis key bounded; collisions
-    // here only ever merge two IPs into one slightly-stricter bucket (safe).
-    const ipHash = this.pii.hashIp(ip || "unknown").slice(0, 32);
+    return this.assertWithinHourlySenderCap(scope, { kind: "ip", value: ip }, cap);
+  }
+
+  /**
+   * Throw 429 if this SENDER has exceeded `cap` requests for `scope` in the current UTC hour
+   * (#1035) — the same counter as {@link assertWithinHourlyIpCap}, keyed on whoever the
+   * request actually identified rather than on the address it happened to arrive from.
+   *
+   * WHY A ROUTE WOULD WANT THIS. On the worker OTP routes the address is the NAT egress
+   * address, so the bucket is a whole factory wifi or a whole carrier CGNAT pool; a device is
+   * one handset. The full reasoning, and why falling back to the address for a caller that
+   * sent no device id is the strict reading rather than a loophole, is in `request-sender.ts`.
+   */
+  async assertWithinHourlySenderCap(scope: string, sender: Sender, cap: number): Promise<void> {
+    // Keyed HMAC, truncated to keep the Redis key bounded — and, for the device kind, to keep
+    // an UNAUTHENTICATED caller from choosing the width of a key we write. A collision only
+    // ever merges two callers into one slightly-stricter bucket, which is safe in both
+    // directions: it can refuse a request, never grant one.
+    //
+    // `hashIp` for an address (unchanged, so live buckets keep counting across a deploy) and
+    // the generic `hmac` for a device id. Both are the same keyed, peppered primitive; the
+    // namespaces below are what keep the two hash spaces apart, not the choice of method.
+    const hash =
+      sender.kind === "device"
+        ? this.pii.hmac(sender.value).slice(0, 32)
+        : this.pii.hashIp(sender.value || "unknown").slice(0, 32);
     const hour = IpRateLimit.utcHourStamp();
-    const key = `ratelimit:ip:${scope}:${ipHash}:${hour}`;
+    const key = `ratelimit:${sender.kind === "device" ? "dev" : "ip"}:${scope}:${hash}:${hour}`;
     const ttl = IpRateLimit.secondsUntilEndOfUtcHour();
 
     let count: number;
@@ -56,12 +90,14 @@ export class IpRateLimit {
       const redis = (await this.queue.client) as unknown as RedisCounter;
       count = await redis.incr(key);
       // Re-assert TTL on EVERY hit (idempotent + cheap) so a crash between INCR and
-      // EXPIRE can't leave a TTL-less key that blocks the IP for the rest of the hour.
+      // EXPIRE can't leave a TTL-less key that blocks the caller for the rest of the hour.
       await redis.expire(key, ttl);
     } catch (err) {
-      // FAIL CLOSED. Never log the raw IP — only the hash prefix + reason.
+      // FAIL CLOSED. Never log the raw address or the raw device id — only the hash prefix.
+      // The label tracks the kind so an operator reading this line knows which bucket failed.
+      const label = sender.kind === "device" ? "device_hash" : "ip_hash";
       this.logger.error(
-        `IP rate-limit Redis unavailable for scope=${scope} ip_hash=${ipHash.slice(0, 8)}…; failing closed (reason: ${
+        `IP rate-limit Redis unavailable for scope=${scope} ${label}=${hash.slice(0, 8)}…; failing closed (reason: ${
           err instanceof Error ? err.message : String(err)
         })`,
       );
@@ -72,6 +108,20 @@ export class IpRateLimit {
     }
 
     if (count > cap) {
+      // LOGGED, because a silent cap is unanswerable from outside (#1019). This throws the same
+      // neutral 429 as four throttles in `OtpService`, so without a line here "which limit did
+      // this worker hit?" can only be answered by reading Redis on the box by hand. The kind and
+      // the scope together say which bucket it was; the count says how far over.
+      //
+      // WARN, NOT ERROR: a cap firing is the limiter working, not the platform failing. The
+      // `error` above is a different event — Redis was unreachable and we refused blind.
+      this.logger.warn(
+        `${sender.kind} rate-limit cap reached scope=${scope} ` +
+          `hash=${hash.slice(0, 8)}… count=${count}/${cap}; refusing`,
+      );
+      // ONE WORDING FOR BOTH KINDS, deliberately. The message a worker sees must not reveal
+      // which bucket they landed in — that would tell a prober whether their device id was
+      // accepted, and it is the same neutral 429 every other OTP throttle answers with.
       throw new HttpException(
         "Too many requests from this network; please try again later",
         HttpStatus.TOO_MANY_REQUESTS,

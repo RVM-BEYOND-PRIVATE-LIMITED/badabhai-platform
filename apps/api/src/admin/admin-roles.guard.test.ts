@@ -151,6 +151,13 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
   const EXPECTED: Record<AdminCapability, AdminRole[]> = {
     read_events: ["super_admin", "ops_admin", "support", "analyst"],
     read_entities: ["super_admin", "ops_admin", "support", "analyst"],
+    // Owner ruling 2026-08-18 (reversing Decision 4's faceless contract): the NAMES behind the
+    // ids, on both the list and the detail. `analyst` DENIED.
+    read_identity: ["super_admin", "ops_admin", "support"],
+    // Migration 0083 — DECRYPT a stored prompt/completion. SUPER_ADMIN ONLY, and not held
+    // by `support` even though `reveal_pii` is: revealing one worker's phone on a
+    // reason-gated route and reading what every worker has said are different acts.
+    read_ai_traces: ["super_admin"],
     export: ["super_admin", "ops_admin"],
     suspend_payer: ["super_admin", "ops_admin"],
     grant_credits: ["super_admin", "ops_admin"],
@@ -171,7 +178,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     }
   });
 
-  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL 40 cells", () => {
+  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL 44 cells", () => {
     const roles: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
     for (const cap of ADMIN_CAPABILITIES) {
       for (const role of roles) {
@@ -206,6 +213,24 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     expect(can("analyst", "reveal_pii")).toBe(false);
     expect(can("ops_admin", "reveal_pii")).toBe(false);
   });
+
+  it("read_identity is a STRICT SUBSET of read_entities — names can only narrow the floor", () => {
+    // The property that makes the split safe in BOTH directions. If a role ever held
+    // `read_identity` without `read_entities` it would be entitled to a name on a screen it
+    // cannot open, which is a matrix that says something no route can honour. And because the
+    // identity check is INSIDE the service rather than on a second decorator, a superset would
+    // not fail anywhere — it would just be silently unreachable.
+    for (const role of ["super_admin", "ops_admin", "support", "analyst"] as AdminRole[]) {
+      if (can(role, "read_identity")) expect(can(role, "read_entities"), role).toBe(true);
+    }
+    // ...and the ruling itself, pinned literally: three roles in, `analyst` out.
+    expect(can("super_admin", "read_identity")).toBe(true);
+    expect(can("ops_admin", "read_identity")).toBe(true);
+    expect(can("support", "read_identity")).toBe(true);
+    expect(can("analyst", "read_identity")).toBe(false);
+    // Names are NOT the reveal: `ops_admin` holds identity and is still denied the phone.
+    expect(can("ops_admin", "reveal_pii")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -216,7 +241,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
 describe("capabilitiesFor — what the UI is told matches what the server permits", () => {
   const ROLES: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
 
-  it("agrees with can() on ALL 40 cells — the UI can never show a control the guard denies", () => {
+  it("agrees with can() on ALL 44 cells — the UI can never show a control the guard denies", () => {
     for (const role of ROLES) {
       const granted = capabilitiesFor(role);
       for (const cap of ADMIN_CAPABILITIES) {
@@ -234,11 +259,18 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
 
   it("returns each role's exact ADR-0025 §3.1 grant", () => {
     // Literal expectations: an assertion derived from the matrix would survive a matrix bug.
+    // `analyst` is the role the 2026-08-18 ruling deliberately left faceless — no read_identity.
     expect(capabilitiesFor("analyst")).toEqual(["read_events", "read_entities"]);
-    expect(capabilitiesFor("support")).toEqual(["read_events", "read_entities", "reveal_pii"]);
+    expect(capabilitiesFor("support")).toEqual([
+      "read_events",
+      "read_entities",
+      "read_identity",
+      "reveal_pii",
+    ]);
     expect(capabilitiesFor("ops_admin")).toEqual([
       "read_events",
       "read_entities",
+      "read_identity",
       "export",
       "suspend_payer",
       "grant_credits",

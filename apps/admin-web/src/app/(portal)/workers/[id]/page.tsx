@@ -1,28 +1,42 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireCapability } from "../../../../lib/auth";
+import { can } from "../../../../lib/auth/capabilities";
 import { getWorker, listApplications } from "../../../../lib/entities";
 import { isAdminRequestError } from "../../../../lib/admin-http";
+import { identityPosture, displayName } from "../../../../lib/identity";
 import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../../lib/format";
 import { StatusPill } from "../../../../components/status-pill";
+import { NameCell } from "../../../../components/name-cell";
+import { IdentityCapNotice } from "../../../../components/identity-notice";
 import { DetailList } from "../../../../components/detail-list";
+import { WorkerDetailHeader } from "./worker-detail-header";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Worker" };
 
 /**
- * One worker, faceless.
+ * One worker.
  *
- * The most useful thing this page does is link OUT — to the event timeline, which is where
- * the worker's actual history lives. The counters here are the summary; the spine is the
- * record.
+ * The 2026-08-18 ruling put the name on the DETAIL page as well as the list — the CTO was shown
+ * the detail-only recommendation for v1 and chose both. So the heading is this worker's name
+ * when one was disclosed, and the short id whenever one was not: a heading built from a value
+ * that can legitimately be null cannot be allowed to render as an empty line, and the id is the
+ * label the rest of the console already identifies them by.
+ *
+ * The id never leaves the page for the name's sake. It stays in the eyebrow's `title`, in the
+ * Record list, and in every link out — it is the join key onto the audit spine, and a name is
+ * not unique enough to be one.
+ *
+ * The most useful thing this page does is still link OUT — to the event timeline, which is where
+ * the worker's actual history lives. The counters here are the summary; the spine is the record.
  */
 export default async function WorkerDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireCapability("read_entities");
+  const session = await requireCapability("read_entities");
   const { id } = await params;
 
   let worker: Awaited<ReturnType<typeof getWorker>>;
@@ -39,28 +53,58 @@ export default async function WorkerDetailPage({
   // Their decisions. Non-fatal: a failure here must not blank the whole worker page.
   const apps = await listApplications({ workerId: id, limit: 10 }).catch(() => null);
 
+  const timelineHref = `/workers/${worker.id}/timeline`;
+  const journeyHref = `/workers/${worker.id}/journey`;
+
+  // A single record, so the posture is read off this one row — `[worker]`, not a page.
+  const posture = identityPosture(
+    [worker],
+    "full_name",
+    can(session.capabilities, "read_identity"),
+  );
+  const name = displayName(worker.full_name);
+
+  const title = (
+    <div>
+      <p className="page__eyebrow">
+        <Link className="link" href="/workers">
+          Workers
+        </Link>
+      </p>
+      {/* `mono` is dropped with the id: it is an opaque-identifier treatment, and a person's
+          name set in a monospace face reads as a machine token rather than as a name. */}
+      <h1 className={name === null ? "page__title mono" : "page__title"}>
+        {name ?? shortId(worker.id)}
+      </h1>
+      <p className="page__sub">
+        {name === null
+          ? "One worker account as this portal sees it — what they did."
+          : "One worker account as this portal sees it — what they did, and who they are."}{" "}
+        Registered {formatRelative(worker.created_at)} · {formatTimestamp(worker.created_at)}.
+      </p>
+    </div>
+  );
+
   return (
     <div className="page">
-      <header className="page__head">
-        <div>
-          <p className="page__eyebrow">
-            <Link className="link" href="/workers">
-              Workers
-            </Link>
-          </p>
-          <h1 className="page__title mono">{shortId(worker.id)}</h1>
-          <p className="page__sub">
-            One worker account as this portal sees it — what they did, never who they are.
-            Registered {formatRelative(worker.created_at)} ·{" "}
-            {formatTimestamp(worker.created_at)}.
-          </p>
-        </div>
-        <div className="page__actions">
-          <Link className="btn btn--ghost" href={`/events?subjectType=worker&subjectId=${worker.id}`}>
-            View event timeline
-          </Link>
-        </div>
-      </header>
+      <WorkerDetailHeader
+        title={title}
+        workerId={worker.id}
+        canFlag={can(session.capabilities, "flag_worker")}
+        timelineHref={timelineHref}
+        /* This page is already behind `read_entities`, which is what the journey routes
+           declare too — so the link is always offered here. Passed explicitly rather than
+           hardcoded in the header, so the day either capability narrows the control moves
+           with it instead of pointing at a redirect. */
+        journeyHref={can(session.capabilities, "read_entities") ? journeyHref : null}
+      />
+
+      {posture === "capped" && (
+        <IdentityCapNotice>
+          Your role may see this worker&apos;s name, so the heading above falls back to their id:
+          this admin account has spent its hourly name budget.
+        </IdentityCapNotice>
+      )}
 
       {worker.deletion_scheduled_at && (
         <section className="notice notice--bad" role="status">
@@ -77,13 +121,25 @@ export default async function WorkerDetailPage({
             <h2 className="panel__title" id="w-identity">
               Record
             </h2>
+            {/* THREE-VALUED, like the posture. A two-way branch here put "The name is
+                decrypted for this response only." eight lines under a banner saying names
+                were withheld — the capped case fell into the `named` copy because it was
+                only ever tested for `faceless`. */}
             <p className="panel__sub">
-              Name and contact are not part of this record — they are never served to a
-              list or detail read.
+              {posture === "faceless"
+                ? "Names are not served to your role, and contact never appears on a record read for any role — revealing a worker's phone is a separate, reason-gated action."
+                : posture === "capped"
+                  ? "No name was decrypted for this response — see above. Contact never appears on a record read either — revealing a worker's phone is a separate, reason-gated action."
+                  : "The name is decrypted for this response only. Contact never appears on a record read — revealing a worker's phone is a separate, reason-gated action."}
             </p>
           </div>
           <DetailList
             items={[
+              // The row is present only in the `named` posture, for the same reason the list
+              // column is: a dash on a "Name" row asserts that nobody recorded one.
+              ...(posture === "named"
+                ? [{ label: "Name", value: <NameCell value={worker.full_name} /> }]
+                : []),
               { label: "Worker id", value: <span className="mono">{worker.id}</span> },
               { label: "Status", value: <StatusPill value={worker.status} /> },
               { label: "Preferred language", value: worker.preferred_language ?? "not set" },

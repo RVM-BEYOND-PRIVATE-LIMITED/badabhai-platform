@@ -46,7 +46,7 @@ import {
   toPackOption,
 } from "./identify.service";
 import { LlmTurnService } from "./llm-turn.service";
-import { captureAnswer, hasFieldNormalizer, mayCommit } from "./answer-capture";
+import { captureAnswer, hasFieldNormalizer, matchOptions, mayCommit } from "./answer-capture";
 import {
   answerSetHash,
   isSettled,
@@ -68,10 +68,12 @@ import {
   narrowAnswerRecords,
   recordTurnLatency,
   REPLY_CACHE_WINDOW_MS,
+  ID_REPLAY_MAX_AGE_MS,
   STALE_RESPONSE_WINDOW_MS,
   TURN_KINDS,
   toEngineState,
   withAnswers,
+  type LastTurn,
   type ProfilingEnvelope,
   type TurnKind,
 } from "./conversation-state";
@@ -270,6 +272,21 @@ export interface TurnInput {
   readonly text: string;
   readonly now: Date;
   /**
+   * The client's id for THIS physical submission, or `null` when the caller has none (#931).
+   *
+   * The one fact that tells a transport retry from the worker's next answer without guessing at
+   * it from a clock — see {@link LastTurn.submissionId} for the defect and the on-device symptom.
+   * The client mints it once where the answer commits to the wire and re-sends the same value
+   * verbatim on a retry, so equality means "the same submission", not "the same words".
+   *
+   * REQUIRED AND NULLABLE, never optional. The failure mode of forgetting it at a new call site
+   * is silent and it is the original defect: a client that DOES send an id would have it dropped
+   * here and be judged by the hash again, with nothing anywhere saying so. Required makes the
+   * omission a BUILD failure; `null` is how a caller with no submission behind it — `openTurn`,
+   * the finalize re-drive — says so in as many words.
+   */
+  readonly submissionId: string | null;
+  /**
    * Correlation for the two occupation events this turn may emit. Threaded through rather than
    * synthesised so a placement can be traced back to the HTTP request that produced it.
    */
@@ -428,13 +445,38 @@ export class ProfilingOrchestrator {
         // submissions at all — everything downstream of it looks like a healthy session precisely
         // because the damage was absorbed here. Ids and counters only: the worker's words live in
         // the transcript, which is the one place they belong (§2).
+        //
+        // THE LOG IS NO LONGER THE ONLY EVIDENCE (#931 step 5). A duplicate is invisible on the
+        // event spine — this method returns before `decide()` is consulted, so it writes no
+        // `chat_messages` row and emits no `chat.message_received` — and this repo ships, retains
+        // and searches no logs at all, so the warn below diagnoses ONE incident and can never
+        // answer "is this getting worse". `recordDuplicate` emits the countable half, keyed so a
+        // storm collapses to one row.
         if (!replay.consumesBudget) {
-          this.logger.warn(
-            `retry storm absorbed session=${input.sessionId} rev=${envelope.rev} ` +
-              `replays=${envelope.lastTurn.replays} question=${envelope.servedQuestionKey ?? "-"}; ` +
-              `duplicate served from cache and NOT captured — the client is posting one ` +
-              `submission more than once`,
-          );
+          // THE WARN IS FOR THE CLOCK BRANCHES ONLY, and it is unchanged for them (#931). An
+          // id-matched replay is a client doing exactly the right thing — re-sending one
+          // submission it has no confirmation for — so calling it a storm would train a reader to
+          // ignore the line that means a client really is broken. `log`, not `warn`, and it names
+          // the id as the decider so a reader can tell "the clock guessed" from "the client knew".
+          if (replay.absorbedAs === "client_id") {
+            this.logger.log(
+              `submission replayed session=${input.sessionId} rev=${envelope.rev} ` +
+                `question=${envelope.servedQuestionKey ?? "-"}; the client re-sent the SAME ` +
+                `submission id, so the previous reply is served verbatim and nothing is written`,
+            );
+          } else {
+            this.logger.warn(
+              `retry storm absorbed session=${input.sessionId} rev=${envelope.rev} ` +
+                `replays=${envelope.lastTurn.replays} question=${envelope.servedQuestionKey ?? "-"}; ` +
+                `duplicate served from cache and NOT captured — the client is posting one ` +
+                `submission more than once`,
+            );
+          }
+          // AFTER the log and BEFORE the return, on a branch that writes nothing to Redis: there
+          // is no CAS here whose outcome could make this fact untrue. It never throws — a worker
+          // whose duplicate was correctly absorbed must not lose the reply because an audit
+          // INSERT failed.
+          await this.recordDuplicate(envelope, envelope.lastTurn, replay, input);
           return replay.result;
         }
 
@@ -457,6 +499,12 @@ export class ProfilingOrchestrator {
         // `REPLY_CACHE_WINDOW_MS` regardless of how many retries land inside it — refreshing it
         // here would let each consume buy the window another `REPLY_CACHE_WINDOW_MS`, which is the
         // unbounded-loop failure this whole mechanism exists to close.
+        //
+        // THE SPREAD CARRIES `submissionId` FORWARD UNTOUCHED (#931), which is correct rather than
+        // incidental: this stamp still describes the ORIGINAL real turn and the submission that
+        // produced it. Re-stamping it with the duplicate's own id would make the stamp claim the
+        // retry was the real turn, and — where the two ids differ — would hand the NEXT retry of
+        // the first submission a stamp it no longer matches.
         const last = envelope.lastTurn;
         const consumed: TranscriptBuffer = {
           ...buffer,
@@ -470,7 +518,15 @@ export class ProfilingOrchestrator {
           },
         };
         const held = await this.buffer.saveWithCas(input.sessionId, consumed, envelope.rev);
-        if (held) return replay.result;
+        if (held) {
+          // AFTER THE CAS, NEVER BEFORE — the same rule `persistPin` follows below. This branch is
+          // the one duplicate path that WRITES, and an attempt that loses the write did not
+          // happen: emitting before it would record a duplicate for a decision that was then
+          // thrown away and re-evaluated from the winner's state, double-counting the one real
+          // event the loop eventually emits.
+          await this.recordDuplicate(envelope, last, replay, input);
+          return replay.result;
+        }
         // Lost the race — someone else already wrote (a real turn, or another caller consuming the
         // same replay slot). Reload and re-evaluate against whatever landed, exactly as a lost CAS
         // does below.
@@ -560,6 +616,20 @@ export class ProfilingOrchestrator {
         return unavailable();
       }
       const items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
+      // Same split as `decide` — see the note there. A reopened session must not report a
+      // different denominator from the turn loop it is about to hand back to.
+      const openSelectable = selectableEnginePacks(envelope, packs.engine);
+      const progressItems = [
+        ...(openSelectable.occupation?.items ?? []),
+        ...openSelectable.universal.items,
+      ];
+      // THE SAME SEAM `decide` APPLIES, and this reader needs it just as badly. A closed interview
+      // has no `servedQuestionKey` at all, so the re-serve below finds nothing and a cold start or
+      // resume-after-kill falls straight through to `nextQuestion` — which, without this, would
+      // open the screen on the very trade-pack question the turn loop has been declining to ask.
+      // `items` above is deliberately built from the full resolved pair, not from this: see
+      // {@link selectableEnginePacks}.
+      const engine = selectableEnginePacks(envelope, packs.engine);
       const answers = answersOf(envelope);
 
       // CHIPS ON SCREEN OUTRANK THE PACK QUESTION, before the re-serve below can find a stale key.
@@ -581,7 +651,7 @@ export class ProfilingOrchestrator {
           options: offer.options,
           whyText: null,
           answerType: "single_select",
-          progress: progressOf(items, answers),
+          progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
@@ -608,7 +678,7 @@ export class ProfilingOrchestrator {
           // itself sends `options_only`, and a model turn that asked for one re-opens with the
           // keyboard available — which is what every shipped client does anyway.
           inputMode: envelope.llmGateOpen ? "options_only" : "text",
-          progress: progressOf(items, answers),
+          progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
@@ -623,7 +693,17 @@ export class ProfilingOrchestrator {
       // session reopened after a re-ask hears the wording it last heard and not the opening
       // phrasing from two turns ago — the regression `servedText` exists to prevent, and one a
       // voice surface makes audible rather than merely visible.
-      const served = items.find((item) => item.question_key === envelope.servedQuestionKey);
+      // SEARCHED IN THE SELECTABLE SET, NOT THE FULL ONE. The note above says a closed interview
+      // has no `servedQuestionKey`, and that is true of every envelope THIS build writes. It is
+      // not true of one the previous build wrote: a session that finished Phase A before this
+      // shipped can be sitting on `machine_type` with the pack now suppressed, and re-serving it
+      // here would ask the one trade question the change exists to stop asking — after which the
+      // engine never offers it again, so the worker answers a question nothing will follow up.
+      // Bounded to one leftover question inside the deploy window, and zero today because the
+      // flag is default OFF, which is exactly why it is cheaper to close than to remember.
+      const served = progressItems.find(
+        (item) => item.question_key === envelope.servedQuestionKey,
+      );
       if (served) {
         const text = servedText(
           served,
@@ -637,7 +717,7 @@ export class ProfilingOrchestrator {
           questionKey: served.question_key,
           options: served.options,
           ...shapeOf(items, served.question_key),
-          progress: progressOf(items, answers),
+          progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
@@ -650,7 +730,7 @@ export class ProfilingOrchestrator {
 
       // `buffer.turnCount` UNCHANGED, deliberately: `toEngineState`'s turn argument is what the
       // hard turn cap is judged against, and opening the screen is not a turn the worker spent.
-      const decision = nextQuestion(toEngineState(envelope, buffer.turnCount), packs.engine);
+      const decision = nextQuestion(toEngineState(envelope, buffer.turnCount), engine);
       const reply = decision.kind === "close" ? CLOSING_REPLY : decision.promptText;
       if (reply.trim().length === 0) {
         this.logger.error(
@@ -693,6 +773,10 @@ export class ProfilingOrchestrator {
           workerId: input.workerId,
           text: "",
           now: input.now,
+          // NO SUBMISSION BEHIND THIS ONE (#931). `openTurn` puts the first question on screen
+          // without a worker having sent anything, so there is no client id to carry and
+          // inventing one would stamp a submission that never happened.
+          submissionId: null,
           ctx: input.ctx,
         });
         return {
@@ -726,7 +810,7 @@ export class ProfilingOrchestrator {
           lookahead: computeLookahead({
             decision,
             state: toEngineState(next, buffer.turnCount),
-            packs: packs.engine,
+            packs: engine,
             items,
             nextTurn: buffer.turnCount + 1,
           }),
@@ -771,8 +855,46 @@ export class ProfilingOrchestrator {
     // `let`, because a MID-TURN RE-PIN replaces the pack this was built from. See the reassignment
     // below the identify step.
     let items = [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items];
+    // ONE DENOMINATOR FOR THE WHOLE SESSION. `items` stays the FULL pinned universe, because
+    // settlement, `shapeOf` and `essentialsOf` all have to keep seeing the trade pack's rows —
+    // every `skills` question in the corpus lives in an occupation pack, and narrowing that list
+    // would take Phase A's skills out of `answer_map`. Progress is a different question and gets
+    // its own list: what the worker will actually BE ASKED.
+    //
+    // WITHOUT THIS SPLIT THE BAR MOVES BACKWARDS. `decision.progress` is computed over the
+    // narrowed packs, while every non-decision branch — silence, hardship, de-escalation, clarify
+    // — counted the full union, so a post-Phase-A machinist saw 1/8 on an ask turn and 1/12 the
+    // moment they went quiet or asked a question back, then 2/8 again. `progress.fraction` is a
+    // wire field both surfaces render, and this file calls it the single biggest lever on
+    // completion rate for low-literacy users; a bar that retreats when a worker hesitates is not
+    // a cost the pack skip was signed off with.
+    const selectable = selectableEnginePacks(envelope, packs.engine);
+    let progressItems = [
+      ...(selectable.occupation?.items ?? []),
+      ...selectable.universal.items,
+    ];
     const askedItem =
       items.find((item) => item.question_key === envelope.servedQuestionKey) ?? null;
+    // THE SAME QUESTION, BUT ONLY IF THE ENGINE WOULD STILL SERVE IT — the re-serve twin of
+    // `askedItem`, and the two are deliberately different objects.
+    //
+    // `askedItem` is resolved from the FULL pinned union because it is what CAPTURES the worker's
+    // answer, and an answer must never be dropped because the question behind it went out of
+    // scope. But three branches below (de-escalation, silence, hardship) do not capture anything
+    // — they PUT THE QUESTION BACK ON SCREEN — and a suppressed trade question re-served there is
+    // the exact thing {@link selectableEnginePacks} exists to stop, arriving through the one door
+    // it does not guard. Reachable whenever a session written by the previous build resumes with
+    // `servedQuestionKey` naming a pack row this build will no longer select: bounded to the
+    // deploy window, and cheaper to close than to remember.
+    //
+    // Null here does NOT mean "say nothing". The silence branch falls through to the engine (its
+    // guard is already "is there text to re-serve"), and the other two serve their line above a
+    // question key of null — the same shape they already return for a brand-new session with
+    // nothing on screen yet.
+    const reservableItem =
+      askedItem && progressItems.some((item) => item.question_key === askedItem.question_key)
+        ? askedItem
+        : null;
 
     // THE TURN CAP OUTRANKS EVERY NON-ADVANCING BRANCH BELOW, and the order is the whole point:
     // clarify, silence and hardship all return early WITHOUT consulting the engine, so testing the
@@ -796,12 +918,13 @@ export class ProfilingOrchestrator {
         return this.turn(buffer, next, input, {
           reply: DE_ESCALATION_REPLY,
           // The question on screen is unchanged and still answered the ordinary way; only the
-          // words above it differ.
+          // words above it differ. NARROWED — see {@link reservableItem}: a question the engine
+          // has stopped selecting is not on screen, so naming it here would put it back.
           kind: "ask",
-          questionKey: envelope.servedQuestionKey,
-          options: askedItem?.options ?? [],
-          ...shapeOf(items, envelope.servedQuestionKey),
-          progress: progressOf(items, answers),
+          questionKey: reservableItem?.question_key ?? null,
+          options: reservableItem?.options ?? [],
+          ...shapeOf(items, reservableItem?.question_key ?? null),
+          progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
@@ -821,8 +944,14 @@ export class ProfilingOrchestrator {
       // `prompt_text` directly walked the interview BACKWARDS to the opening wording after the
       // retry wording had already been served — the exact regression `servedText` exists to
       // prevent, and one a voice session makes audible rather than merely visible.
-      const reserved = askedItem
-        ? servedText(askedItem, askCount(toEngineState(next, turn), askedItem.question_key))
+      // NARROWED (see {@link reservableItem}). A suppressed trade question yields "" here and
+      // the guard below falls through to the engine, which is the right answer: the interview
+      // moves on rather than re-serving a question it has stopped asking.
+      const reserved = reservableItem
+        ? servedText(
+            reservableItem,
+            askCount(toEngineState(next, turn), reservableItem.question_key),
+          )
         : "";
       // A RE-SERVE NEEDS SOMETHING TO RE-SERVE. With no question on screen — the state of every
       // NEW session — there was nothing, and the old `?? ""` COMMITTED a blank assistant bubble:
@@ -841,10 +970,10 @@ export class ProfilingOrchestrator {
           reply: reserved,
           // A re-serve of the same question — same kind it had.
           kind: "ask",
-          questionKey: envelope.servedQuestionKey,
-          options: askedItem?.options ?? [],
-          ...shapeOf(items, envelope.servedQuestionKey),
-          progress: progressOf(items, answers),
+          questionKey: reservableItem?.question_key ?? null,
+          options: reservableItem?.options ?? [],
+          ...shapeOf(items, reservableItem?.question_key ?? null),
+          progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
@@ -880,12 +1009,13 @@ export class ProfilingOrchestrator {
           // Indexed by TURN, never at random: the engine has no randomness by construction, so
           // the same conversation must always produce the same words.
           reply: HARDSHIP_REPLIES[turn % HARDSHIP_REPLIES.length] as string,
-          // An acknowledgement above the question that is still on screen.
+          // An acknowledgement above the question that is still on screen. NARROWED — see
+          // {@link reservableItem}.
           kind: "ask",
-          questionKey: envelope.servedQuestionKey,
-          options: askedItem?.options ?? [],
-          ...shapeOf(items, envelope.servedQuestionKey),
-          progress: progressOf(items, answers),
+          questionKey: reservableItem?.question_key ?? null,
+          options: reservableItem?.options ?? [],
+          ...shapeOf(items, reservableItem?.question_key ?? null),
+          progress: progressOf(progressItems, answers),
           unansweredEssentials: essentialsOf(items, answers),
           complete: false,
           completionReason: null,
@@ -901,7 +1031,14 @@ export class ProfilingOrchestrator {
 
     if (capture.turnClass === "question_back") {
       const state = toEngineState({ ...next, silentTurns: 0 }, turn);
-      const clarified = clarify(state, packs.engine);
+      // `selectable`, NOT `packs.engine`. `clarify` looks the on-screen question up in the pair
+      // it is given and then RE-SERVES IT under its own why-text, so handing it the full union
+      // was a second door onto the suppressed trade pack. Handed the narrowed pair it returns
+      // null for a question the engine no longer selects, and the branch falls through to
+      // `nextQuestion` — the worker's "kyun?" moves the interview on instead of re-asking a
+      // question that is not on screen. It also fixes the progress `clarify` reports, which is
+      // computed over the very pair passed here.
+      const clarified = clarify(state, selectable);
       if (clarified) {
         // NEVER counts as an ask. The worker asked a reasonable question and deserves an answer,
         // not a spent budget — `why_text` first, then the same question again on the same turn.
@@ -909,8 +1046,8 @@ export class ProfilingOrchestrator {
         return this.turn(buffer, next, input, {
           reply: joinClarify(
             clarified,
-            askedItem,
-            askedItem ? askCount(state, askedItem.question_key) : 0,
+            reservableItem,
+            reservableItem ? askCount(state, reservableItem.question_key) : 0,
           ),
           // `ask`, NOT the wire enum's `clarify`. The explanation and the question arrive in one
           // bubble, and the question is answered exactly as it was before the worker asked why —
@@ -994,7 +1131,7 @@ export class ProfilingOrchestrator {
         answerType: "single_select",
         // A disambiguation turn spends no ask, so it can never cross a checkpoint boundary.
         checkpointDue: false,
-        progress: progressOf(items, answers),
+        progress: progressOf(progressItems, answers),
         unansweredEssentials: essentialsOf(items, answers),
         complete: false,
         completionReason: null,
@@ -1020,6 +1157,12 @@ export class ProfilingOrchestrator {
         // `essentialsOf` read the same stale list, and reported the universal pack's mandatory
         // questions as the outstanding ones on exactly the turn the real pack arrived.
         items = [...(repinned.engine.occupation?.items ?? []), ...repinned.engine.universal.items];
+        // The re-pin changes which questions exist, so the denominator moves with it.
+        const repinnedSelectable = selectableEnginePacks(next, repinned.engine);
+        progressItems = [
+          ...(repinnedSelectable.occupation?.items ?? []),
+          ...repinnedSelectable.universal.items,
+        ];
       }
     }
 
@@ -1037,6 +1180,9 @@ export class ProfilingOrchestrator {
     if (this.llm.leads(next)) {
       const led = await this.llm.take(next, input.text, transcriptOf(buffer), {
         workerId: input.workerId,
+        // The turn's spend is attributed to THIS session — the same `chat_sessions.id` the
+        // extraction job records — so per-interview cost is one indexed row, not a scan.
+        sessionId: input.sessionId,
         correlationId: input.ctx.correlationId,
         requestId: input.ctx.requestId,
       });
@@ -1047,8 +1193,49 @@ export class ProfilingOrchestrator {
         // engine is about to replace.
         next = { ...next, llmFallback: true, llmGateOpen: false };
         await this.recordFallback(next, input);
-        // ...and FALL THROUGH. `nextQuestion` below serves the next pack question, which is the
-        // whole design: one branch, not a second engine to keep in step.
+        // AND SETTLE WHAT PHASE A ALREADY LEARNED, on the way out.
+        //
+        // THE DEFECT THIS CLOSES. `settleFromLlmDraft` used to run on the `done` branch only, so
+        // an interview that spent five turns on a worker's welding and THEN lost the model kept
+        // its trade, its skills and its experience nowhere but the transcript — and the engine
+        // opened the tail by asking `primary_trade` ("Aap kaunsa kaam karte hain?") to a worker
+        // who had just spent five turns answering it. The fallback is a fall-through, and a
+        // fall-through that discards everything gathered so far is a restart wearing its costume.
+        //
+        // IT IS ALSO WHAT MAKES THE PACK SKIP SAFE FOR THIS BRANCH. {@link selectableEnginePacks}
+        // now suppresses the occupation pack for a fallen-back interview too, and its previous
+        // refusal to do so rested entirely on this settlement not existing. Same `llmLedTurns > 0`
+        // test on both sides, so the two cannot drift: a session whose draft is settled is exactly
+        // the session whose pack is suppressed.
+        //
+        // GUARDED ON `llmLedTurns`, NOT ON THE DRAFT BEING NON-EMPTY, because `settleFromLlmDraft`
+        // falls `trade` back to the RETRIEVAL PIN when the draft has no label. On a first-turn
+        // fallback that would settle `primary_trade` from a pin the worker has not confirmed and
+        // that Phase A never got to test — filling in an answer for an interview that never
+        // happened. Zero led turns means zero settlement, and the pack asks the questions.
+        if (next.llmLedTurns > 0) {
+          answers = settleFromLlmDraft(
+            answers,
+            next.llmDraft,
+            next.occupation?.label ?? null,
+            items,
+            turn,
+          );
+          next = withAnswers(next, answers);
+          // COUNTS ONLY — no draft text, no transcript, no worker identity beyond the session
+          // (§3 Privacy First). This is the line that separates "the model was never there" from
+          // "the model left mid-interview", which is the distinction the fallback EVENT cannot
+          // carry: its payload is `.strict()` at v1 and `asks` undercounts by exactly the gate
+          // turn. Without it the two cases are indistinguishable in production, and they now have
+          // opposite consequences for the worker's trade pack.
+          this.logger.log(
+            `Phase A fell back after leading session=${input.sessionId} ` +
+              `led=${next.llmLedTurns} asks=${next.llmAsks} stage=${envelope.llmStage}; ` +
+              `its draft was settled and the occupation pack will not be re-asked`,
+          );
+        }
+        // ...and FALL THROUGH. `nextQuestion` below serves the next question, which is the whole
+        // design: one branch, not a second engine to keep in step.
       } else {
         next = { ...next, ...led.patch };
         if (led.kind === "ask") {
@@ -1068,7 +1255,7 @@ export class ProfilingOrchestrator {
             answerType: options.length > 0 ? "single_select" : "text",
             whyText: null,
             inputMode: led.inputMode,
-            progress: progressOf(items, answers),
+            progress: progressOf(progressItems, answers),
             unansweredEssentials: essentialsOf(items, answers),
             complete: false,
             completionReason: null,
@@ -1082,7 +1269,13 @@ export class ProfilingOrchestrator {
         // `done` — Phase A is over. What the model gathered becomes ANSWERS before the engine is
         // consulted, or the template tail opens by asking a worker their trade immediately after
         // a conversation that was largely about it.
-        answers = settleFromLlmDraft(answers, next.llmDraft, items, turn);
+        answers = settleFromLlmDraft(
+          answers,
+          next.llmDraft,
+          next.occupation?.label ?? null,
+          items,
+          turn,
+        );
         next = withAnswers(next, answers);
         // FALL THROUGH so the engine serves the template pack's first question on THIS turn:
         // returning the model's closing words here would cost the worker a round trip to see a
@@ -1091,6 +1284,14 @@ export class ProfilingOrchestrator {
     }
 
     // --- The decision -------------------------------------------------------
+    //
+    // REASSIGNED RATHER THAN PASSED, and that is the point: `engine` is read twice below — once by
+    // `nextQuestion` and once by `computeLookahead` — and narrowing only the first would have the
+    // client pre-render, and on the voice form SPEAK, a trade-pack question the engine will never
+    // actually serve. One assignment keeps the decision and its prediction in agreement by
+    // construction. AFTER the re-pin above, so the pack is still resolved and still pinned; see
+    // {@link selectableEnginePacks} for why an interview Phase A led stops selecting from it.
+    engine = selectableEnginePacks(next, engine);
     const decision = nextQuestion(toEngineState(next, turn), engine);
 
     // ADVANCING PAST A QUESTION IS WHAT RECORDS `unanswered`. Judged by comparing what the engine
@@ -1265,6 +1466,12 @@ export class ProfilingOrchestrator {
     const items = packs
       ? [...(packs.engine.occupation?.items ?? []), ...packs.engine.universal.items]
       : [];
+    // Same split as `decide` — the review screen counts what the worker will be asked, while
+    // `items` stays whole for the rows it renders.
+    const viewSelectable = packs ? selectableEnginePacks(envelope, packs.engine) : null;
+    const progressItems = viewSelectable
+      ? [...(viewSelectable.occupation?.items ?? []), ...viewSelectable.universal.items]
+      : [];
     const answers = answersOf(envelope);
 
     // THE DISAMBIGUATION OFFER OUTRANKS THE PACK QUESTION — see {@link outstandingOffer}, which
@@ -1281,7 +1488,7 @@ export class ProfilingOrchestrator {
           answerType: "single_select",
           options: offer.options,
           whyText: null,
-          progress: progressOf(items, answers),
+          progress: progressOf(progressItems, answers),
         },
       };
     }
@@ -1301,12 +1508,22 @@ export class ProfilingOrchestrator {
           answerType: asked.answerType,
           options: asked.options,
           whyText: null,
-          progress: progressOf(items, answers),
+          progress: progressOf(progressItems, answers),
         },
       };
     }
 
-    const item = items.find((candidate) => candidate.question_key === envelope.servedQuestionKey);
+    // SEARCHED IN THE SELECTABLE SET, NOT THE FULL ONE — the same narrowing `openTurn` applies,
+    // and for the same reason plus one more. `openTurn` was narrowed when the pack skip shipped
+    // and this reader was not, so the two readers of one reopened session disagreed again about
+    // what the worker is looking at — the precise class of bug `outstandingOffer` was written to
+    // close. This one is not a display artefact: `ProfilingSessionService.answer` guards on
+    // `served?.questionKey !== dto.question_key`, so this lookup is what decides whether a voice
+    // form's answer is accepted, and `review`/`finalize` read it too. Reporting a suppressed
+    // trade question here would accept an answer to a question the turn loop has stopped asking.
+    const item = progressItems.find(
+      (candidate) => candidate.question_key === envelope.servedQuestionKey,
+    );
     return {
       buffer,
       envelope,
@@ -1321,7 +1538,7 @@ export class ProfilingOrchestrator {
             answerType: item.answer_type,
             options: item.options,
             whyText: item.why_text ?? null,
-            progress: progressOf(items, answers),
+            progress: progressOf(progressItems, answers),
           }
         : null,
     };
@@ -1564,6 +1781,105 @@ export class ProfilingOrchestrator {
     }
   }
 
+  /**
+   * ONE PHYSICAL SUBMISSION ARRIVED TWICE — the countable half of that fact (#931 step 5).
+   *
+   * WHY A LOG LINE WAS NOT ENOUGH, given one already exists. A duplicate is invisible on the event
+   * spine by construction: `takeTurn` returns before `decide()` runs, so there is no
+   * `chat_messages` row, no `chat.message_received`, and no counter anywhere that moves —
+   * everything downstream looks like a healthy session precisely because the damage was absorbed.
+   * The only prior evidence was the `retry storm absorbed` warn, and it covers ONE of the three
+   * clock branches (the ordinary first flaky-link retry logged nothing at all), into stdout, in a
+   * repo that ships, retains and searches no logs. A log answers "what happened in this session";
+   * only a queryable event answers "is this getting worse", which is the shape of every question a
+   * client-side retry defect is diagnosed by.
+   *
+   * IT IS ALSO THE ROLLOUT TELEMETRY #931 STEP 4 IS GATED ON. `absorbed_as` says which rule served
+   * each duplicate and `inbound_had_id` says whether the client sent an id at all; the four
+   * reply-cache clocks may only be retired once the clock branches go to zero in the field, and
+   * until then they stay exactly as they are for every build that has not shipped the id.
+   *
+   * ONE ROW PER DUPLICATED SUBMISSION, NOT PER POST. The idempotency key is the submission id when
+   * there is one, so a client hammering one submission fifty times collapses to a single row —
+   * which is what keeps this from becoming the per-turn event volume the architecture rules out.
+   * With no id it falls back to the rev the duplicate was READ at, which is equally stable across
+   * a storm (a storm writes nothing, so the rev does not move).
+   *
+   * ON THE ROUND TRIPS IT DOES COST: this is one keyed INSERT on a path that already performs a
+   * Postgres SELECT per POST (`runTurn`'s session-ownership read), so it is not a new class of
+   * cost on the path a broken client hammers — unlike the CAS write the storm branch deliberately
+   * refuses, which would buy nothing at all.
+   *
+   * NEVER THROWS. A worker whose duplicate was correctly absorbed must not lose the reply because
+   * an audit INSERT failed — the reply is already in hand and nothing about it depends on this.
+   */
+  private async recordDuplicate(
+    envelope: ProfilingEnvelope,
+    last: LastTurn,
+    replay: Replay,
+    input: TurnInput,
+  ): Promise<void> {
+    try {
+      // CLAMPED, NOT TRUSTED. `at` is rehydrated from Redis and the id path deliberately consults
+      // no clock at all, so a skewed or drifted stamp can produce a negative or non-finite age
+      // here — neither of which the payload's `int().nonnegative()` accepts. Reporting 0 costs one
+      // observability field; letting it throw costs the emit, on the branch that exists to make
+      // this visible.
+      const rawAge = input.now.getTime() - new Date(last.at).getTime();
+      const elapsedMs = Number.isFinite(rawAge) ? Math.max(0, Math.trunc(rawAge)) : 0;
+      await this.events.emit({
+        event_name: "profile.submission_duplicated",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          // FILTERED AT THE BOUNDARY, not trusted — the same wall `chat.service.ts` puts in front
+          // of `answered_topics`. The `^[a-z_]+$` shape is what makes this field structurally
+          // incapable of carrying a worker's words, and "pack keys are slugs by construction" is a
+          // property of today's corpus rather than of this mechanism. A key that fails it is
+          // reported as null, which costs one field; passing it through would fail the payload
+          // schema and cost the whole event.
+          question_key: eventQuestionKey(envelope.servedQuestionKey),
+          absorbed_as: replay.absorbedAs,
+          // THE INBOUND'S OWN id, not the match. A build that sends an id still lands on a clock
+          // branch when the STAMP predates the deploy, and counting `absorbed_as` alone would read
+          // that as "the app has not rolled out" long after it has.
+          inbound_had_id: input.submissionId !== null,
+          replays: last.replays,
+          elapsed_ms: elapsedMs,
+        },
+        // KEYED ON THE SUBMISSION, so N copies of ONE physical send are one row. The raw id is
+        // NOT a payload field: it is client-supplied, this key already persists it verbatim in
+        // `events.idempotency_key`, and a second copy inside the payload would be an unvalidated
+        // client string in the audit spine. Namespaced with the event name because the unique
+        // index is on the key COLUMN alone, platform-wide.
+        idempotencyKey:
+          `profile.submission_duplicated:${input.sessionId}:` +
+          // KEYED ON THE STAMP, NEVER ON THE INBOUND. Keyed on `input.submissionId` this row
+          // was writable at will: the asymmetric case (inbound has an id, stamp does not) falls
+          // to the clock branches, which write nothing to Redis and never refresh `last.at`, so
+          // an authenticated worker re-POSTing identical text with a FRESH uuid each time — on
+          // routes with no rate limiter — minted a unique key per request and appended without
+          // bound to the `events` audit spine. `last.inboundHash` is sha256(session, rev, text):
+          // stable across a whole storm, so the documented one-row-per-duplicated-submission
+          // ceiling holds, and not client-supplied, so it cannot be rotated. It also survives a
+          // lost Redis buffer, which `rev` does not — `rev` restarts at 0 and would collide a
+          // post-restore duplicate with a pre-loss row, silently undercounting exactly the clock
+          // branches whose falling to zero is the signal to retire the four constants (step 4).
+          `${last.inboundHash}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the duplicate submission on session ${input.sessionId} was not recorded; the worker's ` +
+          `reply was served correctly but the duplicate is now invisible to the rollout ` +
+          `telemetry #931 step 4 reads: ${(error as Error).message}`,
+      );
+    }
+  }
+
   private async persistPin(
     before: ProfilingEnvelope,
     after: ProfilingEnvelope | null | undefined,
@@ -1660,6 +1976,12 @@ export class ProfilingOrchestrator {
         // bumps the rev, so the retrying reader computes a different key and takes a second real
         // turn on the same words — the exact failure Layer A exists to prevent.
         inboundHash: inboundHash(input.sessionId, envelope.rev + 1, input.text),
+        // THE SUBMISSION THAT PRODUCED THIS REPLY (#931). Stamped beside the hash rather than
+        // instead of it: the hash still proves the TEXT is identical, and the id decides the
+        // VERDICT — see `replayOf`. `null` when this caller had no client submission behind it
+        // (an old app build, or the finalize re-drive), which is exactly what makes the stamp
+        // fall back to the hash + window path for that turn.
+        submissionId: input.submissionId,
         reply: result.reply,
         kind: result.kind,
         questionKey: result.questionKey,
@@ -1739,6 +2061,79 @@ interface Replay {
    * is `RETRY_STORM_FLOOR_MS` running out on the wall clock rather than a counter running down.
    */
   readonly consumesBudget: boolean;
+  /**
+   * WHICH RULE decided this was a duplicate — the label `profile.submission_duplicated` carries.
+   *
+   * RETURNED RATHER THAN RE-DERIVED, for the reason stated above: `stale` and `storm` are both
+   * `consumesBudget: false`, so the caller cannot tell them apart from what it is already given,
+   * and a `takeTurn` that re-tested `replays` and the clock to label the event would be the second
+   * copy of the budget rule this interface exists to prevent.
+   *
+   * It is not the same fact as `consumesBudget`, even though `budget` is exactly the branch that
+   * writes today: one is a control-flow decision the caller must obey, the other is an
+   * observability label whose value set grows every time a new rule is added here — as
+   * `client_id` just did.
+   */
+  readonly absorbedAs: "client_id" | "budget" | "storm" | "stale";
+}
+
+/**
+ * The cached response, rebuilt as a turn result.
+ *
+ * EXTRACTED SO THE TWO RETURN SITES CANNOT DRIFT (#931). The id branch and the clock branch below
+ * must serve the BYTE-IDENTICAL previous response — that is the whole promise of this cache — and
+ * two hand-written copies of a fourteen-field literal is how one of them quietly stops carrying
+ * the chips, the lookahead or the input mode that a worker on a flaky link needs most.
+ */
+function replayResultOf(last: LastTurn): TurnResult {
+  return {
+    reply: last.reply,
+    // FROM THE CACHE FOR THE SAME REASON THE OPTIONS ARE (#695). A retried submit over a flaky
+    // link is an ordinary event, and re-deriving `ask` here would turn the second delivery of a
+    // disambiguation offer into an ordinary question with a chip scroller — the byte-identical
+    // replay this cache promises, silently downgraded on exactly the connections that need it.
+    kind: last.kind,
+    questionKey: last.questionKey,
+    // FROM THE CACHE, not empty. These four used to be dropped on the floor here, which made a
+    // replay a strictly WORSE response than the one it claims to repeat: same words, no chips,
+    // no progress. On chat that costs a scroller and a progress bar; on the voice form it
+    // strands a worker who cannot type in front of a question only answerable by tapping.
+    options: last.options,
+    progress: last.progress,
+    whyText: last.whyText,
+    answerType: last.answerType,
+    inputMode: last.inputMode,
+    unansweredEssentials: [],
+    complete: false,
+    completionReason: null,
+    replayed: true,
+    excludeFromParse: false,
+    unavailable: false,
+    // FROM THE CACHE, like the four above and for the identical reason (#766 item 2). The
+    // lookahead is part of what the client draws — it renders the next question from it on the
+    // tap — so replaying the words without it is the same silent downgrade `options` and
+    // `progress` used to suffer here. `null` on a record written before the field existed,
+    // which is simply the round trip the client already falls back to.
+    lookahead: last.lookahead,
+    // A replay changed NOTHING, so there is nothing new to checkpoint. Firing here would let a
+    // client retrying on a flaky connection drive one Postgres UPDATE per retry.
+    checkpointDue: false,
+  };
+}
+
+/**
+ * The closed shape a pack question key has, re-checked before one crosses into an event.
+ *
+ * THE SHAPE IS THE PRIVACY GUARANTEE, which is why it is enforced here and not assumed. A key that
+ * matches `^[a-z_]+$` and is at most 40 characters cannot carry a worker's words; "pack keys are
+ * slugs by construction" is a property of today's corpus and of a validator that runs somewhere
+ * else, not of this call site. Anything else reports as `null` — one lost observability field
+ * rather than a rejected payload, on a path whose only job is to make something visible.
+ */
+const EVENT_QUESTION_KEY = /^[a-z_]{1,40}$/;
+
+function eventQuestionKey(value: string | null): string | null {
+  return value !== null && EVENT_QUESTION_KEY.test(value) ? value : null;
 }
 
 /** Layer A: the same message, at the same rev, inside the window. */
@@ -1746,6 +2141,102 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): Replay | null 
   const last = envelope.lastTurn;
   if (!last) return null;
   if (last.inboundHash !== inboundHash(input.sessionId, envelope.rev, input.text)) return null;
+
+  // ─── THE CLIENT'S OWN VERDICT, WHEN BOTH SIDES HAVE ONE (#931) ────────────────────────────
+  //
+  // THE DEFECT. Everything below this block decides "retry or next answer?" from elapsed time,
+  // because the hash — `(sessionId, rev, text)`, stamped against `rev + 1` — cannot tell them
+  // apart: a worker who answers the FOLLOWING question with the SAME word produces a byte-
+  // identical key and has their answer discarded and the question re-served. Measured on device
+  // on qp_machining: "Kya aap programme feed kar lete hain?" → "haan" captured and the engine
+  // advances, then "Kya aap drawing padh lete hain?" → "haan" DISCARDED. 236 of 466 authored pack
+  // items are `boolean` with zero options and the packs place them back to back, so this is the
+  // normal case for a voice-first UI, not an edge one.
+  //
+  // WHY THE ID BEATS THE CLOCK. A clock is a guess about intent — a fast worker and a slow retry
+  // produce the same number, which is why four constants and three defects (#857, #858, #869)
+  // have not resolved the ambiguity and cannot. The client is not guessing: it mints one id per
+  // PHYSICAL send and re-sends that same id verbatim on a transport retry, so id equality is a
+  // FACT about which submission this is. Facts do not expire, which is why no window, budget or
+  // floor is consulted on this path.
+  //
+  // AND THAT IS NOT AN UNBOUNDED REPLAY. The hash test one line above still stands in front of
+  // this, so the branch is reachable only while (session, rev, text) are all unchanged — i.e.
+  // only while NOTHING has happened since the reply was stamped. The worker's next answer carries
+  // a different id (a real turn, immediately), and any turn at all moves `rev` and the hash misses.
+  //
+  // THE HASH TEST STAYS IN FRONT, DELIBERATELY. Tested id-first, a client bug that reused one id
+  // across two DIFFERENT utterances would discard the second one — a brand-new way to lose a
+  // worker's words, worse than the defect being fixed. Behind the hash, that case fails the text
+  // comparison and falls through to a real turn, which captures what they said. No second rule.
+  // AN OFFER THAT LOST ITS CHIPS IS NOT A REPLAY, IT IS A DEAD END — fail closed (§3).
+  //
+  // `narrowLastTurn` parses cached options all-or-nothing, so any chip the contract rejects
+  // empties the list, while `kind` narrows independently and survives. Serving that pair tells
+  // the client to draw a single-select with nothing in it: on chat a scroller with no chips, on
+  // the voice form a question a worker who cannot type has no way at all to answer. Returning
+  // null re-runs the turn, which costs one turn; serving it costs the session.
+  //
+  // IT SITS ABOVE EVERY BRANCH THAT CAN SERVE THIS STAMP, AND THAT POSITION IS THE POINT. Empty
+  // chips are a property of the CACHED REPLY — they are empty however this call arrived — not of
+  // the rule that matched it. Written below the id branch (#931) it silently stopped covering the
+  // path that had just become the PRIMARY one: every shipped client sends an id, so an id-carrying
+  // retry was handed the dead end this guard exists to refuse — and handed it on every retry,
+  // because that branch consults no window and never ages out. Two independent reviewers
+  // reproduced it from the existing `FAILS CLOSED when a cached offer comes back without its
+  // chips` test by adding nothing but a submission id.
+  if (last.kind === "disambiguate" && last.options.length === 0) return null;
+
+  const incomingId = input.submissionId;
+  const stampedId = last.submissionId;
+  if (incomingId !== null && stampedId !== null) {
+    // DIFFERENT ID ⇒ A REAL TURN, ALWAYS — even byte-identical text at the matching rev. This
+    // single line is the fix.
+    if (incomingId !== stampedId) return null;
+    // SAME ID ⇒ the same physical submission arriving again. NOTHING IS WRITTEN: the budget
+    // exists only because a stamp that never goes stale traps the worker's NEXT answer (#857),
+    // and their next answer carries a different id and can never match this stamp, so there is
+    // nothing left for a budget to protect. It also takes one CAS round trip off exactly the
+    // flaky links that produce retries.
+    // SAME ID, AND STILL BOUNDED BY THE OUTER WINDOW. This bound is not a hedge against the id;
+    // it is the fail-closed reading of an id the server does not control (§3, client input is
+    // untrusted). `Facts do not expire` holds for a CORRECT client. A client that reuses one id
+    // across two physical sends is not misreporting a fact, it is broken — and unbounded, every
+    // later send it makes matches this stamp and writes nothing, so `rev` never moves, the stamp
+    // never ages, and the interview DEADLOCKS for the whole 24 h buffer TTL while the worker
+    // answers a question that will not advance. The code this replaces self-cleared in ≤10 s.
+    // Trading a bounded old failure for an unbounded new one is not a fix.
+    //
+    // THE BOUND IS `ID_REPLAY_MAX_AGE_MS`, NOT THE STALE WINDOW, and the difference matters.
+    // `STALE_RESPONSE_WINDOW_MS` is 30 s, but `POST /profiling/answer` transcribes a spoken answer
+    // in-request and the shipped client waits 150 s for it, so a GENUINE retry on that route lands
+    // far outside 30 s. Bounding there would run the turn for real and capture a worker's spoken
+    // answer against the question their first submission had already advanced past — #869's silent
+    // corruption, reintroduced sideways. 180 s clears the longest deadline a shipped client has, so
+    // every real retry replays and only a wedged one ages out. See the constant for the full case.
+    //
+    // THE DEFECT #931 FIXES IS UNTOUCHED BY THIS. The on-device bug is the DIFFERENT-id case one
+    // line above, which returns null with no clock consulted at all and cannot be re-broken here.
+    const idAge = input.now.getTime() - new Date(last.at).getTime();
+    if (!Number.isFinite(idAge) || idAge < 0 || idAge > ID_REPLAY_MAX_AGE_MS) return null;
+    return { consumesBudget: false, absorbedAs: "client_id", result: replayResultOf(last) };
+  }
+  // ASYMMETRIC AND ABSENT CASES BOTH FALL THROUGH TO THE CLOCK, and must. An id can only be
+  // compared with an id: "inbound has one, the stamp does not" is the deploy straddle (an
+  // envelope stamped by the previous build, alive in Redis behind a 24 h TTL) and the mixed-surface
+  // case (there is no mode-lock — a worker may start in chat and continue in the voice form);
+  // "the stamp has one, the inbound does not" is an old app build, or `openTurn`/finalize, which
+  // have no client submission behind them at all. Neither is comparable, so both are judged by
+  // exactly the rules below, which is what makes the rollout requirement mechanical rather than
+  // promised. A straddling session self-heals on its next real turn, which stamps an id.
+  //
+  // ⚠ THE FOUR CLOCKS BELOW ARE DELIBERATELY LEFT IN PLACE (#931 step 4, NOT done here).
+  // `REPLY_CACHE_WINDOW_MS`, `STALE_RESPONSE_WINDOW_MS`, `MAX_REPLAYS_PER_TURN` and
+  // `RETRY_STORM_FLOOR_MS` are byte-identical to what they were, and they remain the WHOLE of the
+  // behaviour for any inbound with no id on either side. Retiring them is gated on telemetry
+  // proving the id is universally present in the field — `profile.submission_duplicated`'s
+  // `absorbed_as` is that telemetry — because old app builds stay in the field for a long time and
+  // shortening these now would regress #857/#858/#869 for every one of them (#930 rollout).
   const age = input.now.getTime() - new Date(last.at).getTime();
   // A NEGATIVE age is not a hit. Clock skew between instances would otherwise make a stale entry
   // look arbitrarily fresh, and replaying an old reply is worse than spending a turn.
@@ -1789,15 +2280,6 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): Replay | null 
   // the spent stamp would run the turn for real and capture the stale retry against the question
   // it was never meant for, which is the whole bug.
   if (spent && age >= RETRY_STORM_FLOOR_MS && !stale) return null;
-  // AN OFFER THAT LOST ITS CHIPS IS NOT A REPLAY, IT IS A DEAD END — fail closed (§3).
-  //
-  // `narrowLastTurn` parses cached options all-or-nothing, so any chip the contract rejects empties
-  // the list, while `kind` narrows independently and survives. Serving that pair tells the client to
-  // draw a single-select with nothing in it: on chat a scroller with no chips, on the voice form a
-  // question a worker who cannot type has no way at all to answer. Returning null re-runs the turn,
-  // which costs one turn; serving it costs the session. All-or-nothing is kept deliberately over
-  // per-chip narrowing — a PARTIAL offer would hide the same failure behind a plausible screen.
-  if (last.kind === "disambiguate" && last.options.length === 0) return null;
   return {
     // A STORM REPLAY WRITES NOTHING, and it is the clock that makes that safe. `last.at` is the
     // ORIGINAL real turn and no replay ever refreshes it, so `age` only grows: the floor above
@@ -1808,39 +2290,11 @@ function replayOf(envelope: ProfilingEnvelope, input: TurnInput): Replay | null 
     // duplicate of a retry storm — the same reason a spent storm replay writes nothing — and would
     // buy nothing, since out there the budget no longer gates anything (see the check above).
     consumesBudget: !spent && !stale,
-    result: {
-      reply: last.reply,
-      // FROM THE CACHE FOR THE SAME REASON THE OPTIONS ARE (#695). A retried submit over a flaky
-      // link is an ordinary event, and re-deriving `ask` here would turn the second delivery of a
-      // disambiguation offer into an ordinary question with a chip scroller — the byte-identical
-      // replay this cache promises, silently downgraded on exactly the connections that need it.
-      kind: last.kind,
-      questionKey: last.questionKey,
-      // FROM THE CACHE, not empty. These four used to be dropped on the floor here, which made a
-      // replay a strictly WORSE response than the one it claims to repeat: same words, no chips,
-      // no progress. On chat that costs a scroller and a progress bar; on the voice form it
-      // strands a worker who cannot type in front of a question only answerable by tapping.
-      options: last.options,
-      progress: last.progress,
-      whyText: last.whyText,
-      answerType: last.answerType,
-      inputMode: last.inputMode,
-      unansweredEssentials: [],
-      complete: false,
-      completionReason: null,
-      replayed: true,
-      excludeFromParse: false,
-      unavailable: false,
-      // FROM THE CACHE, like the four above and for the identical reason (#766 item 2). The
-      // lookahead is part of what the client draws — it renders the next question from it on the
-      // tap — so replaying the words without it is the same silent downgrade `options` and
-      // `progress` used to suffer here. `null` on a record written before the field existed,
-      // which is simply the round trip the client already falls back to.
-      lookahead: last.lookahead,
-      // A replay changed NOTHING, so there is nothing new to checkpoint. Firing here would let a
-      // client retrying on a flaky connection drive one Postgres UPDATE per retry.
-      checkpointDue: false,
-    },
+    // NAMED WHERE `spent` AND `stale` LIVE, because this is the only place both are in scope —
+    // see `Replay.absorbedAs`. `stale` wins the label over `storm`: out past the fresh window the
+    // budget is not what served it (#869), whatever `replays` happens to say.
+    absorbedAs: stale ? "stale" : spent ? "storm" : "budget",
+    result: replayResultOf(last),
   };
 }
 
@@ -1894,6 +2348,145 @@ function outstandingLlmAsk(
   return { prompt: last.reply, options: last.options, answerType: last.answerType };
 }
 
+/**
+ * The packs the engine may still SELECT a question from, once Phase A has had its turn.
+ *
+ * THE SYMPTOM THIS EXISTS TO REMOVE. A worker finished the LLM-led interview — the model asked
+ * about their trade, their jobs and their skills, the experience gate opened, they answered
+ * "Nahi" — and the very next thing on screen was `machine_type`, then `programming`, then
+ * `drawing_reading`, then `measuring_tools`: the whole of `qp_machining`, asked one authored row
+ * at a time about a conversation that had just covered it. That is not a bug in either engine.
+ * Phase A closing FALLS THROUGH to `nextQuestion` on the same turn, and `nextQuestion` serves the
+ * occupation pack strictly before the universal tail — so "the model led this interview" and "the
+ * worker is re-interrogated by their trade pack" were, by construction, the same turn. The ruling
+ * is that an LLM-led interview goes from the model's close straight to the universal tail and then
+ * closes: keep the LLM interview only, for now.
+ *
+ * THIS FUNCTION IS THE WHOLE SEAM, deliberately — "for now" ends with a revert of it and its call
+ * sites, not with an archaeology of scattered conditions. It suppresses SELECTION and nothing
+ * else, and each of the three things it leaves alone is load-bearing:
+ *
+ *  - THE PIN. `resolvePacks` derives `packId`/`packVersion` from the occupation pack it resolved,
+ *    and the obvious place to null the pack — next to the "universal pack resolved as the
+ *    occupation pack" line inside it — is two lines above that derivation. A session with no pin
+ *    writes ZERO `worker_pack_answer` rows (`toPackAnswerRows` returns early without one), the
+ *    universal tail's included, never emits `profile.pack_pinned`, and gives `viewSettled` nothing
+ *    to correct against. The pack stays pinned; only the questions stop being asked.
+ *  - `items`, the flat union both `decide` and `openTurn` build. It is what `settleFromLlmDraft`
+ *    writes the model's skills onto — every `skills` item in the shipped corpus lives in an
+ *    occupation pack, so narrowing it would silently drop Phase A's skills out of `answer_map`
+ *    and out of the matching inputs behind it. It is also what `shapeOf` resolves an in-flight
+ *    question against and what the review screen names its stored answers from.
+ *  - The CAPTURE half of a stale `servedQuestionKey`. A worker looking at a trade question this
+ *    build will never serve again — the state a session written by the PREVIOUS build resumes in
+ *    — still has their answer recorded, because `askedItem` is resolved from the full union. It
+ *    is the RE-SERVE that is narrowed, not the capture: losing a question is recoverable, losing
+ *    the answer a worker already typed is not.
+ *
+ * ─── THE RULE ───────────────────────────────────────────────────────────────────────────────
+ *
+ * TWO DETERMINISTIC FACTS, BOTH OWNED BY THIS SERVICE. The occupation pack is off the table when
+ * both hold:
+ *
+ *   1. PHASE A ACTUALLY RAN — `llmLedTurns > 0`, a counter `LlmTurnService` increments once per
+ *      turn it put in front of the worker.
+ *   2. PHASE A IS OVER — `llmStage === "done"` (the answered gate, the caps, or `phase_a_done`
+ *      under those caps) or `llmFallback` (the model stopped answering; sticky by design).
+ *
+ * Phase A ran and is finished ⟹ nothing from the worker's trade pack is served, re-served,
+ * predicted or spoken for the rest of the interview. Phase A never ran ⟹ this returns the very
+ * object it was handed, and every deterministic interview behaves exactly as it did before this
+ * function existed. That second branch is the majority path and it is an identity return.
+ *
+ * ─── §3: WHY THE MODEL IS NOT WHAT DECIDES THIS ─────────────────────────────────────────────
+ *
+ * WHAT THE PREVIOUS FLOOR GOT WRONG, stated plainly because it shipped and it broke a real
+ * worker. The first version of this function required `llmDraft.experiences.length > 0`, added in
+ * review as a §3 guard against the model's `phase_a_done` deleting a worker's authored questions.
+ * The intent was right and the field was the wrong one: `experiences` is populated from
+ * `out.experience_entry`, WHICH IS THE MODEL'S OWN OUTPUT, filled or left null at the model's
+ * discretion on any turn. So that floor did not take the decision away from the model. It handed
+ * the model a second lever with the polarity reversed — a model that simply never emits an
+ * `experience_entry` re-arms the entire trade pack — and that is what the reported welder session
+ * looked like: a conversational experience stretch, a gate-shaped question the model wrote itself
+ * ("aur koi kaam jode?" — not `EXPERIENCE_GATE_PROMPT`, which says "experience"), "Nahi", and then
+ * `qp_welding` from the top. A floor the model can walk under by omission is not a floor.
+ *
+ * WHY `llmLedTurns` IS ONE. It is written by `LlmTurnService` and by nothing else, one increment
+ * per turn it served. No field on the wire moves it; the model cannot inflate it and cannot zero
+ * it. What it records is not an opinion about the interview's quality — it is the fact that the
+ * platform put N conversational questions to this worker and read N answers back. That is the
+ * business fact the rule needs, and deterministic code is what establishes it.
+ *
+ * WHAT THE MODEL STILL INFLUENCES, AND WHY THAT IS INSIDE §3. `phase_a_done` can still END Phase
+ * A early. That is advice about the model's own turn-taking, and acting on it is this service's
+ * decision to stop spending money on an interview the model says it has finished — the same class
+ * of decision as the caps. It can only SHORTEN Phase A. It cannot conjure the `llmLedTurns`
+ * evidence, and it cannot bring the pack back. Combined with #949's clamp on `out.stage` (which
+ * stopped the model writing `"done"` on an ask turn), every path from the model's output to
+ * "which authored questions this worker is asked" now runs through a counter the model cannot
+ * touch.
+ *
+ * WHY NOT `llmAsks > 0`, THE OBVIOUS EXISTING COUNTER. It is API-owned, so §3 is satisfied — but
+ * it is the runaway BUDGET's counter and is deliberately not incremented by the turn that opens
+ * the experience gate, because the model's reply is discarded there in favour of the gate. The
+ * shortest real interview — the composite opener answered with a whole job, the gate, "Nahi" —
+ * therefore ends Phase A with `llmAsks === 0`. Keying on it would serve the full trade pack to a
+ * worker who had just described their job in their own words: the reported bug, reintroduced from
+ * the other side. See the field's own note in `conversation-state.ts`.
+ *
+ * ─── WHY A FALLEN-BACK INTERVIEW IS COVERED TOO ─────────────────────────────────────────────
+ *
+ * The first version excluded it, and said so: `settleFromLlmDraft` ran only on the `done` branch,
+ * so a fallen-back interview's trade, experience and skills existed nowhere but the transcript,
+ * and suppressing its pack would have left the worker with neither the model's answers nor the
+ * pack's questions. That reasoning was sound and its premise has been removed — `decide` now
+ * settles the draft on the fallback branch as well, under the same `llmLedTurns > 0` test used
+ * here, so the two move together by construction. What is left is a worker who spent five turns
+ * describing their welding to a model that then timed out, and the honest answer for them is the
+ * universal tail, not `welding_process` asked from the top as though the conversation had not
+ * happened. A fallback on the FIRST turn is untouched: nothing was led, `llmLedTurns` is 0, and
+ * the pack is served exactly as it is today.
+ *
+ * ─── WHAT IT COSTS, AND WHAT IT STILL DOES NOT COVER ────────────────────────────────────────
+ *
+ * THE DENOMINATOR SPLIT. For an LLM-led session the engine's `progress` counts the universal tail
+ * alone, while `progressOf(items, …)` on the non-advancing branches would count the pinned pack's
+ * rows — so the two would disagree by exactly the questions no longer asked. Every reader that
+ * reports progress is therefore handed the NARROWED list; `items` stays whole for settlement and
+ * shape. A mandatory occupation question (only `qp_welding/welding_process` in the corpus) still
+ * shows up in `unansweredEssentials`, which is wire-only and gates nothing.
+ *
+ * A LOST REDIS BUFFER IS NOT COVERED, and cannot be closed here. `restorePin` rebuilds an empty
+ * envelope carrying only `packId`/`packVersion`, so `llmLedTurns` comes back 0 — but so do
+ * `answerMap` and `llmDraft` and the whole interview, and Phase A simply starts again from the top
+ * and suppresses again at ITS close. The residue is a session that loses its buffer while
+ * `CHAT_LLM_INTERVIEW_ENABLED` reads off, which then gets the deterministic interview it would
+ * have had all along. Making the fact durable means a new member on `ConversationState` — the
+ * FROZEN cross-language contract mirrored in `apps/ai-service/app/contracts.py` — or a new column
+ * under the held CD-2 migration gate. Both are joint changes with another owner (§16), so this is
+ * recorded rather than smuggled in.
+ */
+function selectableEnginePacks(envelope: ProfilingEnvelope, resolved: EnginePacks): EnginePacks {
+  // THE BRANCH THAT PRESERVES EVERY DETERMINISTIC INTERVIEW — an identity return, so the engine is
+  // handed the very object it is handed today. `emptyProfilingEnvelope` seeds `llmLedTurns: 0`,
+  // `narrowProfilingEnvelope` reads an absent field as 0, and `LlmTurnService` is the only writer
+  // that ever moves it — so with `CHAT_LLM_INTERVIEW_ENABLED` at its default OFF, `leads()` is
+  // false for every session, `take()` is never called, and nothing on the majority path can get
+  // past this line. FIRST because it is the majority path, and because it is the one branch whose
+  // correctness has to be obvious at a glance.
+  if (envelope.llmLedTurns === 0) return resolved;
+
+  // STILL RUNNING. Phase A is mid-interview, so the engine is not selecting anything this turn
+  // anyway — but `openTurn` and `viewSession` read this too, and a worker who reopens the app
+  // mid-Phase-A must be shown the same denominator the turn loop is about to use. `llmStage` is
+  // written only by `LlmTurnService` and `llmFallback` only by `decide`; neither is reachable
+  // from the wire.
+  if (envelope.llmStage !== "done" && !envelope.llmFallback) return resolved;
+
+  return { occupation: null, universal: resolved.universal };
+}
+
 function unavailable(): TurnResult {
   return {
     reply: UNAVAILABLE_REPLY,
@@ -1939,14 +2532,35 @@ function unavailable(): TurnResult {
  * model could not put a number on understates a worker's experience, and understating it is the
  * one direction that costs them jobs — so a partial answer is left for the pack question to ask
  * properly rather than filled in with a number nobody can defend.
+ *
+ * THE PINNED OCCUPATION IS THE LAST TRADE FALLBACK, and it is what closes the bug this function
+ * was already written to prevent. Both draft labels default to `null`, and an `experience_entry`
+ * may arrive on ANY turn — including the first, which the composite opener actively invites
+ * ("aap kaun sa kaam karte hain, kahan rehte hain, aur kitna tajurba hai?"). An entry opens the
+ * Yes/No gate immediately, so a worker can reach "Aur koi experience jodna hai?" with both labels
+ * still null, answer "nahi", and be asked "Aap kaunsa kaam karte hain?" as the very next line —
+ * after a conversation that was entirely about their trade.
+ *
+ * `occupation.label` is safe to spend here in a way a model's free text would not be: it is
+ * RETRIEVAL's pin, the same deterministic decision that chose the pack whose questions are about
+ * to be served. Last in precedence, because the model's own labels are more specific when present.
+ *
+ * SKILLS ARE MATCHED AGAINST THE PACK'S OWN VOCABULARY, never written through verbatim. The draft
+ * carries free text ("MIG welding") and the skills items are `multi_select` over a closed option
+ * list, so the model's words are run through {@link matchOptions} — the SAME matcher a typed
+ * answer goes through — and only the options that actually land are settled. A skill that matches
+ * nothing settles nothing and the question is still asked, which is the correct outcome: §11 says
+ * validate AI output before business logic consumes it, and `answer_option_keys` is read by the
+ * matcher as pack vocabulary. Writing "MIG welding" into it would be a value no option means.
  */
 function settleFromLlmDraft(
   answers: AnswerMap,
   draft: ProfilingEnvelope["llmDraft"],
+  occupationLabel: string | null,
   items: readonly QuestionPackItem[],
   turn: number,
 ): AnswerMap {
-  const trade = (draft.role_label ?? draft.domain_label ?? "").trim();
+  const trade = (draft.role_label ?? draft.domain_label ?? occupationLabel ?? "").trim();
   const months = draft.experiences.map((entry) => entry.duration_months);
   const years =
     months.length > 0 && months.every((m): m is number => typeof m === "number")
@@ -1975,6 +2589,41 @@ function settleFromLlmDraft(
 
   if (trade) settle("trade", trade, trade);
   if (years !== null) settle("experience_years", `${years}`, years);
+
+  // EVERY skills item, not the first one `settle` would have found: a pack may carry more than one
+  // (`welding_process` and a materials question both target `skills`), and they ask about different
+  // things. One joined string is scanned for each, because `matchOptions` masks negation and
+  // consumes matched characters per item — running it per skill would let a two-word option lose to
+  // a one-word fragment scanned in a different call.
+  const skillsText = draft.skills.join(", ").trim();
+  if (skillsText) {
+    for (const item of items) {
+      if (item.target_field !== "skills" || isSettled(next, item.question_key)) continue;
+      const matched = matchOptions(item, skillsText);
+      // MIRRORS THE CAPTURE RULES EXACTLY (`normalizeFor`): a multi_select holds the list, a
+      // single_select holds exactly one — two option labels in one draft is not an answer to a
+      // single-choice question, and picking the first would be picking at random. Anything else
+      // (a free-text skills item) is left for the question to ask properly.
+      const value =
+        item.answer_type === "multi_select" && matched.length > 0
+          ? matched
+          : item.answer_type === "single_select" && matched.length === 1
+            ? matched[0]
+            : undefined;
+      if (value === undefined) continue;
+      next = recordAnswer(
+        next,
+        {
+          questionKey: item.question_key,
+          targetField: "skills",
+          valueRaw: skillsText,
+          valueNormalized: value,
+          evidence: null,
+        },
+        turn,
+      );
+    }
+  }
   return next;
 }
 

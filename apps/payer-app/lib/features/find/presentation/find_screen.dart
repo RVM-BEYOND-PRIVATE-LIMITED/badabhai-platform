@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
+import '../../../core/error/payer_failure.dart';
 import '../../../core/session/credits_cubit.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -140,11 +141,14 @@ class _FindView extends StatelessWidget {
           return const BbStatusView.loading();
         }
         if (state.status == FindStatus.error) {
+          final PayerFailure failure =
+              state.failure ?? const PayerFailure(PayerFailureKind.unknown);
           return BbStatusView(
-            icon: Icons.wifi_off,
-            title: 'Could not load candidates',
+            icon: failure.icon,
+            title: failure.title,
+            subtitle: failure.message,
             action: BbButton(
-              label: 'Retry',
+              label: failure.isSessionExpired ? 'Log in' : 'Retry',
               onPressed: () => context.read<FindCubit>().load(),
             ),
           );
@@ -256,7 +260,7 @@ class _FindView extends StatelessWidget {
           'CANDIDATES FOR ${role.toUpperCase()}',
           style: AppTypography.eyebrow(color: AppColors.textMuted),
         ),
-        const SizedBox(height: 2),
+        const SizedBox(height: AppSpacing.gap2),
         Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: <Widget>[
@@ -281,6 +285,8 @@ class _FindView extends StatelessWidget {
               label: const Text('History'),
               style: TextButton.styleFrom(
                 foregroundColor: AppColors.textSecondary,
+                minimumSize: const Size(0, AppSpacing.tap),
+                tapTargetSize: MaterialTapTargetSize.padded,
               ),
             ),
           ],
@@ -416,7 +422,7 @@ class _ApplicantCard extends StatelessWidget {
                       ),
                     ),
                     if (applicant.hot) ...<Widget>[
-                      const SizedBox(width: 6),
+                      const SizedBox(width: AppSpacing.gap6),
                       const BbBadge(
                         'Hot',
                         tone: BbBadgeTone.danger,
@@ -426,7 +432,7 @@ class _ApplicantCard extends StatelessWidget {
                     ],
                   ],
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: AppSpacing.gap3),
                 Text(
                   _facets(applicant),
                   maxLines: 1,
@@ -438,10 +444,10 @@ class _ApplicantCard extends StatelessWidget {
                   ),
                 ),
                 if (tierBadge != null || signals.isNotEmpty) ...<Widget>[
-                  const SizedBox(height: 6),
+                  const SizedBox(height: AppSpacing.gap6),
                   Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
+                    spacing: AppSpacing.gap6,
+                    runSpacing: AppSpacing.gap6,
                     children: <Widget>[
                       if (tierBadge != null) tierBadge,
                       for (final String s in signals)
@@ -460,14 +466,16 @@ class _ApplicantCard extends StatelessWidget {
               if (masked)
                 BbButton(
                   label: '₹40',
-                  size: BbButtonSize.sm,
+                  // md (44px) not sm — the ₹40 unlock is the paid CTA and must
+                  // clear the 48px tap floor (#1082).
+                  size: BbButtonSize.md,
                   iconLeft: Icons.lock_open,
                   onPressed: onUnlock,
                 )
               else
                 BbButton(
                   label: 'View',
-                  size: BbButtonSize.sm,
+                  size: BbButtonSize.md,
                   iconLeft: Icons.chat_bubble_outline,
                   onPressed: onView,
                 ),
@@ -565,10 +573,10 @@ class _CandidateCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: AppSpacing.gap6),
                     const Icon(Icons.verified, size: 15, color: AppColors.success),
                     if (candidate.hot) ...<Widget>[
-                      const SizedBox(width: 6),
+                      const SizedBox(width: AppSpacing.gap6),
                       const BbBadge(
                         'Hot',
                         tone: BbBadgeTone.danger,
@@ -578,7 +586,7 @@ class _CandidateCard extends StatelessWidget {
                     ],
                   ],
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: AppSpacing.gap3),
                 Text(
                   '${candidate.trade} · ${candidate.skill}',
                   maxLines: 1,
@@ -592,7 +600,7 @@ class _CandidateCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 Wrap(
                   spacing: AppSpacing.s3,
-                  runSpacing: 2,
+                  runSpacing: AppSpacing.gap2,
                   children: <Widget>[
                     _meta(Icons.military_tech_outlined, candidate.exp),
                     _meta(Icons.location_on_outlined, candidate.loc),
@@ -619,14 +627,16 @@ class _CandidateCard extends StatelessWidget {
               if (masked)
                 BbButton(
                   label: '₹40',
-                  size: BbButtonSize.sm,
+                  // md (44px) not sm — the ₹40 unlock is the paid CTA and must
+                  // clear the 48px tap floor (#1082).
+                  size: BbButtonSize.md,
                   iconLeft: Icons.lock_open,
                   onPressed: onUnlock,
                 )
               else
                 BbButton(
                   label: 'View',
-                  size: BbButtonSize.sm,
+                  size: BbButtonSize.md,
                   iconLeft: Icons.phone,
                   onPressed: onView,
                 ),
@@ -644,12 +654,16 @@ class _CandidateCard extends StatelessWidget {
       children: <Widget>[
         Icon(icon, size: color == AppColors.success ? 9 : 13, color: c),
         const SizedBox(width: 4),
-        Text(
-          text,
-          style: AppTypography.body(
-            size: AppTypography.sizeXs,
-            weight: bold ? FontWeight.w600 : FontWeight.w400,
-            color: c,
+        Flexible(
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.body(
+              size: AppTypography.sizeXs,
+              weight: bold ? FontWeight.w600 : FontWeight.w400,
+              color: c,
+            ),
           ),
         ),
       ],

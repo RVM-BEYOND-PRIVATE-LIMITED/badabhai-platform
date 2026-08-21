@@ -3,6 +3,9 @@ import {
   VACANCY_BANDS,
   JOB_POSTING_STATUSES,
   JOB_POSTING_VERIFICATION_STATUSES,
+  WORKER_FEEDBACK_CATEGORIES,
+  WORKER_FEEDBACK_APP_BUILD_MAX,
+  WORKER_APP_SCREEN_TEMPLATES,
 } from "@badabhai/types";
 import { uuidSchema, isoDateTimeSchema } from "./envelope";
 
@@ -664,7 +667,14 @@ export const ResumeSharedPayload = z.object({
 //
 // PII-FREE BY CONSTRUCTION: kits are per-TRADE, not per-worker. Payloads carry a
 // trade slug, the content version, and the deterministic kit id only — never a
-// worker id, name, or any free text.
+// name, phone or any free text.
+//
+// ⚠ ONE EXCEPTION, ADDED DELIBERATELY: `interview_kit.downloaded.worker_id`. It is the
+// same opaque internal UUID every other event's `subject_id`/`actor_id` already carries
+// — not identity PII — and it exists because step 7 of the admin worker-journey funnel
+// ("did this worker take the interview kit?") had NO signal at all otherwise. The route
+// stays PUBLIC and unauthenticated; the id is attached only when a valid worker session
+// token happens to be present, so it is ATTRIBUTION, never an auth requirement.
 // ---------------------------------------------------------------------------
 /** Trade slug, e.g. "cnc_operator". Lowercase letters/digits/underscores only. */
 const tradeKeySchema = z
@@ -697,6 +707,24 @@ export const InterviewKitDownloadedPayload = z.object({
   kit_id: kitIdSchema,
   source: z.enum(["worker_app", "web", "ops", "other"]).default("worker_app"),
   cache_hit: z.boolean().default(true),
+  /**
+   * OPTIONAL attribution — who downloaded it, when we can tell (admin journey step 7).
+   *
+   * ADDITIVE WIDEN, NO VERSION BUMP (stays v1), following the `ai.cost_recorded` precedent
+   * (commit 26ad1598): `.nullable().default(null)` means every historical row and every
+   * existing consumer is unaffected, and the default preserves the old implicit reading —
+   * "we do not know who this was" — rather than inventing one.
+   *
+   * NULL IS THE NORMAL CASE AND MUST STAY THAT WAY. `GET /interview-kit/:tradeKey/download`
+   * is deliberately unauthenticated (the content is per-trade and PII-free), so an anonymous
+   * download is legitimate and emits exactly what it emits today. The id is filled in only
+   * when a VALID worker session token happened to ride along. Anything that starts REQUIRING
+   * this field has turned a public route into a private one.
+   *
+   * A zero count for a worker therefore means "no attributed download since this shipped",
+   * never "this worker never took a kit" — the admin funnel surfaces that caveat explicitly.
+   */
+  worker_id: uuidSchema.nullable().default(null),
 });
 
 // ---------------------------------------------------------------------------
@@ -806,6 +834,28 @@ export const AiCostRecordedPayload = z.object({
   ai_call_id: uuidSchema,
   request_id: requestId.nullable().default(null),
   ai_job_id: uuidSchema.nullable().default(null),
+  // ── ATTRIBUTION (Phase 4) — additive widen, same shape/discipline as BL-23 below ──
+  //
+  // WHY THE `ai_job_id` JOIN WAS NOT ENOUGH. "What did this worker's profile cost?" was
+  // answerable for exactly ONE task type: `profile_extraction`, whose `ai_jobs.input_ref`
+  // carries `worker_id`/`session_id`. The DOMINANT profiling cost driver — the per-turn
+  // interview call (`profiling_chat_turn`) — is emitted with `ai_job_id: null` BY DESIGN (an
+  // interview turn is synchronous; there is no async job row to join through), and so are
+  // `resume_generation`, `skill_embedding` and `job_posting_chat_turn`. Those four surfaces
+  // had NO path back to a subject at all, so the single most-asked cost question read as
+  // "₹0" rather than "not attributed" — the same silence-as-answer failure this event was
+  // created to end.
+  //
+  // NULLABLE, AND THE NULL IS MEANINGFUL: payer-side spend (`skill_embedding` on a posting
+  // write, `job_posting_chat_turn`) genuinely has no worker, and inventing one would be
+  // worse than a null. A cost row is still valid with neither field, so every historical
+  // row stays valid and no consumer breaks.
+  //
+  // §2 PRIVACY: both are OPAQUE INTERNAL UUIDs — the same identifier `subject_id` already
+  // carries on dozens of events and the same one `ai_jobs.input_ref` already stores. No
+  // name, phone, prompt, completion or transcript is added here, and none ever may be.
+  worker_id: uuidSchema.nullable().default(null),
+  session_id: uuidSchema.nullable().default(null),
   task_type: aiTaskType,
   model: z.string().min(1).max(128),
   provider: z.string().min(1).max(64),
@@ -2266,6 +2316,100 @@ export const AdminPiiViewedPayload = z
   .strict();
 export type AdminPiiViewedPayload = z.infer<typeof AdminPiiViewedPayload>;
 
+/**
+ * WHICH of the two worker-journey reads an admin performed (ADR-0025 Phase 6). A closed enum
+ * so the audit distinguishes "opened the funnel" from "opened one interview session" without
+ * a free-text label.
+ */
+export const ADMIN_JOURNEY_VIEWS = ["journey_summary", "chat_session"] as const;
+export const AdminJourneyView = z.enum(ADMIN_JOURNEY_VIEWS);
+export type AdminJourneyView = z.infer<typeof AdminJourneyView>;
+
+/**
+ * An admin READ one worker's journey (ADR-0025 Phase 6) — the funnel summary or one interview
+ * session in depth.
+ *
+ * ⚠ WHY A READ IS AUDITED AT ALL, WHEN THE OTHER `read_entities` READS ARE NOT. The journey
+ * sits on the same capability and returns the same DATA CLASS as the entity detail (opaque
+ * ids, enums, timestamps, counts, question keys — no PII), but at materially higher
+ * GRANULARITY and it is BEHAVIOURAL rather than a state snapshot: login times and counts,
+ * per-question outcomes across the whole pack corpus, where the interview stalled and under
+ * how much ask pressure, the voice re-record chain, per-session AI spend, idle seconds. That
+ * is a profile of a person's attempt to use the product, and the ruling is that looking at it
+ * must leave a trail naming who looked and at whom — the same reason `admin.pii_viewed`
+ * exists, at a lower stake.
+ *
+ * PII-FREE BY CONSTRUCTION, and narrower than `admin.pii_viewed`: the opaque `admin_id`, the
+ * opaque `subject_id` (the WORKER whose journey was read — resolved server-side, never from a
+ * request body), a view ENUM, and the opaque `chat_session_id` when one session was opened.
+ * NEVER a question key, a status, a count, a reason note, or any free text — WHICH question a
+ * worker stalled on is a fact about that worker and belongs in the response, not on the spine.
+ * `.strict()` is the structural backstop.
+ */
+export const AdminWorkerJourneyViewedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    subject_id: uuidSchema,
+    view: AdminJourneyView,
+    /** The session opened, for `view: "chat_session"`. Null for the funnel summary. */
+    chat_session_id: uuidSchema.nullable().default(null),
+  })
+  .strict();
+export type AdminWorkerJourneyViewedPayload = z.infer<typeof AdminWorkerJourneyViewedPayload>;
+
+/**
+ * An admin READ a page of worker FEEDBACK — the worker's own free text (#997 follow-up).
+ *
+ * ⚠ WHY THIS EXISTS. `admin.worker_journey_viewed` audits reading a worker's step COUNTS.
+ * Reading their actual WORDS emitted nothing, which made `FeedbackService`'s own comment —
+ * the words are "one authenticated admin screen away, behind an audited surface" — false. This
+ * is the event that makes it true. `GET /admin/feedback` sits on `read_entities`, the floor all
+ * four roles hold, and it is the ONE admin read that projects worker-authored prose; broad
+ * access is exactly why the trail has to exist, the same argument the journey read settled.
+ *
+ * ── THE SUBJECT IS THE ADMIN SESSION, NOT THE WORKER, AND THAT IS THE DESIGN QUESTION ────
+ * ADR-0025 Decision 6 says an admin event's subject is "the target entity", and both
+ * `admin.pii_viewed` and `admin.worker_journey_viewed` follow it with `worker`. Neither applies
+ * here, because on those routes the worker id is a PATH PARAMETER — structurally guaranteed.
+ * This route's `workerId` is an OPTIONAL FILTER, so the same call is sometimes about one worker
+ * and sometimes about a page spanning many.
+ *
+ * A per-request subject_type would be worse than a uniform one, not more precise. Filing the
+ * filtered reads under `subject_type=worker` makes the obvious spine query — "who has read
+ * worker W's feedback?" — look COMPLETE when it is structurally incapable of being so: every
+ * UNFILTERED page that happened to contain W's message would be missing from the answer, and
+ * the reader would conclude nobody had read it. A trail that is silently partial on the very
+ * axis people query it on is worse than one that is honestly about the reading ACT.
+ *
+ * So: `admin_session` + the admin's id, the `admin.pii_reveal_cap_exceeded` precedent (which
+ * uses it for the same reason — its payload deliberately carries no worker subject). The
+ * questions this event CAN answer completely — "what did this admin read, with what filters,
+ * and how much came back" — are answered off `actor_id` and `event_name`.
+ *
+ * PII-FREE BY CONSTRUCTION AND NARROWER THAN THE ROW IT AUDITS: an opaque admin id, the two
+ * filters as they were applied, and a count. NEVER the message text, never an excerpt, never a
+ * hash of one, and deliberately NOT A LENGTH either — `feedback.submitted` carries a length
+ * because it is the shape of ONE submission the worker chose to make, whereas a length here
+ * would be a fact about what an admin was shown, adding nothing to "how many" but starting the
+ * spine down the road of describing content. `.strict()` is the structural backstop.
+ */
+export const AdminFeedbackViewedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    /** The `workerId` filter, when one was applied. Null means the page was unfiltered. */
+    worker_id: uuidSchema.nullable().default(null),
+    /** The `category` filter, when one was applied. Null means all categories. */
+    category: z.enum(WORKER_FEEDBACK_CATEGORIES).nullable().default(null),
+    /**
+     * How many rows the admin was actually shown — the page as RETURNED, never the `limit + 1`
+     * the repository over-fetches to detect a next page. Auditing the peeked row would claim
+     * the admin saw one message more than they did, on every page but the last.
+     */
+    result_count: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AdminFeedbackViewedPayload = z.infer<typeof AdminFeedbackViewedPayload>;
+
 /** Which per-admin reveal cap was breached (ADR-0025 ADMIN-3b must-fix #8). Enum-only → no PII. */
 export const ADMIN_PII_REVEAL_CAP_WINDOWS = ["hour", "day"] as const;
 export const AdminPiiRevealCapWindow = z.enum(ADMIN_PII_REVEAL_CAP_WINDOWS);
@@ -2287,6 +2431,180 @@ export const AdminPiiRevealCapExceededPayload = z
   })
   .strict();
 export type AdminPiiRevealCapExceededPayload = z.infer<typeof AdminPiiRevealCapExceededPayload>;
+
+/**
+ * WHICH admin console surface a name disclosure happened on (ADR-0025 Decision 4, REVERSED
+ * 2026-08-18). A closed enum, and deliberately a SURFACE rather than an entity type: it names
+ * the screen the operator was on, which is what an auditor reviewing "what was this account
+ * doing" needs, and it stays a fixed vocabulary as the projections behind those screens change.
+ *
+ *   workers — `GET /admin/workers` + `/admin/workers/:id` → `workers.full_name`
+ *   payers  — `GET /admin/payers`  + `/admin/payers/:id`  → `payers.org_name_enc` (the portal's
+ *             Companies AND Agencies tabs; ONE table, one surface, one projection)
+ *   admins  — `GET /admin/admins`                         → `admin_users.name_enc`
+ */
+export const ADMIN_IDENTITY_SURFACES = ["workers", "payers", "admins"] as const;
+export const AdminIdentitySurface = z.enum(ADMIN_IDENTITY_SURFACES);
+export type AdminIdentitySurface = z.infer<typeof AdminIdentitySurface>;
+
+/**
+ * An admin was shown NAMES on an entity screen (ADR-0025 Decision 4, REVERSED 2026-08-18 — the
+ * console was unusable when every row was an opaque uuid).
+ *
+ * ── WHY THIS IS AUDITED AT RESPONSE GRANULARITY, NOT PER SUBJECT ─────────────────────────
+ * The obvious design — one event per name — is wrong twice over. It is write amplification (a
+ * 50-row page becomes 50 spine inserts on every scroll), and, far worse, it would turn the
+ * append-only spine into a QUERYABLE INDEX of "which workers has anyone ever looked at". That
+ * index does not exist today and creating it would be a NEW inference surface built out of the
+ * very control meant to constrain one: an attacker (or a curious insider) with spine read
+ * access would learn who the platform's operators find interesting, which is a fact about those
+ * workers that no one ever decided to record. One event per RESPONSE keeps the audit answering
+ * "what did this admin do, how much did they see" — which is the question the trail is for —
+ * without answering "who has been looked at", which it was never meant to answer.
+ *
+ * ── THE SUBJECT IS THE ADMIN SESSION, UNIFORMLY ──────────────────────────────────────────
+ * The `admin.feedback_viewed` precedent (see its header) applies verbatim and for the same
+ * reason: a LIST read spans many subjects, so filing the DETAIL reads under `worker`/`payer`
+ * would make the obvious spine query — "who has read worker W's name?" — look COMPLETE when it
+ * is structurally incapable of being so (every list page containing W would be missing from the
+ * answer). A uniformly honest subject beats a per-request one that is precise on half the calls
+ * and silently partial on the other half. `subject_id` in the PAYLOAD carries the single entity
+ * on a detail read and is null on a list read, so the distinction survives without pretending
+ * the worker axis is queryable.
+ *
+ * ── PII-FREE BY CONSTRUCTION ─────────────────────────────────────────────────────────────
+ * The opaque `admin_id`, a surface enum, an opaque `subject_id` (or null), and a count. NEVER a
+ * name, an initial, a masked form, or a hash of one — the whole point of the event is that the
+ * NAME stays in the HTTP response to the one authenticated admin and nowhere else. `.strict()`
+ * is the structural backstop.
+ *
+ * `result_count` is how many names were ACTUALLY disclosed — rows whose stored name was
+ * non-null, counted from the CIPHERTEXT before anything is decrypted. Not the page size: a page
+ * of fifty workers who have never given us a name is zero disclosures, and counting it as fifty
+ * would make the trail (and the egress cap it feeds) describe reading that never happened.
+ */
+export const AdminIdentityViewedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    surface: AdminIdentitySurface,
+    /** The single entity on a DETAIL read. Null on a list read (which spans many). */
+    subject_id: uuidSchema.nullable().default(null),
+    result_count: z.number().int().nonnegative(),
+  })
+  .strict();
+export type AdminIdentityViewedPayload = z.infer<typeof AdminIdentityViewedPayload>;
+
+/**
+ * A per-admin NAME-egress cap was EXCEEDED — the identity sibling of
+ * {@link AdminPiiRevealCapExceededPayload}, and PII-free for the same reasons.
+ *
+ * It exists because a LIST of names is a bulk disclosure that the single-subject reveal cap
+ * cannot see: one `?limit=100` page would hand over ten times the entire hourly reveal budget
+ * in a single request, so without its own budget the reveal cap is bypassed simply by paging a
+ * list. An over-cap read discloses NO names (the faceless projection is still served — the
+ * identity cap must not take out the `read_entities` floor it sits beside).
+ *
+ * AGGREGATE / PII-FREE: the opaque `admin_id` whose velocity tripped the cap + which `window`.
+ * Deliberately NOT the surface: a breach alert is about an ACCOUNT's velocity, and naming the
+ * screen would let the alert stream be read as a coarse browsing history. `.strict()` backstops.
+ * The window enum is shared with the reveal breach — one vocabulary for both egress caps.
+ */
+export const AdminIdentityCapExceededPayload = z
+  .object({
+    admin_id: uuidSchema,
+    window: AdminPiiRevealCapWindow,
+  })
+  .strict();
+export type AdminIdentityCapExceededPayload = z.infer<typeof AdminIdentityCapExceededPayload>;
+
+/**
+ * The CLOSED SET of failure codes an `ai_call_traces` row may carry (migration 0083).
+ *
+ * ── WHY A CLOSED SET, AND NOT "the provider's error_code, bounded to 64 chars" ────────────
+ * `AICallMetadata.error_code` is produced OUTSIDE this codebase. Its stated invariant is
+ * "either a closed-set transport reason code or a bare exception type name" — a claim about
+ * today's `router.py`, not a property this repository can enforce, and provider SDKs routinely
+ * echo the request back inside an exception message. On any other table that would be a bad log
+ * line. On THIS one it would be a prompt fragment in an UNENCRYPTED column, sitting beside the
+ * two the whole schema encrypts and CHECKs — the leak going around the lock rather than through
+ * it. The column's 64-char CHECK bounds the damage; it does not prevent it.
+ *
+ * So the recorder maps whatever arrives against this ALLOW-LIST and returns one of ITS OWN
+ * constants otherwise (`provider_error` / `unknown_error`). That is the difference between a
+ * charset rule ("this looks code-shaped") and a membership rule ("this IS one of ours"), and it
+ * is the only form that can be reasoned about: every value this column can hold is a literal in
+ * this file.
+ *
+ * The six spend-cap reasons are SPREAD from {@link AI_SPEND_CAP_REASONS} rather than retyped, so
+ * a code added there cannot become an unrecognised one here.
+ */
+export const AI_TRACE_ERROR_CODES = [
+  // Deliberate refusals — the gateway declined to make a real call (TD27).
+  ...AI_SPEND_CAP_REASONS,
+  // Per-surface terminal codes the ai-service returns today.
+  "stt_budget_blocked",
+  "stt_call_failed",
+  "stt_service_unreachable",
+  "translate_call_failed",
+  "extract_deadline_exceeded",
+  // The two the MAPPER itself produces, and the reason this set can be closed at all.
+  // `provider_error`: the call failed and reported something this list does not recognise —
+  // the signal kept is "it failed on the far side", which is what a triage query needs; the
+  // unrecognised string itself is DROPPED rather than stored.
+  "provider_error",
+  // `unknown_error`: the call failed and reported no code at all.
+  "unknown_error",
+] as const;
+export const AiTraceErrorCode = z.enum(AI_TRACE_ERROR_CODES);
+export type AiTraceErrorCode = z.infer<typeof AiTraceErrorCode>;
+
+/**
+ * An admin DECRYPTED one AI call trace — the prompt and the completion (migration 0083).
+ *
+ * ── THE MOST PRIVILEGED READ ON THE ADMIN SURFACE, AND THE AUDIT IS PART OF THE GATE ─────
+ * `admin.identity_viewed` records that a NAME was shown. This records that a whole PROMPT and
+ * COMPLETION were shown — text the ai-service pseudonymizes best-effort and R32 measured its
+ * name gazetteer dead on. It is emitted and AWAITED **before** any plaintext is computed, and a
+ * failed emit propagates: no audit row, no text. That ordering is `AdminPiiRevealService`'s
+ * audit-before-decrypt, applied to a bigger disclosure.
+ *
+ * ── SUBJECT: THE ADMIN SESSION, LIKE ITS TWO SIBLINGS ────────────────────────────────────
+ * Not the worker whose words were read, and the reasoning is `admin.feedback_viewed`'s verbatim:
+ * a subject axis is worth having only if the spine query over it is COMPLETE. It would not be —
+ * `GET /admin/ai-traces` lists across every worker, so filing the detail reads under `worker`
+ * would make "who has read worker W's prompts?" look answerable while silently omitting every
+ * list page that showed W's row. The worker is in the PAYLOAD instead, where it is honest about
+ * being one read rather than an index.
+ *
+ * ── PII-FREE BY CONSTRUCTION, AND ONE FIELD HERE IS LOAD-BEARING ─────────────────────────
+ * An opaque admin id, the opaque trace id, the opaque worker id, the task-type label, and TWO
+ * LENGTHS. The lengths are the whole §2 discipline of this table restated on the spine: what
+ * ships is `prompt_chars` / `response_chars`, a COUNT of characters, never the characters —
+ * exactly as `feedback.submitted` carries `message_length` and never the message. `.strict()` is
+ * the structural backstop against a `prompt` field arriving here later and looking ordinary.
+ */
+export const AdminAiTraceViewedPayload = z
+  .object({
+    admin_id: uuidSchema,
+    /** The `ai_call_traces` row that was decrypted. Opaque; the detail read is single-subject. */
+    trace_id: uuidSchema,
+    /**
+     * WHOSE call it was. Present because this read IS single-subject (unlike the feedback list),
+     * so naming the worker costs nothing in completeness and is what makes "did anyone read this
+     * worker's interview?" answerable at all during a DSAR or an incident.
+     */
+    worker_id: uuidSchema,
+    /** `aiTaskType` as text — which surface's call was read. A label, never a value. */
+    task_type: aiTaskType,
+    /**
+     * How much text was disclosed, as LENGTHS. Nullable because the columns are: a trace may
+     * carry a prompt and no completion (a failed call), and 0 would be a different claim.
+     */
+    prompt_chars: z.number().int().nonnegative().nullable().default(null),
+    response_chars: z.number().int().nonnegative().nullable().default(null),
+  })
+  .strict();
+export type AdminAiTraceViewedPayload = z.infer<typeof AdminAiTraceViewedPayload>;
 
 /**
  * The CLOSED set of platform operational/provider kill-switches an admin may request a
@@ -2354,6 +2672,52 @@ export const SkillPhraseUnresolvedPayload = z
   })
   .strict();
 export type SkillPhraseUnresolvedPayload = z.infer<typeof SkillPhraseUnresolvedPayload>;
+
+/**
+ * `skill.phrase_unresolved` VERSION 2 (S3-C / D-6) — the canonical-scope counterpart.
+ *
+ * WHY A SECOND PAYLOAD RATHER THAN A FIELD ON v1, which is the obvious cheaper move and is
+ * what the original D-6 note proposed ("an ADDITIVE optional field — additive is not a
+ * mutation"). That reasoning does not survive contact with v1's actual shape: `domain_id`
+ * is `z.string().min(1)`, REQUIRED. A canonical-scoped miss has no legacy slug to put
+ * there, so making the path work through v1 needs `domain_id` RELAXED to nullable — and
+ * relaxing a required field is exactly the mutation CLAUDE.md §3 forbids, because every
+ * shipped consumer that reads `payload.domain_id` without a null check breaks on the first
+ * such event. Adding an optional field alongside a still-required `domain_id` would not
+ * unblock anything.
+ *
+ * The repo has already answered this twice, the same way both times:
+ *   - `feed.shown_v2` — "a SECOND registry entry, not a mutation of `feed.shown`", because
+ *     `validateEvent` allows exactly one version per NAME and a bump in place invalidates
+ *     every shipped emitter the moment it deploys;
+ *   - `OccupationPhraseUnresolvedPayload` — a separate payload precisely because "the skill
+ *     payload's `min(1)` on that field" did not fit.
+ * v1 stays below, byte-for-byte, and keeps emitting for legacy-scoped misses (invariant #8:
+ * the registry is history, not current state).
+ *
+ * EXACTLY ONE SCOPE IS CARRIED, mirroring the table's `unresolved_phrase_one_domain_chk`.
+ * The refine makes the illegal both-set / neither-set event unconstructible rather than
+ * merely discouraged — an event that cannot say which vocabulary failed is not worth
+ * emitting, and the growth loop would have to guess.
+ *
+ * PII-FREE BY CONSTRUCTION, unchanged from v1: sha256 hex of the already-pseudonymized
+ * phrase, never the text. `.strict()` blocks smuggling it back in.
+ */
+export const SkillPhraseUnresolvedV2Payload = z
+  .object({
+    phrase_hash: z.string().regex(/^[0-9a-f]{64}$/),
+    /** Legacy skill-domain slug (Path B). Null when the miss was canonical-scoped. */
+    domain_id: z.string().min(1).max(64).nullable().default(null),
+    /** Canonical `jd_*` domain (Path A). Null when the miss was legacy-scoped. */
+    job_domain_id: z.string().min(1).max(64).nullable().default(null),
+    lang: z.string().min(2).max(8),
+    count: z.number().int().positive(),
+  })
+  .strict()
+  .refine((v) => (v.domain_id === null) !== (v.job_domain_id === null), {
+    message: "exactly one of domain_id (legacy slug) or job_domain_id (canonical jd_*)",
+  });
+export type SkillPhraseUnresolvedV2Payload = z.infer<typeof SkillPhraseUnresolvedV2Payload>;
 
 // ---------------------------------------------------------------------------
 // referral.* — the WORKER-referral activation bonus (blocker B4 / §X.6).
@@ -3050,3 +3414,164 @@ export const ProfileLlmInterviewFallbackPayload = z
 export type ProfileLlmInterviewFallbackPayload = z.infer<
   typeof ProfileLlmInterviewFallbackPayload
 >;
+
+/**
+ * ONE PHYSICAL SUBMISSION ARRIVED TWICE and the second copy was served from the reply cache
+ * instead of being taken as a new answer (#931).
+ *
+ * WHY THIS NEEDS AN EVENT RATHER THAN THE LOG LINE IT REPLACES. A duplicate is structurally
+ * invisible everywhere else: the orchestrator returns before the engine is consulted, so there is
+ * no `chat_messages` row, no `chat.message_received`, and no counter anywhere that moves. The only
+ * evidence today is one `retry storm absorbed` warn — and it fires on ONE of the three branches
+ * that absorb a duplicate, into stdout, in a repo with no log shipping, retention or search. A log
+ * line answers "did this session duplicate"; only a queryable event answers "is this getting
+ * worse", which is the question a client-side retry defect is diagnosed by.
+ *
+ * IT IS ALSO THE ROLLOUT GATE for retiring the four reply-cache clocks (#931 step 4, deliberately
+ * NOT done here). `absorbed_as` says which rule served each duplicate: `client_id` means the
+ * client's own per-submission id decided it and no clock was consulted; `budget`, `storm` and
+ * `stale` mean the server was still inferring intent from elapsed time because one of the two
+ * sides carried no id. The clocks may only be retired once the last three go to zero in the field,
+ * and `inbound_had_id` is what says whether that is because the app rolled out or because nothing
+ * duplicated.
+ *
+ * BOUNDED BY THE IDEMPOTENCY KEY, not by sampling. The emitter keys on the submission id (or, with
+ * no id, the rev the duplicate was read at), so a client posting one submission fifty times
+ * collapses to ONE row — the volume ceiling is per duplicated SUBMISSION, not per POST.
+ *
+ * PII-FREE BY CONSTRUCTION, not by trust: two uuids, a pack-authored `^[a-z_]+$` key, two closed
+ * enums and two bounded ints. Never the worker's words, never the reply, never the option labels —
+ * the utterance lives in the transcript, which is the one place it belongs (§2). The submission id
+ * itself is deliberately NOT a field: it is client-supplied, it is already persisted verbatim in
+ * `events.idempotency_key`, and a payload field would be a second, unvalidated copy in the audit
+ * spine. `.strict()` stops a later field arriving with the text beside them.
+ */
+export const ProfileSubmissionDuplicatedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /**
+     * The question that was on screen when the duplicate landed, or null when nothing was.
+     *
+     * Pack question keys are `^[a-z_]+$` by validator construction — the same field the warn log
+     * this event supersedes already printed. A duplicate rate concentrating on one key is the
+     * cheapest available signal that a question's affordance is making workers tap twice.
+     */
+    question_key: z
+      .string()
+      .min(1)
+      .max(40)
+      .regex(/^[a-z_]+$/)
+      .nullable(),
+    /**
+     * WHICH RULE absorbed it — the one field step 4 is gated on.
+     *
+     * `client_id`: the inbound and the stamp carried the SAME client submission id. Certain, and
+     * no clock was consulted.
+     * `budget`: matched by hash inside the fresh window, served from the replay budget (a write).
+     * `storm`: matched by hash with the budget already spent, inside the retry-storm floor.
+     * `stale`: matched by hash out past the fresh window but inside the stale one (#869).
+     */
+    absorbed_as: z.enum(["client_id", "budget", "storm", "stale"]),
+    /**
+     * Whether the INBOUND carried a submission id at all — the unbiased rollout signal.
+     *
+     * Distinct from `absorbed_as === "client_id"`, and that difference is the point: a build that
+     * sends an id still falls to a clock branch when the STAMP predates it (the deploy straddle,
+     * and the chat/voice-form mix). Counting `absorbed_as` alone would read that as "the app has
+     * not rolled out" forever after it has.
+     */
+    inbound_had_id: z.boolean(),
+    /** How many times this stamp had already been replayed before this duplicate. */
+    replays: z.number().int().nonnegative(),
+    /** Milliseconds between the reply being stamped and this duplicate arriving. */
+    elapsed_ms: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileSubmissionDuplicatedPayload = z.infer<
+  typeof ProfileSubmissionDuplicatedPayload
+>;
+
+// ---------------------------------------------------------------------------
+// feedback.* — the worker addressing the platform in their own words (#997).
+// ---------------------------------------------------------------------------
+
+/**
+ * A worker submitted free-text feedback from the app-wide Feedback button (#997).
+ *
+ * THE MESSAGE TEXT IS NEVER CARRIED, and this is the same ruling `job.search_performed` made
+ * about the search term, for the same reason and with less room for argument: `message` is
+ * unbounded worker free text, the worker is explicitly invited to say anything, and their own
+ * name, phone number or employer is a LIKELY rather than an unlucky occurrence. The events
+ * table is exactly where §2 forbids raw PII from landing. Hashing was rejected for the search
+ * term because a short term is dictionary-reversible; here it is rejected for a simpler
+ * reason — a hash of a paragraph answers no question anyone has.
+ *
+ * WHAT IS RECORDED INSTEAD is the SHAPE of the submission: which tag (if any), how long the
+ * message was, which app build it came from, and the row id that lets an operator jump from
+ * the spine to the admin screen where the words legitimately live. That answers the questions
+ * this event exists for — "is feedback volume rising after that release?", "is one build
+ * generating all the problem reports?" — without the spine ever holding what anyone wrote.
+ *
+ * `.strict()` is load-bearing here more than anywhere: a later field carrying the text is the
+ * one mistake that would look exactly like a helpful improvement.
+ *
+ * ── `screen_context` — ADDED LATER, ADDITIVE, STILL v1 ───────────────────────────────────
+ * The `AgencyInviteCreatedPayload` precedent (W1 added `medium` and `payload_keys`) is what says
+ * a widening like this stays `version: 1`, and the registry entry does (invariant #8).
+ * `.nullable().default(null)` is the shape — `chat_session_id` on
+ * `AdminWorkerJourneyViewedPayload` uses the same one — so rows written before the widening
+ * re-validate as `null` rather than as absent, and a consumer never has to tell "we did not know
+ * the screen" from "this event predates the field".
+ *
+ * ⚠ WHERE THE PRECEDENT STOPS, because half of it does not transfer. `AgencyInviteCreatedPayload`
+ * is a PLAIN `z.object`, so an optional addition there is compatible in BOTH directions: an old
+ * consumer strips the unknown key. THIS payload is `.strict()`, so a consumer pinned to the
+ * pre-widening schema REJECTS the whole event rather than ignoring the new field. Forward
+ * compatibility here rests on there being no read-side parser today (`validateEvent` has no
+ * consumer outside the emit path) — a fact, not a property of the shape, and the first replay or
+ * projection written against a pinned schema must be given the widened one.
+ *
+ * WHY A SCREEN LABEL IS ALLOWED ON THE SPINE AT ALL, when the message is not. The value is one
+ * of the 28 constants in `WORKER_APP_SCREEN_TEMPLATES` and can be nothing else, so it is a label
+ * about WHICH SCREEN rather than a link to one job, one application or one worker — and it
+ * carries no byte any caller chose. A concrete path would be an identifier and is refused.
+ */
+export const FeedbackSubmittedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** The `worker_feedback` row. An opaque uuid — the join from the spine to the words. */
+    feedback_id: uuidSchema,
+    /** The worker's optional tag. Null means they did not tag it — never coerced to "other". */
+    category: z.enum(WORKER_FEEDBACK_CATEGORIES).nullable(),
+    /** Characters in the trimmed message, as a coarse volume/effort signal. Never the text. */
+    message_length: z.number().int().nonnegative(),
+    /** `x-app-build` (#966): a commit SHA / build number, or null when absent or malformed. */
+    app_build: z.string().min(1).max(WORKER_FEEDBACK_APP_BUILD_MAX).nullable(),
+    /**
+     * WHICH SCREEN of the worker app the feedback was about — one of `WORKER_APP_SCREEN_TEMPLATES`
+     * — or null when the client sent nothing or sent something that matched no screen.
+     *
+     * MEMBERSHIP OF A CLOSED SET, WHICH IS STRUCTURAL IN THE WAY THE PREVIOUS REGEX WAS NOT.
+     * This field used to be a bound plus a charset plus a denylist of id shapes, and the comment
+     * here called that "structural" when it was not: a bound and a charset let a hostile client
+     * put 128 characters of its choosing on the audit spine, and no structural rule can tell an
+     * opaque token from a route word (`/u/dGVzdEBleGFtcGxlLmNvbQ` is base64url of an email
+     * address and passed). `z.enum` over the app's own route table admits 28 values and nothing
+     * else, so the strongest claim is now also the true one: NOTHING a caller composes can land
+     * here.
+     *
+     * IT IS THE SPINE'S OWN REFUSAL, not belt-and-braces over the resolver. `resolveScreenTemplate`
+     * cannot produce a non-member — the type system stops it — so this arm exists entirely for a
+     * SECOND emitter added later without one, which must fail HERE rather than write an
+     * identifier onto the audit trail. Failing closed is right for that caller and costs the
+     * request-path caller nothing, because the request path cannot reach it.
+     *
+     * The bound and the charset are GONE rather than kept alongside: every member is 25
+     * characters or fewer of `[a-z/:-]`, so re-asserting either would be a second mechanism
+     * guarding a property this one already makes impossible to violate.
+     */
+    screen_context: z.enum(WORKER_APP_SCREEN_TEMPLATES).nullable().default(null),
+  })
+  .strict();
+export type FeedbackSubmittedPayload = z.infer<typeof FeedbackSubmittedPayload>;

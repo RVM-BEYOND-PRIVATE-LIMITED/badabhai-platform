@@ -87,6 +87,17 @@
   --green-600: #145c2d;
   --green-700: #0f4a24;
 
+  /* ---- Amber (CAUTION — the warning hue, deliberately DISTINCT from the haldi brand ----
+     #1103: --warning used to fold onto the vermilion/haldi ramp, so a caution surface read as
+     the brand. This is a real amber/gold ramp so "warning" is legible AS warning. The hue is
+     TUNABLE — nudge these six steps together to re-dial caution without touching consumers. */
+  --amber-100: #fef3c7;
+  --amber-200: #fde68a;
+  --amber-300: #fcd34d;
+  --amber-500: #d97706;
+  --amber-700: #b45309; /* base — caution fill; carries WHITE text (~5:1) */
+  --amber-800: #92400e; /* caution text on the light amber tint (~6.4:1) */
+
   /* ---- Rani pink → folds to the BLUE ramp (pink is not in JUL31) ---- */
   --pink-50: var(--blue-50);
   --pink-100: var(--blue-100);
@@ -182,8 +193,8 @@
   --danger: var(--red-500);
   --danger-press: var(--red-600);
   --danger-tint: var(--red-50);
-  --warning: var(--vermilion-500); /* haldi */
-  --warning-tint: var(--vermilion-50);
+  --warning: var(--amber-700); /* #1103: AMBER, not haldi — caution ≠ brand (white text ~5:1) */
+  --warning-tint: var(--amber-100);
   --info: var(--blue-500);
   --info-tint: var(--blue-50);
 
@@ -231,7 +242,7 @@
 
   --success-tint: rgba(30, 122, 60, 0.22);
   --danger-tint: rgba(198, 40, 40, 0.22);
-  --warning-tint: rgba(255, 196, 0, 0.16);
+  --warning-tint: rgba(217, 119, 6, 0.22); /* #1103: amber translucent (was haldi rgba) */
   --info-tint: rgba(18, 61, 140, 0.28);
 
   --border-subtle: #1e2a45;
@@ -365,6 +376,13 @@
   --control-sm: 36px;
   --control-md: 44px;
   --control-lg: 52px; /* primary worker CTA */
+
+  /* Off-token control/media sizes minted from the EXACT existing px (#1101) — these are the
+     one-off dimensions that had no matching token, kept byte-for-byte so tokenizing is a
+     zero-visual-change refactor (raw px leaves the component layer, not the pixels). */
+  --otp-cell-h: 60px; /* OTP cell height (its width reuses --control-lg = 52px) */
+  --avatar-lg: 52px; /* MaskedCandidate avatar diameter */
+  --avatar-lg-text: 20px; /* MaskedCandidate avatar initials */
 
   /* layout rails */
   --gutter: 20px; /* mobile screen padding */

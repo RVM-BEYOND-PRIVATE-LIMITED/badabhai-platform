@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  WORKER_FEEDBACK_CATEGORIES,
+  WORKER_FEEDBACK_APP_BUILD_MAX,
+  WORKER_APP_SCREEN_TEMPLATES,
+} from "@badabhai/types";
+import {
   validateEvent,
   createEvent,
   assertValidEvent,
@@ -8,6 +13,7 @@ import {
   EVENT_REGISTRY,
   isEventName,
   MAX_VOICE_NOTE_SECONDS,
+  FeedbackSubmittedPayload,
 } from "./index";
 
 const UUID_A = "11111111-1111-4111-8111-111111111111";
@@ -310,6 +316,101 @@ describe("interview-turn contract (extraction-ready, cost, ai-job)", () => {
     }
   });
 
+  // ── Phase 4 attribution: worker_id / session_id ────────────────────────────────────────
+  //
+  // The reason these exist at all: `ai_job_id` is null on four spending surfaces by design
+  // (an interview turn, a résumé, a skill embed and a payer chat turn have no async job), so
+  // there was no `ai_jobs.input_ref` to join through and no field either. "What did this
+  // worker cost?" summed to ₹0 and read as free rather than as unattributed.
+  it("ai.cost_recorded carries worker_id + session_id when the surface knows them", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: null },
+      payload: {
+        ai_call_id: UUID_A,
+        // Null on purpose: the interview turn this shape describes has no `ai_jobs` row, and
+        // the attribution is exactly what replaces the join it cannot make.
+        ai_job_id: null,
+        worker_id: UUID_B,
+        session_id: UUID_C,
+        task_type: "profiling_chat_turn",
+        model: "claude-haiku-4-5",
+        provider: "anthropic",
+        estimated_cost_inr: 0.157,
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "ai.cost_recorded") {
+      expect(result.event.payload.worker_id).toBe(UUID_B);
+      expect(result.event.payload.session_id).toBe(UUID_C);
+    }
+  });
+
+  it("ai.cost_recorded still validates with NEITHER field — every historical row stays valid", () => {
+    // BACKWARD COMPATIBILITY IS THE ASSERTION. Both default to null, so a row written before
+    // these fields existed parses identically, and no consumer of the old shape breaks. This
+    // is the same additive discipline BL-23 used; the registry stays at version 1.
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: UUID_A },
+      payload: {
+        ai_call_id: UUID_A,
+        task_type: "profile_extraction",
+        model: "m",
+        provider: "p",
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "ai.cost_recorded") {
+      expect(result.event.payload.worker_id).toBeNull();
+      expect(result.event.payload.session_id).toBeNull();
+    }
+  });
+
+  it("ai.cost_recorded accepts an explicitly UNATTRIBUTED payer-side call", () => {
+    // `skill_embedding` on a job-posting write and `job_posting_chat_turn` are employer spend
+    // with no worker in any sense. Nulls are the honest answer, and inventing a worker to
+    // satisfy the field would file an employer's money against a candidate.
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: null },
+      payload: {
+        ai_call_id: UUID_A,
+        ai_job_id: null,
+        worker_id: null,
+        session_id: null,
+        task_type: "skill_embedding",
+        model: "text-embedding-004",
+        provider: "google",
+      },
+    };
+    expect(validateEvent(evt).success).toBe(true);
+  });
+
+  it("rejects a non-uuid worker_id — the attribution is an id, never a name", () => {
+    // §2. The ONLY thing that makes attributing cost by identifier safe is that the
+    // identifier is opaque. A payload that accepted free text here is one prompt-debugging
+    // session away from carrying a worker's name into the events table.
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "ai.cost_recorded",
+      subject: { subject_type: "ai_job", subject_id: null },
+      payload: {
+        ai_call_id: UUID_A,
+        worker_id: "Ramesh Kumar",
+        task_type: "profiling_chat_turn",
+        model: "m",
+        provider: "p",
+      },
+    };
+    expect(validateEvent(evt).success).toBe(false);
+  });
+
   it("rejects ai.cost_recorded with an unknown task_type", () => {
     const evt = {
       ...workerCreatedEvent(),
@@ -523,6 +624,64 @@ describe("interview_kit events (per-trade, PII-free)", () => {
       payload: { trade_key: "vmc_operator", content_version: 1, kit_id: "vmc_operator:v1" },
     };
     expect(validateEvent(evt).success).toBe(true);
+  });
+
+  // ── OPTIONAL worker attribution (admin journey step 7) ────────────────────────────────
+  // Additive widen, no version bump — the `ai.cost_recorded` precedent (26ad1598). The
+  // three tests below pin the whole contract: the field defaults to null, an anonymous
+  // download is STILL valid, and a garbage id is rejected rather than stored.
+
+  it("interview_kit.downloaded defaults worker_id to null — an ANONYMOUS download stays valid", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "interview_kit.downloaded",
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "interview_kit", subject_id: null },
+      payload: { trade_key: "cnc_operator", content_version: 1, kit_id: "cnc_operator:v1" },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "interview_kit.downloaded") {
+      // The route is public. "No worker id" is the ordinary case, not a validation failure —
+      // if this ever fails, an unauthenticated download has become unrecordable.
+      expect(result.event.payload.worker_id).toBeNull();
+    }
+  });
+
+  it("interview_kit.downloaded carries worker_id when a valid worker session was present", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "interview_kit.downloaded",
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "interview_kit", subject_id: null },
+      payload: {
+        trade_key: "cnc_operator",
+        content_version: 1,
+        kit_id: "cnc_operator:v1",
+        worker_id: UUID_B,
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "interview_kit.downloaded") {
+      expect(result.event.payload.worker_id).toBe(UUID_B);
+    }
+  });
+
+  it("rejects a non-uuid worker_id (the field is an opaque id, never free text)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "interview_kit.downloaded",
+      actor: { actor_type: "worker", actor_id: UUID_B },
+      subject: { subject_type: "interview_kit", subject_id: null },
+      payload: {
+        trade_key: "cnc_operator",
+        content_version: 1,
+        kit_id: "cnc_operator:v1",
+        worker_id: "Ramesh Kumar 9876543210",
+      },
+    };
+    expect(validateEvent(evt).success).toBe(false);
   });
 });
 
@@ -1677,6 +1836,193 @@ describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/
     if (!bad.success) expect(bad.error.stage).toBe("payload");
   });
 
+  // ── admin.worker_journey_viewed (Phase 6) — the audit of a READ ────────────────────────
+  // Behind `read_entities`, so it is the compensating control for a surface four roles can
+  // reach: a per-worker journey is a BEHAVIOURAL profile, and looking at one must name who
+  // looked and at whom. The payload is opaque ids + one enum, and these tests are what stop a
+  // "just add the question key, it's only a key" change from landing on the spine.
+
+  it("validates admin.worker_journey_viewed with ids + a view enum ONLY (Phase 6)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.worker_journey_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload: { admin_id: UUID_A, subject_id: UUID_B, view: "journey_summary" },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.worker_journey_viewed") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["admin_id", "chat_session_id", "subject_id", "view"].sort(),
+      );
+      // The summary read opens no session, and that reads as NULL rather than as absent.
+      expect(result.event.payload.chat_session_id).toBeNull();
+    }
+  });
+
+  it("carries the chat_session_id when ONE session was opened (which session is the audit fact)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.worker_journey_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload: {
+        admin_id: UUID_A,
+        subject_id: UUID_B,
+        view: "chat_session",
+        chat_session_id: UUID_C,
+      },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.worker_journey_viewed") {
+      expect(result.event.payload.chat_session_id).toBe(UUID_C);
+    }
+  });
+
+  it("rejects a QUESTION KEY on the payload (.strict — the stall point is not spine data)", () => {
+    // WHICH question a worker stalled on is a fact about that worker. It belongs in the
+    // response to the authenticated admin, never in the append-only audit spine.
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.worker_journey_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload: {
+        admin_id: UUID_A,
+        subject_id: UUID_B,
+        view: "chat_session",
+        stuck_question: "salary_expected",
+      },
+    };
+    const bad = validateEvent(evt);
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects an unknown view (a closed enum — never a free-text label)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.worker_journey_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload: { admin_id: UUID_A, subject_id: UUID_B, view: "transcript" },
+    };
+    expect(validateEvent(evt).success).toBe(false);
+  });
+
+  it("rejects a non-uuid subject_id (opaque ids only — never a name or a phone)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.worker_journey_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_B },
+      payload: { admin_id: UUID_A, subject_id: "Ramesh Kumar", view: "journey_summary" },
+    };
+    expect(validateEvent(evt).success).toBe(false);
+  });
+
+  // ── admin.feedback_viewed (ADR-0025 Amendment 1) — the audit of reading a worker's WORDS ─
+  // The journey read's sibling, for the one admin surface that projects worker-authored free
+  // text. Same capability floor, higher stake: `message` may hold the worker's own name and
+  // phone number, which is why the row is sanctioned and the SPINE is not. These tests are what
+  // stop a "just include an excerpt so the audit is useful" change from landing.
+
+  it("validates admin.feedback_viewed with an admin, the filters and a count", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.feedback_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, worker_id: UUID_B, category: "problem", result_count: 3 },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.feedback_viewed") {
+      expect(Object.keys(result.event.payload).sort()).toEqual([
+        "admin_id",
+        "category",
+        "result_count",
+        "worker_id",
+      ]);
+    }
+  });
+
+  it("defaults both filters to null — an UNFILTERED read is a fact, not a gap", () => {
+    // "This admin read everyone's feedback" is a stronger fact than "this admin read one
+    // worker's", so it has to be legible on the row rather than inferred from a missing key.
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.feedback_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, result_count: 50 },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.feedback_viewed") {
+      expect(result.event.payload.worker_id).toBeNull();
+      expect(result.event.payload.category).toBeNull();
+    }
+  });
+
+  it("REJECTS message text under any name, and a LENGTH too (.strict)", () => {
+    // The length is the interesting refusal. `feedback.submitted` carries one, because that is
+    // the shape of a submission the WORKER chose to make. Here it would be a fact about what an
+    // admin was SHOWN — it adds nothing to `result_count` and starts the audit spine down the
+    // road of describing the content it exists not to hold.
+    for (const extra of [
+      { message: "mera naam Ramesh hai, 9876543210" },
+      { message_text: "the app keeps logging me out" },
+      { message_excerpt: "the app keeps" },
+      { message_length: 142 },
+      { messages: ["a", "b"] },
+    ]) {
+      const evt = {
+        ...workerCreatedEvent(),
+        event_name: "admin.feedback_viewed",
+        actor: { actor_type: "admin", actor_id: UUID_A },
+        subject: { subject_type: "admin_session", subject_id: UUID_A },
+        payload: { admin_id: UUID_A, result_count: 1, ...extra },
+      };
+      const bad = validateEvent(evt);
+      expect(bad.success, JSON.stringify(extra)).toBe(false);
+      if (!bad.success) expect(bad.error.stage).toBe("payload");
+    }
+  });
+
+  it("rejects an unknown category and a non-uuid worker filter", () => {
+    const evt = (payload: object) => ({
+      ...workerCreatedEvent(),
+      event_name: "admin.feedback_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload,
+    });
+    expect(
+      validateEvent(evt({ admin_id: UUID_A, category: "spam", result_count: 1 })).success,
+    ).toBe(false);
+    // A name where an opaque id belongs is the shape this whole surface exists to prevent.
+    expect(
+      validateEvent(evt({ admin_id: UUID_A, worker_id: "Ramesh Kumar", result_count: 1 })).success,
+    ).toBe(false);
+  });
+
+  it("rejects a negative or fractional result_count", () => {
+    const evt = (result_count: unknown) => ({
+      ...workerCreatedEvent(),
+      event_name: "admin.feedback_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, result_count },
+    });
+    expect(validateEvent(evt(-1)).success).toBe(false);
+    expect(validateEvent(evt(1.5)).success).toBe(false);
+    // Zero is legitimate: a read that found nothing is still a read, and the trail must say so.
+    expect(validateEvent(evt(0)).success).toBe(true);
+  });
+
   it("validates admin.pii_reveal_cap_exceeded with admin_id + window enum and NO subject/value (ADMIN-3b)", () => {
     const evt = {
       ...workerCreatedEvent(),
@@ -1717,6 +2063,168 @@ describe("admin auth events (ADR-0025 — the 4th principal, FACELESS, ids/role/
     const bad = validateEvent(evt);
     expect(bad.success).toBe(false);
     if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  // ── admin.identity_viewed (Decision 4 reversed, 2026-08-18) — the audit of a NAME read ──
+  //
+  // The one admin event whose whole purpose is to record a disclosure of PII while carrying
+  // none. Everything below is about the second half of that sentence.
+
+  it("validates admin.identity_viewed for a LIST read: a surface, a count, and no subject", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.identity_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      // The admin SESSION, uniformly — a list spans many subjects, so filing DETAIL reads under
+      // `worker` would make the per-worker spine query look complete while omitting every list
+      // page that contained them.
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, surface: "workers", result_count: 50 },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.identity_viewed") {
+      // An omitted subject_id defaults to null — "this was a list read", recorded explicitly.
+      expect(result.event.payload.subject_id).toBeNull();
+      expect(result.event.payload.surface).toBe("workers");
+    }
+  });
+
+  it("validates admin.identity_viewed for a DETAIL read: the single subject, count 1", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.identity_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, surface: "payers", subject_id: UUID_B, result_count: 1 },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.identity_viewed") {
+      expect(result.event.payload.subject_id).toBe(UUID_B);
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["admin_id", "result_count", "subject_id", "surface"].sort(),
+      );
+    }
+  });
+
+  it("REJECTS a NAME under any key — the value this event exists to keep off the spine", () => {
+    // The negative test that matters. `admin.identity_viewed` is emitted at the exact moment a
+    // name is about to be disclosed, so it is the single most tempting payload in the registry
+    // to "just add the name to". `.strict()` is the structural refusal; this is the proof.
+    for (const extra of [
+      { full_name: "Ramesh Kumar" },
+      { name: "Ramesh Kumar" },
+      { org_name: "Sharma Fabrication Pvt Ltd" },
+      { names: ["Ramesh Kumar", "Sunita Devi"] },
+      { subject_name: "Ramesh" },
+      { name_hash: "a3f1c2" }, // a hash of a name is still a per-person identifier
+      { initials: "R.K." },
+      { phone: "+919876543210" },
+      { phone_e164: "+919876543210" },
+      { email: "ramesh@example.com" },
+    ]) {
+      const evt = {
+        ...workerCreatedEvent(),
+        event_name: "admin.identity_viewed",
+        actor: { actor_type: "admin", actor_id: UUID_A },
+        subject: { subject_type: "admin_session", subject_id: UUID_A },
+        payload: { admin_id: UUID_A, surface: "workers", result_count: 1, ...extra },
+      };
+      const bad = validateEvent(evt);
+      expect(bad.success, JSON.stringify(extra)).toBe(false);
+      if (!bad.success) expect(bad.error.stage).toBe("payload");
+    }
+  });
+
+  it("rejects an unknown surface, and a NAME where the opaque subject id belongs", () => {
+    const evt = (payload: object) => ({
+      ...workerCreatedEvent(),
+      event_name: "admin.identity_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload,
+    });
+    // Surface is a CLOSED enum, so it can never become a free-text label for a screen.
+    expect(
+      validateEvent(evt({ admin_id: UUID_A, surface: "everything", result_count: 1 })).success,
+    ).toBe(false);
+    expect(
+      validateEvent(evt({ admin_id: UUID_A, surface: "job_postings", result_count: 1 })).success,
+    ).toBe(false);
+    expect(
+      validateEvent(
+        evt({ admin_id: UUID_A, surface: "workers", subject_id: "Ramesh Kumar", result_count: 1 }),
+      ).success,
+    ).toBe(false);
+    // ...and the three legitimate surfaces all pass.
+    for (const surface of ["workers", "payers", "admins"]) {
+      expect(
+        validateEvent(evt({ admin_id: UUID_A, surface, result_count: 0 })).success,
+        surface,
+      ).toBe(true);
+    }
+  });
+
+  it("rejects a negative or fractional result_count; zero is legitimate", () => {
+    const evt = (result_count: unknown) => ({
+      ...workerCreatedEvent(),
+      event_name: "admin.identity_viewed",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, surface: "admins", result_count },
+    });
+    expect(validateEvent(evt(-1)).success).toBe(false);
+    expect(validateEvent(evt(1.5)).success).toBe(false);
+    // A page on which nobody has a name discloses nothing — and the read still happened.
+    expect(validateEvent(evt(0)).success).toBe(true);
+  });
+
+  it("validates admin.identity_cap_exceeded with admin_id + window ONLY (no surface, no subject)", () => {
+    const evt = {
+      ...workerCreatedEvent(),
+      event_name: "admin.identity_cap_exceeded",
+      actor: { actor_type: "admin", actor_id: UUID_A },
+      subject: { subject_type: "admin_session", subject_id: UUID_A },
+      payload: { admin_id: UUID_A, window: "hour" },
+    };
+    const result = validateEvent(evt);
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.identity_cap_exceeded") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(["admin_id", "window"].sort());
+    }
+  });
+
+  it("rejects admin.identity_cap_exceeded carrying a surface, a subject, or a count", () => {
+    // A breach alert is about an ACCOUNT's velocity. Adding the surface would let the alert
+    // stream be read as a coarse browsing history; adding a subject would make it a per-person
+    // record of who someone tried to look at.
+    for (const extra of [
+      { surface: "workers" },
+      { subject_id: UUID_B },
+      { result_count: 50 },
+      { full_name: "Ramesh Kumar" },
+    ]) {
+      const bad = validateEvent({
+        ...workerCreatedEvent(),
+        event_name: "admin.identity_cap_exceeded",
+        actor: { actor_type: "admin", actor_id: UUID_A },
+        subject: { subject_type: "admin_session", subject_id: UUID_A },
+        payload: { admin_id: UUID_A, window: "day", ...extra },
+      });
+      expect(bad.success, JSON.stringify(extra)).toBe(false);
+      if (!bad.success) expect(bad.error.stage).toBe("payload");
+    }
+    // ...and the window stays the same closed enum the reveal breach uses.
+    expect(
+      validateEvent({
+        ...workerCreatedEvent(),
+        event_name: "admin.identity_cap_exceeded",
+        actor: { actor_type: "admin", actor_id: UUID_A },
+        subject: { subject_type: "admin_session", subject_id: UUID_A },
+        payload: { admin_id: UUID_A, window: "minute" },
+      }).success,
+    ).toBe(false);
   });
 
   it("validates admin.kill_switch_pause_requested with switch_key + reason_code and NO value (ADMIN-3c)", () => {
@@ -2534,8 +3042,46 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 159 event names (146 prior + notification prefs + the five OIE cutover events + two Phase 9 telemetry + the review-screen correction + payer.test_login + the LLM-interview fallback + job.search_performed + chat.session_abandoned)", () => {
-    expect(EVENT_NAMES).toHaveLength(159);
+  it("exposes all 167 event names (166 prior + the admin AI-trace decrypt audit)", () => {
+    expect(EVENT_NAMES).toHaveLength(167);
+    // #997 — the worker addressing the platform in their own words. The only worker-authored
+    // free text on the spine whose system-of-record row is deliberately allowed to hold the
+    // worker's own PII; the EVENT carries the category, the length and the build, never the
+    // words. Its own `describe` block below is what keeps that true.
+    expect(isEventName("feedback.submitted")).toBe(true);
+    // S3-C / D-6 — the canonical-scope generation of the skill-miss event. A SECOND
+    // registry entry rather than a v1 mutation; see the payload's own note.
+    expect(isEventName("skill.phrase_unresolved_v2")).toBe(true);
+    // Phase 6 — the ONE audited READ outside the PII reveal. A worker's journey is a
+    // behavioural profile, so who looked at it is spine data even though the response is not.
+    expect(isEventName("admin.worker_journey_viewed")).toBe(true);
+    // ADR-0025 Amendment 1 — the sibling of the journey read, for the surface that returns the
+    // worker's actual WORDS. Reading a worker's step counts already left a trail; reading their
+    // prose left none, which made FeedbackService's own "behind an audited surface" claim false.
+    expect(isEventName("admin.feedback_viewed")).toBe(true);
+    // Owner ruling 2026-08-18, reversing ADR-0025 Decision 4 — the admin console now shows
+    // NAMES on the entity lists and details. The third audited read, and the only one that
+    // records an actual PII disclosure; its cap breach is the identity twin of the reveal's.
+    expect(isEventName("admin.identity_viewed")).toBe(true);
+    expect(isEventName("admin.identity_cap_exceeded")).toBe(true);
+    // Migration 0083 — the FOURTH audited read, and the largest disclosure of the four: a
+    // NAME is a field, this is everything one worker said on one turn. Emitted BEFORE the
+    // decrypt and awaited, so no audit row means no text. It carries the two LENGTHS and
+    // never the words — the table's own §2 discipline, restated on the spine.
+    //
+    // NO CAP-BREACH TWIN, deliberately, unlike the reveal and the identity read. Their
+    // budgets are sized in the tens-to-hundreds where a breach is a plausible accident
+    // worth distinguishing from abuse; this one is 20/hour on a super_admin-only route
+    // behind a default-OFF flag, so a breach means "somebody is reading prompts in bulk"
+    // — a rare, high-signal fact that belongs in an alert, not as a fourth near-identical
+    // event in a stream people already filter.
+    expect(isEventName("admin.ai_trace_viewed")).toBe(true);
+    // #931 — one physical submission arriving twice. Invisible on the spine otherwise: a
+    // duplicate returns before the engine is consulted, so it writes no `chat_messages` row and
+    // emits no `chat.message_received`, and everything downstream looks like a healthy session
+    // precisely because the damage was absorbed. Also the rollout gate for retiring the four
+    // reply-cache clocks.
+    expect(isEventName("profile.submission_duplicated")).toBe(true);
     // The LLM-led opening handed back to the deterministic engine. Designed to be invisible to
     // the worker, so this event is the only place a degraded ai-service becomes visible at all.
     expect(isEventName("profile.llm_interview_fallback")).toBe(true);
@@ -2713,7 +3259,13 @@ describe("registry", () => {
    * `validateEvent` allows exactly one version per name, so the shipped v1 payload stays
    * live and unmodified as history (invariant #8) while V1 emits the new generation.
    */
-  const VERSIONED_PAYLOADS: Readonly<Record<string, number>> = { "feed.shown_v2": 2 };
+  const VERSIONED_PAYLOADS: Readonly<Record<string, number>> = {
+    "feed.shown_v2": 2,
+    // S3-C / D-6: the canonical-scope generation of `skill.phrase_unresolved`. Same
+    // reason as `feed.shown_v2` — v1's `domain_id` is REQUIRED and a Path A miss has no
+    // legacy slug, so the alternative was relaxing a shipped required field.
+    "skill.phrase_unresolved_v2": 2,
+  };
 
   it("every registry entry is version 1 except the ADR-versioned payloads", () => {
     for (const name of EVENT_NAMES) {
@@ -2907,6 +3459,111 @@ describe("referral.bonus_accrued payload (X.6) — ₹ + opaque ids only, strict
       "referral.link_clicked",
       "referral.link_created",
     ]);
+  });
+});
+
+describe("skill.phrase_unresolved_v2 (S3-C / D-6) — the canonical-scope generation", () => {
+  const HASH = "b".repeat(64);
+  const make = (payload: object) =>
+    createEvent({
+      event_name: "skill.phrase_unresolved_v2",
+      actor: { actor_type: "ai_service" },
+      subject: { subject_type: "skill_phrase", subject_id: UUID_A },
+      source: "api",
+      metadata: { environment: "test", service: "api" },
+      payload: payload as never,
+    });
+
+  it("accepts a CANONICAL-scoped miss (job_domain_id set, domain_id null)", () => {
+    const event = make({
+      phrase_hash: HASH,
+      domain_id: null,
+      job_domain_id: "jd_nco_7223_0100",
+      lang: "hi",
+      count: 1,
+    });
+    expect(validateEvent(event).success).toBe(true);
+  });
+
+  it("accepts a LEGACY-scoped miss too — v2 is a superset, not a replacement", () => {
+    // The service only emits v2 for canonical misses today, but the payload must be able
+    // to express both or a future consolidation would need a v3.
+    const event = make({
+      phrase_hash: HASH,
+      domain_id: "cnc-machining",
+      job_domain_id: null,
+      lang: "en",
+      count: 7,
+    });
+    expect(validateEvent(event).success).toBe(true);
+  });
+
+  it("REJECTS both scopes at once — an event must say which vocabulary failed", () => {
+    expect(() =>
+      make({
+        phrase_hash: HASH,
+        domain_id: "cnc-machining",
+        job_domain_id: "jd_nco_7223_0100",
+        lang: "en",
+        count: 1,
+      }),
+    ).toThrow(EventValidationException);
+  });
+
+  it("REJECTS neither scope — mirrors unresolved_phrase_one_domain_chk's intent", () => {
+    // Both-null is legal in the TABLE (that is the occupation scope, which has its own
+    // event) but meaningless on THIS event, which exists to attribute a skill miss.
+    expect(() =>
+      make({ phrase_hash: HASH, domain_id: null, job_domain_id: null, lang: "en", count: 1 }),
+    ).toThrow(EventValidationException);
+  });
+
+  it("stays hash-only — .strict() blocks the phrase riding the spine", () => {
+    expect(() =>
+      make({
+        phrase_hash: HASH,
+        domain_id: null,
+        job_domain_id: "jd_nco_7223_0100",
+        lang: "en",
+        count: 1,
+        phrase: "[EMPLOYER_1] drawing padhna",
+      }),
+    ).toThrow(EventValidationException);
+  });
+
+  /**
+   * THE WHOLE POINT OF A SECOND ENTRY. If a later edit "simplifies" things by relaxing
+   * v1's `domain_id` to nullable, this fails — and it should, because every shipped
+   * consumer reading `payload.domain_id` without a null check breaks on the first such
+   * event. v1 is history and history does not change (invariant #8).
+   */
+  it("leaves v1 EXACTLY as shipped — domain_id still REQUIRED there", () => {
+    const v1 = EVENT_REGISTRY["skill.phrase_unresolved"];
+    expect(v1.version).toBe(1);
+    expect(
+      v1.payload.safeParse({ phrase_hash: HASH, domain_id: "cnc-machining", lang: "en", count: 1 })
+        .success,
+    ).toBe(true);
+    // A null domain_id is still refused by v1 — that refusal is what forced v2 to exist.
+    expect(
+      v1.payload.safeParse({ phrase_hash: HASH, domain_id: null, lang: "en", count: 1 }).success,
+    ).toBe(false);
+    // v1 has never heard of job_domain_id, and .strict() keeps it that way.
+    expect(
+      v1.payload.safeParse({
+        phrase_hash: HASH,
+        domain_id: "cnc-machining",
+        job_domain_id: "jd_nco_7223_0100",
+        lang: "en",
+        count: 1,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("is registered as a distinct name, so both generations can coexist", () => {
+    expect(isEventName("skill.phrase_unresolved")).toBe(true);
+    expect(isEventName("skill.phrase_unresolved_v2")).toBe(true);
+    expect(EVENT_REGISTRY["skill.phrase_unresolved_v2"].domain).toBe("skill");
   });
 });
 
@@ -3240,5 +3897,340 @@ describe("OIE cutover payloads (Phase 8) — ids, codes and counts, never worker
       }),
     );
     expect(bad.success).toBe(false);
+  });
+});
+
+describe("profile.submission_duplicated (#931) — the countable half of a duplicate submit", () => {
+  const UUID_A = "11111111-1111-4111-8111-111111111111";
+
+  function dupEvent(payload: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...workerCreatedEvent(),
+      event_name: "profile.submission_duplicated",
+      actor: { actor_type: "worker", actor_id: UUID_A },
+      subject: { subject_type: "chat_session", subject_id: UUID_B },
+      payload,
+    };
+  }
+
+  const DUPLICATE = {
+    worker_id: UUID_A,
+    session_id: UUID_B,
+    question_key: "q_drawing",
+    absorbed_as: "client_id",
+    inbound_had_id: true,
+    replays: 0,
+    elapsed_ms: 1_200,
+  };
+
+  it("validates the id-matched duplicate", () => {
+    const result = validateEvent(dupEvent(DUPLICATE));
+    expect(result.success).toBe(true);
+  });
+
+  it("validates all four branches that can absorb a duplicate", () => {
+    // The three clock branches are what #931 step 4 is gated on: the four reply-cache constants
+    // may only be retired once they go to zero in the field.
+    for (const absorbed_as of ["client_id", "budget", "storm", "stale"]) {
+      const result = validateEvent(dupEvent({ ...DUPLICATE, absorbed_as, inbound_had_id: false }));
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it("rejects a branch outside the closed set", () => {
+    // A fifth reading arriving without a schema change would report into a value no dashboard
+    // counts, and the rollout gate would read as met while a whole branch went unseen.
+    expect(validateEvent(dupEvent({ ...DUPLICATE, absorbed_as: "probably" })).success).toBe(false);
+  });
+
+  it("accepts a null question_key — a close has none on screen", () => {
+    const result = validateEvent(dupEvent({ ...DUPLICATE, question_key: null }));
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a question_key that is not a pack slug", () => {
+    // The `^[a-z_]+$` shape is what makes this field structurally incapable of carrying a
+    // worker's words. A free-form key would make it the one place they could arrive.
+    expect(validateEvent(dupEvent({ ...DUPLICATE, question_key: "Kya aap?" })).success).toBe(false);
+  });
+
+  it("rejects the worker's utterance riding along (.strict)", () => {
+    // THE TEMPTING FIELD. "Which words were duplicated" is the first thing anyone debugging a
+    // retry storm wants, and it is the one thing that must never reach the audit spine — the
+    // words are in the transcript, which is where they belong.
+    const bad = validateEvent(dupEvent({ ...DUPLICATE, text: "haan" }));
+    expect(bad.success).toBe(false);
+    if (!bad.success) expect(bad.error.stage).toBe("payload");
+  });
+
+  it("rejects the raw submission id as a payload field", () => {
+    // It is client-supplied and it is already persisted verbatim in `events.idempotency_key`.
+    // A payload copy would be an unvalidated client string in the audit spine for no new fact.
+    const bad = validateEvent(
+      dupEvent({ ...DUPLICATE, submission_id: "3f8b2c1a-7d64-4e2f-9a51-0c9d5b7e4a12" }),
+    );
+    expect(bad.success).toBe(false);
+  });
+
+  it("rejects a negative elapsed_ms or replay count", () => {
+    expect(validateEvent(dupEvent({ ...DUPLICATE, elapsed_ms: -1 })).success).toBe(false);
+    expect(validateEvent(dupEvent({ ...DUPLICATE, replays: -1 })).success).toBe(false);
+  });
+});
+
+describe("feedback.submitted (#997) — the SHAPE of a worker's feedback, never the words", () => {
+  const base = {
+    worker_id: UUID_A,
+    feedback_id: UUID_B,
+    category: "problem",
+    message_length: 142,
+    app_build: "abc1234",
+  };
+  const make = (payload: object) =>
+    createEvent({
+      event_name: "feedback.submitted",
+      // The worker addressed us deliberately — this is not a sweep and not telemetry, so the
+      // actor is the worker, and the subject is the same worker (the feedback is about us).
+      actor: { actor_type: "worker", actor_id: UUID_A },
+      subject: { subject_type: "worker", subject_id: UUID_A },
+      source: "api",
+      metadata: { environment: "test", service: "api" },
+      payload: payload as never,
+    });
+
+  it("accepts the submitted shape — two ids, a tag, a length and a build", () => {
+    expect(validateEvent(make(base)).success).toBe(true);
+  });
+
+  it("REJECTS the message text riding along (.strict)", () => {
+    // THE ONE FIELD THIS EVENT EXISTS NOT TO CARRY. `message` is unbounded worker free text
+    // and the worker is explicitly invited to say anything, so their own name and phone
+    // number are a likely rather than an unlucky occurrence — and the events table is exactly
+    // where §2 forbids raw PII from landing. The words live in `worker_feedback`, which is
+    // the one table sanctioned to hold them.
+    expect(() => make({ ...base, message: "mera naam Ramesh hai, 9876543210" })).toThrow(
+      EventValidationException,
+    );
+    // ...and under any other name a well-meaning future field might use.
+    expect(() => make({ ...base, message_text: "the app keeps logging me out" })).toThrow(
+      EventValidationException,
+    );
+    expect(() => make({ ...base, message_excerpt: "the app keeps" })).toThrow(
+      EventValidationException,
+    );
+  });
+
+  it("carries NO field that could hold free text at all", () => {
+    // The structural version of the test above, so it keeps holding for a field nobody has
+    // thought of yet: every key in this payload is an id, a closed enum, a bounded count, a
+    // charset-restricted build stamp, or a charset-restricted ROUTE PATTERN. If a plain
+    // unbounded string ever appears here, the smuggling tests above stop being the last line of
+    // defence and this one says so.
+    const shape = FeedbackSubmittedPayload.shape;
+    expect(Object.keys(shape).sort()).toEqual([
+      "app_build",
+      "category",
+      "feedback_id",
+      "message_length",
+      "screen_context",
+      "worker_id",
+    ]);
+    // `message_length` is the only field named after the message, and it is a number.
+    expect(() => make({ ...base, message_length: "one hundred and forty-two" })).toThrow(
+      EventValidationException,
+    );
+  });
+
+  it("REJECTS any unknown key, not just the tempting ones (.strict)", () => {
+    expect(() => make({ ...base, device_model: "Redmi 9A" })).toThrow(EventValidationException);
+  });
+
+  it("accepts a null category — 'did not tag' is not 'said other'", () => {
+    // The shipped client omits the key entirely when the worker does not tag their feedback.
+    // Coercing that to "other" here would put a lie in the histogram ops reads.
+    expect(validateEvent(make({ ...base, category: null })).success).toBe(true);
+  });
+
+  it("accepts every tag the shipped app can send, and nothing else", () => {
+    // The three tokens are frozen in the worker app; a fourth arriving without a schema change
+    // would report into a value no dashboard counts.
+    for (const category of WORKER_FEEDBACK_CATEGORIES) {
+      expect(validateEvent(make({ ...base, category })).success).toBe(true);
+    }
+    expect(() => make({ ...base, category: "spam" })).toThrow(EventValidationException);
+  });
+
+  it("rejects a negative message length (a length is evidence; a negative one is a bug)", () => {
+    expect(() => make({ ...base, message_length: -1 })).toThrow(EventValidationException);
+    expect(() => make({ ...base, message_length: 1.5 })).toThrow(EventValidationException);
+  });
+
+  it("accepts a SCREEN NAME, and defaults an absent one to null", () => {
+    // ADDITIVE WIDENING, STILL v1 (the `AgencyInviteCreatedPayload` precedent). The default is
+    // what makes an event written before this field re-validate as `screen_context: null`
+    // rather than as a missing key — so a consumer never has to tell "we did not know the
+    // screen" from "this event predates the field".
+    const withScreen = validateEvent(make({ ...base, screen_context: "/jobs/detail/:id" }));
+    expect(withScreen.success).toBe(true);
+    const without = validateEvent(make(base));
+    expect(without.success).toBe(true);
+    if (without.success && without.event.event_name === "feedback.submitted") {
+      expect(without.event.payload.screen_context).toBeNull();
+    }
+    expect(validateEvent(make({ ...base, screen_context: null })).success).toBe(true);
+  });
+
+  it("REJECTS anything that is not one of the app's screens", () => {
+    // THE PROPERTY THAT MAKES THIS FIELD PERMISSIBLE AT ALL, and it is now MEMBERSHIP rather
+    // than a shape rule. A screen name says WHICH SCREEN; anything else can say which JOB, which
+    // SESSION, which application — an identifier linking this row to one thing the worker was
+    // looking at, which is exactly what §2 keeps off the events table. `resolveScreenTemplate`
+    // cannot produce a non-member (its return type forbids it), so this arm exists entirely to
+    // catch a SECOND emitter added later without one.
+    for (const bad of [
+      "/jobs/6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply", // a uuid
+      "/orders/91723", // a numeric id
+      "/search?q=welder mumbai", // a query string carrying worker input
+      "jobs/apply", // unrooted
+      "https://badabhai.ai/jobs", // a URL
+      "/jobs/<script>", // markup
+      "/jobs/my job", // whitespace
+      "/नौकरी", // non-ASCII
+      "", // empty
+      // ⚠ THE SHAPES THE PREVIOUS BACKSTOPS WAVED THROUGH, kept as cases because each was
+      // MEASURED passing at the time. The first version anchored its id arms to whole segments,
+      // so an id sharing a segment with one other character satisfied it.
+      "/jobs/id-6f2c04e0-4f89-41d3-9a0c-0305e82c3301/apply", // a uuid behind a prefix
+      "/jobs/6f2c04e04f8941d39a0c0305e82c3301/apply", // the dash-less uuid form
+      "/w/9876543210-ravi", // a phone number and a name
+      "/AADHAAR/1234-5678-9012", // a grouped 12-digit number
+      // ...and the residual the SECOND version could not see at all: an opaque token is
+      // indistinguishable from a route word by any structural rule. Membership does not care.
+      "/u/dGVzdEBleGFtcGxlLmNvbQ", // base64url of an email address
+      "/x/AKIAIOSFODNN7EXAMPLE", // a credential-shaped token
+      // The old regex-shaped "patterns" a normalizer used to be able to emit. None of them is a
+      // screen this app has, so none of them may ride the spine any more either.
+      "/jobs/:id/apply",
+      "/jobs/id-:id/apply",
+      "/workers/:id/sessions/:id",
+      "/v2/jobs",
+      "/settings/notifications",
+    ]) {
+      expect(() => make({ ...base, screen_context: bad }), bad).toThrow(EventValidationException);
+    }
+  });
+
+  it("ACCEPTS every screen the worker app actually has", () => {
+    // The other half of the arm above, and the one that matters more: a backstop tightened past
+    // the app's own route table would turn real screens into "unknown screen" on the admin list,
+    // silently and forever. Asserted over the whole table rather than a sample, because a
+    // sample is exactly how one entry gets left behind.
+    for (const good of WORKER_APP_SCREEN_TEMPLATES) {
+      expect(validateEvent(make({ ...base, screen_context: good })).success, good).toBe(true);
+    }
+  });
+
+  it("accepts a null app_build, and rejects one past the header's bound", () => {
+    // Absent or malformed build stamps are sanitized to null at the edge rather than rejecting
+    // the submission — but an over-long one reaching here means that sanitizer was bypassed.
+    expect(validateEvent(make({ ...base, app_build: null })).success).toBe(true);
+    expect(() =>
+      make({ ...base, app_build: "a".repeat(WORKER_FEEDBACK_APP_BUILD_MAX + 1) }),
+    ).toThrow(EventValidationException);
+  });
+});
+
+// ── admin.ai_trace_viewed (migration 0083) — the audit of a PROMPT/COMPLETION decrypt ──
+describe("admin.ai_trace_viewed — the largest disclosure on the admin surface, audited", () => {
+  const traceEvent = (payload: object) => ({
+    ...workerCreatedEvent(),
+    event_name: "admin.ai_trace_viewed",
+    actor: { actor_type: "admin", actor_id: UUID_A },
+    subject: { subject_type: "admin_session", subject_id: UUID_A },
+    payload,
+  });
+
+  const VALID = {
+    admin_id: UUID_A,
+    trace_id: UUID_B,
+    worker_id: UUID_C,
+    task_type: "profiling_chat_turn",
+    prompt_chars: 812,
+    response_chars: 46,
+  };
+
+  it("validates the six-field payload: three opaque ids, a task label, and two LENGTHS", () => {
+    const result = validateEvent(traceEvent(VALID));
+    expect(result.success).toBe(true);
+    if (result.success && result.event.event_name === "admin.ai_trace_viewed") {
+      expect(Object.keys(result.event.payload).sort()).toEqual(
+        ["admin_id", "prompt_chars", "response_chars", "task_type", "trace_id", "worker_id"].sort(),
+      );
+    }
+  });
+
+  it("REJECTS the TEXT under any key — the whole reason this event carries lengths", () => {
+    // THE NEGATIVE TEST THAT MATTERS. This event is emitted at the exact moment a prompt is
+    // about to be decrypted, so it is the most tempting payload in the registry to "just add the
+    // prompt to for debugging". `.strict()` is the structural refusal; this is the proof that it
+    // holds for every shape somebody would actually reach for — including the ones that look
+    // like a compromise (an excerpt, a hash, a redacted copy) and are not.
+    for (const extra of [
+      { prompt: "Main Pune mein CNC operator hoon" },
+      { response: "Aapko kaunsi machine chalani aati hai?" },
+      { prompt_enc: "v1.aa.bb.cc" },
+      { response_enc: "v1.dd.ee.ff" },
+      { prompt_excerpt: "Main Pune mein…" },
+      { prompt_hash: "a3f1c2" }, // a hash of what one person said is still about that person
+      { text: "…" },
+      { transcript: ["turn 1", "turn 2"] },
+      { full_name: "Ramesh Kumar" },
+      { phone_e164: "+919876543210" },
+    ]) {
+      const bad = validateEvent(traceEvent({ ...VALID, ...extra }));
+      expect(bad.success, JSON.stringify(extra)).toBe(false);
+      if (!bad.success) expect(bad.error.stage).toBe("payload");
+    }
+  });
+
+  it("requires all three ids to be OPAQUE UUIDs — never a name, never a label", () => {
+    for (const bad of [
+      { ...VALID, worker_id: "Ramesh Kumar" },
+      { ...VALID, trace_id: "the failing one" },
+      { ...VALID, admin_id: "prakash@example.com" },
+    ]) {
+      expect(validateEvent(traceEvent(bad)).success, JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it("requires a worker — an audited decrypt always names whose words were read", () => {
+    // Unlike `admin.feedback_viewed`, whose worker filter is optional because that route LISTS
+    // across workers. This one is single-subject by construction, so the worker axis is complete
+    // and omitting it would throw away the only field that makes "did anyone read this worker's
+    // interview?" answerable during a DSAR.
+    const { worker_id: _omitted, ...withoutWorker } = VALID;
+    expect(validateEvent(traceEvent(withoutWorker)).success).toBe(false);
+  });
+
+  it("keeps task_type a CLOSED enum, so it can never become a free-text label", () => {
+    expect(validateEvent(traceEvent({ ...VALID, task_type: "profile_parse" })).success).toBe(true);
+    expect(validateEvent(traceEvent({ ...VALID, task_type: "the interview one" })).success).toBe(
+      false,
+    );
+  });
+
+  it("accepts NULL lengths and zero, and rejects a negative or fractional one", () => {
+    // Nullable because the columns are: a failed call has no response, and STT has no prompt.
+    // `0` is a different claim from `null` and both are legitimate.
+    expect(
+      validateEvent(traceEvent({ ...VALID, prompt_chars: null, response_chars: null })).success,
+    ).toBe(true);
+    expect(validateEvent(traceEvent({ ...VALID, response_chars: 0 })).success).toBe(true);
+    expect(validateEvent(traceEvent({ ...VALID, prompt_chars: -1 })).success).toBe(false);
+    expect(validateEvent(traceEvent({ ...VALID, prompt_chars: 1.5 })).success).toBe(false);
+    // ...and a length may not be smuggled in as the text under a numeric-sounding key.
+    expect(validateEvent(traceEvent({ ...VALID, prompt_chars: "Main Pune mein" })).success).toBe(
+      false,
+    );
   });
 });

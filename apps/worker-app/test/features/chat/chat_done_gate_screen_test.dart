@@ -68,13 +68,14 @@ void main() {
 
     Future<void> sendOneMessage(WidgetTester tester) async {
       await tester.enterText(find.byType(TextField), 'CNC operator');
+      await tester.pump(); // composer switches Mic→Send once there is text
       await tester.tap(find.byIcon(Icons.send_rounded));
       await tester.pumpAndSettle();
     }
 
     testWidgets('NOT ready: softened label, and no straight-through '
         'navigation', (WidgetTester tester) async {
-      when(() => repo.sendMessage(any()))
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
           .thenAnswer((_) async => const ChatTurn(reply: 'Aur bataiye.'));
       await pumpChat(tester);
       await sendOneMessage(tester);
@@ -92,7 +93,7 @@ void main() {
 
     testWidgets('READY: the CTA reads done and goes straight to the preview',
         (WidgetTester tester) async {
-      when(() => repo.sendMessage(any())).thenAnswer(
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId'))).thenAnswer(
         (_) async => const ChatTurn(reply: 'Bas ho gaya.', extractionReady: true),
       );
       await pumpChat(tester);
@@ -111,7 +112,7 @@ void main() {
 
     testWidgets('the nudge can be dismissed back into the chat',
         (WidgetTester tester) async {
-      when(() => repo.sendMessage(any()))
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
           .thenAnswer((_) async => const ChatTurn(reply: 'Aur bataiye.'));
       await pumpChat(tester);
       await sendOneMessage(tester);
@@ -131,7 +132,7 @@ void main() {
       // The whole reason the gate is soft: if readiness never arrives (an older
       // API, a lost field, a stubborn interview), the worker must still be able
       // to finish. A hard-disabled button would strand them here.
-      when(() => repo.sendMessage(any()))
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
           .thenAnswer((_) async => const ChatTurn(reply: 'Aur bataiye.'));
       await pumpChat(tester);
       await sendOneMessage(tester);
@@ -146,7 +147,7 @@ void main() {
 
     testWidgets('every CTA/nudge control meets the 48px tap target',
         (WidgetTester tester) async {
-      when(() => repo.sendMessage(any()))
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
           .thenAnswer((_) async => const ChatTurn(reply: 'Aur bataiye.'));
       await pumpChat(tester);
       await sendOneMessage(tester);
@@ -206,7 +207,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      when(() => repo.sendMessage(any()))
+      when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
           .thenAnswer((_) async => const ChatTurn(reply: 'ok bhai'));
 
       await tester.pumpWidget(const MaterialApp(home: ChatProfilingScreen()));

@@ -6,6 +6,14 @@ R46) — the file was deleted in the 2026-08-05 docs purge (`eb151468`) but is s
 4 times by the currently-running `deploy-lightsail` job. This is the box-side rollback
 procedure only; it does not cover a bad database migration (see **Migrations** below).
 
+> **Where the deploy body lives (#994).** `deploy-lightsail`'s ssh step now only connects,
+> `git pull`s, and runs [`scripts/deploy/staging-deploy.sh`](../scripts/deploy/staging-deploy.sh) —
+> the image pins, disk reclaim, pulls, and health gates this guide refers to are all in that
+> file, comments and all. It was extracted because the inline version had reached ~97% of
+> GitHub's ~21 KB step-input ceiling, and crossing that ceiling makes the whole workflow
+> unparseable: no CI run is created at all, so every PR touching `ci.yml` is blocked with no
+> stated reason. Read and edit the deploy there.
+
 ## When to use this
 
 `deploy-lightsail` went green but the newly-deployed code is behaving badly in a way CI
@@ -16,11 +24,12 @@ previous working image, no action needed).
 ## What "rollback" actually means here
 
 Every deploy pins **immutable per-commit images** —
-`ghcr.io/<owner>/badabhai-platform/badabhai-api:sha-<short7>` and the `badabhai-ai-service`
-equivalent, both built from the same commit's first 7 sha characters. A rollback is:
-**export the previous commit's sha tag for BOTH images and re-run the same `compose up`
-sequence the deploy job runs.** Nothing is reverted in git; the box just points at an
-older, already-built image.
+`ghcr.io/<owner>/badabhai-platform/badabhai-api:sha-<short7>`, the `badabhai-ai-service`
+equivalent, and (as of GAP-XC-06, #920) the `badabhai-payer-web` and `badabhai-admin-web`
+equivalents — all four built from the same commit's first 7 sha characters. A rollback is:
+**export the previous commit's sha tag for ALL FOUR images and re-run the same `compose up`
+sequence the deploy job runs.**
+Nothing is reverted in git; the box just points at older, already-built images.
 
 ## Procedure
 
@@ -34,43 +43,71 @@ older, already-built image.
      `sha-` tags (disk-reclaim prunes anything older, see the deploy job's CD-6 comment),
      so a recent-enough rollback target is likely already local and needs no re-pull.
 
-3. **Export BOTH image variables — never just one.** `docker-compose.staging.yml`
-   interpolates the *whole* file before filtering by service, so a compose command that
-   only sets `API_IMAGE` still fails on the ai-service's `${AI_SERVICE_IMAGE:?}` gate,
-   even for an api-only rollback:
+3. **Export ALL FOUR image variables — never just one or two.** `docker-compose.staging.yml`
+   interpolates the _whole_ file before filtering by service, so a compose command that
+   only sets `API_IMAGE` still fails on the ai-service's `${AI_SERVICE_IMAGE:?}` gate (and,
+   as of GAP-XC-06, payer-web's `${PAYER_WEB_IMAGE:?}` and admin-web's `${ADMIN_WEB_IMAGE:?}`
+   gates too), even for an api-only rollback:
+
    ```bash
    cd ~/deployments/badabhai-platform
    SHORT_SHA=<the previous good commit's first 7 chars>
    export API_IMAGE="ghcr.io/<owner>/badabhai-platform/badabhai-api:sha-${SHORT_SHA}"
    export AI_SERVICE_IMAGE="ghcr.io/<owner>/badabhai-platform/badabhai-ai-service:sha-${SHORT_SHA}"
+   export PAYER_WEB_IMAGE="ghcr.io/<owner>/badabhai-platform/badabhai-payer-web:sha-${SHORT_SHA}"
+   export ADMIN_WEB_IMAGE="ghcr.io/<owner>/badabhai-platform/badabhai-admin-web:sha-${SHORT_SHA}"
    ```
 
+   Neither `PAYER_WEB_PORT` nor `ADMIN_WEB_PORT` is in that list, deliberately: both are
+   `:-` defaulted (`3333` and `3003`) rather than fail-loud, precisely so a missing
+   box-specific port can never brick an api-only rollback the way the image gates above
+   would. 3333 is the current box's free payer port (3002 is taken there) and 3003 is
+   admin-web's own port — nothing needs exporting on this box; override only where those
+   ports are unavailable.
+
 4. **Log into GHCR** (the package is private; an expired/missing login 401s the pull):
+
    ```bash
    echo "<a GHCR-scoped token with packages:read>" | docker login ghcr.io -u <github-actor> --password-stdin
    ```
 
 5. **Run the same compose sequence the deploy job runs, in the same order** — the
-   ordering is load-bearing (ai-service starts and health-gates *before* the api, so a
+   ordering is load-bearing (ai-service starts and health-gates _before_ the api, so a
    bad rollback target for either service never serves a request with the other half
    missing):
+
    ```bash
    COMPOSE="docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api"
    $COMPOSE pull api
    $COMPOSE pull ai-service
+   $COMPOSE pull payer-web
+   $COMPOSE pull admin-web
    $COMPOSE up -d --no-deps redis        # box-local; must be started explicitly
    $COMPOSE up -d --no-deps ai-service
    curl -sf http://localhost:8000/health  # must return 200 before continuing
    $COMPOSE up -d --no-deps api
    curl -sf http://localhost:3001/health  # must return 200
+   $COMPOSE up -d --no-deps payer-web
+   curl -sf "http://localhost:${PAYER_WEB_PORT:-3333}/health"  # must return 200
+   $COMPOSE up -d --no-deps admin-web
+   curl -sf "http://localhost:${ADMIN_WEB_PORT:-3003}/health"  # must return 200
    ```
+
+   admin-web is rolled back LAST for the same reason it deploys last: it is the internal
+   admin portal, publishes on `127.0.0.1:3003` only, and no nginx server block routes to it,
+   so it must never delay restoring the two surfaces real users hit. Being loopback-bound is
+   exactly why that `curl`, running on the box, is the only thing that can reach it.
+
    `--no-deps` on every `up` is deliberate: it is what keeps the compose-internal
    throwaway Postgres/Adminer from ever starting on this box — staging's `DATABASE_URL`
    is the real (Supabase) Postgres, never the compose-internal one.
 
-6. **Verify.** Both `/health` endpoints 200, and `$COMPOSE ps` shows both containers
-   `Up`/`healthy`. `/health` on both checks connectivity only (`SELECT 1` + Redis
-   `PING`) — it does NOT prove the rolled-back code is correct, only that it booted.
+6. **Verify.** All four `/health` endpoints 200, and `$COMPOSE ps` shows all four
+   containers `Up`/`healthy`. api's and ai-service's `/health` check connectivity
+   (`SELECT 1` + Redis `PING`); payer-web's and admin-web's are bare liveness probes
+   (`apps/payer-web/src/app/health/route.ts`, `apps/admin-web/src/app/health/route.ts` — no
+   upstream call, no session read). None of the four proves the rolled-back code is
+   _correct_, only that it booted.
 
 7. **Log out of GHCR** when done (`docker logout ghcr.io`) — never leave a registry
    credential on the box, matching the deploy job's own `trap ... EXIT` discipline.
@@ -82,11 +119,29 @@ sign-off + the prod-vs-staging environment answer) — they require a human to r
 `pnpm db:migrate` manually, and that has already happened separately from any deploy.
 **Rolling back the code does not roll back the database.** If the bad deploy's commit
 included a migration:
+
 - An additive migration (new column/table) is almost always safe to leave applied while
   rolling back the code — the old code simply ignores the new column/table.
 - A destructive or renaming migration is NOT safely undone by a code rollback alone —
   stop and get a second opinion (Backend Platform / database-architect) before rolling
   back code that expects a schema the database no longer has, or vice versa.
+
+## A compose change to a service the deploy does not start is NOT rolled back — because it was never applied
+
+Rolling back changes the **image** a container runs. It does not change how a container is
+**configured**, because that is fixed when the container is created. So a `ports:`, `volumes:`
+or `container_name:` edit only takes effect on the box if something recreates that container —
+and this deploy recreates exactly five services (`redis`, `ai-service`, `api`, `payer-web`,
+`admin-web`). **`postgres` and `adminer` are never started, stopped or recreated by it.**
+
+Measured 2026-08-19: `badabhai-postgres` was still `Up` on `0.0.0.0:5432->5432/tcp` weeks after
+R38 (`ffdc84db`) loopback-bound it in `docker-compose.yml`. Correct file, unchanged box.
+
+Neither container is the application's database — staging's `DATABASE_URL` points at Supabase —
+so nothing is rolled back by leaving them alone, and nothing is lost by removing them. Closing
+it is a **manual box action requiring owner authorization**, never a merge: see
+[`docs/release-checklist.md`](./release-checklist.md) ("A compose change to a service the deploy
+does not start NEVER reaches the box") for the exact commands.
 
 ## Disk
 
@@ -100,6 +155,8 @@ locally-cached image.
 ## What this guide does not cover
 
 Rolling back a `staging-cd.yml` deploy (a different, `workflow_dispatch`-only pipeline
-for a *persistent* staging host — see that workflow's own header comments); provisioning
-a new box from scratch; anything about `apps/web`/`apps/payer-web`/`apps/admin-web`
-(no deployment path is documented for any of the three — BL-1).
+for a _persistent_ staging host — see that workflow's own header comments); provisioning
+a new box from scratch; anything about `apps/web` — see `docs/operations/COMMANDS.md`
+(BL-1): it is not deployed anywhere as of this writing. `apps/payer-web` AND
+`apps/admin-web` ARE both now deployed by this same `deploy-lightsail` job
+(GAP-XC-06, #920) — see the rollback steps above, which now cover all four images.

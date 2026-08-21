@@ -438,6 +438,57 @@ class HttpPayerApiClient implements PayerApiClient {
   }
 
   @override
+  Future<List<CreditPack>> fetchCreditPacks() async {
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/pricing/catalog');
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final List<dynamic> products =
+        (res.body['products'] as List<dynamic>?) ?? const <dynamic>[];
+    final List<CreditPack> packs = <CreditPack>[];
+    for (final Map<String, dynamic> p
+        in products.whereType<Map<String, dynamic>>()) {
+      if (p['kind'] != 'credit_pack') continue;
+      final List<dynamic> tiers =
+          (p['tiers'] as List<dynamic>?) ?? const <dynamic>[];
+      for (final Map<String, dynamic> t
+          in tiers.whereType<Map<String, dynamic>>()) {
+        final Object? code = t['code'];
+        final Object? credits = t['credits'];
+        final Object? price = t['priceInr'];
+        // Only rows with all three real fields — never a fabricated/partial pack.
+        if (code is String && credits is num && price is num) {
+          packs.add(CreditPack(
+            code: code,
+            credits: credits.toInt(),
+            priceInr: price.toInt(),
+          ));
+        }
+      }
+    }
+    // Cheapest first, so the card ladder reads small → large.
+    packs.sort((CreditPack a, CreditPack b) => a.priceInr.compareTo(b.priceInr));
+    return packs;
+  }
+
+  @override
+  Future<int> buyCreditPack(String code, {String? idempotencyKey}) async {
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/credits',
+      body: <String, dynamic>{'pack_code': code},
+      // A repeat tap of the same intent replays the original balance (server
+      // reserve-before-grant) instead of double-granting; null → header omitted.
+      idempotencyKey: idempotencyKey,
+    );
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    // A 2xx must still carry the new numeric balance; a wrong body is a contract
+    // error, not a silent success (same guard as fetchCreditBalance).
+    final Object? balance = res.body['balance'];
+    if (balance is! num) throw PayerApiException(res.statusCode);
+    return balance.toInt();
+  }
+
+  @override
   Future<List<Applicant>> fetchApplicants(String jobId) async {
     // Faceless, relevance-ranked applicants for an OWNED job. The response is an
     // object ({jobId, applicants:[...]}) so it decodes cleanly. An unknown OR

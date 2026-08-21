@@ -28,6 +28,12 @@ class AppSpacing {
   static const double controlMd = 44;
   static const double controlLg = 52; // primary worker CTA
 
+  // off-grid named constants — deliberately NOT on the 4px grid. Kept at their
+  // exact pixel value so tokenizing them moves nothing visually; named so they
+  // stop reading as magic numbers (#1062).
+  static const double hairline = 2; // tight title→subtitle gap on a blue header
+  static const double controlInset = 14; // dense-control padding (input / icon-button)
+
   // layout rails
   static const double gutter = 20; // mobile screen padding
   static const double appMax = 440; // worker mobile canvas

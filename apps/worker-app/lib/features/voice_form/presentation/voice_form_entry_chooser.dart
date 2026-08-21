@@ -97,7 +97,8 @@ class _VoiceFormEntryChooserState extends State<VoiceFormEntryChooser> {
           Text(
             _kSwitchable,
             textAlign: TextAlign.center,
-            style: AppTypography.body(size: 13, color: AppColors.textMuted),
+            style: AppTypography.body(
+                size: AppTypography.sizeXs, color: AppColors.textMuted),
           ),
         ],
       ),

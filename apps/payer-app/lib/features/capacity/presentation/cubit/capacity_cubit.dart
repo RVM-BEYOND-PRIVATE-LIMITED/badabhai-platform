@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
+import '../../../../core/error/payer_failure.dart';
 
 /// Loads the payer's hiring-capacity allowance (`GET /payer/capacity`).
 ///
@@ -20,10 +21,10 @@ class CapacityCubit extends Cubit<CapacityState> {
     try {
       final CapacityView capacity = await _api.fetchCapacity();
       emit(CapacityState(status: CapacityStatus.ready, capacity: capacity));
-    } catch (_) {
+    } catch (e) {
       emit(state.copyWith(
         status: CapacityStatus.error,
-        error: 'Could not load your hiring capacity. Retry in a moment.',
+        error: PayerFailure.from(e).message,
       ));
     }
   }

@@ -93,7 +93,16 @@ export const SKILL_CORPUS: readonly SkillSeed[] = [
     labelHi: null,
     domainId: "cnc-machining",
     source: "rvm",
-    status: "active",
+    // TD-01 (Phase 8 taxonomy register, RATIFIED 2026-08-18 by Prakash, Backend Platform
+    // owner): FULLY merged into the new skill_drawing_reading, together with
+    // skill_cad_interpretation — a direct ratification that supersedes the register's
+    // originally-drafted per-alias split ("CAD software usage stays separate"). There is no
+    // surviving "CAD software usage" skill from this decision. Row + id kept forever
+    // (SG-5); this is one of the 9 LEGACY placeholder ids (index.ts SKILLS) and stays
+    // present/stable regardless of status. `pnpm db:retag:skills` moves any stored
+    // references + the alias rows to the terminal, offline, later.
+    status: "deprecated",
+    replacedBy: "skill_drawing_reading",
     aliases: [
       en("drawing reading", "rvm"),
       en("GD&T", "rvm"),
@@ -213,7 +222,12 @@ export const SKILL_CORPUS: readonly SkillSeed[] = [
     labelHi: null,
     domainId: "cnc-machining",
     source: "onet",
-    status: "active",
+    // TD-03 (Phase 8 taxonomy register, RATIFIED): dissolved into skill_turning. 1 alias,
+    // 0 fixture cases, ATTRIBUTE_TO_MATCH_SKILLS already maps this to no master-skill — no
+    // matching signal is lost. Row + id kept forever (SG-5); `pnpm db:retag:skills` moves
+    // any stored references + the alias row to the terminal.
+    status: "deprecated",
+    replacedBy: "skill_turning",
     aliases: [en("boring", "onet")],
   },
   {
@@ -264,8 +278,40 @@ export const SKILL_CORPUS: readonly SkillSeed[] = [
     labelHi: null,
     domainId: "cnc-programming",
     source: "esco",
-    status: "active",
+    // TD-01 (Phase 8 taxonomy register, RATIFIED 2026-08-18 by Prakash, Backend Platform
+    // owner): FULLY merged into the new skill_drawing_reading, together with
+    // skill_gdt_reading — see the comment on that entry for the ratification note. Row +
+    // id kept forever (SG-5); `pnpm db:retag:skills` moves any stored references + the
+    // alias rows to the terminal, offline, later.
+    status: "deprecated",
+    replacedBy: "skill_drawing_reading",
     aliases: [en("CAD", "esco"), en("technical drawing", "esco"), en("read engineering drawings", "esco")],
+  },
+  // TD-01 (Phase 8 taxonomy register, RATIFIED 2026-08-18): minted by the full merge of
+  // skill_gdt_reading + skill_cad_interpretation. All 8 of their aliases now resolve here —
+  // the 7 below plus the 1 TAX-5 wedge alias ("drawing padhna", moved in wedge-aliases.ts).
+  // `domainId` and `source` follow skill_gdt_reading, the larger/heavier predecessor (8
+  // job-domain edges vs 6, several at "required" — see domain-skills.jsonl): "rvm" is the
+  // same first-party/mixed-provenance pattern already used by the other RVM legacy
+  // placeholders in this block (skill_fanuc, skill_measuring_instruments, skill_fixture_
+  // setup, skill_cam_software) — a curated concept can carry onet/esco-sourced ALIASES
+  // while its own `source` records BadaBhai/RVM as the concept's author.
+  {
+    skillId: "skill_drawing_reading",
+    labelEn: "Drawing reading (GD&T / technical drawing)",
+    labelHi: null,
+    domainId: "cnc-machining",
+    source: "rvm",
+    status: "active",
+    aliases: [
+      en("drawing reading", "rvm"),
+      en("GD&T", "rvm"),
+      en("geometric dimensioning and tolerancing", "esco"),
+      en("blueprint reading", "onet"),
+      en("CAD", "esco"),
+      en("technical drawing", "esco"),
+      en("read engineering drawings", "esco"),
+    ],
   },
   {
     skillId: "skill_dimensional_inspection",
@@ -273,7 +319,12 @@ export const SKILL_CORPUS: readonly SkillSeed[] = [
     labelHi: null,
     domainId: "metrology-quality",
     source: "esco",
-    status: "active",
+    // TD-02 (Phase 8 taxonomy register, RATIFIED): dissolved into skill_quality_control at
+    // current blue-collar JD granularity. Row + id kept forever (SG-5); `pnpm db:retag:skills`
+    // moves any stored worker/job-posting references and re-homes this skill's alias rows
+    // (embedding preserved) onto the terminal.
+    status: "deprecated",
+    replacedBy: "skill_quality_control",
     aliases: [en("inspection", "esco"), en("dimensional inspection", "esco"), en("quality check", "esco")],
   },
   {

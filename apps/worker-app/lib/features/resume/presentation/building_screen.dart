@@ -7,6 +7,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../router.dart';
 import 'cubit/resume_cubit.dart';
@@ -75,12 +76,12 @@ class _BuildingViewState extends State<_BuildingView> {
               icon: Icons.error_outline_rounded,
               title: 'Resume nahi ban paya.',
               subtitle: 'Thodi der baad dobara try karein.',
-              action: FilledButton(
+              action: BbButton(
+                label: 'Dobara koshish karein',
                 onPressed: () {
                   _navigated = false;
                   context.read<ResumeCubit>().generate();
                 },
-                child: const Text('Dobara koshish karein'),
               ),
             );
           }
@@ -159,7 +160,7 @@ class _BuildingBody extends StatelessWidget {
                         child: LinearProgressIndicator(
                           value: t,
                           minHeight: 9,
-                          backgroundColor: Colors.white.withValues(alpha: 0.15),
+                          backgroundColor: AppColors.onBlue.withValues(alpha: 0.15),
                           valueColor: const AlwaysStoppedAnimation<Color>(
                               AppColors.haldi),
                         ),
@@ -205,8 +206,8 @@ class _Checklist extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.s3),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.08),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        color: AppColors.onBlue.withValues(alpha: 0.08),
+        border: Border.all(color: AppColors.onBlue.withValues(alpha: 0.18)),
         borderRadius: BorderRadius.circular(AppRadii.sm),
       ),
       child: Text(

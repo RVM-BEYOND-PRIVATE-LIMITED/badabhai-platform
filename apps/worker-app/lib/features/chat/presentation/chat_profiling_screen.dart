@@ -1,11 +1,7 @@
 import 'dart:async';
-import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart' show Ticker;
-import 'package:flutter/services.dart'
-    show HapticFeedback, SystemUiOverlayStyle;
+import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -13,20 +9,21 @@ import '../../../core/api/api_models.dart'
     show ChatInputMode, ChatOption, ChatProgress, ChatQuestionKind;
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
-import '../../../core/error/failure.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_bottom_sheet.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_progress_bar.dart';
 import '../../../router.dart';
-import '../../voice/domain/speech_dictation.dart';
 import '../../voice/domain/speech_reader.dart';
 import '../../voice/domain/voice_models.dart';
+import '../../voice/presentation/dictation_controller.dart';
+import '../../voice/presentation/widgets/dictation_bar.dart';
 import '../domain/chat_message.dart';
 import 'bloc/chat_bloc.dart';
 
@@ -151,77 +148,21 @@ class _ChatViewState extends State<_ChatView> {
   /// so that fires on the way IN and unlatches before the second tap.
   bool _wasSending = false;
 
-  // ---- Hold-to-talk (voice → text into the composer) ----------------------
+  // ---- Tap-to-talk (voice → text into the composer) -----------------------
   //
-  // Long-pressing the composer mic runs the DEVICE's own speech recogniser
-  // ([SpeechDictation], the `speech_to_text` plugin). Recognised words fill the
-  // input field live as the worker speaks; on release the text stays there for
-  // them to review and Send — sent as an ORDINARY chat message. NO server, no
-  // upload, no `/voice/*` endpoint (so no bucket dependency, no 503). A plain
-  // TAP still opens the full server-side voice-note screen (unchanged).
-
-  /// Honest copy when the device recogniser could not be started (no engine, or
-  /// an unexpected error). Typing always stays available.
-  static const String _kVoiceToTextUnavailable =
-      'Awaaz text mein nahi badal payi. Dobara boliye ya type kijiye.';
-
-  /// Mic units above the ambient [_floor] that still count as quiet — the
-  /// squelch that keeps a fan/room tone off the bars. (Android RMS scale.)
-  static const double _kWaveSquelch = 1.5;
-
-  /// Mic units above (floor + squelch) that fill the bars — speech headroom.
-  static const double _kWaveSpan = 6.0;
-
-  /// Mic is held and the recorder is live.
-  bool _holdRecording = false;
-
-  /// A hold-to-talk leg (start OR transcribe) is in flight — reentrancy guard.
-  bool _holdBusy = false;
-
-  /// Release arrived before [_startHoldToTalk] finished starting the mic — ask
-  /// that in-flight start to cancel rather than leave a mic with no owner.
-  bool _holdStopRequested = false;
-
-  /// The live-waveform cue is showing — for the WHOLE hold (shown on press,
-  /// hidden on release).
-  bool _listening = false;
-
-  /// The live, normalized (0..1) mic amplitude the waveform reads. A
-  /// ValueNotifier so only the waveform repaints, never the whole screen.
-  final ValueNotifier<double> _micLevel = ValueNotifier<double>(0);
-
-  /// Adaptive NOISE FLOOR — the ambient level (a fan, room tone) the mic
-  /// amplitude is measured against. It seeds to the first sample, then drops
-  /// fast to a quieter floor and rises slowly, so a steady fan settles onto the
-  /// baseline and only SPEECH (louder than room noise) clears it. This is what
-  /// keeps the wave flat on ambient noise while staying REAL-TIME on the voice —
-  /// no recognition gate, no lag.
-  double _floor = 0;
-  bool _floorSeeded = false;
-
-  /// Whatever was already typed when a hold began — recognised words append onto
-  /// it so live dictation never clobbers text the worker started by hand. Each
-  /// finished utterance is committed back into this so a later utterance appends
-  /// onto it instead of overwriting the sentence just spoken.
-  String _dictationBase = '';
-
-  /// The latest partial reading of the CURRENT utterance. The recogniser only
-  /// ever GROWS a partial (each reading extends the last), so a reading that does
-  /// NOT extend this one means it started a NEW utterance after a pause — at which
-  /// point the previous utterance is folded into [_dictationBase] before the new
-  /// words append. This is what keeps a phrase spoken before a mid-hold pause
-  /// (e.g. "hello" before a 5s think) when the next phrase ("I am a CNC
-  /// developer") follows — WITHOUT depending on the recogniser emitting a final
-  /// or restarting the session, which some devices skip.
-  String _lastHeard = '';
-
-  /// True only while a hold is live and the composer should accept recognised
-  /// words. Goes false the instant the hold tears down ([_hideWave]) so a
-  /// trailing final result the recogniser delivers AFTER release — the
-  /// continuous-listen session flushing — can never re-fill the composer once
-  /// the worker has cleared or sent it. Without this the composer would
-  /// intermittently refill after Send.
-  bool _acceptingDictation = false;
+  // Tapping the MIC in the send slot ([_composerAction]) runs the DEVICE's own
+  // speech recogniser and KEEPS listening — no hold. Tapping STOP ends listening
+  // and the recognised text lands in the field for review, with the button now
+  // showing SEND — sent as an ORDINARY chat message. NO server, no upload, no
+  // `/voice/*` endpoint (so no bucket dependency, no 503). The haldi mic on the
+  // LEFT is unrelated: a plain TAP there opens the server-side voice-note screen
+  // (unchanged).
+  //
+  // The dictation itself — the utterance-boundary commit, the trailing-final
+  // latch, the adaptive noise floor — lives in [DictationController], shared with
+  // every other surface that dictates. This screen only decides what happens to
+  // the text it hands back.
+  late final DictationController _dictation;
 
   /// Index of the bot bubble currently being read aloud (its speaker icon shows
   /// the stop glyph); null when nothing is speaking.
@@ -230,6 +171,13 @@ class _ChatViewState extends State<_ChatView> {
   @override
   void initState() {
     super.initState();
+    _dictation = DictationController(
+      onNotice: _showComposerNotice,
+      // The app going to the background, or the feedback screen taking the
+      // shared recogniser, ends dictation with no Stop left to tap — land the
+      // words in the composer instead of dropping the worker's answer.
+      onInterrupted: _landDictation,
+    )..addListener(_onDictationChanged);
     // Manual scroll back near the bottom dismisses the pill.
     _scroll.addListener(_onScroll);
   }
@@ -239,11 +187,18 @@ class _ChatViewState extends State<_ChatView> {
     if (locator.isRegistered<SpeechReader>()) {
       unawaited(locator<SpeechReader>().stop()); // never leave TTS reading
     }
-    _micLevel.dispose();
+    _dictation
+      ..removeListener(_onDictationChanged)
+      ..dispose();
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  /// The dictation controller flipped the waveform on/off — repaint the composer.
+  void _onDictationChanged() {
+    if (mounted) setState(() {});
   }
 
   void _send() {
@@ -252,9 +207,7 @@ class _ChatViewState extends State<_ChatView> {
     _sendText(text);
     // Clear the composer AND drop the dictation carry-over so a late recogniser
     // final (or the next hold) can never re-fill it with the sentence just sent.
-    _acceptingDictation = false;
-    _dictationBase = '';
-    _lastHeard = '';
+    _dictation.discard();
     _controller.clear();
   }
 
@@ -422,163 +375,63 @@ class _ChatViewState extends State<_ChatView> {
     );
   }
 
-  /// Long-press the composer mic: HOLD TO TALK. Buzzes, flashes the centre "AB
-  /// BOLEN" cue, and starts the DEVICE recogniser; recognised words fill the
-  /// composer live and the worker still taps Send. No recogniser or a denied mic
-  /// surfaces as an honest snackbar and leaves typing untouched — never a crash.
-  Future<void> _startHoldToTalk() async {
-    if (_holdRecording || _holdBusy) return;
-    if (!locator.isRegistered<SpeechDictation>()) return;
-    final SpeechDictation speech = locator<SpeechDictation>();
-    _holdBusy = true;
-    _holdStopRequested = false;
-    // Instant, BEFORE any await: a buzz + the "AB BOLEN" cue the moment the hold
-    // is recognised, so the worker feels the mic engage and does not wonder
-    // whether it is listening.
-    HapticFeedback.vibrate();
-    _floor = 0;
-    _floorSeeded = false;
-    _micLevel.value = 0;
-    setState(() => _listening = true);
-    try {
-      final bool ready = await speech.initialize();
-      if (!mounted) return;
-      if (!ready) {
-        // No recogniser on the device, or the worker denied the mic.
-        _hideWave();
-        _showComposerNotice(const MicPermissionFailure().message);
-        return;
-      }
-      if (_holdStopRequested) {
-        // Released before listening began — nothing to start.
-        _hideWave();
-        return;
-      }
-      // Preserve anything already typed; recognised words append onto it.
-      _dictationBase = _controller.text.trimRight();
-      _lastHeard = '';
-      _acceptingDictation = true;
-      await speech.listen(
-        onResult: _onDictationResult,
-        onSoundLevel: _onSoundLevel, // live amplitude → the waveform
-      );
-      if (!mounted) return;
-      setState(() => _holdRecording = true);
-    } catch (_) {
-      if (mounted) {
-        _hideWave();
-        _showComposerNotice(_kVoiceToTextUnavailable);
-      }
-    } finally {
-      _holdBusy = false;
-    }
-  }
+  /// Tap the MIC: START voice-to-text. The controller requests the mic
+  /// permission, starts the DEVICE recogniser and raises the FULL-WIDTH waveform
+  /// in place of the field. NOTHING is typed while listening — the recognised
+  /// text lands in the field only on Stop. Anything already typed is preserved:
+  /// recognised words append onto it. A denied mic / no recogniser surfaces an
+  /// honest notice and leaves typing untouched — never a crash.
+  Future<void> _startDictation() =>
+      _dictation.start(initialText: _controller.text);
 
-  /// Release the mic: stop listening. The recognised words are ALREADY in the
-  /// composer (filled live by [_onDictationResult]); the worker reviews and taps
-  /// Send. NOTHING is sent here — from here it is an ordinary typed message.
-  Future<void> _stopHoldToTalk() async {
-    _hideWave();
-    if (!_holdRecording) {
-      // Released mid-init: tell the start leg not to begin listening.
-      _holdStopRequested = true;
+  /// Tap Stop: end listening and DROP the recognised text into the field — the
+  /// waveform hides and all the spoken text lands at once. NOTHING is sent here;
+  /// the trailing button becomes Send.
+  void _stopDictation() {
+    final String text = _dictation.stop();
+    if (text.isEmpty) {
+      // The mic ran and heard nothing — say so. Dropping the waveform in silence
+      // reads as a broken app on the surface where the worker is answering.
+      _showComposerNotice(kVoiceToTextUnavailable);
       return;
     }
-    setState(() => _holdRecording = false);
-    if (!locator.isRegistered<SpeechDictation>()) return;
-    try {
-      await locator<SpeechDictation>().stop();
-    } catch (_) {
-      // Best-effort — stopping a recogniser must never surface an error.
-    }
+    _landDictation(text);
   }
 
-  /// Live dictation callback: drops the recognised words into the composer AS
-  /// the worker speaks, appended onto whatever was already typed, cursor parked
-  /// at the end so Send is the natural next tap. No server, no upload — this text
-  /// is sent exactly like a typed message.
-  ///
-  /// Each finished utterance is committed into [_dictationBase] so the next one
-  /// appends onto it. A new utterance is detected by [_lastHeard] no longer being
-  /// extended — see that field — so a phrase said before a mid-hold pause is kept
-  /// even when the device never emits a final for it.
-  void _onDictationResult(DictationResult result) {
-    if (!mounted || !_acceptingDictation) return;
-    final String heard = result.text.trim();
-    if (heard.isEmpty) return;
-
-    // The recogniser has started a NEW utterance when this reading no longer
-    // extends the last — commit the finished one into the base BEFORE appending
-    // the new words, or the new phrase would REPLACE the old one.
-    if (_lastHeard.isNotEmpty && !_extendsUtterance(heard, _lastHeard)) {
-      _dictationBase = _appendToBase(_dictationBase, _lastHeard);
-      _lastHeard = '';
-    }
-
-    final String merged = _appendToBase(_dictationBase, heard);
-    _controller.value = TextEditingValue(
-      text: merged,
-      selection: TextSelection.collapsed(offset: merged.length),
-    );
-    _lastHeard = heard;
-
-    if (result.isFinal) {
-      // Settled — commit it and start the next utterance clean.
-      _dictationBase = _appendToBase(_dictationBase, heard);
-      _lastHeard = '';
-    }
+  /// Put recognised [text] in the composer with the caret at the end.
+  void _landDictation(String text) {
+    if (text.isEmpty || !mounted) return;
+    setState(() {
+      _controller.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+    });
   }
 
-  /// True when [next] continues the same utterance as [prev] — the recogniser
-  /// only extends a partial, so a growing reading starts with the prior one.
-  bool _extendsUtterance(String next, String prev) =>
-      next.toLowerCase().startsWith(prev.toLowerCase());
-
-  /// Joins a committed [base] with freshly [heard] words, single-spaced.
-  String _appendToBase(String base, String heard) =>
-      base.isEmpty ? heard : '$base $heard';
-
-  /// The mic's live amplitude → the waveform, in REAL TIME (no wait for
-  /// recognition). Measured against the adaptive [_floor] with a small squelch,
-  /// so a steady fan/room tone stays at the baseline (flat bars) while speech —
-  /// which is louder than ambient — drives the bars, and the moment the worker
-  /// stops the level drops and the bars settle. Tuned for the plugin's Android
-  /// RMS scale (~ -2..12); other platforms may want [_kWaveSquelch]/[_kWaveSpan]
-  /// adjusted.
-  void _onSoundLevel(double raw) {
-    if (!_floorSeeded) {
-      // Seed ABOVE the first sample so the floor can only settle DOWNWARD onto
-      // ambient — which it does fast (the 0.5 drop below). Seeding AT the first
-      // (cold-mic, often low) sample and letting the floor climb UP to the real
-      // ambient was the bug: the climb took 2–3s, and until it caught up every
-      // sample read as signal and slammed the bars full at the start of a hold.
-      _floor = raw + _kWaveSpan;
-      _floorSeeded = true;
-    } else if (raw < _floor) {
-      _floor = raw * 0.5 + _floor * 0.5; // drop fast toward a quieter ambient
-    } else {
-      _floor = _floor * 0.9 + raw * 0.1; // rise toward a louder ambient (a fan)
+  /// SEND while listening (the send arrow on the recorder row): end listening and
+  /// send the recognised text in ONE tap. A stop with no speech just returns to
+  /// the idle composer.
+  void _sendFromDictation() {
+    final String text = _dictation.stopForSend();
+    if (text.isEmpty) {
+      _showComposerNotice(kVoiceToTextUnavailable);
+      return;
     }
-    final double signal = raw - _floor - _kWaveSquelch;
-    _micLevel.value = signal <= 0 ? 0.0 : (signal / _kWaveSpan).clamp(0.0, 1.0);
-  }
-
-  /// Hides the waveform cue and parks the level at rest (a failed start, or the
-  /// worker released the button).
-  void _hideWave() {
-    // Stop accepting recognised words the moment the hold ends — a trailing
-    // final the recogniser flushes after release must not re-fill the composer.
-    _acceptingDictation = false;
-    _micLevel.value = 0;
-    if (mounted && _listening) setState(() => _listening = false);
+    _sendText(text);
+    _controller.clear();
   }
 
   /// The read-aloud speaker on a bot bubble. Tap → speak that question; tap the
   /// same one again (or it finishes) → stop. Shows a stop glyph while reading.
-  Widget _speakerButton(int index, String text) {
+  ///
+  /// [ttsText] is the Devanagari rendering of [text] (#896): when present it is
+  /// what gets SPOKEN (romanized Hindi is unpronounceable by TTS), while [text]
+  /// stays what the bubble shows. Null (older API / worker bubble) → speak [text].
+  Widget _speakerButton(int index, String text, String? ttsText) {
     final bool active = _speakingIndex == index;
     return IconButton(
-      onPressed: () => _toggleSpeak(index, text),
+      onPressed: () => _toggleSpeak(index, text, ttsText),
       tooltip: 'Sunein',
       visualDensity: VisualDensity.compact,
       padding: EdgeInsets.zero,
@@ -597,7 +450,11 @@ class _ChatViewState extends State<_ChatView> {
   /// Reads bot bubble [index] aloud, or stops it if it is already the one
   /// speaking. Best-effort: no recogniser/voice just does nothing (the text is
   /// on screen). The speaker icon clears when playback finishes.
-  Future<void> _toggleSpeak(int index, String text) async {
+  ///
+  /// #896 — SPEAKS the Devanagari [ttsText] when present (so the hi-IN voice
+  /// pronounces the Hindi), falling back to the on-screen romanized [text] when
+  /// absent. The bubble display is unaffected either way.
+  Future<void> _toggleSpeak(int index, String text, String? ttsText) async {
     if (!locator.isRegistered<SpeechReader>()) return;
     final SpeechReader reader = locator<SpeechReader>();
     if (_speakingIndex == index) {
@@ -608,7 +465,7 @@ class _ChatViewState extends State<_ChatView> {
     await reader.stop();
     if (!mounted) return;
     setState(() => _speakingIndex = index);
-    await reader.speak(text); // resolves when playback finishes
+    await reader.speak(ttsText ?? text); // resolves when playback finishes
     if (mounted && _speakingIndex == index) {
       setState(() => _speakingIndex = null);
     }
@@ -784,7 +641,9 @@ class _ChatViewState extends State<_ChatView> {
         foregroundColor: AppColors.onBlue,
         iconTheme: const IconThemeData(color: AppColors.onBlue),
         systemOverlayStyle: SystemUiOverlayStyle.light,
-        titleSpacing: 0,
+        // Gutter of left space so the BB avatar + title are not flush against
+        // the screen edge — aligns the header with the body's left margin.
+        titleSpacing: AppSpacing.gutter,
         title: Row(
           children: <Widget>[
             Container(
@@ -886,9 +745,11 @@ class _ChatViewState extends State<_ChatView> {
                                   failed: failed,
                                   onRetry: failed ? () => _retry(i) : null,
                                   // Read-aloud speaker on bada bhai's questions
-                                  // only (never the worker's own messages).
+                                  // only (never the worker's own messages). #896 —
+                                  // pass the Devanagari script so read-aloud speaks
+                                  // it (falls back to the romanized text when null).
                                   trailing: (!m.fromWorker && !failed)
-                                      ? _speakerButton(i, m.text)
+                                      ? _speakerButton(i, m.text, m.ttsText)
                                       : null,
                                 );
                               },
@@ -903,32 +764,11 @@ class _ChatViewState extends State<_ChatView> {
                           ],
                         ),
                       ),
-                      // #761 — while an optimistic predicted turn is on screen
-                      // (predictedQuestionKey != null), show its chips instead of
-                      // the typing indicator, so the worker can answer the
-                      // predicted question during the round trip.
-                      if (state.sending && state.predictedQuestionKey == null)
-                        _typingIndicator()
-                      // #761 — when the turn serves `suggested_options` (the LLM
-                      // chat), render chips from IT so each carries its stable
-                      // option_key: the tapped label is submitted byte-identically
-                      // while the bloc indexes `lookahead` by the key, and the
-                      // optimistic prediction finally fires. Served ALONGSIDE
-                      // `suggested_followups`, so a deterministic/older turn with
-                      // no options falls through to the label-keyed path below,
-                      // unchanged (label == key there).
-                      else if (state.suggestedOptions.isNotEmpty)
-                        state.questionKind == ChatQuestionKind.disambiguate
-                            ? _disambiguateOptions(state.suggestedOptions)
-                            : _followupOptions(state.suggestedOptions)
-                      else if (state.followups.isNotEmpty)
-                        // A disambiguation turn is mutually-exclusive occupations
-                        // where the tapped label BECOMES the answer of record and
-                        // selects the pack — a vertical single-select, not the
-                        // horizontal scroller a worker can skim past (#649).
-                        state.questionKind == ChatQuestionKind.disambiguate
-                            ? _disambiguate(state.followups)
-                            : _followups(state.followups),
+                      // #1059 — the answer affordance (typing indicator ↔ chips)
+                      // cross-fades instead of snapping. The child is keyed by
+                      // KIND ('typing' / 'chips' / 'none') so typing→chips
+                      // animates while chip→chip content changes stay instant.
+                      BbAnimatedSwitcher(child: _answerAffordance(state)),
                       // A blocked turn (pseudonymize fail-closed) never processed the
                       // worker's last answer — say so rather than let the canned
                       // fallback reply read as understood. Shown in every build.
@@ -960,7 +800,6 @@ class _ChatViewState extends State<_ChatView> {
                     ],
                   ),
                 ),
-                _waveOverlay(),
               ],
             );
           },
@@ -969,9 +808,10 @@ class _ChatViewState extends State<_ChatView> {
     );
   }
 
-  /// Kit 03 composer: a haldi circular MIC (voice-note entry, when [showVoice])
-  /// + a rounded pill input + a blue send icon — a paper bar hairline-separated
-  /// from the transcript. NOT a floating pill bar.
+  /// Kit 03 composer. IDLE: a rounded pill input + a trailing MIC / SEND button.
+  /// While the worker dictates, the input area IS the recorder — a FULL-WIDTH
+  /// static waveform ([_listeningBar]) fills the field slot with Stop + Send, and
+  /// NOTHING is typed until Stop lands the recognised text in the field.
   Widget _inputBar(bool showVoice) {
     return Container(
       decoration: const BoxDecoration(
@@ -984,48 +824,88 @@ class _ChatViewState extends State<_ChatView> {
         AppSpacing.s3,
         AppSpacing.s2,
       ),
-      child: Row(
-        children: <Widget>[
-          if (showVoice) ...<Widget>[
-            _composerMic(),
-            const SizedBox(width: AppSpacing.s2),
-          ],
-          Expanded(
-            child: TextField(
-              controller: _controller,
-              minLines: 1,
-              maxLines: 4,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => _send(),
-              // Compact composer (owner request): body-size text + dense padding so
-              // the field is shorter and leaves more transcript visible with the
-              // keyboard open. Matches the chat bubble size (sizeSm).
-              style: AppTypography.body(size: AppTypography.sizeSm),
-              decoration: InputDecoration(
-                hintText: 'Boliye ya likhiye…',
-                isDense: true,
-                filled: true,
-                fillColor: AppColors.canvas,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.s3,
-                  vertical: 10,
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppRadii.pill),
-                  borderSide: const BorderSide(color: AppColors.borderSubtle),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(AppRadii.pill),
-                  borderSide: const BorderSide(
-                    color: AppColors.blue,
-                    width: 1.5,
-                  ),
+      child: _dictation.listening
+          ? DictationBar(
+              level: _dictation.level,
+              waveKey: const ValueKey<String>('voiceWaveInline'),
+              onStop: _stopDictation,
+              onSend: _sendFromDictation,
+            )
+          : _idleBar(showVoice),
+    );
+  }
+
+  /// The normal composer row: (hidden) voice-note mic + text field + the trailing
+  /// mic/send action.
+  Widget _idleBar(bool showVoice) {
+    return Row(
+      children: <Widget>[
+        // Owner request: HIDE the bottom-left voice-note mic — hidden with
+        // Visibility ONLY (no code removed); flip `visible` true to restore it.
+        if (showVoice)
+          Visibility(
+            visible: false,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                _composerMic(),
+                const SizedBox(width: AppSpacing.s2),
+              ],
+            ),
+          ),
+        Expanded(
+          child: TextField(
+            controller: _controller,
+            minLines: 1,
+            maxLines: 4,
+            textInputAction: TextInputAction.send,
+            onSubmitted: (_) => _send(),
+            // Compact composer (owner request): body-size text + dense padding so
+            // the field is shorter and leaves more transcript visible with the
+            // keyboard open. Matches the chat bubble size (sizeSm).
+            style: AppTypography.body(size: AppTypography.sizeSm),
+            decoration: InputDecoration(
+              hintText: 'Boliye ya likhiye…',
+              isDense: true,
+              filled: true,
+              fillColor: AppColors.canvas,
+              // Roomier padding + the design's input radius (md=12, not the pill):
+              // a fully-rounded pill made multi-line text hug the curved corners
+              // and touch the border. A softer 12-radius box gives the text clear
+              // breathing room on every line.
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.s4,
+                vertical: AppSpacing.s3,
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppRadii.md),
+                borderSide: const BorderSide(color: AppColors.borderSubtle),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppRadii.md),
+                borderSide: const BorderSide(
+                  color: AppColors.blue,
+                  width: 1.5,
                 ),
               ),
             ),
           ),
-          const SizedBox(width: AppSpacing.s1),
-          IconButton(
+        ),
+        const SizedBox(width: AppSpacing.s1),
+        _composerAction(),
+      ],
+    );
+  }
+
+  /// The trailing button on the IDLE row: SEND when the field has text, otherwise
+  /// MIC (tap starts voice-to-text). While listening the whole row is a
+  /// [DictationBar] (waveform + Stop + Send), so this slot never shows a Stop.
+  Widget _composerAction() {
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _controller,
+      builder: (BuildContext context, TextEditingValue value, Widget? _) {
+        if (value.text.trim().isNotEmpty) {
+          return IconButton(
             tooltip: 'Bhejein',
             onPressed: _send,
             icon: const Icon(
@@ -1033,9 +913,18 @@ class _ChatViewState extends State<_ChatView> {
               color: AppColors.blue,
               size: 24,
             ),
+          );
+        }
+        return IconButton(
+          tooltip: 'Bolkar likhein',
+          onPressed: _startDictation,
+          icon: const Icon(
+            Icons.mic,
+            color: AppColors.blue,
+            size: 24,
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1077,79 +966,30 @@ class _ChatViewState extends State<_ChatView> {
   }
 
   /// The haldi circular mic in the composer — opens the voice-note flow (kit 03).
-  /// Blue glyph on haldi (text/icon on haldi is always deep blue).
+  /// Blue glyph on haldi (text/icon on haldi is always deep blue). TAP-ONLY now:
+  /// speech-to-text moved to the tap-to-talk mic in the send slot
+  /// ([_composerAction]), so this button no longer records into the composer on a
+  /// hold — it only opens the server voice-note screen.
   Widget _composerMic() {
     return Semantics(
       button: true,
-      label: 'Voice note bhejein ya dabaye rakhein',
+      label: 'Voice note bhejein',
       child: Tooltip(
-        message: 'Tap: voice note · Dabaye rakhein: awaaz se likhein',
-        // Tap → the full voice-note screen (unchanged). HOLD → record straight
-        // into the composer. The long-press recognizer and the InkWell tap share
-        // the pointer: a quick tap wins the gesture arena, a hold wins it — so
-        // onTap never fires at the end of a hold, and a hold never opens the
-        // voice-note screen.
-        child: GestureDetector(
-          onLongPressStart: (_) => _startHoldToTalk(),
-          onLongPressEnd: (_) => _stopHoldToTalk(),
-          child: Material(
-            color: AppColors.haldi,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: _openVoiceNote,
-              child: SizedBox(
-                width: AppSpacing.tap,
-                height: AppSpacing.tap,
-                child: Icon(
-                  _holdRecording ? Icons.mic_none : Icons.mic,
-                  color: AppColors.onHaldi,
-                  size: 22,
-                ),
+        message: 'Voice note',
+        child: Material(
+          color: AppColors.haldi,
+          shape: const CircleBorder(),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: _openVoiceNote,
+            child: const SizedBox(
+              width: AppSpacing.tap,
+              height: AppSpacing.tap,
+              child: Icon(
+                Icons.mic,
+                color: AppColors.onHaldi,
+                size: 22,
               ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// The centre "AB BOLEN" cue — a soft, smoky pill that fades in when a hold
-  /// begins and fades out a moment later. Non-interactive (never eats a tap) and
-  /// always mounted so BOTH the fade-in and the fade-out animate.
-  /// The live-waveform cue (Gemini-style): a centred dark pill whose bars track
-  /// the mic amplitude in REAL TIME while the worker holds to talk — no wait for
-  /// recognition. Non-interactive (never eats a tap); fades in/out.
-  Widget _waveOverlay() {
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: Center(
-          child: AnimatedOpacity(
-            key: const ValueKey<String>('voiceWaveCue'),
-            opacity: _listening ? 1 : 0,
-            duration: AppMotion.fast,
-            curve: Curves.easeOut,
-            child: Container(
-              width: 300,
-              height: 72,
-              alignment: Alignment.center,
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.s5,
-                vertical: AppSpacing.s4,
-              ),
-              decoration: BoxDecoration(
-                color: AppColors.surfaceInk.withValues(alpha: 0.94),
-                borderRadius: BorderRadius.circular(AppRadii.pill),
-                // A soft blue glow — the "smoke" behind the wave.
-                boxShadow: <BoxShadow>[
-                  BoxShadow(
-                    color: AppColors.blue.withValues(alpha: 0.35),
-                    blurRadius: 44,
-                    spreadRadius: 4,
-                  ),
-                ],
-              ),
-              child: _VoiceWaveform(level: _micLevel, active: _listening),
             ),
           ),
         ),
@@ -1190,6 +1030,50 @@ class _ChatViewState extends State<_ChatView> {
     );
   }
 
+  /// The single "answer affordance" slot that sits above the composer — either
+  /// the typing indicator or the tap-to-answer chips — as ONE keyed child so
+  /// [BbAnimatedSwitcher] can cross-fade the swap (#1059). Every branch carries a
+  /// ValueKey; the two chip paths share `'chips'` so a question→question chip
+  /// change stays instant while typing→chips animates.
+  Widget _answerAffordance(ChatState state) {
+    // #761 — while an optimistic predicted turn is on screen
+    // (predictedQuestionKey != null), show its chips instead of the typing
+    // indicator, so the worker can answer the predicted question during the
+    // round trip.
+    if (state.sending && state.predictedQuestionKey == null) {
+      return KeyedSubtree(
+        key: const ValueKey<String>('typing'),
+        child: _typingIndicator(),
+      );
+    }
+    // #761 — when the turn serves `suggested_options` (the LLM chat), render
+    // chips from IT so each carries its stable option_key: the tapped label is
+    // submitted byte-identically while the bloc indexes `lookahead` by the key,
+    // and the optimistic prediction finally fires. Served ALONGSIDE
+    // `suggested_followups`, so a deterministic/older turn with no options falls
+    // through to the label-keyed path below, unchanged (label == key there).
+    if (state.suggestedOptions.isNotEmpty) {
+      return KeyedSubtree(
+        key: const ValueKey<String>('chips'),
+        child: state.questionKind == ChatQuestionKind.disambiguate
+            ? _disambiguateOptions(state.suggestedOptions)
+            : _followupOptions(state.suggestedOptions),
+      );
+    }
+    if (state.followups.isNotEmpty) {
+      // A disambiguation turn is mutually-exclusive occupations where the tapped
+      // label BECOMES the answer of record and selects the pack — a vertical
+      // single-select, not the horizontal scroller a worker can skim past (#649).
+      return KeyedSubtree(
+        key: const ValueKey<String>('chips'),
+        child: state.questionKind == ChatQuestionKind.disambiguate
+            ? _disambiguate(state.followups)
+            : _followups(state.followups),
+      );
+    }
+    return const SizedBox.shrink(key: ValueKey<String>('none'));
+  }
+
   /// "Bada Bhai type kar raha hai…" — shown while a reply is in flight so a
   /// real (1–3s) LLM turn does not look frozen.
   ///
@@ -1211,6 +1095,7 @@ class _ChatViewState extends State<_ChatView> {
           Flexible(
             child: Text(
               'Bada Bhai type kar raha hai…',
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
@@ -1331,6 +1216,7 @@ class _ChatViewState extends State<_ChatView> {
               label,
               style: AppTypography.body(size: 14, weight: FontWeight.w600),
               overflow: TextOverflow.ellipsis,
+              maxLines: 1,
             ),
           ),
         ],
@@ -1391,7 +1277,8 @@ class _ChatViewState extends State<_ChatView> {
   /// [_kDisambiguateEscape] phrase and the tapped label is both submit and key.
   Widget _disambiguateOption(String label) => _disambiguateRow(
         label: label,
-        escape: label.trim().toLowerCase() == _kDisambiguateEscape.toLowerCase(),
+        escape:
+            label.trim().toLowerCase() == _kDisambiguateEscape.toLowerCase(),
         onTap: () => _sendOption(label),
       );
 
@@ -1429,11 +1316,10 @@ class _ChatViewState extends State<_ChatView> {
                   child: Text(
                     label,
                     style: AppTypography.body(
-                      size: 15,
+                      size: AppTypography.sizeSm,
                       weight: escape ? FontWeight.w400 : FontWeight.w600,
-                      color: escape
-                          ? AppColors.textMuted
-                          : AppColors.textPrimary,
+                      color:
+                          escape ? AppColors.textMuted : AppColors.textPrimary,
                     ),
                   ),
                 ),
@@ -1492,137 +1378,4 @@ class _ChatViewState extends State<_ChatView> {
       ),
     );
   }
-}
-
-/// A live, scrolling audio waveform (Gemini-style) driven by the mic's amplitude.
-///
-/// [level] is the current normalized (0..1) amplitude, updated in near real time
-/// from the recogniser's sound-level callback.
-///
-/// A STABLE equaliser, not a scrolling waveform (Gemini/ChatGPT style): a small
-/// fixed cluster of centred bars that SIT STILL at a resting height when it is
-/// quiet, and rise with the voice when the worker speaks — each bar in place, no
-/// left-to-right "running train". A [Ticker] eases the drawn level toward the
-/// live one every frame (smooth 60fps, not stepped to the sparse callbacks) and
-/// advances a gentle shimmer phase so the speaking cluster looks alive without
-/// travelling. The ticker only runs while [active] — a held mic.
-class _VoiceWaveform extends StatefulWidget {
-  const _VoiceWaveform({required this.level, required this.active});
-
-  final ValueListenable<double> level;
-  final bool active;
-
-  @override
-  State<_VoiceWaveform> createState() => _VoiceWaveformState();
-}
-
-class _VoiceWaveformState extends State<_VoiceWaveform> {
-  /// A compact Gemini-like cluster, not a full strip.
-  static const int _barCount = 7;
-
-  /// Smoothed, drawn level (eased toward the live [widget.level]).
-  double _cur = 0;
-
-  /// Gentle shimmer phase so a SPEAKING cluster shimmers in place — it scales
-  /// with the level, so at rest (level ~0) it has no visible effect and the bars
-  /// stay perfectly still.
-  double _phase = 0;
-  Ticker? _ticker;
-
-  @override
-  void initState() {
-    super.initState();
-    _ticker = Ticker(_onTick);
-    if (widget.active) _ticker!.start();
-  }
-
-  @override
-  void didUpdateWidget(_VoiceWaveform old) {
-    super.didUpdateWidget(old);
-    if (widget.active && !_ticker!.isActive) {
-      _cur = 0; // fresh, resting start each hold
-      _phase = 0;
-      _ticker!.start();
-    } else if (!widget.active && _ticker!.isActive) {
-      _ticker!.stop();
-    }
-  }
-
-  void _onTick(Duration _) {
-    // Ease the drawn level toward the live target for a smooth, instant-feeling
-    // response, and advance the shimmer. Bars stay in place — only their heights
-    // change, so there is no travelling motion.
-    final double target = widget.level.value.clamp(0.0, 1.0);
-    _cur += (target - _cur) * 0.28;
-    _phase += 0.18;
-    setState(() {}); // repaint the bars
-  }
-
-  @override
-  void dispose() {
-    _ticker?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      size: const Size(double.infinity, double.infinity),
-      painter: _WavePainter(level: _cur, phase: _phase, barCount: _barCount),
-    );
-  }
-}
-
-/// Draws a STABLE centred cluster of [barCount] rounded vertical bars, mirrored
-/// around the horizontal mid-line. Each bar's height is a fixed centre-weighted
-/// envelope scaled by [level], with a per-bar shimmer (also scaled by [level]),
-/// so at rest the cluster is a still row of short equal bars and on speech it
-/// swells in place — never scrolling.
-class _WavePainter extends CustomPainter {
-  _WavePainter({
-    required this.level,
-    required this.phase,
-    required this.barCount,
-  });
-
-  final double level;
-  final double phase;
-  final int barCount;
-
-  /// Resting half-height as a fraction of the max — a short, calm baseline.
-  static const double _idle = 0.14;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final int n = barCount;
-    if (n == 0) return;
-    const double barW = 6;
-    const double gap = 9;
-    final double stripW = n * barW + (n - 1) * gap;
-    double x = (size.width - stripW) / 2 + barW / 2;
-    final double midY = size.height / 2;
-    final double maxHalf = size.height / 2;
-    final double lvl = level.clamp(0.0, 1.0);
-    final double centre = (n - 1) / 2;
-    final Paint paint = Paint()
-      ..color = AppColors.onBlue
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = barW;
-    for (int i = 0; i < n; i++) {
-      // Centre bar tallest, tapering to the edges.
-      final double dist = centre == 0 ? 0 : (i - centre).abs() / centre;
-      final double envelope = 1 - 0.5 * dist;
-      // A gentle per-bar shimmer, but ONLY when there is a level to shimmer — at
-      // rest this term is ~0 so the cluster is dead still.
-      final double shimmer = 0.6 + 0.4 * math.sin(phase + i * 0.9);
-      final double h = _idle + lvl * envelope * (0.55 + 0.45 * shimmer);
-      final double half = (h * maxHalf).clamp(2.0, maxHalf);
-      canvas.drawLine(Offset(x, midY - half), Offset(x, midY + half), paint);
-      x += barW + gap;
-    }
-  }
-
-  @override
-  bool shouldRepaint(_WavePainter oldDelegate) =>
-      oldDelegate.level != level || oldDelegate.phase != phase;
 }

@@ -22,7 +22,23 @@ class _ScriptedCreditsApi extends MockPayerApiClient {
   Object? throwOnBalance;
   Object? throwOnLedger;
 
+  /// Buy control: the balance the buy returns, or an error to throw.
+  int buyBalance = 250;
+  Object? throwOnBuy;
+
   final List<String> calls = <String>[];
+
+  /// Every idempotency key `buyPack` forwards, in call order (for key-reuse
+  /// assertions). Null when the caller passed none.
+  final List<String?> buyKeys = <String?>[];
+
+  @override
+  Future<int> buyCreditPack(String code, {String? idempotencyKey}) async {
+    calls.add('buy:$code');
+    buyKeys.add(idempotencyKey);
+    if (throwOnBuy != null) throw throwOnBuy!;
+    return buyBalance;
+  }
 
   @override
   Future<int> fetchCreditBalance() async {
@@ -86,8 +102,9 @@ void main() {
     expect(cubit.state.balance, isNull);
     expect(cubit.state.balance, isNot(0),
         reason: 'a 0-mask reads as "out of credits" and blocks every unlock');
-    expect(api.calls, <String>['balance'],
-        reason: 'the ledger read is pointless once the balance read failed');
+    // The four reads now fire concurrently (one round trip, not four), so the
+    // balance read is attempted; its failure is what drives the error state above.
+    expect(api.calls, contains('balance'));
   });
 
   test('a failed LEDGER read never emits a half-true ready state', () async {
@@ -137,5 +154,128 @@ void main() {
 
     expect(cubit.state.status, CreditsScreenStatus.ready);
     expect(cubit.state.balance, 199);
+  });
+
+  test('load also fetches the buyable packs (server-priced)', () async {
+    await cubit.load();
+    // The MockPayerApiClient base returns canned packs; a real screen shows them.
+    expect(cubit.state.packs, isNotEmpty);
+  });
+
+  test('buyPack applies the new balance, re-reads the ledger, flags purchased',
+      () async {
+    await cubit.load();
+    api
+      ..buyBalance = 400
+      ..ledger = const <LedgerEntry>[
+        LedgerEntry(
+          label: 'Pack purchase',
+          amount: '+200',
+          direction: LedgerDirection.credit,
+        ),
+      ];
+
+    await cubit.buyPack('growth');
+
+    expect(cubit.state.balance, 400);
+    expect(cubit.state.purchasing, isNull);
+    expect(cubit.state.purchased, isTrue);
+    expect(cubit.state.purchaseFailed, isFalse);
+    expect(cubit.state.ledger.first.label, 'Pack purchase',
+        reason: 'the purchase row must appear — the ledger is re-read');
+    expect(api.calls.contains('buy:growth'), isTrue);
+  });
+
+  test('a failed buy flags purchaseFailed and never touches the balance',
+      () async {
+    await cubit.load();
+    final int? known = cubit.state.balance;
+    api.throwOnBuy = const PayerApiException(503);
+
+    await cubit.buyPack('growth');
+
+    expect(cubit.state.purchaseFailed, isTrue);
+    expect(cubit.state.purchasing, isNull);
+    expect(cubit.state.balance, known,
+        reason: 'a failed purchase must not change the shown balance');
+  });
+
+  // --- #1046 — client idempotency: one tap is one credit pack --------------
+
+  test('buyPack forwards a non-empty idempotency key to buyCreditPack',
+      () async {
+    await cubit.load();
+
+    await cubit.buyPack('growth');
+
+    expect(api.buyKeys.single, isNotNull);
+    expect(api.buyKeys.single, isNotEmpty);
+    // PII-free by construction — the pack code + a numeric tail, no worker/payer
+    // identifier.
+    expect(api.buyKeys.single, contains('growth'));
+  });
+
+  test('a retry of the SAME pack after a failure REUSES the same key; a '
+      'different pack mints a fresh one', () async {
+    await cubit.load(); // balance 200
+    api.throwOnBuy = const PayerApiException(503); // every buy fails
+
+    await cubit.buyPack('growth'); // key #1, fails → pending kept
+    await cubit.buyPack('growth'); // retry → REUSES key #1
+    await cubit.buyPack('scale'); //  different pack → key #2
+
+    expect(api.buyKeys, hasLength(3));
+    expect(api.buyKeys[0], isNotNull);
+    expect(api.buyKeys[1], api.buyKeys[0],
+        reason: 'a re-tap of the same failed pack must replay, not double-grant');
+    expect(api.buyKeys[2], isNot(api.buyKeys[0]),
+        reason: 'a different pack is a different intent → a different key');
+  });
+
+  test('a failed buy RE-READS the balance; if it went up the grant landed → '
+      'reported as SUCCEEDED (no double grant)', () async {
+    await cubit.load(); // balance 200
+    api
+      ..throwOnBuy = const PayerApiException(408) // the write "times out"
+      ..balance = 250 // …but the server had already committed the grant
+      ..ledger = const <LedgerEntry>[
+        LedgerEntry(
+          label: 'Pack purchase',
+          amount: '+50',
+          direction: LedgerDirection.credit,
+        ),
+      ];
+
+    await cubit.buyPack('starter');
+
+    expect(cubit.state.purchased, isTrue,
+        reason: 'a committed-then-errored buy is a success, not a retry');
+    expect(cubit.state.purchaseFailed, isFalse);
+    expect(cubit.state.balance, 250);
+    expect(cubit.state.ledger.first.label, 'Pack purchase');
+    expect(api.calls.where((String c) => c == 'buy:starter'), hasLength(1),
+        reason: 'the grant is never re-issued — buyCreditPack ran exactly once');
+  });
+
+  test('a failed buy with an UNCHANGED balance keeps the key for a safe retry, '
+      'then success clears it so the next intent mints a FRESH key', () async {
+    await cubit.load(); // balance 200
+    api.throwOnBuy = const PayerApiException(409); // in-flight → not yet up
+
+    await cubit.buyPack('growth'); // fails, balance still 200 → pending kept
+    final String? failedKey = api.buyKeys.single;
+    expect(cubit.state.purchaseFailed, isTrue);
+
+    // The retry reuses the key and this time the server answers.
+    api.throwOnBuy = null;
+    await cubit.buyPack('growth');
+    expect(api.buyKeys[1], failedKey,
+        reason: 'the safe retry replays the same key');
+    expect(cubit.state.purchased, isTrue);
+
+    // A brand-new purchase after a clean success mints a fresh key.
+    await cubit.buyPack('growth');
+    expect(api.buyKeys[2], isNot(failedKey),
+        reason: 'success clears the pending key → a new intent, a new key');
   });
 }

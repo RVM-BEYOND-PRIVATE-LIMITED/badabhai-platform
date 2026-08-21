@@ -8,17 +8,13 @@ import '../../../../core/error/failure_mapper.dart';
 import '../../../../core/error/failure_reason.dart';
 import '../../../../core/nav/tab_focus.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../resume/domain/photo_repository.dart';
 import '../../../resume/presentation/widgets/photo_picker_sheet.dart';
 
 /// Diameter of the Profile avatar (unchanged from the initials/icon it replaces).
 const double _kAvatarSize = 72;
-
-/// The edit affordance's tap target. 44dp is the floor for a comfortable tap —
-/// the visible badge is smaller, so the InkWell is sized to the target, not the
-/// glyph.
-const double _kEditTapTarget = 44;
 
 /// ADR-0032 — the worker's photo on the Profile tab, with the edit entry point.
 ///
@@ -198,8 +194,10 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
       button: true,
       label: _url == null ? 'Photo lagayein' : 'Photo badlein',
       child: SizedBox(
-        width: _kEditTapTarget,
-        height: _kEditTapTarget,
+        // 48dp tap floor (worker app) — the visible badge glyph is smaller, so
+        // the InkWell is sized to the target, not the glyph.
+        width: AppSpacing.tap,
+        height: AppSpacing.tap,
         child: Material(
           color: Colors.transparent,
           child: InkWell(

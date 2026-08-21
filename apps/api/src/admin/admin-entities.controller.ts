@@ -1,12 +1,15 @@
-import { Controller, Get, Param, Query, UseGuards } from "@nestjs/common";
+import { Controller, Get, Header, Param, Query, UseGuards } from "@nestjs/common";
+import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
-import { AdminAuthGuard } from "./admin-auth.guard";
+import { AdminAuthGuard, CurrentAdmin, type AuthenticatedAdmin } from "./admin-auth.guard";
 import { AdminRolesGuard, RequireAdminRole } from "./admin-roles.guard";
 import { AdminEntitiesService } from "./admin-entities.service";
 import {
   AdminApplicationsQuerySchema,
   AdminCreditLedgerQuerySchema,
   AdminEntityParamsSchema,
+  AdminPayerDetailQuerySchema,
+  type AdminPayerDetailQueryDto,
   AdminJobPostingsQuerySchema,
   AdminPayersQuerySchema,
   AdminWorkersQuerySchema,
@@ -39,6 +42,16 @@ import {
  * PII: the projections are ids + enums + timestamps + counts. The one class of human-readable
  * text on this surface is the poster-typed job-posting fields, which are already worker-visible
  * in the feed. See the header of `admin-entities.dto.ts` for the field-by-field contract.
+ *
+ * NAMES (owner ruling 2026-08-18, reversing ADR-0025 Decision 4): the worker and payer routes
+ * additionally carry `full_name` / `org_name` — but ONLY for an admin holding `read_identity`
+ * (super_admin / ops_admin / support; `analyst` denied) and only within their name-egress
+ * budget. That second gate is deliberately NOT a second decorator: `@RequireAdminRole` declares
+ * exactly one capability per route, and these routes must stay reachable on `read_entities` for
+ * every role because the names are ADDITIVE — an analyst gets the identical faceless response.
+ * The check is an explicit `can(admin.role, "read_identity")` inside `AdminIdentityService`,
+ * over the session admin threaded here by `@CurrentAdmin()`, which is why these four handlers
+ * take one where the other four do not.
  */
 @Controller("admin")
 @UseGuards(AdminAuthGuard, AdminRolesGuard)
@@ -46,31 +59,61 @@ export class AdminEntitiesController {
   constructor(private readonly service: AdminEntitiesService) {}
 
   // ---- workers ------------------------------------------------------------
+  //
+  // `Cache-Control: no-store` on the four NAME-BEARING handlers, the same header and the same
+  // reason as the reveal route's Control 8: the response body may contain decrypted PII, so it
+  // must not be written to a shared proxy cache, a browser disk cache, or a bfcache entry that
+  // outlives the session. It is set UNCONDITIONALLY rather than only when a name was actually
+  // disclosed — a header that varies with the caller's capability is a cache-poisoning bug
+  // waiting to happen (an analyst's cacheable faceless page served to an ops_admin, or worse
+  // the reverse), and it would leak whether the caller holds `read_identity` to any observer
+  // of the headers. The four faceless routes below deliberately do NOT carry it.
 
   @Get("workers")
+  @Header("Cache-Control", "no-store")
   @RequireAdminRole("read_entities")
-  listWorkers(@Query(new ZodValidationPipe(AdminWorkersQuerySchema)) query: AdminWorkersQueryDto) {
-    return this.service.listWorkers(query);
+  listWorkers(
+    @CurrentAdmin() admin: AuthenticatedAdmin,
+    @Query(new ZodValidationPipe(AdminWorkersQuerySchema)) query: AdminWorkersQueryDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.service.listWorkers(admin, query, ctx);
   }
 
   @Get("workers/:id")
+  @Header("Cache-Control", "no-store")
   @RequireAdminRole("read_entities")
-  getWorker(@Param(new ZodValidationPipe(AdminEntityParamsSchema)) params: AdminEntityParamsDto) {
-    return this.service.getWorker(params.id);
+  getWorker(
+    @CurrentAdmin() admin: AuthenticatedAdmin,
+    @Param(new ZodValidationPipe(AdminEntityParamsSchema)) params: AdminEntityParamsDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.service.getWorker(admin, params.id, ctx);
   }
 
   // ---- payers (Companies = role:employer, Agencies = role:agent) -----------
 
   @Get("payers")
+  @Header("Cache-Control", "no-store")
   @RequireAdminRole("read_entities")
-  listPayers(@Query(new ZodValidationPipe(AdminPayersQuerySchema)) query: AdminPayersQueryDto) {
-    return this.service.listPayers(query);
+  listPayers(
+    @CurrentAdmin() admin: AuthenticatedAdmin,
+    @Query(new ZodValidationPipe(AdminPayersQuerySchema)) query: AdminPayersQueryDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.service.listPayers(admin, query, ctx);
   }
 
   @Get("payers/:id")
+  @Header("Cache-Control", "no-store")
   @RequireAdminRole("read_entities")
-  getPayer(@Param(new ZodValidationPipe(AdminEntityParamsSchema)) params: AdminEntityParamsDto) {
-    return this.service.getPayer(params.id);
+  getPayer(
+    @CurrentAdmin() admin: AuthenticatedAdmin,
+    @Param(new ZodValidationPipe(AdminEntityParamsSchema)) params: AdminEntityParamsDto,
+    @Query(new ZodValidationPipe(AdminPayerDetailQuerySchema)) query: AdminPayerDetailQueryDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.service.getPayer(admin, params.id, ctx, { faceless: query.faceless === "1" });
   }
 
   /**

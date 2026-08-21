@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
+import { formatInr } from "@badabhai/pricing";
 import {
   creditReasonLabel,
   formatCount,
   formatDelta,
+  formatDuration,
+  formatExactRupees,
   formatPayBand,
   formatRupees,
   formatRelative,
@@ -10,6 +13,7 @@ import {
   formatTimestamp,
   healthTone,
   humanizeEventName,
+  packCodeLabel,
   shortId,
 } from "./format";
 
@@ -155,6 +159,17 @@ describe("formatPayBand — a missing bound is never invented", () => {
   it("a genuine zero is still a figure, not an absence", () => {
     expect(formatPayBand(0, 0)).toBe("₹0");
   });
+
+  it("round-trips through the shared formatInr (BL-10 fast-follow) — no bespoke ₹ string", () => {
+    // formatPayBand used to hand-roll its own `₹${formatCount(n)}` closure instead of
+    // calling @badabhai/pricing's formatInr, the ONE source every other ₹ figure in this
+    // app already goes through. This pins the visible output to formatInr's own output
+    // directly, so the two can never silently diverge again.
+    expect(formatPayBand(18000, 25000)).toBe(`${formatInr(18000)}–${formatInr(25000)}`);
+    expect(formatPayBand(20000, 20000)).toBe(formatInr(20000));
+    expect(formatPayBand(18000, null)).toBe(`from ${formatInr(18000)}`);
+    expect(formatPayBand(null, 25000)).toBe(`up to ${formatInr(25000)}`);
+  });
 });
 
 describe("money — a ledger row's sign is its meaning", () => {
@@ -182,6 +197,81 @@ describe("money — a ledger row's sign is its meaning", () => {
   });
 });
 
+describe("formatExactRupees — AI spend is a STRING and never round-trips through a float", () => {
+  /*
+   * `platform_ai_cost_totals.total_cost_inr` is `numeric(16,6)`, serialised verbatim precisely
+   * so a running sum of millions of sub-paisa calls cannot drift through IEEE-754. Every step
+   * of this formatter is string surgery for that reason, which is exactly what makes it worth
+   * pinning: a later "tidy-up" to `Number(value).toLocaleString()` would pass a casual eyeball
+   * on ₹12.48 and quietly lose the sixth decimal place on the figures that need it.
+   */
+
+  it("pads to a two-decimal minimum so a whole amount reads as money", () => {
+    expect(formatExactRupees("0")).toBe("₹0.00");
+    expect(formatExactRupees("3")).toBe("₹3.00");
+    // Trailing zeros are LOSSLESS to trim: 12.480000 IS 12.48.
+    expect(formatExactRupees("12.480000")).toBe("₹12.48");
+  });
+
+  it("keeps every place of a sub-paisa figure rather than rounding it to ₹0.00", () => {
+    // "We spent a fraction of a paisa" and "we spent nothing" are different facts.
+    expect(formatExactRupees("0.000012")).toBe("₹0.000012");
+    expect(formatExactRupees("0.000012")).not.toBe("₹0.00");
+  });
+
+  it("groups the integer part the INDIAN way — last three, then pairs", () => {
+    expect(formatExactRupees("1234567.5")).toBe("₹12,34,567.50");
+    expect(formatExactRupees("12345678.123456")).toBe("₹1,23,45,678.123456");
+    expect(formatExactRupees("999.5")).toBe("₹999.50");
+    // …and a value that arrived zero-padded is not rendered with its padding.
+    expect(formatExactRupees("00012.5")).toBe("₹12.50");
+  });
+
+  it("renders a negative with a real minus sign, outside the ₹", () => {
+    // U+2212, for the same reason `formatDelta` uses one: it aligns with tabular digits.
+    expect(formatExactRupees("-1.5")).toBe("−₹1.50");
+    expect(formatExactRupees("-1.5").charCodeAt(0)).toBe(0x2212);
+    expect(formatExactRupees("-0.5")).toBe("−₹0.50");
+  });
+
+  it("returns a value it does not recognise UNCHANGED — never coerced, never blanked", () => {
+    // It came from the server. Inventing a ₹ figure for something this portal cannot parse
+    // would be worse than showing it raw, and blanking it would hide that it arrived at all.
+    for (const raw of ["", "abc", "1e5", ".5", "1.", "12,50", "₹12.48", "NaN"]) {
+      expect(formatExactRupees(raw), raw).toBe(raw);
+    }
+  });
+});
+
+describe("formatDuration — the idle ladder, and what is NOT a duration", () => {
+  it("steps through seconds, minutes, hours and days", () => {
+    expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(45)).toBe("45s");
+    expect(formatDuration(59)).toBe("59s");
+    expect(formatDuration(60)).toBe("1m");
+    expect(formatDuration(12 * 60)).toBe("12m");
+    expect(formatDuration(59 * 60 + 59)).toBe("59m");
+    expect(formatDuration(60 * 60)).toBe("1h 0m");
+    expect(formatDuration(3 * 3600 + 20 * 60)).toBe("3h 20m");
+    expect(formatDuration(23 * 3600 + 59 * 60)).toBe("23h 59m");
+    expect(formatDuration(24 * 3600)).toBe("1d 0h");
+    expect(formatDuration(2 * 86400 + 4 * 3600)).toBe("2d 4h");
+  });
+
+  it("floors a fractional second rather than printing one", () => {
+    expect(formatDuration(45.9)).toBe("45s");
+  });
+
+  it("renders a dash for a negative or non-finite input, never a nonsense duration", () => {
+    // `idle_seconds` is derived from two clocks; skew makes a negative reachable, and
+    // "−3s idle" on an operations console is noise that reads as a bug in the data.
+    expect(formatDuration(-1)).toBe("—");
+    expect(formatDuration(Number.NaN)).toBe("—");
+    expect(formatDuration(Number.POSITIVE_INFINITY)).toBe("—");
+    expect(formatDuration(-1)).not.toContain("s");
+  });
+});
+
 describe("creditReasonLabel", () => {
   it("labels the four known reasons", () => {
     expect(creditReasonLabel("pack_purchase")).toBe("Pack purchase");
@@ -194,5 +284,20 @@ describe("creditReasonLabel", () => {
     // A code nobody recognises is a reason to look, not to render an empty cell.
     expect(creditReasonLabel("chargeback_hold")).toBe("chargeback hold");
     expect(creditReasonLabel("chargeback_hold")).not.toBe("");
+  });
+});
+
+describe("packCodeLabel", () => {
+  it("labels the five known pack codes", () => {
+    expect(packCodeLabel("pack_10")).toBe("10-credit pack");
+    expect(packCodeLabel("pack_25")).toBe("25-credit pack");
+    expect(packCodeLabel("pack_50")).toBe("50-credit pack");
+    expect(packCodeLabel("pack_200")).toBe("200-credit pack");
+    expect(packCodeLabel("pack_1000")).toBe("1,000-credit pack");
+  });
+
+  it("an UNKNOWN pack code is shown raw, never blank — mirrors creditReasonLabel's fallback", () => {
+    expect(packCodeLabel("pack_legacy_bulk")).toBe("pack legacy bulk");
+    expect(packCodeLabel("pack_legacy_bulk")).not.toBe("");
   });
 });

@@ -227,6 +227,20 @@ export class ResumeDisclosureService {
       maskedName,
       source.templateId,
       null,
+      // #947 — the worker's night-shift toggle, off the row already loaded above for the mask.
+      //
+      // DELIBERATELY *NOT* WITHHELD FROM THE PAYER, unlike the three things around it. The real
+      // name, the photo and the expected salary are identity and negotiating position; night
+      // shift readiness is a WORK PREFERENCE, and `fromResumeProfile` already settled the same
+      // question the same way for the model-extracted `shift` — a shift preference is
+      // legitimate matching information an employer should see, and hiding it would cost the
+      // worker a real signal. This is the better-sourced version of that signal: the worker's
+      // own answer rather than the model's reading of one.
+      //
+      // It is also safe in the one direction that matters. It prints only when the worker
+      // deliberately ticked it, so the only thing that can ever cross to a payer is a positive
+      // claim its author actually made (see `humanizeAvailability`).
+      worker?.resumeNightShiftReady ?? false,
       // The payer-facing audience. Alongside the masked name and the structurally-null photo
       // above, this is what keeps `expected_salary` off the disclosure — the worker's asking
       // price is theirs to reveal in a conversation, not ours to print before one.

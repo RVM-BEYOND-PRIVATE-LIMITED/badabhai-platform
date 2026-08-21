@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/data/payer_account_api.dart';
+import '../../../core/util/phone_format.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/session/app_session.dart';
 import '../../../core/theme/app_colors.dart';
@@ -221,6 +223,7 @@ class _EditSheetState extends State<_EditSheet> {
       TextEditingController(text: widget.me.orgName);
   final TextEditingController _phone = TextEditingController();
   bool _saving = false;
+  String? _phoneError;
 
   @override
   void dispose() {
@@ -231,18 +234,47 @@ class _EditSheetState extends State<_EditSheet> {
 
   Future<void> _save() async {
     final String org = _org.text.trim();
-    final String phone = _phone.text.trim();
+    final String phoneInput = _phone.text.trim();
     // Send ONLY what actually changed — an empty/no-op PATCH is a 400.
     final String? orgChanged =
         (org.isNotEmpty && org != widget.me.orgName) ? org : null;
-    final String? phoneChanged = phone.isNotEmpty ? phone : null;
+
+    // Compose E.164 from the national digits: the backend `e164PhoneSchema`
+    // rejects a bare `8946991002` with a 400, and the payer never types `+91`.
+    // An unparseable non-empty entry is caught HERE as an inline error rather
+    // than sent for the server to reject with a generic message.
+    String? phoneChanged;
+    if (phoneInput.isNotEmpty) {
+      phoneChanged = normalizeIndianMobileToE164(phoneInput);
+      if (phoneChanged == null) {
+        setState(() => _phoneError = 'Enter a valid 10-digit mobile number.');
+        return;
+      }
+    }
+
     if (orgChanged == null && phoneChanged == null) {
       Navigator.of(context).pop();
       return;
     }
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _phoneError = null;
+    });
     await widget.cubit.updateMe(orgName: orgChanged, phone: phoneChanged);
     if (!mounted) return;
+    // Only close on success — a failed save keeps the sheet (and the typed
+    // values) so the payer sees the cubit's error and can retry.
+    if (widget.cubit.state.status == AccountStatus.error) {
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.cubit.state.error ?? 'Could not save your changes.',
+          ),
+        ),
+      );
+      return;
+    }
     Navigator.of(context).pop();
   }
 
@@ -256,11 +288,15 @@ class _EditSheetState extends State<_EditSheet> {
         AppSpacing.gutter,
         AppSpacing.s5 + bottomInset,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
+      // Scrollable so the keyboard (or a large accessibility text scale) on a
+      // small/cheap screen can't push the Save button off-screen into a RenderFlex
+      // overflow — the sheet content simply scrolls instead.
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
             'Edit account',
             style: AppTypography.display(
               size: AppTypography.sizeLg,
@@ -277,13 +313,41 @@ class _EditSheetState extends State<_EditSheet> {
           BbField(
             label: 'New phone (optional)',
             controller: _phone,
-            hint: '+91XXXXXXXXXX',
+            hint: '10-digit mobile number',
             mono: true,
             keyboardType: TextInputType.phone,
+            prefixText: '$kIndiaDialCode ',
+            inputFormatters: <TextInputFormatter>[
+              // Reduce to the 10 NATIONAL digits — strips a pasted 91/+91/0 prefix
+              // BEFORE capping, so pasting a full '+91 8946991002' lands on the
+              // correct '8946991002' instead of a truncated, valid-looking WRONG
+              // number. Plain digits-only + a 10-cap would corrupt that paste.
+              TextInputFormatter.withFunction(
+                (TextEditingValue _, TextEditingValue next) {
+                  final String digits = toNationalDigits(next.text);
+                  return TextEditingValue(
+                    text: digits,
+                    selection:
+                        TextSelection.collapsed(offset: digits.length),
+                  );
+                },
+              ),
+            ],
           ),
+          if (_phoneError != null) ...<Widget>[
+            const SizedBox(height: AppSpacing.s2),
+            Text(
+              _phoneError!,
+              style: AppTypography.body(
+                size: AppTypography.sizeXs,
+                color: AppColors.danger,
+              ),
+            ),
+          ],
           const SizedBox(height: AppSpacing.s2),
           Text(
-            'We only ever show the last 4 digits.',
+            'Enter 10 digits — +91 is added automatically. We only ever show '
+            'the last 4 digits.',
             style: AppTypography.body(
               size: AppTypography.sizeXs,
               color: AppColors.textMuted,
@@ -297,6 +361,7 @@ class _EditSheetState extends State<_EditSheet> {
             onPressed: _saving ? null : _save,
           ),
         ],
+        ),
       ),
     );
   }
@@ -544,10 +609,12 @@ String _initials(String orgName) {
   final List<String> parts =
       orgName.trim().split(RegExp(r'\s+')).where((String p) => p.isNotEmpty).toList();
   if (parts.isEmpty) return '?';
+  // First GRAPHEME (not UTF-16 code unit) of each word — an org whose name starts
+  // with an emoji / non-BMP glyph must not render a broken half-surrogate.
   if (parts.length == 1) {
-    return parts.first.substring(0, 1).toUpperCase();
+    return parts.first.characters.first.toUpperCase();
   }
-  return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
+  return (parts[0].characters.first + parts[1].characters.first).toUpperCase();
 }
 
 /// `employer` → Company, `agent` → Agency (matches the wire role).

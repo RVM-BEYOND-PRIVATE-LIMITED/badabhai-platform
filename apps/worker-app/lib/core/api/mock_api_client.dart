@@ -65,6 +65,7 @@ class MockApiClient extends ApiClient {
     required String sessionId,
     required String authToken,
     required String text,
+    String? submissionId,
   }) async {
     await _delay();
     final _CannedTurn turn = _cannedTurns[_chatTurn % _cannedTurns.length];
@@ -109,8 +110,11 @@ class MockApiClient extends ApiClient {
   Future<String> awaitProfileId(
     String aiJobId, {
     required String authToken,
-    int maxAttempts = 40,
-    Duration pollInterval = const Duration(milliseconds: 350),
+    // Mirrors the real client's default rather than repeating the old literal
+    // 40. Unused here (the mock resolves immediately), but a stale copy of a
+    // budget that has moved is exactly how the two drift back apart.
+    int maxAttempts = kProfileExtractPollMaxAttempts,
+    Duration pollInterval = kAiJobPollInterval,
   }) async {
     await _delay();
     return 'mock-profile-0001';
@@ -130,6 +134,17 @@ class MockApiClient extends ApiClient {
     required String authToken,
   }) async {
     // No-op: never stores, echoes, or logs the name (PII-free by construction).
+    await _delay();
+  }
+
+  @override
+  Future<void> submitFeedback({
+    required String authToken,
+    required String message,
+    String? category,
+    String? screen,
+  }) async {
+    // No-op: canned success so the feedback flow is walkable in mock mode.
     await _delay();
   }
 

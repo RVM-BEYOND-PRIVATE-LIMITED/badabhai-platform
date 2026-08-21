@@ -194,6 +194,56 @@ void main() {
     expect(turn.occupationLabel, 'darzi');
   });
 
+  // #896 — the Devanagari read-aloud string rides ChatReply -> ChatTurn so the
+  // reply bubble can be spoken correctly; null on an older build.
+  test('sendMessage carries tts_text through to the turn (#896)', () async {
+    final SessionRepository session = SessionRepository()
+      ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
+      ..setSession('s1');
+    final ChatRepositoryImpl repo = ChatRepositoryImpl(
+      ApiClient(
+        baseUrl: 'http://test',
+        // Devanagari bytes: http.Response(String,...) would latin1-encode and
+        // throw, so encode UTF-8 explicitly (a real server sends the charset).
+        client: MockClient((http.Request req) async => http.Response.bytes(
+              utf8.encode(jsonEncode(<String, dynamic>{
+                'reply': 'Aap kaunsa kaam karte hain?',
+                'tts_text': 'आप कौनसा काम करते हैं?',
+              })),
+              201,
+              headers: <String, String>{
+                'content-type': 'application/json; charset=utf-8',
+              },
+            )),
+      ),
+      session,
+    );
+
+    final ChatTurn turn = await repo.sendMessage('hi');
+    expect(turn.reply, 'Aap kaunsa kaam karte hain?');
+    expect(turn.ttsText, 'आप कौनसा काम करते हैं?');
+  });
+
+  test('sendMessage with no tts_text yields a null-ttsText turn (older build)',
+      () async {
+    final SessionRepository session = SessionRepository()
+      ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
+      ..setSession('s1');
+    final ChatRepositoryImpl repo = ChatRepositoryImpl(
+      ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async => http.Response(
+              jsonEncode(<String, dynamic>{'reply': 'Theek hai'}),
+              201,
+            )),
+      ),
+      session,
+    );
+
+    final ChatTurn turn = await repo.sendMessage('hi');
+    expect(turn.ttsText, isNull);
+  });
+
   test('a session_ended reply drops the cached chat session id (#649 re-verify)',
       () async {
     final SessionRepository session = SessionRepository()
@@ -279,6 +329,87 @@ void main() {
           reason: 'the {{worker_name}} vocative is stripped for the name-less client');
       expect(history[1].fromWorker, isTrue);
       expect(history[1].text, 'CNC operator hoon');
+    });
+
+    // #896 — a hydrated OUTBOUND row's `tts_text` rides the bot bubble (with the
+    // {{worker_name}} placeholder stripped, exactly like the body); the worker's
+    // own bubble never carries a read-aloud script.
+    test('maps tts_text onto the BOT bubble; the worker bubble stays null (#896)',
+        () async {
+      final SessionRepository session = SessionRepository()
+        ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
+        ..setSession('s1');
+      final ChatRepositoryImpl repo = ChatRepositoryImpl(
+        ApiClient(
+          baseUrl: 'http://test',
+          // UTF-8 bytes for the Devanagari tts_text (see the sendMessage note).
+          client: MockClient((http.Request req) async => http.Response.bytes(
+                utf8.encode(jsonEncode(<String, dynamic>{
+                  'messages': <Map<String, dynamic>>[
+                    <String, dynamic>{
+                      'direction': 'outbound',
+                      'body_text':
+                          '{{worker_name}} ji, Aap kaunsa kaam karte hain?',
+                      // The placeholder is stripped from the spoken text too.
+                      'tts_text': '{{worker_name}} आप कौनसा काम करते हैं?',
+                      'created_at': '2026-08-13T10:00:00.000Z',
+                    },
+                    <String, dynamic>{
+                      'direction': 'inbound',
+                      'body_text': 'CNC operator hoon',
+                      'created_at': '2026-08-13T10:01:00.000Z',
+                    },
+                  ],
+                })),
+                200,
+                headers: <String, String>{
+                  'content-type': 'application/json; charset=utf-8',
+                },
+              )),
+        ),
+        session,
+      );
+
+      final List<ChatMessage> history = await repo.loadHistory();
+      expect(history.length, 2);
+      // Bot bubble: SHOWS the romanized body, SPEAKS the Devanagari sibling —
+      // both name-stripped for the name-less client (§2).
+      expect(history[0].fromWorker, isFalse);
+      expect(history[0].text, 'Aap kaunsa kaam karte hain?');
+      expect(history[0].ttsText, 'आप कौनसा काम करते हैं?');
+      // The worker's own bubble never carries a read-aloud script.
+      expect(history[1].fromWorker, isTrue);
+      expect(history[1].ttsText, isNull);
+    });
+
+    test('an outbound row with no tts_text hydrates a null-ttsText bot bubble',
+        () async {
+      final SessionRepository session = SessionRepository()
+        ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok')
+        ..setSession('s1');
+      final ChatRepositoryImpl repo = ChatRepositoryImpl(
+        ApiClient(
+          baseUrl: 'http://test',
+          client: MockClient((http.Request req) async => http.Response(
+                jsonEncode(<String, dynamic>{
+                  'messages': <Map<String, dynamic>>[
+                    <String, dynamic>{
+                      'direction': 'outbound',
+                      'body_text': 'Namaste!',
+                      'created_at': '2026-08-13T10:00:00.000Z',
+                    },
+                  ],
+                }),
+                200,
+              )),
+        ),
+        session,
+      );
+
+      final List<ChatMessage> history = await repo.loadHistory();
+      expect(history.single.text, 'Namaste!');
+      expect(history.single.ttsText, isNull,
+          reason: 'no tts_text -> read-aloud falls back to the body text');
     });
 
     test('a server error degrades to [] — hydration never blocks chat-open',

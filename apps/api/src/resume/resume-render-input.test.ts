@@ -14,6 +14,7 @@ describe("buildResumeRenderInput — skill_labels (Q14)", () => {
       null,
       null,
       null, // photoDataUri (ADR-0032): caller-supplied; these tests render photo-less
+      false,
       "worker",
     );
     // skill_milling → "Milling" (the résumé must never show a raw skill_* id).
@@ -26,18 +27,19 @@ describe("buildResumeRenderInput — skill_labels (Q14)", () => {
       null,
       null,
       null,
+      false,
       "worker",
     );
     expect(input.skills).toEqual(["Milling", "5-axis setup"]);
   });
 
   it("old snapshot without skill_labels resolves its ids to names", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, "worker");
+    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, false, "worker");
     expect(input.skills).toEqual(["Milling"]);
   });
 
   it("labels-only snapshot (off-wedge welder) renders the labels", () => {
-    const input = buildResumeRenderInput({ skill_labels: ["MIG welding"] }, null, null, null, "worker");
+    const input = buildResumeRenderInput({ skill_labels: ["MIG welding"] }, null, null, null, false, "worker");
     expect(input.skills).toEqual(["MIG welding"]);
   });
 });
@@ -54,6 +56,7 @@ describe("buildResumeRenderInput — education + certifications (#499)", () => {
       null,
       null,
       null,
+      false,
       "worker",
     );
     expect(input.education).toEqual(["ITI", "Diploma"]);
@@ -66,6 +69,7 @@ describe("buildResumeRenderInput — education + certifications (#499)", () => {
       null,
       null,
       null,
+      false,
       "worker",
     );
     // skill_milling → "Milling", role_cnc_operator → "CNC Operator", mach_vmc → "Vertical Machining Center (VMC)"
@@ -74,7 +78,7 @@ describe("buildResumeRenderInput — education + certifications (#499)", () => {
   });
 
   it("old snapshot without the keys defaults both to [] (no fabrication)", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, "worker");
+    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, false, "worker");
     expect(input.education).toEqual([]);
     expect(input.certifications).toEqual([]);
   });
@@ -90,6 +94,7 @@ describe("buildResumeRenderInput — machines", () => {
       null,
       null,
       null,
+      false,
       "worker",
     );
     expect(input.machines).toEqual([
@@ -105,6 +110,7 @@ describe("buildResumeRenderInput — machines", () => {
       null,
       null,
       null,
+      false,
       "worker",
     );
     expect(input.machines).toEqual(["Unknown Machine"]);
@@ -116,13 +122,14 @@ describe("buildResumeRenderInput — machines", () => {
       null,
       null,
       null,
+      false,
       "worker",
     );
     expect(input.machines).toEqual(["VMC", "CNC Lathe"]);
   });
 
   it("old snapshot without machines defaults to []", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, "worker");
+    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, false, "worker");
     expect(input.machines).toEqual([]);
   });
 });
@@ -139,6 +146,7 @@ describe("buildResumeRenderInput — education_level + education_field", () => {
       null,
       null,
       null,
+      false,
       "worker",
     );
     expect(input.educationLevel).toBe("12th");
@@ -146,9 +154,98 @@ describe("buildResumeRenderInput — education_level + education_field", () => {
   });
 
   it("old snapshot without the keys defaults both to null (no fabrication)", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, "worker");
+    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, false, "worker");
     expect(input.educationLevel).toBeNull();
     expect(input.educationField).toBeNull();
+  });
+});
+
+/**
+ * #963 — THE RAW SCALAR MUST NOT REACH THE PAGE.
+ *
+ * `education_level` is free text the extractor writes (`z.string().nullable()`, no enum), and
+ * the known token today is `below_10`. It was passed through verbatim into
+ * the page unchanged, so a worker downloaded a résumé headed "below_10" — a DB-ish token on
+ * the one document a low-literacy worker is meant to hand to an employer (§2). Availability
+ * two lines above had been humanised since it was written; this field never was.
+ *
+ * THE EXPECTED STRINGS ARE THE APP'S, NOT THIS FILE'S. Every assertion below mirrors
+ * `humanizeEducationLevel` in the worker app's `lib/core/util/education_label.dart`, which
+ * already fixed the Resume tab. Two humanisers over one stored value must not disagree, so if
+ * one of these expectations ever needs changing, the Dart is where it changes first.
+ *
+ * Nothing here adds a template token. NOT because `{{education_level}}` already exists — it
+ * exists in ZERO of the twelve layouts, and a v4 written on the strength of that claim would
+ * render a permanently blank slot, since the renderer binds unknown scalars to "" in silence.
+ * The level reaches the page through the `{{#education_headline}}` region (`resume-renderer.service.ts` joins level and field into it),
+ * which this change feeds a humanised string instead of a raw one. The shipped layouts
+ * already. This changes only what is bound into it.
+ */
+describe("buildResumeRenderInput — education_level is humanised (#963)", () => {
+  const levelOf = (education_level: string) =>
+    buildResumeRenderInput({ education_level }, null, null, null, false, "worker").educationLevel;
+
+  it("renders the known token as the label the app already shows", () => {
+    // THE REPORTED DEFECT, exactly. "below_10" is what the PDF printed.
+    expect(levelOf("below_10")).toBe("10th se kam");
+  });
+
+  it("maps the other spelling of the same level", () => {
+    // `below_10th` is the same answer out of the same free-text field. The app's map carries
+    // both; a port that carried one would humanise a worker's level or not depending on which
+    // way the model happened to spell it that day.
+    expect(levelOf("below_10th")).toBe("10th se kam");
+  });
+
+  it("matches the token whatever case the model emitted it in", () => {
+    // Nothing constrains the case of a free-text scalar, and a token that missed the map by a
+    // capital letter would fall through to the prettifier and print "Below 10" — still not a
+    // sentence anyone says.
+    expect(levelOf("BELOW_10")).toBe("10th se kam");
+  });
+
+  it("prettifies a snake_case token nobody has mapped", () => {
+    // RESHAPES WITHOUT RENAMING. The map holds only tokens the pipeline has actually produced;
+    // inventing wording for the rest would be fabricating on the worker's behalf (§11). The
+    // prettifier is the safe general answer — it can only ever make the same words readable.
+    expect(levelOf("post_graduate")).toBe("Post Graduate");
+  });
+
+  it("leaves an already-readable label as written, and only trims it", () => {
+    // INVARIANT #8 IS THE POINT OF THE FIRST THREE ARMS: nearly every stored value is already a
+    // readable label, none of them contain an underscore, and their résumés must render exactly
+    // as they do today. They are also what a more eager prettifier would WRECK — "ITI" would
+    // come back "Iti" and "B.Tech" as "B.tech" if this re-cased what it had no need to touch.
+    //
+    // THE FOURTH ARM IS WHAT MAKES THIS AN ASSERTION RATHER THAN A TAUTOLOGY. The three above
+    // pass with or without the humaniser — that is precisely what "unchanged" means — so the
+    // trimmed value is what proves the humaniser is actually in the path at all.
+    expect(levelOf("12th")).toBe("12th");
+    expect(levelOf("ITI")).toBe("ITI");
+    expect(levelOf("B.Tech")).toBe("B.Tech");
+    expect(levelOf("  Diploma  ")).toBe("Diploma");
+  });
+
+  it("treats a blank level as no level, not as an empty line", () => {
+    // The field's contract is `string | null` where null means "print nothing". A whitespace
+    // string is the same absence spelled differently, and the renderer drops it on the way into
+    // `education_headline` either way — normalising here keeps one absence to one shape.
+    expect(levelOf("   ")).toBeNull();
+  });
+
+  it("does not touch education_field", () => {
+    // The stream is a word the model writes ("Electronics"), not a token vocabulary. There is
+    // nothing to translate, and reshaping it could only ever re-case a value already correct.
+    const input = buildResumeRenderInput(
+      { education_level: "below_10", education_field: "Electronics" },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
+    expect(input.educationLevel).toBe("10th se kam");
+    expect(input.educationField).toBe("Electronics");
   });
 });
 
@@ -166,7 +263,7 @@ describe("buildResumeRenderInput — education_level + education_field", () => {
  */
 describe("buildResumeRenderInput — the LLM-led labels", () => {
   it("prints role_label as the headline when the taxonomy resolved nothing", () => {
-    const input = buildResumeRenderInput({ role_label: "Tandoor Cook" }, null, null, null, "worker");
+    const input = buildResumeRenderInput({ role_label: "Tandoor Cook" }, null, null, null, false, "worker");
     expect(input.canonicalRole).toBe("Tandoor Cook");
   });
 
@@ -187,6 +284,7 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
       null,
       null,
       null,
+      false,
       "worker",
     );
     expect(input.canonicalRole).not.toBe("something the model wrote");
@@ -195,7 +293,7 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
   it("still resolves the taxonomy role when no label was captured", () => {
     // Every deterministic-pack profile is this shape — an id and no label — so the id arms
     // carry all of them and their résumés stay byte-identical (invariant #8).
-    const input = buildResumeRenderInput({ canonical_role_id: "role_welder" }, null, null, null, "worker");
+    const input = buildResumeRenderInput({ canonical_role_id: "role_welder" }, null, null, null, false, "worker");
     expect(input.canonicalRole).toBe("Welder");
   });
 
@@ -203,14 +301,14 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
     // `trade` was hardcoded null on this branch because the deterministic résumé never printed
     // a trade line and the old container had nothing to fill one with. `domain_label` is that
     // source, and it reaches the `{{trade}}` slot every shipped template already carries.
-    const input = buildResumeRenderInput({ domain_label: "Fabrication" }, null, null, null, "worker");
+    const input = buildResumeRenderInput({ domain_label: "Fabrication" }, null, null, null, false, "worker");
     expect(input.trade).toBe("Fabrication");
   });
 
   it("leaves the trade null when no interview named one", () => {
     // Deterministic-pack profiles have no `domain_label`, so their trade line stays absent
     // exactly as it is today — no invented industry (§11), no changed output (invariant #8).
-    const input = buildResumeRenderInput({ canonical_role_id: "role_welder" }, null, null, null, "worker");
+    const input = buildResumeRenderInput({ canonical_role_id: "role_welder" }, null, null, null, false, "worker");
     expect(input.trade).toBeNull();
   });
 
@@ -220,6 +318,7 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
       null,
       null,
       null,
+      false,
       "worker",
     );
     expect(input.summary).toBe("Tandoor Cook with 3 years of experience in catering.");
@@ -231,6 +330,7 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
       null,
       null,
       null,
+      false,
       "worker",
     );
     expect(input.summary).toBe("Cooking.");
@@ -239,7 +339,7 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
   it("fabricates no summary when the model captured no labels", () => {
     // THE FAIL-CLOSED LEG. A sentence about a worker we know nothing about is worse than a
     // blank section — §11, and the same rule the trade branches already follow.
-    const input = buildResumeRenderInput({ experience: { total_years: 3 } }, null, null, null, "worker");
+    const input = buildResumeRenderInput({ experience: { total_years: 3 } }, null, null, null, false, "worker");
     expect(input.summary).toBeNull();
   });
 
@@ -249,6 +349,7 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
       null,
       null,
       null,
+      false,
       "worker",
     );
     expect(input.availability).toBe("Available immediately · Night shift");
@@ -257,22 +358,216 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
   it("prints the shift alone when the status has no phrase", () => {
     // `unknown` yields no availability phrase, but "I work nights" is still an answer the worker
     // gave. The whole line used to collapse and take it down with it.
-    const input = buildResumeRenderInput({ shift: "day" }, null, null, null, "worker");
+    const input = buildResumeRenderInput({ shift: "day" }, null, null, null, false, "worker");
     expect(input.availability).toBe("Day shift");
   });
 
   it("passes through a shift value outside the prompt's vocabulary", () => {
     // The wire type is a bare `str | None` with no Literal behind it. Dropping what we did not
     // anticipate is how the four keys got lost in the first place.
-    const input = buildResumeRenderInput({ shift: "rotational" }, null, null, null, "worker");
+    const input = buildResumeRenderInput({ shift: "rotational" }, null, null, null, false, "worker");
     expect(input.availability).toBe("Rotational");
   });
 
   it("old snapshot without the keys renders exactly as before", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, "worker");
+    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, false, "worker");
     expect(input.canonicalRole).toBeNull();
     expect(input.summary).toBeNull();
     expect(input.availability).toBeNull();
+  });
+});
+
+/**
+ * ── #947: THE WORKER'S OWN NIGHT-SHIFT TOGGLE ──────────────────────────────────────────
+ *
+ * `workers.resume_night_shift_ready` is what the worker themselves ticked on the Edit-Resume
+ * screen. The app shows it on the Resume tab; the PDF never carried it. The only "Night shift"
+ * the PDF could print came from `shift` — the MODEL's reading of the interview — so a worker
+ * who set the toggle and whose interview never mentioned shifts downloaded a résumé that said
+ * nothing about the one preference they had gone out of their way to state.
+ *
+ * IT RIDES `{{availability}}`, WHICH ADDS NO TOKEN. A shipped `<id>.v<n>.html` is immutable by
+ * the registry contract and v3 of all four families has now shipped, so a new
+ * `{{night_shift_ready}}` slot would mean four more layouts and would render as nothing until
+ * every one of them landed. `{{availability}}` prints on all twelve today.
+ *
+ * AND `false` PRINTS NOTHING — the trap the column sets, and the assertion this block exists
+ * for. The column is `notNull().default(false)`, so "answered No" and "never opened the screen"
+ * are the same stored byte; a "…: No" line would stamp a refusal onto the résumé of every
+ * worker who has never seen the toggle. Only `true` speaks.
+ */
+describe("buildResumeRenderInput — the worker's night-shift toggle (#947)", () => {
+  it("puts the worker's own answer on the résumé when they ticked it", () => {
+    // THE REPORTED DEFECT. Nothing in this snapshot mentions a shift — the model never
+    // extracted one — so before this the toggle had no way onto the page at all.
+    const input = buildResumeRenderInput(
+      { availability: { status: "immediate" } },
+      null,
+      null,
+      null,
+      true,
+      "worker",
+    );
+    expect(input.availability).toBe("Available immediately · Night shift ke liye taiyaar");
+  });
+
+  it("humanises EVERY education level the universal pack can store (#963)", () => {
+    // NOT a hand-picked sample: `qp_universal`'s education question offers exactly these five
+    // `value_text`s, `answer-capture` stores the value_text, and the extraction processor copies
+    // it onto the draft verbatim — so this is the complete set that can reach a PDF from the
+    // deterministic path, which every worker walks. Only `below_10` used to be mapped, and the
+    // prettifier could not rescue the rest: it leaves underscore-free values alone, so `10`, `12`
+    // and `graduate` printed raw, and it title-cased `iti_diploma` into "Iti Diploma" — the
+    // acronym-wrecking its own rule 3 exists to prevent.
+    const expected: ReadonlyArray<readonly [string, string]> = [
+      ["below_10", "10th se kam"],
+      ["10", "Dasvi paas"],
+      ["12", "Barhvi paas"],
+      ["iti_diploma", "ITI ya diploma"],
+      ["graduate", "Graduation"],
+    ];
+    for (const [raw, label] of expected) {
+      const input = buildResumeRenderInput(
+        { education_level: raw },
+        null,
+        null,
+        null,
+        false,
+        "worker",
+      );
+      expect(input.educationLevel).toBe(label);
+    }
+  });
+
+  it("prints the toggle alone when nothing else fills the line", () => {
+    // Same rule the model's `shift` already gets: an answer the worker gave is worth showing
+    // even when the availability status yields no phrase of its own. The whole line used to
+    // collapse and take it down with it.
+    const input = buildResumeRenderInput({}, null, null, null, true, "worker");
+    expect(input.availability).toBe("Night shift ke liye taiyaar");
+  });
+
+  it("says it once when the model extracted the same thing — keeping the STRONGER claim", () => {
+    // Both clauses are about nights, so only one prints. Which one is the point: `shift: "night"`
+    // says the worker WORKS nights, the toggle says they are WILLING to, and working nights
+    // implies willingness. Dropping the fact to keep the intention — which is what this did
+    // first — writes a strictly weaker résumé for exactly the population #947 exists for, and
+    // does it on the payer disclosure too, which re-renders on every download.
+    const input = buildResumeRenderInput(
+      { shift: "night", availability: { status: "immediate" } },
+      null,
+      null,
+      null,
+      true,
+      "worker",
+    );
+    expect(input.availability).toBe("Available immediately · Night shift");
+  });
+
+  it("still says it once when the model spelled nights differently", () => {
+    // `shift` is a bare string on the wire with no Literal behind it — the `rotational` test in
+    // this file exists because out-of-vocabulary values really arrive. A dedup comparing the RAW
+    // token missed every one of these and printed "… · Night shift ke liye taiyaar" beside a
+    // clause already saying nights: the one-fact-twice this rule exists to prevent.
+    //
+    // ASSERTED AS ABSENCE, NOT AS AN EXACT LINE, and deliberately. `humanizeShift` passes a value
+    // it does not recognise through with only its first letter uppercased, so "NIGHT SHIFT" still
+    // renders "NIGHT SHIFT". Whether the résumé should shout is a separate question about
+    // `humanizeShift` that neither #947 nor #963 asks, and pinning the shouting here would make
+    // this test fail the day someone fixes it. What must hold is that the toggle does not add a
+    // second clause saying the same thing.
+    for (const raw of ["night", "nights", "night shift", "NIGHT SHIFT", " Night Shift "]) {
+      const input = buildResumeRenderInput(
+        { shift: raw, availability: { status: "immediate" } },
+        null,
+        null,
+        null,
+        true,
+        "worker",
+      );
+      expect(input.availability).not.toContain("Night shift ke liye taiyaar");
+      expect(input.availability).toContain("Available immediately");
+    }
+  });
+
+  it("prints BOTH when the model says a different shift — they are different facts", () => {
+    // The mirror of the rule above, and the reason it is a dedup rather than a precedence chain.
+    // "works days, willing to work nights" is two pieces of information and an employer needs
+    // both; collapsing either would lose a signal the worker actually gave.
+    const input = buildResumeRenderInput(
+      { shift: "day", availability: { status: "immediate" } },
+      null,
+      null,
+      null,
+      true,
+      "worker",
+    );
+    expect(input.availability).toBe(
+      "Available immediately · Day shift · Night shift ke liye taiyaar",
+    );
+  });
+
+  it("keeps the model's shift when it says something the toggle does not", () => {
+    // NOT A CONTRADICTION — the whole signal. "I work days, and I am ready for nights" is two
+    // separate answers by two different authors, and dropping either half would lose a real one.
+    const input = buildResumeRenderInput({ shift: "day" }, null, null, null, true, "worker");
+    expect(input.availability).toBe("Day shift · Night shift ke liye taiyaar");
+  });
+
+  it("NEVER prints a No the worker did not say", () => {
+    // THE DEFAULT-FALSE TRAP, AND THE DESIGN CALL THIS BLOCK DEFENDS. `false` is not an answer:
+    // the column is `notNull().default(false)`, so it is also what every worker who has never
+    // opened the Edit-Resume screen carries, and they are the overwhelming majority. Printing
+    // "Night shift ke liye taiyaar: No" for them would stamp a refusal they never gave onto the
+    // one document whose entire purpose is to be handed to an employer — turning a fix for a
+    // handful of workers into a regression for all the rest. So false says nothing, exactly as
+    // `AVAILABILITY_PHRASES` says nothing for `not_looking`.
+    //
+    // This arm passes both before and after the change BY DESIGN — it pins the judgement, not
+    // the feature. What breaks it is reverting the judgement: emitting a "Yes/No" line instead.
+    const input = buildResumeRenderInput(
+      { shift: "night", availability: { status: "immediate" } },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
+    expect(input.availability).toBe("Available immediately · Night shift");
+    expect(input.availability).not.toMatch(/taiyaar|\bNo\b/i);
+  });
+
+  it("reaches the LLM-led container path too, not just the legacy one", () => {
+    // TWO PATHS, ONE TOGGLE. `resume_profile` wins outright when it carries values, and every
+    // interview-led résumé takes that branch — a fix wired only into the legacy mapper would
+    // miss exactly the workers being onboarded now.
+    const input = buildResumeRenderInput(
+      { resume_profile: { role_label: "VMC Operator", availability: "immediate" } },
+      null,
+      null,
+      null,
+      true,
+      "worker",
+    );
+    expect(input.availability).toBe("Available immediately · Night shift ke liye taiyaar");
+  });
+
+  it("crosses to the payer's masked copy — a work preference is not identity", () => {
+    // AUDIENCE CALL, MADE ON PURPOSE. `fromResumeProfile` already settled the same question for
+    // the model's `shift`: a shift preference is legitimate matching information an employer
+    // should see, and hiding it would cost the worker a real signal. This is the better-sourced
+    // version of that signal. The salary assertion is the contrast — the audience gate is still
+    // withholding what it is meant to withhold on the very same call.
+    const input = buildResumeRenderInput(
+      { resume_profile: { role_label: "VMC Operator", availability: "immediate", expected_salary: 40000 } },
+      "A. K.",
+      "classic",
+      null,
+      true,
+      "employer",
+    );
+    expect(input.availability).toBe("Available immediately · Night shift ke liye taiyaar");
+    expect(input.expectedSalary).toBeNull();
   });
 });
 
@@ -304,7 +599,7 @@ describe("buildResumeRenderInput — the résumé container", () => {
     expected_salary: 40000,
   };
   const build = (over: Record<string, unknown> = {}, audience: "worker" | "employer" = "worker") =>
-    buildResumeRenderInput({ resume_profile: { ...TRACE, ...over } }, "Asha Kumari", "classic", null, audience);
+    buildResumeRenderInput({ resume_profile: { ...TRACE, ...over } }, "Asha Kumari", "classic", null, false, audience);
 
   it("renders every one of the nine keys the model produced", () => {
     const input = build();
@@ -397,6 +692,7 @@ describe("buildResumeRenderInput — the résumé container", () => {
       "Asha Kumari",
       "classic",
       null,
+      false,
       "worker",
     );
     expect(input.experiences).toEqual([]);
@@ -440,7 +736,7 @@ describe("buildResumeRenderInput — the résumé container", () => {
       education_level: "10th",
     };
     const build = (snapshot: Record<string, unknown>) =>
-      buildResumeRenderInput(snapshot, "Asha Kumari", "classic", null, "worker");
+      buildResumeRenderInput(snapshot, "Asha Kumari", "classic", null, false, "worker");
 
     it("does not blank a résumé the answer map could fill", () => {
       // THE REGRESSION. The container is truthy, so the early return fired and discarded every
@@ -522,6 +818,7 @@ describe("buildResumeRenderInput — uncertified scalars in a stored container (
       "Asha Kumari",
       "classic",
       null,
+      false,
       audience,
     );
 

@@ -416,3 +416,55 @@ def test_the_enum_parity_check_is_capable_of_failing():
     """Guards against a regex that quietly matches nothing and makes the above vacuous."""
     assert len(_zod_string_union("ANSWER_TYPES")) >= 5
     assert "multi_select" in _zod_string_union("ANSWER_TYPES")
+
+
+# --- AICallMetadata: the one contract that carries TEXT ----------------------
+#
+# ADDED AFTER A MEASURED, SHIPPED DIVERGENCE. `apps/ai-service` populated
+# `AICallMetadata.prompt_text` / `response_text` with post-pseudonymization text while
+# `packages/ai-contracts`'s `AICallMetadataSchema` had no such fields — and a bare `z.object`
+# STRIPS unknown keys. So the masked text was produced, sent, and silently discarded at
+# `AiService`'s `schema.parse(...)`, and the trace writer stored the API-side REQUEST instead:
+# the worker's raw name, phone and address. Every suite on both sides was green.
+#
+# This model was in NEITHER existing fixture, and `test_the_fixture_declares_no_model_the_
+# python_side_lacks` is scoped to `_JOB_POSTING_MODELS`, so nothing could have caught it.
+_AI_CALL_METADATA_FIXTURE = _FIXTURE_DIR / "ai-call-metadata.keys.json"
+
+
+def test_ai_call_metadata_matches_the_zod_shape():
+    from app.contracts import AICallMetadata
+
+    golden = _read_golden(_AI_CALL_METADATA_FIXTURE)
+    assert sorted(AICallMetadata.model_fields) == sorted(golden["AICallMetadata"])
+
+
+def test_the_two_text_fields_are_named_in_the_fixture_and_on_the_model():
+    """The text pair is called out SEPARATELY from the key list, because it is the half with a
+    privacy contract attached: these are the only fields on this model that carry free text, and
+    `TRACE_TEXT_FIELDS` (which excludes them from the span metadata and the cost log) is derived
+    from that fact. A third text field added without updating both is what this catches."""
+    from app.contracts import TRACE_TEXT_FIELDS, AICallMetadata
+
+    golden = _read_golden(_AI_CALL_METADATA_FIXTURE)
+    declared = set(golden["_text_fields"])
+    assert declared == set(TRACE_TEXT_FIELDS)
+    assert declared <= set(AICallMetadata.model_fields)
+
+
+def test_the_text_fields_default_to_none_so_an_older_service_still_parses():
+    """Additive and defaulted, on BOTH sides. A deploy in which the api leads the ai-service (or
+    a surface that never routes through `AIRouter`) sends no such field, and that must be an
+    ordinary absent value rather than a 500 on every AI call."""
+    from app.contracts import AICallMetadata
+
+    meta = AICallMetadata(
+        ai_call_id="x",
+        task_type="profile_extraction",
+        model_name="m",
+        provider="google",
+        real_call=False,
+        created_at="2026-08-20T00:00:00+00:00",
+    )
+    assert meta.prompt_text is None
+    assert meta.response_text is None

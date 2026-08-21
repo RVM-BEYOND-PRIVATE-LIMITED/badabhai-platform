@@ -48,6 +48,12 @@ void main() {
     // never lets pumpAndSettle settle on its own).
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
+    // The details→code step now animates (BbAnimatedSwitcher, #1078). By here
+    // the signup future has resolved so the spinner is gone — advance past the
+    // ~220ms swap so the code step is fully laid out and hittable before we
+    // interact with it. Bounded (not pumpAndSettle) to keep the spinner-safety
+    // guarantee above.
+    await tester.pump(const Duration(milliseconds: 300));
     await tester.enterText(find.byKey(const Key('code_field')), '123456');
     await tester.tap(find.byKey(const Key('verify_otp')));
     await tester.pump();
@@ -121,9 +127,14 @@ void main() {
     // the two).
     expect(find.text('Current balance'), findsOneWidget);
     expect(find.text('Credit ledger'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Unlock history'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Unlock history'), findsOneWidget);
-    // The money surface is gone: no payment-provider claim and no pack buy
-    // (the pack prices were hardcoded client-side and contradicted the server).
+    // The MOCK pack buy is restored (server-priced), but the REAL-money surface
+    // stays absent: no payment provider, no web checkout, no old hardcoded prices.
     expect(find.textContaining('Razorpay'), findsNothing);
     expect(find.textContaining('Secure checkout'), findsNothing);
     expect(find.text('Best value'), findsNothing);

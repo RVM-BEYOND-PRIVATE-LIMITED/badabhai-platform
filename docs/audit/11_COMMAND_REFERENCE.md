@@ -91,7 +91,7 @@ No `redis-cli`-wrapping script — operated entirely through Docker Compose + th
 |---|---|
 | `pnpm db:up` (despite the name, starts **both** Postgres and Redis) | `docker compose up -d postgres redis` |
 | `pnpm db:down` | Stops containers, **keeps volumes** |
-| `docker compose down -v` | Stop **and delete** volumes — deliberately not wrapped in any pnpm script |
+| `docker compose down -v` | Stop **and delete** volumes — deliberately not wrapped in any pnpm script. **LOCAL ONLY.** On the staging box this deletes `badabhai-platform_badabhai_redisdata`, the only copy of every worker's session/refresh token, and force-logs-out the entire platform instantly (they see "wrong PIN" — #994). To remove a stray container there use `docker rm -f <name>`, never `down`. See [staging session durability](../ops/staging-session-durability.md) |
 | Loopback bind | Redis bound `127.0.0.1:6379:6379` in the **base** compose file (not an overlay) specifically because compose `ports` merge by union-of-keys, not override |
 
 `infra/redis/README.md` is stale Phase-1 placeholder text ("BullMQ workers ... introduced when AI jobs move from inline to background") — `apps/api/package.json` already depends on `@nestjs/bullmq`/`bullmq` today.
@@ -101,7 +101,7 @@ No `redis-cli`-wrapping script — operated entirely through Docker Compose + th
 | Command | Scope | Notes |
 |---|---|---|
 | `pnpm test` (root) | `turbo run test` | CI runs `pnpm test -- --coverage`; the `--` is load-bearing — forwarding a filter incorrectly reruns the **whole** suite instead of a subset, a mistake `ci.yml`'s DB-gates step explicitly works around |
-| `pnpm --filter @badabhai/api run test rank-parity boost-fences apply-freeze current-profile-order` | 4 DB-backed release gates (ADR-0036) | `RUN_DB_TESTS=1`-only, `e2e` job; the CI step double-checks each file ran AND exactly 4 ran (`Test Files +4 passed (4)`), to catch the arg-forwarding bug above recurring |
+| `pnpm --filter @badabhai/api run test rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql` | 6 DB-backed release gates (ADR-0036, plus B-8b, #984 and #982) | `RUN_DB_TESTS=1`-only, `e2e` job; the CI step double-checks each file ran AND exactly 6 ran (`Test Files +6 passed (6)`), to catch the arg-forwarding bug above recurring. Run a shorter command and the omitted gates never execute while the run still reports green |
 | `node --test scripts/staging-smoke.test.mjs` | Offline self-test of the smoke script | Zero network |
 | `pnpm --filter @badabhai/e2e test` | Phase-1 E2E onboarding | ai-service **deliberately not started** — API degrades to safe mock, flow completes offline |
 | `node scripts/smoke.mjs [baseUrl]` | Fast liveness + happy-path check | "No prod target is wired today" per the script's own header |

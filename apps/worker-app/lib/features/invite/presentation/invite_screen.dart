@@ -7,6 +7,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_scroll_safe_body.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../domain/invite_repository.dart';
 import 'cubit/invite_cubit.dart';
@@ -96,7 +97,7 @@ class _InviteView extends StatelessWidget {
                         size: AppTypography.sizeXl,
                         weight: FontWeight.w800,
                         color: AppColors.onBlue)),
-                const SizedBox(height: 2),
+                const SizedBox(height: AppSpacing.hairline),
                 Text('Referral link share karein',
                     style: AppTypography.body(
                         size: AppTypography.sizeXs,
@@ -110,65 +111,72 @@ class _InviteView extends StatelessWidget {
   }
 
   Widget _ready(BuildContext context, InviteLink link) {
-    return Padding(
-      padding: const EdgeInsets.all(AppSpacing.gutter),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          const SizedBox(height: AppSpacing.s4),
-          Center(
-            child: Container(
-              width: 96,
-              height: 96,
-              alignment: Alignment.center,
-              decoration: const BoxDecoration(
-                color: AppColors.saffron50,
-                shape: BoxShape.circle,
+    // Scroll-safe: the Spacer keeps the share CTAs pinned to the bottom on a tall
+    // screen, and the body scrolls (never a RenderFlex overflow) on a short
+    // handset or at a large accessibility text scale. The all-gutter padding
+    // stays INSIDE the wrapper so its vertical inset does not add a spurious
+    // scroll on tall screens.
+    return BbScrollSafeBody(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.gutter),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            const SizedBox(height: AppSpacing.s4),
+            Center(
+              child: Container(
+                width: AppSpacing.s12,
+                height: AppSpacing.s12,
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(
+                  color: AppColors.saffron50,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.group_add_rounded,
+                    size: 48, color: AppColors.saffronDeep),
               ),
-              child: const Icon(Icons.group_add_rounded,
-                  size: 48, color: AppColors.saffronDeep),
             ),
-          ),
-          const SizedBox(height: AppSpacing.s5),
-          Text(
-            'Apne dost ko BadaBhai par bulao',
-            textAlign: TextAlign.center,
-            style: AppTypography.display(
-                size: AppTypography.sizeXl, weight: FontWeight.w800),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          Text(
-            'Woh bhi apna profile banakar factory jobs pa sakte hain — no test, '
-            'bas baat-cheet.',
-            textAlign: TextAlign.center,
-            style: AppTypography.body(color: AppColors.textMuted),
-          ),
-          const SizedBox(height: AppSpacing.s5),
-          _linkChip(context, link),
-          const Spacer(),
-          // The ONE haldi CTA (kit: a single primary per screen) — opens the OS
-          // share sheet with the referral link.
-          BbButton(
-            label: 'Link share karein',
-            block: true,
-            iconLeft: Icons.share_rounded,
-            onPressed: () => context.read<InviteCubit>().shareInvite(),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          // WhatsApp is the worker's default share target — GREEN is the kit's
-          // WhatsApp/success colour. This opens WhatsApp DIRECTLY (wa.me contact
-          // picker, message pre-filled); it used to call the same generic sheet
-          // as the button above, so the label was a promise the code did not
-          // keep. Falls back to the sheet when WhatsApp cannot be opened.
-          BbButton(
-            label: 'WhatsApp pe bhejein',
-            block: true,
-            variant: BbButtonVariant.success,
-            iconLeft: Icons.chat_rounded,
-            onPressed: () => context.read<InviteCubit>().shareInviteOnWhatsApp(),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-        ],
+            const SizedBox(height: AppSpacing.s5),
+            Text(
+              'Apne dost ko BadaBhai par bulao',
+              textAlign: TextAlign.center,
+              style: AppTypography.display(
+                  size: AppTypography.sizeXl, weight: FontWeight.w800),
+            ),
+            const SizedBox(height: AppSpacing.s2),
+            Text(
+              'Woh bhi apna profile banakar factory jobs pa sakte hain — no test, '
+              'bas baat-cheet.',
+              textAlign: TextAlign.center,
+              style: AppTypography.body(color: AppColors.textMuted),
+            ),
+            const SizedBox(height: AppSpacing.s5),
+            _linkChip(context, link),
+            const Spacer(),
+            // The ONE haldi CTA (kit: a single primary per screen) — opens the OS
+            // share sheet with the referral link.
+            BbButton(
+              label: 'Link share karein',
+              block: true,
+              iconLeft: Icons.share_rounded,
+              onPressed: () => context.read<InviteCubit>().shareInvite(),
+            ),
+            const SizedBox(height: AppSpacing.s2),
+            // WhatsApp is the worker's default share target — GREEN is the kit's
+            // WhatsApp/success colour. This opens WhatsApp DIRECTLY (wa.me contact
+            // picker, message pre-filled); it used to call the same generic sheet
+            // as the button above, so the label was a promise the code did not
+            // keep. Falls back to the sheet when WhatsApp cannot be opened.
+            BbButton(
+              label: 'WhatsApp pe bhejein',
+              block: true,
+              variant: BbButtonVariant.success,
+              iconLeft: Icons.chat_rounded,
+              onPressed: () => context.read<InviteCubit>().shareInviteOnWhatsApp(),
+            ),
+            const SizedBox(height: AppSpacing.s3),
+          ],
+        ),
       ),
     );
   }

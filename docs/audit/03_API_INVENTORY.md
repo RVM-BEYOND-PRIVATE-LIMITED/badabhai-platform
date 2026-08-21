@@ -2,12 +2,26 @@
 
 Every HTTP route in `apps/api` (NestJS) and `apps/ai-service` (FastAPI), with auth, the
 service/tables it touches, external calls, events emitted, queue interaction, test coverage,
-and a criticality class. Compiled by reading all 62 `apps/api` controllers in full and all 10
+and a criticality class. Compiled by reading every `apps/api` controller in full and all 10
 `apps/ai-service` routers in full, cross-checked against frontend/mobile call-site greps for
 the CALLER evidence.
 
-**Totals**: apps/api = 217 routes / 62 controllers. apps/ai-service = 15 routes / 10 routers.
-**232 routes total.**
+**Totals**: apps/api = 221 routes / 65 controllers. apps/ai-service = 15 routes / 10 routers.
+**236 routes total.** Counts re-derived 2026-08-19 (`@Get|@Post|@Put|@Patch|@Delete` decorators
+across every non-test `*.controller.ts`), not carried forward: the original 217/62 was exact when
+this file was written, then `GET /jobs/search` (#856) landed without a row here — added below —
+and #997 adds two more.
+
+> **Counts are a dated snapshot; the route rows are not.** These aggregates were compiled by
+> reading every controller in full at the time of the audit, and several other files in
+> `docs/audit/` cross-reference them. Routes added since are listed in the tables below (they are
+> the useful part of this register) WITHOUT bumping the totals, because a count moved here and
+> not in the files that quote it is worse than a count that is openly a snapshot. Added after the
+> snapshot: `GET /admin/dashboard/summary` (BP-5). Added 2026-08-19: the three ADR-0025 Phase 6
+> **admin worker-journey** reads — those were MISSING rather than new (they shipped before the
+> re-derive and no row was written for them), which is worth recording as the failure mode this
+> register actually has: a route lands with its own tests and its own docstring, and the only
+> thing nobody updates is the one file that claims to list every route.
 
 ## Criticality classes
 
@@ -26,13 +40,13 @@ the CALLER evidence.
 
 ## Test coverage
 
-apps/api: 46 of 62 controllers have a co-located `*.controller.test.ts`. The 16 without one
-(`admin-actions`, `admin-directory`, `admin-entities`, `admin-events`, `admin-finance`,
-`admin-kill-switch`, `admin-pii-reveal`, `agency-invites`, `agency-jobs`, `agency-workers`,
-`devices`, `resume-disclosure`, `jobs`, `pace`, `referral-bonus`, `skills`) all have adjacent
-`*.service.test.ts`/`*.authz.test.ts`/`*.repository.test.ts` instead — business logic is
-tested, but the HTTP/guard-wiring layer for those 16 is not directly exercised by a
-controller-level test.
+apps/api: 47 of 64 controllers have a co-located `*.controller.test.ts`. The 17 without one
+(`admin-actions`, `admin-directory`, `admin-entities`, `admin-events`, `admin-feedback`,
+`admin-finance`, `admin-kill-switch`, `admin-pii-reveal`, `agency-invites`, `agency-jobs`,
+`agency-workers`, `devices`, `resume-disclosure`, `jobs`, `pace`, `referral-bonus`, `skills`)
+all have adjacent `*.service.test.ts`/`*.authz.test.ts`/`*.repository.test.ts` instead —
+business logic is tested, but the HTTP/guard-wiring layer for those 17 is not directly
+exercised by a controller-level test.
 
 apps/ai-service: 13 of 15 routes have direct test coverage. **Gap**: `POST /profiling/turn`
 has only a unit test on its internal parser (no `TestClient` HTTP-level test), and
@@ -42,10 +56,14 @@ has only a unit test on its internal parser (no `TestClient` HTTP-level test), a
 ## Class-F note (routes with no confirmed caller yet)
 
 Every admin-portal route beyond `/admin/login/*`, `/admin/mfa/verify`, `/admin/logout`,
-`/admin/me`, `/admin/capabilities`, `/admin/kill-switch/status`, and `/admin/events/metrics`
-is fully built, guarded (`AdminAuthGuard` + `AdminRolesGuard` + capability check), and
-service/authz-tested, but has no confirmed `apps/admin-web` caller today. This matches the
-repo's documented "build-ahead-of-UI" pattern (ADMIN-4..8/OBS-4 are explicitly deferred in the
+`/admin/me`, `/admin/capabilities`, `/admin/kill-switch/status`, `/admin/events/metrics` and
+`/admin/feedback` (#997 lands the route and its portal page together) is fully built, guarded
+(`AdminAuthGuard` + `AdminRolesGuard` + capability check), and service/authz-tested, but has
+no confirmed `apps/admin-web` caller today. (`AAG` = `AdminAuthGuard`, `ARG` = `AdminRolesGuard`
+in the Auth column below. `ATFG` = `AdminAiTraceFlagGuard`, migration 0083's default-OFF master
+switch, listed BEFORE `ARG` so a flag-off request answers a uniform neutral 404 for every role
+rather than a 403 that confirms the surface exists.) This matches the repo's documented
+"build-ahead-of-UI" pattern (ADMIN-4..8/OBS-4 are explicitly deferred in the
 routes' own docstrings) — it is not evidence of dead code, and Class F is deliberately kept
 distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 `pause-request`, `agency-invites`' agent-scoped `click`) are similarly built-but-uncalled.
@@ -73,9 +91,10 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | GET/PATCH/DELETE | /auth/devices, /auth/devices/me/push-token, /auth/devices/:id | WAG | B | no controller test (service-tested) |
 | POST | /auth/pin/set | WAG | B | |
 | POST | /auth/pin/verify | none (refresh token = credential, ADR-0026) | A | |
-| POST | /auth/pin/reset/request, /reset/confirm | none (IP-capped) | B | |
+| POST | /auth/pin/reset/request | none (IP-capped, shared `otp_request` bucket) | B | |
+| POST | /auth/pin/reset/confirm | none (the verified OTP is the credential) | B | **NOT IP-capped** — bounded by the per-phone send caps + per-code attempt counter in `OtpService`, same posture as `/auth/otp/verify`. **Mints a session** and returns the login-shape body since #994 (ADR-0026 A6) |
 
-### consent, admin (auth/directory/entities/finance/events/kill-switch/pii-reveal/actions)
+### consent, admin (auth/directory/entities/finance/dashboard/feedback/events/kill-switch/pii-reveal/actions)
 
 | M | Path | Auth | Role | Class | Notes |
 |---|---|---|---|---|---|
@@ -83,12 +102,19 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | POST | /admin/login/request, /login/verify, /mfa/verify | none (IP-capped) | - | A | ZeptoMail |
 | POST/GET | /admin/refresh, /admin/logout, /admin/me | AdminAuthGuard | - | B | |
 | GET | /admin/admins, /admin/capabilities | AAG+ARG | manage_admins / read_entities | F/B | capabilities called by admin-web |
-| GET | /admin/workers(/:id), /admin/payers(/:id)(/credits), /admin/job-postings(/:id), /admin/applications | AAG+ARG | read_entities | F | built, no confirmed admin-web caller yet |
+| GET | /admin/workers(/:id), /admin/payers(/:id)(/credits), /admin/job-postings(/:id), /admin/applications | AAG+ARG | read_entities | F | built, no confirmed admin-web caller yet. Since the 2026-08-18 ruling the four worker/payer reads ADDITIVELY carry a decrypted `full_name`/`org_name` when the caller holds `read_identity` (super_admin/ops_admin/support; analyst denied) — capability checked in `AdminIdentityService`, not a second `@RequireAdminRole`, so all four roles still reach the route and an analyst's response is byte-identical to the pre-ruling one. Named pages clamp to 50, are charged to the `admin_identity:*` per-admin hour/day budget, emit `admin.identity_viewed` before any decrypt, and carry `Cache-Control: no-store`. Over budget ⇒ the faceless projection, never a 5xx |
 | GET | /admin/finance/{summary,ledger,orders} | AAG+ARG | read_entities | F | |
+| GET | /admin/dashboard/summary | AAG+ARG | read_entities | F | BP-5; platform AI spend (`platform_ai_cost_totals`) + volume counts; `windowDays` scopes the cap-breach block only |
+| GET | /admin/feedback | AAG+ARG | read_entities | B | #997; called by admin-web `/feedback`. Worker-authored free text — the one admin read whose rows are not faceless. Filters: `category`, `workerId` (a uuid LOOKUP, never a free-text search over `message` — that stays refused in writing). Projects `screen_context`, one of the worker app's own screen names (`/jobs/detail/:id`), never a concrete path. Emits `admin.feedback_viewed` (ADR-0025 Amendment 1) — awaited, fail-closed, filters + result count, never any message text. No name join — this route was NOT given a name by the 2026-08-18 ruling and still has none; `reveal-contact` stays the sole CONTACT egress |
+| GET | /admin/workers/:id/journey-summary | AAG+ARG | read_entities | B | Phase 6; called by admin-web. The 7-step funnel for ONE worker. Emits `admin.worker_journey_viewed` — awaited, fail-closed, emitted AFTER the 404 check so an unknown id leaves no row. Profiling `completed` counts SETTLED answers only (`answered`+`declined`) |
+| GET | /admin/workers/:id/chat-sessions | AAG+ARG | read_entities | B | Phase 6; keyset-paginated on `(started_at, id)` DESC (index from migration 0079). Deliberately NOT audited — a per-worker index of session ids/timings/statuses, the entity-detail data class; both reads it leads to are audited themselves |
+| GET | /admin/chat-sessions/:id | AAG+ARG | read_entities | B | Phase 6; one interview session in depth (settled answers, voice retry chain, AI jobs, spend, derived stuck question). Returns NO transcript text. Emits `admin.worker_journey_viewed` with the worker read off the session ROW, never from the path |
 | GET | /admin/events(/:id/metrics/export/trace) | AAG+ARG | read_events | F/B | metrics called by admin-web |
 | GET | /admin/kill-switch/status | AAG+ARG | toggle_kill_switch | B | called by admin-web |
 | POST | /admin/kill-switch/pause-request | AAG+ARG | toggle_kill_switch | F | no pairing enable action found |
 | POST | /admin/workers/:id/reveal-contact | AAG+ARG | reveal_pii | F | **default-OFF flag `ADMIN_PII_REVEAL_ENABLED`, 404 while off** — R24's most sensitive route, 8 documented controls, see [15_SECURITY_AUDIT.md](15_SECURITY_AUDIT.md) |
+| GET | /admin/ai-traces | AAG+**ATFG**+ARG | read_ai_traces | F | 0083; called by admin-web `/ai-calls`. PII-FREE keyset page — task type, model, `real_call`, outcome, the closed-set error code, the two character LENGTHS, opaque ids. No ciphertext leaves the repository and nothing is decrypted, so no cap and no audit event. Filters: `taskType`, `success`, `workerId` (a uuid LOOKUP — there is no search over the text, here or anywhere). Page ceiling 50, half the entity ceiling: walked end to end this list is an index of which worker spoke, in which interview, when, and how much. **`super_admin` only, per the 2026-08-20 ruling** — the case for reopening it to `read_entities` for ops triage is argued in the controller header and is OPEN |
+| GET | /admin/ai-traces/:id | AAG+**ATFG**+ARG | read_ai_traces | F | 0083; the DECRYPT — one stored prompt + completion. **Default-OFF flag `ADMIN_AI_TRACE_READ_ENABLED`, neutral 404 while off for EVERY role** (`AdminAiTraceFlagGuard` is ordered ahead of `AdminRolesGuard`, so a lesser role cannot get a 403 that confirms the surface exists). Charges a per-admin cap on its own `admin_ai_trace:*` namespace (20/hour, 60/day, fail-closed) BEFORE the lookup, then emits `admin.ai_trace_viewed` AWAITED and fail-closed — no audit row, no text; the payload carries the two LENGTHS and never the text. `Cache-Control: no-store`. Single `:id` only: no export, no range, no batch decrypt, and there must never be one |
 | POST | /admin/payers/:id/{suspend,reinstate,credits}, /admin/job-postings/:id/close, /admin/workers/:id/{flag,unflag}, /admin/admins* | AAG+ARG | per-action capability | F | all built/guarded/tested, no confirmed FE caller |
 
 ### chat, profiling, profiles, voice, resume (worker AI path)
@@ -126,6 +152,7 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | POST | /applications/:jobId/{apply,skip} | WAG,CG | A | event: application.submitted/skipped |
 | GET | /workers/me/applications | WAG,CG | A | |
 | GET | /jobs/:jobId/applicants, /workers/:workerId/applications | ISG | C | |
+| GET | /jobs/search | WAG,CG | A | #856; worker-facing title + city/state search. Declared BEFORE `/jobs/:jobId` — the parameterized route would otherwise swallow it. event: job.search_performed (query text never carried; length/result-count only) |
 | GET | /jobs/:jobId | WAG,CG | A | deliberately no event |
 | POST/GET/PATCH | /job-postings(/:id)(/close/verify/reject/reach/widen) | ISG | B/F | list/get/update/close called by apps/web; verify/reject no confirmed caller |
 | GET/PATCH | /workers/me/notification-prefs, /notifications, /notifications/read | WAG,CG | B | |
@@ -171,7 +198,7 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | POST/GET | /payer/agency/{kyc,earnings,payouts} | PAG,agent,AgencyPayoutsEnabledGuard | B | 404 while `AGENCY_PAYOUTS_ENABLED` off |
 | GET/POST | /ops/agency-kyc/{pending,:payerId/verify,:payerId/reject} | ISG | B | called by apps/web |
 
-### messaging, referrals, interview-kit(s), pace, occupation, skills, events, health, actions
+### messaging, referrals, interview-kit(s), pace, occupation, skills, events, health, actions, feedback
 
 | M | Path | Auth | Class | Notes |
 |---|---|---|---|---|
@@ -187,6 +214,7 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | GET | /health | none | A | |
 | POST | /actions, /actions/batch | ISG | C | |
 | POST | /workers/me/actions, /actions/batch | WAG,CG | A | |
+| POST | /workers/me/feedback | WAG,CG | A | #997; event: feedback.submitted (message LENGTH only, never the text). Optional `screen` field — matched server-side against the app's finite route table and replaced by one of OUR constants, or NULL (`resolveScreenTemplate`), sanitize-never-reject like `x-app-build`. Per-worker minute cap then hour cap (`WORKER_FEEDBACK_PER_MINUTE`/`_PER_HOUR`). Row + event share one transaction |
 
 ---
 

@@ -139,8 +139,19 @@ class ScriptAuthApi extends AuthApi {
   Future<void> pinResetRequest(String phoneE164) async => resetRequested = true;
 
   @override
-  Future<void> pinResetConfirm(String phone, String otp, String pin) async =>
-      resetConfirmed = true;
+  Future<OtpVerifyResult> pinResetConfirm(
+      String phone, String otp, String pin) async {
+    resetConfirmed = true;
+    // A6/#998: the reset returns a LIVE login-shape session, so confirmPinReset
+    // consumes it and authenticates (no longer a bounce to `locked`).
+    return OtpVerifyResult(
+      workerId: 'w-reset',
+      isNewUser: false,
+      pinSet: true,
+      tokens: _mint('reset-access', 'reset-refresh'),
+      consentAccepted: true,
+    );
+  }
 }
 
 /// An api that mints tokens but does NOT write [SecureTokenStore] — proves the
@@ -525,6 +536,49 @@ void main() {
             manager.unlockWithPin('0000'), throwsA(isA<AuthFailure>()));
       }
       expect(manager.status, AuthStatus.locked);
+    });
+
+    test('A6/#998: the reset SELF-HEALS — it returns a live device-bound session, '
+        'so the worker is authenticated directly, no dead-token trap at all',
+        () async {
+      // The old dead token is irrelevant now: confirmPinReset consumes the FRESH
+      // session the reset mints, replacing it — there is no keep-the-old-token
+      // bounce to `locked`, so the "reset PIN → told it's wrong" loop cannot form.
+      await store.writeRefreshToken('refresh-but-dead');
+      await manager.bootstrap();
+      await manager.confirmPinReset('+919999999999', '123456', '4242');
+      expect(manager.status, AuthStatus.authenticated);
+      expect(await store.readRefreshToken(), 'reset-refresh');
+    });
+
+    test('LEGACY back-compat: an OLD 204/empty reset still falls to `locked`, and '
+        'the dead-token trap escapes to OTP on the FIRST rejection', () async {
+      // An old server that answers 204 mints no session, so confirmPinReset keeps
+      // the pre-A6 behaviour: locked, armed with the dead-token escape.
+      final _LegacyResetApi legacy = _LegacyResetApi(store);
+      final AuthSessionManager m = AuthSessionManager(
+        authApi: legacy,
+        tokenStore: store,
+        session: session,
+        reauthSignal: reauth,
+        persistentAuthEnabled: true,
+      );
+      await store.writeRefreshToken('refresh-but-dead');
+      await m.bootstrap();
+      await m.confirmPinReset('+919999999999', '123456', '4242');
+      expect(m.status, AuthStatus.locked);
+
+      // The worker types the PIN they JUST set; the dead token still 401s — the
+      // FIRST failure drops the session and routes to OTP, never "wrong PIN".
+      legacy.throwOnPinVerify =
+          const AuthFailure(AuthErrorCode.pinVerifyFailed);
+      await expectLater(
+        m.unlockWithPin('4242'),
+        throwsA(isA<AuthFailure>().having(
+            (AuthFailure f) => f.code, 'code', AuthErrorCode.reauthRequired)),
+      );
+      expect(m.status, AuthStatus.loggedOut);
+      expect(await store.readRefreshToken(), isNull);
     });
   });
 
@@ -959,16 +1013,23 @@ void main() {
       expect(api.resetRequested, isTrue);
     });
 
-    test('confirmPinReset → locked when a refresh token survives', () async {
-      await store.writeRefreshToken('survives');
+    test('confirmPinReset CONSUMES the returned session → authenticated, '
+        'replacing the old token (A6/#998)', () async {
+      await store.writeRefreshToken('old-dead-token');
       await manager.confirmPinReset('+91999', '123456', '4821');
       expect(api.resetConfirmed, isTrue);
-      expect(manager.status, AuthStatus.locked);
+      // The reset returns a live session, so we authenticate directly instead of
+      // bouncing to `locked` against the OLD (possibly dead) token.
+      expect(manager.status, AuthStatus.authenticated);
+      expect(await store.readRefreshToken(), 'reset-refresh',
+          reason: 'the freshly minted token replaces the stale one');
     });
 
-    test('confirmPinReset → loggedOut when NO refresh token remains', () async {
+    test('confirmPinReset authenticates even with NO prior token — the reset '
+        'itself mints the session (A6/#998)', () async {
       await manager.confirmPinReset('+91999', '123456', '4821');
-      expect(manager.status, AuthStatus.loggedOut);
+      expect(manager.status, AuthStatus.authenticated);
+      expect(await store.readRefreshToken(), 'reset-refresh');
     });
 
     test('confirmPinReset rethrows a bad-OTP AuthFailure', () async {
@@ -994,8 +1055,31 @@ class _ThrowingResetApi extends ScriptAuthApi {
   _ThrowingResetApi(super.store);
 
   @override
-  Future<void> pinResetConfirm(String phone, String otp, String pin) async =>
+  Future<OtpVerifyResult> pinResetConfirm(
+          String phone, String otp, String pin) async =>
       throw const AuthFailure(AuthErrorCode.otpInvalid);
+}
+
+/// Simulates an OLD server that still answers pin/reset/confirm with 204 (an empty
+/// body → empty tokens), so confirmPinReset takes the legacy locked fallback.
+class _LegacyResetApi extends ScriptAuthApi {
+  _LegacyResetApi(super.store);
+
+  @override
+  Future<OtpVerifyResult> pinResetConfirm(
+      String phone, String otp, String pin) async {
+    resetConfirmed = true;
+    return OtpVerifyResult(
+      workerId: '',
+      isNewUser: false,
+      pinSet: true,
+      tokens: AuthTokens(
+        access: '',
+        refresh: '',
+        accessExpiresAt: DateTime.now(),
+      ),
+    );
+  }
 }
 
 /// An api whose logout throws — proves the offline-safe local wipe.

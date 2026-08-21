@@ -20,6 +20,14 @@ import json
 
 from fastapi import APIRouter
 
+from ..ai import prompt_registry
+from ..ai.langfuse_tracing import (
+    SCORE_BOOLEAN,
+    SCORE_NUMERIC,
+    WORKFLOW_PROFILE_BUILD,
+    WORKFLOW_PROFILE_INTERVIEW,
+    get_tracer,
+)
 from ..config import get_settings
 from ..contracts import (
     ExperienceEntry,
@@ -32,7 +40,7 @@ from ..profiling.canonical_roles import coerce_json_text
 from ..profiling.interview_prompts import extract_system_prompt, interview_system_prompt
 from ..profiling.parse_masking import mask_transcript_lines
 from ..pseudonymize import pseudonymize
-from ._shared import logger, router
+from ._shared import logger, resolve_prompt, router, workflow_scope
 
 api_router = APIRouter()
 
@@ -43,8 +51,15 @@ EXTRACT_TASK_TYPE = "profile_extraction"
 _SILENT = LlmTurnOutput(reply_text="", is_mock=True)
 
 
-def _turn_messages(body: LlmTurnInput, masked_message: str) -> list[dict[str, str]]:
+def _turn_messages(
+    body: LlmTurnInput, masked_message: str, system_prompt: str
+) -> list[dict[str, str]]:
     """System prompt + a compact rendering of where we are and what was said.
+
+    THE SYSTEM PROMPT IS PASSED IN rather than built here, so the caller can record WHICH
+    prompt version produced the reply (`ai/prompt_registry`). The text is exactly what
+    `interview_system_prompt()` returns unless Langfuse prompt management is deliberately
+    switched on, so nothing about the request the provider sees changes by default.
 
     The draft is sent back each turn rather than kept here: this service holds no session
     state, which is what makes an API-owned turn cap enforceable rather than advisory.
@@ -71,7 +86,7 @@ def _turn_messages(body: LlmTurnInput, masked_message: str) -> list[dict[str, st
         else ""
     )
     return [
-        {"role": "system", "content": interview_system_prompt()},
+        {"role": "system", "content": system_prompt},
         {
             "role": "user",
             "content": (
@@ -126,56 +141,81 @@ async def profiling_turn(body: LlmTurnInput) -> LlmTurnOutput:
     """
     settings = get_settings()
 
-    masked_message = ""
-    if body.message_text:
-        result = pseudonymize(body.message_text)
-        if result.blocked:
+    # ONE ROOT TRACE per turn, so the generation the router opens nests under a BUSINESS
+    # operation instead of standing alone. Without it, a twelve-turn interview is twelve
+    # unrelated traces and nothing says they belong to the same worker's conversation.
+    #
+    # NO `session_id`, deliberately. `LlmTurnInput` carries none — the API owns interview
+    # state and this service holds none — and minting one here would stamp a fabricated
+    # identifier on every trace that correlates nothing. What DOES tie the turns together is
+    # the BL-19 correlation id `workflow_scope` reads off the request, which comes from the
+    # one component that actually knows.
+    with workflow_scope(
+        name=WORKFLOW_PROFILE_INTERVIEW,
+        worker_ref=body.worker_ref,
+        # Closed-set stage id + a bool. Never worker text.
+        metadata={"stage": body.stage, "force_close": body.force_close},
+    ):
+        masked_message = ""
+        if body.message_text:
+            result = pseudonymize(body.message_text)
+            if result.blocked:
+                logger.warning(
+                    "llm turn blocked by the privacy gate",
+                    extra={"extra": {"reason": result.blocked_reason}},
+                )
+                return LlmTurnOutput(
+                    reply_text="", blocked=True, blocked_reason=result.blocked_reason, is_mock=True
+                )
+            masked_message = result.text
+
+        # History is masked PER MESSAGE, not as one blob. A 20k whole-transcript gate is what
+        # once blocked long interviews outright and handed the worker an empty profile —
+        # punished, precisely, for answering at length.
+        body = body.model_copy(update={"history": mask_transcript_lines(body.history)})
+
+        # RESOLVED, not called, so the generation records which prompt version produced this
+        # reply. `resolve_prompt` returns the LOCAL builder's text unless Langfuse prompt
+        # management is explicitly enabled (off by default), and `None` only if the name was
+        # never registered — hence the direct call as the fallback. Either way the bytes the
+        # provider sees are `interview_system_prompt()`'s today.
+        resolved = resolve_prompt(prompt_registry.INTERVIEW_TURN)
+        system_prompt = resolved.text if resolved is not None else interview_system_prompt()
+
+        try:
+            content, meta = await asyncio.wait_for(
+                router.run(
+                    TURN_TASK_TYPE,
+                    messages=_turn_messages(body, masked_message, system_prompt),
+                    mock_response="{}",
+                    real_call_allowed=True,
+                    user_ref=body.worker_ref,
+                    prompt=resolved,
+                ),
+                timeout=settings.profiling_turn_deadline_seconds,
+            )
+        except TimeoutError:
+            # TimeoutError ONLY — a CancelledError means the CLIENT went away, and swallowing
+            # it would turn a disconnect into a fabricated 200.
             logger.warning(
-                "llm turn blocked by the privacy gate",
-                extra={"extra": {"reason": result.blocked_reason}},
+                "llm turn deadline exceeded",
+                extra={"extra": {"deadline_s": settings.profiling_turn_deadline_seconds}},
             )
-            return LlmTurnOutput(
-                reply_text="", blocked=True, blocked_reason=result.blocked_reason, is_mock=True
-            )
-        masked_message = result.text
+            return _SILENT
 
-    # History is masked PER MESSAGE, not as one blob. A 20k whole-transcript gate is what once
-    # blocked long interviews outright and handed the worker an empty profile — punished,
-    # precisely, for answering at length.
-    body = body.model_copy(update={"history": mask_transcript_lines(body.history)})
+        if not meta.real_call:
+            # A posture (mock mode, a cap, the kill switch), not an incident. No mock question
+            # is invented: a fabricated interview question is worse than a deterministic real
+            # one.
+            return _SILENT
 
-    try:
-        content, meta = await asyncio.wait_for(
-            router.run(
-                TURN_TASK_TYPE,
-                messages=_turn_messages(body, masked_message),
-                mock_response="{}",
-                real_call_allowed=True,
-                user_ref=body.worker_ref,
-            ),
-            timeout=settings.profiling_turn_deadline_seconds,
-        )
-    except TimeoutError:
-        # TimeoutError ONLY — a CancelledError means the CLIENT went away, and swallowing it
-        # would turn a disconnect into a fabricated 200.
-        logger.warning(
-            "llm turn deadline exceeded",
-            extra={"extra": {"deadline_s": settings.profiling_turn_deadline_seconds}},
-        )
-        return _SILENT
+        out = _parse_turn(content, body)
+        if out is None or not out.reply_text.strip():
+            return _SILENT
 
-    if not meta.real_call:
-        # A posture (mock mode, a cap, the kill switch), not an incident. No mock question is
-        # invented: a fabricated interview question is worse than a deterministic real one.
-        return _SILENT
-
-    out = _parse_turn(content, body)
-    if out is None or not out.reply_text.strip():
-        return _SILENT
-
-    out.is_mock = False
-    out.ai_metadata = meta
-    return out
+        out.is_mock = False
+        out.ai_metadata = meta
+        return out
 
 
 @api_router.post("/profiling/extract", response_model=InterviewExtractOutput)
@@ -188,75 +228,165 @@ async def profiling_extract(body: InterviewExtractInput) -> InterviewExtractOutp
     because the packs can only ask a fixed question once.
     """
     settings = get_settings()
-    masked = mask_transcript_lines(body.transcript)
-    if not masked:
-        return InterviewExtractOutput(is_mock=True)
 
-    rendered = "\n".join(
-        f"{'Worker' if line.role == 'worker' else 'Bada Bhai'}: {line.text}" for line in masked
+    # ROOT TRACE. Phase C is the same business operation as the parse that may follow it —
+    # building one worker's profile — so it shares `WORKFLOW_PROFILE_BUILD`, and the shared
+    # BL-19 correlation id lands both in ONE trace rather than two unrelated ones.
+    with workflow_scope(
+        name=WORKFLOW_PROFILE_BUILD,
+        worker_ref=body.worker_ref,
+        # A count, not content: how long a conversation this synthesis had to read is the
+        # dimension that explains its cost and its latency.
+        metadata={"transcript_lines": len(body.transcript)},
+    ):
+        masked = mask_transcript_lines(body.transcript)
+        if not masked:
+            return InterviewExtractOutput(is_mock=True)
+
+        rendered = "\n".join(
+            f"{'Worker' if line.role == 'worker' else 'Bada Bhai'}: {line.text}" for line in masked
+        )
+        # RESOLVED, not called — see the identical note in `profiling_turn`. `None` (name never
+        # registered) falls back to the local builder, so the default behaviour is unchanged.
+        resolved = resolve_prompt(prompt_registry.INTERVIEW_EXTRACT)
+        system_prompt = resolved.text if resolved is not None else extract_system_prompt()
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"The conversation:\n{rendered}"},
+        ]
+
+        try:
+            content, meta = await asyncio.wait_for(
+                router.run(
+                    EXTRACT_TASK_TYPE,
+                    messages=messages,
+                    mock_response="{}",
+                    real_call_allowed=True,
+                    user_ref=body.worker_ref,
+                    prompt=resolved,
+                ),
+                timeout=settings.profiling_extract_deadline_seconds,
+            )
+        except TimeoutError:
+            logger.warning(
+                "interview extract deadline exceeded",
+                extra={"extra": {"deadline_s": settings.profiling_extract_deadline_seconds}},
+            )
+            return InterviewExtractOutput(is_mock=True)
+
+        if not meta.real_call:
+            return InterviewExtractOutput(is_mock=True)
+
+        # EVERY SCORE BELOW THIS LINE IS ON A REAL CALL BY CONSTRUCTION — the branch directly
+        # above returns on a mock posture, so no `meta.real_call` re-check is needed and adding
+        # one would be dead code. A mock call measures nothing and must score nothing.
+        tracer = get_tracer()
+
+        try:
+            # Same fence tolerance as the turn parser above, and for the same reason.
+            raw = json.loads(coerce_json_text(content))
+            out = InterviewExtractOutput.model_validate(raw if isinstance(raw, dict) else {})
+        except Exception:
+            logger.warning("interview extract output failed the contract")
+            # The one branch where the model's body could not be read as the contract. Recorded
+            # as a score rather than only a log line so "how often does this model produce an
+            # off-contract extract?" is answerable per prompt version. No exception text: a
+            # Pydantic error echoes the input, and the input is worker-derived.
+            tracer.record_score(
+                name="interview_extract_contract_valid",
+                value=False,
+                data_type=SCORE_BOOLEAN,
+            )
+            return InterviewExtractOutput(is_mock=True, ai_metadata=meta)
+
+        tracer.record_score(
+            name="interview_extract_contract_valid", value=True, data_type=SCORE_BOOLEAN
+        )
+
+        # COUNTED BEFORE THE PASS MUTATES `out`. The certification below drops in place, so the
+        # "proposed" side of the ratio does not exist afterwards — and an estimate would make
+        # the score a guess about a wall whose whole value is that it is mechanical.
+        proposed = _certifiable_item_count(out)
+
+        # Re-certify every surviving string. The model read a masked transcript, but it composes
+        # new text (`work_done`, skill phrases) and composed text is not covered by the input
+        # gate.
+        #
+        # EVERY STRING FIELD, not just these two (#831). `experiences` and `skills` were
+        # certified here and the other six were not, which read as a complete gate and was not
+        # one: every remaining field is model-composed FREE TEXT (`shift` and `availability` are
+        # `str | None` capped at 40 chars, the rest at 120 — none is an enum), so each can carry
+        # exactly what this step exists to catch.
+        #
+        # THAT WAS NOT THEORETICAL. `shift` is read by `resume-render-input.ts::fromResumeProfile`
+        # with no audience distinction, so an uncertified value reaches the EMPLOYER-facing masked
+        # disclosure PDF — a cross-party surface — as well as the worker's own. Certifying at the
+        # source is what makes the guarantee inheritable: the text résumé, the worker PDF and the
+        # employer PDF each read this container, and one gate here beats three read-sites
+        # re-implementing it and drifting.
+        out.experiences = [e for e in out.experiences if _certified(e)]
+        out.skills = _certified_list(out.skills)
+        out.preferred_locations = _certified_list(out.preferred_locations)
+        out.domain_label = _certified_scalar(out.domain_label)
+        out.role_label = _certified_scalar(out.role_label)
+        out.shift = _certified_scalar(out.shift)
+        out.current_city = _certified_scalar(out.current_city)
+        out.availability = _certified_scalar(out.availability)
+        # `expected_salary` is a float and carries no free text, so there is nothing to certify.
+
+        if proposed:
+            # WHAT SURVIVED THE CERTIFICATION WALL, as a fraction. A real measurement: both
+            # sides are counted off the same container, before and after the pass that drops
+            # from it. A falling ratio means the model is composing text the gateway will not
+            # vouch for — the signal a prompt regression would show up as first.
+            #
+            # SKIPPED WHEN NOTHING WAS PROPOSED. A ratio over an empty set is not a
+            # measurement, and recording 0/0 as either 0.0 or 1.0 would move the average by
+            # inventing a data point. It also keeps the division out of an unguarded route
+            # handler — `record_score` is fail-open, but the arithmetic at this call site is
+            # not inside that boundary.
+            surviving = _certifiable_item_count(out)
+            tracer.record_score(
+                name="interview_extract_certified_ratio",
+                value=surviving / proposed,
+                data_type=SCORE_NUMERIC,
+                # Counts only. Never an item, never a dropped value.
+                comment=f"{surviving}/{proposed} certifiable items survived",
+            )
+
+        out.is_mock = False
+        out.ai_metadata = meta
+        return out
+
+
+def _certifiable_item_count(out: InterviewExtractOutput) -> int:
+    """How many items on `out` the certification pass is able to drop, right now.
+
+    EXACTLY the fields `profiling_extract` certifies and no others — the three lists plus the
+    five `str | None` scalars — so calling this before and after the pass yields a
+    before/after over the SAME population. `expected_salary` is excluded because it is a float
+    the pass never touches, and counting an item that can never be dropped would silently
+    inflate the ratio toward 1.0 on every call.
+
+    A `None` scalar was never proposed, so it is not counted on the "before" side either; that
+    is what stops an absent field from reading as a rejected one.
+    """
+    return (
+        len(out.experiences)
+        + len(out.skills)
+        + len(out.preferred_locations)
+        + sum(
+            1
+            for value in (
+                out.domain_label,
+                out.role_label,
+                out.shift,
+                out.current_city,
+                out.availability,
+            )
+            if value is not None
+        )
     )
-    messages = [
-        {"role": "system", "content": extract_system_prompt()},
-        {"role": "user", "content": f"The conversation:\n{rendered}"},
-    ]
-
-    try:
-        content, meta = await asyncio.wait_for(
-            router.run(
-                EXTRACT_TASK_TYPE,
-                messages=messages,
-                mock_response="{}",
-                real_call_allowed=True,
-                user_ref=body.worker_ref,
-            ),
-            timeout=settings.profiling_extract_deadline_seconds,
-        )
-    except TimeoutError:
-        logger.warning(
-            "interview extract deadline exceeded",
-            extra={"extra": {"deadline_s": settings.profiling_extract_deadline_seconds}},
-        )
-        return InterviewExtractOutput(is_mock=True)
-
-    if not meta.real_call:
-        return InterviewExtractOutput(is_mock=True)
-
-    try:
-        # Same fence tolerance as the turn parser above, and for the same reason.
-        raw = json.loads(coerce_json_text(content))
-        out = InterviewExtractOutput.model_validate(raw if isinstance(raw, dict) else {})
-    except Exception:
-        logger.warning("interview extract output failed the contract")
-        return InterviewExtractOutput(is_mock=True, ai_metadata=meta)
-
-    # Re-certify every surviving string. The model read a masked transcript, but it composes new
-    # text (`work_done`, skill phrases) and composed text is not covered by the input gate.
-    #
-    # EVERY STRING FIELD, not just these two (#831). `experiences` and `skills` were certified
-    # here and the other six were not, which read as a complete gate and was not one: every
-    # remaining field is model-composed FREE TEXT (`shift` and `availability` are
-    # `str | None` capped at 40 chars, the rest at 120 — none is an enum), so each can carry
-    # exactly what this step exists to catch.
-    #
-    # THAT WAS NOT THEORETICAL. `shift` is read by `resume-render-input.ts::fromResumeProfile`
-    # with no audience distinction, so an uncertified value reaches the EMPLOYER-facing masked
-    # disclosure PDF — a cross-party surface — as well as the worker's own. Certifying at the
-    # source is what makes the guarantee inheritable: the text résumé, the worker PDF and the
-    # employer PDF each read this container, and one gate here beats three read-sites
-    # re-implementing it and drifting.
-    out.experiences = [e for e in out.experiences if _certified(e)]
-    out.skills = _certified_list(out.skills)
-    out.preferred_locations = _certified_list(out.preferred_locations)
-    out.domain_label = _certified_scalar(out.domain_label)
-    out.role_label = _certified_scalar(out.role_label)
-    out.shift = _certified_scalar(out.shift)
-    out.current_city = _certified_scalar(out.current_city)
-    out.availability = _certified_scalar(out.availability)
-    # `expected_salary` is a float and carries no free text, so there is nothing to certify.
-
-    out.is_mock = False
-    out.ai_metadata = meta
-    return out
 
 
 def _certified(entry: ExperienceEntry) -> bool:

@@ -8,6 +8,7 @@ import {
   formatRelative,
   formatRupees,
   formatTimestamp,
+  packCodeLabel,
   shortId,
 } from "../../../lib/format";
 import { PaymentsPostureBanner, MockMoneyTag } from "../../../components/payments-posture";
@@ -387,7 +388,11 @@ export default async function CreditsPage({
                       {row.price_inr === null ? "—" : formatRupees(row.price_inr)}
                     </td>
                     <td className="table__meta">
-                      {row.pack_code ?? (row.unlock_id ? `unlock ${shortId(row.unlock_id)}` : "—")}
+                      {row.pack_code
+                        ? packCodeLabel(row.pack_code)
+                        : row.unlock_id
+                          ? `unlock ${shortId(row.unlock_id)}`
+                          : "—"}
                     </td>
                   </tr>
                 ))}

@@ -3,6 +3,7 @@ import openingKeys from "./__fixtures__/profiling-opening.keys.json";
 import jobPostingChatKeys from "./__fixtures__/job-posting-chat.keys.json";
 import profilingKeys from "./__fixtures__/profiling.keys.json";
 import oieKeys from "./__fixtures__/oie.keys.json";
+import aiCallMetadataKeys from "./__fixtures__/ai-call-metadata.keys.json";
 import {
   AnswerRecordHistoryEntrySchema,
   AnswerRecordSchema,
@@ -212,6 +213,53 @@ describe("AICallMetadataSchema (contracts.py parity)", () => {
     expect(meta.candidates_tried).toEqual(["gemini-2.5-flash", "claude-haiku-4-5"]);
     expect(meta.failure_reason).toBe("no_text_content");
   });
+
+  /**
+   * THE TEXT PAIR — the field group whose absence was a live privacy defect.
+   *
+   * `apps/ai-service` populated `prompt_text`/`response_text` with post-pseudonymization text,
+   * and this schema had no such fields. A bare `z.object` STRIPS unknown keys, silently, so the
+   * masked text was produced, sent over the wire and discarded at `AiService`'s
+   * `schema.parse(await res.json())` — after which the trace writer fell back to the API-side
+   * request object, i.e. the worker's raw name, phone number and address, into `prompt_enc`.
+   *
+   * Every suite in both languages was green. That is the failure this block exists to make
+   * impossible: it asserts the fields SURVIVE A PARSE, which is the property that was actually
+   * broken — not that they appear in the type, which they would have done either way.
+   */
+  it("carries the masked prompt/response pair THROUGH a parse — the fields are not stripped", () => {
+    const meta = AICallMetadataSchema.parse({
+      ...minimal,
+      prompt_text: "mera naam [PERSON_1] hai, number [PHONE_1], main VMC operator hu, Pune se",
+      response_text: "the model's answer",
+    });
+    expect(meta.prompt_text).toContain("[PERSON_1]");
+    expect(meta.response_text).toBe("the model's answer");
+  });
+
+  it("defaults both to null, so an older ai-service does not 500 every AI call", () => {
+    // Additive and defaulted, exactly like the diagnostics trio above. A deploy in which the api
+    // leads the ai-service, and every surface that does not route through `AIRouter` (embeddings,
+    // STT, translate), sends neither field.
+    const meta = AICallMetadataSchema.parse(minimal);
+    expect(meta.prompt_text).toBeNull();
+    expect(meta.response_text).toBeNull();
+  });
+
+  it("matches contracts.py key-for-key, against the fixture the python suite reads too", () => {
+    // Neither CI job compares the two languages. This file and
+    // `apps/ai-service/tests/test_contract_parity.py` assert against the SAME json, so a field
+    // added on one side only turns the other side red.
+    expect(Object.keys(AICallMetadataSchema.shape).sort()).toEqual(
+      [...aiCallMetadataKeys.AICallMetadata].sort(),
+    );
+    // ...and the text pair is named separately in the fixture, because it is the half with a
+    // privacy contract attached (`TRACE_TEXT_FIELDS` excludes exactly these from the ai-service's
+    // span metadata and its cost log). A third text field must update both lists.
+    for (const field of aiCallMetadataKeys._text_fields) {
+      expect(Object.keys(AICallMetadataSchema.shape)).toContain(field);
+    }
+  });
 });
 
 describe("WorkerProfileDraftSchema (contracts.py parity)", () => {
@@ -305,6 +353,48 @@ describe("SkillCanonicalizationSchema (contracts.py parity — ADR-0030/TAX-4)",
   it("input defaults lang to en", () => {
     const inp = SkillCanonicalizationInputSchema.parse({ phrase: "VMC operator", domain_id: "vmc-machining" });
     expect(inp.lang).toBe("en");
+  });
+
+  // ── Phase 1.5 canonicalizer cutover: two domain id spaces, exactly one per call ──
+  it("input accepts the LEGACY domain_id alone (every pre-cutover caller is unchanged)", () => {
+    const inp = SkillCanonicalizationInputSchema.parse({
+      phrase: "VMC operator",
+      domain_id: "cnc-machining",
+      lang: "en",
+    });
+    expect(inp.domain_id).toBe("cnc-machining");
+    expect(inp.job_domain_id).toBeUndefined();
+  });
+
+  it("input accepts the CANONICAL job_domain_id alone", () => {
+    const inp = SkillCanonicalizationInputSchema.parse({
+      phrase: "kharad",
+      job_domain_id: "jd_nco_7223_0100",
+      lang: "hi",
+    });
+    expect(inp.job_domain_id).toBe("jd_nco_7223_0100");
+    expect(inp.domain_id).toBeUndefined();
+  });
+
+  it("input rejects NEITHER domain — an unscoped skill search is never the fallback", () => {
+    // The rule with real consequences: without a domain the vector layer would return the
+    // nearest alias in ANY trade at a plausible score. There is no safe default, so the
+    // contract refuses the call rather than degrading it.
+    const res = SkillCanonicalizationInputSchema.safeParse({ phrase: "kharad", lang: "hi" });
+    expect(res.success).toBe(false);
+    expect(res.success === false && JSON.stringify(res.error.issues)).toContain(
+      "exactly one of domain_id",
+    );
+  });
+
+  it("input rejects BOTH domains — the slug space and the jd_* space are disjoint", () => {
+    const res = SkillCanonicalizationInputSchema.safeParse({
+      phrase: "kharad",
+      domain_id: "cnc-machining",
+      job_domain_id: "jd_nco_7223_0100",
+      lang: "hi",
+    });
+    expect(res.success).toBe(false);
   });
 });
 

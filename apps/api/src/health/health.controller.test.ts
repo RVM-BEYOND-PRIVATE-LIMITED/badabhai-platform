@@ -1,5 +1,7 @@
 import "reflect-metadata";
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve as resolvePath } from "node:path";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import { Logger } from "@nestjs/common";
 import type { Response } from "express";
 import type { ServerConfig } from "@badabhai/config";
@@ -8,7 +10,7 @@ import type { Queue } from "bullmq";
 import { AiService, type AiServiceHealthSnapshot } from "../ai/ai.service";
 import { ACCOUNT_DELETION_SWEEP_SCHEDULER_ID } from "../queue/queue.constants";
 import { HealthController } from "./health.controller";
-import { HealthService } from "./health.service";
+import { HealthService, resolveBuildId, UNKNOWN_BUILD } from "./health.service";
 
 /**
  * Storage fully wired — the default for every test NOT specifically about
@@ -98,6 +100,19 @@ function setup(opts: {
 const NEVER = () => new Promise<never>(() => {});
 
 describe("HealthController.check — readiness probes", () => {
+  // Build identity (#965) comes from the RAW env, so the RUNNER's environment must never
+  // decide what the body says. Absent by default for every case here; the #965 suite at the
+  // bottom stubs it per test. Without this, a CI box that happened to export GIT_COMMIT_SHA
+  // could put a 40-hex string into the no-leak assertions below (which reject `6379`/`8000`)
+  // and flake them.
+  beforeEach(() => {
+    vi.stubEnv("GIT_COMMIT_SHA", undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("both up → 200 + status ok + checks up/up", async () => {
     const { controller } = setup({});
     const res = fakeRes();
@@ -191,8 +206,16 @@ describe("HealthController.check — readiness probes", () => {
     expect(serialized).not.toMatch(/secret/i);
     expect(serialized).not.toMatch(/token/i);
     expect(serialized).not.toMatch(/5432|6379|8000/);
-    // The body carries only the structured up/down checks — no error/host/stack.
-    expect(Object.keys(body)).toEqual(["status", "service", "environment", "timestamp", "checks"]);
+    // The body carries only the structured up/down checks plus the public build id —
+    // no error/host/stack.
+    expect(Object.keys(body)).toEqual([
+      "status",
+      "service",
+      "environment",
+      "build",
+      "timestamp",
+      "checks",
+    ]);
     expect(body.checks).toEqual({
       database: "down",
       redis: "down",
@@ -756,6 +779,190 @@ describe("HealthController.check — readiness probes", () => {
       /worker-resumes|worker-profile-photos|worker-voice-notes|interview-kits/,
     );
   });
+
+  // ---- #965: WHICH BUILD is answering? ----
+  //
+  // /health answered "am I up?" and never "what am I?", so a debugging session could be —
+  // and was — spent on code that was not deployed. The image bakes the short git sha in at
+  // build time (`ARG GIT_COMMIT_SHA` → `ENV GIT_COMMIT_SHA`, apps/api/Dockerfile) and this
+  // is where it surfaces.
+  //
+  // MOST OF THIS SUITE IS ABOUT THE FIELD BEING ABSENT, because that is the case that can
+  // actually hurt: an observability nicety that 500s the readiness endpoint (or refuses to
+  // boot) is far worse than no build id at all — it would take the CD health gate, the
+  // staging smoke and the uptime check down with it. And empty is the LIKELY shape of
+  // absent, not a hypothetical: a GitHub Actions `build-args:` line naming a var that does
+  // not exist resolves to the empty string, so Docker receives `--build-arg GIT_COMMIT_SHA=`
+  // and the container gets the variable PRESENT-AND-EMPTY.
+  describe("the build identity field", () => {
+    it("reports the sha baked into the image, and changes nothing else", async () => {
+      vi.stubEnv("GIT_COMMIT_SHA", "a1b2c3d");
+      const { controller } = setup({});
+      const res = fakeRes();
+      const body = await controller.check(res);
+
+      expect(body.build).toBe("a1b2c3d");
+      // Purely additive: the status code and the gate are untouched by this field.
+      expect(res.statusCode).toBe(200);
+      expect(body.status).toBe("ok");
+    });
+
+    it("carries a FULL 40-char sha verbatim — the field is not silently truncated", async () => {
+      const full = "0123456789abcdef0123456789abcdef01234567";
+      vi.stubEnv("GIT_COMMIT_SHA", full);
+      const { controller } = setup({});
+
+      expect((await controller.check(fakeRes())).build).toBe(full);
+    });
+
+    it("accepts the tag-shaped id the deploy actually pins (`sha-a1b2c3d`)", async () => {
+      vi.stubEnv("GIT_COMMIT_SHA", "sha-a1b2c3d");
+      const { controller } = setup({});
+
+      expect((await controller.check(fakeRes())).build).toBe("sha-a1b2c3d");
+    });
+
+    it("UNSET → the string 'unknown' — the key is present, never omitted, never null", async () => {
+      vi.stubEnv("GIT_COMMIT_SHA", undefined);
+      const { controller } = setup({});
+      const body = await controller.check(fakeRes());
+
+      // All three matter to a consumer: it must be able to read the key unconditionally
+      // and always get a string back.
+      expect(Object.keys(body)).toContain("build");
+      expect(typeof body.build).toBe("string");
+      expect(body.build).toBe("unknown");
+    });
+
+    it("EMPTY → 'unknown', and does NOT throw — the build-args trap, exactly", async () => {
+      // `--build-arg GIT_COMMIT_SHA=` — the variable arrives present-and-empty. A schema
+      // that rejected "" here would turn a missing build id into a failed request; this
+      // asserts the endpoint answers normally instead.
+      vi.stubEnv("GIT_COMMIT_SHA", "");
+      const { controller } = setup({});
+      const res = fakeRes();
+      const body = await controller.check(res);
+
+      expect(body.build).toBe("unknown");
+      expect(res.statusCode).toBe(200);
+      expect(body.status).toBe("ok");
+    });
+
+    it("WHITESPACE-only → 'unknown' (a shell-mangled arg is still no build id)", async () => {
+      vi.stubEnv("GIT_COMMIT_SHA", "   ");
+      const { controller } = setup({});
+
+      expect((await controller.check(fakeRes())).build).toBe("unknown");
+    });
+
+    it("is present on a 503 too — you need the build id MOST when the box is unhealthy", async () => {
+      vi.stubEnv("GIT_COMMIT_SHA", "deadbee");
+      const { controller } = setup({
+        dbExecute: async () => {
+          throw new Error("db down");
+        },
+      });
+      const res = fakeRes();
+      const body = await controller.check(res);
+
+      expect(res.statusCode).toBe(503);
+      expect(body.build).toBe("deadbee");
+    });
+
+    it("an ABSENT build id does not degrade an unhealthy response either — still 503, still a string", async () => {
+      vi.stubEnv("GIT_COMMIT_SHA", "");
+      const { controller } = setup({
+        dbExecute: async () => {
+          throw new Error("db down");
+        },
+      });
+      const res = fakeRes();
+      const body = await controller.check(res);
+
+      expect(res.statusCode).toBe(503);
+      expect(body.status).toBe("error");
+      expect(body.build).toBe("unknown");
+    });
+
+    it("never gates the status code: a build id can neither rescue nor break the gate", async () => {
+      // The precedent every other informational field here follows. Storage armed without
+      // credentials on a production box still 503s WITH a perfectly good build id.
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("GIT_COMMIT_SHA", "a1b2c3d");
+      const { controller } = setup({
+        config: {
+          NODE_ENV: "production",
+          SUPABASE_URL: undefined,
+          SUPABASE_SERVICE_ROLE_KEY: undefined,
+          RESUMES_BUCKET: "worker-resumes",
+          WORKER_PHOTOS_BUCKET: "worker-profile-photos",
+          VOICE_NOTES_BUCKET: "",
+          INTERVIEW_KIT_BUCKET: "interview-kits",
+          RESUME_RENDER_ENABLED: true,
+        },
+      });
+      const res = fakeRes();
+      const body = await controller.check(res);
+
+      expect(res.statusCode).toBe(503);
+      expect(body.build).toBe("a1b2c3d");
+    });
+
+    it("adds NOTHING but the sha — no branch, no host, no image digest, no env dump", async () => {
+      vi.stubEnv("GIT_COMMIT_SHA", "a1b2c3d");
+      const { controller } = setup({});
+      const body = await controller.check(fakeRes());
+
+      expect(Object.keys(body)).toEqual([
+        "status",
+        "service",
+        "environment",
+        "build",
+        "timestamp",
+        "checks",
+      ]);
+      expect(body.build).toBe("a1b2c3d");
+    });
+  });
+});
+
+/**
+ * The normalization rule on its own (#965). Everything above proves the field reaches the
+ * body; this proves the ONE property the whole design rests on — it cannot throw, for any
+ * input, so a bad build id can never take down boot or /health.
+ */
+describe("resolveBuildId — empty is unset, and nothing throws", () => {
+  it("returns a well-formed id unchanged", () => {
+    expect(resolveBuildId("a1b2c3d")).toBe("a1b2c3d");
+    expect(resolveBuildId("v1.2.3")).toBe("v1.2.3");
+  });
+
+  it("trims surrounding whitespace rather than reporting a padded id", () => {
+    expect(resolveBuildId("  a1b2c3d\n")).toBe("a1b2c3d");
+  });
+
+  it("maps every flavour of 'absent' to the same 'unknown'", () => {
+    expect(resolveBuildId(undefined)).toBe(UNKNOWN_BUILD);
+    expect(resolveBuildId("")).toBe(UNKNOWN_BUILD);
+    expect(resolveBuildId("\t \n")).toBe(UNKNOWN_BUILD);
+  });
+
+  it("refuses to echo a control character or a newline into a public HTTP body", () => {
+    expect(resolveBuildId("abc\ndef")).toBe(UNKNOWN_BUILD);
+    expect(resolveBuildId("<script>")).toBe(UNKNOWN_BUILD);
+  });
+
+  it("is length-bounded — a runaway env value cannot bloat the readiness body", () => {
+    expect(resolveBuildId("a".repeat(64))).toBe("a".repeat(64));
+    expect(resolveBuildId("a".repeat(65))).toBe(UNKNOWN_BUILD);
+  });
+
+  it("never throws, whatever arrives", () => {
+    for (const raw of [undefined, "", " ", "\u0000", "a".repeat(10_000), "../../etc/passwd"]) {
+      expect(() => resolveBuildId(raw)).not.toThrow();
+      expect(typeof resolveBuildId(raw)).toBe("string");
+    }
+  });
 });
 
 /**
@@ -868,5 +1075,41 @@ describe("AiService.probeHealth — the /health reachability + posture probe (TD
       vi.fn().mockRejectedValue(Object.assign(new Error("fetch failed"), { code: "ECONNREFUSED" })),
     );
     await expect(new AiService(AI_CONFIG).probeHealth()).rejects.toThrow();
+  });
+});
+
+/**
+ * #965 — the ci.yml -> Dockerfile -> runtime seam for `GIT_COMMIT_SHA`.
+ *
+ * Static, mirroring apps/ai-service/tests/test_health_build_id.py's equivalent, because the
+ * alternative is building the API image (apt + WeasyPrint + a full monorepo install) in a
+ * unit suite. These two lines are the ENTIRE supply chain for this value: the container has
+ * no .git and the service never shells out to git. Lose either one and /health silently
+ * reverts to "unknown" forever — which is indistinguishable from a correctly-behaving
+ * service that simply was not handed a sha. That is precisely the "feature dead while CI
+ * stays green" failure this issue exists to end, and apps/api is the service most often
+ * being debugged when the question "which build is this?" gets asked.
+ */
+describe("the GIT_COMMIT_SHA build seam in apps/api/Dockerfile", () => {
+  const dockerfile = readFileSync(resolvePath(__dirname, "../../Dockerfile"), "utf-8");
+  const lines = dockerfile.split("\n").map((l) => l.trim());
+
+  it("declares the ARG and promotes it to ENV", () => {
+    // Without the ENV the arg evaporates when the build ends and never reaches runtime.
+    expect(lines).toContain("ARG GIT_COMMIT_SHA");
+    expect(lines).toContain("ENV GIT_COMMIT_SHA=$GIT_COMMIT_SHA");
+  });
+
+  it("declares both in the RUNTIME stage, after its FROM", () => {
+    // An ARG belongs to the stage it is declared in. Declared above a FROM it belongs to no
+    // stage and expands to nothing here; declared in the BUILDER stage it would reach
+    // `pnpm build` but never the running container.
+    const runtimeFrom = lines.indexOf("FROM node:22-bookworm-slim AS runtime");
+    const arg = lines.indexOf("ARG GIT_COMMIT_SHA");
+    const env = lines.indexOf("ENV GIT_COMMIT_SHA=$GIT_COMMIT_SHA");
+
+    expect(runtimeFrom).toBeGreaterThanOrEqual(0);
+    expect(runtimeFrom).toBeLessThan(arg);
+    expect(arg).toBeLessThan(env);
   });
 });

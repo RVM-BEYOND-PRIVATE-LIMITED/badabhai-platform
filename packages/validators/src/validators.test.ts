@@ -3,6 +3,8 @@ import {
   e164PhoneSchema,
   isE164Phone,
   uuidSchema,
+  emailSchema,
+  otpDigitsSchema,
   languageCodeSchema,
   voiceDurationSecondsSchema,
   isValidVoiceDuration,
@@ -26,6 +28,44 @@ describe("e164PhoneSchema", () => {
 
   it.each(["9876543210", "+0123456789", "+12", "abc", "+12 3456 7890"])("rejects %s", (p) => {
     expect(e164PhoneSchema.safeParse(p).success).toBe(false);
+  });
+});
+
+describe("emailSchema", () => {
+  it("accepts and normalizes a valid email", () => {
+    expect(emailSchema.safeParse(" Foo@Example.com ")).toEqual({
+      success: true,
+      data: "foo@example.com",
+    });
+  });
+
+  it.each(["not-an-email", "foo@", "@example.com", "a".repeat(255) + "@e.com"])(
+    "rejects %s",
+    (v) => {
+      expect(emailSchema.safeParse(v).success).toBe(false);
+    },
+  );
+});
+
+describe("otpDigitsSchema", () => {
+  it("fixed length accepts exactly that many digits", () => {
+    const totp = otpDigitsSchema(6);
+    expect(totp.safeParse("123456").success).toBe(true);
+    expect(totp.safeParse("12345").success).toBe(false);
+    expect(totp.safeParse("1234567").success).toBe(false);
+    expect(totp.safeParse("12345a").success).toBe(false);
+  });
+
+  it("range accepts any digit count within [min, max]", () => {
+    const otp = otpDigitsSchema({ min: 4, max: 8 });
+    expect(otp.safeParse("1234").success).toBe(true);
+    expect(otp.safeParse("12345678").success).toBe(true);
+    expect(otp.safeParse("123").success).toBe(false);
+    expect(otp.safeParse("123456789").success).toBe(false);
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(otpDigitsSchema(6).safeParse(" 123456 ").success).toBe(true);
   });
 });
 

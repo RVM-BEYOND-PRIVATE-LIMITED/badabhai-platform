@@ -70,6 +70,12 @@ const FULL: ProfilingEnvelope = {
   catalogVersion: "cat_2026_08",
   lastTurn: {
     inboundHash: "a".repeat(64),
+    // NON-DEFAULT for the same reason as everything else here, and this one is the point of the
+    // exercise: `null` is what a `narrowLastTurn` that dropped the field would rebuild, so a
+    // fixture seeding `null` would assert nothing at all — and a dropped submission id is a reply
+    // cache that works in memory, forgets across a Redis load, and silently returns to discarding
+    // the worker's second "haan" (#931).
+    submissionId: "3f8b2c1a-7d64-4e2f-9a51-0c9d5b7e4a12",
     reply: "Aap kis sheher mein rehte hain?",
     kind: "ask",
     questionKey: "q_city",
@@ -117,8 +123,13 @@ const FULL: ProfilingEnvelope = {
     ],
   },
   llmAsks: 5,
+  // NON-DEFAULT, and this one earns its place twice over: it is the field the trade-pack skip
+  // decides on, so a narrower that dropped it would silently re-interrogate every worker whose
+  // envelope had round-tripped through Redis once.
+  llmLedTurns: 6,
   llmFallback: true,
   llmGateOpen: true,
+  llmGateAsked: true,
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {
@@ -223,6 +234,32 @@ describe("a present-but-damaged envelope is REPAIRED, never discarded", () => {
       lastTurn: { inboundHash: "c".repeat(64), reply: CLOSING_ISH, at: "2026-08-06T10:00:00.000Z" },
     });
     expect(legacy?.lastTurn?.kind).toBe("ask");
+  });
+
+  it("narrows a MISSING submission id to `null` — an old envelope is not a match (#931)", () => {
+    // Every `lastTurn` in Redis at deploy time was stamped without this field, behind a 24 h TTL,
+    // in a LIVE interview. It has to read as "this stamp carries no client id" so that session
+    // keeps taking the hash + window path for one more turn and self-heals on its next real one.
+    // Reading as anything else would be a stamp that could MATCH an inbound id it never saw, and
+    // matching means replaying — a worker's answer discarded to protect a new field.
+    const legacy = narrowProfilingEnvelope({
+      ...FULL,
+      lastTurn: { inboundHash: "e".repeat(64), reply: CLOSING_ISH, at: "2026-08-06T10:00:00.000Z" },
+    });
+    expect(legacy?.lastTurn?.submissionId).toBeNull();
+  });
+
+  it("refuses an EMPTY submission id, which would compare equal to another empty one", () => {
+    // `""` from a drifted writer is not "an id" — two unrelated submissions carrying it would
+    // match each other, which is the discarded-answer defect wearing its own name.
+    const at = "2026-08-06T10:00:00.000Z";
+    for (const bad of ["", 7, null, {}]) {
+      const damaged = narrowProfilingEnvelope({
+        ...FULL,
+        lastTurn: { inboundHash: "f".repeat(64), reply: CLOSING_ISH, at, submissionId: bad },
+      });
+      expect(damaged?.lastTurn?.submissionId).toBeNull();
+    }
   });
 
   it("keeps a stored `disambiguate`, and rejects a kind outside the closed set", () => {

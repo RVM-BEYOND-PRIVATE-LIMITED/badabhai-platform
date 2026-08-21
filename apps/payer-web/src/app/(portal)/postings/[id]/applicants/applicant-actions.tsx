@@ -501,7 +501,7 @@ export function ApplicantActions({
                     <div className="applicant__unlock">
                       <Button
                         variant="primary"
-                        size="sm"
+                        size="md"
                         disabled={row.busy || balance === 0}
                         loading={row.busy}
                         aria-busy={row.busy}

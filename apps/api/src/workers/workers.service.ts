@@ -442,8 +442,30 @@ export class WorkersService {
     // OFF takes the face off the PDF ⇒ failClosed (never serve erased PII).
     const hasPhoto =
       typeof worker.photoStorageKey === "string" && worker.photoStorageKey.length > 0;
-    if (hasPhoto && worker.resumeShowPhoto !== updated.resumeShowPhoto) {
-      await this.enqueueResumeRerender(workerId, ctx, { failClosed: !updated.resumeShowPhoto });
+    const photoFlipped = hasPhoto && worker.resumeShowPhoto !== updated.resumeShowPhoto;
+    // ...AND THE NIGHT-SHIFT TOGGLE DECIDES PDF CONTENT TOO, SINCE #947. The rule TD77 states
+    // above is about the photo only because the photo was, until now, the only pref that changed
+    // a rendered byte. `resume_night_shift_ready` now rides the `{{availability}}` line, so a flip
+    // that does not re-render leaves the toggle stranded in the database.
+    //
+    // AND STRANDED IS WHAT IT WAS, for the one population #947 was raised for. A worker who
+    // already has a résumé has `render_status: "rendered"`, and `ResumeRenderProcessor` skips
+    // those unless the job carries `force` — so the new line reached nobody who had ever
+    // downloaded a PDF before ticking the box. Worse, the payer disclosure renders fresh on every
+    // request, so the employer's masked copy would have shown a line the worker's own download
+    // still did not: the worker learning what their résumé says from the person reading it.
+    // `enqueueResumeRerender` already passes `force: true`, so the hook needed no change — only
+    // this gate did.
+    //
+    // COMPARED BEFORE-VS-AFTER, not `is the key in the body`, exactly as the photo gate is: a
+    // client that PATCHes the same value it already had must not burn a render that cannot change
+    // a byte. `failClosed` stays false — unlike hiding a photo, nothing here erases PII from a
+    // document, so a failed re-render costs a stale line and never a leak.
+    const nightShiftFlipped = worker.resumeNightShiftReady !== updated.resumeNightShiftReady;
+    if (photoFlipped || nightShiftFlipped) {
+      await this.enqueueResumeRerender(workerId, ctx, {
+        failClosed: photoFlipped && !updated.resumeShowPhoto,
+      });
     }
     return { worker_id: workerId };
   }

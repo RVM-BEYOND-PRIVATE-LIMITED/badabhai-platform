@@ -580,6 +580,29 @@ export const EVENT_REGISTRY = {
     payload: p.AdminActionPerformedPayload,
   },
   "admin.pii_viewed": { version: 1, domain: "admin", payload: p.AdminPiiViewedPayload },
+  // ADR-0025 Phase 6 — an admin READ one worker's journey (the 7-step funnel, or one
+  // interview session in depth). Audited even though it is a `read_entities` read and returns
+  // no PII: it is a BEHAVIOURAL profile at much higher granularity than the entity detail, so
+  // looking at it must name who looked and at whom. PII-free: opaque admin/worker/session ids
+  // + a view enum ONLY — never a question key, a status, a count, or any free text. v1.
+  "admin.worker_journey_viewed": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminWorkerJourneyViewedPayload,
+  },
+  // ADR-0025 Amendment 1 (#997 follow-up) — an admin READ a page of worker FEEDBACK, which is
+  // the one admin read that projects worker-authored free text. The sibling of
+  // `worker_journey_viewed`: that one audits reading a worker's step COUNTS, this one audits
+  // reading their actual WORDS, which until now emitted nothing at all. Subject is the
+  // `admin_session` rather than a worker — the route's worker filter is OPTIONAL, so a
+  // worker-axis subject would make that axis look complete when it cannot be (the payload's own
+  // note has the full argument). PII-free: opaque admin id + the two filters + a result count —
+  // never message text, an excerpt, or a length. v1.
+  "admin.feedback_viewed": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminFeedbackViewedPayload,
+  },
   // ADR-0025 ADMIN-3b (must-fix #8) — a per-admin worker-PII reveal cap was exceeded. The
   // PII-free BREACH event: opaque admin_id + which window (hour|day) ONLY — never a worker/
   // subject id, the revealed value, or the reason note. An over-cap request reveals nothing. v1.
@@ -587,6 +610,39 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "admin",
     payload: p.AdminPiiRevealCapExceededPayload,
+  },
+  // ADR-0025 Decision 4, REVERSED 2026-08-18 — an admin was shown NAMES on an entity screen
+  // (workers / payers / admins). Audited at RESPONSE granularity, never per subject: one event
+  // per name would be write amplification AND would turn the spine into a queryable index of
+  // "which workers has anyone looked at" — a new inference surface. PII-free: opaque admin id +
+  // a surface enum + an opaque subject id (detail reads only) + how many names were actually
+  // disclosed. The names themselves live ONLY in the HTTP response. v1.
+  "admin.identity_viewed": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminIdentityViewedPayload,
+  },
+  // The identity sibling of `admin.pii_reveal_cap_exceeded`: a per-admin NAME-egress cap was
+  // exceeded, so the read served the FACELESS projection and disclosed nothing. Separate from
+  // the reveal breach because the budgets are separate — a list of names is a bulk disclosure
+  // the single-subject reveal cap cannot see. PII-free: opaque admin id + window ONLY. v1.
+  "admin.identity_cap_exceeded": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminIdentityCapExceededPayload,
+  },
+  // Migration 0083 — an admin DECRYPTED one AI call trace: the prompt and the completion of a
+  // single AI call. The sibling of `admin.identity_viewed`, one privilege level up — a name is a
+  // field, this is everything a worker said on one turn. Emitted and AWAITED BEFORE the decrypt;
+  // a failed emit propagates and no text is computed (fail-closed, `admin.pii_viewed`'s
+  // ordering). Subject is the admin session, like both siblings, because the LIST beside this
+  // read spans every worker and a worker-axis subject would look complete when it cannot be.
+  // PII-free: opaque admin/trace/worker ids, a task-type label, and two LENGTHS — never the
+  // text, which lives only in that one HTTP response. v1.
+  "admin.ai_trace_viewed": {
+    version: 1,
+    domain: "admin",
+    payload: p.AdminAiTraceViewedPayload,
   },
   // ADR-0025 ADMIN-3c (OQ-6) — an admin requested a SAFE-DIRECTION kill-switch PAUSE. The
   // audited INTENT only; it NEVER enables anything (enabling a real provider stays env/deploy-
@@ -806,6 +862,46 @@ export const EVENT_REGISTRY = {
     version: 1,
     domain: "profile",
     payload: p.ProfileLlmInterviewFallbackPayload,
+  },
+
+  // One physical submission arrived twice and the second copy was served from the reply cache
+  // (#931). Structurally invisible otherwise — a duplicate returns before the engine is consulted,
+  // so it writes no `chat_messages` row and emits no `chat.message_received`; the only prior
+  // evidence was one warn log on one of the three branches that absorb it. Also the rollout gate
+  // for retiring the four reply-cache clocks: `absorbed_as: "client_id"` is a duplicate the
+  // client's own submission id settled with no clock consulted. Keyed on the submission id, so a
+  // retry storm collapses to one row. Ids, one pack key, two enums, two counts. v1.
+  "profile.submission_duplicated": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileSubmissionDuplicatedPayload,
+  },
+
+  // S3-C / D-6 — `skill.phrase_unresolved` VERSION 2. The v1 entry above KEEPS its
+  // definition, unmodified, as history (invariant #8), and keeps emitting for
+  // legacy-scoped misses. Same reasoning as `feed.shown_v2`: `validateEvent` allows
+  // exactly one version per NAME, so relaxing v1's REQUIRED `domain_id` in place — which
+  // is what a canonical-scoped miss would need, having no legacy slug — would invalidate
+  // every shipped consumer that reads the field without a null check. v2 carries exactly
+  // one of `domain_id` (Path B) or `job_domain_id` (Path A), enforced by the payload's own
+  // refine and mirrored by `unresolved_phrase_one_domain_chk` in the database.
+  "skill.phrase_unresolved_v2": {
+    version: 2,
+    domain: "skill",
+    payload: p.SkillPhraseUnresolvedV2Payload,
+  },
+
+  // #997 — a worker sent free-text feedback from the app-wide Feedback button. The
+  // system-of-record row lives in `worker_feedback` and the WORDS stay there: this payload
+  // carries the category, the message LENGTH and the app build, mirroring how
+  // `job.search_performed` records the shape of a search and never the term. The row id is
+  // carried so an operator can get from a spine trace to the admin screen without a text
+  // search. Emitted inside the same transaction as the insert, so a feedback row without an
+  // audit record cannot exist. v1.
+  "feedback.submitted": {
+    version: 1,
+    domain: "feedback",
+    payload: p.FeedbackSubmittedPayload,
   },
 } as const satisfies Record<string, EventDefinition>;
 

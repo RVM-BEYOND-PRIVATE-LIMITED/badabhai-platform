@@ -4,6 +4,7 @@ import '../../../../core/data/job_posting_chat_models.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
+import '../../../../core/util/pay_format.dart';
 import '../../../../core/widgets/bb_badge.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_card.dart';
@@ -146,8 +147,10 @@ class DraftPreview extends StatelessWidget {
     final int? min = draft.payMin;
     final int? max = draft.payMax;
     if (min == null && max == null) return null;
-    if (min != null && max != null) return '₹$min – ₹$max';
-    return '₹${min ?? max}';
+    if (min != null && max != null) {
+      return '₹${formatIndianGrouped(min)} – ₹${formatIndianGrouped(max)}';
+    }
+    return '₹${formatIndianGrouped((min ?? max)!)}';
   }
 }
 
@@ -163,7 +166,7 @@ class _DraftRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         SizedBox(
-          width: 104,
+          width: AppSpacing.labelCol,
           child: Text(
             label,
             style: AppTypography.body(

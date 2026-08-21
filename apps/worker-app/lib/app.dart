@@ -6,6 +6,7 @@ import 'core/config/app_config.dart';
 import 'core/di/locator.dart';
 import 'core/observability/crash_route_observer.dart';
 import 'core/theme/app_theme.dart';
+import 'core/widgets/feedback_fab.dart';
 import 'features/auth/domain/auth_session_manager.dart';
 import 'features/auth/presentation/lifecycle_relock_observer.dart';
 import 'l10n/gen/app_localizations.dart';
@@ -99,16 +100,31 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
       // translations — that is the last step of #315, not this foundation pass.
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: kUiSupportedLocales,
-      // A corner ribbon in MOCK mode so it is always obvious the backend is
-      // stubbed. No effect in REAL mode (the default) — the builder stays null.
-      builder: kUseMocks
-          ? (BuildContext context, Widget? child) => Banner(
-                message: 'MOCK',
-                location: BannerLocation.topEnd,
-                color: Colors.deepOrange,
-                child: child ?? const SizedBox.shrink(),
-              )
-          : null,
+      // Wrap every page with the app-wide floating Feedback button (CEO request)
+      // — a single overlay above the router's Navigator that shows on all
+      // non-auth screens (see [FeedbackFabOverlay]). In MOCK mode a corner ribbon
+      // is layered on top so it stays obvious the backend is stubbed.
+      builder: (BuildContext context, Widget? child) {
+        Widget content = FeedbackFabOverlay(
+          router: _router,
+          child: child ?? const SizedBox.shrink(),
+        );
+        if (kUseMocks) {
+          content = Banner(
+            message: 'MOCK',
+            location: BannerLocation.topEnd,
+            color: Colors.deepOrange,
+            child: content,
+          );
+        }
+        // Clamp the OS font-scale so an extreme accessibility setting can't
+        // blow the layout apart — the app still scales up to 1.3x for low-vision
+        // users, but no further.
+        return MediaQuery.withClampedTextScaling(
+          maxScaleFactor: 1.3,
+          child: content,
+        );
+      },
     );
   }
 }

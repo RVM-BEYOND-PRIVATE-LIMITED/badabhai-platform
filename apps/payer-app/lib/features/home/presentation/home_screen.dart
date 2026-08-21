@@ -146,6 +146,8 @@ class _Header extends StatelessWidget {
               children: <Widget>[
                 Text(
                   acct.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: AppTypography.display(
                     size: AppTypography.sizeMd,
                     weight: FontWeight.w700,

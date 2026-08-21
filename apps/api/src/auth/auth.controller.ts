@@ -1,22 +1,12 @@
-import {
-  BadRequestException,
-  Body,
-  Controller,
-  ForbiddenException,
-  Get,
-  HttpCode,
-  Inject,
-  Post,
-  Req,
-  UnauthorizedException,
-  UseGuards,
-} from "@nestjs/common";
+import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, HttpException, HttpStatus, Inject, Post, Req, UnauthorizedException, UseGuards } from "@nestjs/common";
 import type { Request } from "express";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { OtpRequestIdempotency } from "./otp-request-idempotency.service";
 import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
+import { senderOf } from "../common/rate-limit/request-sender";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { WorkersRepository } from "../workers/workers.repository";
 import { AuthService } from "./auth.service";
@@ -25,11 +15,8 @@ import { SessionService } from "./session.service";
 import { AccountDeletionService } from "./account-deletion.service";
 import { ConsentNotRevokedGuard } from "./consent.guard";
 import { ConsentRepository } from "../consent/consent.repository";
-import {
-  WorkerAuthGuard,
-  CurrentWorker,
-  type AuthenticatedWorker,
-} from "./worker-auth.guard";
+import { withConsentAccepted } from "../consent/consent-flag";
+import { WorkerAuthGuard, CurrentWorker, type AuthenticatedWorker } from "./worker-auth.guard";
 import { TestLoginGuard } from "./test-login.guard";
 import {
   OtpRequestSchema,
@@ -84,9 +71,22 @@ export class AuthController {
     private readonly pii: PiiCryptoService,
     private readonly accountDeletion: AccountDeletionService,
     private readonly consents: ConsentRepository,
+    private readonly otpIdempotency: OtpRequestIdempotency,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
 
+  /**
+   * Send a login code.
+   *
+   * `Idempotency-Key` IS HONOURED HERE (#1019) and everything below it — the per-IP cap
+   * included — runs inside that guard. The client retries a transport failure up to three
+   * times under ONE key, and this route used to count every attempt as a fresh request: one
+   * tap could spend three of a per-phone hourly budget of five, send three paid SMS, and
+   * push the platform-wide daily breaker toward the ceiling that 429s every worker on every
+   * device until UTC midnight. The header is OPTIONAL — unlike `/auth/token/refresh`, which
+   * can require it because every caller is our own client; requiring it on the front door
+   * would break callers that never sent one (§3).
+   */
   @Post("otp/request")
   @HttpCode(200)
   async requestOtp(
@@ -94,31 +94,137 @@ export class AuthController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<OtpRequestResponse> {
-    // Per-IP hourly cap BEFORE issuing — a network-level abuse backstop on top of
-    // the per-phone cooldown/cap. Fails closed (429) if Redis is down.
-    //
-    // OTP_MAX_SENDS_PER_IP_PER_HOUR, *not* OTP_MAX_SENDS_PER_HOUR. This used to pass the
-    // latter, which is the per-PHONE SMS budget (5) — a different question wearing a
-    // similar name, and passing it here made one shared network worth five sign-ins an
-    // hour in total. With no reverse proxy in the shipped topology `req.ip` is the NAT
-    // egress address, so under carrier CGNAT that bucket is shared by thousands of
-    // workers. See the config comment for why the two must not be the same number.
-    await this.ipRateLimit.assertWithinHourlyIpCap(
-      "otp_request",
-      req.ip ?? "unknown",
-      this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
-    );
-    return this.auth.requestOtp(dto.phone, ctx);
+    return this.otpIdempotency.runOnce({
+      scope: "otp_request",
+      phoneE164: dto.phone,
+      idempotencyKey: req.header("idempotency-key"),
+      // A duplicate that lands while the first attempt is still sending gets the cooldown it
+      // would have got, without a second send. `success: true` is honest at this point: an
+      // attempt IS in flight, and if it fails the worker asks again after the cooldown.
+      inFlight: () => ({
+        success: true as const,
+        channel: "sms" as const,
+        resend_in_seconds: this.config.OTP_RESEND_COOLDOWN_SECONDS,
+      }),
+      work: async () => {
+        // TWO CAPS BEFORE ISSUING, and the ORDER is deliberate (#1035).
+        //
+        // FIRST, THE SENDER — the handset that asked, via `X-Device-Id`, falling back to the
+        // address for a client that sends none. This is the gate that is supposed to trip:
+        // it separates two workers standing on one factory wifi, which is the thing the
+        // address cannot do. Keyed on the address it was the NAT egress bucket, so a handful
+        // of legitimate sign-ins locked out everyone else behind the same CGNAT pool and
+        // changing your phone number did not help, because the number was never the key.
+        //
+        // SECOND, THE NETWORK — a crude flood ceiling, ~50× the sender cap, that a real
+        // shared wifi must never reach. Its own scope (`otp_request_net`) so it cannot
+        // collide with the address bucket the fallback above still writes.
+        //
+        // Sender first so a device that has already spent its allowance does NOT also charge
+        // the bucket its neighbours share. Both fail closed (429) if Redis is down.
+        await this.ipRateLimit.assertWithinHourlySenderCap(
+          "otp_request",
+          senderOf(req),
+          this.config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
+        );
+        await this.ipRateLimit.assertWithinHourlyIpCap(
+          "otp_request_net",
+          req.ip ?? "unknown",
+          this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
+        );
+        return this.auth.requestOtp(dto.phone, ctx);
+      },
+    });
   }
 
+  /**
+   * IDEMPOTENT UNDER `Idempotency-Key` (#1023), on the same retry ladder as the send routes.
+   *
+   * `auth_api.dart` already sends this route with `idempotent: true`, so `AuthedClient` mints
+   * ONE key and reuses it across up to three transport retries — and the server ignored it.
+   * `OtpService.verify` increments `otp:attempts:<phoneHash>` per CALL and DELETES the code once
+   * `OTP_MAX_ATTEMPTS` is exceeded, so a worker on a flaky link who typed the CORRECT code could
+   * have it counted two or three times and be told "Too many attempts, request a new code".
+   *
+   * Worse, and the case the guard actually rescues: when attempt 1 SUCCEEDS and only its
+   * response is lost, the code is already consumed — single-use by design — so the retry finds
+   * nothing and returns 401. The worker is told the code they typed correctly is wrong. Replaying
+   * the stored session is the only answer that is true to what happened.
+   *
+   * SECRET AT REST. The 200 here is a `LoginResponse` carrying an access JWT and a refresh
+   * token, so the outcome is stored as CIPHERTEXT (`secret: true`) — the same rule
+   * `SessionService` follows for the pair its own refresh grace caches, and the same 180s
+   * window. Replaying needs the used code AND that exact 128-bit key AND the ability to
+   * decrypt: essentially the legitimate client.
+   *
+   * The whole `withConsentAccepted` compose is inside `work`, so what is replayed is the exact
+   * response the first attempt produced rather than a session re-derived later against a
+   * consent record that may since have changed.
+   *
+   * NO OPTIMISTIC `inFlight` ANSWER IS POSSIBLE, unlike the send routes. There is no session to
+   * hand back until the first attempt finishes, and the one thing this must never do is answer
+   * "wrong code" for a code that is being verified right now. So a duplicate that lands mid-flight
+   * gets the retryable 503 the OTP path already uses for a transient fault — it consumes no
+   * attempt, makes no claim about the code, and the next rung of the ladder finds the stored
+   * outcome. It is a narrow window in practice: a verify is Redis reads plus a JWT mint, with no
+   * provider call to outlive the client's 15s timeout the way a Fast2SMS send can.
+   */
   @Post("otp/verify")
   @HttpCode(200)
   async verifyOtp(
     @Body(new ZodValidationPipe(OtpVerifySchema)) dto: OtpVerifyDto,
+    @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<LoginResponse> {
-    const login = await this.auth.verifyOtp(dto.phone, dto.otp, ctx, dto.device_info);
-    return this.withConsentFlag(login);
+    // TWO CAPS BEFORE THE RESERVATION (#1132), and OUTSIDE `runOnce` on purpose — the one place
+    // in this file a limiter runs in FRONT of the idempotency reservation rather than inside the
+    // guarded work. `runOnce` reserves with `SET NX` BEFORE it runs the work (correctly — see its
+    // header), so on this UNAUTHENTICATED route that Redis write used to be the first thing to
+    // run, ahead of every control there was. An unauthenticated caller could therefore mint one
+    // non-evictable idempotency key per distinct key/phone into a `noeviction` Redis and wedge it
+    // — the platform-wide 429/503/401 lockout #1019 exists to end. Capping here means the
+    // reservation is only ever written for a caller already inside its device+network budget.
+    //
+    // KEYED ON THE HANDSET FIRST, exactly as /auth/otp/request (#1035): `senderOf(req)` is the
+    // device the client named via `X-Device-Id`, the address only as a fallback for a caller that
+    // sent none. Keyed on `req.ip` this would be the NAT egress / carrier-CGNAT bucket, and a
+    // handful of legitimate sign-ins would lock out everyone else behind the same pool — the exact
+    // outage #1035 fixed on the send route. Same device-then-network ORDER as the send
+    // route, but its OWN scopes (`otp_verify` / `otp_verify_net`) and its OWN knobs — a verify
+    // is not a send, and each send licenses up to OTP_MAX_ATTEMPTS of them, so the send budget
+    // is the wrong ceiling here (see the derivation on OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR). The
+    // rate-limit namespace (`ratelimit:…`) cannot collide with the idempotency one (`otp_idem:…`).
+    //
+    // ONE LOGICAL VERIFY CAN SPEND UP TO THREE UNITS, because these run OUTSIDE `runOnce` while
+    // `AuthedClient` reuses one key across three transport retries — the price of capping ahead
+    // of the reservation, and the reason the verify budget carries headroom the send budget does
+    // not need.
+    await this.ipRateLimit.assertWithinHourlySenderCap(
+      "otp_verify",
+      senderOf(req),
+      this.config.OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR,
+    );
+    await this.ipRateLimit.assertWithinHourlyIpCap(
+      "otp_verify_net",
+      req.ip ?? "unknown",
+      this.config.OTP_MAX_VERIFY_PER_IP_PER_HOUR,
+    );
+    return this.otpIdempotency.runOnce({
+      scope: "otp_verify",
+      phoneE164: dto.phone,
+      idempotencyKey: req.header("idempotency-key"),
+      secret: true,
+      inFlight: () => {
+        throw new HttpException(
+          "This is temporarily unavailable; please retry shortly",
+          HttpStatus.SERVICE_UNAVAILABLE,
+        );
+      },
+      work: async () => {
+        const login = await this.auth.verifyOtp(dto.phone, dto.otp, ctx, dto.device_info);
+        return withConsentAccepted(this.consents, login);
+      },
+    });
   }
 
   /**
@@ -150,12 +256,17 @@ export class AuthController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<LoginResponse> {
-    // Same knob as /auth/otp/request above, and for the same reason: this is a per-IP
-    // question, not a per-phone SMS budget. Its own bucket (`test_login` scope), so it
-    // never competes with real sign-ins — and the GLOBAL daily ceiling below, not this,
-    // is what actually bounds the seam.
-    await this.ipRateLimit.assertWithinHourlyIpCap(
+    // The SAME sender-then-network pair as /auth/otp/request above, and for the same reason:
+    // these are per-CALLER questions, not a per-phone SMS budget. Their own buckets
+    // (`test_login` / `test_login_net`), so the seam never competes with real sign-ins — and
+    // the GLOBAL daily ceiling below, not either of these, is what actually bounds it.
+    await this.ipRateLimit.assertWithinHourlySenderCap(
       "test_login",
+      senderOf(req),
+      this.config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
+    );
+    await this.ipRateLimit.assertWithinHourlyIpCap(
+      "test_login_net",
       req.ip ?? "unknown",
       this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
     );
@@ -164,28 +275,7 @@ export class AuthController {
       this.config.TEST_LOGIN_MAX_PER_DAY,
     );
     const login = await this.auth.testLogin(dto.phone, ctx);
-    return this.withConsentFlag(login);
-  }
-
-  /**
-   * TD62 — compose the ADDITIVE consent_accepted signal onto a minted login
-   * (§6's server gate — ConsentGuard — is unchanged and still authoritative).
-   * Same pattern as the A5 check in tokenRefresh below: ACTIVE = a latest row
-   * exists and is not revoked. No event changes; the boolean is never PII.
-   * Review F1: at this point the session is already MINTED — a consent-read blip
-   * must not 500 a login that server-side succeeded (the worker would burn
-   * another OTP against the TD60 daily cap to recover). On failure the field is
-   * OMITTED: the app's tri-state treats absent as unknown/pass-through.
-   */
-  private async withConsentFlag(
-    login: Omit<LoginResponse, "consent_accepted">,
-  ): Promise<LoginResponse> {
-    try {
-      const latest = await this.consents.findLatestByWorker(login.worker_id);
-      return { ...login, consent_accepted: latest != null && latest.revokedAt === null };
-    } catch {
-      return { ...login };
-    }
+    return withConsentAccepted(this.consents, login);
   }
 
   /**
@@ -324,11 +414,39 @@ export class AuthController {
   @UseGuards(WorkerAuthGuard)
   async accountDeleteRequest(
     @CurrentWorker() worker: AuthenticatedWorker,
+    @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<AccountDeleteRequestResponse> {
     const phone = await this.resolvePhone(worker.id);
-    const { resendInSeconds } = await this.auth.issueAndSendWithSignals(phone, ctx);
-    return { success: true, resend_in_seconds: resendInSeconds };
+    // IDEMPOTENT UNDER `Idempotency-Key` (#1023). This reaches `issueAndSendWithSignals`, i.e.
+    // the SAME `OtpService.issueAndSend` and therefore the same per-phone hourly (5), per-phone
+    // daily (10) and platform-wide `OTP_GLOBAL_MAX_SENDS_PER_DAY` breaker as the login send —
+    // and the breaker, once tripped, 429s EVERY worker on EVERY device until UTC midnight.
+    //
+    // Its contribution is genuinely small: the route is authenticated, deliberate and fires a
+    // handful of times a day, and the resend cooldown arming at t≈0.1s refuses the t≈15.3s rung
+    // before either INCR — so the realistic amplification is 2 sends per tap, not 3. This is
+    // scope-completeness rather than a live outage: the counters are shared, so the route
+    // should not be the one place a retry can still spend them.
+    //
+    // NOT `secret`: the response is `{ success, resend_in_seconds }`, the same shape as the
+    // send routes and carrying no credential.
+    //
+    // Its OWN scope, so a key cannot replay between this and login — the key namespace is
+    // per-phone, and this route resolves the very same phone that /auth/otp/request would.
+    return this.otpIdempotency.runOnce({
+      scope: "account_delete_request",
+      phoneE164: phone,
+      idempotencyKey: req.header("idempotency-key"),
+      inFlight: () => ({
+        success: true as const,
+        resend_in_seconds: this.config.OTP_RESEND_COOLDOWN_SECONDS,
+      }),
+      work: async () => {
+        const { resendInSeconds } = await this.auth.issueAndSendWithSignals(phone, ctx);
+        return { success: true as const, resend_in_seconds: resendInSeconds };
+      },
+    });
   }
 
   /**

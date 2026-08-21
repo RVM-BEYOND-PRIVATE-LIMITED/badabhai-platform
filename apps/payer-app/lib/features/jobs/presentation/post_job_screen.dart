@@ -563,48 +563,64 @@ class _PostJobScreenState extends State<PostJobScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        AppSpacing.s2,
-        AppSpacing.gutter,
-        AppSpacing.s6,
+    // Transparent so this inner Scaffold never paints over the shell surface —
+    // it exists only to pin the primary action below a form that can outgrow the
+    // fold (mirrors edit_agency_job_screen).
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.gutter,
+            AppSpacing.s3,
+            AppSpacing.gutter,
+            AppSpacing.s3,
+          ),
+          child: BbButton(
+            label: 'Post job',
+            iconLeft: Icons.send,
+            block: true,
+            loading: _submitting,
+            // E13 — disabled (null) for the company path until the picked skills
+            // reach at least one worker; the agency path is never gated here.
+            onPressed: (_isAgency || _companyCanPost) ? _submit : null,
+          ),
+        ),
       ),
-      children: <Widget>[
-        Row(
-          children: <Widget>[
-            BbIconButton(
-              icon: Icons.arrow_back,
-              semanticLabel: 'Back',
-              onPressed: widget.onBack,
-            ),
-            const SizedBox(width: AppSpacing.s3),
-            Text(
-              'Post a job',
-              style: AppTypography.display(
-                size: AppTypography.sizeLg,
-                weight: FontWeight.w800,
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.gutter,
+          AppSpacing.s2,
+          AppSpacing.gutter,
+          AppSpacing.s6,
+        ),
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              BbIconButton(
+                icon: Icons.arrow_back,
+                semanticLabel: 'Back',
+                onPressed: widget.onBack,
               ),
-            ),
-            const Spacer(),
-            const BbBadge('Free', tone: BbBadgeTone.success),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.s4),
-        // Branch on the locked session role: the agency posts to a DIFFERENT
-        // (faceless demand) contract that DOES accept trade/pay/experience.
-        ...(_isAgency ? _agencyFields() : _companyFields()),
-        const SizedBox(height: AppSpacing.s5),
-        BbButton(
-          label: 'Post job',
-          iconLeft: Icons.send,
-          block: true,
-          loading: _submitting,
-          // E13 — disabled (null) for the company path until the picked skills
-          // reach at least one worker; the agency path is never gated here.
-          onPressed: (_isAgency || _companyCanPost) ? _submit : null,
-        ),
-      ],
+              const SizedBox(width: AppSpacing.s3),
+              Text(
+                'Post a job',
+                style: AppTypography.display(
+                  size: AppTypography.sizeLg,
+                  weight: FontWeight.w800,
+                ),
+              ),
+              const Spacer(),
+              const BbBadge('Free', tone: BbBadgeTone.success),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s4),
+          // Branch on the locked session role: the agency posts to a DIFFERENT
+          // (faceless demand) contract that DOES accept trade/pay/experience.
+          ...(_isAgency ? _agencyFields() : _companyFields()),
+        ],
+      ),
     );
   }
 
@@ -909,8 +925,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
         ),
         const SizedBox(height: AppSpacing.s2),
         Wrap(
-          spacing: 7,
-          runSpacing: 7,
+          spacing: AppSpacing.chipGap,
+          runSpacing: AppSpacing.chipGap,
           children: <Widget>[
             for (final String skill in _skills)
               BbChip(

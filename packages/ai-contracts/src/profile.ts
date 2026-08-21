@@ -329,6 +329,21 @@ export const ProfileExtractionInputSchema = z
     transcript: z.string().min(1).optional(),
     messages: z.array(ConversationMessageSchema).optional(),
     role_family: z.string().optional(), // Phase-1 addition (AI service defaults it)
+    /**
+     * THE S3-C READ SWITCH FOR THIS CALLER — a canonical `jd_*` id that scopes the
+     * TAX-4 canonicalization pass to Path A (`job_domain_skill`) instead of Path B
+     * (the legacy `skill_alias.domain_id` slug).
+     *
+     * A REQUEST FIELD, NOT A FLAG, because that is what the switch is:
+     * `phase-9-s3-deployment-plan.md` defines it as *which field the caller populates*.
+     * Optional and unpopulated by anything today, so every existing extraction is
+     * byte-identical — flipping the switch is adding one field at the call site, and
+     * reverting is removing it, with no deploy-ordered flag to unwind.
+     *
+     * Bounded like every other scope id on the wire (`NearestAliasesDtoSchema`,
+     * `RecordUnresolvedDtoSchema`) so an unbounded string can never reach the ANN scope.
+     */
+    job_domain_id: z.string().min(1).max(64).optional(),
   })
   .refine((d) => Boolean(d.transcript) || (d.messages?.length ?? 0) > 0, {
     message: "Provide either `transcript` or a non-empty `messages` array",
@@ -404,8 +419,23 @@ export const ResumeGenerationInputSchema = z.object({
 export type ResumeGenerationInput = z.infer<typeof ResumeGenerationInputSchema>;
 
 export const ResumeGenerationOutputSchema = z.object({
+  /**
+   * The deterministic `Label: value` template, on EVERY path (#909).
+   *
+   * A CONTRACT ABOUT SHAPE, not just "some résumé text". The worker app renders its sectioned
+   * résumé by parsing these labels (`parseResumeText` → `ResumeSectionsView`), and falls back to
+   * one prose paragraph the moment they are absent. The real LLM path used to return the model's
+   * 2-4 sentence summary here, which silently collapsed every real résumé to that paragraph
+   * while mock/blocked runs looked perfect — the model's prose now goes to `summary`.
+   */
   resume_text: z.string(),
   resume_json: z.record(z.string(), z.unknown()),
+  /**
+   * The model's 2-4 sentence blurb, or null when no provider was called (mock posture, a
+   * pseudonymize block, a cap). ADDITIVE and optional — nothing renders it yet, and the sections
+   * do not depend on it.
+   */
+  summary: z.string().nullable().default(null),
   format: z.enum(["text", "json"]).default("text"),
   is_mock: z.boolean().default(true),
   // #745 — `router.run` always produced this on the résumé route; the route dropped it,

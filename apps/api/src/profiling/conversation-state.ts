@@ -97,6 +97,36 @@ export type TurnKind = (typeof TURN_KINDS)[number];
 export interface LastTurn {
   /** `sha256(sessionId + rev + text)` — see `inboundHash`. Never the text itself. */
   readonly inboundHash: string;
+  /**
+   * The client's id for the submission that PRODUCED this reply, or `null` when it had none.
+   *
+   * THE DEFECT THIS CLOSES (#931), which `inboundHash` and the four clocks around it cannot.
+   * The hash is `(sessionId, rev, text)` and it is stamped against `rev + 1` — the rev the NEXT
+   * inbound will carry — so a worker's genuine next answer that happens to reuse the previous
+   * answer's words hashes to exactly the previous turn's stamp. On device, qp_machining:
+   * "Kya aap programme feed kar lete hain?" → "haan" captured, engine advances;
+   * "Kya aap drawing padh lete hain?" → "haan" DISCARDED, the same question re-served. That is
+   * not an edge case: 236 of 466 authored pack items are `boolean` with zero options and the
+   * packs place them back to back, so answering two consecutive yes/no questions with one word is
+   * the NORMAL case for a voice-first, low-literacy UI.
+   *
+   * WHY THE ID BEATS THE CLOCK. Everything above this line is the server INFERRING which of two
+   * readings an identical (session, rev, text) triple means — "the network delivered one
+   * submission twice" or "the worker just answered again in the same words" — from how long ago
+   * the last reply was stamped. Four constants, three prior defects (#857, #858, #869), and the
+   * ambiguity survives all of them, because elapsed time is not evidence about intent: a fast
+   * worker and a slow retry are the same number. The client does not have to infer anything. It
+   * mints one id per PHYSICAL send and re-sends that exact id on a transport retry, so equality
+   * of ids is a FACT about which submission this is, and it is right at one millisecond and at
+   * one minute alike.
+   *
+   * `null` IS A FIRST-CLASS VALUE, not a defect. It means the stamp was written by a build or a
+   * client that had no id — an app still in the field, the `openTurn`/finalize paths that have no
+   * client submission behind them at all, or an envelope sitting in Redis from before this
+   * deployed. Every one of those must keep taking the hash + window path EXACTLY as it does
+   * today, which is why this field is added BESIDE `inboundHash` and never instead of it.
+   */
+  readonly submissionId: string | null;
   /** The reply served, verbatim, including any `{{worker_name}}` placeholder. */
   readonly reply: string;
   /**
@@ -285,8 +315,48 @@ export const REPLY_CACHE_WINDOW_MS = 10_000;
  * ruling on it, and is time-independent. It needs the worker app to send one (see the companion
  * frontend issue). This window is what protects workers until that ships, and should be revisited
  * — not silently kept — when it does.
+ *
+ * ⚠ THE ID HAS LANDED, AND THIS WINDOW IS STILL HERE ON PURPOSE (#931). {@link LastTurn.submissionId}
+ * ships the durable fix: when the inbound and the stamp both carry an id, `replayOf` decides on
+ * that alone and consults no clock at all. This window — and the three constants around it — now
+ * governs exactly one population: submissions with NO id on one side or the other. That is old app
+ * builds, which stay in the field for a long time, plus every session straddling the deploy.
+ * Shortening or retiring it now would regress #857/#858/#869 for all of them, so it is UNCHANGED,
+ * deliberately, and this note is the revisit the paragraph above asked for rather than a silent
+ * keep. What retires it is field telemetry, not a reading of the code: `profile.submission_duplicated`
+ * carries `absorbed_as`, and when the `budget`/`storm`/`stale` branches go to zero these four
+ * constants have no population left to protect (#931 step 4, deliberately out of scope here).
  */
 export const STALE_RESPONSE_WINDOW_MS = 30_000;
+
+/**
+ * How old an ID-MATCHED submission may be and still be served from the cache (#931).
+ *
+ * WHY THE ID PATH IS BOUNDED AT ALL, WHEN THE ID IS SUPPOSED TO BE A FACT. It is a fact about a
+ * CORRECT client. A client that reuses one id across two physical sends is not misreporting
+ * anything, it is broken — and with no bound its every later send matches the same stamp and
+ * writes nothing, so `rev` never moves, the stamp never ages, and the interview DEADLOCKS for the
+ * whole 24 h buffer TTL. On a boolean question rendered as two chips the worker cannot even type
+ * their way out; tapping the honest answer re-serves the same question forever. The code this
+ * replaced self-cleared in <= 10 s. An unbounded new failure is not an acceptable price for a
+ * bounded old one, and `never trust the client` is the whole reason the server owns this rule.
+ *
+ * WHY NOT {@link STALE_RESPONSE_WINDOW_MS}. That was the first bound tried and it is WRONG here,
+ * for a reason the id path has and the hash path does not: `POST /profiling/answer` transcribes a
+ * spoken answer IN-REQUEST and the shipped client waits `kVoiceTranscriptWaitBudget` = 150 s for
+ * it (`apps/worker-app/lib/core/api/api_client.dart`). A genuine transport retry on that route
+ * therefore lands ~150 s out — far past 30 s — and refusing to replay it would run the turn for
+ * real and capture the worker's spoken answer against the question their own first submission had
+ * already advanced past. That is #869's durable, silent corruption, reintroduced by the fix for
+ * something else.
+ *
+ * SO IT IS SIZED OFF THE LONGEST LEGITIMATE CLIENT DEADLINE, not off the ambiguity window: 180 s,
+ * comfortably past the 150 s transcript ceiling, so every retry a shipped client can actually
+ * produce is inside it and every deadlock is out of it within three minutes. It is deliberately
+ * NOT one of the four constants #931 step 4 retires — those govern the no-id population and go
+ * away with it; this one governs the id path and outlives them.
+ */
+export const ID_REPLAY_MAX_AGE_MS = 180_000;
 
 /**
  * How many times ONE stamped reply may be served as a replay before a further identical
@@ -470,6 +540,27 @@ export interface ProfilingEnvelope {
    */
   readonly llmAsks: number;
   /**
+   * How many turns Phase A ACTUALLY PUT IN FRONT OF THIS WORKER — the deterministic record that
+   * the platform conducted a conversational interview here, and the evidence
+   * `selectableEnginePacks` decides the worker's trade pack on.
+   *
+   * WHY IT IS NOT `llmAsks`, WHICH LOOKS LIKE THE SAME NUMBER AND IS NOT. `llmAsks` is the
+   * RUNAWAY BUDGET's counter, and it is deliberately NOT incremented by the turn that opens the
+   * experience gate: the model's reply is discarded in favour of the gate, so charging a worker's
+   * budget for a question they never saw would be wrong. That makes it an UNDERCOUNT of what
+   * happened. The shortest real interview — one composite opener answered with a whole job
+   * ("welder hu, HCL me 6 mahine"), the gate, "Nahi" — ends Phase A with `llmAsks === 0` having
+   * asked the worker about their trade and structured the answer. A pack skip keyed on
+   * `llmAsks > 0` would re-interrogate precisely that worker. Two counters, because there are two
+   * questions: how much budget the model has spent, and whether Phase A happened at all.
+   *
+   * WRITTEN BY `LlmTurnService` AND BY NOTHING ELSE, one increment per turn it actually served.
+   * That is the §3 property this field exists for: no field on the wire moves it, the model cannot
+   * inflate it, and the model cannot zero it. Contrast `llmDraft`, every member of which is the
+   * model's own output.
+   */
+  readonly llmLedTurns: number;
+  /**
    * The model went away and the deterministic engine took over. STICKY for the rest of the
    * interview rather than per-turn: an interview that flips between an LLM voice and an
    * authored one every few turns reads as two different people talking to the worker, and the
@@ -489,6 +580,27 @@ export interface ProfilingEnvelope {
    * key by anything, so `servedQuestionKey` stays null for the whole LLM-led stretch.
    */
   readonly llmGateOpen: boolean;
+  /**
+   * The experience gate has been PUT ON SCREEN at least once in this interview (#1016).
+   *
+   * WHAT IT IS FOR. `LlmTurnService` used to serve the gate on exactly one condition — the turn
+   * the model returned a non-null `experience_entry` — so a model that ran the experience
+   * stretch conversationally and never filled the field took the gate off the air for the whole
+   * session, and Phase A closed on `phase_a_done` having never asked. Both triggers were model
+   * output, which put "is this worker asked whether they have another job?" in the model's hands.
+   * §3 says it is not the model's to decide. This flag is what lets the engine ask it ITSELF
+   * before accepting a close, exactly once, without re-asking a worker who already answered.
+   *
+   * DISTINCT FROM {@link llmGateOpen}, and the pair is not redundant: `llmGateOpen` is "the gate
+   * is on screen RIGHT NOW" and is cleared the moment it is answered, so it cannot answer
+   * "was it ever asked?" one turn later. This one is set with it and never cleared.
+   *
+   * NOT DERIVED FROM `llmDraft.experiences.length`. That count happens to agree today, because
+   * the entry branch fires whenever an entry lands below the cap — but it agrees by coincidence
+   * of the current control flow, not by anything stated, and the first edit to that branch would
+   * silently take the gate off the air again in precisely the way #1016 describes.
+   */
+  readonly llmGateAsked: boolean;
 }
 
 /**
@@ -576,8 +688,10 @@ export const PROFILING_ENVELOPE_KEYS = {
   llmStage: true,
   llmDraft: true,
   llmAsks: true,
+  llmLedTurns: true,
   llmFallback: true,
   llmGateOpen: true,
+  llmGateAsked: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -610,8 +724,10 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     llmStage: "domain",
     llmDraft: { domain_label: null, role_label: null, skills: [], experiences: [] },
     llmAsks: 0,
+    llmLedTurns: 0,
     llmFallback: false,
     llmGateOpen: false,
+    llmGateAsked: false,
   };
 }
 
@@ -706,6 +822,18 @@ function narrowLastTurn(value: unknown): LastTurn | null {
     .safeParse(v.progress);
   return {
     inboundHash: v.inboundHash,
+    // ABSENT NARROWS TO `null`, the same "degrade to today's behaviour" rule `kind` and
+    // `inputMode` below follow — and here it is load-bearing rather than tidy. Every stamp
+    // written before this field existed is sitting in Redis behind a 24 h TTL right now, and
+    // those interviews are live: `null` makes each of them read as "this stamp carries no id",
+    // so the very next submission is judged by the hash and the windows exactly as it would
+    // have been yesterday. The session self-heals on its next REAL turn, which stamps an id.
+    //
+    // AN EMPTY STRING IS ALSO `null`, deliberately. `""` from a drifted writer would otherwise
+    // compare EQUAL to another `""` and turn two unrelated submissions into a match — a
+    // discarded answer, which is the defect this field exists to close, wearing its own name.
+    submissionId:
+      typeof v.submissionId === "string" && v.submissionId.length > 0 ? v.submissionId : null,
     reply: v.reply,
     // ABSENT NARROWS TO `ask`, which is what every one of these entries was served as before the
     // field existed — so an interview sitting in Redis right now behind the 24 h TTL replays as
@@ -830,11 +958,24 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     llmStage: narrowLlmStage(v.llmStage),
     llmDraft: narrowLlmDraft(v.llmDraft),
     llmAsks: nonNegativeInt(v.llmAsks),
+    // ZERO ON ANYTHING ELSE, ABSENT INCLUDED — and absent is the state of every envelope in
+    // flight across the deploy that adds this field. Zero reads as "Phase A never led a turn
+    // here", which hands those sessions their trade pack exactly as the build that wrote them
+    // did. The other default would delete a worker's authored questions on the strength of a
+    // field nothing ever wrote.
+    llmLedTurns: nonNegativeInt(v.llmLedTurns),
     llmFallback: v.llmFallback === true,
     // FALSE ON ANYTHING BUT A LITERAL `true`, which is what makes a lost or corrupted envelope
     // resume with the gate CLOSED. The alternative failure — resuming with it open — leaves the
     // worker's next sentence read as a yes/no answer to a question that is no longer on screen.
     llmGateOpen: v.llmGateOpen === true,
+    // FALSE ON ANYTHING ELSE, ABSENT INCLUDED — and absent is the state of every envelope in
+    // flight across the deploy that adds this field. The two failures are not symmetric, so this
+    // default is chosen rather than inherited: false means such a worker may be offered the gate
+    // once at close even if they already saw it (cost: one Yes/No turn), while true would mean a
+    // worker who never saw it never does — which is #1016 itself, preserved. "We have no record
+    // that it was asked" is also the honest reading of a field nothing ever wrote.
+    llmGateAsked: v.llmGateAsked === true,
   };
 }
 

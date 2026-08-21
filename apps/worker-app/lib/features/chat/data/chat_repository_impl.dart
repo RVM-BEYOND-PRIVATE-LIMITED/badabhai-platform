@@ -21,6 +21,16 @@ String _stripWorkerName(String text) => text
     )
     .trimLeft();
 
+/// The Devanagari read-aloud script for a hydrated OUTBOUND bubble (#896), with
+/// the same `{{worker_name}}` vocative stripped as the visible body. Null on an
+/// older API build (no `tts_text`) or when the strip leaves nothing — read-aloud
+/// then falls back to speaking the visible body text.
+String? _hydratedTts(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return null;
+  final String stripped = _stripWorkerName(raw);
+  return stripped.isEmpty ? null : stripped;
+}
+
 class ChatRepositoryImpl implements ChatRepository {
   ChatRepositoryImpl(this._api, this._session);
 
@@ -60,7 +70,7 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   @override
-  Future<ChatTurn> sendMessage(String text) async {
+  Future<ChatTurn> sendMessage(String text, {String? submissionId}) async {
     final String? token = _session.sessionToken;
     if (token == null) throw const UnauthorizedFailure();
 
@@ -81,6 +91,10 @@ class ChatRepositoryImpl implements ChatRepository {
         sessionId: sessionId,
         authToken: token,
         text: text,
+        // #870 — rides the /chat/message body only when non-null; the api client
+        // adds the key conditionally. Both callers now pass one (chat composer +
+        // the voice-merge path, #944); a null would simply be omitted.
+        submissionId: submissionId,
       );
       // Carry the backend's tap-to-answer suggestions through to the UI. A
       // blocked reply (pseudonymize fail-closed) arrives with an empty list.
@@ -116,6 +130,9 @@ class ChatRepositoryImpl implements ChatRepository {
         questionKind: reply.questionKind,
         inputMode: reply.inputMode,
         occupationLabel: reply.occupationLabel,
+        // #896 — the Devanagari read-aloud script for THIS reply; null on an
+        // older API build, and read-aloud then speaks the romanized reply.
+        ttsText: reply.ttsText,
         // #761 — carried for the optimistic-lookahead reconcile in ChatBloc:
         // asked_question_id attributes THIS turn, lookahead predicts the next.
         askedQuestionId: reply.askedQuestionId,
@@ -147,7 +164,15 @@ class ChatRepositoryImpl implements ChatRepository {
         if (raw == null || raw.trim().isEmpty) continue;
         final String text = row.fromWorker ? raw : _stripWorkerName(raw);
         if (text.isEmpty) continue; // a name-only outbound line strips to empty
-        messages.add(ChatMessage(text: text, fromWorker: row.fromWorker));
+        messages.add(ChatMessage(
+          text: text,
+          fromWorker: row.fromWorker,
+          // #896 — the Devanagari read-aloud script rides the BOT bubble only;
+          // a worker bubble leaves it null. Strip the {{worker_name}} vocative
+          // exactly as the body is stripped (the client holds no name, §2), and
+          // treat a name-only strip as absent → read-aloud falls back to `text`.
+          ttsText: row.fromWorker ? null : _hydratedTts(row.ttsText),
+        ));
       }
       return messages;
     } catch (_) {

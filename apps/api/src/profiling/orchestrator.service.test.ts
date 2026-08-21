@@ -17,7 +17,9 @@ import {
   narrowProfilingEnvelope,
   RETRY_STORM_FLOOR_MS,
   REPLY_CACHE_WINDOW_MS,
+  ID_REPLAY_MAX_AGE_MS,
   STALE_RESPONSE_WINDOW_MS,
+  type LastTurn,
   type ProfilingEnvelope,
 } from "./conversation-state";
 import { DISAMBIGUATION_PROMPT, toPackOption } from "./identify.service";
@@ -203,12 +205,27 @@ function makeWorld(
   };
 }
 
+/**
+ * A hand-built reply-cache stamp, as a test writes one.
+ *
+ * `submissionId` IS OPTIONAL HERE AND REQUIRED ON `LastTurn` (#931). The interface keeps it
+ * required so that forgetting to narrow it out of Redis is a BUILD failure rather than a silently
+ * forgotten id; a stamp a test hand-builds without one is exactly what every entry written before
+ * the field existed looks like, and defaulting it to `null` below is what keeps every stamp these
+ * tests construct on the legacy hash + window path — which is the path they exist to pin.
+ */
+type SeededLastTurn = Omit<LastTurn, "submissionId"> & { submissionId?: string | null };
+
 /** Seed a session already mid-interview, with `q_city` on screen. */
 function seed(
   store: Map<string, TranscriptBuffer>,
-  envelope: Partial<ProfilingEnvelope> = {},
+  envelope: Partial<Omit<ProfilingEnvelope, "lastTurn">> & { lastTurn?: SeededLastTurn | null } = {},
   buffer: Partial<TranscriptBuffer> = {},
 ) {
+  // Split out so the stamp is rebuilt with its default rather than spread in raw — see
+  // `SeededLastTurn`. `undefined` means "this test seeded no stamp at all", which is not the same
+  // as an explicit `null`, so the key is only written when the caller wrote one.
+  const { lastTurn, ...rest } = envelope;
   store.set(SESSION, {
     workerId: WORKER,
     turnCount: 1,
@@ -222,7 +239,10 @@ function seed(
       servedQuestionKey: "q_city",
       engineAsks: 1,
       askCounts: { q_city: 1 },
-      ...envelope,
+      ...rest,
+      ...(lastTurn === undefined
+        ? {}
+        : { lastTurn: lastTurn === null ? null : { submissionId: null, ...lastTurn } }),
     },
     ...buffer,
   });
@@ -230,11 +250,19 @@ function seed(
 
 const CTX = { correlationId: "11111111-1111-4111-8111-111111111111", requestId: "req_1" };
 
-const say = (text: string, at: Date = T0) => ({
+/**
+ * An inbound turn. The third argument is the client's per-submission id (#931).
+ *
+ * DEFAULTED TO `null`, so every call site written before that argument existed produces an
+ * inbound with NO id and therefore takes the hash + window path unchanged — which is what makes
+ * "the legacy behaviour is byte-identical" a property of the code rather than a claim in a PR.
+ */
+const say = (text: string, at: Date = T0, submissionId: string | null = null) => ({
   sessionId: SESSION,
   workerId: WORKER,
   text,
   now: at,
+  submissionId,
   ctx: CTX as never,
 });
 
@@ -573,6 +601,25 @@ describe("pack resolution", () => {
     await orchestrator.takeTurn(say("main pune me rehta hu"));
     expect(registry.loadPinned).toHaveBeenCalledWith("qp_welding", 1, T0.getTime());
     expect(registry.resolveForOccupation).not.toHaveBeenCalled();
+  });
+
+  it("asks the worker's own trade its questions — an interview the model never led is untouched", async () => {
+    // THE SCOPE BOUNDARY of the Phase A trade-pack skip, asserted from the majority side. The skip
+    // reads `llmStage === "done"`, and `CHAT_LLM_INTERVIEW_ENABLED` is default OFF — so `leads()`
+    // is false, `LlmTurnService.take` (the only writer of the stage) never runs, and every session
+    // in this file keeps the `"domain"` its envelope was created with. Occupation-specific
+    // selection therefore has to be bit-for-bit what it was before the skip existed; a failure
+    // here is a regression on nearly every interview, not a fixture that needs updating.
+    const { orchestrator, store } = makeWorld({
+      packs: { occupation: OCCUPATION_PACK, universal: UNIVERSAL_PACK },
+    });
+    seed(store, { packId: "qp_welding", packVersion: 1 });
+    const result = await orchestrator.takeTurn(say("main pune me rehta hu"));
+
+    expect(result.questionKey).toBe("q_process");
+    const saved = store.get(SESSION)?.profiling;
+    expect(saved?.phase).toBe("occupation_specific");
+    expect(saved?.llmStage).toBe("domain");
   });
 
   it("does not run the universal block twice when it IS the resolved pack", async () => {
@@ -1064,6 +1111,357 @@ describe("the stale-response window — a client timeout retry never answers the
   });
 });
 
+/**
+ * THE PER-SUBMISSION CLIENT ID — a different id is a real turn, however identical the words (#931).
+ *
+ * WHAT WAS WRONG. `inboundHash` is `(sessionId, rev, text)` stamped against `rev + 1`, so a worker
+ * who answers the FOLLOWING question with the SAME word produces a byte-identical key at the
+ * matching rev: their answer is discarded and the question re-served. Reproduced on device on the
+ * qp_machining pack, which is what this block's fixture is — "Kya aap programme feed kar lete
+ * hain?" → "haan" captured and the engine advances, then "Kya aap drawing padh lete hain?" →
+ * "haan" thrown away. 236 of 466 authored items are `boolean` with zero options and the packs
+ * place them back to back, so this is the ordinary case for a voice-first UI.
+ *
+ * A NEW SIBLING BLOCK, NOT AN EDIT TO THE TWO ABOVE. `LAYER A — the reply cache` and the #869
+ * block build every inbound WITHOUT an id, so they take the hash + window path unchanged — a
+ * zero-line diff there is the cheapest possible proof that the rollout requirement (old builds
+ * must not regress) holds mechanically rather than by promise.
+ */
+describe("the per-submission client id — a different id is a real turn (#931)", () => {
+  // The on-device pack, reduced to the two rows that reproduce it: consecutive `boolean` items
+  // with ZERO options and `max_asks: 1`, so answering the first is guaranteed to advance to the
+  // second and the second can never be re-served for an unrelated reason.
+  const FEED = item({
+    question_key: "q_feed",
+    prompt_text: "Kya aap programme feed kar lete hain?",
+    answer_type: "boolean",
+    max_asks: 1,
+  });
+  const DRAWING = item({
+    question_key: "q_drawing",
+    prompt_text: "Kya aap drawing padh lete hain?",
+    answer_type: "boolean",
+    max_asks: 1,
+  });
+
+  /** The word a worker actually uses. Both questions get it, which is the entire defect. */
+  const YES = "haan";
+  const ID_A = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
+  const ID_B = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
+
+  const world = () => {
+    const w = makeWorld({
+      packs: { occupation: pack("qp_machining", [FEED, DRAWING]), universal: UNIVERSAL_PACK },
+    });
+    seed(w.store, {
+      servedQuestionKey: null,
+      engineAsks: 0,
+      askCounts: {},
+      packId: "qp_machining",
+      packVersion: 1,
+    });
+    return w;
+  };
+
+  /**
+   * Put `q_feed` on screen and answer it with `YES`. The SECOND turn is the one that matters: its
+   * own success advances the interview to `q_drawing` and stamps `YES` at the new rev, which is
+   * exactly the state in which the worker's next `YES` collides with it.
+   */
+  const answerFeed = async (w: ReturnType<typeof world>, submissionId: string | null) => {
+    await w.orchestrator.takeTurn(say("shuru karein", T0));
+    return w.orchestrator.takeTurn(say(YES, new Date(T0.getTime() + 1_000), submissionId));
+  };
+
+  const answersFor = (w: ReturnType<typeof world>, key: string) =>
+    w.store.get(SESSION)?.profiling?.answerMap.filter((a) => a.question_key === key) ?? [];
+
+  const stampOf = (w: ReturnType<typeof world>) => w.store.get(SESSION)?.profiling?.lastTurn;
+  const revOf = (w: ReturnType<typeof world>) => w.store.get(SESSION)?.profiling?.rev;
+
+  it("ACCEPTANCE: two consecutive boolean questions answered 'haan' capture BOTH answers", async () => {
+    // The on-device repro, literally. Asserted on the ANSWER MAP and not only on `replayed`,
+    // because the harm is a worker's answer going missing — a counter is a stand-in for it.
+    const w = world();
+    const feed = await answerFeed(w, ID_A);
+    expect(feed.questionKey).toBe("q_drawing");
+
+    const drawing = await w.orchestrator.takeTurn(
+      say(YES, new Date(T0.getTime() + 2_000), ID_B),
+    );
+
+    expect(drawing.replayed).toBe(false);
+    expect(answersFor(w, "q_feed")).toHaveLength(1);
+    expect(answersFor(w, "q_drawing")).toHaveLength(1);
+  });
+
+  it("runs a real turn on a DIFFERENT id even though the hash matches byte for byte", async () => {
+    // The same fact as the acceptance case, at the level of the one line that fixes it. The hash
+    // is asserted to MATCH first: without that this test would pass for the wrong reason the day
+    // something else changes the key, and would stop testing the fix at all.
+    const w = world();
+    await answerFeed(w, ID_A);
+    expect(stampOf(w)?.inboundHash).toBe(inboundHash(SESSION, revOf(w) as number, YES));
+
+    const next = await w.orchestrator.takeTurn(say(YES, new Date(T0.getTime() + 2_000), ID_B));
+
+    expect(next.replayed).toBe(false);
+  });
+
+  it("replays the byte-identical reply for the SAME id, and writes NOTHING", async () => {
+    // A genuine transport retry: the client re-sent the exact submission it has no confirmation
+    // for. It gets the response it missed, and — unlike the hash path — no CAS write at all: the
+    // budget exists only to stop a stamp trapping the worker's NEXT answer, and their next answer
+    // carries a different id and can never match this stamp.
+    const w = world();
+    const first = await answerFeed(w, ID_A);
+    const revAfterFirst = revOf(w);
+    const writesAfterFirst = w.buffer.saveWithCas.mock.calls.length;
+
+    const retry = await w.orchestrator.takeTurn(say(YES, new Date(T0.getTime() + 2_000), ID_A));
+
+    expect(retry.replayed).toBe(true);
+    expect(retry.reply).toBe(first.reply);
+    expect(retry.questionKey).toBe(first.questionKey);
+    expect(retry.options).toEqual(first.options);
+    expect(revOf(w)).toBe(revAfterFirst);
+    expect(stampOf(w)?.replays).toBe(0);
+    expect(w.buffer.saveWithCas.mock.calls.length).toBe(writesAfterFirst);
+  });
+
+  it("absorbs a whole storm of ONE id without ever spending the budget (#858 stays closed)", async () => {
+    // Copies two and three milliseconds apart — the shape #858 was measured on. On the hash path
+    // this is what `RETRY_STORM_FLOOR_MS` is for; here there is nothing to bound, because every
+    // copy carries the same id and is therefore the same submission by construction.
+    const w = world();
+    const first = await answerFeed(w, ID_A);
+    const revAfterFirst = revOf(w);
+
+    for (const offset of [2, 3, 4]) {
+      const copy = await w.orchestrator.takeTurn(
+        say(YES, new Date(T0.getTime() + 1_000 + offset), ID_A),
+      );
+      expect(copy.replayed).toBe(true);
+      expect(copy.reply).toBe(first.reply);
+    }
+    expect(revOf(w)).toBe(revAfterFirst);
+    expect(answersFor(w, "q_drawing")).toHaveLength(0);
+  });
+
+  it("still replays the SAME id past the stale window — an id is a fact, not a guess", async () => {
+    // THE RULING, PINNED ON PURPOSE. The clocks exist to disambiguate a match the server cannot
+    // otherwise read; an id-matched submission is not ambiguous, so no window, budget or floor is
+    // consulted on that path — and the hash test in front of it already bounds the branch to
+    // "nothing has happened since", since any real turn moves `rev` and the key stops matching.
+    // The client's own transcript deadline is ~150 s, well outside the 30 s stale window, so this
+    // is a case that happens rather than a hypothetical. This test is what stops a later reader
+    // "tidying" the two paths into one.
+    const w = world();
+    const first = await answerFeed(w, ID_A);
+
+    const late = await w.orchestrator.takeTurn(
+      say(YES, new Date(T0.getTime() + 40_000), ID_A),
+    );
+
+    expect(late.replayed).toBe(true);
+    expect(late.reply).toBe(first.reply);
+    expect(answersFor(w, "q_drawing")).toHaveLength(0);
+  });
+
+  it("but stops replaying once even the slowest client could not still be retrying", async () => {
+    // THE OTHER HALF OF THE RULING ABOVE, and the reason that one survived review rather than
+    // being reverted. `An id is a fact` holds for a correct client; a client that reuses one id
+    // across two sends is broken, and with NO bound its every later send matches this stamp and
+    // writes nothing — `rev` never moves, the stamp never ages, and the interview wedges for the
+    // 24 h buffer TTL on a question the worker cannot type past. The bound is sized off the
+    // longest deadline a shipped client actually has (150 s, the in-request transcript wait), so
+    // the sibling above — a real 40 s retry — still replays, and only a wedge ages out.
+    const w = world();
+    await answerFeed(w, ID_A);
+
+    const wedged = await w.orchestrator.takeTurn(
+      say(YES, new Date(T0.getTime() + ID_REPLAY_MAX_AGE_MS + 5_000), ID_A),
+    );
+
+    expect(wedged.replayed).toBeFalsy();
+  });
+
+  it("LEGACY: with NO id on either side the hash and the windows decide, exactly as today", async () => {
+    // THE ROLLOUT REQUIREMENT, as an explicit named guard rather than as implicit coverage from
+    // the untouched blocks above. Old app builds stay in the field for a long time, and for them
+    // this replay — including the defect it represents, which is why #931 step 4 exists — must
+    // keep behaving precisely as it did: served from the budget, one CAS write, `replays` at 1.
+    const w = world();
+    const first = await answerFeed(w, null);
+    const revAfterFirst = revOf(w);
+
+    const again = await w.orchestrator.takeTurn(say(YES, new Date(T0.getTime() + 2_000), null));
+
+    expect(again.replayed).toBe(true);
+    expect(again.reply).toBe(first.reply);
+    expect(revOf(w)).toBe((revAfterFirst as number) + 1);
+    expect(stampOf(w)?.replays).toBe(1);
+  });
+
+  it("falls back to the clock when the STAMP has no id — the deploy straddle", async () => {
+    // Every `lastTurn` in Redis at deploy time was written without this field and is alive behind
+    // a 24 h TTL. An id can only be compared with an id, so a session straddling the deploy is
+    // judged by the hash and the windows for exactly one turn and self-heals on the next real one.
+    const w = world();
+    const first = await answerFeed(w, null);
+    expect(stampOf(w)?.submissionId).toBeNull();
+    const revAfterFirst = revOf(w);
+
+    const withId = await w.orchestrator.takeTurn(say(YES, new Date(T0.getTime() + 2_000), ID_B));
+
+    expect(withId.replayed).toBe(true);
+    expect(withId.reply).toBe(first.reply);
+    expect(revOf(w)).toBe((revAfterFirst as number) + 1);
+  });
+
+  it("reads an envelope written by the OLD BUILD as 'no id', never as a match", async () => {
+    // THE DEPLOY STRADDLE AT ITS LITERAL WORST, and the reason `narrowLastTurn` defaults this
+    // field rather than leaving it alone. The test above stamps an explicit `null`; a stamp
+    // written by the previous build has NO SUCH KEY AT ALL, which is a different value in
+    // JavaScript and — left un-narrowed — a differently BEHAVING one: `undefined !== null` is
+    // true, so the guard would open on a stamp that carries no id, read the inbound's id as
+    // "different", and take a REAL TURN on what is genuinely a retry. That is #857/#858/#869
+    // regressing for every session alive at deploy time, caused by the new field rather than by
+    // the old ones. Deleting the key here and loading it back through the REAL narrower is what
+    // proves absent lands on the hash + window path instead.
+    const w = world();
+    const first = await answerFeed(w, null);
+    const stored = w.store.get(SESSION) as TranscriptBuffer;
+    const legacyStamp = { ...(stored.profiling?.lastTurn as LastTurn) };
+    delete (legacyStamp as { submissionId?: unknown }).submissionId;
+    expect("submissionId" in legacyStamp).toBe(false);
+    w.store.set(SESSION, {
+      ...stored,
+      profiling: { ...(stored.profiling as ProfilingEnvelope), lastTurn: legacyStamp },
+    });
+    const revAfterFirst = revOf(w);
+
+    const withId = await w.orchestrator.takeTurn(say(YES, new Date(T0.getTime() + 2_000), ID_B));
+
+    // Judged by the hash and the windows: a budget-consuming replay, exactly as yesterday.
+    expect(withId.replayed).toBe(true);
+    expect(withId.reply).toBe(first.reply);
+    expect(revOf(w)).toBe((revAfterFirst as number) + 1);
+    expect(stampOf(w)?.replays).toBe(1);
+    // And the session self-heals: the stamp it just re-wrote narrows to an explicit `null`.
+    expect(stampOf(w)?.submissionId).toBeNull();
+  });
+
+  it("falls back to the clock when the INBOUND has no id — an old build mid-session", async () => {
+    // The mirror case, and it is not hypothetical: there is no mode-lock, so a worker may start
+    // in the voice form and continue in chat on a build that sends no id.
+    const w = world();
+    const first = await answerFeed(w, ID_A);
+
+    const noId = await w.orchestrator.takeTurn(say(YES, new Date(T0.getTime() + 2_000), null));
+
+    expect(noId.replayed).toBe(true);
+    expect(noId.reply).toBe(first.reply);
+    expect(stampOf(w)?.replays).toBe(1);
+  });
+
+  describe("the rulings the id branch is written around", () => {
+    it("one id reused across DIFFERENT words never discards the second — the hash test stays in front", async () => {
+      // The comment above the id branch forbids testing id-first: a client bug that reused one id
+      // across two different utterances would then discard the second — a brand-new way to lose a
+      // worker's words, worse than the defect being fixed. Behind the hash, the text comparison
+      // catches it and the turn runs for real. Nothing asserted that ruling, because every other
+      // test in this block sends the same word twice.
+      const { orchestrator } = makeWorld();
+      const first = await orchestrator.takeTurn(say("haan", T0, "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"));
+      expect(first.replayed).toBeFalsy();
+
+      const second = await orchestrator.takeTurn(
+        say("nahi", new Date(T0.getTime() + 2_000), "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"),
+      );
+      expect(second.replayed).toBeFalsy();
+    });
+
+  });
+
+  describe("a duplicate is observable (#931 step 5)", () => {
+    const dupEvents = (w: ReturnType<typeof world>) =>
+      w.events.emit.mock.calls
+        .map(([params]) => params as { event_name: string; payload: Record<string, unknown> })
+        .filter((e) => e.event_name === "profile.submission_duplicated");
+
+    it("emits the id-matched duplicate with the branch that absorbed it", async () => {
+      const w = world();
+      await answerFeed(w, ID_A);
+
+      await w.orchestrator.takeTurn(say(YES, new Date(T0.getTime() + 2_000), ID_A));
+
+      const [event, ...rest] = dupEvents(w);
+      expect(rest).toHaveLength(0);
+      expect(event?.payload).toMatchObject({
+        session_id: SESSION,
+        worker_id: WORKER,
+        question_key: "q_drawing",
+        absorbed_as: "client_id",
+        inbound_had_id: true,
+        replays: 0,
+      });
+    });
+
+    it("emits the legacy duplicate as a CLOCK branch — the signal step 4 is gated on", async () => {
+      // `absorbed_as` going to `client_id` across the field is what says the four constants can
+      // finally be retired. A duplicate the clock absorbed says the opposite, and says it whether
+      // or not the inbound carried an id — which is why both fields are on the payload.
+      const w = world();
+      await answerFeed(w, null);
+
+      await w.orchestrator.takeTurn(say(YES, new Date(T0.getTime() + 2_000), null));
+
+      expect(dupEvents(w)[0]?.payload).toMatchObject({
+        absorbed_as: "budget",
+        inbound_had_id: false,
+      });
+    });
+
+    it("carries NO worker text, and collapses a storm to ONE row", async () => {
+      // §2: ids, one pack key, two enums and two counts. The worker's words live in the
+      // transcript. The idempotency key is what stops a broken client turning one submission into
+      // a row per POST — the volume ceiling is per duplicated SUBMISSION.
+      const w = world();
+      await answerFeed(w, ID_A);
+      for (const offset of [2, 3, 4]) {
+        await w.orchestrator.takeTurn(say(YES, new Date(T0.getTime() + 1_000 + offset), ID_A));
+      }
+
+      const events = dupEvents(w);
+      expect(events).toHaveLength(3);
+      const keys = new Set(
+        w.events.emit.mock.calls
+          .map(([params]) => params as { event_name: string; idempotencyKey?: string })
+          .filter((e) => e.event_name === "profile.submission_duplicated")
+          .map((e) => e.idempotencyKey),
+      );
+      expect(keys.size).toBe(1);
+      expect(JSON.stringify(events.map((e) => e.payload))).not.toContain(YES);
+    });
+
+    it("never fails the turn when the audit write does", async () => {
+      // The worker's duplicate was already absorbed correctly; losing the reply on top of that
+      // would turn an invisible telemetry failure into a visible interview failure.
+      vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+      const w = world();
+      const first = await answerFeed(w, ID_A);
+      w.events.emit.mockRejectedValueOnce(new Error("connection terminated unexpectedly"));
+
+      const retry = await w.orchestrator.takeTurn(say(YES, new Date(T0.getTime() + 2_000), ID_A));
+
+      expect(retry.replayed).toBe(true);
+      expect(retry.reply).toBe(first.reply);
+      vi.restoreAllMocks();
+    });
+  });
+});
+
 describe("LAYER B — the CAS", () => {
   it("re-runs the decision against the WINNER's state and succeeds", async () => {
     // The loser does not merge, does not replay a half-applied mutation, and does not retry its
@@ -1222,6 +1620,34 @@ describe("the disambiguation offer announces itself (#695)", () => {
     const replayed = await orchestrator.takeTurn(say("welding ka kaam"));
     expect(replayed.replayed).toBeFalsy();
     expect(replayed.options.length).toBeGreaterThan(0);
+  });
+
+  it("FAILS CLOSED on the id path too — the guard is about the stamp, not about who matched it", async () => {
+    // THE REGRESSION THIS PINS (#931). The sibling above passed while the id path served the
+    // dead end, because `say()` defaults `submissionId` to null and so exercised only the clock
+    // path. The id branch had been written BELOW the guard, so an id-carrying retry — which
+    // every shipped client now is, since #870 — was handed `kind: "disambiguate"` with zero
+    // chips, and handed it on EVERY retry, that branch consulting no window that could age it
+    // out. Same scenario as above, one argument different.
+    const { orchestrator, store } = makeWorld({ identifyOffer: OFFER });
+    seed(store);
+    const first = await orchestrator.takeTurn(say("welding ka kaam", T0, "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"));
+    expect(first.kind).toBe("disambiguate");
+
+    const held = store.get(SESSION) as TranscriptBuffer;
+    const envelope = held.profiling as ProfilingEnvelope;
+    store.set(SESSION, {
+      ...held,
+      profiling: {
+        ...envelope,
+        lastTurn: { ...envelope.lastTurn!, options: [] },
+      } as ProfilingEnvelope,
+    });
+
+    // The SAME id — a genuine transport retry, the case the id branch exists to absorb.
+    const onId = await orchestrator.takeTurn(say("welding ka kaam", T0, "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"));
+    expect(onId.replayed).toBeFalsy();
+    expect(onId.options.length).toBeGreaterThan(0);
   });
 });
 

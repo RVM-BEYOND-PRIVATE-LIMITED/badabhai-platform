@@ -9,6 +9,7 @@ import '../../../core/nav/tab_focus.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/education_label.dart';
 import '../../../core/widgets/bb_alerts_action.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_action.dart';
@@ -214,12 +215,14 @@ class _ProfileTabView extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               Text(headline,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: AppTypography.display(
                       size: AppTypography.sizeXl,
                       weight: FontWeight.w800,
                       color: AppColors.onBlue)),
               if (subline != null) ...<Widget>[
-                const SizedBox(height: 2),
+                const SizedBox(height: AppSpacing.hairline),
                 Text(subline,
                     style: AppTypography.body(color: AppColors.onBlueMuted)),
               ],
@@ -366,7 +369,8 @@ class _ProfileTabView extends StatelessWidget {
   /// so the row is omitted entirely. PII-free labels, never fabricated.
   String? _educationLabel(ProfileSummary s) {
     final List<String> parts = <String>[
-      if (s.educationLevel?.isNotEmpty ?? false) s.educationLevel!,
+      if (s.educationLevel?.isNotEmpty ?? false)
+        humanizeEducationLevel(s.educationLevel!),
       if (s.educationField?.isNotEmpty ?? false) s.educationField!,
     ];
     return parts.isEmpty ? null : parts.join(' • ');

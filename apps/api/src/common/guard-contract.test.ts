@@ -10,6 +10,7 @@ import { AuthController } from "../auth/auth.controller";
 import { ChatController } from "../chat/chat.controller";
 import { ConsentController } from "../consent/consent.controller";
 import { EventsController } from "../events/events.controller";
+import { WorkerFeedbackController } from "../feedback/worker-feedback.controller";
 import { HealthController } from "../health/health.controller";
 import { InterviewKitController } from "../interview-kit/interview-kit.controller";
 import { JobsController } from "../jobs/jobs.controller";
@@ -43,6 +44,7 @@ import { AdminAuthController } from "../admin/admin-auth.controller";
 import { AdminEventsController } from "../admin/admin-events.controller";
 import { AdminActionsController } from "../admin/admin-actions.controller";
 import { AdminPiiRevealController } from "../admin/admin-pii-reveal.controller";
+import { AdminAiTracesController } from "../admin/admin-ai-traces.controller";
 import { NotificationsController } from "../notifications/notifications.controller";
 import { NotificationPrefsController } from "../notifications/notification-prefs.controller";
 import { SkillsController } from "../skills/skills.controller";
@@ -53,8 +55,11 @@ import { ReferralBonusController } from "../referrals/referral-bonus.controller"
 // read directly from each controller's current @UseGuards, not assumed from the audit.
 import { AdminDirectoryController } from "../admin/admin-directory.controller";
 import { AdminEntitiesController } from "../admin/admin-entities.controller";
+import { AdminFeedbackController } from "../admin/admin-feedback.controller";
 import { AdminFinanceController } from "../admin/admin-finance.controller";
+import { AdminWorkerJourneyController } from "../admin/admin-worker-journey.controller";
 import { AdminKillSwitchController } from "../admin/admin-kill-switch.controller";
+import { AdminDashboardController } from "../admin/admin-dashboard.controller";
 import { DevicesController } from "../auth/devices.controller";
 import { PinController } from "../auth/pin.controller";
 import { ProfilingController } from "../profiling/profiling.controller";
@@ -116,6 +121,18 @@ const SI = "SkillsInternalGuard";
 const TL = "TestLoginGuard";
 const PTL = "PayerTestLoginGuard";
 const PE = "AgencyPayoutsEnabledGuard";
+const ATF = "AdminAiTraceFlagGuard";
+/**
+ * ⚠ NOT AN AUTH GUARD. `OptionalWorkerAuthGuard` attaches `req.worker` when a valid session
+ * token happens to ride along and ALWAYS returns true — its `canActivate` has one return
+ * statement. It appears in this contract because it appears in the route metadata, NOT because
+ * the route it sits on is protected: `GET /interview-kit/:tradeKey/download` is and remains
+ * publicly reachable without a token. It exists so `interview_kit.downloaded` can carry an
+ * optional `worker_id` for the admin journey funnel.
+ *
+ * If this alias ever appears on a route that MUST be authenticated, that route is open.
+ */
+const OW = "OptionalWorkerAuthGuard";
 const RZ = "RazorpayWebhookGuard";
 const POR = "PayerOrgRoleGuard";
 
@@ -127,6 +144,14 @@ const CONTRACT: ControllerContract[] = [
     name: "WorkerActions",
     ctor: WorkerActionsController,
     routes: { record: [C, W], recordBatch: [C, W] },
+  },
+  // #997 — the worker's OWN feedback sink. Also a separate controller, for the same reason:
+  // a class that can never acquire an ops guard can never be swept into `OPS_ROUTES`.
+  // `[C, W]` is the posture of every other `/workers/me/*` route.
+  {
+    name: "WorkerFeedback",
+    ctor: WorkerFeedbackController,
+    routes: { submit: [C, W] },
   },
   {
     name: "Applications",
@@ -168,7 +193,10 @@ const CONTRACT: ControllerContract[] = [
   { name: "Consent", ctor: ConsentController, routes: { accept: [W], withdraw: [W] } },
   { name: "Events", ctor: EventsController, routes: { list: [I] } },
   { name: "Health", ctor: HealthController, routes: { check: [] } },
-  { name: "InterviewKit", ctor: InterviewKitController, routes: { download: [] } },
+  // The download is PUBLIC and stays public — the kit is per-trade, PII-free content a worker
+  // must be able to reach before committing to the app. `OW` is attribution only (see its
+  // declaration): it can allow, never deny, so the route's effective posture is unchanged.
+  { name: "InterviewKit", ctor: InterviewKitController, routes: { download: [OW] } },
   // Worker-scoped job detail (ADR-0024 final addendum): GET /jobs/:jobId is
   // worker-authed + consent-gated, mirroring the /feed posture. Distinct surface
   // from the ops JobPostings rows below (which stay FORBIDDEN on the worker path).
@@ -467,6 +495,17 @@ const CONTRACT: ControllerContract[] = [
     ctor: AdminPiiRevealController,
     routes: { revealContact: [A, AR] },
   },
+  // 0083 — the AI-call-trace read. THREE guards, and the ORDER of the middle one is the
+  // control rather than its presence: `AdminAiTraceFlagGuard` is declared BEFORE
+  // `AdminRolesGuard`, so with ADMIN_AI_TRACE_READ_ENABLED off every authenticated role gets
+  // the same neutral 404. When the flag check lived in the handler body instead, Nest ran the
+  // roles guard first and ops_admin/support/analyst each got a 403 — an oracle confirming the
+  // surface exists. Both routes are `read_ai_traces` (super_admin only) per the owner ruling.
+  {
+    name: "AdminAiTraces",
+    ctor: AdminAiTracesController,
+    routes: { list: [A, ATF, AR], readOne: [A, ATF, AR] },
+  },
   // FORK-B-1 seam A (ADR-0030): the ai-service's ONLY api credential. SCOPED
   // SkillsInternalGuard (SKILLS_INTERNAL_TOKEN) by design — NOT InternalServiceGuard,
   // so this credential can never open the resume-PII/money routes (#222 review).
@@ -514,10 +553,39 @@ const CONTRACT: ControllerContract[] = [
       listApplications: [A, AR],
     },
   },
+  // #997 — the admin half of worker feedback. Same [A, AR] posture as every other admin read;
+  // what makes it worth its own entry is that it is the ONE non-faceless one, so a guard
+  // quietly dropped here would expose worker-authored free text rather than an opaque id.
+  {
+    name: "AdminFeedback",
+    ctor: AdminFeedbackController,
+    routes: { list: [A, AR] },
+  },
   {
     name: "AdminFinance",
     ctor: AdminFinanceController,
     routes: { summary: [A, AR], ledger: [A, AR], orders: [A, AR] },
+  },
+  // BP-5 — the dashboard summary (platform AI spend + volume). Enrolled ON ARRIVAL rather than
+  // in a later sweep: F1 (docs/audit/15_SECURITY_AUDIT.md) exists because 17 controllers were
+  // added without it, and a route that joins the app outside this contract has no regression net
+  // the day someone edits its decorators.
+  {
+    name: "AdminDashboard",
+    ctor: AdminDashboardController,
+    routes: { summary: [A, AR] },
+  },
+  // Phase 6 — the per-worker journey reads. Same [A, AR] as every other admin controller;
+  // the capability (`read_entities`) is asserted in admin-worker-journey.authz.test.ts, since
+  // role scoping is not this contract's concern.
+  {
+    name: "AdminWorkerJourney",
+    ctor: AdminWorkerJourneyController,
+    routes: {
+      getJourneySummary: [A, AR],
+      listChatSessions: [A, AR],
+      getChatSession: [A, AR],
+    },
   },
   // super_admin-only via @RequireAdminRole (role scoping isn't this contract's concern — it
   // asserts guard CLASSES, the same [A, AR] every admin controller carries).
@@ -647,6 +715,9 @@ describe("API authz contract — guards on every controller route", () => {
       { name: "Chat", ctor: ChatController },
       { name: "Profiles", ctor: ProfilesController },
       { name: "Voice", ctor: VoiceController },
+      // #997 — not an AI surface, but it carries the SAME class-level pair and so the same
+      // ordering hazard: `ConsentGuard` reads `req.worker`, which `WorkerAuthGuard` attaches.
+      { name: "WorkerFeedback", ctor: WorkerFeedbackController },
     ]) {
       it(`${name}Controller runs [WorkerAuthGuard, ConsentGuard] in order`, () => {
         expect(guardNames(ctor)).toEqual(["WorkerAuthGuard", "ConsentGuard"]);

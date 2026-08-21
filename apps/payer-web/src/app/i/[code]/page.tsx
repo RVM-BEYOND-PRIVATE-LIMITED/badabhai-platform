@@ -8,7 +8,7 @@ import {
 } from "../../../lib/invite-landing";
 
 /**
- * PUBLIC referral landing page — `https://app.badabhai.in/i/<code>` (blocker B4).
+ * PUBLIC referral landing page — `https://payer.43-204-36-199.sslip.io/i/<code>` (blocker B4).
  *
  * WHY IT EXISTS. `kInviteLinkBase` in the worker app builds exactly this URL, and it had no
  * route: a shared link opened by anyone WITHOUT the app installed 404'd, and the referral —

@@ -55,10 +55,17 @@ export interface AdminEventsExport {
 /**
  * Read-only event-spine query service for the Admin Ops Portal (ADR-0025 ADMIN-2).
  *
- * The ONLY admin path that touches `events`, and it is SELECT-ONLY (via
- * {@link AdminEventsRepository}). The single WRITE it performs is emitting the audited
- * `admin.action_performed` for an export — through {@link EventsService.emit}, never a raw
- * events writer (so the spine stays append-only, must-fix #3).
+ * SELECT-ONLY over `events`, via {@link AdminEventsRepository}. The single WRITE it performs is
+ * emitting the audited `admin.action_performed` for an export — through
+ * {@link EventsService.emit}, never a raw events writer (so the spine stays append-only,
+ * must-fix #3).
+ *
+ * IT IS NO LONGER THE ONLY ADMIN CONSUMER OF THE SPINE, AND THE INVARIANT IS UNCHANGED.
+ * `AdminDashboardService` (BP-5) also reads it, for the cap-breach-by-reason split — through
+ * the SAME `AdminEventsRepository`, which is what the invariant is actually about: one
+ * SELECT-only admin reader of `events`, one append-only writer. What must NOT happen is
+ * cross-table aggregates being bolted onto THIS class, which is scoped to the spine and to
+ * nothing else; hence the separate service rather than another method here.
  *
  * FACELESS PROJECTIONS: list/timeline/trace responses are ids + enums + timestamps + the
  * already-PII-free payload. The metrics aggregates apply a k-anon floor so a single-worker

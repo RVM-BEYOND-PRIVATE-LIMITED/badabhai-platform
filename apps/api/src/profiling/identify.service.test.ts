@@ -95,7 +95,9 @@ const env = (over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope => ({
 });
 
 const emitted = (events: { emit: ReturnType<typeof vi.fn> }) =>
-  events.emit.mock.calls.map((c) => c[0] as { event_name: string; payload: Record<string, unknown> });
+  events.emit.mock.calls.map(
+    (c) => c[0] as { event_name: string; payload: Record<string, unknown> },
+  );
 
 beforeEach(() => {
   vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
@@ -204,7 +206,12 @@ describe("identification never runs when it should not", () => {
       turn: 3,
       history: [],
     };
-    const declined = { ...answered, question_key: "q_salary", status: "declined", value_raw: "nahi pata" };
+    const declined = {
+      ...answered,
+      question_key: "q_salary",
+      status: "declined",
+      value_raw: "nahi pata",
+    };
     const superseded = { ...answered, question_key: "q_city", status: "superseded" };
     const unanswered = { ...answered, question_key: "q_stitch_type", status: "unanswered" };
 
@@ -273,7 +280,9 @@ describe("identification never runs when it should not", () => {
 });
 
 describe("auto-pin", () => {
-  const auto = { resolve: resolveResult({ status: "auto", pinned: CANDIDATE, candidates: [CANDIDATE] }) };
+  const auto = {
+    resolve: resolveResult({ status: "auto", pinned: CANDIDATE, candidates: [CANDIDATE] }),
+  };
 
   it("pins the occupation, moves to the occupation phase, and reports it to the caller", async () => {
     const { svc } = make(auto);
@@ -303,9 +312,10 @@ describe("auto-pin", () => {
     });
     // Idempotent on the session, so a lost-CAS retry cannot double-count a placement in the
     // layer histogram the launch gate is scored on.
-    expect(((events.emit.mock.calls as unknown[][])[0]?.[0] as { idempotencyKey: string }).idempotencyKey).toBe(
-      `profile.occupation_identified:${SESSION}`,
-    );
+    expect(
+      ((events.emit.mock.calls as unknown[][])[0]?.[0] as { idempotencyKey: string })
+        .idempotencyKey,
+    ).toBe(`profile.occupation_identified:${SESSION}`);
   });
 
   it("NEVER carries the worker's utterance into the event", async () => {
@@ -329,7 +339,9 @@ describe("the disambiguation offer", () => {
     { jobDomainId: "jd_a", familyId: "fam_a", label: "welder" },
     { jobDomainId: "jd_b", familyId: "fam_b", label: "fitter" },
   ];
-  const offering = { resolve: resolveResult({ status: "disambiguate", disambiguationOptions: two }) };
+  const offering = {
+    resolve: resolveResult({ status: "disambiguate", disambiguationOptions: two }),
+  };
 
   it("serves the chips, stores the server-side map, and asks nothing else this turn", async () => {
     const { svc } = make(offering);
@@ -436,7 +448,12 @@ describe("giving up, and the growth queue", () => {
   it("the LAST miss queues the phrase, PSEUDONYMIZED FIRST", async () => {
     const { svc, occupation, ai } = make();
     await svc.identify(env({ identifyAttempts: MAX_IDENTIFY_ATTEMPTS - 1 }), "kharad ka kaam", CTX);
-    expect(ai.pseudonymize).toHaveBeenCalledWith("kharad ka kaam");
+    // BL-19: the TURN'S OWN ids ride along, so the gateway hop lands in the same trace as the
+    // request that provoked it instead of one `AiService.post` minted for itself.
+    expect(ai.pseudonymize).toHaveBeenCalledWith("kharad ka kaam", {
+      correlationId: "33333333-3333-4333-8333-333333333333",
+      requestId: "req-1",
+    });
     // The MASKED text, never the raw utterance — `unresolved_phrase`'s contract is
     // pseudonymized-only (SG-1).
     expect(occupation.recordUnresolved).toHaveBeenCalledWith("kharad ka kaam", "hi");
@@ -467,7 +484,9 @@ describe("giving up, and the growth queue", () => {
   it("a DEGRADED ladder is an incident, not a catalogue gap — nothing is queued", async () => {
     // Feeding a down index into the growth queue would fill an ops backlog with phrases that
     // were never actually missing.
-    const { svc, occupation, ai, events } = make({ resolve: resolveResult({ status: "degraded" }) });
+    const { svc, occupation, ai, events } = make({
+      resolve: resolveResult({ status: "degraded" }),
+    });
     await svc.identify(env({ identifyAttempts: MAX_IDENTIFY_ATTEMPTS - 1 }), "silai", CTX);
     expect(ai.pseudonymize).not.toHaveBeenCalled();
     expect(occupation.recordUnresolved).not.toHaveBeenCalled();

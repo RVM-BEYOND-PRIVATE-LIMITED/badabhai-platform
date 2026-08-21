@@ -63,7 +63,7 @@ catches a future dropped `@UseGuards`), not a live vulnerability. Full list of t
 | Controller | Guards (verified in code) | Sensitivity |
 |---|---|---|
 | `admin/admin-directory.controller.ts` | `AdminAuthGuard, AdminRolesGuard` | Admin — who holds admin access |
-| `admin/admin-entities.controller.ts` | same | Admin — faceless entity reads |
+| `admin/admin-entities.controller.ts` | same | Admin — entity reads; since 2026-08-18 four of them ADDITIVELY carry a decrypted worker/organisation NAME behind `read_identity` (capped, audited, `no-store`). No contact PII on any of them |
 | `admin/admin-finance.controller.ts` | same | Admin — credit ledger/payment orders |
 | `admin/admin-kill-switch.controller.ts` | same, `super_admin`-only | Admin — platform kill-switch |
 | `auth/devices.controller.ts` | `WorkerAuthGuard` | Worker push-token registration |

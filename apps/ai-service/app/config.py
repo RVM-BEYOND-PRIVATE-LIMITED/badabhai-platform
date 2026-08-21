@@ -19,6 +19,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # names the variable that is actually wrong.
 _REDIS_URL_SCHEMES = ("redis://", "rediss://", "unix://")
 
+# The shape a build id may have (see ``Settings.build_id``). Short/long hex shas, the
+# ``sha-<short7>`` image-tag form the deploy pins, and ordinary version tags all fit;
+# anything else is not a build id we injected, so it degrades to "unknown" rather than
+# being echoed verbatim into a public JSON response. Module-level (like the schemes
+# above) rather than a class attribute: a leading-underscore name inside a pydantic
+# model is a PRIVATE ATTRIBUTE, not a plain constant.
+_BUILD_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}")
+
 
 def _parse_csv(value: str) -> tuple[str, ...]:
     """Split a comma-separated setting into an ordered, de-duplicated tuple.
@@ -315,6 +323,47 @@ class Settings(BaseSettings):
     # ("skill_embedding"); the default path is a deterministic MOCK embedding (zero spend).
     embedding_model: str = "gemini-embedding-001"
 
+    # ── offline corpus embed: throughput controls (Phase 6, TAX-3) ──────────────
+    #
+    # WHAT ACTUALLY THROTTLES THIS, measured rather than assumed. Across the 201 real
+    # Langfuse observations from the Phase 5 corpus embed, request SIZE does not predict
+    # failure — a 100-text request succeeded while a 50-text one was refused. What
+    # predicts it is how many texts went out in the preceding minute: the largest 60s
+    # window whose requests all succeeded carried 148 texts, and every refusal sits in a
+    # window that was already full. The provider counts each content inside a
+    # batchEmbedContents against the per-minute embed quota, so the meter runs on TEXTS.
+    #
+    # Two quotas therefore pull in opposite directions and each has its own control:
+    #   - per-DAY REQUESTS (1000 on the free tier) -> keep the batch LARGE.
+    #     ai_embed_request_batch=100 puts the 9121-alias corpus at ~92 requests; at one
+    #     text per request it needs 9121 and takes ten days.
+    #   - per-MINUTE TEXTS -> pace, do not shrink the batch. Shrinking spends the same
+    #     text budget in more requests, which is strictly worse for the daily quota.
+    ai_embed_request_batch: int = 100
+    # Texts per minute the offline embed may send. 0 = UNPACED, which is the historical
+    # behaviour and stays the default deliberately: a paid tier has a far higher quota
+    # and must not be throttled to a free-tier number by an upgrade. Free-tier operators
+    # set this (~90 leaves headroom under the ~100 observed) and the corpus then embeds
+    # at roughly 90 aliases/minute with no refusals. The retry policy below is on by
+    # default because, unlike pacing, it is an improvement at every tier.
+    ai_embed_texts_per_minute: int = 0
+    # Total additional attempts after the first. A cap, not a per-error budget.
+    ai_embed_max_retries: int = 2
+    ai_embed_backoff_base_seconds: float = 2.0
+    ai_embed_backoff_max_seconds: float = 90.0
+    # A 429 waits out the RATE WINDOW rather than doubling from two seconds inside it —
+    # a refused attempt still consumes the per-minute quota, so retrying early spends
+    # more budget to earn another refusal. Overridden by the provider's Retry-After.
+    ai_embed_rate_limit_cooldown_seconds: float = 60.0
+    # A read timeout means the request WAS sent and its outcome is unknown, so retrying
+    # risks paying for the same texts twice. Off by default; the resumable runner will
+    # pick the row up on the next pass at no extra cost.
+    ai_embed_retry_on_read_timeout: bool = False
+    # Ceiling on time spent WAITING for the pacer within one HTTP request. The db-side
+    # runner holds the connection for at most 10 minutes; blowing that loses the whole
+    # batch to a client timeout, whereas giving up here costs one resumable retry.
+    ai_embed_max_pacing_wait_seconds: float = 300.0
+
     # ADR-0030 / TAX-4: skill-phrase canonicalization (vector match against skill_alias,
     # floor-gated). `enabled` is the WIRING flag — when False the extraction path keeps the
     # status quo (local gazetteer only, raw phrase preserved); rollback = flip it off. `floor`
@@ -585,7 +634,93 @@ class Settings(BaseSettings):
     # mislabelled as prod silently corrupts every cost and quality metric read off it.
     langfuse_tracing_environment: str = "development"
 
+    # Fetch production prompts from Langfuse Prompt Management instead of using the
+    # in-image text. OFF BY DEFAULT, and the default is the whole safety argument: with
+    # it off the committed behaviour is byte-identical to before prompt management
+    # existed, and prompt VERSIONS are still recorded on every generation (as a content
+    # hash of the local text — see ai/prompt_registry.py). Turning it on lets a prompt be
+    # edited outside the deploy, which is the point AND the risk: `interview_system_prompt`
+    # is generated from the signed-off persona.json, and a Langfuse override bypasses the
+    # build-time gate that keeps the two in sync. Every failure mode of the fetch (network,
+    # missing prompt, unsupported SDK, empty body) falls back to the local text, so this
+    # flag can never make the service depend on Langfuse being reachable.
+    langfuse_prompts_enabled: bool = False
+    # How long a fetched prompt is reused before re-checking. Bounds both the request-path
+    # latency a prompt fetch can add and how stale a rollout can be.
+    langfuse_prompt_cache_ttl_seconds: int = Field(default=300, ge=0, le=86_400)
+
+    # --- The AI-call trace store (apps/api `ai_call_traces`) ------------------
+    # Return the FINAL prompt and response text of each LLM call on `AICallMetadata`,
+    # so the backend can persist it encrypted for a super-admin-only read.
+    #
+    # OFF BY DEFAULT, AND THE DEFAULT IS THE WHOLE SAFETY ARGUMENT, exactly as it is for
+    # `langfuse_prompts_enabled` above. With it off, the two fields are `None` on every
+    # response and this service's egress is BYTE-IDENTICAL to what it was before they
+    # existed — no new text crosses the process boundary, and a backend that is not ready
+    # to encrypt it cannot be handed it by accident. Turning it on is a deliberate act
+    # taken together with the store's own gate (`ADMIN_AI_TRACE_READ_ENABLED`) and its
+    # `read_ai_traces` capability; neither side arms the other.
+    #
+    # FAIL CLOSED means SILENT, not raw: the writer emits text only on the flag's
+    # explicit `True`, and any failure while producing it leaves both fields `None`
+    # rather than falling back to unmasked content. An absent trace is a gap in an
+    # observability store; a leaked one is a §3 breach.
+    #
+    # COSTS, when on: one extra `pseudonymize` pass over the whole message set per call
+    # (7-12ms at the 20k cap, measured — see the note at `_CREDENTIAL_ID_RE`), and a
+    # response body that grows by roughly the size of the prompt.
+    ai_call_trace_text_enabled: bool = False
+
+    # The build this trace came from — the dimension that makes "did the deploy on Tuesday
+    # change extraction quality?" answerable at all. A trace with no version is
+    # uncomparable to any other trace once anything ships. Defaults to the FastAPI app
+    # version in main.py; a deploy should override it with a git sha.
+    app_version: str = "0.1.0"
+
+    # WHICH BUILD IS RUNNING — the short git sha of the commit this image was built
+    # from, injected at IMAGE BUILD time (Dockerfile: `ARG GIT_COMMIT_SHA` promoted to
+    # `ENV GIT_COMMIT_SHA` so it survives into the running container) and surfaced on
+    # /health as `build`. There is NO runtime git lookup and there must never be one:
+    # the image carries no .git, so the build arg is the only source.
+    #
+    # DELIBERATELY NO VALIDATOR, AND DELIBERATELY NOT `str | None`. Every other
+    # misconfigurable setting in this file fails CLOSED at startup (the min_length on
+    # ai_internal_token, the scheme check on ai_spend_redis_url) because arming a
+    # half-configured GATE is worse than not booting. This field is the opposite case:
+    # it gates nothing, it is an observability nicety, and a service that refuses to
+    # boot — or a /health that 500s — because nobody wired a build arg turns a missing
+    # label into an OUTAGE. It fails OPEN, on purpose.
+    #
+    # EMPTY IS THE UNSET CASE, and that is not a stylistic choice. A GitHub Actions
+    # `build-args:` line referencing a variable that does not exist resolves to the
+    # EMPTY STRING, and Docker injects a declared ARG into the build environment
+    # PRESENT-AND-EMPTY rather than absent — the exact mechanism that failed a build on
+    # main on 2026-08-18 when a zod schema rejected "". So "" must mean the same thing
+    # as "never set", everywhere, and both must be readable. See ``build_id``.
+    git_commit_sha: str = ""
+
     ai_service_port: int = 8000
+
+    @property
+    def build_id(self) -> str:
+        """The running build's identifier for ``/health``, NEVER raising and NEVER empty.
+
+        Contract (shared with apps/api and apps/payer-web): the ``build`` key is always
+        present and always a non-empty string — the short sha, or the literal
+        ``"unknown"``. Never omitted, never null, never an error. A consumer must be
+        able to read it unconditionally, which is precisely what a service that cannot
+        report its own build cannot support.
+
+        Total by construction: strip, and anything that is not a plausible build id —
+        empty, whitespace-only, or shaped like something we did not inject — becomes
+        ``"unknown"``. There is no input to this function that produces an exception,
+        which is the property the test ``test_build_id_never_raises_for_any_input``
+        pins. A commit sha is public information; nothing else is ever put here.
+        """
+        candidate = (self.git_commit_sha or "").strip()
+        if not candidate or not _BUILD_ID_PATTERN.fullmatch(candidate):
+            return "unknown"
+        return candidate
 
     def real_calls_blocked_reason(self) -> str | None:
         """Return why real LLM calls are disabled, or None if allowed.

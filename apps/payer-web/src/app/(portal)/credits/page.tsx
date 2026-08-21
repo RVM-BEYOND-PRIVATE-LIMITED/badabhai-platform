@@ -134,14 +134,13 @@ export default async function CreditsPage() {
               label="Credit balance"
               value={dashboard.credits.balance}
               icon="wallet"
-              delta={
+              caption={
                 unit !== null ? (
                   <>
                     <span className="bb-mono">{formatInr(unit)}</span> per unlock
                   </>
                 ) : undefined
               }
-              deltaDir="flat"
             />
           </div>
           <section className="section">

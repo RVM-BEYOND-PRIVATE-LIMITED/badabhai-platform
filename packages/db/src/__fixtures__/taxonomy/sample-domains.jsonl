@@ -1,0 +1,7 @@
+# Fixture corpus for taxonomy-corpus.test.ts. NOT the committed corpus — that lives in
+# packages/db/data/taxonomy and is authored separately. Kept minimal on purpose: these
+# three files exist to prove the LOADER partitions by `kind` and tolerates comments and
+# blank lines, not to re-test the validator (which is exercised in-memory).
+{"job_domain_id":"jd_nco_7223_6002","label_en":"CNC Operator-Turning","trade_group":"cnc_machining"}
+
+{"kind":"domain","job_domain_id":"jd_nco_7212_0300","label_en":"Gas Welder","trade_group":"welding"}

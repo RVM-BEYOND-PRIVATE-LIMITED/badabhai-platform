@@ -127,6 +127,16 @@ export function openCheckout(options: CheckoutOptions): Promise<CheckoutResult> 
       return;
     }
 
+    // Brand the provider's hosted form with the deep-blue structure step (`--blue-500`).
+    // Razorpay paints WHITE text on `theme.color`, so haldi/marigold would fail contrast — the
+    // deep blue is the safe brand step. Read from the DESIGN TOKEN at runtime (mirrors
+    // `syncThemeColorMeta` in lib/theme.ts) rather than hardcoding a hex, so it flows through
+    // the token layer; if the token can't be resolved we omit `theme` and let Razorpay default.
+    const brandColor =
+      typeof getComputedStyle !== "undefined" && typeof document !== "undefined"
+        ? getComputedStyle(document.documentElement).getPropertyValue("--blue-500").trim()
+        : "";
+
     try {
       const rzp = new Ctor({
         key: options.keyId, // PUBLIC key id — never the secret
@@ -135,6 +145,7 @@ export function openCheckout(options: CheckoutOptions): Promise<CheckoutResult> 
         currency: options.currency,
         name: options.name,
         description: options.description,
+        ...(brandColor ? { theme: { color: brandColor } } : {}),
         // NO `prefill` block: we deliberately do not push the payer's name/email/phone
         // into the provider's form from our side (CLAUDE.md §2 #2). Razorpay collects
         // whatever it needs on its own surface.

@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
+import { can } from "../../../lib/auth/capabilities";
 import { listPayers } from "../../../lib/entities";
+import { identityPosture } from "../../../lib/identity";
 import { PayerList } from "../../../components/payer-list";
+import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Pager } from "../../../components/pager";
 import { PayerFilterBar } from "../../../components/payer-filter-bar";
 
@@ -15,13 +18,18 @@ export const metadata = { title: "Agencies" };
  * server. Agency-specific surfaces (KYC state, the payout ledger) are NOT here: that loop
  * is launch-gated OFF behind `AGENCY_PAYOUTS_ENABLED`, and rendering a KYC panel that can
  * never be true would misrepresent what the platform currently does.
+ *
+ * The organisation name shown since the 2026-08-18 ruling is `payers.org_name_enc` — the name
+ * the agency registered under. It is emphatically NOT `agency_kyc.account_holder_name_enc`,
+ * which sits behind the same ADR-0022 gate as the payout loop above and is not this ruling's to
+ * disclose.
  */
 export default async function AgenciesPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireCapability("read_entities");
+  const session = await requireCapability("read_entities");
 
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) =>
@@ -37,17 +45,32 @@ export default async function AgenciesPage({
     failed = true;
   }
 
+  const posture = identityPosture(
+    page?.items ?? [],
+    "org_name",
+    can(session.capabilities, "read_identity"),
+  );
+
   return (
     <div className="page">
       <header className="page__head">
         <div>
           <h1 className="page__title">Agencies</h1>
           <p className="page__sub">
-            Supply-side partner accounts. Contact details are encrypted at rest and are not
-            shown.
+            {posture === "faceless"
+              ? "Supply-side partner accounts, identified by id — your role does not include name access."
+              : "Supply-side partner accounts, named by the organisation they registered as — self-declared at signup, not a verified legal name."}{" "}
+            Email, phone and KYC details stay encrypted at rest and are served to no one.
           </p>
         </div>
       </header>
+
+      {posture === "capped" && (
+        <IdentityCapNotice>
+          Your role may see them, so this is a limit on the read: this admin account has spent
+          its hourly name budget.
+        </IdentityCapNotice>
+      )}
 
       <section className="panel" aria-labelledby="af-heading">
         <h2 className="sr-only" id="af-heading">
@@ -92,6 +115,7 @@ export default async function AgenciesPage({
           <PayerList
             payers={page?.items ?? []}
             basePath="/agencies"
+            posture={posture}
             emptyMessage={
               status ? "No agencies match this filter." : "No agency accounts registered yet."
             }

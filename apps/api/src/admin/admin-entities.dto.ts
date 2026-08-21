@@ -24,12 +24,32 @@ import type {
  * the admin surface cannot show, because the repository selects exactly these columns. In
  * particular, and permanently:
  *
- *   workers  — NEVER `phone_e164` (AES ciphertext), `phone_hash` (keyed HMAC), `full_name`.
+ *   workers  — NEVER `phone_e164` (AES ciphertext), `phone_hash` (keyed HMAC).
  *              `photo_storage_key` is reduced to a `has_photo` BOOLEAN: the key is an opaque
  *              pointer, but it addresses a face photo, and handing an object key to the UI
  *              turns "is there a photo" into "here is where the photo lives".
- *   payers   — NEVER `email_enc` / `email_hash` / `phone_enc` / `phone_hash` / `org_name_enc`.
+ *   payers   — NEVER `email_enc` / `email_hash` / `phone_enc` / `phone_hash`.
  *              A payer is an opaque id + role + status. The B2B contact PII (TD21) stays put.
+ *
+ * ── THE ONE EXCEPTION: NAMES (owner ruling 2026-08-18, reversing Decision 4) ─────────────
+ * `full_name` on a worker and `org_name` on a payer are now served, on the list AND the detail,
+ * because a console in which every row is an opaque uuid cannot be used to operate the product.
+ * They are the ONLY identity fields here and they behave unlike every other field on these
+ * types: they are OPTIONAL, and their presence is itself the answer.
+ *
+ *   field ABSENT  — this admin was shown no name (they hold no `read_identity`, or they are
+ *                   over their per-admin name budget). The rest of the row is unchanged.
+ *   field NULL    — disclosed, and nobody has ever recorded a name for this row.
+ *   field STRING  — the stored name, decrypted for this one response.
+ *
+ * Everything behind that — the capability, the egress cap, the audit-before-decrypt — lives in
+ * `AdminIdentityService`, and the name columns are read by `AdminIdentityRepository`, never by
+ * the faceless projections in `admin-entities.repository.ts`. That separation is what keeps the
+ * faceless contract above provable by a source scan rather than by assertion.
+ *
+ * Still NEVER here, ruling or not: `phone_e164`, `phone_hash`, `email_enc`, `email_hash`,
+ * `phone_enc`. Identity egress for a CONTACT stays `POST /admin/workers/:id/reveal-contact`
+ * and only that.
  *
  * Job postings are the deliberate exception, and it is not one: `org_label`, `role_title`,
  * `location_label` and `description` are POSTER-TYPED business fields already served to every
@@ -42,9 +62,29 @@ import type {
  * maps onto an index (see migration 0064) so a deep page stays O(page), not O(offset).
  */
 
-/** Hard upper bound on a single entity page. */
+/** Hard upper bound on a single FACELESS entity page. */
 export const ADMIN_ENTITIES_PAGE_MAX = 100;
 export const ADMIN_ENTITIES_PAGE_DEFAULT = 50;
+
+/**
+ * Hard upper bound on a NAME-BEARING entity page (owner ruling 2026-08-18) — half the faceless
+ * ceiling, because the two pages are not the same act.
+ *
+ * A faceless page of 100 is 100 opaque uuids; a named page of 100 is 100 people deanonymized in
+ * one request. The velocity cap bounds names per HOUR, so it cannot see the shape of a single
+ * request — a lower per-response ceiling is what makes "one screen" a smaller unit of egress
+ * than "the hourly budget".
+ *
+ * It CLAMPS rather than rejects: an over-limit request from a permitted admin returns 50 named
+ * rows and an honest `nextCursor`, not a 400. A validation error here would be an identity
+ * control breaking the `read_entities` floor beside it — the same recoupling the over-cap path
+ * refuses — and an analyst asking for `?limit=100` still gets 100 faceless rows, unchanged.
+ *
+ * It is deliberately EQUAL to `ADMIN_IDENTITY_MAX_SUBJECTS`, the bound the identity service
+ * itself enforces; a drift test pins them together, since a clamp above that bound would mean
+ * a permitted admin silently gets NO names at all instead of a smaller page of them.
+ */
+export const ADMIN_IDENTITY_PAGE_MAX = 50;
 
 /** The keyset page controls every list query shares. */
 const pageShape = {
@@ -117,6 +157,35 @@ export type AdminCreditLedgerQueryDto = z.infer<typeof AdminCreditLedgerQuerySch
 export const AdminEntityParamsSchema = z.object({ id: z.string().uuid() }).strict();
 export type AdminEntityParamsDto = z.infer<typeof AdminEntityParamsSchema>;
 
+/**
+ * `GET /admin/payers/:id?faceless=1` — the caller declares it does not want the name.
+ *
+ * WHY A CALLER-SETTABLE PRIVACY SWITCH IS SAFE HERE, which is normally a smell: this one can
+ * only ever REDUCE disclosure. There is no value of it that discloses more than the default,
+ * so the worst a hostile caller achieves is a response with `org_name: null` — which is the
+ * faceless projection every role could already read. Contrast a `?reveal=1`, which would be
+ * the same shape pointed the other way and must never exist.
+ *
+ * WHY IT EXISTS. The Companies/Agencies TIMELINE page fetches this row for exactly two fields
+ * — `id` and `role`, to tell a 404 from a wrong-section redirect — and renders NO name (its
+ * heading is the literal word "Company"). Resolving one anyway charged the name-egress budget
+ * and wrote an `admin.identity_viewed` row on every page-turn, so the trail recorded reading
+ * that did not happen and, worse, ~300 page-turns exhausted `ADMIN_IDENTITY_MAX_PER_HOUR` —
+ * after which `AdminIdentityService.resolve` returns null for EVERY read that hour and the
+ * console's real name features go silently faceless. A budget spent on a page with no names
+ * is a budget stolen from the pages that have them.
+ *
+ * NOT `z.coerce.boolean()`, which is the trap next door in this file: it maps the STRING
+ * `"false"` to `true` (every non-empty string is truthy), so `?faceless=false` would opt IN to
+ * facelessness. Here that direction happens to fail safe, which is exactly why it would have
+ * survived review and gone on to be copied somewhere it does not. One exact literal, no
+ * coercion, no surprises.
+ */
+export const AdminPayerDetailQuerySchema = z
+  .object({ faceless: z.literal("1").optional() })
+  .strict();
+export type AdminPayerDetailQueryDto = z.infer<typeof AdminPayerDetailQuerySchema>;
+
 // ---------------------------------------------------------------------------
 // Response projections — FACELESS by construction (ids + enums + timestamps + counts).
 // ---------------------------------------------------------------------------
@@ -136,6 +205,11 @@ export interface AdminPage<T> {
 
 export interface AdminWorkerListItem {
   id: string;
+  /**
+   * The worker's own name, decrypted for this response only. ABSENT when no name was disclosed
+   * to this admin; `null` when disclosed and none is on record. See the header.
+   */
+  full_name?: string | null;
   status: string;
   preferred_language: LanguageCode | null;
   /** Derived from `photo_storage_key`. The KEY itself is never projected — see the header. */
@@ -159,6 +233,16 @@ export interface AdminWorkerDetail extends AdminWorkerListItem {
 
 export interface AdminPayerListItem {
   id: string;
+  /**
+   * The BUSINESS display name (`payers.org_name_enc`) — the Companies/Agencies tab's handle on
+   * the account. ABSENT when no name was disclosed to this admin; `null` when disclosed and
+   * none decrypts.
+   *
+   * NOT a contact person: no contact-person column exists anywhere in the codebase, and neither
+   * `payers.email_enc` nor `agency_kyc.account_holder_name_enc` (ADR-0022 money/legal gate) is a
+   * substitute for one. Collecting a contact name is separately scoped work.
+   */
+  org_name?: string | null;
   role: PayerRole;
   status: PayerStatus;
   /** The status a suspend moved them OUT of, so the UI can say what reinstate would restore. */

@@ -19,6 +19,7 @@ import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
 import { AiService } from "../../ai/ai.service";
 import { AiCostRecorder } from "../../ai/ai-cost-recorder.service";
+import { AiTraceRecorder } from "../../ai/ai-trace-recorder.service";
 import { PiiCryptoService } from "../../common/pii-crypto.service";
 import { PayersRepository } from "../../payers/payers.repository";
 import { JobPostingsService } from "../../job-postings/job-postings.service";
@@ -89,6 +90,9 @@ export class JobPostingChatService {
     private readonly events: EventsService,
     private readonly ai: AiService,
     private readonly aiCost: AiCostRecorder,
+    // 0083 — wired at the same call site as `aiCost` below, where every trace is DROPPED by
+    // design: a payer composing a posting has no worker to attribute it to.
+    private readonly aiTraces: AiTraceRecorder,
     private readonly payers: PayersRepository,
     private readonly pii: PiiCryptoService,
     private readonly jobPostings: JobPostingsService,
@@ -127,7 +131,12 @@ export class JobPostingChatService {
     // the opener copy, free to drift from the AI service's. The clients test for empty
     // and render their own constant. Nothing is stored in that case either — a message
     // row with no text would hydrate as a blank bubble on the next device.
-    const openingText = await this.ai.jobPostingChatOpening();
+    // BL-19: `null` trade hint is unchanged; the ctx is the request's own pair, so the opener
+    // call lands under the same trace as the session it opens.
+    const openingText = await this.ai.jobPostingChatOpening(null, {
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
     const opener =
       openingText === null
         ? null
@@ -201,12 +210,17 @@ export class JobPostingChatService {
     // 3. One deterministic engine turn. `payer_ref` is the opaque payer uuid (spend
     //    attribution only — never a name, email, or organisation), and `message_text`
     //    is pseudonymized FAIL-CLOSED on the other side before the engine reads it.
-    const aiResult = await this.ai.jobPostingChatRespond({
-      session_id: session.id,
-      payer_ref: payerId,
-      message_text: dto.text,
-      conversation_state: priorState,
-    });
+    const aiResult = await this.ai.jobPostingChatRespond(
+      {
+        session_id: session.id,
+        payer_ref: payerId,
+        message_text: dto.text,
+        conversation_state: priorState,
+      },
+      // BL-19: the same pair `aiCost.record` below is given, so the spend record and the far
+      // side's trace name one id rather than two.
+      { correlationId: ctx.correlationId, requestId: ctx.requestId },
+    );
     if (!aiResult) {
       // NO LOCAL FALLBACK, deliberately — see `AiService.jobPostingChatRespond`. The
       // payer's message is already stored and the session state is untouched, so a
@@ -245,12 +259,40 @@ export class JobPostingChatService {
     // is only worth anything if what is wired is right.
     //
     // `aiJobId` is null: a payer turn is a synchronous reply, not an `ai_jobs` row.
+    //
+    // NO WORKER AND NO SESSION ATTRIBUTION. `session.id` here is a
+    // `payer_job_posting_chat_sessions` row, NOT a `chat_sessions` row — a DIFFERENT table
+    // with a different id space — so passing it as `sessionId` would violate the FK on
+    // `session_ai_cost_totals` and, worse, could collide with a worker interview's id space if
+    // that FK ever went away. The worker is absent for the same reason as the skill-embedding
+    // fan-out: this is an employer composing a posting. It still counts in full platform-wide.
     await this.aiCost.record(
       aiResult.ai_metadata ?? null,
       "job_posting_chat_turn",
       null,
       ctx.correlationId,
       ctx.requestId,
+    );
+
+    // AND THE TRACE (0083) — DROPPED HERE, BY DESIGN, LIKE THE SKILL-EMBEDDING FAN-OUT.
+    //
+    // Passing no attribution means `AiTraceRecorder` refuses the row and counts it, because
+    // `ai_call_traces.worker_id` is NOT NULL and that cascade IS the DSAR erasure design. The
+    // reasoning the cost record above gives for having no worker and no session applies verbatim
+    // and is, if anything, stronger here: `session.id` is a `payer_job_posting_chat_sessions`
+    // row, a DIFFERENT table in a different id space from `chat_sessions`, so passing it would
+    // violate the `ai_call_traces.session_id` FK exactly as it would the cost totals' — and the
+    // payer typing a job description is not a worker whose erasure could ever reach this row.
+    //
+    // WIRED AHEAD OF THE SPEND, for the same reason the cost record is: this route makes zero
+    // LLM calls today, and whoever arms the documented rephrase seam is editing Python, not this
+    // file. When that lands, this line is already correct — and it will still drop, which is the
+    // honest outcome for an employer's composer turn.
+    await this.aiTraces.capture(
+      aiResult.ai_metadata ?? null,
+      "job_posting_chat_turn",
+      null,
+      ctx.correlationId,
     );
 
     // 4. Store the engine's reply + put it on the spine.

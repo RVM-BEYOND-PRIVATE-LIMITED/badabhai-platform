@@ -457,6 +457,31 @@ services:
       GEMINI_FLASH_API_KEY: ${GEMINI_FLASH_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
 
+      # ---- Phase 9 / Path A retrieval flags. INERT: no secret exists for either name, so
+      # both resolve to `false` here and the deployed behaviour is byte-identical to before
+      # this block existed. Declared now so the flags become CONTROLLABLE when they are
+      # eventually wanted, and so the bridge can be proved in isolation from any activation.
+      #
+      # `:-` AND NEVER `:?`. These are capability gates, not credentials, so every failure
+      # mode of the bridge — secret absent, secret empty, `envs:` entry forgotten — must land
+      # on "off" rather than failing the deploy. (`${VAR:-false}` substitutes when the
+      # variable is unset OR empty, which covers all three.) The `${VAR:?}` form would be
+      # correct for a credential and is wrong here.
+      #
+      # DOMAIN_MATCH_ENABLED gates ONLY the embedding-based ANN fallback in
+      # `domain_match.match_domain`. The lexical interview pin short-circuits BEFORE that
+      # check, so production already produces deterministic `jd_*` scopes with this false —
+      # both live `worker_profiles` rows carry `matched_lexical` with a score. Path A does
+      # not require this flag; turning it on is a coverage improvement for unpinned workers.
+      #
+      # SKILL_CANONICALIZE_ENABLED gates `/skills/canonicalize` outright — the route returns
+      # `unresolved` before reaching EITHER retrieval path. It stays false through the whole
+      # parity programme: the shadow comparison runs offline against captured
+      # (phrase, job_domain_id) pairs, so switching this on is the activation itself rather
+      # than a step toward it.
+      DOMAIN_MATCH_ENABLED: ${DOMAIN_MATCH_ENABLED:-false}
+      SKILL_CANONICALIZE_ENABLED: ${SKILL_CANONICALIZE_ENABLED:-false}
+
       # ---- V8 VOICE STORAGE — the change the previous revision of this block deferred.
       #
       # `VOICE_NOTES_BUCKET` is read by BOTH the api (which mints the signed upload URL) and
@@ -539,6 +564,60 @@ services:
       # REDIS_URL is a different, mandatory store and cannot reach these Settings.
       AI_SPEND_REDIS_URL: ${AI_SPEND_REDIS_URL:-}
 
+      # ---- Langfuse observability. DECLARED-BUT-EMPTY, which is the #798/#794 lesson
+      # applied before it bites rather than after: compose forwards ONLY the names a
+      # service's `environment:` block declares, so until this block existed the box
+      # could export LANGFUSE_PUBLIC_KEY all day and the container would never see it.
+      # The integration was not "off" in staging — it was UNREACHABLE, and nothing said so.
+      #
+      # EMPTY IS STILL OFF. `langfuse_enabled` requires BOTH keys to be non-empty, so this
+      # block changes nothing until an operator exports real keys; it only gives them a
+      # path in. Same posture as GEMINI_FLASH_API_KEY two dozen lines up.
+      #
+      # BEFORE EXPORTING KEYS — this is a NEW EXTERNAL PROCESSOR, not just a dashboard.
+      # Pseudonymized worker text (and, once R30/R32 are considered, whatever those
+      # residuals let through) leaves the VPC for Langfuse's servers. ADR-0030 §7(e)
+      # requires recorded data-retention / no-train terms before a new external
+      # PII-egress surface goes live, and NO ADR covers Langfuse as a processor today.
+      # Get that written down first; `user_id` here is the opaque worker_ref, but a trace
+      # store still becomes a DSAR/erasure-relevant location and ADR-0026/ADR-0031's
+      # deletion sweeps do not reach it.
+      #
+      # NOT DECLARED ON THE `api` SERVICE, deliberately: nothing in apps/api reads these,
+      # and packages/config types them `.min(1).optional()` — a `${VAR:-}` pass-through
+      # would hand Zod an EMPTY STRING and crash-loop the api at boot. Same trap as
+      # AI_INTERNAL_TOKEN documents below.
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      # RESTATED WITH A DEFAULT, not passed through empty — the SARVAM_TTS_MODEL lesson
+      # eight lines up: both are non-optional `str` with real defaults, so a bare
+      # `${VAR:-}` would overwrite them with "" and point the exporter at nothing.
+      LANGFUSE_BASE_URL: "${LANGFUSE_BASE_URL:-https://us.cloud.langfuse.com}"
+      # THE DEFAULT HERE IS `staging`, NOT the Settings default of `development`. An
+      # unset deployment tracing into `development` silently mixes staging traffic into
+      # the dashboards, cost totals and evaluator inputs that describe dev — this file
+      # knows which environment it is, so it says so.
+      LANGFUSE_TRACING_ENVIRONMENT: "${LANGFUSE_TRACING_ENVIRONMENT:-staging}"
+      # Prompt management stays OFF through the flip: prompt versions are recorded either
+      # way (content hash of the local text), so the baseline is fully attributable
+      # without handing prompt control to a second system on the day real calls arm.
+      LANGFUSE_PROMPTS_ENABLED: ${LANGFUSE_PROMPTS_ENABLED:-false}
+      # The deployed build, so traces from different releases are distinguishable. Without
+      # it, "did the last deploy change quality?" is unanswerable no matter how much else
+      # is measured.
+      #
+      # DEFAULTS TO "unknown", NOT to empty and NOT to the Settings default. Empty would
+      # overwrite a non-optional `str` with "" (the SARVAM_TTS_MODEL trap, three fields
+      # up), and inheriting "0.1.0" would be worse than useless — it would stamp every
+      # staging trace with a version number that is not a build and cannot be looked up.
+      # "unknown" is at least true, and it is greppable when someone asks why.
+      APP_VERSION: "${APP_VERSION:-unknown}"
+
+      # ---- TD27 independent kill switch. Also previously undeclared and therefore
+      # unreachable from the box — the emergency OFF for real calls that outranks
+      # AI_ENABLE_REAL_CALLS could not actually be thrown without a code change.
+      AI_REAL_CALLS_KILL_SWITCH: ${AI_REAL_CALLS_KILL_SWITCH:-false}
+
       # ---- TD67 service token. Inherited VALUELESS (compose pass-through form)
       # from the base file for BOTH this service and the api, which is what makes
       # the flip a pure env action on the box: export AI_INTERNAL_TOKEN (>= 16
@@ -550,3 +629,218 @@ services:
       # ci.yml in the SAME change that creates the secret, or arm it from the box.
       # Half-flipping it (one side only) 401s every api→ai call and silently
       # degrades the API to mock — TD81's own failure class, re-created.
+
+  # ---- GAP-XC-06 (#920): apps/payer-web — the external payer/agency portal, ON THE BOX ----
+  #
+  # v1 SCOPE, deliberately: get this BUILDING and REACHABLE via the box's IP + a published
+  # port. No TLS, no domain, no CORS hardening beyond wiring the mechanism (see
+  # CORS_ALLOWED_ORIGINS on the api service above) — deferred until the badabhai.ai domain
+  # is provisioned (owner decision, not an oversight).
+  #
+  # DEFINED ONLY HERE, NOT in the base docker-compose.yml. Unlike api (WeasyPrint's native
+  # Pango/cairo stack needs a Linux container even locally) payer-web is pure Next.js/Node —
+  # `pnpm dev` already runs it on any OS, so there is no local-Docker use case to add.
+  # Because it has NO base-file counterpart, `profiles: ["api"]` is declared directly on
+  # this block: a service that exists only in an overlay has no base definition to merge a
+  # `profiles:` list from (unlike the `api`/`ai-service` blocks above, which inherit theirs
+  # from docker-compose.yml). Same profile as api/ai-service, so `--profile api pull/up
+  # payer-web` resolves without depending on any newer compose "auto-enable" behaviour — the
+  # box's compose version stays unverified, same caveat as ai-service above.
+  #
+  # NO depends_on, matching ai-service's own reasoning: this container's own boot does not
+  # need api to be up (Next's standalone server starts and serves `/health` regardless of
+  # whether a downstream Server Action call would currently succeed), so a missing/unhealthy
+  # api must never block THIS container from starting. The api's readiness is instead
+  # enforced by ORDER in the deploy script — payer-web is started only after the api's own
+  # health gate passes — not by a depends_on edge.
+  payer-web:
+    profiles: ["api"]
+    # CD-4, mirroring api/ai-service: pin the IMMUTABLE per-commit ghcr `sha-<short7>` tag
+    # exported by build-and-push-image / deploy-lightsail. Rollback = export the previous
+    # sha tag and re-run `up` (docs/rollback-guide.md).
+    image: ${PAYER_WEB_IMAGE:?set the immutable ghcr sha tag, e.g. ghcr.io/<owner>/badabhai-platform/badabhai-payer-web:sha-<short7> — exported by deploy-lightsail in .github/workflows/ci.yml}
+    restart: unless-stopped
+    ports:
+      # BOX-SPECIFIC, deliberately NOT loopback-bound (unlike redis/ai-service above,
+      # CD-1a): the entire point of this v1 is reachability from OUTSIDE the box (real
+      # browser traffic), so a loopback bind would defeat it outright.
+      #
+      # `:-` (DEFAULTED), never `:?` (fail-loud) — and this is load-bearing, not a style
+      # choice. Compose interpolates the ENTIRE merged file BEFORE it filters by service
+      # or profile, so a `${PAYER_WEB_PORT:?}` here does not fail "the payer-web command",
+      # it fails EVERY command this file is used for. MEASURED, not reasoned: with every
+      # other required var satisfied, `docker compose -f docker-compose.yml -f
+      # docker-compose.staging.yml --profile api config api` — resolving ONLY the api
+      # service, naming payer-web nowhere — still died with "required variable
+      # PAYER_WEB_PORT is missing a value". A fail-loud port here therefore bricks
+      # deploy-lightsail's very first command (`$COMPOSE pull api`) and takes the LIVE
+      # api/ai-service deploy down with it until a human sets an unrelated secret. That is
+      # a strictly worse failure than the one it was guarding against.
+      #
+      # HOST SIDE IS 3333, NOT 3002 — an owner-confirmed fact about THIS box, not a
+      # guess: 3002 is already taken there, 3333 is free. The literal default follows the
+      # base file's api publish (`"3001:3001"`) — a literal published port is this repo's
+      # actual convention; no `${VAR:?}` port exists anywhere else. PAYER_WEB_PORT (GitHub
+      # "staging" Environment secret, bridged in ci.yml) survives purely as an override
+      # for a future box, so nothing has to be set for THIS one.
+      #
+      # The CONTAINER side stays 3002 — this app's own port (`package.json`'s
+      # `next start -p 3002`), matching PORT/EXPOSE below. Only the host side was ever in
+      # contention; nothing outside this service dials the container port directly.
+      #
+      # What is still a human step: confirming 3333 is open in the box's security group.
+      # That failure mode is correctly LOCALIZED — an unopened port makes payer-web
+      # unreachable, and a port already in use fails `up -d payer-web` loudly at the point
+      # it is actually relevant, AFTER api/ai-service have already deployed successfully.
+      # Neither can silently take the rest of the box's deploy down.
+      - "${PAYER_WEB_PORT:-3333}:3002"
+    environment:
+      NODE_ENV: production
+      PORT: "3002"
+      HOSTNAME: "0.0.0.0"
+      # ---- The api, over the COMPOSE NETWORK — A LITERAL, not ${VAR:?}, mirroring
+      # AI_SERVICE_URL's own reasoning on the api service above: payer-web and api run in
+      # the SAME compose project on the SAME box, so there is exactly one correct value
+      # here — the compose service name — and making it a required secret would add a way
+      # to get it wrong (e.g. pointing it back out through the box's own public IP, which
+      # may not even be reachable from inside the box's own network depending on NAT) for
+      # nothing gained. Every Server Action / route handler in payer-web that calls the API
+      # reads PAYER_API_URL (apps/payer-web/src/lib/server-config.ts) at RUNTIME — never
+      # NEXT_PUBLIC_API_URL, which has no live browser-fetch call site in this app today
+      # (verified by reading every call site before this block was written) and is instead
+      # a Dockerfile BUILD ARG (see apps/payer-web/Dockerfile's header) — setting it here
+      # would have zero effect on an already-built image.
+      PAYER_API_URL: http://api:3001
+      # ---- Same class of bug this file has hit three times before (VOICE_NOTES_BUCKET,
+      # WORKER_PHOTOS_BUCKET #794, CHAT_LLM_INTERVIEW_ENABLED #798): payer-web reads its OWN
+      # copy of these two flags from ITS OWN process environment
+      # (apps/payer-web/src/lib/server-config.ts) — compose does not share env between
+      # services, so declaring them on the api service above gives payer-web NO path to see
+      # them. Declared here too, `:-false`, so a box operator exporting one export arms (or
+      # confirms OFF on) BOTH containers together instead of one silently staying stale.
+      # Both stay `false` by default — payer-web ships MOCK-only (payments) and
+      # SUPPLY-PARKED (agency) exactly as today; this line only makes those flags REACHABLE
+      # if a human ever exports them, it does not change what they currently read.
+      PAYMENTS_ENABLE_REAL: ${PAYMENTS_ENABLE_REAL:-false}
+      AGENCY_SUPPLY_ENABLED: ${AGENCY_SUPPLY_ENABLED:-false}
+
+  # ---- apps/admin-web — the INTERNAL admin portal, ON THE BOX ----
+  #
+  # UNEXPOSED, AND THAT IS THE ENTIRE POINT. Unlike payer-web above — whose v1 goal was
+  # reachability from a real browser — this service is deployed so that a push to main
+  # UPDATES it, not so anyone can reach it. The box's security group opens ONLY 80/443
+  # (measured: 3001 / 8000 / 3333 all refuse an external connection), and nginx fronts
+  # nothing but the payer portal and the api. Publishing 3003 below therefore makes this
+  # container reachable from THE BOX ITSELF and nowhere else, which is exactly what the
+  # deploy's health gate needs and nothing more.
+  #
+  # DO NOT add an nginx server block, a DNS record, or a certbot step for this service.
+  # Exposing an admin portal is a separate owner decision that needs an IP allowlist (or a
+  # VPN / SSH tunnel / mTLS equivalent) and it is NOT authorized. Nothing here weakens the
+  # portal's own auth either: ADMIN_MFA_REQUIRED is untouched, and admin-web keeps reading
+  # its httpOnly `bb_admin_token` cookie exactly as it does today.
+  #
+  # DEFINED ONLY HERE, NOT in the base docker-compose.yml — same reasoning as payer-web:
+  # admin-web is pure Next.js/Node, `pnpm dev` already runs it on any OS, so there is no
+  # local-Docker use case. Because it has NO base-file counterpart, `profiles: ["api"]` is
+  # declared directly on this block (there is no base definition to merge a `profiles:`
+  # list from), so `--profile api pull/up admin-web` resolves without depending on any
+  # newer compose "auto-enable" behaviour.
+  #
+  # NO depends_on, matching payer-web and ai-service: this container's own boot does not
+  # need api to be up (Next's standalone server starts and serves `/health` regardless of
+  # whether a downstream server-action call would currently succeed), so a missing or
+  # unhealthy api must never block THIS container from starting. The api's readiness is
+  # enforced by ORDER in the deploy script — admin-web is started LAST, after payer-web —
+  # not by a depends_on edge.
+  admin-web:
+    profiles: ["api"]
+    # CD-4, mirroring api/ai-service/payer-web: pin the IMMUTABLE per-commit ghcr
+    # `sha-<short7>` tag exported by build-and-push-image / deploy-lightsail. Rollback =
+    # export the previous sha tag and re-run `up` (docs/rollback-guide.md).
+    image: ${ADMIN_WEB_IMAGE:?set the immutable ghcr sha tag, e.g. ghcr.io/<owner>/badabhai-platform/badabhai-admin-web:sha-<short7> — exported by deploy-lightsail in .github/workflows/ci.yml}
+    restart: unless-stopped
+    ports:
+      # `:-` (DEFAULTED), never `:?` (fail-loud), and this is load-bearing rather than a
+      # style choice. Compose interpolates the ENTIRE merged file BEFORE it filters by
+      # service or profile, so a `${ADMIN_WEB_PORT:?}` here would not fail "the admin-web
+      # command" — it would fail EVERY command this file is used for, including
+      # deploy-lightsail's very first one (`$COMPOSE pull api`), taking the LIVE
+      # api/ai-service deploy down over an unrelated missing secret. MEASURED on payer-web
+      # (see the `${PAYER_WEB_PORT:-3333}` note above): `... --profile api config api`,
+      # resolving ONLY the api service and naming the web service nowhere, still died with
+      # "required variable ... is missing a value".
+      #
+      # HOST SIDE IS 3003 — owner-confirmed as free on THIS box, not a guess, and it is
+      # the app's own port so host and container match (no translation to remember).
+      #
+      # ---- LOOPBACK-BOUND (`127.0.0.1:`), UNLIKE payer-web ABOVE. This is the one place
+      # this block deliberately does NOT copy payer-web, and it is because payer-web's own
+      # comment says WHY it binds every interface: "the entire point of this v1 is
+      # reachability from OUTSIDE the box (real browser traffic), so a loopback bind would
+      # defeat it outright." admin-web's requirement is the exact opposite — it must NOT be
+      # reachable from outside the box — so applying payer-web's stated reasoning to this
+      # service yields `127.0.0.1`, not `0.0.0.0`. The pattern being copied is the
+      # structure, not a binding whose justification does not transfer.
+      #
+      # This follows the CD-1a precedent already in the BASE file rather than inventing
+      # one: redis (`127.0.0.1:6379:6379`) and ai-service (`127.0.0.1:8000:8000`) are both
+      # loopback-bound, and the deploy still health-gates ai-service with
+      # `curl http://localhost:8000/health` — the probe runs ON the box, so loopback is all
+      # it needs. admin-web's `wait_healthy` poll is the identical shape.
+      #
+      # WHY BOTHER, given nothing opens 3003 in the security group: because that security
+      # group is currently the ONLY thing standing between the internet and the most
+      # privileged surface in the platform, and a single console misclick would remove it.
+      # Loopback binding means an accidentally-opened 3003 still reaches nothing. Neither
+      # control is load-bearing alone; this is the cheap one, and it costs nothing —
+      # nothing outside the box legitimately dials this port today.
+      #
+      # NOT A BLOCKER FOR EVER EXPOSING IT (an owner decision needing an IP allowlist): an
+      # nginx running on the host proxies to 127.0.0.1:3003 unchanged, and an nginx running
+      # as a compose service would reach `admin-web:3003` over the compose network without
+      # any published port at all.
+      #
+      # ADMIN_WEB_PORT survives as an OVERRIDE for a future box, so nothing has to be set
+      # for this one. Unset arrives on the box as the empty string and `:-` substitutes on
+      # empty as well as on unset, so it resolves to 3003 either way.
+      #
+      # NOTE for whoever adds the next service here: `published-port-binding-compose.guard`
+      # (apps/api) enforces exactly this rule, and SINCE 2026-08-20 IT READS THIS OVERLAY TOO.
+      # It did not until then — the previous version of this note said so, and a correct bind
+      # that nothing enforces is one edit away from being wrong, which is the entire content of
+      # R38. The guard resolves `${VAR:-default}` to the default the box actually gets, so an
+      # interpolated bind is checked rather than skipped; a new published port here must be
+      # loopback or be added to its INTENTIONALLY_PUBLIC allowlist with a reason.
+      - "127.0.0.1:${ADMIN_WEB_PORT:-3003}:3003"
+    environment:
+      NODE_ENV: production
+      PORT: "3003"
+      HOSTNAME: "0.0.0.0"
+      # ---- The api, over the COMPOSE NETWORK — A LITERAL, not ${VAR:?}, mirroring
+      # PAYER_API_URL above and AI_SERVICE_URL on the api service: admin-web and api run in
+      # the SAME compose project on the SAME box, so there is exactly one correct value
+      # here — the compose service name — and making it a required secret would only add a
+      # way to get it wrong for nothing gained.
+      #
+      # THIS LINE IS NOT OPTIONAL. `apps/admin-web/src/lib/server-config.ts` defaults
+      # ADMIN_API_BASE_URL to `http://localhost:3001`, which inside this container is the
+      # container itself — every page would render the generic "The admin API is
+      # unreachable." with the underlying error deliberately suppressed, and nothing would
+      # tell an operator why. admin-web's own .env.example calls that out as step one of
+      # the deploy checklist; this is that step, done.
+      #
+      # Server-only ON PURPOSE — it is NOT a NEXT_PUBLIC_* value, so the browser never
+      # learns the internal API origin, and it is read at CONTAINER START rather than baked
+      # at `next build` time (see apps/admin-web/Dockerfile's header for why this app takes
+      # no NEXT_PUBLIC_* build args at all).
+      ADMIN_API_BASE_URL: http://api:3001
+      # ---- OPERATOR NOTE, stated because it will otherwise look like a bug the first time
+      # someone tunnels in: `NODE_ENV: production` above makes
+      # `@badabhai/config/shared`'s `shouldUseSecureCookie()` return TRUE, so the
+      # `bb_admin_token` cookie is set `Secure` and a browser will SILENTLY DROP it over
+      # plain http. Signing in at `http://<box>:3003` will therefore appear to succeed and
+      # then bounce straight back to the login page. That is the correct posture for a
+      # production build and is NOT changed here — the fix, when this portal is eventually
+      # made reachable, is TLS in front of it (an owner decision, with an IP allowlist),
+      # never relaxing the cookie. Same behaviour payer-web had before nginx fronted it.

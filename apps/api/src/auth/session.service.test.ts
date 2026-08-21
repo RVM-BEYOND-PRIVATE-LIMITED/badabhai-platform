@@ -23,20 +23,39 @@ const TTL = 30 * 86400;
 function makeRedis() {
   const store = new Map<string, string>();
   const sets = new Map<string, Set<string>>();
-  // Last EXPIRE seconds recorded per key — lets a test assert the lineage-set TTLs (the
-  // re-arm fix) without a real clock.
+  // Last TTL recorded per key, from EITHER an `EXPIRE` or a `SET ... EX <sec>` — lets a test
+  // assert re-arming without a real clock.
+  //
+  // Recording the `EX` form is what makes the refresh-record TTLs assertable at all. Until it
+  // did, this map saw only `EXPIRE`, so the two keys rotation re-arms with `SET ... EX`
+  // (`refresh:<oldHash>` and `refresh:<newHash>`) were invisible to every test in this file —
+  // which is precisely why the assertions on them were missing rather than failing.
   const ttls = new Map<string, number>();
+
+  /** The seconds argument of a `SET key val [NX] EX <sec>`, or null when the call has no EX. */
+  function exSeconds(rest: unknown[]): number | null {
+    const i = rest.findIndex((a) => typeof a === "string" && a.toUpperCase() === "EX");
+    if (i < 0) return null;
+    const sec = rest[i + 1];
+    return typeof sec === "number" ? sec : null;
+  }
   const calls: Array<[string, ...unknown[]]> = [];
   const client = {
     async set(key: string, value: string, ...rest: unknown[]) {
       calls.push(["set", key, value, ...rest]);
       // SET key val NX EX sec — create-if-absent.
       if (rest[0] === "NX") {
+        // A refused NX writes nothing, so it must not record a TTL either — otherwise a test
+        // could assert a re-arm that the real Redis never performed.
         if (store.has(key)) return null;
         store.set(key, value);
+        const nxTtl = exSeconds(rest);
+        if (nxTtl !== null) ttls.set(key, nxTtl);
         return "OK";
       }
       store.set(key, value);
+      const ttl = exSeconds(rest);
+      if (ttl !== null) ttls.set(key, ttl);
       return "OK";
     },
     async get(key: string) {
@@ -314,6 +333,186 @@ describe("SessionService.refreshByToken — REUSE DETECTION", () => {
   });
 });
 
+// ===========================================================================
+// #999 — the honest retry that used to be treated as theft
+// ===========================================================================
+describe("#999 — an honest retry under ONE idempotency key never trips reuse detection", () => {
+  it("returns the SAME mint for every attempt in the client's retry ladder", () => {
+    // THE REGRESSION, stated as the client actually behaves. AuthedClient._doRefresh mints
+    // ONE key and retries under it up to 3 times (15s timeout, 300ms × attempt backoff), so
+    // its last attempt lands at t≈30.9s. With a 30s grace that attempt missed the cache by
+    // under a second, fell through to `rec.used`, and destroyed the whole family — logging
+    // out a worker whose token was never compromised.
+    //
+    // The grace is a TTL, so this asserts the CONFIGURED window rather than sleeping 31s:
+    // the value has to exceed the ladder, and 30 did not.
+    const grace = Reflect.get(SessionService, "IDEM_GRACE_SECONDS") as number;
+    const CLIENT_WORST_CASE_SECONDS = 30.9; // 15 + 0.3 + 15 + 0.6
+    expect(
+      grace,
+      "IDEM_GRACE_SECONDS must outlast the shipped client's retry ladder (~30.9s), or its " +
+        "last honest retry is read as token theft and the refresh family is destroyed",
+    ).toBeGreaterThan(CLIENT_WORST_CASE_SECONDS);
+  });
+
+  it("a repeat under the SAME key returns the cached mint — no rotation, no reuse flag", async () => {
+    const { svc, emit } = setup();
+    const created = await svc.create("worker-1");
+
+    const first = await svc.refreshByToken(created.refresh.token, "idem-same");
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    // The client never saw the response and retries under the key it already minted.
+    const retry = await svc.refreshByToken(created.refresh.token, "idem-same");
+    expect(retry.ok).toBe(true);
+    if (!retry.ok) return;
+
+    // The SAME pair — not a second rotation, which would strand one of the two tokens.
+    expect(retry.minted.refresh.token).toBe(first.minted.refresh.token);
+    expect(retry.minted.access.token).toBe(first.minted.access.token);
+    expect(
+      emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name),
+      "an honest retry must not be recorded as a security event",
+    ).not.toContain("worker.refresh_reuse_detected");
+  });
+
+  it("keeps the rotation lock SHORT — it is a mutex, not the retry window", async () => {
+    // These shared one constant before #999. Widening the grace to cover the client ladder
+    // would have widened the lock too, turning a rotation that DIES mid-flight into a 180s
+    // dead window in which every retry fails closed. The success path deletes the lock, so
+    // its TTL only ever matters on a crash.
+    const lock = Reflect.get(SessionService, "ROTATION_LOCK_SECONDS") as number;
+    const grace = Reflect.get(SessionService, "IDEM_GRACE_SECONDS") as number;
+    expect(lock).toBe(30);
+    expect(lock, "the lock must not inherit the widened grace").toBeLessThan(grace);
+
+    const { svc, redis } = setup();
+    const created = await svc.create("worker-1");
+    await svc.refreshByToken(created.refresh.token, "idem-lock");
+    const lockSet = redis.calls.find(
+      (c) => c[0] === "set" && String(c[1]).startsWith("refresh_lock:"),
+    );
+    expect(lockSet, "no rotation lock was taken").toBeDefined();
+    expect(lockSet![5], "the lock was armed with the wrong TTL").toBe(30);
+  });
+});
+
+// ===========================================================================
+// #1128 — the rotation lock must be RELEASED on the error path, and must NOT be
+// stolen from another in-flight rotation.
+// ===========================================================================
+describe("#1128 — the rotation lock is released on the error path (never strands a valid token)", () => {
+  it("a transient Redis fault AFTER the lock is won releases it, so a later honest retry is not blocked", async () => {
+    const { svc, redis } = setup();
+    const created = await svc.create("worker-1");
+    const lockKey = `refresh_lock:${sha256Hex(created.refresh.token)}`;
+
+    // Inject a transient fault AFTER the lock is won: the SET NX at the lock site already
+    // returned "OK", then rotateSession's `get session:<sid>` throws ONCE. Before the fix
+    // the catch returned holding the lock, stranding a STILL-VALID token for the 30s TTL.
+    const realGet = redis.client.get.bind(redis.client);
+    let armed = true;
+    redis.client.get = async (key: string) => {
+      if (armed && key.startsWith("session:")) {
+        armed = false; // one-shot blip — the "recovery window", not a full outage
+        throw new Error("transient redis blip");
+      }
+      return realGet(key);
+    };
+
+    const out = await svc.refreshByToken(created.refresh.token, "idem-blip");
+    // Still fails closed for THIS attempt (correct — the rotation did not complete).
+    expect(out).toEqual({ ok: false, reason: "invalid" });
+
+    // #1128 — the lock is GONE (the finally released the lock this call won), not left to
+    // idle out its 30s TTL.
+    expect(redis.store.has(lockKey)).toBe(false);
+
+    // The blip is over; the SAME still-valid token retries and rotates cleanly — it is not
+    // fenced out by a lock the failed attempt left behind. This is the forced-re-auth #999
+    // exists to prevent, now avoided on the recovery window.
+    const retry = await svc.refreshByToken(created.refresh.token, "idem-after-blip");
+    expect(retry.ok).toBe(true);
+    if (!retry.ok) return;
+    expect(retry.minted.refresh.token).not.toBe(created.refresh.token);
+  });
+
+  it("does NOT release a lock this call never won — a loser must not delete another rotation's mutex", async () => {
+    const { svc, redis } = setup();
+    const created = await svc.create("worker-1");
+    const lockKey = `refresh_lock:${sha256Hex(created.refresh.token)}`;
+
+    // Simulate ANOTHER in-flight rotation of this exact token holding the lock: pre-seed it
+    // so this call's SET NX refuses (locked !== "OK") and it takes the loser branch.
+    redis.store.set(lockKey, "held-by-another-rotation");
+
+    const out = await svc.refreshByToken(created.refresh.token, "idem-loser");
+    // The loser fails closed (no idem cache written yet), never a false reuse flag.
+    expect(out).toEqual({ ok: false, reason: "invalid" });
+
+    // The GUARD, tested for what it PERMITS: an over-broad finally that deleted on every
+    // path would have destroyed the mutex the OTHER rotation holds — worse than the leak.
+    // The lock survives, unchanged, and was never handed to `del`.
+    expect(redis.store.get(lockKey)).toBe("held-by-another-rotation");
+    const delOnLock = redis.calls.filter((c) => c[0] === "del" && c.includes(lockKey));
+    expect(delOnLock).toHaveLength(0);
+  });
+});
+
+describe("#999 — reuse detection still fails CLOSED, but says which kind it looks like", () => {
+  /** Drive a lineage into the reuse branch, returning the warn spy. */
+  async function reuseWith(consumeSuccessor: boolean) {
+    const { svc, redis, emit } = setup();
+    const warn = vi.spyOn(
+      (svc as unknown as { logger: { warn: (m: string) => void } }).logger,
+      "warn",
+    );
+    const created = await svc.create("worker-1");
+    const first = await svc.refreshByToken(created.refresh.token, "idem-1");
+    if (!first.ok) throw new Error("setup rotation failed");
+    if (consumeSuccessor) {
+      // A second party consumed the NEW pair — two holders of one lineage, i.e. theft.
+      const second = await svc.refreshByToken(first.minted.refresh.token, "idem-2");
+      expect(second.ok).toBe(true);
+    }
+    const replay = await svc.refreshByToken(created.refresh.token, "idem-replay");
+    return { replay, warn, redis, emit, created, first };
+  }
+
+  it("successor still UNUSED is logged as the honest-retry shape — and STILL revokes", async () => {
+    const { replay, warn, redis, emit, created } = await reuseWith(false);
+
+    // Posture is UNCHANGED on purpose: telling the two apart is a guess about intent, and a
+    // guess must not decide whether a possibly-stolen token keeps working. That call is an
+    // ADR-0026 change and belongs to the owner (#999), not to this branch.
+    expect(replay).toEqual({ ok: false, reason: "reuse_detected" });
+    expect(redis.store.has(`refresh:${sha256Hex(created.refresh.token)}`)).toBe(false);
+    expect(
+      emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name),
+    ).toContain("worker.refresh_reuse_detected");
+
+    const line = warn.mock.calls.map(String).find((l) => l.includes("refresh reuse detected"));
+    expect(line, "no reuse diagnostic was logged").toBeDefined();
+    expect(line).toContain("shape=successor_unused");
+  });
+
+  it("successor already CONSUMED is logged as the theft shape", async () => {
+    const { replay, warn } = await reuseWith(true);
+    expect(replay).toEqual({ ok: false, reason: "reuse_detected" });
+    const line = warn.mock.calls.map(String).find((l) => l.includes("refresh reuse detected"));
+    expect(line).toContain("shape=successor_consumed");
+  });
+
+  it("the diagnostic is PII-free and carries no token value", async () => {
+    const { warn, created, first } = await reuseWith(false);
+    const line = warn.mock.calls.map(String).find((l) => l.includes("refresh reuse detected"))!;
+    expect(line).not.toContain(created.refresh.token);
+    expect(line).not.toContain(first.minted.refresh.token);
+    expect(line).not.toContain("+91");
+  });
+});
+
 describe("SessionService.refreshByToken — IDEMPOTENCY GRACE", () => {
   it("the same idem key replays the SAME minted result, NO rotation, NO reuse flag", async () => {
     const { svc, redis, emit } = setup();
@@ -478,6 +677,59 @@ describe("SessionService — logout kills refresh tokens (no resurrection)", () 
     // the sets can never expire before the refresh records they index.
     expect(redis.ttls.get("worker_families:worker-1")).toBe(REFRESH_TTL);
     expect(redis.ttls.get("worker_sessions:worker-1")).toBe(REFRESH_TTL);
+  });
+
+  /**
+   * The other three keys rotation re-arms, which nothing asserted until #999.
+   *
+   * Rotation touches FIVE keys with a TTL: the presented record (`refresh:<oldHash>`, rewritten
+   * as `used`), the newly minted one (`refresh:<newHash>`), the family set
+   * (`refresh_family:<fid>`), and the two `worker_*` lineage sets the case above already
+   * covers. A regression that stopped re-arming any of the first three would have passed CI.
+   *
+   * They were unasserted for a mechanical reason rather than an oversight: the two refresh
+   * records are re-armed by `SET ... EX`, and this file's Redis double recorded a TTL only on
+   * `EXPIRE`. So they were invisible to the harness, not merely unchecked — which is why the
+   * double learned to record `EX` before this test could exist.
+   *
+   * WHY IT MATTERS THAT THEY MATCH. `refresh:<oldHash>` must outlive nothing in particular on
+   * its own, but it is what reuse detection reads: if it expired early, a replayed stolen token
+   * would find NO record and be served as a plain `invalid` instead of tripping the family
+   * teardown — silently downgrading the theft signal that the owner's ruling on this issue
+   * deliberately keeps fail-closed. `refresh_family:<fid>` is the set `revokeFamily` iterates,
+   * so an expired one makes a teardown a no-op over an empty set while live tokens survive.
+   */
+  it("rotation re-arms the THREE refresh keys too — old record, new record, and the family set", async () => {
+    const REFRESH_TTL = 90 * 86400;
+    const { svc, redis } = setup(); // gate OFF (default)
+    const created = await svc.create("worker-1");
+
+    const oldHash = sha256Hex(created.refresh.token);
+    const stored = JSON.parse(redis.store.get(`refresh:${oldHash}`)!) as { family_id: string };
+    const familyKey = `refresh_family:${stored.family_id}`;
+
+    // Scramble every TTL create() armed, so a value left over from create() can never be
+    // mistaken for one that rotation re-armed. Without this the test would pass unchanged
+    // against a rotation that re-armed nothing at all.
+    redis.ttls.set(`refresh:${oldHash}`, 1);
+    redis.ttls.set(familyKey, 1);
+
+    const rotated = await svc.refreshByToken(created.refresh.token, "idem-rot-refresh-ttls");
+    expect(rotated.ok).toBe(true);
+    if (!rotated.ok) return;
+    const newHash = sha256Hex(rotated.minted.refresh.token);
+
+    // The presented token, rewritten as `used` — and re-armed, so reuse detection can still
+    // FIND it for the whole refresh window rather than losing the evidence.
+    expect(redis.ttls.get(`refresh:${oldHash}`)).toBe(REFRESH_TTL);
+    // The freshly minted successor.
+    expect(redis.ttls.get(`refresh:${newHash}`)).toBe(REFRESH_TTL);
+    // The family set revokeFamily iterates.
+    expect(redis.ttls.get(familyKey)).toBe(REFRESH_TTL);
+
+    // Sanity: the two are genuinely different keys, so the three assertions above are not
+    // three readings of one entry.
+    expect(newHash).not.toBe(oldHash);
   });
 
   it("after a rotation, logout-all reaps the ROTATED (long-rotating) token ⇒ replay invalid", async () => {

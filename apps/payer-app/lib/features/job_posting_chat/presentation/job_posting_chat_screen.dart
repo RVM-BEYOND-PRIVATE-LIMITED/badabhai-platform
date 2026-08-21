@@ -525,19 +525,23 @@ class _ChatViewState extends State<_ChatView> {
           const SizedBox(width: AppSpacing.s2),
           // Deep-blue send: the view's single haldi is the draft-panel Publish
           // CTA, so send is a navy action — and green stays money/WhatsApp only.
-          Material(
-            color: AppColors.blue,
-            shape: const CircleBorder(),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: _send,
-              child: const SizedBox(
-                width: AppSpacing.tap,
-                height: AppSpacing.tap,
-                child: Icon(
-                  Icons.send_rounded,
-                  color: AppColors.onBlue,
-                  size: 22,
+          Semantics(
+            button: true,
+            label: 'Send',
+            child: Material(
+              color: AppColors.blue,
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: _send,
+                child: const SizedBox(
+                  width: AppSpacing.tap,
+                  height: AppSpacing.tap,
+                  child: Icon(
+                    Icons.send_rounded,
+                    color: AppColors.onBlue,
+                    size: 22,
+                  ),
                 ),
               ),
             ),

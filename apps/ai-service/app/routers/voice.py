@@ -7,12 +7,19 @@ import time
 from fastapi import APIRouter
 
 from ..ai import cost_tracker
-from ..ai.langfuse_tracing import TRANSCRIBE, TRANSLATE, LangfuseTracer, Observation, get_tracer
+from ..ai.langfuse_tracing import (
+    TRANSCRIBE,
+    TRANSLATE,
+    WORKFLOW_VOICE,
+    LangfuseTracer,
+    Observation,
+    get_tracer,
+)
 from ..contracts import TranscriptionInput, TranscriptionOutput
 from ..pseudonymize import pseudonymize
 from ..spoken_digits import redact_spoken_digits
 from ..stt import STT_TASK_TYPE
-from ._shared import logger, settings, stt_adapter, translate_adapter
+from ._shared import logger, settings, stt_adapter, translate_adapter, workflow_scope
 
 api_router = APIRouter()
 
@@ -34,20 +41,39 @@ api_router = APIRouter()
 @api_router.post("/voice/transcribe", response_model=TranscriptionOutput)
 async def voice_transcribe(body: TranscriptionInput) -> TranscriptionOutput:
     tracer = get_tracer()
-    with tracer.task(
-        task_type="voice_transcription",
-        # The storage reference is an opaque path, never worker text (contracts.py).
-        input={
-            "storage_path": body.storage_path,
-            "duration_seconds": body.duration_seconds,
-            "language_code": body.language_code,
+    # THE WORKFLOW ROOT, and the ONLY addition to this handler. The task + its two sibling
+    # generations below were already the right hierarchy; what they lacked was anything
+    # ABOVE them, so a voice note traced as an ISLAND — unjoinable to the interview turn
+    # that asked for it, even though apps/api sends the same BL-19 correlation id on both.
+    # `workflow_scope` supplies that id (never `tracer.workflow` directly: the route has no
+    # business knowing which context var the middleware bound it to), so the note and the
+    # turn land in one trace. Nothing inside the task changed — same input, same shape-only
+    # outputs, same deliberate absence of usage_details on a per-call-billed provider.
+    with workflow_scope(
+        name=WORKFLOW_VOICE,
+        worker_ref=body.worker_ref,
+        # Same PII-free pair the task already carries: an opaque note id and a routing
+        # flag. The workflow is the thing an operator SEARCHES, so the id has to be here
+        # too rather than only one level down.
+        metadata={
+            "voice_note_id": body.voice_note_id,
             "translate_to_english": body.translate_to_english,
         },
-        user_ref=body.worker_ref,
-        real_call=body.real_call_allowed and stt_adapter.real_enabled,
-        metadata={"voice_note_id": body.voice_note_id},
-    ) as task:
-        return await _transcribe(body, task, tracer)
+    ):
+        with tracer.task(
+            task_type="voice_transcription",
+            # The storage reference is an opaque path, never worker text (contracts.py).
+            input={
+                "storage_path": body.storage_path,
+                "duration_seconds": body.duration_seconds,
+                "language_code": body.language_code,
+                "translate_to_english": body.translate_to_english,
+            },
+            user_ref=body.worker_ref,
+            real_call=body.real_call_allowed and stt_adapter.real_enabled,
+            metadata={"voice_note_id": body.voice_note_id},
+        ) as task:
+            return await _transcribe(body, task, tracer)
 
 
 async def _transcribe(

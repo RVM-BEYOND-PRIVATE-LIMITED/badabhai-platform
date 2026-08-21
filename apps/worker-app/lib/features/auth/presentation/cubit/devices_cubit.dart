@@ -13,25 +13,34 @@ class DevicesState extends Equatable {
     this.status = DevicesStatus.loading,
     this.devices = const <AuthDevice>[],
     this.message,
+    this.revokingId,
   });
 
   final DevicesStatus status;
   final List<AuthDevice> devices;
   final String? message;
 
+  /// Id of the device whose revoke is in flight, or null when idle. Like
+  /// [message], it is not `??`-merged: each copyWith call sets it explicitly, so
+  /// omitting it clears the in-flight flag.
+  final String? revokingId;
+
   DevicesState copyWith({
     DevicesStatus? status,
     List<AuthDevice>? devices,
     String? message,
+    String? revokingId,
   }) =>
       DevicesState(
         status: status ?? this.status,
         devices: devices ?? this.devices,
         message: message,
+        revokingId: revokingId,
       );
 
   @override
-  List<Object?> get props => <Object?>[status, devices, message];
+  List<Object?> get props =>
+      <Object?>[status, devices, message, revokingId];
 }
 
 /// Lists the worker's known devices and revokes others. The current device is
@@ -81,6 +90,11 @@ class DevicesCubit extends Cubit<DevicesState> {
   }
 
   Future<void> revoke(String deviceId) async {
+    // Flag this device as revoke-in-flight so the tile can show a spinner and
+    // block duplicate taps. load() (called below) emits fresh states, which
+    // carry no revokingId, clearing it.
+    if (isClosed) return;
+    emit(state.copyWith(revokingId: deviceId));
     try {
       await _manager.revokeDevice(deviceId);
     } catch (_) {

@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import { createEvent } from "@badabhai/event-schema";
 import type { RequestContext } from "../../common/request-context";
+import { fakeAiTraceRecorder } from "../../ai/ai-trace-recorder.fake";
 import { JobPostingChatService } from "./job-posting-chat.service";
 
 const PAYER_A = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -148,13 +149,15 @@ function make(
     }),
   };
 
+  // Both stubs TAKE the BL-19 trace ctx as their trailing optional parameter, so a test can
+  // assert the request's ids were forwarded rather than left for `AiService.post` to mint.
   const ai = {
-    jobPostingChatOpening: vi.fn(async () =>
+    jobPostingChatOpening: vi.fn(async (_tradeHint?: string | null, _ctx?: unknown) =>
       opts.openingText === undefined
         ? "Tell me about the role you are hiring for."
         : opts.openingText,
     ),
-    jobPostingChatRespond: vi.fn(async (_input: Record<string, unknown>) =>
+    jobPostingChatRespond: vi.fn(async (_input: Record<string, unknown>, _ctx?: unknown) =>
       opts.turn === null
         ? null
         : {
@@ -210,16 +213,22 @@ function make(
     ),
   };
 
+  // 0083: the SHARED trace fake. It reproduces the real recorder's short-circuits, so
+  // `traces.dropped` is a claim about production (a payer turn has no worker, so nothing is
+  // ever stored) rather than about this double.
+  const traces = fakeAiTraceRecorder();
+
   const svc = new JobPostingChatService(
     chat as never,
     events as never,
     ai as never,
     aiCost as never,
+    traces.recorder,
     payers as never,
     pii as never,
     jobPostings as never,
   );
-  return { svc, chat, events, emitted, ai, aiCost, payers, pii, jobPostings };
+  return { svc, chat, events, emitted, ai, aiCost, traces, payers, pii, jobPostings };
 }
 
 /** Re-build each recorded emit through `createEvent` — proves it is registry-valid. */
@@ -268,6 +277,13 @@ describe("JobPostingChatService — session lifecycle", () => {
     // The engine's own line is attributed to the ai_service, never to the payer.
     expect(d.emitted[1]!.actor.actor_type).toBe("ai_service");
     d.emitted.forEach(assertRegistryValid);
+
+    // BL-19: the opener is fetched under the REQUEST's ids. The trade hint stays null — this
+    // slice never sends one — so the ctx is the trailing argument, not a replacement for it.
+    expect(d.ai.jobPostingChatOpening).toHaveBeenCalledWith(null, {
+      correlationId: CTX.correlationId,
+      requestId: CTX.requestId,
+    });
   });
 
   it("startSession returns an EMPTY reply (never a locally invented greeting) when the AI service cannot supply an opener", async () => {
@@ -386,6 +402,12 @@ describe("JobPostingChatService — session lifecycle", () => {
     });
     expect((sent.conversation_state as { turn_count: number }).turn_count).toBe(2);
     expect(JSON.stringify(sent)).not.toContain(ORG_NAME);
+    // BL-19: the request's own ids ride the call, so the ai-service's trace joins this turn
+    // instead of the fresh uuid `AiService.post` mints when no ctx is supplied.
+    expect(d.ai.jobPostingChatRespond.mock.calls[0]![1]).toEqual({
+      correlationId: CTX.correlationId,
+      requestId: CTX.requestId,
+    });
 
     const saved = d.chat.saveTurn.mock.calls[0]![2] as Record<string, unknown>;
     expect(saved.conversationState).toMatchObject({ turn_count: 2 });

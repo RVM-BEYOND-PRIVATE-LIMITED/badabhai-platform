@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -37,6 +38,37 @@ void main() {
     expect(find.text('WhatsApp alerts'), findsOneWidget);
     expect(find.text('Account delete karein'), findsNothing);
     expect(find.textContaining('Made in India'), findsOneWidget);
+  });
+
+  // #966 — a tester must be able to read WHICH build their device runs (to tell
+  // a real bug from a stale APK) and copy it into a bug report. The footer shows
+  // the build id inline; a long-press copies it.
+  testWidgets('shows the build id in the footer and long-press copies it',
+      (WidgetTester tester) async {
+    final List<String> copied = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform, (MethodCall call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied.add((call.arguments as Map<Object?, Object?>)['text'] as String);
+      }
+      return null;
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.light(),
+      home: const SettingsScreen(),
+    ));
+
+    // Readable inline — 'dev' with no --dart-define=APP_BUILD (a test binary).
+    expect(find.textContaining('build dev'), findsOneWidget);
+
+    await tester.longPress(find.textContaining('build dev'));
+    await tester.pump(); // surface the confirmation snackbar
+
+    expect(copied, <String>['dev']);
+    expect(find.text('Build id copy ho gaya'), findsOneWidget);
   });
 
   // 'Bhasha' stays hidden until real localization ships (it set X-Locale with

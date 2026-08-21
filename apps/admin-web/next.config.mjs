@@ -1,3 +1,8 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -6,6 +11,33 @@ const nextConfig = {
     // don't run Next's own ESLint during `next build`.
     ignoreDuringBuilds: true,
   },
+  // The box container (apps/admin-web/Dockerfile) needs a lean, self-contained runtime
+  // image rather than shipping the whole builder tree — `standalone` traces only the
+  // files this app actually needs (including the workspace `@badabhai/config`,
+  // `@badabhai/pricing` and `@badabhai/validators` packages it imports) and emits a
+  // minimal `server.js`.
+  //
+  // VERIFIED SAFE for what THIS app actually uses, not assumed by analogy with
+  // payer-web — the three things standalone changes or does not support were each
+  // checked against this app's own source before this line was added:
+  //   * NO `middleware.ts` / `middleware.js` anywhere in this app. Worth stating
+  //     explicitly because an admin portal doing auth is exactly where you would expect
+  //     one: this portal's auth is instead per-route, in the `(portal)` layout and the
+  //     server actions (`src/lib/auth/*` reading the httpOnly `bb_admin_token` cookie).
+  //     Standalone DOES support middleware, but it lands in a different place in the
+  //     traced output — so if middleware is ever added here, re-verify the Dockerfile's
+  //     COPY set rather than assuming it still holds.
+  //   * NO `next/image` usage anywhere in `src`, so the runtime image needs no `sharp`.
+  //   * NO `next/font` usage. The four RobotoMono files under `public/fonts/` are plain
+  //     static assets, and standalone does NOT copy `public/` — the Dockerfile copies it
+  //     explicitly, which is what keeps them from 404ing.
+  output: "standalone",
+  // Monorepo root, explicit rather than inferred. Next infers the workspace root by
+  // walking up for a lockfile, which is usually right but prints a warning (and, in a
+  // Docker builder stage that COPYs the whole repo, is worth pinning rather than
+  // trusting auto-detection silently picks the same root every time). This must match
+  // the Dockerfile's build context (repo root).
+  outputFileTracingRoot: path.join(__dirname, "../.."),
   // The admin portal is INTERNAL and highly privileged. It must never be framed,
   // sniffed into a different content type, or leak a referrer to another origin.
   async headers() {
@@ -18,7 +50,51 @@ const nextConfig = {
           { key: "Referrer-Policy", value: "no-referrer" },
           // The portal renders operator data; nothing here should ever be indexed.
           { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+          // Since the 2026-08-18 ruling these pages carry decrypted worker, organisation and
+          // admin NAMES. A shared cache holding one is a name disclosed outside the audited,
+          // capped read that produced it — served to whoever asks next, with no
+          // `admin.identity_viewed` row and no budget charged.
+          //
+          // ASSERTED AT THE ORIGIN, NOT DELEGATED. The box is nginx-fronted and that config
+          // lives outside this repo, so a proxy adding the header is something this app cannot
+          // see, test, or be sure survives the next box change. `no-store` here is also the
+          // exact directive the API sets on the five name-bearing routes, so the two hops
+          // agree rather than each assuming the other did it.
+          //
+          // Applied to `/:path*` unconditionally rather than only to the name-bearing routes:
+          // a caching header that varies by page is one refactor away from being wrong, and no
+          // PAGE under this origin is worth caching — every one is `force-dynamic` operational
+          // data behind an admin session. The build's own hashed assets are the one exception,
+          // and they are put back below rather than carved out of the pattern here, so the
+          // security headers keep their unconditional `/:path*` scope.
+          { key: "Cache-Control", value: "no-store" },
         ],
+      },
+      {
+        // THE BUILD OUTPUT, PUT BACK.
+        //
+        // MEASURED, not assumed: with only the rule above, `curl -I` on
+        // `/_next/static/chunks/<hash>.js` against a built server returned
+        // `Cache-Control: no-store`. Next applies `headers()` output to the response FIRST
+        // (`next/dist/server/lib/router-server.js`, `for (const key of Object.keys(resHeaders))
+        // res.setHeader(...)`) and only THEN decides its own static caching, behind
+        // `if (!res.getHeader('cache-control') && matchedOutput.type === 'nextStaticFolder')`.
+        // The `/:path*` rule has already set the header, so that guard is permanently false and
+        // `public, max-age=31536000, immutable` never runs — every content-hashed JS/CSS chunk
+        // in the portal is re-downloaded on every navigation.
+        //
+        // Safe to cache forever, for the same reason Next does it by default: everything under
+        // `/_next/static/` is named by a content hash of itself, so a changed file is a changed
+        // URL. It is compiled build output — no session, no operator data, no name has ever
+        // been in it. The `no-store` above is a claim about RESPONSE BODIES that may carry
+        // decrypted names, and this directory cannot contain one.
+        //
+        // A LATER RULE WINS: `resolve-routes.js` assembles matches with `resHeaders[key] =
+        // value`, so for a non-`set-cookie` key the last matching rule's value is the one sent.
+        // The four security headers above are NOT repeated here — they are still applied by the
+        // `/:path*` match, since both rules match and only `Cache-Control` collides.
+        source: "/_next/static/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
     ];
   },

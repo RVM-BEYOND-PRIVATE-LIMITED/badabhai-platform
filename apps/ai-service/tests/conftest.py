@@ -103,6 +103,13 @@ def _force_mock_only_env() -> None:
     # Langfuse ships spans over the network once BOTH keys are present.
     os.environ["LANGFUSE_PUBLIC_KEY"] = ""
     os.environ["LANGFUSE_SECRET_KEY"] = ""
+    # The AI-call trace text. It arms no outbound call, but it is the kind of flag
+    # DOMAIN_MATCH_TOP_K is pinned for: it decides WHICH branch runs, and the flag-OFF
+    # tests in test_ai_call_trace_text.py assert against a bare ``Settings()``. A
+    # developer .env turning it on would make those pass vacuously — asserting "no text"
+    # on a path that was never meant to have any — and would silently widen every
+    # endpoint's response body for the whole suite.
+    os.environ["AI_CALL_TRACE_TEXT_ENABLED"] = "false"
     # Supabase storage (voice-note object downloads).
     os.environ["SUPABASE_URL"] = ""
     os.environ["SUPABASE_SERVICE_ROLE_KEY"] = ""

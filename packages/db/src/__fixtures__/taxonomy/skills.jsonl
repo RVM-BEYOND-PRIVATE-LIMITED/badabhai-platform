@@ -1,0 +1,2 @@
+{"kind":"skill","skill_id":"skill_fanuc_cnc","label_en":"Fanuc CNC","label_hi":null,"aliases":[{"text":"fanuc","lang":"en"},{"text":"fanuc controller","lang":"en"}]}
+{"kind":"skill","skill_id":"skill_oxy_fuel_cutting","label_en":"Oxy-Fuel Cutting","label_hi":null,"aliases":[{"text":"oxy fuel cutting","lang":"en"}]}

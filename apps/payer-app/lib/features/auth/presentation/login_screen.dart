@@ -10,6 +10,7 @@ import '../../../core/session/app_session_cubit.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_animated_switcher.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_field.dart';
 
@@ -179,20 +180,43 @@ class _LoginScreenState extends State<LoginScreen> {
                 AppSpacing.gutter,
                 AppSpacing.s7,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  if (_step == _Step.details)
-                    ..._detailsStep()
-                  else
-                    ..._codeStep(),
-                  if (_error != null) ...<Widget>[
-                    const SizedBox(height: AppSpacing.s3),
-                    _ErrorLine(message: _error!),
-                  ],
-                  const SizedBox(height: AppSpacing.s4),
-                  const _TrustLine(),
-                ],
+              // #1087 — cap the form column so it never spans an unreadable
+              // width on a tablet/foldable; the deep-blue header + canvas stay
+              // full-bleed, only the content is centred.
+              child: Center(
+                child: ConstrainedBox(
+                  constraints:
+                      const BoxConstraints(maxWidth: AppSpacing.appMax),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      // #1078 — ease the phone→OTP step swap instead of a hard
+                      // cut. Each step is a keyed Column so the switcher animates
+                      // between them; the error + trust lines below stay put.
+                      BbAnimatedSwitcher(
+                        child: _step == _Step.details
+                            ? Column(
+                                key: const ValueKey<_Step>(_Step.details),
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                mainAxisSize: MainAxisSize.min,
+                                children: _detailsStep(),
+                              )
+                            : Column(
+                                key: const ValueKey<_Step>(_Step.code),
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                mainAxisSize: MainAxisSize.min,
+                                children: _codeStep(),
+                              ),
+                      ),
+                      if (_error != null) ...<Widget>[
+                        const SizedBox(height: AppSpacing.s3),
+                        _ErrorLine(message: _error!),
+                      ],
+                      const SizedBox(height: AppSpacing.s4),
+                      const _TrustLine(),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -339,8 +363,8 @@ class _BrandHeader extends StatelessWidget {
               // Haldi brand mark — a brand moment, not a CTA. Text/icon on haldi
               // is ALWAYS deep blue. Radius stays inside the kit's 12 cap.
               Container(
-                width: 56,
-                height: 56,
+                width: AppSpacing.brandMark,
+                height: AppSpacing.brandMark,
                 decoration: BoxDecoration(
                   color: AppColors.haldi,
                   borderRadius: BorderRadius.circular(AppRadii.xl),

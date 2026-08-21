@@ -6,12 +6,55 @@ on:
   pull_request:
     branches: [main]
 
+# A PR run is SUPERSEDABLE. A `main` run is a DEPLOY.
+#
+# `cancel-in-progress: true` is exactly right on a branch: a new push replaces the old one and
+# there is no reason to finish testing a commit nobody will merge.
+#
+# On `main` it is wrong, because main runs are not supersedable — each one is the deploy of a
+# distinct commit. `deploy-lightsail` is the LAST job in this workflow, so it is reliably the
+# one still pending when the next merge lands and kills the run. Merge cadence on this repo is
+# faster than the ~7-minute path to that job, which makes cancellation the NORMAL case:
+#
+#     measured 2026-08-20, last 59 settled runs on main:  39 cancelled / 20 success  (66%)
+#
+# It usually self-heals, which is why it went unnoticed for so long: the next successful run
+# deploys a descendant commit that contains the cancelled one's changes too. #1017 and #1019
+# both shipped that way — hours late, and only because unrelated work happened to merge behind
+# them. It stops self-healing exactly when it matters most, i.e. when the cancelled run is the
+# LAST one: end of day, a quiet period, or a single urgent hotfix merged on its own. Then main
+# is merged, production is not running it, and nothing is red anywhere to say so.
+#
+# WHAT THE EXPRESSION BUYS, STATED HONESTLY. It does not mean every main run completes.
+# GitHub cancels a PREVIOUSLY-PENDING run when a newer one joins the group, so a burst of
+# merges can still discard an intermediate run before it starts. What it guarantees is the
+# thing that was actually broken: the NEWEST run in the group is never cancelled by a newer
+# one, so the tip of `main` always reaches `deploy-lightsail`. Intermediate commits may still
+# show a cancelled `ci-required` — that is the aggregate gate reporting "something did not
+# finish", not a test failure — but the box can no longer be left behind `main` indefinitely.
+#
+# Serialising is desirable on its own terms: two deploys racing onto one box is a worse
+# failure than a deploy waiting seven minutes, and queued runs make deploy order match merge
+# order. `staging-cd.yml` — the other deploy workflow in this repo — already pins
+# `cancel-in-progress: false` for the same reason.
+#
+# Cost is CI minutes on `main` only. Pinned by `ci-main-deploy-concurrency.guard.test.ts`.
+# Refs #1041, #1021, #1019, #1017.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # ---- Detect changed paths (CI-2: dorny/paths-filter) ----
+  # ---- Detect changed paths (CI-2: dorny/paths-filter) + derive the build id (#965) ----
+  #
+  # This job is ALSO the single derivation site for the short commit sha that every image
+  # build bakes in as `GIT_COMMIT_SHA` (#965), AND — since the image jobs were matrixed —
+  # for the image build matrix itself. Both live here, and not once per image job, because
+  # this job is already the common `needs:` ancestor of both image jobs (`image-gate`, the
+  # PR-only build, and `build-and-push-image`, the publish): one derivation, two consumers,
+  # so the value a container reports on /health cannot drift from the value another job
+  # computed, and a PR cannot gate a build that differs from the one `main` ships. See the
+  # `short-sha` and `image-matrix` steps for why those equalities are the feature.
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -19,9 +62,61 @@ jobs:
       e2e: ${{ steps.filter.outputs.e2e }}
       worker-app: ${{ steps.filter.outputs.worker-app }}
       payer-app: ${{ steps.filter.outputs.payer-app }}
+      payer-web: ${{ steps.filter.outputs.payer-web }}
+      admin-web: ${{ steps.filter.outputs.admin-web }}
       sast: ${{ steps.filter.outputs.sast }}
       deps: ${{ steps.filter.outputs.deps }}
+      # #965: the value baked into api / ai-service / payer-web as `GIT_COMMIT_SHA` and
+      # reported by each service's /health as `build`.
+      short-sha: ${{ steps.short-sha.outputs.short-sha }}
+      # THE image build matrix — see the `image-matrix` step below for why both the PR-only
+      # gate (`image-gate`) and the publish (`build-and-push-image`) expand the SAME data.
+      #   image-matrix       every shipped image, always (the publish set)
+      #   image-gate-matrix  the subset whose `changes` path filter fired (the PR gate set)
+      image-matrix: ${{ steps.image-matrix.outputs.matrix }}
+      image-gate-matrix: ${{ steps.image-matrix.outputs.gate-matrix }}
     steps:
+      # ---- #965: WHICH BUILD IS RUNNING ----
+      # /health used to answer only "am I up?", so a deploy that silently kept serving the
+      # PREVIOUS image was indistinguishable from a good one and we debugged code that was
+      # not deployed. The container carries no .git (every Dockerfile's .dockerignore strips
+      # it), so the commit sha is knowable ONLY at image-build time — hence a build arg, and
+      # hence this step.
+      #
+      # `cut -c1-7` IS THE SAME DERIVATION THE REST OF THE PIPELINE ALREADY USES, and that
+      # is the whole point rather than a coincidence:
+      #   * the ghcr tag  — docker/metadata-action `type=sha` with
+      #     DOCKER_METADATA_SHORT_SHA_LENGTH pinned to "7" (build-and-push-image below);
+      #   * the deploy pin — `echo '${{ github.sha }}' | cut -c1-7` inside deploy-lightsail's
+      #     remote script, which is what constructs `...:sha-<short7>`;
+      #   * this step    — the value the running process reports.
+      # If those three ever disagreed, /health would confidently name a build that is not the
+      # image on the box — strictly worse than the "unknown" it replaces, because it would be
+      # believed. `GITHUB_SHA` and `github.sha` are the same value; the env form is used here
+      # so nothing is interpolated into the shell.
+      #
+      # ASSERTED, NOT ASSUMED. If the derivation ever yields something that is not a 7-char
+      # lowercase hex sha, every image would ship a build arg the services reject as
+      # unrecognisable and all three would report `"unknown"` forever — the feature silently
+      # dead while CI stayed green. That is the "green check that gated nothing" failure mode,
+      # so it fails LOUD here, in the build pipeline, one hop before anything is pushed.
+      # NOTE the deliberate asymmetry: the BUILD asserts, the RUNTIME fails open. A service
+      # must never refuse to boot, and /health must never 500, over a missing build label —
+      # that would turn an observability nicety into an outage (see resolveBuildId in
+      # apps/api/src/health/health.service.ts and Settings.build_id in
+      # apps/ai-service/app/config.py).
+      - name: Derive the short commit sha (the build id baked into every image)
+        id: short-sha
+        run: |
+          set -euo pipefail
+          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          if ! printf '%s' "${SHORT_SHA}" | grep -Eq '^[0-9a-f]{7}$'; then
+            echo "::error::Refusing to build: derived build id '${SHORT_SHA}' is not a 7-char hex sha, so every image would report build=\"unknown\"."
+            exit 1
+          fi
+          echo "short-sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Build id for this run: ${SHORT_SHA} (images tag as sha-${SHORT_SHA})"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
@@ -67,6 +162,40 @@ jobs:
               - 'apps/payer-app/**'
               - '.github/workflows/payer-app.yml'
               - '.github/workflows/ci.yml'
+            # GAP-XC-06 (#920): gates ONLY the payer-web LEG of the `image-gate` job below
+            # (via the `gate` field of that app's row in the `image-matrix` step) — the TS
+            # lint/typecheck/test/build for apps/payer-web already runs UNCONDITIONALLY
+            # inside the `node` job (turbo covers the whole workspace, no path filter),
+            # so this filter's one job is "does the Dockerfile still produce an image?",
+            # mirroring what the `ai-service` filter does for that app's leg. RENAMING THIS
+            # FILTER KEY WITHOUT UPDATING THAT ROW IS A FAIL, LOUDLY: the matrix step
+            # asserts every `gate` names a filter that exists, so the gate cannot be turned
+            # off by a typo. The three workspace packages payer-web's Dockerfile
+            # actually builds (@badabhai/config, @badabhai/pricing, @badabhai/validators)
+            # plus validators' own @badabhai/types dependency are listed explicitly — a
+            # change to any of them can break the image even with zero payer-web edits.
+            payer-web:
+              - 'apps/payer-web/**'
+              - 'packages/config/**'
+              - 'packages/pricing/**'
+              - 'packages/validators/**'
+              - 'packages/types/**'
+              - '.github/workflows/ci.yml'
+            # apps/admin-web (the INTERNAL admin portal) — same contract as the payer-web
+            # filter above, gating ONLY the admin-web leg of `image-gate`. The workspace
+            # packages are the ones admin-web's Dockerfile actually builds, enumerated from
+            # its package.json and its @badabhai/* imports rather than copied from payer-web:
+            # @badabhai/config (the /shared subpath), @badabhai/pricing, @badabhai/validators,
+            # plus validators' own @badabhai/types. Same four as payer-web by coincidence,
+            # not by inheritance — a change to any of them can break the image with zero
+            # admin-web edits.
+            admin-web:
+              - 'apps/admin-web/**'
+              - 'packages/config/**'
+              - 'packages/pricing/**'
+              - 'packages/validators/**'
+              - 'packages/types/**'
+              - '.github/workflows/ci.yml'
             # SAST (#773). Mirrors the filter security-scan.yml used while the job lived
             # there, plus the two workflow files that now decide whether it runs at all —
             # same reasoning as the e2e and Flutter entries above: a change to the gate
@@ -89,6 +218,152 @@ jobs:
               - 'pnpm-workspace.yaml'
               - '.github/workflows/dependency-audit.yml'
               - '.github/workflows/ci.yml'
+
+      # ---- THE IMAGE BUILD MATRIX: ONE SOURCE OF TRUTH FOR THE PR GATE AND THE PUBLISH ----
+      #
+      # WHY THIS LIVES HERE AND NOT INSIDE THE TWO IMAGE JOBS. Until this step existed, each
+      # app's image was a HAND-COPIED triple of steps — once inside `build-and-push-image`
+      # (the publish), once as its own PR-only gate job — and the copies DRIFTED. Measured on
+      # 2026-08-18: the `payer-web-image` gate passed NO `build-args:` while
+      # `build-and-push-image`'s payer-web step passed two, so the gate went green on a build
+      # NOBODY SHIPS and the real build then failed on `main` with
+      # `NEXT_PUBLIC_API_URL: Invalid url`. A gate that builds something DIFFERENT from what
+      # ships is not a gate.
+      #
+      # Emitting the per-app inputs ONCE, here, and having BOTH image jobs expand the SAME
+      # JSON as their `strategy.matrix.include` makes that class of drift structurally
+      # impossible for everything the matrix carries: build context, Dockerfile, ghcr image
+      # name, cache scope, and WHICH apps take the NEXT_PUBLIC_* build-args. Adding an app
+      # (admin-web) is one row here plus one `changes` filter — never another copy of the
+      # steps.
+      #
+      # SECRETS CANNOT LIVE IN A MATRIX, and that is a GitHub rule rather than a preference:
+      # the `secrets` context is NOT available to `jobs.<id>.strategy` (only github / needs /
+      # vars / inputs are), and a job OUTPUT whose value contains a secret is silently DROPPED
+      # by the runner. So the two NEXT_PUBLIC_* values are still dereferenced at the step, in
+      # both jobs, from an IDENTICAL three-line `build-args:` block whose per-app on/off
+      # switch (`next-public`) is the matrix field defined right here. That is the residual
+      # duplication and it is deliberate: the DECISION is single-sourced even though the
+      # rendering is not, and the rendering is three lines that diff at a glance.
+      #
+      # `gate` NAMES THE `changes` FILTER that gates this app's PR-only build, or is EMPTY for
+      # an app with no PR gate. `api` is empty ON PURPOSE — it has no PR image gate today and
+      # this change does not add one, because `ci-required` must keep gating exactly what it
+      # gated before.
+      #
+      # ASSERTED, NOT ASSUMED — the same discipline as the short-sha step above, for the same
+      # reason. A malformed, empty, or wrongly-filtered matrix would skip image builds while
+      # the run reported green, which is the single most dangerous state in this repo. So:
+      # every row is checked for the fields both jobs read, app names must be unique, every
+      # Dockerfile named must actually EXIST in this checkout, and every `gate` must name a
+      # filter that actually EXISTS in the step above (a renamed filter would otherwise turn
+      # that app's PR gate off silently and forever).
+      - name: Derive the image build matrix
+        id: image-matrix
+        env:
+          # The paths-filter results as an object, so the gate subset is a LOOKUP on the
+          # `gate` field instead of a second hand-maintained list. Passed through `env:` so
+          # nothing is interpolated into the shell.
+          FILTERS_JSON: ${{ toJSON(steps.filter.outputs) }}
+        run: |
+          set -euo pipefail
+
+          # ---- THE SOURCE OF TRUTH. One row per shipped image; PR 3 adds admin-web here.
+          #
+          # cache-scope `buildkit` for the api is NOT arbitrary: it is the documented default
+          # scope of buildx's `type=gha` cache backend, i.e. exactly the scope the api's
+          # previously-unscoped `cache-from: type=gha` was already using. Naming it explicitly
+          # keeps the expensive WeasyPrint apt+pip layer warm across this refactor rather than
+          # cold-starting it. (If upstream ever changed that default the only cost is one cold
+          # api build, then warm again.)
+          MATRIX_JSON='[
+            {"app":"api","context":".","file":"apps/api/Dockerfile","image":"badabhai-api","cache-scope":"buildkit","next-public":false,"gate":""},
+            {"app":"ai-service","context":"apps/ai-service","file":"apps/ai-service/Dockerfile","image":"badabhai-ai-service","cache-scope":"ai-service","next-public":false,"gate":"ai-service"},
+            {"app":"payer-web","context":".","file":"apps/payer-web/Dockerfile","image":"badabhai-payer-web","cache-scope":"payer-web","next-public":true,"gate":"payer-web"},
+            {"app":"admin-web","context":".","file":"apps/admin-web/Dockerfile","image":"badabhai-admin-web","cache-scope":"admin-web","next-public":false,"gate":"admin-web"}
+          ]'
+          # admin-web carries `"next-public":false` and that is the security-relevant field
+          # in the row, not an omission: the two `build-args:` lines this switch controls
+          # name PAYER_WEB_NEXT_PUBLIC_API_URL / _SITE_URL *literally* (secrets cannot be
+          # indexed from a matrix), so `true` would bake the PAYER portal's origins into the
+          # ADMIN portal's bundle. admin-web needs no public var — its api origin is
+          # ADMIN_API_BASE_URL, server-only and read at container start. If it ever needs
+          # one it gets its OWN ADMIN_WEB_NEXT_PUBLIC_* secrets and ARGs, never a ride here.
+
+          if ! MATRIX="$(printf '%s' "$MATRIX_JSON" | jq -c .)"; then
+            echo "::error::the image build matrix is not valid JSON — every image build would be skipped."
+            exit 1
+          fi
+
+          if [ "$(printf '%s' "$MATRIX" | jq 'length')" -eq 0 ]; then
+            echo "::error::the image build matrix is EMPTY — every image build would silently skip while this run reported green."
+            exit 1
+          fi
+
+          BAD_ROWS="$(printf '%s' "$MATRIX" | jq -r '
+            [ .[]
+              | select(
+                  (.app | type) != "string" or .app == ""
+                  or (.context | type) != "string" or .context == ""
+                  or (.file | type) != "string" or .file == ""
+                  or (.image | type) != "string" or .image == ""
+                  or (."cache-scope" | type) != "string" or ."cache-scope" == ""
+                  or (."next-public" | type) != "boolean"
+                  or (.gate | type) != "string"
+                )
+              | (.app // "<unnamed row>")
+            ] | join(", ")')"
+          if [ -n "$BAD_ROWS" ]; then
+            echo "::error::image matrix rows are missing a field both image jobs read (app/context/file/image/cache-scope/next-public/gate): ${BAD_ROWS}"
+            exit 1
+          fi
+
+          if [ "$(printf '%s' "$MATRIX" | jq '[.[].app] | unique | length')" \
+             -ne "$(printf '%s' "$MATRIX" | jq 'length')" ]; then
+            echo "::error::duplicate app name in the image build matrix — two matrix legs would collide on one cache scope and one check name."
+            exit 1
+          fi
+
+          # A typo in `file` would otherwise surface only as a build failure, per app, much
+          # later in the run — and on a PR only for the apps whose filter happened to fire.
+          # NOT a `... | while read` loop: a pipeline's `while` body runs in a SUBSHELL, so
+          # its `exit 1` would kill only that subshell and this check would pass vacuously.
+          MISSING_DOCKERFILES=""
+          for dockerfile in $(printf '%s' "$MATRIX" | jq -r '.[].file'); do
+            if [ ! -f "$dockerfile" ]; then
+              MISSING_DOCKERFILES="${MISSING_DOCKERFILES}${MISSING_DOCKERFILES:+, }${dockerfile}"
+            fi
+          done
+          if [ -n "$MISSING_DOCKERFILES" ]; then
+            echo "::error::the image matrix names Dockerfiles that do not exist in this checkout: ${MISSING_DOCKERFILES}"
+            exit 1
+          fi
+
+          # THE GATE-OFF-BY-TYPO GUARD. An absent key yields null, which would quietly
+          # resolve to "not changed" and turn that app's PR image gate off forever with
+          # nothing red anywhere. Refuse instead.
+          #
+          # `.gate as $g` FIRST, then `$f | has($g)` — NOT `$f | has(.gate)`. The `|` rebinds
+          # `.` to `$f`, so `.gate` inside `has()` would read the FILTER object's (absent)
+          # `gate` key and jq dies with "Cannot check whether object has a null key". Found
+          # by running this step, not by reading it.
+          UNKNOWN_FILTERS="$(jq -rn --argjson m "$MATRIX" --argjson f "$FILTERS_JSON" '
+            [ $m[] | .gate as $g | select($g != "" and (($f | has($g)) | not)) | $g ] | unique | join(", ")')"
+          if [ -n "$UNKNOWN_FILTERS" ]; then
+            echo "::error::the image matrix names paths-filter outputs that do not exist: ${UNKNOWN_FILTERS} — the PR image gate for those apps would silently never run."
+            exit 1
+          fi
+
+          GATE="$(jq -cn --argjson m "$MATRIX" --argjson f "$FILTERS_JSON" '
+            [ $m[] | .gate as $g | select($g != "" and ($f[$g] == "true")) ]')"
+
+          {
+            echo "matrix=${MATRIX}"
+            echo "gate-matrix=${GATE}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Images published on a push to main: $(printf '%s' "$MATRIX" | jq -r '[.[].app] | join(", ")')"
+          echo "Images PR-gated this run: $(printf '%s' "$GATE" | jq -r 'if length == 0 then "(none — no gated path changed)" else ([.[].app] | join(", ")) end')"
 
   # ---- Flutter gates, INSIDE the aggregator (#718) ----
   #
@@ -116,6 +391,270 @@ jobs:
     needs: changes
     if: needs.changes.outputs.payer-app == 'true'
     uses: ./.github/workflows/payer-app.yml
+
+  # ---- Worker app: build + publish the release APK (#920) ----
+  #
+  # `worker-app.yml`'s `analyze-test` job (called just above) is a PR gate — it never
+  # produces an artifact. Per #920: "CI never builds or distributes the worker
+  # APK... an app fix can be merged, green, and on main, while every tester's device
+  # runs a build from days earlier." This job closes that gap: on every push to `main`
+  # that touches `apps/worker-app`, it builds the release APK and publishes it as a
+  # GitHub Release asset — a stable, direct, public download link with zero new
+  # infrastructure (no box config, no storage bucket, no new secret).
+  #
+  # PUSH-TO-MAIN ONLY, NOT in `ci-required` — same shape as `build-and-push-image` /
+  # `deploy-lightsail` further below: this is a publish action, not a PR gate, so a PR
+  # cannot merge on it and it must not be able to block one. Lives HERE rather than as
+  # a second job inside `worker-app.yml` because that file is a pure `workflow_call`
+  # PR gate (see its own header comment) with no push-vs-PR awareness of its own — the
+  # push-vs-PR decision belongs at the caller, exactly where `build-and-push-image`
+  # already makes the identical decision for the Docker images.
+  #
+  # `needs: [changes, worker-app]` lists `changes` DIRECTLY, not only transitively
+  # through `worker-app` — see `build-and-push-image`'s comment further below for the
+  # measured reason: an `always()` job's implicit-success absorption at one hop does
+  # not "cleanse" a `changes` failure or cancellation for a job two hops downstream.
+  #
+  # `needs.worker-app.result == 'success'` — deliberately NOT tolerant of `skipped`,
+  # unlike `build-and-push-image`'s tolerance of `ai-service`/`e2e` being skipped.
+  # `worker-app` IS path-filtered by `changes.outputs.worker-app`, and BOTH its
+  # outcomes are legitimate (skipped = nothing under apps/worker-app changed; success
+  # = it changed and the analyze/test gate passed) — but only `success` means there is
+  # a new APK worth publishing. A skipped `worker-app` correctly skips this job too:
+  # the most recent Release is still current, and a failed `worker-app` must not ship.
+  #
+  # NO NEW SIGNING SECRET. `apps/worker-app/android/app/build.gradle` already signs
+  # release builds with the Flutter debug keystore (`signingConfig =
+  # signingConfigs.debug`, "so `flutter run --release` works") — the same ratified,
+  # deliberate decision that already covers `assetlinks.json` on this same issue
+  # thread: ship the debug fingerprint for sideload QA now, swap in the real Play App
+  # Signing key only at Play launch. `flutter build apk --release` in CI therefore
+  # produces the SAME artifact a developer already gets locally today.
+  worker-app-apk:
+    name: Worker app (build + release APK)
+    needs: [changes, worker-app]
+    if: >-
+      always() &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.changes.result == 'success' &&
+      needs.worker-app.result == 'success'
+    runs-on: ubuntu-latest
+    # Only scope granted: the Releases API (create release + upload asset) needs
+    # contents:write. No packages:*, no id-token — narrower than build-and-push-image.
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: apps/worker-app
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Pinned identically to worker-app.yml's analyze-test job — see that file's
+      # comment for why the pin exists and what breaks below it (Dart >=3.9.0 floor).
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: "3.35.7"
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      # First job in this repo to actually invoke the Android/Gradle build (analyze-test
+      # above runs no native build) — `ubuntu-latest` ships a preinstalled, license-
+      # accepted Android SDK, which is what `flutter build apk` needs beyond Flutter
+      # itself.
+      - name: Build release APK
+        run: flutter build apk --release
+
+      # Rename with the commit's short SHA so the artifact carries its own provenance
+      # in the filename — trivial, obviously-correct traceability. Does not attempt
+      # #966's separate in-app build-id work.
+      - name: Stage the APK
+        id: vars
+        run: |
+          set -euo pipefail
+          SHORT_SHA="$(echo "${{ github.sha }}" | cut -c1-7)"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          cp build/app/outputs/flutter-apk/app-release.apk "worker-app-sha-${SHORT_SHA}.apk"
+
+      # `worker-app-sha-<short7>` (not the bare `sha-<short7>` the ghcr images use):
+      # GitHub Release tags are repo-wide, and this monorepo also ships
+      # apps/payer-app — an eventual identical pipeline for it would collide with a
+      # bare `sha-<short7>` tag on the same commit. Prefixed once, here, to avoid that
+      # collision pre-emptively.
+      - name: Publish GitHub Release with the APK asset
+        id: release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: worker-app-sha-${{ steps.vars.outputs.short_sha }}
+          name: Worker app — sha-${{ steps.vars.outputs.short_sha }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            Automated build from commit ${{ github.sha }}.
+            Debug-signed release APK (sideload QA build — see
+            apps/worker-app/android/app/build.gradle). Enable "install from unknown
+            sources" to sideload; this is not a Play Store build.
+          files: apps/worker-app/worker-app-sha-${{ steps.vars.outputs.short_sha }}.apk
+          # Fail loud, not silent, if `flutter build apk` didn't produce the file
+          # this step expects (e.g. a future Flutter bump moves the output path).
+          fail_on_unmatched_files: true
+
+      # The direct download link #920 asked for. A GitHub release-asset URL is a
+      # deterministic function of the tag and the asset filename — constructed
+      # directly here rather than parsed out of the action's JSON `assets` output, so
+      # this step's correctness does not depend on that output's exact schema.
+      - name: Job summary
+        run: |
+          SHORT_SHA="${{ steps.vars.outputs.short_sha }}"
+          TAG="worker-app-sha-${SHORT_SHA}"
+          ASSET="worker-app-sha-${SHORT_SHA}.apk"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${ASSET}"
+          {
+            echo "### Worker app APK published"
+            echo ""
+            echo "Commit: \`${{ github.sha }}\`"
+            echo ""
+            echo "Direct download: ${DOWNLOAD_URL}"
+            echo ""
+            echo "Release page: ${{ steps.release.outputs.url }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---- Payer app: build + publish the release APK ----
+  #
+  # The second shipping surface with no artifact on a push to `main`. `worker-app-apk`
+  # immediately above closed that gap for apps/worker-app; apps/payer-app had the same
+  # hole — `payer-app.yml`'s `analyze-test` job is a PR gate that produces nothing, so a
+  # merged payer/agency app fix was green on `main` while every tester's device still ran
+  # a build from days earlier. This job is a DELIBERATE MIRROR of `worker-app-apk`: same
+  # shape, same pins, same gate semantics. Read the two together; keep them in lockstep.
+  #
+  # THE TAG PREFIX IS THE WHOLE REASON THAT COMMENT EXISTS. `worker-app-apk`'s release
+  # step already anticipated this job by name: "GitHub Release tags are repo-wide, and
+  # this monorepo also ships apps/payer-app — an eventual identical pipeline for it would
+  # collide with a bare `sha-<short7>` tag on the same commit." This IS that pipeline, and
+  # a commit touching both apps runs BOTH jobs. `payer-app-sha-<short7>` is the other half
+  # of that reservation; do not shorten it to the bare `sha-<short7>` the ghcr images use.
+  #
+  # PUSH-TO-MAIN ONLY, NOT in `ci-required` — same shape as `worker-app-apk` /
+  # `build-and-push-image` / `deploy-lightsail`: a publish action is not a PR gate, so it
+  # must not be able to block a merge, and structurally cannot, since it never runs on a
+  # `pull_request`. Lives HERE rather than as a second job inside `payer-app.yml` for the
+  # reason that file's own header gives — it is a pure `workflow_call` PR gate with no
+  # push-vs-PR awareness; that decision belongs at the caller.
+  #
+  # `needs: [changes, payer-app]` lists `changes` DIRECTLY, not only transitively through
+  # `payer-app` — see `build-and-push-image`'s comment further below for the measured
+  # reason: an `always()` job's implicit-success absorption at one hop does not "cleanse"
+  # a `changes` failure or cancellation for a job two hops downstream.
+  #
+  # `needs.payer-app.result == 'success'` — deliberately NOT tolerant of `skipped`. Both
+  # outcomes of the path-filtered `payer-app` job are legitimate (skipped = nothing under
+  # apps/payer-app changed; success = it changed and the analyze/test gate passed), but
+  # only `success` means there is a new APK worth publishing. A skipped `payer-app`
+  # correctly skips this job — the most recent Release is still current — and a failed one
+  # must not ship.
+  #
+  # NO NEW SIGNING SECRET, VERIFIED NOT ASSUMED. `apps/payer-app/android/app/build.gradle`
+  # signs release with `signingConfig = signingConfigs.debug`, byte-for-byte the same
+  # release block as worker-app's, and references NO keystore, key.properties or signing
+  # secret anywhere — so `flutter build apk --release` needs nothing this repo does not
+  # already contain. (`android/.gitignore` does exclude `key.properties`/`*.jks`, but
+  # nothing reads them; the build does not depend on an ignored file.) Firebase is wired
+  # the same way too: the `com.google.gms.google-services` plugin is applied and
+  # `apps/payer-app/android/app/google-services.json` is COMMITTED, not ignored, with
+  # `package_name: com.badabhai.payerapp` matching this module's `applicationId` — which
+  # is exactly what that plugin fails the build over when it is missing or mismatched.
+  payer-app-apk:
+    name: Payer app (build + release APK)
+    needs: [changes, payer-app]
+    if: >-
+      always() &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.changes.result == 'success' &&
+      needs.payer-app.result == 'success'
+    runs-on: ubuntu-latest
+    # Only scope granted: the Releases API (create release + upload asset) needs
+    # contents:write. No packages:*, no id-token — narrower than build-and-push-image.
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: apps/payer-app
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Pinned identically to payer-app.yml's analyze-test job (and to worker-app's) —
+      # see that file's comment for why the pin exists and what breaks below it
+      # (pubspec floors Flutter at >=3.35.0).
+      - name: Setup Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          flutter-version: "3.35.7"
+          channel: stable
+          cache: true
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      # `payer-app.yml`'s analyze-test runs no native build, so this is the first place
+      # the payer app's Android/Gradle build is exercised at all — `ubuntu-latest` ships
+      # a preinstalled, license-accepted Android SDK, which is what `flutter build apk`
+      # needs beyond Flutter itself.
+      - name: Build release APK
+        run: flutter build apk --release
+
+      # Rename with the commit's short SHA so the artifact carries its own provenance
+      # in the filename — same trivial, obviously-correct traceability as worker-app.
+      - name: Stage the APK
+        id: vars
+        run: |
+          set -euo pipefail
+          SHORT_SHA="$(echo "${{ github.sha }}" | cut -c1-7)"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          cp build/app/outputs/flutter-apk/app-release.apk "payer-app-sha-${SHORT_SHA}.apk"
+
+      # `payer-app-sha-<short7>`, NOT the bare `sha-<short7>` the ghcr images use and NOT
+      # `worker-app-sha-<short7>`: Release tags are repo-wide, and a commit that touches
+      # both Flutter apps publishes from both jobs on the same sha. This prefix is the
+      # collision `worker-app-apk`'s own release step reserved against.
+      - name: Publish GitHub Release with the APK asset
+        id: release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          tag_name: payer-app-sha-${{ steps.vars.outputs.short_sha }}
+          name: Payer app — sha-${{ steps.vars.outputs.short_sha }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            Automated build from commit ${{ github.sha }}.
+            Debug-signed release APK (sideload QA build — see
+            apps/payer-app/android/app/build.gradle). Enable "install from unknown
+            sources" to sideload; this is not a Play Store build.
+          files: apps/payer-app/payer-app-sha-${{ steps.vars.outputs.short_sha }}.apk
+          # Fail loud, not silent, if `flutter build apk` didn't produce the file
+          # this step expects (e.g. a future Flutter bump moves the output path).
+          fail_on_unmatched_files: true
+
+      # A GitHub release-asset URL is a deterministic function of the tag and the asset
+      # filename — constructed directly here rather than parsed out of the action's JSON
+      # `assets` output, so this step's correctness does not depend on that output's
+      # exact schema.
+      - name: Job summary
+        run: |
+          SHORT_SHA="${{ steps.vars.outputs.short_sha }}"
+          TAG="payer-app-sha-${SHORT_SHA}"
+          ASSET="payer-app-sha-${SHORT_SHA}.apk"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${ASSET}"
+          {
+            echo "### Payer app APK published"
+            echo ""
+            echo "Commit: \`${{ github.sha }}\`"
+            echo ""
+            echo "Direct download: ${DOWNLOAD_URL}"
+            echo ""
+            echo "Release page: ${{ steps.release.outputs.url }}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ---- SAST, INSIDE the aggregator (#773) ----
   #
@@ -160,6 +699,59 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # ---- SHELLCHECK: EVERY TRACKED .sh, INCLUDING THE PRODUCTION DEPLOY BODY ----
+      #
+      # Nothing in this repo linted a shell script until this step. That mattered most for
+      # scripts/deploy/staging-deploy.sh, which executes on the Lightsail box on every push
+      # to main — and it was not merely unlinted but UNPARSEABLE: a prose comment beginning
+      # with the token `# shellcheck` was read as a DIRECTIVE, so shellcheck aborted the
+      # whole 500-line file with SC1073/SC1072 and analyzed none of it. Being unparseable
+      # is indistinguishable from being clean when no job runs the linter.
+      #
+      # WHY THIS JOB. `ci-required` is the only required status check on main and `needs:`
+      # cannot name a job in another workflow file, so a shell-lint job in a standalone
+      # workflow could sit RED beside a GREEN required check while the PR merged — measured
+      # twice already (#718 on PR #711, #773 twice in one day). This job is reachable by
+      # `ci-required` and carries no `if:` and no path filter, so no mis-scoped filter can
+      # silently skip it. It runs BEFORE `pnpm install`, so a bad script fails in seconds.
+      #
+      # PINNED, NOT PREINSTALLED. The runner image ships its own shellcheck and bumps it
+      # without asking; a scan must fail because the code changed, never because the rules
+      # changed overnight. v0.11.0 + sha256 (checksum reproduced from two independent
+      # fetches) is byte-identical to what a developer runs locally.
+      #
+      # DEFAULT SEVERITY, NO --exclude, NO BLANKET disable. All three tracked scripts pass
+      # cleanly at style level. The one suppression in the tree is a single-line, single-code
+      # `disable=SC2016` in scripts/chat-cli.sh over a JS template literal that MUST stay
+      # single-quoted, with the reason written above it.
+      #
+      # `git ls-files` rather than a hardcoded list, so a NEW script is linted the day it
+      # lands instead of inheriting the same blind spot. The count assertion is what stops
+      # this decaying into a green step that checked nothing — it is a FLOOR at today's
+      # count (4), so deleting a script is a deliberate act that has to update this number
+      # rather than something that quietly shrinks what the gate covers. #1108's
+      # scripts/deploy/r38-port-audit.sh was written before this gate existed and was
+      # verified clean against the pinned version below, not grandfathered past it.
+      - name: Shellcheck (all tracked shell scripts)
+        env:
+          SHELLCHECK_VERSION: "0.11.0"
+          SHELLCHECK_SHA256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o /tmp/shellcheck.tar.xz \
+            "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+          echo "${SHELLCHECK_SHA256}  /tmp/shellcheck.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+          SC="/tmp/shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          "$SC" --version
+          mapfile -t SH_FILES < <(git ls-files '*.sh')
+          echo "Linting ${#SH_FILES[@]} tracked shell script(s): ${SH_FILES[*]}"
+          if [ "${#SH_FILES[@]}" -lt 4 ]; then
+            echo "::error::expected at least 4 tracked .sh files, found ${#SH_FILES[@]} — this step is not linting what it claims to. Fix the glob, do not lower the number."
+            exit 1
+          fi
+          "$SC" --format=gcc "${SH_FILES[@]}"
 
       - name: Install pnpm
         # No `version:` here on purpose — it would conflict with the
@@ -292,43 +884,90 @@ jobs:
       - name: Pytest
         run: pytest
 
-  # ---- ai-service image builds AT ALL (TD81) ----
-  # `build-and-push-image` below is gated `push && refs/heads/main`, so it NEVER runs on
-  # a PR. Without this job a broken apps/ai-service/Dockerfile would first be discovered
-  # ON MAIN — where it also fails `deploy-lightsail`, i.e. exactly the TD81 failure class
-  # this PR exists to remove (a green signal hiding an untested artifact).
+  # ---- DOES EACH APP'S IMAGE STILL BUILD AT ALL? (TD81 + GAP-XC-06 #920) ----
+  #
+  # `build-and-push-image` below is gated `push && refs/heads/main`, so it NEVER runs on a
+  # PR. Without this job a broken Dockerfile is first discovered ON MAIN — where it also
+  # fails `deploy-lightsail`, i.e. exactly the TD81 failure class this gate exists to remove
+  # (a green signal hiding an untested artifact).
+  #
+  # ONE MATRIXED JOB, NOT ONE JOB PER APP. This was `ai-service-image` + `payer-web-image`,
+  # two near-identical hand-copied jobs, and the copies DRIFTED FROM THE PUBLISH PATH — the
+  # payer-web gate passed no `build-args:` while the push job passed two, so a build nobody
+  # ships went green and a broken image reached `main` (2026-08-18). Both this job and
+  # `build-and-push-image` now expand THE SAME `changes` output, so an app's build context,
+  # Dockerfile, cache scope and NEXT_PUBLIC_* switch are structurally incapable of differing
+  # between the gate and the thing that actually ships. See the `image-matrix` step in
+  # `changes` for the full reasoning and for what the matrix deliberately does NOT carry.
+  #
+  # `fail-fast: false` — one app's Dockerfile breaking must not cancel the other apps' gates.
+  # A PR author needs to see every broken image in ONE run, not one per push.
   #
   # BUILD ONLY, never push: no registry credentials, no `packages: write`, no tags. It
-  # answers "does this Dockerfile still produce an image?" and nothing else. Cheap
-  # (the ai-service image is a pip install over a slim base — no WeasyPrint/native
-  # stack like apps/api) and it reuses the SAME gha cache scope as the push job, so a
-  # PR build warms the layers main then reuses.
+  # answers "does this Dockerfile still produce an image?" and nothing else, and it reuses
+  # the SAME gha cache scope as the push job, so a PR build warms the layers `main` reuses.
   #
-  # Deliberately NOT a `needs:` of anything: it is an independent signal, and it must be
-  # able to fail without masking the pytest/ruff result above.
-  # CI-2: path-gated to only run when ai-service code changes.
-  ai-service-image:
-    name: AI service (image builds)
-    if: needs.changes.outputs.ai-service == 'true'
+  # Deliberately NOT a `needs:` of anything but `changes`: an independent signal that must be
+  # able to fail without masking the `node` / `ai-service` jobs' own coverage of these apps.
+  #
+  # CI-2: STILL PATH-GATED PER APP, but the gating moved from a job-level `if:` into the
+  # matrix, because a job `if:` cannot see `matrix`. `changes` emits ONLY the apps whose
+  # filter fired, so an unaffected app produces no matrix leg at all — the same skip
+  # semantics the two previous jobs had — and when nothing fired the whole job skips, which
+  # `ci-required` treats as fine. WHICH apps are gated is unchanged by this refactor:
+  # ai-service and payer-web, exactly as before; `api` carries an empty `gate` field.
+  image-gate:
+    name: Image gate (${{ matrix.app }})
+    if: needs.changes.outputs.image-gate-matrix != '[]'
     needs: [changes]
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.image-gate-matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-      - name: Build the ai-service image (no push)
+      - name: Build the ${{ matrix.app }} image (no push)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
-          context: apps/ai-service
-          file: apps/ai-service/Dockerfile
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
           push: false
           load: false
-          cache-from: type=gha,scope=ai-service
-          cache-to: type=gha,mode=max,scope=ai-service
+          # THIS `build-args:` BLOCK IS BYTE-IDENTICAL TO `build-and-push-image`'s, AND
+          # KEEPING IT THAT WAY IS THE POINT OF THE WHOLE REFACTOR AROUND IT. A gate that
+          # builds something DIFFERENT from what ships is not a gate: this gate previously
+          # passed NO build-args while the push job passed two, the PR went green, and the
+          # push job then failed on `main` with `NEXT_PUBLIC_API_URL: Invalid url` — because
+          # an absent secret resolves to the EMPTY STRING and Docker injects a declared ARG
+          # into the build env (see apps/payer-web/Dockerfile's header). The empty-secret
+          # case is therefore part of what this gate must reproduce, not something to
+          # "fix" here.
+          #
+          # WHY THE CONDITIONAL FORM RATHER THAN A MATRIX FIELD: the `secrets` context is
+          # not available to `jobs.<id>.strategy`, so the VALUES cannot live in the matrix —
+          # only the per-app switch (`next-public`) can, and it does. A false switch renders
+          # the line EMPTY, and docker/build-push-action@v7 drops empty entries
+          # (`skipEmptyLines` + a truthiness filter in its bundled getList), so api and
+          # ai-service receive exactly the one `GIT_COMMIT_SHA` arg they receive today.
+          #
+          # #965: GIT_COMMIT_SHA reaches EVERY image. In payer-web's Dockerfile it is
+          # declared ONLY in the RUNTIME stage, so — unlike the two NEXT_PUBLIC_* args — it
+          # never enters `next build`'s environment and cannot reach @badabhai/config's zod
+          # schema. On a `pull_request` this is the MERGE commit's sha, not the head
+          # commit's; the image is never pushed or deployed, so only the code path matters.
+          build-args: |
+            ${{ matrix.next-public && format('NEXT_PUBLIC_API_URL={0}', secrets.PAYER_WEB_NEXT_PUBLIC_API_URL) || '' }}
+            ${{ matrix.next-public && format('NEXT_PUBLIC_SITE_URL={0}', secrets.PAYER_WEB_NEXT_PUBLIC_SITE_URL) || '' }}
+            GIT_COMMIT_SHA=${{ needs.changes.outputs.short-sha }}
+          cache-from: type=gha,scope=${{ matrix.cache-scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache-scope }}
 
   # ---- Flutter worker app ----
   # Moved to its own path-filtered, BLOCKING workflow: .github/workflows/worker-app.yml
@@ -380,10 +1019,17 @@ jobs:
       NODE_ENV: test
       API_PORT: "3001"
       RUN_E2E: "1"
-      # The per-IP OTP cap (OTP_MAX_SENDS_PER_IP_PER_HOUR, default 20). Every e2e test logs
-      # in from the SAME CI IP, so the whole suite shares one hourly budget — raise it here
-      # so the cap (a production abuse backstop, meaningless for a single shared CI IP)
-      # doesn't 429 the suite. Real deployments keep the default; this only affects CI.
+      # The per-SENDER OTP cap (#1035). The e2e client sends no `X-Device-Id`, so every test
+      # falls back to the ADDRESS bucket and the whole suite shares one hourly budget from the
+      # SAME CI IP — raise it here so a production abuse backstop, meaningless for a single
+      # shared CI runner, doesn't 429 the suite. Real deployments keep the default.
+      #
+      # MUST BE RAISED ALONGSIDE the per-IP one below. Since #1035 the fallback bucket is
+      # capped at the per-DEVICE knob, so leaving this at its default of 20 would 429 the suite
+      # on the 21st login however high the per-IP ceiling was set.
+      OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: "1000"
+      # The per-NETWORK flood ceiling ABOVE that sender gate (default 1000). Same reasoning:
+      # one shared CI IP for the whole suite.
       OTP_MAX_SENDS_PER_IP_PER_HOUR: "1000"
       # The per-PHONE hourly SMS budget — a DIFFERENT limit from the one above, which is
       # why both are raised. One CI run reuses phones across the suite.
@@ -413,6 +1059,17 @@ jobs:
       # it grants nothing beyond this ephemeral job's own database.
       TEST_LOGIN_ENABLED: "true"
       TEST_LOGIN_TOKEN: e2e-test-login-token-not-a-secret-32ch
+      # ---- PAYER test-login seam (BL-18) — the `/payer/*` analogue of TEST_LOGIN_* above ----
+      # Payer login is EMAIL OTP with no dev echo (real-only, ZeptoMail), so payer-tenancy.e2e
+      # and payer-capacity.e2e were dead-`describe.skip`ped: nothing could complete a payer
+      # login in CI. `POST /payer/test-login` (PayerTestLoginGuard) is the seam built for
+      # exactly this — same two-part discipline as TEST_LOGIN_* (assertPayerAuthConfig refuses
+      # to BOOT when armed outside development/test/staging, or with a token under 32 chars).
+      # The value below is a throwaway CI literal, not a secret; it grants nothing beyond this
+      # ephemeral job's own database, and the guard additionally restricts minted sessions to
+      # the reserved `@e2e.badabhai.invalid` domain (isSyntheticPayerEmail) regardless of token.
+      PAYER_TEST_LOGIN_ENABLED: "true"
+      PAYER_TEST_LOGIN_TOKEN: e2e-payer-test-login-token-not-a-secret-32ch
       # BL-18: re-arming to VERIFY (not assume) whether TD129's blocker still holds. This
       # comment block's own claim above ("the API cannot read the locked workers/events
       # tables in this job") directly contradicts live evidence from TODAY's CI: a
@@ -565,7 +1222,7 @@ jobs:
       - name: Verify Matching V1 schema + vocabulary (db:verify:match-v1)
         run: pnpm --filter @badabhai/db db:verify:match-v1
 
-      # ---- Matching V1 DB-backed release gates (ADR-0036) ----
+      # ---- DB-backed release gates (Matching V1 / ADR-0036, plus B-8b and #982) ----
       # These suites exist, are correct, and until #538 NEVER RAN in CI: each is
       # `describe.skipIf(process.env.RUN_DB_TESTS !== "1")`, and RUN_DB_TESTS was set
       # nowhere under .github/ (TD122). A skipped gate is a disclosed gap, not a pass.
@@ -592,19 +1249,62 @@ jobs:
       #                    re-interviewed worker entered the payer pool twice. Every claim
       #                    is a property of an ORDER BY / DISTINCT ON, so a fake db can only
       #                    show the expression is present, never that it evaluates.
+      #   * ai-cost-totals.db — migration 0077's three load-bearing claims, none of which
+      #                    any other running test can reach. (a) ON DELETE CASCADE is the
+      #                    ENTIRE DPDP erasure story for the two worker-linked totals
+      #                    tables: `WorkersRepository.hardDelete` enumerates no table
+      #                    names, so if either FK is wrong an erased worker's spend row
+      #                    survives them and nothing else notices. (b) the running sum is
+      #                    `numeric`, not a float that drifts (0.1 x 3 = "0.300000", not
+      #                    0.30000000000000004). (c) a redelivered BullMQ job accrues
+      #                    nothing, which is a property of the events table's real
+      #                    ON CONFLICT DO NOTHING reporting "deduped" — a fake db can only
+      #                    show the clause was asked for.
+      #   * jobs-search-sql — #982, the follow-up to #974. `GET /jobs/search` 500'd on every
+      #                    title-less search ("jobs in Jaipur") because the no-`q` relevance
+      #                    key rendered as a BARE `0`, and Postgres reads a lone integer in
+      #                    ORDER BY as an output-column ORDINAL: `ORDER BY position 0 is not
+      #                    in select list`. Every test on that path was statement-level —
+      #                    compile the Drizzle node, assert on the rendered string — so the
+      #                    oracle was "the text looks right to us", never "the server accepts
+      #                    it", and the defect shipped with CI fully green. This gate EXECUTES
+      #                    the real repository against a real Postgres on six of the eight
+      #                    (q, city, state) filter combinations the DTO can produce — none,
+      #                    city, state, city+state, q, q+city; q+state and q+city+state are
+      #                    a stated gap, documented in the file header — and pins the parts a
+      #                    fake db also cannot judge: the relevance ladder, DESC NULLS LAST,
+      #                    the id tiebreak, the limit+1 has_more probe, and that the
+      #                    already-decided anti-join EVALUATES.
+      #   * admin-dashboard.db — BP-5, the two claims behind `GET /admin/dashboard/summary`
+      #                    that only a real database can settle. (a) THE PLATFORM AI-SPEND
+      #                    TOTAL INCLUDES SPEND NO WORKER OWNS. `worker_ai_cost_totals` and
+      #                    `platform_ai_cost_totals` carry identical column names, so summing
+      #                    the wrong one compiles, typechecks and returns a plausible ₹ figure
+      #                    — and silently omits every payer-side call (`skill_embedding` on a
+      #                    posting write, `job_posting_chat_turn`), which exist ONLY in the
+      #                    platform table. The gate accrues one worker-attributed AND one
+      #                    payer-side call through the real writer and asserts the dashboard
+      #                    moved by BOTH, and explicitly NOT by the worker one alone.
+      #                    (b) profile progress counts a re-interviewed worker ONCE, under
+      #                    `CURRENT_PROFILE_ORDER` — so the newest row, which after an
+      #                    ai-service outage is an EMPTY draft placeholder, does not report a
+      #                    fully-profiled worker as unprofiled. Both are properties of a
+      #                    `FROM` clause and an `ORDER BY` EVALUATING, which a stubbed drizzle
+      #                    handle cannot show.
       #
       # They need nothing but a MIGRATED Postgres, which the steps above already built:
-      # this job's service container gets the whole chain (0000–0059, journal-driven)
-      # applied from scratch on every run, so these gates are independent of which
+      # this job's service container gets the whole chain (journal-driven, 0000 → head —
+      # which is what puts 0077 in place for the cost gate) applied from scratch on every
+      # run, so these gates are independent of which
       # migrations any deployed database has seen. Each suite seeds its own PII-free
       # fixtures and deletes them in afterAll, and neither needs the API process — hence
       # running here, before the API boots.
       #
       # RUN_DB_TESTS is scoped to THIS STEP. The `node` job runs the same apps/api suite
-      # with no database and must keep skipping these three files (TD126).
+      # with no database and must keep skipping these files (TD126).
       # No --coverage on purpose: the thresholds are a whole-suite gate owned by the
-      # `node` job, and a three-file run cannot meet them.
-      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile)
+      # `node` job, and a six-file run cannot meet them.
+      - name: DB-backed gates (rank parity + boost fences + apply freeze + current profile + ai cost totals + jobs search + admin dashboard + applied subtitle)
         env:
           RUN_DB_TESTS: "1"
         run: |
@@ -613,15 +1313,39 @@ jobs:
           # `test -- rank-parity` runs `vitest run -- rank-parity`, where vitest
           # ignores the filter and reruns the whole 2820-test suite. Measured, not
           # assumed — that is what the first push of this branch actually did.
-          pnpm --filter @badabhai/api run test rank-parity boost-fences apply-freeze current-profile-order 2>&1 | tee db-gates-raw.log
+          #
+          # `--no-file-parallelism` IS LOAD-BEARING, and it is the one flag on this line
+          # that is about correctness rather than plumbing. Vitest gives each FILE its own
+          # worker and runs them concurrently; these eight share ONE Postgres, and five of
+          # them INSERT INTO `workers` (current-profile-order, ai-cost-totals.db,
+          # jobs-search-sql, applied-subtitle.db, and admin-dashboard.db itself). `admin-dashboard.db` reads a
+          # summary, inserts one row, reads again and asserts the delta is exactly 1 — an
+          # assertion about a GLOBAL count that any concurrent insert falsifies.
+          #
+          # Observed 2026-08-20 on an unrelated branch: `expected 2 to be 1`, from a second
+          # worker landing inside that window. `main` was green on the same commit range,
+          # so the gate was not failing — it was racing, and winning most of the time. A
+          # required check that fails on other people's timing teaches everyone to re-run
+          # it, which is how a real failure gets clicked through.
+          #
+          # Serialising costs nothing here (the whole step runs in ~4s) and is scoped to
+          # THIS step on purpose: `apps/api/vitest.config.ts` stays parallel, because the
+          # 2820-test `node` suite is database-free and has no shared state to race on.
+          pnpm --filter @badabhai/api run test --no-file-parallelism rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db 2>&1 | tee db-gates-raw.log
           sed -e 's/\x1b\[[0-9;]*m//g' db-gates-raw.log > db-gates.log
 
           # (1) EACH GATE MUST HAVE EXECUTED. `describe.skipIf` makes an unarmed run
           #     exit 0 reporting "16 skipped" — precisely how these gates sat green for
           #     their whole life while proving nothing. Assert per FILE, because a
           #     suite-wide "some test passed" check is satisfied by unrelated tests.
-          for f in rank-parity boost-fences apply-freeze current-profile-order; do
-            line=$(grep -E "src/(match|profiles)/${f}\.test\.ts" db-gates.log | head -1 || true)
+          # The directory alternation must list EVERY directory a gate file lives in:
+          # `ai-cost-totals.db` sits under src/ai, `jobs-search-sql` under src/jobs and
+          # `admin-dashboard.db` under src/admin and `applied-subtitle.db` under
+          # src/applications, and against a regex missing any one of them
+          # this loop reports "did not run at all" on a perfectly good run. Widen it whenever a
+          # gate lands in a new directory.
+          for f in rank-parity boost-fences apply-freeze current-profile-order ai-cost-totals.db jobs-search-sql admin-dashboard.db applied-subtitle.db; do
+            line=$(grep -E "src/(ai|admin|applications|match|profiles|jobs)/${f}\.test\.ts" db-gates.log | head -1 || true)
             if [ -z "$line" ]; then
               echo "::error::${f}.test.ts did not run at all — the vitest file filter matched nothing."
               exit 1
@@ -638,8 +1362,8 @@ jobs:
           #     stops reaching vitest, this step silently becomes a slow duplicate of the
           #     `node` job (and check (1) starts passing on unrelated tests). Update the
           #     expected count when adding a gate file to the command above.
-          if ! grep -qE 'Test Files +4 passed \(4\)' db-gates.log; then
-            echo "::error::Expected exactly the 4 gate files to run — the vitest file filter is not reaching vitest."
+          if ! grep -qE 'Test Files +8 passed \(8\)' db-gates.log; then
+            echo "::error::Expected exactly the 8 gate files to run — the vitest file filter is not reaching vitest."
             grep -E 'Test Files|      Tests ' db-gates.log || true
             exit 1
           fi
@@ -677,11 +1401,30 @@ jobs:
   # owner must flip branch protection to require only `ci-required` for this to work.
   ci-required:
     if: always()
-    # worker-app / payer-app added in #718, sast in #773, deps-audit in #788. A path-filtered
-    # job that does not run reports `skipped`, which this check treats as fine — only
-    # `failure`/`cancelled` fail it.
+    # worker-app / payer-app added in #718, sast in #773, deps-audit in #788, payer-web-image
+    # in #920 (GAP-XC-06). A path-filtered job that does not run reports `skipped`, which this
+    # check treats as fine — only `failure`/`cancelled` fail it.
+    #
+    # `image-gate` REPLACES the two entries `ai-service-image` + `payer-web-image`, and it
+    # gates EXACTLY the same two apps' image builds under exactly the same two path filters —
+    # they were merged into one matrixed job so the gate and the publish expand one shared
+    # matrix (see `image-gate`). WHAT `ci-required` GATES IS UNCHANGED by that merge: no app
+    # was added to the PR gate (`api` carries an empty `gate` field in the matrix and is
+    # still built only on a push to main), and no app was removed from it. A matrix job's
+    # aggregate `result` is `failure` if ANY leg failed, so one app's broken Dockerfile still
+    # fails this check.
     needs:
-      [changes, node, ai-service, ai-service-image, e2e, worker-app, payer-app, sast, deps-audit]
+      [
+        changes,
+        node,
+        ai-service,
+        image-gate,
+        e2e,
+        worker-app,
+        payer-app,
+        sast,
+        deps-audit,
+      ]
     runs-on: ubuntu-latest
     steps:
       - name: Check for CI failures
@@ -689,16 +1432,36 @@ jobs:
         run: exit 1
       - run: echo "All CI jobs passed or were skipped"
 
-  # ---- Build and Push Docker Images (api + ai-service) ----
-  # TD81(a): this job now builds TWO images. The ai-service steps live in the SAME
-  # job rather than a parallel one on purpose: the checkout, the buildx driver and
-  # the GHCR login are already paid for here, and — the load-bearing reason — the
-  # deploy job below pulls BOTH images, so one job means "images ready" stays a
-  # single, atomic `needs:` edge instead of two that can half-succeed.
-  # The job KEY and `name:` are deliberately unchanged (a rename would silently
-  # break any branch-protection required check that references them by name).
+  # ---- Build and Push Docker Images (one matrix leg per app) ----
+  #
+  # WHY THIS IS A MATRIX NOW, AND WHY THE PREVIOUS "ONE ATOMIC JOB" ARGUMENT WAS WRONG.
+  # This job used to build all three images as hand-copied step-triples inside a SINGLE
+  # job, on the stated reasoning that "the deploy job below pulls BOTH images, so one job
+  # means 'images ready' stays a single, atomic `needs:` edge instead of two that can
+  # half-succeed". MEASURED 2026-08-18: that atomicity is exactly what broke the box.
+  # apps/api and apps/ai-service built AND PUSHED successfully; the payer-web step then
+  # failed; the job reported `failure`; `deploy-lightsail` SKIPPED — and the box received
+  # NOTHING. One app's build error blocked two healthy, already-pushed services from
+  # deploying. A fourth app (admin-web) makes that strictly worse.
+  #
+  # `fail-fast: false` IS THE FIRST HALF OF THE FIX: one app's failure no longer cancels
+  # the others, so every app that CAN build still gets pushed. The second half lives in
+  # `deploy-lightsail` below, which now deploys whatever image actually exists for this
+  # commit and then FAILS LOUDLY at the end if any expected image was missing —
+  # availability without losing the signal. Read the two together; neither works alone.
+  #
+  # ONE SOURCE OF TRUTH WITH THE PR GATE. The matrix is the SAME `changes` output that
+  # `image-gate` expands, so an app's context / Dockerfile / image name / cache scope /
+  # NEXT_PUBLIC_* switch cannot differ between what a PR gates and what `main` ships —
+  # the drift that shipped a broken payer-web image. Adding admin-web is one row in the
+  # `image-matrix` step, not another copy of these steps.
+  #
+  # The job KEY is deliberately unchanged (a rename would silently break any branch
+  # protection or `needs:` that references it). `name:` now carries the matrix leg, which
+  # a matrix job's check name does anyway; this job never runs on a `pull_request`, so it
+  # is structurally incapable of being a required check on a PR.
   build-and-push-image:
-    name: Build & Push Docker Image
+    name: Build & Push Docker Image (${{ matrix.app }})
     needs: [changes, node, ai-service, e2e]
     # BUG FIXED HERE: this `if:` used to be the plain boolean
     #   `github.event_name == 'push' && github.ref == 'refs/heads/main'`
@@ -752,8 +1515,29 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      # THE FAILURE-ISOLATION HALF OF THE FIX (see this job's header). Without it, one
+      # app's build error cancels the sibling legs and the box gets nothing — measured
+      # 2026-08-18 on payer-web, which blocked an already-pushed api and ai-service from
+      # deploying. With it, every app that CAN build is pushed, `deploy-lightsail` ships
+      # whatever exists, and the run still ends RED because this job's aggregate result is
+      # `failure` when any leg failed.
+      fail-fast: false
+      matrix:
+        # THE SAME data `image-gate` expands. Never a second, hand-kept list.
+        include: ${{ fromJSON(needs.changes.outputs.image-matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # PRE-PUBLISH GATE (#1140): the payer-web image bakes in the served
+      # /.well-known/assetlinks.json. App Link verification fails SILENTLY on a
+      # placeholder / malformed fingerprint (Android just opens the browser), so
+      # this hard-blocks the payer-web publish before the image is pushed. Bare
+      # `node` — no pnpm install needed (the script only reads the static file).
+      # payer-web leg only; a false switch is impossible since `if` gates it.
+      - name: Gate — assetlinks.json is release-ready
+        if: matrix.app == 'payer-web'
+        run: node apps/payer-web/scripts/verify-assetlinks-release.mjs
 
       - name: Set up Docker Buildx
         # REQUIRED for CD-5: the runner's stock `docker` driver CANNOT export a
@@ -768,16 +1552,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels) for Docker
+      - name: Extract metadata (tags, labels) for the ${{ matrix.app }} image
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         env:
           # CD-4: pin the short-sha length so the `type=sha` tag provably matches the
           # deploy job's `cut -c1-7` below (7 IS metadata-action's default — pinned
-          # against upstream drift; harmless on versions predating the env var).
+          # against upstream drift; harmless on versions predating the env var). ONE
+          # matrix leg per image means this pin now covers every image by construction,
+          # rather than by being remembered three times.
           DOCKER_METADATA_SHORT_SHA_LENGTH: "7"
         with:
-          images: ghcr.io/${{ github.repository }}/badabhai-api
+          images: ghcr.io/${{ github.repository }}/${{ matrix.image }}
           # CD-4: declaring `tags:` replaces ALL metadata-action defaults, so the
           # previously-implicit branch behavior is now declared explicitly:
           #   type=ref,event=branch -> the mutable :main tag (humans / local pulls)
@@ -789,67 +1575,62 @@ jobs:
             type=ref,event=branch
             type=sha
 
-      - name: Build and push Docker image
+      - name: Build and push the ${{ matrix.app }} Docker image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
-          context: .
-          file: apps/api/Dockerfile
+          # CONTEXT IS PER-APP MATRIX DATA and it is not uniform: apps/api and
+          # apps/payer-web build from the REPO ROOT (both depend on workspace packages —
+          # payer-web on @badabhai/config, @badabhai/pricing, @badabhai/validators), while
+          # apps/ai-service builds from its OWN directory (pure Python, no workspace deps,
+          # and apps/ai-service/.dockerignore rather than the root one filters it). See
+          # each Dockerfile's header.
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # CD-5: GitHub Actions layer cache (needs the buildx docker-container
-          # driver set up above). The expensive layer is the runtime stage's
-          # WeasyPrint apt+pip install (Pango/cairo native stack in
-          # apps/api/Dockerfile) — the gha cache holds it across runs (10 GB
-          # Actions Cache quota, separate from the Packages quota). mode=max also
-          # caches intermediate (builder) stages — NOTE: the builder stage churns
-          # multi-GB per run (full monorepo + node_modules), so if the 10 GB quota
-          # starts evicting the turbo/pip caches (CI-5), drop to mode=min: it
-          # caches final-image layers only, which STILL keeps the WeasyPrint
-          # apt+pip layer (it lives in the final runtime stage).
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # ---- TD81(a): the FastAPI ai-service image ----
-      # Same registry, same tag scheme, same immutability contract as the api
-      # above — `type=sha` gives the `sha-<short7>` tag the deploy pins, and
-      # DOCKER_METADATA_SHORT_SHA_LENGTH is pinned again here so BOTH images'
-      # short-sha tags provably match the deploy's `cut -c1-7` (they must, since
-      # one commit sha drives both exports).
-      - name: Extract metadata (tags, labels) for the ai-service image
-        id: meta-ai
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
-        env:
-          DOCKER_METADATA_SHORT_SHA_LENGTH: "7"
-        with:
-          images: ghcr.io/${{ github.repository }}/badabhai-ai-service
-          tags: |
-            type=ref,event=branch
-            type=sha
-
-      - name: Build and push the ai-service Docker image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          # CONTEXT IS apps/ai-service, NOT the repo root — this is the one place
-          # the two images differ structurally. The service is pure Python with no
-          # workspace dependencies, so it needs none of the monorepo, and
-          # apps/ai-service/.dockerignore (not the root one) filters the context.
-          # See the header of apps/ai-service/Dockerfile.
-          context: apps/ai-service
-          file: apps/ai-service/Dockerfile
-          push: true
-          tags: ${{ steps.meta-ai.outputs.tags }}
-          labels: ${{ steps.meta-ai.outputs.labels }}
-          # CD-5: a DISTINCT gha cache scope. Two builds in one job sharing the
-          # default scope would evict each other's layers every run, so the api's
-          # expensive WeasyPrint layer would stop being cached the moment this
-          # build landed. This image's cacheable layer is the pip install of
-          # requirements-ai.txt; it is small, so mode=min would also be defensible
-          # — mode=max is kept for symmetry with the api build. If the 10 GB
-          # Actions Cache quota starts evicting the turbo/pip caches (CI-5), this
-          # is the cheaper of the two to drop to mode=min first.
-          cache-from: type=gha,scope=ai-service
-          cache-to: type=gha,mode=max,scope=ai-service
+          # THIS BLOCK IS BYTE-IDENTICAL TO `image-gate`'s — that equality IS the fix for
+          # the 2026-08-18 incident, in which this job passed two build-args that the PR
+          # gate did not, so the gate was green on a build nobody ships. Change one, change
+          # the other; there is no third place.
+          #
+          # THE TWO NEXT_PUBLIC_* VALUES ARE SUPPLIED ONLY HERE — baked into the image at
+          # build time, never read at container start (apps/payer-web/Dockerfile's header
+          # explains why). Both resolve to an EMPTY STRING when the repository secret does
+          # not exist, which is SAFE rather than a build failure: the Dockerfile treats an
+          # empty ARG as "unset" and falls back to @badabhai/config's schema defaults. To
+          # set a real value, add PAYER_WEB_NEXT_PUBLIC_API_URL / _SITE_URL as repository
+          # secrets and push a new commit — a REBUILD, not just a redeploy, is required.
+          # `matrix.next-public` is what limits them to payer-web; a false switch renders
+          # the line empty and docker/build-push-action@v7 drops empty entries, so api and
+          # ai-service receive exactly the single GIT_COMMIT_SHA arg they receive today.
+          #
+          # #965: GIT_COMMIT_SHA reaches EVERY image. It is THE SAME short sha the
+          # `type=sha` tag above is built from — one derivation, in the `changes` job — so
+          # a container's /health self-report and the `sha-<short7>` tag the deploy pins
+          # can never disagree. NEVER pass a real secret as a build arg: build args are
+          # readable in `docker history`. A commit sha and two public URLs are not.
+          build-args: |
+            ${{ matrix.next-public && format('NEXT_PUBLIC_API_URL={0}', secrets.PAYER_WEB_NEXT_PUBLIC_API_URL) || '' }}
+            ${{ matrix.next-public && format('NEXT_PUBLIC_SITE_URL={0}', secrets.PAYER_WEB_NEXT_PUBLIC_SITE_URL) || '' }}
+            GIT_COMMIT_SHA=${{ needs.changes.outputs.short-sha }}
+          # CD-5: GitHub Actions layer cache (needs the buildx docker-container driver set
+          # up above), with a DISTINCT SCOPE PER APP so the images cannot evict each
+          # other's layers. The expensive one is the api's WeasyPrint apt+pip install
+          # (Pango/cairo native stack); ai-service's is a small pip install of
+          # requirements-ai.txt. `buildkit` is the api's scope because that is the
+          # DOCUMENTED DEFAULT of the `type=gha` backend — i.e. the exact scope its
+          # previously-unscoped `cache-from: type=gha` already wrote to, so this refactor
+          # does not cold-start it.
+          #
+          # mode=max also caches intermediate (builder) stages. The api's builder stage
+          # churns multi-GB per run (full monorepo + node_modules), so if the 10 GB
+          # Actions Cache quota starts evicting the turbo/pip caches (CI-5), drop to
+          # mode=min — it caches final-image layers only, which STILL keeps the WeasyPrint
+          # layer (it lives in the final runtime stage). ai-service is the cheaper of the
+          # two to drop first.
+          cache-from: type=gha,scope=${{ matrix.cache-scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache-scope }}
 
   # ---- AWS Lightsail Deployment ----
   deploy-lightsail:
@@ -885,11 +1666,31 @@ jobs:
     # point of view a `skipped` build-and-push-image is never a legitimate "nothing
     # relevant changed" outcome; it means the push-to-main/branch condition was false
     # or something upstream genuinely failed — either way this job should also skip.
-    needs: [build-and-push-image]
+    #
+    # `'failure'` IS NOW ALSO ACCEPTED, AND THAT IS THE POINT OF THIS CHANGE. `build-and-
+    # push-image` is a `fail-fast: false` MATRIX: its aggregate result is `failure` when
+    # ANY leg failed, even though the other legs built AND PUSHED successfully. Requiring
+    # `success` alone is exactly what took the box down on 2026-08-18 — api and ai-service
+    # were sitting in ghcr, tagged for that commit, and this job skipped because payer-web
+    # had failed, so NOTHING was deployed. Accepting `failure` lets the deploy ship what
+    # actually exists; the remote script below probes the registry per service and then
+    # FAILS THE JOB at the end for anything missing, so availability is bought WITHOUT
+    # losing the signal. Never one of those two without the other.
+    #
+    # `cancelled` and `skipped` are still NOT accepted: a cancelled build may have been
+    # interrupted mid-push, and a skipped one means this push never qualified.
+    # `changes` is needed for its `image-matrix` output, NOT for a path decision: the
+    # step below cross-checks the set of images this run BUILDS against the set this
+    # script actually DEPLOYS (M2). Adding it to `needs:` re-arms the transitive-skip
+    # trap this file documents, so its result is asserted explicitly alongside
+    # `always()` — a bare `needs:` would let a skipped `changes` drag this job with it.
+    needs: [changes, build-and-push-image]
     if: >-
       always() &&
       github.event_name == 'push' && github.ref == 'refs/heads/main' &&
-      needs.build-and-push-image.result == 'success'
+      needs.changes.result == 'success' &&
+      (needs.build-and-push-image.result == 'success' ||
+       needs.build-and-push-image.result == 'failure')
     runs-on: ubuntu-latest
     # CD-1: the job token needs packages:read so the BOX can docker-login with the
     # ephemeral GITHUB_TOKEN below (only one permissions: block existed in this file
@@ -898,12 +1699,90 @@ jobs:
     permissions:
       contents: read
       packages: read
-    # CD-1 / Gate D1: scopes environment secrets + makes the deploy target explicit
-    # in the Actions UI. Named "staging" per the current D1 default — if the owner
-    # rules this box is PRODUCTION, rename AND add a required reviewer to the
-    # environment (protection rules; repo is now PUBLIC so they are available on Free).
-    environment: staging
+    # CD-1 / Gate D1 — RESOLVED 2026-08-18 (owner: Prakash). This box IS production, so
+    # the job now binds the `production` environment. The previous revision of this
+    # comment named the exact condition ("if the owner rules this box is PRODUCTION,
+    # rename AND add a required reviewer"); both halves are done — `production` carries
+    # a required_reviewers rule (kpdagrt22, divyuuu), so every run of this job, INCLUDING
+    # A ROLLBACK, now waits on a human approval. Budget for that during an incident.
+    #
+    # THE COMPOSE FILENAME STILL SAYS "staging" AND THAT IS DELIBERATELY NOT CHANGED HERE.
+    # `docker-compose.staging.yml` is the real production overlay for this box and has been
+    # for months; renaming it is a separate, purely cosmetic change, and bundling it with a
+    # secret-scope switch would make the diff that moved 26 credentials unreviewable.
+    #
+    # WHAT THIS LINE ACTUALLY CHANGES: `${{ secrets.X }}` below resolves environment scope
+    # FIRST and repo scope only as a fallback, so flipping this word re-points every one of
+    # the 26 bridged names. Ten of them now resolve from a different scope than they did
+    # yesterday — see the audit in the PR body. Two consequences worth stating inline:
+    #   * DATABASE_URL exists in BOTH scopes, so this line swaps which database the box is
+    #     told to serve. It is the single highest-risk name in the list.
+    #   * AI_ENABLE_REAL_CALLS is now `true` in the production environment, on purpose
+    #     (owner, 2026-08-18). Combined with the GEMINI_FLASH_API_KEY that production scope
+    #     also holds, this arms REAL provider calls for `profiling_chat_turn` — the one task
+    #     docker-compose.staging.yml's `AI_REAL_CALL_TASKS` default allowlists. The two
+    #     taxonomy gates stay `false` in that same scope; Phase-9 activation is unrelated
+    #     to this change and is not authorized.
+    environment: production
     steps:
+      # ---- M2: EVERY IMAGE THIS RUN BUILDS MUST HAVE SOMEWHERE TO GO ----
+      #
+      # The build side is now data-driven (one `MATRIX_JSON` row per app in `changes`),
+      # but the remote script below is still an explicit list: one `pull_image` call and
+      # one `image_present` block per service. Those two sets can drift APART SILENTLY,
+      # and the dangerous direction is the one that looks fine: add an app to the matrix
+      # and forget the deploy blocks, and the image builds, pushes, is never deployed,
+      # leaves `MISSING_IMAGES` empty — and this job goes GREEN while that service sits
+      # on an old image indefinitely. That is exactly the stale-image failure this whole
+      # PR exists to eliminate, running in the opposite direction.
+      #
+      # This is deliberately an ASSERTION rather than deriving the deploy from the
+      # matrix: each service has a bespoke start order, health URL, port and timeout
+      # (redis -> ai-service -> api -> payer-web), and generating that from data would
+      # trade a loud, cheap check for a subtle one on the live production deploy path.
+      # Cross-check the sets, fail loudly, keep the ordering explicit and readable.
+      #
+      # Adding a service is therefore: one matrix row, one `pull_image` line, one
+      # `image_present` block, and one name here. Miss the last three and CI tells you.
+      - name: Assert every built image has a deploy block
+        env:
+          IMAGE_MATRIX: ${{ needs.changes.outputs.image-matrix }}
+        run: |
+          set -euo pipefail
+
+          # The services the remote script below actually deploys. KEEP IN STEP with its
+          # `pull_image` / `image_present` blocks — that is what this step enforces.
+          DEPLOYS="api ai-service payer-web admin-web"
+
+          # `tr -d '\r'` is defensive, not decorative. THIS CHECK CAN BLOCK EVERY DEPLOY,
+          # so it must never fail for a reason unrelated to what it is asserting. Caught
+          # while mutation-testing this step: jq on a Windows shell emits CRLF, leaving a
+          # trailing \r on every app name but the last, so `*" api\r "*` matches nothing
+          # and all-but-one app is reported "never deployed" — a false positive that would
+          # stop all shipping. GitHub's ubuntu runners emit LF and would not have shown
+          # this, which is exactly why it is worth stripping rather than assuming the
+          # runner. Cheap insurance on a safety check whose failure mode is total.
+          BUILT="$(printf '%s' "$IMAGE_MATRIX" | jq -r '.[].app' | tr -d '\r')"
+          if [ -z "$BUILT" ]; then
+            echo "::error::the image matrix resolved to no apps — refusing to deploy, since this job could not then detect a single missing image."
+            exit 1
+          fi
+
+          UNDEPLOYED=""
+          for app in $BUILT; do
+            case " $DEPLOYS " in
+              *" $app "*) ;;
+              *) UNDEPLOYED="${UNDEPLOYED}${UNDEPLOYED:+ }$app" ;;
+            esac
+          done
+
+          if [ -n "$UNDEPLOYED" ]; then
+            echo "::error::built and pushed but NEVER DEPLOYED: ${UNDEPLOYED}. These apps are in the image matrix but have no pull_image/image_present block in the deploy script, so their new image would be published and silently ignored while this job reported success. Add them to the remote script AND to DEPLOYS in this step."
+            exit 1
+          fi
+
+          echo "Image matrix and deploy set agree: $(printf '%s' "$BUILT" | tr '\n' ' ')"
+
       - name: Deploy via SSH
         # SHA-pinned (was the mutable v1.0.3 tag): 12 production secrets now flow
         # through this action's container — a hijacked tag would see them all.
@@ -931,6 +1810,14 @@ jobs:
           FAST2SMS_API_KEY: ${{ secrets.FAST2SMS_API_KEY }}
           FAST2SMS_SENDER_ID: ${{ secrets.FAST2SMS_SENDER_ID }}
           FAST2SMS_DLT_TEMPLATE_ID: ${{ secrets.FAST2SMS_DLT_TEMPLATE_ID }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_BASE_URL: ${{ secrets.LANGFUSE_BASE_URL }}
+          LANGFUSE_TRACING_ENVIRONMENT: ${{ secrets.LANGFUSE_TRACING_ENVIRONMENT }}
+          AI_ENABLE_REAL_CALLS: ${{ secrets.AI_ENABLE_REAL_CALLS }}
+          GEMINI_FLASH_API_KEY: ${{ secrets.GEMINI_FLASH_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
           # Payer OTP email (ADR-0019) — the ZeptoMail analogue of the FAST2SMS_* trio
           # above. EMAIL_PROVIDER/ZEPTOMAIL_SANDBOX_MODE are NOT here: they now default
           # correctly at the compose level (docker-compose.staging.yml's
@@ -939,11 +1826,57 @@ jobs:
           # #813 — ZEPTOMAIL_API_URL was missing from this list entirely (compose declared
           # no pass-through for it either), so every real ZeptoMail send failed closed on
           # `sendViaZeptoMail`'s own `!apiUrl` guard, silently, on every box this ever ran on.
+          # Phase 9 / Path A. INERT: neither secret exists, so both render EMPTY here,
+          # export empty, and resolve to `false` at compose's `${VAR:-false}`. Landing the
+          # bridge before creating any secret is deliberate — it proves the three hops in
+          # isolation, with the deployed behaviour byte-identical to before.
+          DOMAIN_MATCH_ENABLED: ${{ secrets.DOMAIN_MATCH_ENABLED }}
+          SKILL_CANONICALIZE_ENABLED: ${{ secrets.SKILL_CANONICALIZE_ENABLED }}
           ZEPTOMAIL_API_URL: ${{ secrets.ZEPTOMAIL_API_URL }}
           ZEPTOMAIL_API_TOKEN: ${{ secrets.ZEPTOMAIL_API_TOKEN }}
           ZEPTOMAIL_MAIL_AGENT: ${{ secrets.ZEPTOMAIL_MAIL_AGENT }}
           EMAIL_FROM_ADDRESS: ${{ secrets.EMAIL_FROM_ADDRESS }}
           CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
+
+          # ---- GAP-XC-06 (#920): payer-web's external port, box-specific and NOT a
+          # secret in the confidentiality sense — bridged through `secrets.*` anyway,
+          # for the SAME reason CORS_ALLOWED_ORIGINS above is: consistency with the one
+          # mechanism this job already has for getting a box-specific value from GitHub
+          # into the remote session, and so a CI-triggered deploy does not depend on the
+          # box's own persistent shell state (the weaker path this file's own CD-1b
+          # comment reserves for manual/rollback runs only).
+          #
+          # OPTIONAL, an OVERRIDE only — this secret does not have to exist, and for the
+          # CURRENT box it should not: 3333 (the compose default) is the owner-confirmed
+          # free port there. Unset here arrives on the box as the empty string, and
+          # compose's `${PAYER_WEB_PORT:-3333}` (the `:-` form substitutes on empty as well
+          # as on unset) resolves it to 3333 either way. It is deliberately NOT fail-loud:
+          # compose interpolates the
+          # whole staging file before filtering by service, so a `:?` here would fail
+          # `$COMPOSE pull api` — taking the live api/ai-service deploy down over an
+          # unrelated missing secret. See the service block in docker-compose.staging.yml
+          # for the measured proof.
+          PAYER_WEB_PORT: ${{ secrets.PAYER_WEB_PORT }}
+          # admin-web's box port — identical contract to PAYER_WEB_PORT above: OPTIONAL, an
+          # override only, `:-3003` defaulted in compose rather than fail-loud, for the same
+          # measured reason. It does not exist as a secret today and need not: 3003 is free
+          # on this box and is the compose default. Bridged anyway so that compose and the
+          # deploy script's health poll read ONE channel — otherwise creating the secret
+          # later would move the published port while the poll still checked 3003.
+          ADMIN_WEB_PORT: ${{ secrets.ADMIN_WEB_PORT }}
+          # #994 — the four values scripts/deploy/staging-deploy.sh needs that are RUNNER-SIDE
+          # GitHub context and therefore unknowable on the box. They used to be `${{ }}`
+          # interpolated straight into the inline script; with the script in a file they must
+          # be bridged as environment variables (and listed in `envs:` below, or the ssh
+          # action does not forward them).
+          #
+          # GH_SHA is the one to be careful with: it builds the immutable `sha-<short7>` image
+          # tag. Bridged empty, the box would resolve `...:sha-` and pull nothing — so the
+          # script asserts all four are non-empty before it does anything.
+          GH_SHA: ${{ github.sha }}
+          GH_ACTOR: ${{ github.actor }}
+          GH_REPOSITORY: ${{ github.repository }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.LIGHTSAIL_HOST }}
           username: ${{ secrets.LIGHTSAIL_USER }}
@@ -953,246 +1886,24 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,PAYER_WEB_PORT,ADMIN_WEB_PORT,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN
+          # #994 — THE BODY OF THIS DEPLOY LIVES IN scripts/deploy/staging-deploy.sh.
+          #
+          # It is not inlined here because GitHub Actions caps a single step input at
+          # roughly 21 KB, this script had reached 20,342 characters (~97% of that), and
+          # crossing the cap does not fail helpfully: the ENTIRE workflow file becomes
+          # unparseable, no run is created at all, and `ci-required` never appears — so
+          # every PR touching ci.yml is BLOCKED with no explanation anywhere. Two PRs hit
+          # that on 2026-08-19. Keeping this block tiny is what stops it recurring, and
+          # ci-deploy-script-size.guard.test.ts asserts it stays that way.
+          #
+          # ORDER IS LOAD-BEARING: `git pull` must precede the script, because the pull is
+          # what puts THIS COMMIT's version of it on the box. Everything else — the GHCR
+          # login and its logout trap, the disk reclaim, the image pulls, the health gates —
+          # is in that file, comments and all.
           script: |
             set -e
-            # CD-1: never leave a registry credential (even an expired job token)
-            # in the box's ~/.docker/config.json — logout on EVERY exit path.
-            trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
-            echo "Starting deployment..."
             cd ~/deployments/badabhai-platform
             echo "Pulling latest code from main..."
             git pull origin main
-            echo "Logging into GHCR..."
-            # CD-1: ephemeral job token (dies with the run) instead of a long-lived
-            # PAT stored as a repo secret next to a PUBLIC repo. The package is
-            # PRIVATE (anonymous pull 401-verified), so a login IS required; the
-            # box only ever pulls during a deploy run, so the ephemeral token
-            # suffices — and a leaked box can no longer pull outside a run.
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-            # CD-4: pin the IMMUTABLE per-commit tag pushed by build-and-push-image
-            # (metadata-action type=sha -> prefix "sha-" + short 7-char sha, length
-            # pinned via DOCKER_METADATA_SHORT_SHA_LENGTH above). Rollback = export
-            # the previous sha tag and re-run compose up (docs/rollback-guide.md).
-            export API_IMAGE="$(echo "ghcr.io/${{ github.repository }}/badabhai-api:sha-$(echo '${{ github.sha }}' | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
-            # TD81(a): the ai-service image, same commit, same immutability rule.
-            # This export is NOT optional even for an api-only concern: compose
-            # interpolates the WHOLE overlay before it filters by service or
-            # profile, so docker-compose.staging.yml's `${AI_SERVICE_IMAGE:?}`
-            # would fail EVERY command below — including `pull api` — if it were
-            # missing. Same reason a rollback must export both (docs/rollback-guide.md).
-            export AI_SERVICE_IMAGE="$(echo "ghcr.io/${{ github.repository }}/badabhai-ai-service:sha-$(echo '${{ github.sha }}' | cut -c1-7)" | tr '[:upper:]' '[:lower:]')"
-            echo "Deploying image: $API_IMAGE"
-            echo "Deploying image: $AI_SERVICE_IMAGE"
-
-            # CD-0: base + staging overlay. The overlay pins NODE_ENV=production and
-            # makes every production-required secret a fail-loud ${VAR:?} — a box
-            # without real secrets FAILS HERE at compose interpolation (job goes red)
-            # instead of booting on the public dev defaults. `--no-deps api` on `up`
-            # is load-bearing: it is what keeps the compose-internal throwaway
-            # postgres/adminer from ever starting on this box (see the depends_on
-            # note in docker-compose.staging.yml) — staging's DATABASE_URL is the
-            # real (Supabase) Postgres, never the compose-internal one. Passing -f
-            # explicitly ALSO means the tracked docker-compose.override.yml (a
-            # local-dev-only postgres remap) is NOT auto-loaded here.
-            COMPOSE="docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api"
-
-            # CD-6: RECLAIM DISK BEFORE PULLING. Every deploy pulls a NEW immutable
-            # `sha-<short7>` image and nothing ever removed the old one, so the box's
-            # disk was monotonically increasing. It hit the wall on 2026-07-22: runs
-            # for #500, #501 and #503 ALL died with
-            #   failed to copy: ... no space left on device
-            # during `pull api` — the FIRST command here, so no container was ever
-            # recreated and the box kept serving the previous api (the failure mode was
-            # safe, but the deploy was dead and main stayed red for hours).
-            #
-            # SAFETY — why this cannot delete something we still need:
-            #   * `docker image prune` NEVER removes an image that a container
-            #     references, so the RUNNING api/redis/proxy images are untouchable
-            #     here regardless of the filter.
-            #   * `until=72h` keeps three days of recent `sha-` tags, i.e. the rollback
-            #     targets docs/rollback-guide.md tells an operator to `up` by tag.
-            #     Anything older is still in ghcr and re-pullable, so rollback is
-            #     preserved either way — a cold rollback just re-downloads.
-            #   * volumes are NEVER pruned (that is badabhai_pgdata / badabhai_redisdata).
-            #     No `docker system prune`, no `--volumes`, not now, not later.
-            #   * every step is `|| true`: reclaiming is best-effort and must never turn
-            #     an otherwise-healthy deploy red.
-            #
-            # ESCALATION: if the 72h prune does not get free space over the threshold,
-            # fall back to pruning ALL unused images. That is still container-safe (see
-            # above) and is strictly better than a dead deploy.
-            echo "Disk before reclaim:"; df -h / || true
-            docker image prune -af --filter "until=72h" || true
-            docker builder prune -af || true
-            # $(NF-2) not $4: POSIX `df -P` guarantees the LAST three fields are
-            # Available / Capacity / Mounted-on, but a device name containing a space
-            # shifts every positional field (verified: it silently returns USED
-            # instead of AVAILABLE). Counting from the end cannot be fooled that way.
-            FREE_MB=$(df -Pm / | awk 'NR==2 {print $(NF-2)}')
-            echo "Free after conservative prune: ${FREE_MB} MB"
-            if [ "${FREE_MB:-0}" -lt 4096 ]; then
-              echo "::warning::under 4 GB free — pruning ALL unused images (still container-safe)"
-              docker image prune -af || true
-              # $(NF-2) not $4: POSIX `df -P` guarantees the LAST three fields are
-            # Available / Capacity / Mounted-on, but a device name containing a space
-            # shifts every positional field (verified: it silently returns USED
-            # instead of AVAILABLE). Counting from the end cannot be fooled that way.
-            FREE_MB=$(df -Pm / | awk 'NR==2 {print $(NF-2)}')
-              echo "Free after full prune: ${FREE_MB} MB"
-            fi
-            if [ "${FREE_MB:-0}" -lt 2048 ]; then
-              echo "::error::only ${FREE_MB} MB free after reclaim — the box needs a bigger disk, not a bigger prune"
-              docker system df || true
-              exit 1
-            fi
-            echo "Disk after reclaim:"; df -h / || true
-
-            $COMPOSE pull api
-            # TD81(a). `--profile api` is what makes this resolve: the ai-service
-            # declares that profile alongside its own (docker-compose.yml), so it
-            # is selected here without depending on compose's newer
-            # "explicitly-named service enables its profile" behaviour — the box's
-            # compose version is not verified.
-            $COMPOSE pull ai-service
-
-            # CD-1a: Redis IS box-local (owner decision) — it runs as this compose
-            # project's `redis` service, so unlike postgres it MUST start here. The
-            # api reaches it over the compose network at redis:6379, which is what
-            # the REDIS_URL secret must say (NOT localhost — inside the api container
-            # localhost is the api itself; and the host port is loopback-bound now).
-            #
-            # `--no-deps api` below would never start it (redis is only reachable as
-            # an api depends_on), so start it EXPLICITLY and FIRST. Naming the service
-            # starts ONLY it — redis declares no depends_on — so postgres/adminer
-            # still never start; --no-deps here keeps that true even if redis were
-            # later given one. Deliberately NOT `--wait`: docker-compose.staging.yml
-            # records that the box's compose version is unverified, and a flag it
-            # lacks would fail the deploy outright. Redis serves within ms and the
-            # api's own boot is far slower, so ordering is safe — and the CD-3 health
-            # gate below is the real backstop if it is not.
-            $COMPOSE up -d --no-deps redis
-
-            # TODO(CD-2, held: 0031 human sign-off + D1): migrations-in-pipeline would
-            # run HERE — after the image pull, BEFORE the new code boots (CLAUDE.md §2
-            # ordering: migrations never run after the code that assumes them). Held
-            # pending owner sign-off on migration 0031 (destructive-adjacent billing-FK
-            # change, §7 human-gated) + the prod-vs-staging D1 environment answer.
-            # NOTE (CD-3 scope): the /health gate below checks CONNECTIVITY only
-            # (SELECT 1 + Redis PING) — a fresh, UNMIGRATED DATABASE_URL still boots
-            # and 200s while every real endpoint 500s. Until CD-2 lands, applying
-            # migrations MANUALLY (owner, after 0031 sign-off) is a required pre-step
-            # to the first real deploy against a fresh DB.
-
-            # TD81(a): start the ai-service BEFORE the api, and gate on it.
-            #
-            # Ordering: the api tolerates an absent ai-service by design (it
-            # degrades to its TypeScript mock), so this is not a hard dependency —
-            # but starting the dependency first means the new api never serves a
-            # single request into a gap. `--no-deps` keeps the one uniform
-            # discipline; this service declares no depends_on at all (it is
-            # DB-free), so nothing else can be dragged up by it.
-            $COMPOSE up -d --no-deps ai-service
-
-            # CD-3 pattern, extended to the new service — and the actual fix for
-            # TD81's headline complaint ("staging silently runs mocked AI while
-            # reporting healthy"). The api's own /health is 200 whether or not the
-            # AI service exists, so ONLY a direct probe can tell the deploy that
-            # the AI path is real. localhost works because docker-compose.yml
-            # publishes 8000 on 127.0.0.1 (loopback-only, CD-1a). /health is the
-            # one route exempt from the TD67 token middleware, so this probe keeps
-            # working after AI_INTERNAL_TOKEN is armed. ~30s budget (15 x 2s) — a
-            # Python/uvicorn boot is far quicker than the Nest api's.
-            #
-            # TRADE-OFF, stated deliberately: this gate is BEFORE the api `up`, so
-            # a broken ai-service image blocks the api deploy. That is the intended
-            # posture — the box keeps serving the PREVIOUS, working api (no partial
-            # state) and the job goes RED — and it is strictly better than shipping
-            # an api that silently answers from the mock, which is the exact
-            # failure this ticket exists to end.
-            # #872: FAIL LOUD AS SOON AS A CONTAINER HAS ACTUALLY CRASHED, not only once the
-            # full poll budget is exhausted. A boot-time fail-closed assert (e.g.
-            # assertMemberInvitesConfig, assertAuthConfig, ...) exits the process in well under
-            # a second — every remaining poll attempt after that is dead time, and the eventual
-            # "never became healthy" message reads identically whether the container is merely
-            # slow or has been crash-looping the whole wait. `restart: unless-stopped` (base
-            # compose file) means a crashed container cycles back to `restarting`, which is a
-            # distinguishable, checkable state — so check it and short-circuit instead of
-            # waiting out the clock. Two consecutive `restarting`/`exited` reads (not one) avoid
-            # a false positive on the single instant between `created` and `running` on an
-            # otherwise-healthy first boot.
-            container_crashed() {
-              # $1: compose service name. Empty/missing output (service not up yet) is NOT a
-              # crash signal — only an explicit restarting/exited state is.
-              cid="$($COMPOSE ps -q "$1" 2>/dev/null || true)"
-              [ -z "$cid" ] && return 1
-              status="$(docker inspect -f '{{.State.Status}}' "$cid" 2>/dev/null || true)"
-              case "$status" in
-                restarting|exited) return 0 ;;
-                *) return 1 ;;
-              esac
-            }
-
-            echo "Waiting for the AI service to become healthy..."
-            ai_healthy=0
-            ai_crash_streak=0
-            for i in $(seq 1 15); do
-              if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
-                ai_healthy=1
-                echo "AI service healthy after attempt ${i}"
-                break
-              fi
-              if container_crashed ai-service; then
-                ai_crash_streak=$((ai_crash_streak + 1))
-              else
-                ai_crash_streak=0
-              fi
-              if [ "$ai_crash_streak" -ge 2 ]; then
-                echo "::error::AI service container crashed during boot (not just slow) — dumping container logs"
-                $COMPOSE logs --tail=100 ai-service
-                exit 1
-              fi
-              sleep 2
-            done
-            if [ "$ai_healthy" -ne 1 ]; then
-              echo "::error::AI service never became healthy — dumping container logs"
-              $COMPOSE logs --tail=100 ai-service
-              exit 1
-            fi
-
-            $COMPOSE up -d --no-deps api
-            $COMPOSE ps
-
-            # CD-3: health-gate the deploy — the job must go RED when the API does not
-            # come up (the old unconditional success echo could never fail). Poll on
-            # the box itself: localhost sidesteps the instance firewall. Same poll
-            # pattern as the e2e job's /health wait above. ~60s budget (30 x 2s), short-
-            # circuited early on a confirmed crash (see container_crashed above — #872).
-            echo "Waiting for the API to become healthy..."
-            healthy=0
-            api_crash_streak=0
-            for i in $(seq 1 30); do
-              if curl -sf http://localhost:3001/health >/dev/null 2>&1; then
-                healthy=1
-                echo "API healthy after attempt ${i}"
-                break
-              fi
-              if container_crashed api; then
-                api_crash_streak=$((api_crash_streak + 1))
-              else
-                api_crash_streak=0
-              fi
-              if [ "$api_crash_streak" -ge 2 ]; then
-                echo "::error::API container crashed during boot (not just slow) — dumping container logs"
-                $COMPOSE logs --tail=100 api
-                exit 1
-              fi
-              sleep 2
-            done
-            if [ "$healthy" -ne 1 ]; then
-              echo "::error::API never became healthy — dumping container logs"
-              $COMPOSE logs --tail=100 api
-              exit 1
-            fi
-            echo "Deployment finished successfully!"
+            bash scripts/deploy/staging-deploy.sh

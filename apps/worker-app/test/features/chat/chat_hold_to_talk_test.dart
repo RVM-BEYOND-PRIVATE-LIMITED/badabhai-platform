@@ -5,33 +5,38 @@ import 'package:mocktail/mocktail.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/chat/domain/chat_repository.dart';
+import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
+import 'package:badabhai_worker_app/features/chat/presentation/widgets/voice_wave_visualizer.dart';
 import 'package:badabhai_worker_app/features/voice/domain/speech_dictation.dart';
 
 class MockChatRepository extends Mock implements ChatRepository {}
 
 /// A hand fake for the ON-DEVICE recogniser: [listen] feeds [emit] straight back
 /// through the result callback (and a sound level, if set) so the widget's
-/// live-fill + waveform can be exercised without a platform channel.
+/// accumulation + waveform can be exercised without a platform channel.
 class FakeSpeechDictation implements SpeechDictation {
   bool ready = true;
   bool listening = false;
   String emit = '';
 
-  /// A SECOND final, emitted right after [emit] within the same hold — stands in
-  /// for the impl's continuous-listen restart, where the words spoken before a
-  /// mid-hold pause are flushed as a final and the next utterance arrives as a
-  /// fresh final that must APPEND, not overwrite.
+  /// A SECOND final, emitted right after [emit] within the same listen — stands
+  /// in for the impl's continuous-listen restart, where the words spoken before a
+  /// mid-session pause are flushed as a final and the next utterance appends.
   String emit2 = '';
   double emitLevel = 0;
   int initCalls = 0;
   int listenCalls = 0;
   int stopCalls = 0;
 
-  /// The last result sink handed to [listen] — a test can replay it to simulate
-  /// a TRAILING final the recogniser flushes after the worker released.
+  /// The last result sink handed to [listen] — a test can replay it to simulate a
+  /// TRAILING final the recogniser flushes after the worker tapped Stop.
   void Function(DictationResult result)? lastOnResult;
+
+  /// The last amplitude sink handed to [listen] — a test can push a sequence of
+  /// raw mic samples to exercise the adaptive noise floor.
+  void Function(double level)? lastOnSoundLevel;
 
   @override
   Future<bool> initialize() async {
@@ -48,6 +53,7 @@ class FakeSpeechDictation implements SpeechDictation {
     listenCalls++;
     listening = true;
     lastOnResult = onResult;
+    lastOnSoundLevel = onSoundLevel;
     if (emitLevel > 0) onSoundLevel?.call(emitLevel);
     if (emit.isNotEmpty) onResult(DictationResult(emit, isFinal: true));
     if (emit2.isNotEmpty) onResult(DictationResult(emit2, isFinal: true));
@@ -68,11 +74,12 @@ class FakeSpeechDictation implements SpeechDictation {
   bool get isListening => listening;
 }
 
-/// Hold-to-talk on the chat composer mic: a LONG-PRESS runs the DEVICE speech
-/// recogniser and fills the input field live (voice → text), showing a live
-/// waveform cue while held. The worker then taps Send and it goes as an ORDINARY
-/// chat message — no server voice endpoint. A plain TAP still opens the voice
-/// screen.
+/// Voice-to-text on the chat composer (owner's screenshot spec): the trailing
+/// button is a MIC when the field is empty. TAP it → the device recogniser starts
+/// and a FULL-WIDTH static waveform fills the input area IN PLACE of the field —
+/// it just listens, typing NOTHING. STOP hides the wave and drops the full
+/// recognised text into the field (Send then appears); the recorder-row SEND
+/// drops it in and sends in one tap.
 void main() {
   late MockChatRepository chat;
   late FakeSpeechDictation speech;
@@ -98,163 +105,168 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  // Opacity of the live-waveform cue (0 hidden, 1 shown while held).
-  double waveOpacity(WidgetTester tester) {
-    final AnimatedOpacity ao = tester.widget<AnimatedOpacity>(
-      find.byKey(const ValueKey<String>('voiceWaveCue')),
-    );
-    return ao.opacity;
+  // The full-width waveform shown (in place of the field) while listening.
+  Finder waveInline() => find.byKey(const ValueKey<String>('voiceWaveInline'));
+
+  // The composer buttons, by tooltip (the left voice-note mic is never matched).
+  Finder micButton() => find.byTooltip('Bolkar likhein');
+  Finder stopButton() => find.byTooltip('Rokein');
+  Finder sendButton() => find.byTooltip('Bhejein');
+
+  String fieldText(WidgetTester tester) =>
+      tester.widget<TextField>(find.byType(TextField)).controller!.text;
+
+  /// The normalized 0..1 amplitude the on-screen waveform is currently reading.
+  double waveLevel(WidgetTester tester) => tester
+      .widget<VoiceWaveVisualizer>(find.byType(VoiceWaveVisualizer))
+      .level
+      .value;
+
+  /// Tap the mic and pump through initialize()+listen() so the recogniser's
+  /// results have been accumulated (but NOT yet placed in the field).
+  Future<void> startDictation(WidgetTester tester) async {
+    await tester.tap(micButton());
+    await tester.pump(); // _startDictation -> setState(listening) -> listeningBar
+    await tester.pump(); // initialize()
+    await tester.pump(); // listen() -> onResult accumulates
   }
 
-  Finder composerMic() => find.byIcon(Icons.mic);
+  Future<void> stopDictation(WidgetTester tester) async {
+    await tester.tap(stopButton());
+    await tester.pump();
+    await tester.pumpAndSettle();
+  }
 
-  testWidgets('holding the mic runs device dictation, shows the waveform, and '
-      'fills the composer — sending nothing', (WidgetTester tester) async {
+  testWidgets(
+      'tap Mic shows the full-width wave in place of the field; NOTHING is typed '
+      'until Stop, then the text lands and Send appears', (
+    WidgetTester tester,
+  ) async {
     speech.emit = 'Me CNC per kaam krta hun';
 
     await pumpScreen(tester);
-    expect(waveOpacity(tester), 0);
+    expect(micButton(), findsOneWidget);
+    expect(waveInline(), findsNothing);
+    expect(find.byType(TextField), findsOneWidget); // idle: the field is present
 
-    final TestGesture gesture = await tester.startGesture(
-      tester.getCenter(composerMic()),
-    );
-    await tester.pump(const Duration(milliseconds: 600)); // long-press fires
-    await tester.pump(); // initialize()
-    await tester.pump(); // listen() -> onResult fills the field
+    await startDictation(tester);
 
     expect(speech.initCalls, 1);
     expect(speech.listenCalls, 1);
-    expect(
-      waveOpacity(tester),
-      1,
-      reason: 'the waveform shows during the hold',
-    );
-    expect(find.text('Me CNC per kaam krta hun'), findsOneWidget);
+    expect(waveInline(), findsOneWidget); // waveform replaces the field
+    expect(stopButton(), findsOneWidget);
+    expect(find.byType(TextField), findsNothing); // field hidden while listening
+    expect(find.text('Me CNC per kaam krta hun'), findsNothing,
+        reason: 'nothing is typed while listening');
 
-    await gesture.up();
-    await tester.pump();
-    await tester.pumpAndSettle();
+    await stopDictation(tester);
 
     expect(speech.stopCalls, 1);
-    // Nothing was sent — the recognised text only reached the composer.
-    verifyNever(() => chat.sendMessage(any()));
-    expect(waveOpacity(tester), 0);
+    expect(waveInline(), findsNothing);
+    expect(find.byType(TextField), findsOneWidget); // field is back
+    expect(fieldText(tester), 'Me CNC per kaam krta hun'); // text landed on Stop
+    expect(sendButton(), findsOneWidget);
+    verifyNever(() => chat.sendMessage(any(),
+        submissionId: any(named: 'submissionId')));
   });
 
-  testWidgets('the waveform stays for the WHOLE hold and hides on release', (
-    WidgetTester tester,
-  ) async {
+  testWidgets('the Send arrow WHILE listening ends it and sends in one tap',
+      (WidgetTester tester) async {
+    speech.emit = 'CNC operator';
+    when(() => chat.sendMessage(any(), submissionId: any(named: 'submissionId')))
+        .thenAnswer((_) async => const ChatTurn(reply: 'Got it.'));
+
+    await pumpScreen(tester);
+    await startDictation(tester);
+
+    await tester.tap(sendButton()); // the recorder-row send arrow
+    await tester.pumpAndSettle();
+
+    verify(() => chat.sendMessage('CNC operator',
+        submissionId: any(named: 'submissionId'))).called(1);
+    expect(waveInline(), findsNothing);
+    expect(micButton(), findsOneWidget); // back to the idle mic
+  });
+
+  testWidgets('tapping Send AFTER Stop sends the recognised text once',
+      (WidgetTester tester) async {
+    speech.emit = 'CNC operator';
+    when(() => chat.sendMessage(any(), submissionId: any(named: 'submissionId')))
+        .thenAnswer((_) async => const ChatTurn(reply: 'Got it.'));
+
+    await pumpScreen(tester);
+    await startDictation(tester);
+    await stopDictation(tester);
+    expect(fieldText(tester), 'CNC operator');
+
+    await tester.tap(sendButton());
+    await tester.pumpAndSettle();
+
+    verify(() => chat.sendMessage('CNC operator',
+        submissionId: any(named: 'submissionId'))).called(1);
+    expect(micButton(), findsOneWidget);
+  });
+
+  testWidgets('the waveform shows while listening and clears on Stop',
+      (WidgetTester tester) async {
     speech.emit = 'kuch';
 
     await pumpScreen(tester);
-    final TestGesture gesture = await tester.startGesture(
-      tester.getCenter(composerMic()),
-    );
-    await tester.pump(const Duration(milliseconds: 600)); // long-press
-    await tester.pump(); // initialize()
-    await tester.pump(); // listen() -> result
-    expect(waveOpacity(tester), 1);
+    await startDictation(tester);
+    expect(waveInline(), findsOneWidget);
 
-    // No auto-hide — it must persist for the whole hold.
+    // No auto-stop — it persists until the worker taps Stop.
     await tester.pump(const Duration(seconds: 3));
-    expect(
-      waveOpacity(tester),
-      1,
-      reason: 'waveform shows until the button is let go',
-    );
+    expect(waveInline(), findsOneWidget,
+        reason: 'the wave shows until Stop is tapped');
 
-    await gesture.up();
-    await tester.pumpAndSettle();
-    expect(waveOpacity(tester), 0, reason: 'hidden on release');
-  });
-
-  testWidgets('recognised words append onto text already typed', (
-    WidgetTester tester,
-  ) async {
-    speech.emit = 'CNC operator';
-
-    await pumpScreen(tester);
-    await tester.enterText(find.byType(TextField), 'Mera naam');
-
-    final TestGesture gesture = await tester.startGesture(
-      tester.getCenter(composerMic()),
-    );
-    await tester.pump(const Duration(milliseconds: 600));
-    await tester.pump();
-    await tester.pump();
-    await gesture.up();
-    await tester.pumpAndSettle();
-
-    expect(find.text('Mera naam CNC operator'), findsOneWidget);
+    await stopDictation(tester);
+    expect(waveInline(), findsNothing);
   });
 
   testWidgets(
-    'a phrase before a mid-hold pause is KEPT — the next utterance appends',
+    'a phrase before a mid-listen pause is KEPT — the next utterance appends',
     (WidgetTester tester) async {
-      // "hello", then a five-second think (the recogniser silently restarts),
-      // then "I am a CLC programmer". The impl flushes the first phrase as a
-      // final, so the second must land as "hello I am a CLC programmer" — the
-      // first words are never dropped.
+      // "hello", then a think (the recogniser silently restarts), then "I am a
+      // CLC programmer". Both flush as finals; the text landed on Stop must be
+      // "hello I am a CLC programmer" — the first phrase never dropped.
       speech.emit = 'hello';
       speech.emit2 = 'I am a CLC programmer';
 
       await pumpScreen(tester);
-      final TestGesture gesture = await tester.startGesture(
-        tester.getCenter(composerMic()),
-      );
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump(); // initialize()
-      await tester.pump(); // listen() -> both finals arrive
-      await gesture.up();
-      await tester.pumpAndSettle();
+      await startDictation(tester);
+      await stopDictation(tester);
 
-      expect(find.text('hello I am a CLC programmer'), findsOneWidget);
+      expect(fieldText(tester), 'hello I am a CLC programmer');
     },
   );
 
   testWidgets(
-    'a phrase kept when the recogniser RESETS its partial mid-hold — no final, '
+    'a phrase kept when the recogniser RESETS its partial mid-listen — no final, '
     'no restart — the pre-pause words survive',
     (WidgetTester tester) async {
-      // The device delivers the first phrase as a PARTIAL, then after a pause
-      // starts a NEW partial for the second phrase WITHOUT a final and WITHOUT
-      // restarting the session. "hello" must not be replaced by the next phrase.
       await pumpScreen(tester);
-
-      final TestGesture gesture = await tester.startGesture(
-        tester.getCenter(composerMic()),
-      );
-      await tester.pump(const Duration(milliseconds: 600)); // long-press
-      await tester.pump(); // initialize()
-      await tester.pump(); // listen() registers the result sink
+      await startDictation(tester);
 
       // Utterance 1 — a partial, never finalised.
       speech.lastOnResult!(const DictationResult('hello', isFinal: false));
       await tester.pump();
-      expect(find.text('hello'), findsOneWidget);
-
       // Utterance 2 after a think — a fresh partial that does NOT extend "hello".
       speech.lastOnResult!(
         const DictationResult('I am a CNC developer', isFinal: false),
       );
       await tester.pump();
-      expect(find.text('hello I am a CNC developer'), findsOneWidget);
 
-      await gesture.up();
-      await tester.pumpAndSettle();
+      await stopDictation(tester);
+      expect(fieldText(tester), 'hello I am a CNC developer');
     },
   );
 
   testWidgets(
-    'a partial that GROWS within one utterance updates in place (no dupes)',
+    'a partial that GROWS within one utterance lands once (no dupes)',
     (WidgetTester tester) async {
       await pumpScreen(tester);
-      final TestGesture gesture = await tester.startGesture(
-        tester.getCenter(composerMic()),
-      );
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump();
-      await tester.pump();
+      await startDictation(tester);
 
       speech.lastOnResult!(const DictationResult('I am', isFinal: false));
       await tester.pump();
@@ -265,71 +277,117 @@ void main() {
       );
       await tester.pump();
 
-      // A growing partial replaces in place — never "I am I am a CNC ...".
-      expect(find.text('I am a CNC developer'), findsOneWidget);
-
-      await gesture.up();
-      await tester.pumpAndSettle();
+      await stopDictation(tester);
+      // A growing partial is one utterance — never "I am I am a CNC ...".
+      expect(fieldText(tester), 'I am a CNC developer');
     },
   );
 
   testWidgets(
-    'a trailing final delivered AFTER release never re-fills the composer',
+    'a trailing final delivered AFTER Stop never re-fills the composer',
     (WidgetTester tester) async {
-      // The recogniser can flush one last final asynchronously after the worker
-      // has let go — landing after they cleared/sent. It must be ignored, else
-      // the composer intermittently refills with the sentence just spoken.
+      // The recogniser can flush one last final asynchronously after Stop. It
+      // must be ignored, else the composer refills.
       speech.emit = 'pehla';
 
       await pumpScreen(tester);
-      final TestGesture gesture = await tester.startGesture(
-        tester.getCenter(composerMic()),
-      );
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump(); // initialize()
-      await tester.pump(); // listen() -> onResult fills 'pehla'
-      expect(find.text('pehla'), findsOneWidget);
+      await startDictation(tester);
+      await stopDictation(tester);
+      expect(fieldText(tester), 'pehla');
 
-      await gesture.up();
-      await tester.pumpAndSettle(); // release -> stops accepting dictation
-
-      // The plugin flushes a late final AFTER release:
+      // The plugin flushes a late final AFTER Stop:
       speech.lastOnResult!(const DictationResult('doosra', isFinal: true));
       await tester.pump();
 
-      final TextField field = tester.widget<TextField>(find.byType(TextField));
-      expect(
-        field.controller!.text,
-        'pehla',
-        reason: 'a post-release final must not append or refill',
-      );
+      expect(fieldText(tester), 'pehla',
+          reason: 'a post-Stop final must not append or refill');
       expect(find.text('pehla doosra'), findsNothing);
     },
   );
 
+  // --- the adaptive noise floor ------------------------------------------
+  //
+  // These workers are in noisy places (a workshop fan, a roadside, a factory
+  // floor). The waveform is only a useful "I am hearing you" cue if ambient
+  // noise stays FLAT and only the voice moves the bars, so the floor's exact
+  // arithmetic is behaviour, not decoration. Raw units are the plugin's Android
+  // RMS scale; the composer seeds the floor ABOVE the first sample, drops it
+  // fast toward a quieter ambient (50/50) and raises it slowly toward a louder
+  // one (90/10), then subtracts a 1.5 squelch and normalizes over a 6.0 span.
+
   testWidgets(
-    'no recogniser / denied mic → honest notice, composer stays empty',
+    'a cold first sample does NOT slam the bars — the floor seeds ABOVE it',
+    (WidgetTester tester) async {
+      await pumpScreen(tester);
+      await startDictation(tester);
+
+      // First (cold-mic) sample seeds the floor at 5 + 6 = 11.
+      speech.lastOnSoundLevel!(5);
+      expect(waveLevel(tester), 0.0);
+
+      // A loud sample arriving before the floor has settled onto ambient must
+      // still read as quiet — this is precisely the "bars slam full at the start
+      // of a hold" bug the seed-above rule exists to prevent.
+      speech.lastOnSoundLevel!(12);
+      expect(waveLevel(tester), 0.0,
+          reason: 'the floor has not settled onto ambient yet');
+    },
+  );
+
+  testWidgets(
+    'a steady room tone settles to the baseline; a louder voice drives the bars',
+    (WidgetTester tester) async {
+      await pumpScreen(tester);
+      await startDictation(tester);
+
+      // A steady fan at 5.0. The floor seeds to 11 and halves the gap on every
+      // sample (5 + 6/2^k), so after eleven samples it is 5.005859375 — and the
+      // fan itself never clears the squelch.
+      for (int i = 0; i < 11; i++) {
+        speech.lastOnSoundLevel!(5);
+        expect(waveLevel(tester), 0.0,
+            reason: 'a steady ambient tone must keep the bars flat');
+      }
+
+      // Now the worker speaks (12.0). The floor rises only 10% toward it
+      // (5.005859375 * 0.9 + 1.2 = 5.7052734375), so the signal is
+      // 12 - 5.7052734375 - 1.5 = 4.7947265625, normalized over the 6.0 span.
+      speech.lastOnSoundLevel!(12);
+      expect(waveLevel(tester), closeTo(0.79912109375, 0.0005));
+    },
+  );
+
+  testWidgets('a very loud sample clamps at 1.0, never above',
+      (WidgetTester tester) async {
+    await pumpScreen(tester);
+    await startDictation(tester);
+
+    for (int i = 0; i < 11; i++) {
+      speech.lastOnSoundLevel!(5);
+    }
+    speech.lastOnSoundLevel!(100);
+
+    expect(waveLevel(tester), 1.0);
+  });
+
+  testWidgets(
+    'no recogniser / denied mic → honest notice, composer stays empty, stays Mic',
     (WidgetTester tester) async {
       speech.ready = false;
 
       await pumpScreen(tester);
 
-      final TestGesture gesture = await tester.startGesture(
-        tester.getCenter(composerMic()),
-      );
-      await tester.pump(const Duration(milliseconds: 600));
-      await tester.pump();
-      await gesture.up();
+      await tester.tap(micButton());
+      await tester.pump(); // _startDictation
+      await tester.pump(); // initialize() -> false
       await tester.pumpAndSettle();
 
-      expect(
-        speech.listenCalls,
-        0,
-        reason: 'never listens without a recogniser',
-      );
+      expect(speech.listenCalls, 0,
+          reason: 'never listens without a recogniser');
       expect(find.text(const MicPermissionFailure().message), findsOneWidget);
-      final TextField field = tester.widget<TextField>(find.byType(TextField));
-      expect(field.controller!.text, isEmpty);
+      expect(waveInline(), findsNothing);
+      expect(fieldText(tester), isEmpty);
+      expect(micButton(), findsOneWidget); // reverted to Mic
     },
   );
 }

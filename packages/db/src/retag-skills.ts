@@ -19,12 +19,21 @@
  *      before`) — a row that moved since planning is SKIPPED and reported; re-run to
  *      re-plan it. Also MOVES the deprecated skills' aliases to the terminal skill
  *      (insert-with-new-deterministic-id copying the embedding + the terminal's
- *      domain_id, ON CONFLICT DO NOTHING, then delete the old row) so future
- *      canonicalization assigns the successor — without this the live path keeps
- *      emitting the deprecated id forever.
+ *      domain_id, then delete the old row) so future canonicalization assigns the
+ *      successor — without this the live path keeps emitting the deprecated id forever.
+ *      On id conflict — the NORMAL case when the successor's corpus already declares the
+ *      same alias text — the vector is carried onto the existing row IF AND ONLY IF that
+ *      row has none. It used to be `ON CONFLICT DO NOTHING` followed by an unconditional
+ *      DELETE, which destroyed a paid, provenance-stamped embedding and left a row both
+ *      retrieval paths filter out.
  *
  * IMMUTABILITY (SG-5): ids are never reused/renamed; `skill` rows are never deleted.
- * GUARDED: refuses NODE_ENV === "production" (prod re-tag is a deliberate, gated step).
+ * GUARDED, DATABASE-AWARE (`ops-guard.ts`): a dry run against ANY target is allowed and
+ *   announced; an `--apply` against a production-like DATABASE_URL — or with
+ *   NODE_ENV=production — is refused unless BOTH the
+ *   `--i-am-authorised-to-write-to-production` flag and `OPS_ALLOW_PRODUCTION=retag` are
+ *   present. The previous guard keyed on NODE_ENV alone, which blocked read-only dry runs
+ *   while permitting a production WRITE whenever that variable happened to be unset.
  *
  * OPERATOR NOTES (from the TAX-9 adversarial review):
  * - `--apply` RE-PLANS from live state — the dry-run report is advisory, not a signed
@@ -49,10 +58,11 @@ import path from "node:path";
 
 import { SKILL_TAXONOMY_VERSION } from "@badabhai/taxonomy";
 import { config } from "dotenv";
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { createDbClient } from "./client";
 import { jobPostings, skillAliases, skills, workerProfiles } from "./schema";
+import { opsGuard, PRODUCTION_WRITE_ENV } from "./ops-guard";
 import { deterministicAliasId } from "./skill-alias-id";
 
 config({ path: "../../.env" });
@@ -220,13 +230,27 @@ async function planSurface(
 }
 
 async function main(): Promise<void> {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("[retag] refusing to run in production (run is §7-gated ops).");
-  }
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("[retag] DATABASE_URL is not set");
   const aiBase = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
   const apply = process.argv.includes("--apply");
+
+  // DATABASE-AWARE, not NODE_ENV-only. The old guard refused a READ-ONLY dry run whenever a
+  // shell exported NODE_ENV=production — and the obvious workaround, unsetting it, also
+  // unblocked `--apply`. Meanwhile a mutating run against the production database proceeded
+  // happily whenever NODE_ENV was merely unset, which is the default state of a laptop whose
+  // environment points at production. The blast radius is decided by the connection string,
+  // so that is what is classified; NODE_ENV is kept as an independent second tripwire.
+  const verdict = opsGuard({
+    script: "retag",
+    connectionString: url,
+    nodeEnv: process.env.NODE_ENV,
+    allowEnv: process.env[PRODUCTION_WRITE_ENV],
+    argv: process.argv.slice(2),
+    mutating: apply,
+  });
+  if (verdict.warning !== null) console.log(verdict.warning);
+  if (!verdict.allowed) throw new Error(verdict.refusal ?? "[retag] refused");
   const reportPath =
     process.env.RETAG_REPORT_PATH ??
     path.resolve(__dirname, "../../../docs/registers/skill-retag-report.md");
@@ -471,12 +495,71 @@ async function main(): Promise<void> {
             source: a.source,
             domainId: targetDomain,
             embedding: a.embedding,
+            // ── COLUMNS ADDED BY MIGRATION 0076 ──────────────────────────────
+            //
+            // This is a row REPLACEMENT (insert-then-delete), so every column omitted here is
+            // silently dropped. Before 0076 that was complete; 0076 added four columns and
+            // this writer was not audited, so a retag quietly reset all four:
+            //   text_norm      -> NULL, dropping the alias out of `skill_alias_text_norm_idx`
+            //                     (L0 exact) and the trigram index (L2). Retrieval stops
+            //                     hitting it and nothing errors.
+            //   embedding_model / embedded_at -> NULL, leaving a paid vector with no
+            //                     provenance — exactly the pairing 0076 introduced.
+            textNorm: a.textNorm,
+            embeddingModel: a.embeddingModel,
+            embeddedAt: a.embeddedAt,
+            // `is_searchable` is deliberately NOT carried, and it is the one exception.
+            // Election is scoped to (skill_id, text_norm, lang), and the move CHANGES
+            // skill_id — so a row that legitimately won its group on the deprecated skill may
+            // arrive at a terminal whose group already has a winner. Carrying `true` there is
+            // not a soft conflict: `skill_alias_skill_norm_lang_uq` is a UNIQUE partial index
+            // and it would abort the retag mid-run. Arriving unelected is recoverable (the
+            // next `db:seed:domain-skills` elects a winner per group); an aborted retag is
+            // not. The footer below says so out loud rather than leaving it to be discovered.
+            isSearchable: false,
           })
-          .onConflictDoNothing({ target: skillAliases.id });
+          // ── WHY THIS IS AN UPSERT AND NOT `onConflictDoNothing` ────────────────────────
+          //
+          // The id is `deterministicAliasId(terminal, text, lang)`, so it collides with a row
+          // the SEED already wrote for the same text on the terminal — which is the normal
+          // case, not a rare one, whenever a merge successor declares the predecessor's text
+          // in its own corpus alias list. `skill_drawing_reading` declares "CAD", "technical
+          // drawing" and "read engineering drawings", all three of which `skill_cad_
+          // interpretation` holds EMBEDDED in production today.
+          //
+          // With DO NOTHING the sequence was: insert skipped (id taken by the seed's
+          // unembedded row) -> DELETE the predecessor unconditionally. Net effect: a paid,
+          // provenance-stamped vector destroyed, and the surviving row has `embedding IS
+          // NULL`, which BOTH retrieval paths filter out. Silent, and unrecoverable without
+          // re-embedding.
+          //
+          // So on conflict, carry the vector across — but only INTO A HOLE. `setWhere` makes
+          // that explicit: an existing row that already has its own embedding keeps it, and is
+          // never overwritten by a predecessor's.
+          .onConflictDoUpdate({
+            target: skillAliases.id,
+            set: {
+              embedding: a.embedding,
+              embeddingModel: a.embeddingModel,
+              embeddedAt: a.embeddedAt,
+              textNorm: a.textNorm,
+            },
+            setWhere: isNull(skillAliases.embedding),
+          });
+        // Only now is the delete safe: either the insert created the row with the vector, or
+        // the conflict branch copied it onto the row that was already there.
         await db.delete(skillAliases).where(eq(skillAliases.id, a.id));
         moved += 1;
       }
       applyStats.push(`skill_alias: moved=${moved}${held > 0 ? ` held=${held}` : ""}`);
+      if (moved > 0) {
+        console.log(
+          `[retag] skill_alias: ${moved} moved row(s) arrive with is_searchable=false — a move ` +
+            `changes skill_id, which changes the election group, and claiming an occupied group ` +
+            `would violate skill_alias_skill_norm_lang_uq. Run 'pnpm db:seed:domain-skills --apply' ` +
+            `to re-elect one searchable row per group.`,
+        );
+      }
       if (held > 0) {
         console.log(`[retag] skill_alias: ${held} alias row(s) HELD (no safe terminal) — untouched.`);
       }

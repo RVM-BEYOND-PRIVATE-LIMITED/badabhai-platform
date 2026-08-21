@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -71,6 +72,21 @@ class PayerHttp {
   /// each firing their own.
   Future<String?>? _pendingRefresh;
 
+  /// Bounded auto-retry for a transient TRANSPORT failure on an IDEMPOTENT GET —
+  /// a dropped socket on a weak link or a cold first-connection that never reached
+  /// the server. This is what turns the "load failed → tap Retry → it works" dance
+  /// into a self-healing first load.
+  ///
+  /// DELIBERATELY does NOT retry any server RESPONSE (incl. 5xx): a 5xx means the
+  /// server answered, so retrying would amplify load on an already-struggling
+  /// backend — with every client firing the same GET in synchronized waves, a brief
+  /// blip becomes a thundering-herd outage. A 5xx surfaces at once with the honest
+  /// "problem on our side" copy and a MANUAL retry the user paces themselves.
+  /// Timeouts are not retried either (see the loop). Only GET is retried — a
+  /// POST/PATCH/DELETE that failed AFTER the server saw it would double-submit.
+  static const int _kGetRetries = 2;
+  static const Duration _kRetryBackoff = Duration(milliseconds: 300);
+
   void dispose() => _client.close();
 
   /// The single entry point. Returns the decoded [PayerResponse]; the caller maps
@@ -79,14 +95,19 @@ class PayerHttp {
   /// On a 401 for an authed call it transparently refreshes + retries once (see
   /// the class doc). The refresh/logout calls themselves never trigger a nested
   /// refresh — that would loop.
+  /// [idempotencyKey], when non-null, is sent as the `idempotency-key` request
+  /// header. It lets the SERVER dedupe a repeated write (a user re-tap after a
+  /// timeout) — it does NOT make this method auto-retry. Writes still run exactly
+  /// once per call here; the key only makes a *caller-driven* retry safe.
   Future<PayerResponse> send(
     PayerMethod method,
     String path, {
     Map<String, dynamic>? body,
     bool authed = true,
+    String? idempotencyKey,
   }) async {
-    final PayerResponse res =
-        await _rawSend(method, path, body: body, authed: authed);
+    final PayerResponse res = await _rawSend(method, path,
+        body: body, authed: authed, idempotencyKey: idempotencyKey);
 
     // Only authed calls take part in the 401 → refresh → retry dance.
     if (!authed || res.statusCode != 401) return res;
@@ -106,9 +127,11 @@ class PayerHttp {
     }
 
     // Persist the rotated bearer and retry the original request exactly once.
+    // The same [idempotencyKey] rides along so the post-refresh retry replays
+    // (not re-grants) if the pre-refresh attempt had already reached the server.
     await _tokenStore.saveAccessToken(newToken);
-    final PayerResponse retry =
-        await _rawSend(method, path, body: body, authed: authed);
+    final PayerResponse retry = await _rawSend(method, path,
+        body: body, authed: authed, idempotencyKey: idempotencyKey);
     if (retry.statusCode == 401) await _forceReauth();
     return retry;
   }
@@ -120,12 +143,19 @@ class PayerHttp {
     String path, {
     Map<String, dynamic>? body,
     bool authed = true,
+    String? idempotencyKey,
   }) async {
     final Uri uri = Uri.parse('$baseUrl$path');
     final Map<String, String> headers = <String, String>{
       'accept': 'application/json',
     };
     if (body != null) headers['content-type'] = 'application/json';
+    // A caller-supplied idempotency key lets the server collapse a repeated
+    // write (reserve-before-grant, replay the original balance) — never a PII
+    // value; a random, single-purchase token.
+    if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
+      headers['idempotency-key'] = idempotencyKey;
+    }
     if (authed) {
       final String? token = _tokenStore.accessToken;
       if (token != null && token.isNotEmpty) {
@@ -134,21 +164,53 @@ class PayerHttp {
     }
 
     final String? encoded = body == null ? null : jsonEncode(body);
-    // Every verb is bounded by kRequestTimeout — `package:http` has no default
-    // timeout, so a stalled socket would hang the future forever (infinite
-    // spinner, no error, no retry).
-    final http.Response res = await switch (method) {
-      PayerMethod.get => _client.get(uri, headers: headers),
-      PayerMethod.post => _client.post(uri, headers: headers, body: encoded),
-      PayerMethod.patch => _client.patch(uri, headers: headers, body: encoded),
-      PayerMethod.delete => _client.delete(uri, headers: headers, body: encoded),
+
+    // Idempotent GETs auto-retry a transient failure (see [_kGetRetries]); every
+    // other verb runs exactly once so a write is never silently repeated.
+    final bool retriable = method == PayerMethod.get;
+    final int attempts = retriable ? _kGetRetries + 1 : 1;
+
+    for (int attempt = 0; attempt < attempts; attempt++) {
+      final bool lastAttempt = attempt == attempts - 1;
+      try {
+        // Every verb is bounded by kRequestTimeout — `package:http` has no default
+        // timeout, so a stalled socket would hang the future forever (infinite
+        // spinner, no error, no retry).
+        final http.Response res = await switch (method) {
+          PayerMethod.get => _client.get(uri, headers: headers),
+          PayerMethod.post => _client.post(uri, headers: headers, body: encoded),
+          PayerMethod.patch => _client.patch(uri, headers: headers, body: encoded),
+          PayerMethod.delete => _client.delete(uri, headers: headers, body: encoded),
+        }
+            .timeout(kRequestTimeout);
+
+        // The server ANSWERED — return it as-is (2xx/4xx/5xx). We never retry a
+        // response: a 5xx retry would amplify load on a failing backend (see
+        // [_kGetRetries]); a 4xx/2xx would not change on a retry.
+        // Persist a rolling refresh BEFORE decoding, so the very next call already
+        // signs with the fresh bearer even if this response is an error the caller
+        // rethrows.
+        await _adoptRollingToken(path, res, authed: authed);
+        return _decode(res);
+      } on TimeoutException {
+        // A timeout means the server ACCEPTED the request but did not answer inside
+        // kRequestTimeout. Retrying would just multiply the wait (up to N×15s) on a
+        // genuinely slow/hung server without helping — so surface it AT ONCE. This
+        // is what keeps the worst case one timeout, never a ~45s spinner (the "late
+        // out" the retry must not cause). The screen shows the honest 'server slow'
+        // reason and a manual Retry.
+        rethrow;
+      } on Exception {
+        // A FAST transport failure — connection refused/reset: a cold first-
+        // connection or a dropped socket on a weak link. It fails in well under the
+        // timeout, so retrying an idempotent GET is cheap and heals the common blip.
+        if (!retriable || lastAttempt) rethrow;
+        await Future<void>.delayed(_kRetryBackoff * (attempt + 1));
+      }
     }
-        .timeout(kRequestTimeout);
-    // Persist a rolling refresh BEFORE decoding, so the very next call already
-    // signs with the fresh bearer even if this response is an error the caller
-    // rethrows.
-    await _adoptRollingToken(path, res, authed: authed);
-    return _decode(res);
+    // Unreachable: the loop always returns a response or rethrows on the last
+    // attempt. Present so the analyzer sees a definite return.
+    throw StateError('payer request retry loop exited without a result');
   }
 
   /// Adopts the rolling session token `PayerAuthGuard` returns in the
@@ -186,7 +248,16 @@ class PayerHttp {
     final String? fresh = res.headers['x-session-token'];
     if (fresh == null || fresh.isEmpty) return;
     if (fresh == _tokenStore.accessToken) return;
-    await _tokenStore.saveAccessToken(fresh);
+    try {
+      await _tokenStore.saveAccessToken(fresh);
+    } catch (_) {
+      // Best-effort: saveAccessToken updates the in-memory bearer BEFORE it writes,
+      // so a secure-storage failure (Keystore error on a restored-backup / low-end
+      // device) still leaves this and the next request correctly signed. Swallow it
+      // — it must NOT bubble into the request's transport-error path (this runs
+      // AFTER a successful response) and trigger a pointless re-GET or a false
+      // "connection failed" on a call the server already answered.
+    }
   }
 
   /// Wipes the local session and bounces to Login. Called only when refresh is

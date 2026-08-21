@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { requireCapability } from "../../../lib/auth";
+import { can } from "../../../lib/auth/capabilities";
 import { listPayers } from "../../../lib/entities";
+import { identityPosture } from "../../../lib/identity";
 import { PayerList } from "../../../components/payer-list";
+import { IdentityCapNotice } from "../../../components/identity-notice";
 import { Pager } from "../../../components/pager";
 import { PayerFilterBar } from "../../../components/payer-filter-bar";
 
@@ -15,13 +18,17 @@ export const metadata = { title: "Companies" };
  * component and a detail view. They are separate NAV sections because they are separate
  * operational populations: an employer hires, an agency supplies, and the questions an
  * operator asks about each are different.
+ *
+ * The organisation name is served behind `read_identity` since the 2026-08-18 ruling; the
+ * posture is computed here and handed to the shared list, so both sections make the same
+ * decision from the same rule rather than each deciding for itself.
  */
 export default async function CompaniesPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  await requireCapability("read_entities");
+  const session = await requireCapability("read_entities");
 
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) =>
@@ -37,17 +44,32 @@ export default async function CompaniesPage({
     failed = true;
   }
 
+  const posture = identityPosture(
+    page?.items ?? [],
+    "org_name",
+    can(session.capabilities, "read_identity"),
+  );
+
   return (
     <div className="page">
       <header className="page__head">
         <div>
           <h1 className="page__title">Companies</h1>
           <p className="page__sub">
-            Employer accounts. Contact details are encrypted at rest and are not shown —
-            find an account through its job postings.
+            {posture === "faceless"
+              ? "Employer accounts, identified by id — your role does not include name access, so find an account through its job postings."
+              : "Employer accounts, named by the organisation they registered as — self-declared at signup, not a verified legal name."}{" "}
+            Email and phone stay encrypted at rest and are served to no one.
           </p>
         </div>
       </header>
+
+      {posture === "capped" && (
+        <IdentityCapNotice>
+          Your role may see them, so this is a limit on the read: this admin account has spent
+          its hourly name budget.
+        </IdentityCapNotice>
+      )}
 
       <section className="panel" aria-labelledby="cf-heading">
         <h2 className="sr-only" id="cf-heading">
@@ -92,6 +114,7 @@ export default async function CompaniesPage({
           <PayerList
             payers={page?.items ?? []}
             basePath="/companies"
+            posture={posture}
             emptyMessage={
               status ? "No companies match this filter." : "No company accounts registered yet."
             }

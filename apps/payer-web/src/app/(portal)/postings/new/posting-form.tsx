@@ -6,7 +6,7 @@ import { looksLikePii } from "@badabhai/validators";
 import { TRADE_KEYS } from "../../../../lib/contracts";
 import { tradeLabel } from "../../../../lib/agency-view";
 import { bandForVacancies, baseApplicantQuotaForBand } from "../../../../lib/pricing-config";
-import { Badge, Button, Chip, Input, Textarea } from "../../../../components/ds";
+import { Badge, Button, Input, Textarea } from "../../../../components/ds";
 // Imported from the module path (not the ds barrel) so the form-validation test can mock
 // just this interactive combobox while rendering the other hookless DS primitives for real.
 import { SelectMenu } from "../../../../components/ds/select-menu";
@@ -294,9 +294,7 @@ export function PostingForm({
           />
           {derivedBand !== null ? (
             <div className="posting-form__band" aria-live="polite">
-              <Chip icon="users-three" aria-disabled="true" tabIndex={-1}>
-                Band {derivedBand}
-              </Chip>
+              <Badge icon="users-three">Band {derivedBand}</Badge>
               {derivedQuota !== null ? (
                 <Badge tone="brand">
                   <span className="bb-mono">{derivedQuota}</span> applicant slots

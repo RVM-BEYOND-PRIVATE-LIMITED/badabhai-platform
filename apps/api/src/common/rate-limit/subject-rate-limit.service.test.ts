@@ -116,3 +116,86 @@ describe("SubjectRateLimit.assertWithinHourlyCap", () => {
     await expect429(svc.assertWithinHourlyCap("worker_actions", SUBJECT, 500));
   });
 });
+
+describe("SubjectRateLimit.assertWithinMinuteCap (#997)", () => {
+  it("allows within the cap, and re-asserts the TTL on EVERY hit — inside the MINUTE", async () => {
+    // Same anti-pattern this file names for the hourly bucket: a `if (count === cost)` guard
+    // passes a single-call assertion trivially, so it has to be shown across SUBSEQUENT hits.
+    // The extra assertion here is the CEILING — a to-end-of-HOUR ttl on a minute-stamped key
+    // would leak sixty keys an hour per subject and nobody would notice.
+    const { svc, redis } = setup({ results: [1, 2, 3] });
+    for (let i = 0; i < 3; i++) {
+      await expect(
+        svc.assertWithinMinuteCap("worker_feedback", SUBJECT, 3),
+      ).resolves.toBeUndefined();
+    }
+    expect(redis.expire).toHaveBeenCalledTimes(3);
+    for (const call of redis.expire.mock.calls) {
+      expect(call[0]).toBe(redis.incrby.mock.calls[0]![0]);
+      expect(call[1]).toBeGreaterThan(0);
+      expect(call[1]).toBeLessThanOrEqual(60);
+    }
+  });
+
+  it("429s the moment the counter passes the cap", async () => {
+    const { svc } = setup({ results: [4] });
+    await expect429(svc.assertWithinMinuteCap("worker_feedback", SUBJECT, 3));
+  });
+
+  it("REFUNDS a rejected charge — nothing was written, so nothing stays spent", async () => {
+    // The window is short, but the reasoning is identical: keeping the charge quietly lowers
+    // the cap for the rest of the minute, so a refused submission would also cost the retry.
+    const { svc, redis } = setup({ results: [4] });
+    await expect429(svc.assertWithinMinuteCap("worker_feedback", SUBJECT, 3));
+    expect(redis.incrby).toHaveBeenCalledTimes(2);
+    expect(redis.incrby).toHaveBeenLastCalledWith(redis.incrby.mock.calls[0]![0], -1);
+  });
+
+  it("still 429s when the refund itself fails, and stays conservative", async () => {
+    const { svc, redis } = setup({ results: [4, new Error("READONLY")] });
+    await expect429(svc.assertWithinMinuteCap("worker_feedback", SUBJECT, 3));
+    expect(redis.incrby).toHaveBeenCalledTimes(2);
+  });
+
+  it("FAILS CLOSED with 429 when the redis client is unreachable", async () => {
+    // The shared core's posture, asserted through the new door: a Redis outage must not uncap a
+    // write path into an unbounded free-text column.
+    const { svc } = setup({ clientThrows: true });
+    await expect429(svc.assertWithinMinuteCap("worker_feedback", SUBJECT, 3));
+  });
+
+  it("FAILS CLOSED with 429 when INCRBY throws mid-flight", async () => {
+    const { svc } = setup({ results: [new Error("READONLY")] });
+    await expect429(svc.assertWithinMinuteCap("worker_feedback", SUBJECT, 3));
+  });
+
+  it("namespaces the key by scope AND subject, inside the UTC MINUTE", async () => {
+    const { svc, redis } = setup({ results: [1] });
+    await svc.assertWithinMinuteCap("worker_feedback", SUBJECT, 3);
+    const key = redis.incrby.mock.calls[0]![0];
+    expect(key).toContain("ratelimit:subject:worker_feedback:");
+    expect(key).toContain(SUBJECT);
+    // `YYYYMMDDHHmm` tail — twelve digits against the hourly key's ten.
+    expect(key).toMatch(/:\d{12}$/);
+  });
+
+  it("counts in a DIFFERENT bucket from the hourly cap for the same scope + subject", async () => {
+    // THE WHOLE POINT of a second method. If both stamps collided, applying both caps would
+    // double-charge one counter and the tighter of the two would silently become the only one.
+    const { svc, redis } = setup({ results: [1, 1] });
+    await svc.assertWithinMinuteCap("worker_feedback", SUBJECT, 3);
+    await svc.assertWithinHourlyCap("worker_feedback", SUBJECT, 20);
+    const [minuteKey, hourKey] = [redis.incrby.mock.calls[0]![0], redis.incrby.mock.calls[1]![0]];
+    expect(minuteKey).not.toBe(hourKey);
+    // The minute key is the hour key plus the two-digit minute — the shared stamp head is what
+    // makes both readable in an incident.
+    expect(minuteKey.startsWith(hourKey)).toBe(true);
+    expect(minuteKey.length).toBe(hourKey.length + 2);
+  });
+
+  it("CHARGES THE COST, so the shared core did not lose the parameter on the way through", async () => {
+    const { svc, redis } = setup({ results: [5] });
+    await svc.assertWithinMinuteCap("worker_feedback", SUBJECT, 10, 5);
+    expect(redis.incrby).toHaveBeenCalledWith(expect.any(String), 5);
+  });
+});

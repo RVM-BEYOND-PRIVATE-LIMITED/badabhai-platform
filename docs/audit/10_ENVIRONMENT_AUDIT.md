@@ -16,6 +16,10 @@ Batch 1's [`15_SECURITY_AUDIT.md`](15_SECURITY_AUDIT.md) already covers the fail
 | `apps/api/.env.staging.example` | 10 declared lines | `apps/api` |
 | `apps/payer-web/.env.example` | 16 declared lines | `apps/payer-web` only — own local schema, does **not** import `@badabhai/config/server` |
 
+**Drift since this audit ran (added 2026-08-19, #997)**: the **154** above was exact when measured and is left as measured — the §5 template-coverage figure derived from it ("123 of 154") is not reproducible from the same grep today, so re-pointing one number without the other would only make the pair look maintained. `serverEnvSchema` now declares **160** fields: `OTP_MAX_SENDS_PER_IP_PER_HOUR`, `CHAT_ABANDON_AFTER_SECONDS` and `CHAT_ABANDON_SWEEP_INTERVAL_HOURS` landed without a pass here, #997 adds `WORKER_FEEDBACK_PER_MINUTE`/`WORKER_FEEDBACK_PER_HOUR` (§2), and #1035 adds `OTP_MAX_SENDS_PER_DEVICE_PER_HOUR`. Neither compose file forwards any of the six — as with every other rate cap in this schema, they run on their `.default(...)` in staging and production.
+
+That last point is load-bearing for #1035 rather than incidental, and it was verified before the change was designed: because production runs on the default, `OTP_MAX_SENDS_PER_IP_PER_HOUR` could be re-pointed from the primary sender gate (20) to a crude flood ceiling (1000) by editing the default alone. Had a box been setting it explicitly, that box would have kept the tight per-IP ceiling and the CGNAT lockout would have survived the fix.
+
 Confirmed importers of `@badabhai/config`: 168 files under `apps/api/src` (the schema owner), plus exactly 4 frontend files — `apps/web/src/lib/config.ts`, `apps/payer-web/src/lib/config.ts`, `apps/payer-web/src/lib/auth/org-roles.ts` (+test) — all four using **only** `@badabhai/config/public`. `apps/admin-web` imports `@badabhai/config` **nowhere** (§6).
 
 ## 2. `packages/config/src/server.ts` — server-only (`apps/api`)
@@ -24,7 +28,7 @@ Grouped by concern. "Secret" = credential/key material that must never leave the
 
 **Core datastores & private Storage buckets**: `DATABASE_URL`, `REDIS_URL`, `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` (optionalSecret, latter is secret), `CONVERSATIONS_BUCKET`/`RESUMES_BUCKET`/`VOICE_NOTES_BUCKET` (empty=dormant)/`WORKER_PHOTOS_BUCKET` (empty=503 fail-closed)/`INTERVIEW_KIT_BUCKET`.
 
-**Resume/interview-kit render + internal auth**: `RESUME_RENDER_ENABLED`, `RESUME_DAILY_CAP`/`RESUME_GLOBAL_DAILY_CAP`, `RESUME_SIGNED_URL_TTL_SECONDS`, per-IP rate caps for resume/interview-kit/photo, `WORKER_ACTIONS_PER_HOUR`, `INTERVIEW_KIT_CONTENT_VERSION`, **`INTERNAL_SERVICE_TOKEN`** (no default, unset denies all — secret), **`SKILLS_INTERNAL_TOKEN`** (distinct least-privilege secret from the above, no default — secret).
+**Resume/interview-kit render + internal auth**: `RESUME_RENDER_ENABLED`, `RESUME_DAILY_CAP`/`RESUME_GLOBAL_DAILY_CAP`, `RESUME_SIGNED_URL_TTL_SECONDS`, per-IP rate caps for resume/interview-kit/photo, `WORKER_ACTIONS_PER_HOUR`, `WORKER_FEEDBACK_PER_MINUTE`/`WORKER_FEEDBACK_PER_HOUR` (#997 — the two are applied in that order on `POST /workers/me/feedback`, minute first so a refused burst never inflates the hourly counter; both default low (3/20) and both fail **closed** on a Redis outage, like every other subject cap here), `INTERVIEW_KIT_CONTENT_VERSION`, **`INTERNAL_SERVICE_TOKEN`** (no default, unset denies all — secret), **`SKILLS_INTERNAL_TOKEN`** (distinct least-privilege secret from the above, no default — secret).
 
 **PII cryptography**: `PII_HASH_PEPPER`/`PII_ENCRYPTION_KEY` (insecure dev defaults, **MUST override in prod**, fail-closed via `assertPiiCryptoConfig` — both secret), `PII_ENCRYPTION_KEYS`/`PII_ENCRYPTION_ACTIVE_KID` (TD22-1 rotation keyring, both-or-neither fail-closed).
 

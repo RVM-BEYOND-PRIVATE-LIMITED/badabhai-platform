@@ -245,7 +245,7 @@ void main() {
         // captured before the await would silently drop their message.
         final Completer<String?> gate = Completer<String?>();
         when(() => repo.ensureSession()).thenAnswer((_) => gate.future);
-        when(() => repo.sendMessage(any()))
+        when(() => repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
             .thenAnswer((_) async => const ChatTurn(reply: 'Theek hai.'));
         Future<void>.delayed(
           const Duration(milliseconds: 30),

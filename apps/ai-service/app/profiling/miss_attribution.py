@@ -64,7 +64,7 @@ _SKILL_ANCHORS: dict[str, tuple[str, ...]] = {
     "skill_mitsubishi": ("mitsubishi",),
     "skill_program_editing": ("program", "g code", "g-code", "m code"),
     "skill_cam_software": ("mastercam", "fusion"),
-    "skill_gdt_reading": ("gd&t", "gdt", "drawing"),
+    "skill_drawing_reading": ("gd&t", "gdt", "drawing"),
     "skill_tool_offset_setting": ("tool offset", "offset"),
     "skill_fixture_setup": ("fixture",),
     # TAX-WELD-1 — anchors for the pre-existing welding corpus ids.

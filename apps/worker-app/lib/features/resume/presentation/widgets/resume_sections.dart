@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
+import '../../../../core/util/education_label.dart';
 
 /// One `Label: value` line parsed out of the deterministic resume text.
 class ResumeEntry {
@@ -44,6 +45,12 @@ class ParsedResume {
 /// carried OUTSIDE the deterministic text body, so it is injected here.
 const String kNightShiftLabel = 'Night shift ke liye taiyaar';
 
+/// The template's education-level label. Its VALUE is a raw scalar the extractor
+/// writes (e.g. `below_10`), so it is humanized at this display edge — a raw
+/// token must never reach a low-literacy worker's screen (see the no-raw-ids
+/// rule; the same [humanizeEducationLevel] already used by the profile tab).
+const String kEducationLevelLabel = 'Education level';
+
 ParsedResume parseResumeText(String text, {bool? nightShiftReady}) {
   bool isDraft = false;
   final List<ResumeEntry> entries = <ResumeEntry>[];
@@ -67,8 +74,14 @@ ParsedResume parseResumeText(String text, {bool? nightShiftReady}) {
     final int colon = line.indexOf(':');
     if (colon <= 0) continue; // no label → not a field line
     final String label = line.substring(0, colon).trim();
-    final String value = line.substring(colon + 1).trim();
-    if (value.isEmpty) continue;
+    final String rawValue = line.substring(colon + 1).trim();
+    if (rawValue.isEmpty) continue;
+    // The education-level field carries a raw scalar (`below_10`); humanize it
+    // here so the tab shows "10th se kam", never the token. Every other field is
+    // free text / already-resolved taxonomy and passes through untouched.
+    final String value = label.toLowerCase() == kEducationLevelLabel.toLowerCase()
+        ? humanizeEducationLevel(rawValue)
+        : rawValue;
     entries.add(ResumeEntry(label, value));
   }
 
@@ -90,19 +103,33 @@ ParsedResume parseResumeText(String text, {bool? nightShiftReady}) {
 
 /// A resume section: an icon + title and the labels that live under it.
 class _SectionSpec {
-  const _SectionSpec(this.title, this.icon, this.labels);
+  const _SectionSpec(this.title, this.icon, this.labels,
+      {this.hideRowLabels = false});
   final String title;
   final IconData icon;
   final List<String> labels;
+
+  /// When true each row shows only its VALUE — used for a REPEATED-label section
+  /// like Work History, where the section title is already the label and
+  /// "Work history: …" on every line would be redundant.
+  final bool hideRowLabels;
 }
 
-/// The four sections from the design, in order, and which resume labels each
-/// owns. Labels match `build_resume` exactly (case-insensitive at match time).
+/// The sections from the design, in the template's own order, and which resume
+/// labels each owns. Labels match `build_resume` exactly (case-insensitive at
+/// match time). EVERY label the template can emit is owned by a section here, so
+/// nothing falls into the generic "More" bucket:
+///  - Work history (`_work_history_lines`, a repeatable `Work history:` label),
+///  - Availability + Expected salary (the worker's job preferences).
 const List<_SectionSpec> _sections = <_SectionSpec>[
   _SectionSpec('General Info', Icons.work_outline_rounded,
       <String>['Role', 'Trade', 'Experience']),
   _SectionSpec('Technical Skills', Icons.settings_rounded,
       <String>['Machines', 'Skills']),
+  // Each job is its own `Work history:` line — show the values only under the
+  // section title (repeated labels would read redundantly).
+  _SectionSpec('Work History', Icons.work_history_outlined,
+      <String>['Work history'], hideRowLabels: true),
   _SectionSpec('Education & Certifications', Icons.school_outlined, <String>[
     'Education level',
     'Field of study',
@@ -112,6 +139,9 @@ const List<_SectionSpec> _sections = <_SectionSpec>[
   // Night-shift readiness sits under Location, right BELOW the current city.
   _SectionSpec('Location', Icons.location_on_outlined,
       <String>['Current location', kNightShiftLabel, 'Preferred locations']),
+  // When the worker can start + their asked pay — their own document, last.
+  _SectionSpec('Availability & Salary', Icons.event_available_outlined,
+      <String>['Availability', 'Expected salary']),
 ];
 
 /// Renders a [ParsedResume] as the design's grouped, icon-led sections.
@@ -146,7 +176,12 @@ class ResumeSectionsView extends StatelessWidget {
         }
       }
       if (rows.isEmpty) continue; // never render an empty section
-      sections.add(_ResumeSection(title: spec.title, icon: spec.icon, rows: rows));
+      sections.add(_ResumeSection(
+        title: spec.title,
+        icon: spec.icon,
+        rows: rows,
+        hideRowLabels: spec.hideRowLabels,
+      ));
     }
 
     // Anything the template emitted that no known section owns — surface it,
@@ -179,11 +214,13 @@ class _ResumeSection extends StatelessWidget {
     required this.title,
     required this.icon,
     required this.rows,
+    this.hideRowLabels = false,
   });
 
   final String title;
   final IconData icon;
   final List<ResumeEntry> rows;
+  final bool hideRowLabels;
 
   @override
   Widget build(BuildContext context) {
@@ -211,7 +248,8 @@ class _ResumeSection extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               for (final ResumeEntry e in rows) ...<Widget>[
-                _EntryRow(label: e.label, value: e.value),
+                _EntryRow(
+                    label: e.label, value: e.value, hideLabel: hideRowLabels),
                 if (e != rows.last) const SizedBox(height: AppSpacing.s1),
               ],
             ],
@@ -223,15 +261,30 @@ class _ResumeSection extends StatelessWidget {
 }
 
 /// One `Label: value` line — the label muted, the value in body weight, wrapping
-/// naturally for long skill/machine lists.
+/// naturally for long skill/machine lists. With [hideLabel] it renders the VALUE
+/// alone (the section title carries the label), for repeated-label sections.
 class _EntryRow extends StatelessWidget {
-  const _EntryRow({required this.label, required this.value});
+  const _EntryRow({
+    required this.label,
+    required this.value,
+    this.hideLabel = false,
+  });
 
   final String label;
   final String value;
+  final bool hideLabel;
 
   @override
   Widget build(BuildContext context) {
+    if (hideLabel) {
+      return Text(
+        value,
+        style: AppTypography.body(
+          size: AppTypography.sizeMd,
+          color: AppColors.textPrimary,
+        ),
+      );
+    }
     return RichText(
       text: TextSpan(
         style: AppTypography.body(size: AppTypography.sizeMd),

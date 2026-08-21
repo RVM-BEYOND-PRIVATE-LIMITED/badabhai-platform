@@ -29,7 +29,7 @@ const Map<String, String> _kMachineLabels = {
 };
 
 const Map<String, String> _kSkillLabels = {
-  'skill_gdt_reading': 'GD&T / drawing reading',
+  'skill_drawing_reading': 'GD&T / technical drawing reading',
   'skill_tool_offset_setting': 'Tool offset setting',
   'skill_program_editing': 'Program editing (G & M codes)',
   'skill_fanuc': 'Fanuc control operation',
@@ -41,13 +41,10 @@ const Map<String, String> _kSkillLabels = {
   'skill_turning': 'Turning (lathe operation)',
   'skill_milling': 'Milling',
   'skill_drilling': 'Drilling',
-  'skill_boring': 'Boring',
   'skill_tapping_threading': 'Tapping / threading',
   'skill_grinding_ops': 'Grinding (surface / cylindrical)',
   'skill_deburring': 'Deburring / finishing',
   'skill_cnc_programming': 'CNC programming',
-  'skill_cad_interpretation': 'CAD / technical drawing interpretation',
-  'skill_dimensional_inspection': 'Dimensional inspection',
   'skill_cmm': 'CMM operation',
   'skill_quality_control': 'Quality control (QC)',
   'skill_mig_welding': 'MIG welding',
