@@ -163,6 +163,30 @@ const WORKER_AUTHED_ROUTES = [
   // between an anonymous caller and a job-status read by uuid. An ABSENT id is used so a
   // pass is the guard rejecting, never a 404 that would mask a missing guard.
   ["GET", `/workers/me/ai-jobs/${ABSENT_ID}`],
+  // ── Agency SUPPLY-MONEY surface (ADR-0022 Amdt 2, #1129 item 6) — five agent-only routes ──
+  //
+  // ASSERTS 401/403, NOT 404, AND THAT IS DELIBERATE. `AgencyPayoutsEnabledGuard`'s neutral 404
+  // is what an AUTHENTICATED agent sees while AGENCY_PAYOUTS_ENABLED is OFF. This caller is
+  // anonymous, and PayerAuthGuard runs FIRST in the @UseGuards array, so it rejects before the
+  // flag gate is ever consulted.
+  //
+  // That makes these probes FLAG-INDEPENDENT: they read the same before and after any flip, so
+  // they encode no temporary state anybody has to remember to update. A canary asserting 404
+  // here would have to be rewritten on the day the flag flips — which is the day you least want
+  // to be editing the thing that watches it.
+  //
+  // Worth probing precisely because this is financial PII (PAN + bank) plus a money ledger: if
+  // these ever answered an anonymous caller, the submit body is a raw-PAN write sink. They live
+  // here rather than in OPS_ROUTES because that list asserts every entry sits behind
+  // InternalServiceGuard, and these do not.
+  //
+  // The `{}` bodies follow this file's existing rule: deliberately invalid, so even in the
+  // failure case the request dies in validation rather than writing a KYC row.
+  ["POST", "/payer/agency/kyc", {}],
+  ["GET", "/payer/agency/kyc"],
+  ["GET", "/payer/agency/earnings"],
+  ["POST", "/payer/agency/payouts", {}],
+  ["GET", "/payer/agency/payouts"],
 ];
 
 /** An auth failure. 401 and 403 are both "the guard rejected me" and both pass. */
