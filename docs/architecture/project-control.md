@@ -25,8 +25,8 @@ COMPLETE  all of the above AND acceptance criteria met
 | **CURRENT MILESTONE** | Stage D — promotion readiness |
 | **COMPLETED** | Stage A observe · Stage B backfill (P1-B PASS) · Stage C shadow (offline) · 41 trainer phrases |
 | **IN PROGRESS** | Stage D — 5 of 7 promotion gates green at 96/96 |
-| **BLOCKED** | 2 evidence gates need paid experiment runs **+ a `REGRESSION_BASELINE` decision** |
-| **NEXT 3 ACTIONS** | 1. Authorise the two evidence runs (~₹0.03). 2. Resolve the fixture-version conflict in `NO_REGRESSION`. 3. Promote 96, then Stage E. |
+| **BLOCKED** | Both evidence gates measured and **FAILING on their own terms**: `RESOLVABLE_ABOVE_FLOOR` 62/96, `NO_REGRESSION` 0.9675 < 1.0. Promotion candidates **0**. |
+| **NEXT 3 ACTIONS** | 1. **Owner: the 0.75 floor** — see `decision-canonicalization-floor-0.75.md`. 2. **Owner: `NO_REGRESSION` semantics.** 3. **Owner: D-1** taxonomy↔match-engine vocabulary. |
 | **PRODUCTION-CRITICAL** | **None.** No taxonomy component is on a production request path. |
 | **OPTIONAL / HARDENING** | 4 unguarded write runners · `AI_SPEND_REDIS_URL` IPv6 · pooler saturation |
 | **REMAINING EFFORT (Track A)** | ~4–6 sessions to Phase 10 complete |
