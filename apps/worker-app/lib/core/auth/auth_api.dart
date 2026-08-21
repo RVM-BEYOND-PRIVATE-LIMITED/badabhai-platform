@@ -652,6 +652,12 @@ class AuthApi {
   /// The (endpoint, status) → code table. See the per-method doc comments and the
   /// confirmed backend status codes (ADR-0026 / apps/api/src/auth/*).
   String _codeFor(_AuthEndpoint endpoint, int status) {
+    // RESERVED, endpoint-independent: the backend returns 410 ONLY for
+    // WORKER_ACCOUNT_DELETED (a valid token whose worker row is gone). The global
+    // AccountDeletedSignal — fired in AuthedClient._decode — already drives the
+    // dialog + hard-logout; naming the code here just stops any caller (notably
+    // unlockWithPin) mislabelling it as a wrong PIN / generic "unknown".
+    if (status == 410) return AuthErrorCode.accountDeleted;
     switch (endpoint) {
       case _AuthEndpoint.otpRequest:
         if (status == 429) return AuthErrorCode.otpRateLimited;
