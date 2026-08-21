@@ -1,0 +1,95 @@
+{
+  "kind": "vernacular-coverage",
+  "fixture": "data/taxonomy/eval/retrieval-v3.jsonl",
+  "floor_in_force": 0.75,
+  "particle_vocabulary": {
+    "tokens": 38,
+    "suffixes": 10,
+    "phrases": 13,
+    "latin_script": 24
+  },
+  "coverage": {
+    "total": 168,
+    "byRegister": {
+      "devanagari": 41,
+      "hinglish_latin": 0,
+      "english_latin": 127
+    },
+    "absent": [
+      "hinglish_latin"
+    ]
+  },
+  "by_register_category": {
+    "devanagari/cross_domain_isolation": {
+      "n": 2,
+      "mean": 0.5614,
+      "median": 0.5614,
+      "below_floor": 2,
+      "correct": 0
+    },
+    "devanagari/devanagari_alias": {
+      "n": 15,
+      "mean": 1,
+      "median": 1,
+      "below_floor": 0,
+      "correct": 15
+    },
+    "devanagari/devanagari_paraphrase": {
+      "n": 24,
+      "mean": 0.752,
+      "median": 0.7521,
+      "below_floor": 12,
+      "correct": 22
+    },
+    "english_latin/canonical_convergence": {
+      "n": 6,
+      "mean": 0.8284,
+      "median": 0.828,
+      "below_floor": 0,
+      "correct": 6
+    },
+    "english_latin/cross_domain_isolation": {
+      "n": 8,
+      "mean": 0.5766,
+      "median": 0.566,
+      "below_floor": 8,
+      "correct": 0
+    },
+    "english_latin/exact_alias": {
+      "n": 24,
+      "mean": 1,
+      "median": 1,
+      "below_floor": 0,
+      "correct": 24
+    },
+    "english_latin/lexical_ambiguity": {
+      "n": 11,
+      "mean": 0.9381,
+      "median": 1,
+      "below_floor": 1,
+      "correct": 11
+    },
+    "english_latin/multi_domain_reach": {
+      "n": 5,
+      "mean": 1,
+      "median": 1,
+      "below_floor": 0,
+      "correct": 5
+    },
+    "english_latin/null_legacy_domain": {
+      "n": 3,
+      "mean": 1,
+      "median": 1,
+      "below_floor": 0,
+      "correct": 3
+    },
+    "english_latin/paraphrase_latin": {
+      "n": 66,
+      "mean": 0.7465,
+      "median": 0.7544,
+      "below_floor": 32,
+      "correct": 61
+    }
+  },
+  "hygiene_rule": "Vernacular paraphrase quality requires sibling lexical-hygiene validation, not merely translation quality: a positive case may not carry the label or alias of a different skill wired to the same domain, because then no correct answer exists to retrieve."
+}

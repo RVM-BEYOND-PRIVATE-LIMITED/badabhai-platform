@@ -103,6 +103,31 @@ function corpus(): ParticleCorpus {
   return cachedCorpus;
 }
 
+/**
+ * The particle vocabulary, read-only, for callers that need to REASON about it rather than
+ * apply it.
+ *
+ * Exposed for the D-6 vernacular audit: the presence of one of these tokens in a Latin-script
+ * string is the sharpest available evidence that the string is Hindi romanized rather than
+ * English ("welding ka kaam karta hun"), which is a distinction the `lang` column cannot
+ * express. Reading `data/particles.json` from another package would fork the corpus path and
+ * drift the moment the file moves, so the accessor lives beside the loader that owns it.
+ *
+ * Returns copies: the corpus is cached and a caller must not be able to mutate it.
+ */
+export function occupationParticles(): {
+  readonly tokens: readonly string[];
+  readonly suffixes: readonly string[];
+  readonly phrases: readonly (readonly string[])[];
+} {
+  const c = corpus();
+  return {
+    tokens: [...c.tokens],
+    suffixes: [...c.suffixes],
+    phrases: c.phrases.map((p) => [...p]),
+  };
+}
+
 /** Longest phrases first, so `["ka","kaam","karta","hun"]` wins over `["ka","kaam"]`. */
 function phrasesByLength(c: ParticleCorpus): readonly (readonly string[])[] {
   return [...c.phrases].sort((a, b) => b.length - a.length);
