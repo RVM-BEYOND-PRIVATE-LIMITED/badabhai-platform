@@ -17,7 +17,7 @@ BadaBhai Architecture Status
 
 Overall:                     NOT MEASURABLE  (see note)
 
-Production blockers:         3  (see "Production blockers" below)
+Production blockers:         0 in code — all 3 were already shipped (measured 2026-08-21)
 Critical features complete:  NOT MEASURABLE — 8 of 22 feature rows are production-verified
 Architecture components:     8 of 9 running and health-gated in production
 Database/migration status:   87 of 87 recorded · 0 orphans · contract READY · RLS 78/78
@@ -26,16 +26,71 @@ Taxonomy Phase 9:            4 DONE · 1 DECISION REQUIRED · 3 BLOCKED · 5 DEF
 Observability:               3 of 5 wired · 1 unverified in production
 Security:                    RLS 78/78 · schema contract READY · 4 write runners unguarded
 
-Current phase:    Post-deploy stabilisation. Production is live and serving traffic.
-Next milestone:   Close the 3 production blockers; leave taxonomy where it stands.
-Current blocker:  D2 Path-B parity is failing (DECISION REQUIRED, not a product outage).
-Next 3 actions:   1. Decide Path-B (accept / roll back) — unblocks nothing else, but it is open.
-                  2. TD2 — Fast2SMS live-send proof. Real workers cannot receive OTP without it.
-                  3. TD73 — GET /feed must exclude decided jobs server-side.
+Current phase:    The product WORKS end-to-end in production — 270 workers have completed it.
+Next milestone:   Voice: the one flow that is built and has never been used by anybody.
+Current blocker:  NONE in code. Path-B parity is a DECISION, not an outage.
+Next 3 actions:   1. Voice (G2) — zero events, zero rows, entirely unexercised.
+                  2. interview_kit render — 16 failed vs 12 completed (>50% failure).
+                  3. Decide Path-B (accept / roll back).
 ```
 
 **Why "Overall %" is NOT MEASURABLE.** There is no weighting of features to a denominator that
 would not be invented. Counts are given instead, and every count below is traceable to a command.
+
+---
+
+## The measured production funnel — 2026-08-21
+
+This supersedes every "is it working?" argument in this document, and it is what closed three
+of the eight P0s. Counts are rows in `events`.
+
+> **Read the distinct column carefully.** Worker-subject steps count distinct *workers*;
+> `feed.shown` and `application.submitted` are keyed on the **JOB**, so their distinct counts are
+> jobs. Reading them as a 90% drop-off is the obvious mistake and would be wrong.
+
+| step | events | distinct | last 7d |
+|---|---|---|---|
+| OTP requested | 451 | — | 275 |
+| **OTP verified** | **382** | **270 workers** | 235 |
+| account created | 270 | 270 workers | 206 |
+| consent accepted | 333 | 333 | 259 |
+| name recorded | 332 | 247 workers | 244 |
+| AI profiling started | 270 | 270 workers | 190 |
+| profile extracted | 223 | 223 workers | 126 |
+| **resume generated** | **114** | 114 workers | 59 |
+| resume **downloaded** | **196** | — | — |
+| interview kit downloaded | 51 | — | — |
+| feed shown | 7,616 | *(25 jobs)* | 3,056 |
+| job applied | 92 | *(21 jobs)* | 33 |
+| **voice — any event** | **0** | **0** | **0** |
+
+**What this proves.** The core worker journey — register → OTP → consent → AI profiling →
+extraction → resume → download → browse → apply — is completed by real people on real handsets,
+continuously. Not a staging claim, not a fixture.
+
+**What it exposes — the real findings:**
+
+1. **Voice has never been used.** Zero `voice.*` events, zero `voice_notes` rows. It is built
+   (`features/voice`, `features/voice_form`; the old placeholder file is gone) and completely
+   unexercised, so **nothing proves it works**. This is now the top product-functionality question.
+2. **`interview_kit.render_failed` 16 vs `render_completed` 12** — a **>50% render failure rate**.
+   Newest failure 2026-07-27, newest completion 2026-08-20, so it may already be fixed; nothing
+   on record says either way.
+3. **223 profile extractions → 114 resumes.** About half the workers who get a profile never get
+   a resume. A product-funnel question, not a defect.
+
+### Consequence for §4
+
+The three items §4 listed as production blockers were **all already shipped**:
+
+| was | actual state |
+|---|---|
+| TD73 `/feed` exclusion | shipped + indexed in production; only test coverage was missing (added) |
+| TD2 real OTP | 451 requested / **382 verified** / 1 failed |
+| TD29 worker-app flows | G1 196 downloads · G3 51 kit downloads · 270 workers through the core path |
+
+**BUILD remaining on the critical path: none identified.** What remains is VERIFY (voice, kit
+render), HARDENING, and one DECISION (Path-B).
 
 ---
 
