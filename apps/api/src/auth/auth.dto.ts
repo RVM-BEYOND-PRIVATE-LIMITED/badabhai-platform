@@ -152,6 +152,13 @@ export interface AccountDeleteCancelResponse {
   success: true;
 }
 
+/** Response of POST /auth/account/delete/immediate — the QA-ONLY immediate hard-delete seam.
+ * ALWAYS { ok: true } when the flag is armed (the delete is idempotent; an already-gone row is
+ * still a 200). The route 404s while TEST_IMMEDIATE_DELETE_ENABLED is off. */
+export interface AccountDeleteImmediateResponse {
+  ok: true;
+}
+
 /** Response of POST /auth/token/refresh — fresh access + rotated refresh + session. */
 export interface TokenRefreshResponse {
   access_token: string;
