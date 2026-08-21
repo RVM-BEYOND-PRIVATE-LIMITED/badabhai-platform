@@ -80,6 +80,29 @@ export class WorkersRepository {
   }
 
   /**
+   * True iff a worker row with this id currently EXISTS. The cheapest possible existence
+   * probe: a PK point-lookup projecting the id ONLY (`SELECT id ... WHERE id = $1 LIMIT 1`),
+   * riding the `workers` primary-key index.
+   *
+   * PII-FREE by projection (CLAUDE.md §2), deliberately NOT `findById` (which is `select()` =
+   * SELECT * and hands back the encrypted phone/phone_hash/full_name): no PII column enters the
+   * result set, so this can run on the hot per-request auth path without ever pulling PII into
+   * the guard, a log, or the wire.
+   *
+   * Used by {@link WorkerAuthGuard} to turn a VALID session whose worker row was deleted out of
+   * band into the reserved 410 `WORKER_ACCOUNT_DELETED`, so the client can hard-logout with
+   * certainty (a normally-deleted worker has no session left and never reaches this).
+   */
+  async existsById(id: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: workers.id })
+      .from(workers)
+      .where(eq(workers.id, id))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  /**
    * The worker's own GET /auth/me view — status + the ADR-0031 deletion marker.
    *
    * EXPLICIT projection, deliberately NOT `findById` (which is `select()` = SELECT * and
