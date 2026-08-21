@@ -22,7 +22,7 @@ import { PinHasher } from "./pin-hasher.service";
 import { PinRepository } from "./pin.repository";
 import { ConsentRepository } from "../consent/consent.repository";
 import { withConsentAccepted } from "../consent/consent-flag";
-import { WorkerAccountDeletedException } from "./worker-account-deleted.exception";
+import { throwIfWorkerDeleted } from "./worker-account-deleted.exception";
 import type { DeviceInfoDto } from "./devices.dto";
 import type { PinResetConfirmResponse, PinVerifyResponse } from "./pin.dto";
 
@@ -289,13 +289,7 @@ export class PinService {
     // deleted account is a TERMINAL, unguessable state, not a PIN secret, and the 410 fires only
     // when the credential (the refresh token) is itself VALID — so it reveals nothing a wrong-PIN
     // guesser could probe for. `existsById` is a PK point-lookup projecting the id only (no PII).
-    let workerExists = true;
-    try {
-      workerExists = await this.workers.existsById(workerId);
-    } catch {
-      workerExists = true; // unknown existence → fail safe, never a false 410
-    }
-    if (!workerExists) throw new WorkerAccountDeletedException();
+    await throwIfWorkerDeleted(this.workers, workerId, this.logger);
 
     // (b) Trusted-device gate: the resolved device must be a NON-revoked device owned by the
     // worker. A revoked/foreign device is untrusted ⇒ neutral failure (+ a verify-failed
