@@ -610,6 +610,20 @@
       "when": 1787254448714,
       "tag": "0086_bound_deletion_forensics",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1787254458714,
+      "tag": "0087_default_privileges_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1787254468714,
+      "tag": "0088_declare_ensure_rls_drop_policy_helper",
+      "breakpoints": true
     }
   ]
 }

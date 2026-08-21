@@ -415,7 +415,33 @@ already done — which is exactly the window in which it is cheap to decide.
 
 ## Blast radius of each proposed change
 
-Five changes are on the table. **One is written and unapplied; four are not written at all.**
+> **STATUS, 2026-08-21 — all five now have an owner ruling, and four are written.**
+> This section is kept as the analysis that led to each decision; the status line on each heading
+> is the current truth. What is written is **not yet applied** — migrations in this repository are
+> run by hand by the backend owner, so `0085`–`0088` all await that step.
+>
+> | # | change | ruling | state |
+> |---|---|---|---|
+> | 1 | REVOKE EXECUTE on the three functions | approved | `0085`, awaiting apply |
+> | 2 | stop `_delete_forensics` capturing statement text + IP | approved | `0086`, awaiting apply |
+> | 3 | declare whatever stays | *"keep it, declare it, and harden it"* / *"drop it"* | `0086` + `0088`, awaiting apply |
+> | 4 | change the default privileges | approved for TABLES too | `0085` §A (functions) + `0087` (tables) |
+> | 5 | a retention policy for `_delete_forensics` | approved, bounded | `0086`, awaiting apply |
+>
+> The one thing that did NOT survive contact with the decision: recommendation 3's *"the trap"*
+> below assumed declaring any of the three names would flip the drift audit green by accident.
+> Two of them are now declared **on purpose**, and `is_active_payer_member` is **dropped rather
+> than declared** — dropping is not endorsing, so it must never appear in a `CREATE`. The pin in
+> `migration-adoption.test.ts` was updated to assert exactly that, name by name, with the ruling
+> quoted beside each.
+>
+> A second thing the trap did not anticipate: `declaredRoutines` matched `CREATE FUNCTION` and
+> `CREATE TRIGGER` but **not `CREATE EVENT TRIGGER`**, so `ensure_rls` would have gone on being
+> reported as undeclared however it was written. It now has its own `eventTriggers` set, kept
+> separate from table triggers because the two are read from different catalogs.
+
+Five changes were on the table. **Four are written; one (`0085`) was already written when this
+section was first drafted. None is applied.**
 
 ### 1. REVOKE EXECUTE from the Data-API roles — WRITTEN as `0085`, NOT APPLIED
 
@@ -429,7 +455,9 @@ Five changes are on the table. **One is written and unapplied; four are not writ
 | how you know it took | `db:audit:undeclared-routines --strict` — **exit 1 naming all three today, exit 0 after**. Adoption re-checks the same 12 facts from the catalog and currently refuses 0085 with 12 mismatches |
 | what it does **not** fix | the default privilege that created all 12. A fourth function gets the same grant the day it is created |
 
-### 2. Drop `_delete_forensics.query` — NOT WRITTEN
+### 2. Drop `_delete_forensics.query` — WRITTEN as `0086`, NOT APPLIED
+
+> Ruled 2026-08-21: *"keep the DPDP erasure proof, but do not retain raw statement text/operator IP indefinitely."* `0086` drops **`query` and `client_addr`**. The "cheaper alternative" row below was not taken — the columns go rather than merely stopping being written, on the measurement that no realised PII is destroyed by doing so.
 
 | | |
 |---|---|
@@ -440,7 +468,9 @@ Five changes are on the table. **One is written and unapplied; four are not writ
 | why still recommended | "clean today" is a property of how deletes have happened so far — parameterised, or by uuid at a console. One hand-typed `WHERE phone_e164 = '+91…'` changes it permanently and nothing would report it |
 | the cheaper alternative | stop *writing* it (`CREATE OR REPLACE FUNCTION _log_delete` minus the column) and leave the existing 147 values under a retention policy. Reversible, and it caps exposure at what already exists |
 
-### 3. Declare whatever stays — NOT WRITTEN
+### 3. Declare whatever stays — WRITTEN as `0086` + `0088`, NOT APPLIED
+
+> Ruled 2026-08-21. `_delete_forensics` / `_log_delete` / both triggers are declared by `0086`. `ensure_rls` + `rls_auto_enable` are declared **and hardened** by `0088` — the "if `ensure_rls` stays" row below is exactly what it implements: ENABLE + FORCE + REVOKE, and the `EXCEPTION WHEN OTHERS` removed. `is_active_payer_member` is **dropped**, not declared.
 
 | | |
 |---|---|
@@ -449,7 +479,9 @@ Five changes are on the table. **One is written and unapplied; four are not writ
 | ⚠ the trap | `declaredRoutines` scans migrations for `CREATE FUNCTION` / `CREATE TRIGGER`. **The moment any migration writes one of these three names in a CREATE, the drift audit goes green** and the open question closes without anybody deciding it. `0085` names all three in REVOKEs only, and a test pins that they are still undeclared afterwards |
 | if `ensure_rls` stays | it should also FORCE and REVOKE, and its `EXCEPTION WHEN OTHERS` should go. As written it delivers one of the three conditions a lock needs, and swallows its own failures into the server log |
 
-### 4. Change the default privileges — NOT WRITTEN, and the largest of the five
+### 4. Change the default privileges — WRITTEN as `0085` §A + `0087`, NOT APPLIED
+
+> Ruled 2026-08-21: *"same treatment as 0085 Section A"*, applied to TABLES. `0085` §A covers FUNCTIONS; `0087` covers TABLES. **SEQUENCES are deliberately still untouched** — one object type per decision, as `0085` argued. The "cheap middle" row below was not taken: `--strict` stays as the standing check *in addition to* the fix, not instead of it.
 
 | | |
 |---|---|
@@ -460,7 +492,9 @@ Five changes are on the table. **One is written and unapplied; four are not writ
 | the argument against | it diverges from Supabase's platform convention, and a future maintainer who expects the convention gets a confusing permission error rather than a clear one |
 | the cheap middle | leave the default alone and keep `--strict` as the standing check, so a fourth exposed function is *reported* rather than prevented |
 
-### 5. A retention policy for `_delete_forensics` — NOT WRITTEN
+### 5. A retention policy for `_delete_forensics` — WRITTEN as `0086`, NOT APPLIED
+
+> Ruled 2026-08-21: bounded retention. `0086` adds the index the sweep needs and the policy lives in code (`prune-delete-forensics.ts`). The "no index on `at`" row below is what it fixes.
 
 | | |
 |---|---|

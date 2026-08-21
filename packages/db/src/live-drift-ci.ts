@@ -72,7 +72,15 @@ import { sql as dsql } from "drizzle-orm";
 
 import { createDbClient } from "./client";
 import { hostClass, type TargetClass } from "./ops-guard";
-import { declaredRoutines, declaredTables, drift, isClean, type Drift, type LiveTable } from "./audit-live-drift";
+import {
+  declaredRoutines,
+  declaredTables,
+  drift,
+  isClean,
+  type DeclaredRoutines,
+  type Drift,
+  type LiveTable,
+} from "./audit-live-drift";
 
 config({ path: join("..", "..", ".env") });
 
@@ -123,7 +131,7 @@ export function isCiSafeTarget(t: TargetClass): boolean {
 export function ciVerdict(
   catalog: LiveCatalog,
   declared: readonly { table: string; columns: readonly string[] }[],
-  declaredRoutineNames: { triggers: Set<string>; functions: Set<string> },
+  declaredRoutineNames: DeclaredRoutines,
   journalTags: readonly { tag: string; hash: string }[],
 ): CiVerdict {
   const recorded = new Set(catalog.recordedMigrationHashes);
@@ -148,8 +156,12 @@ export function ciVerdict(
   const d = drift(catalog.tables, declared);
   const undeclaredTriggers = catalog.triggers.filter((t) => !declaredRoutineNames.triggers.has(bareName(t)));
   const undeclaredFunctions = catalog.functions.filter((f) => !declaredRoutineNames.functions.has(f));
+  // Against `eventTriggers`, not `triggers` — an event trigger is a different catalog and a
+  // different declaration. Before #1110 declared `ensure_rls` this read the table-trigger set,
+  // which no `CREATE EVENT TRIGGER` can ever populate, so the name was unconditionally reported
+  // as undeclared however the migrations were written.
   const undeclaredEventTriggers = catalog.eventTriggers.filter(
-    (e) => !declaredRoutineNames.triggers.has(bareName(e)),
+    (e) => !declaredRoutineNames.eventTriggers.has(bareName(e)),
   );
 
   const problems: string[] = [];
