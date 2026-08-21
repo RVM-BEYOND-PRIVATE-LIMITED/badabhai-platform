@@ -37,15 +37,19 @@ AuthedClient _client(
 
 void main() {
   group('AuthedClient WORKER_ACCOUNT_DELETED (410) detection', () {
-    test('410 + WORKER_ACCOUNT_DELETED fires the callback, response still 410',
+    test('REAL envelope: 410 + { error: { code } } fires, response still 410',
         () async {
       int fired = 0;
       final SecureTokenStore store = SecureTokenStore(FakeSecureStore());
       final AuthedClient client = _client(
         MockClient((http.Request req) async => http.Response(
+              // The real wire shape: AllExceptionsFilter nests under `error`.
               jsonEncode(<String, dynamic>{
-                'code': 'WORKER_ACCOUNT_DELETED',
-                'message': 'gone',
+                'statusCode': 410,
+                'error': <String, dynamic>{
+                  'code': 'WORKER_ACCOUNT_DELETED',
+                  'message': 'This account no longer exists.',
+                },
               }),
               410,
             )),
@@ -56,7 +60,7 @@ void main() {
       final AuthResponse res = await client.send(HttpMethod.get, '/me');
 
       expect(res.statusCode, 410, reason: 'the caller still sees the 410');
-      expect(fired, 1, reason: 'exactly one hard-logout signal');
+      expect(fired, 1, reason: 'exactly one hard-logout signal on the real shape');
     });
 
     test('a bare 410 (no code) does NOT fire', () async {
