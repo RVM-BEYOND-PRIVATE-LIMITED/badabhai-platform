@@ -194,6 +194,58 @@ describe("ApplicationsService — applicants_received counter (ADR-0009 rollup)"
   });
 });
 
+describe("ApplicationsService — TD73, the applied->skipped downgrade guard (legacy path)", () => {
+  /**
+   * WA-1 was DATA DESTRUCTION, not a display bug: the decision upsert is keyed
+   * (worker_id, job_id) last-write-wins, so a re-swipe of an already-applied job
+   * silently flipped `applied` -> `skipped` and the application was gone.
+   *
+   * Server-side feed exclusion alone does NOT close this. The client's decisions read
+   * caps at 500 oldest-first, so past 500 decisions the newest applies drop out of the
+   * exclusion set and an applied job can be served again. The guard in `skip()` is the
+   * only thing standing between that and a destroyed application.
+   *
+   * `skipV1` already had this test. The LEGACY path — the one that runs today, because
+   * MATCH_V1_ENABLED is false in production — did not.
+   */
+  it("refuses to downgrade an APPLIED row, and reports it as still applied", async () => {
+    const { svc, repo } = setup();
+    await svc.apply(WORKER_ID, JOB_ID, { rank: 1, source_surface: "feed" }, CTX);
+
+    const out = await svc.skip(WORKER_ID, JOB_ID, { reason: "too_far" }, CTX);
+
+    expect(out.action).toBe("applied");
+    // The decisive assertion: no write was attempted at all. Returning "applied" while
+    // still upserting `skipped` would look correct to the caller and destroy the row.
+    const skipWrites = repo.upsertDecision.mock.calls.filter(
+      (c) => (c[0] as { action?: string }).action === "skipped",
+    );
+    expect(skipWrites).toHaveLength(0);
+  });
+
+  it("emits NO application.skipped event for the refused downgrade", async () => {
+    // A skipped event for an application that still exists would corrupt the spine —
+    // every downstream consumer would read the worker as having withdrawn.
+    const { svc, events } = setup();
+    await svc.apply(WORKER_ID, JOB_ID, { rank: 1, source_surface: "feed" }, CTX);
+    events.emit.mockClear();
+
+    await svc.skip(WORKER_ID, JOB_ID, { reason: "too_far" }, CTX);
+
+    const skipped = events.emit.mock.calls.filter(
+      (c) => (c[0] as { event_name?: string }).event_name === "application.skipped",
+    );
+    expect(skipped).toHaveLength(0);
+  });
+
+  it("still allows a NEW skip, and a skip->skip repeat", async () => {
+    // The guard must not turn into "skips never write". Only the downgrade is refused.
+    const { svc } = setup();
+    expect((await svc.skip(WORKER_ID, JOB_ID, { reason: "too_far" }, CTX)).action).toBe("skipped");
+    expect((await svc.skip(WORKER_ID, JOB_ID, { reason: "low_pay" }, CTX)).action).toBe("skipped");
+  });
+});
+
 describe("ApplicationsService — skip", () => {
   it("upserts action='skipped' with the enum reason and emits a PII-free application.skipped", async () => {
     const { svc, repo, events } = setup();
