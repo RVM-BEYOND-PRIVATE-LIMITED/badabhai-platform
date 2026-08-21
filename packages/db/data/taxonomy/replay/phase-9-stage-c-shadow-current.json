@@ -1,0 +1,382 @@
+{
+  "kind": "s3d-shadow-report",
+  "offline": true,
+  "unmeasurable": [
+    {
+      "signal": "latency p95",
+      "why": "there is no request in an offline replay",
+      "needs": "the live dual-read shadow, or a load test against a switched read path"
+    },
+    {
+      "signal": "unresolved_phrase volume",
+      "why": "a production time series, not a corpus property",
+      "needs": "the pre-switch count (read it now) compared against the post-switch count"
+    },
+    {
+      "signal": "real query distribution",
+      "why": "the fixture is 127 curated cases, not traffic",
+      "needs": "captured (phrase, job_domain_id) pairs from a caller that populates the canonical scope"
+    }
+  ],
+  "report": {
+    "cases": 123,
+    "aEmpty": 65,
+    "bEmpty": 0,
+    "emptyRateDelta": 0.5284552845528455,
+    "bothResolved": 58,
+    "agreeTop1": 9,
+    "disagreeTop1": 49,
+    "agreementRate": 0.15517241379310345,
+    "disagreements": [
+      {
+        "caseId": "EX-EN-05",
+        "jobDomainId": "jd_nco_7212_0100",
+        "a": "skill_grinding_ops",
+        "b": "skill_drawing_reading",
+        "scoreDelta": -0.046725
+      },
+      {
+        "caseId": "EX-EN-06",
+        "jobDomainId": "jd_nco_7212_0301",
+        "a": "skill_arc_welding",
+        "b": "skill_fixture_setup",
+        "scoreDelta": 0.041959
+      },
+      {
+        "caseId": "EX-EN-09",
+        "jobDomainId": "jd_nco_7313_2601",
+        "a": "skill_quality_control",
+        "b": "skill_fixture_setup",
+        "scoreDelta": 0.052091
+      },
+      {
+        "caseId": "EX-HI-04",
+        "jobDomainId": "jd_nco_7212_0100",
+        "a": "skill_grinding_ops",
+        "b": "skill_drilling",
+        "scoreDelta": -0.054347
+      },
+      {
+        "caseId": "EX-HI-08",
+        "jobDomainId": "jd_nco_7543_2001",
+        "a": "skill_measuring_instruments",
+        "b": "skill_turning",
+        "scoreDelta": 0.000521
+      },
+      {
+        "caseId": "EX-HI-10",
+        "jobDomainId": "jd_nco_7212_0100",
+        "a": "skill_gas_cutting",
+        "b": "skill_fixture_setup",
+        "scoreDelta": 0.000546
+      },
+      {
+        "caseId": "PA-04",
+        "jobDomainId": "jd_nco_7212_0100",
+        "a": "skill_gas_cutting",
+        "b": "skill_tapping_threading",
+        "scoreDelta": 0.01364
+      },
+      {
+        "caseId": "PA-05",
+        "jobDomainId": "jd_nco_7212_0301",
+        "a": "skill_arc_welding",
+        "b": "skill_fixture_setup",
+        "scoreDelta": 0.159031
+      },
+      {
+        "caseId": "PA-07",
+        "jobDomainId": "jd_nco_7543_2001",
+        "a": "skill_measuring_instruments",
+        "b": "skill_drilling",
+        "scoreDelta": -0.031007
+      },
+      {
+        "caseId": "PA-10",
+        "jobDomainId": "jd_nco_7313_2601",
+        "a": "skill_quality_control",
+        "b": "skill_drawing_reading",
+        "scoreDelta": 0.03608
+      },
+      {
+        "caseId": "PA-11",
+        "jobDomainId": "jd_nco_7212_0100",
+        "a": "skill_gas_cutting",
+        "b": "skill_tool_offset_setting",
+        "scoreDelta": 0.063851
+      },
+      {
+        "caseId": "PH-03",
+        "jobDomainId": "jd_nco_7212_0100",
+        "a": "skill_gas_cutting",
+        "b": "skill_drilling",
+        "scoreDelta": 0.040735
+      },
+      {
+        "caseId": "MD-03",
+        "jobDomainId": "jd_nco_7212_0300",
+        "a": "skill_machine_maintenance",
+        "b": "skill_drawing_reading",
+        "scoreDelta": -0.002188
+      },
+      {
+        "caseId": "MD-04",
+        "jobDomainId": "jd_nco_8212_0100",
+        "a": "skill_mechanical_assembly",
+        "b": "skill_drilling",
+        "scoreDelta": -0.006735
+      },
+      {
+        "caseId": "AM-01",
+        "jobDomainId": "jd_nco_7543_2001",
+        "a": "skill_measuring_instruments",
+        "b": "skill_drilling",
+        "scoreDelta": -0.006108
+      },
+      {
+        "caseId": "AM-02",
+        "jobDomainId": "jd_nco_7313_2601",
+        "a": "skill_quality_control",
+        "b": "skill_drawing_reading",
+        "scoreDelta": 0.077805
+      },
+      {
+        "caseId": "AM-03",
+        "jobDomainId": "jd_nco_7223_0701",
+        "a": "skill_drilling",
+        "b": "skill_fixture_setup",
+        "scoreDelta": -0.032334
+      },
+      {
+        "caseId": "AM-04",
+        "jobDomainId": "jd_nco_7212_0100",
+        "a": "skill_gas_cutting",
+        "b": "skill_fixture_setup",
+        "scoreDelta": -0.029551
+      },
+      {
+        "caseId": "AM-05",
+        "jobDomainId": "jd_nco_7212_0300",
+        "a": "skill_machine_maintenance",
+        "b": "skill_tool_offset_setting",
+        "scoreDelta": -0.158062
+      },
+      {
+        "caseId": "AM-06",
+        "jobDomainId": "jd_nco_7212_0100",
+        "a": "skill_grinding_ops",
+        "b": "skill_fixture_setup",
+        "scoreDelta": -0.023406
+      },
+      {
+        "caseId": "XD-03",
+        "jobDomainId": "jd_nco_7223_6002",
+        "a": "skill_turning",
+        "b": "skill_drilling",
+        "scoreDelta": -0.015219
+      },
+      {
+        "caseId": "XD-04",
+        "jobDomainId": "jd_nco_7212_0301",
+        "a": "skill_gas_cutting",
+        "b": "skill_turning",
+        "scoreDelta": -0.018667
+      },
+      {
+        "caseId": "XD-07",
+        "jobDomainId": "jd_nco_7223_6003",
+        "a": "skill_drawing_reading",
+        "b": "skill_fixture_setup",
+        "scoreDelta": -0.008996
+      },
+      {
+        "caseId": "XD-10",
+        "jobDomainId": "jd_nco_7231_0100",
+        "a": "skill_hydraulics_pneumatics",
+        "b": "skill_drawing_reading",
+        "scoreDelta": -0.080692
+      },
+      {
+        "caseId": "DC-01",
+        "jobDomainId": "jd_isco_7213",
+        "a": "skill_sheet_metal",
+        "b": "skill_turning",
+        "scoreDelta": -0.063787
+      },
+      {
+        "caseId": "DC-02",
+        "jobDomainId": "jd_nco_7223_2400",
+        "a": "skill_sheet_metal",
+        "b": "skill_turning",
+        "scoreDelta": -0.063827
+      },
+      {
+        "caseId": "DC-03",
+        "jobDomainId": "jd_nco_7224_0102",
+        "a": "skill_bench_fitting",
+        "b": "skill_fixture_setup",
+        "scoreDelta": 0.052336
+      },
+      {
+        "caseId": "DC-04",
+        "jobDomainId": "jd_isco_7233",
+        "a": "skill_bench_fitting",
+        "b": "skill_turning",
+        "scoreDelta": -0.020446
+      },
+      {
+        "caseId": "DC-05",
+        "jobDomainId": "jd_nco_7233_0101",
+        "a": "skill_bench_fitting",
+        "b": "skill_tool_offset_setting",
+        "scoreDelta": 0.04412
+      },
+      {
+        "caseId": "DC-07",
+        "jobDomainId": "jd_nco_7126_0301",
+        "a": "skill_gas_cutting",
+        "b": "skill_fixture_setup",
+        "scoreDelta": -0.080439
+      },
+      {
+        "caseId": "DC-08",
+        "jobDomainId": "jd_nco_7231_0400",
+        "a": "skill_mechanical_assembly",
+        "b": "skill_drilling",
+        "scoreDelta": 0.011923
+      },
+      {
+        "caseId": "DC-10",
+        "jobDomainId": "jd_nco_7412_0200",
+        "a": "skill_drawing_reading",
+        "b": "skill_fixture_setup",
+        "scoreDelta": -0.017379
+      },
+      {
+        "caseId": "DC-12",
+        "jobDomainId": "jd_nco_8211_1200",
+        "a": "skill_mechanical_assembly",
+        "b": "skill_tapping_threading",
+        "scoreDelta": 0.016887
+      },
+      {
+        "caseId": "DC-13",
+        "jobDomainId": "jd_isco_7213",
+        "a": "skill_sheet_metal",
+        "b": "skill_turning",
+        "scoreDelta": 0.152589
+      },
+      {
+        "caseId": "DC-14",
+        "jobDomainId": "jd_isco_7233",
+        "a": "skill_machine_maintenance",
+        "b": "skill_turning",
+        "scoreDelta": 0.083763
+      },
+      {
+        "caseId": "DC-17",
+        "jobDomainId": "jd_nco_7412_0200",
+        "a": "skill_drawing_reading",
+        "b": "skill_fixture_setup",
+        "scoreDelta": -0.062269
+      },
+      {
+        "caseId": "DC-18",
+        "jobDomainId": "jd_nco_8211_1200",
+        "a": "skill_mechanical_assembly",
+        "b": "skill_drilling",
+        "scoreDelta": 0.009625
+      },
+      {
+        "caseId": "DC-21",
+        "jobDomainId": "jd_isco_7233",
+        "a": "skill_bench_fitting",
+        "b": "skill_drilling",
+        "scoreDelta": 0.140692
+      },
+      {
+        "caseId": "DC-23",
+        "jobDomainId": "jd_nco_7126_0301",
+        "a": "skill_gas_cutting",
+        "b": "skill_drilling",
+        "scoreDelta": -0.038947
+      },
+      {
+        "caseId": "DC-24",
+        "jobDomainId": "jd_nco_8211_1200",
+        "a": "skill_bench_fitting",
+        "b": "skill_drilling",
+        "scoreDelta": -0.010444
+      },
+      {
+        "caseId": "DC-25",
+        "jobDomainId": "jd_nco_7233_0101",
+        "a": "skill_bench_fitting",
+        "b": "skill_tool_offset_setting",
+        "scoreDelta": -0.028825
+      },
+      {
+        "caseId": "GP-07",
+        "jobDomainId": "jd_nco_7231_0100",
+        "a": "skill_bench_fitting",
+        "b": "skill_drawing_reading",
+        "scoreDelta": -0.053726
+      },
+      {
+        "caseId": "GP-08",
+        "jobDomainId": "jd_nco_7231_0100",
+        "a": "skill_bench_fitting",
+        "b": "skill_turning",
+        "scoreDelta": 0.025072
+      },
+      {
+        "caseId": "GP-09",
+        "jobDomainId": "jd_nco_7231_0100",
+        "a": "skill_bench_fitting",
+        "b": "skill_tapping_threading",
+        "scoreDelta": -0.007978
+      },
+      {
+        "caseId": "GP-10",
+        "jobDomainId": "jd_nco_7231_0100",
+        "a": "skill_bench_fitting",
+        "b": "skill_tool_offset_setting",
+        "scoreDelta": 0.014799
+      },
+      {
+        "caseId": "PX-02",
+        "jobDomainId": "jd_isco_7213",
+        "a": "skill_sheet_metal",
+        "b": "skill_turning",
+        "scoreDelta": 0.060205
+      },
+      {
+        "caseId": "PX-03",
+        "jobDomainId": "jd_isco_7233",
+        "a": "skill_machine_maintenance",
+        "b": "skill_turning",
+        "scoreDelta": 0.056574
+      },
+      {
+        "caseId": "PX-04",
+        "jobDomainId": "jd_nco_7233_0101",
+        "a": "skill_machine_maintenance",
+        "b": "skill_turning",
+        "scoreDelta": 0.093892
+      },
+      {
+        "caseId": "PX-07",
+        "jobDomainId": "jd_nco_8211_1200",
+        "a": "skill_mechanical_assembly",
+        "b": "skill_fixture_setup",
+        "scoreDelta": 0.109077
+      }
+    ],
+    "scoreDelta": {
+      "min": -0.158062,
+      "p50": 0,
+      "p95": 0.140692,
+      "max": 0.159031
+    }
+  }
+}

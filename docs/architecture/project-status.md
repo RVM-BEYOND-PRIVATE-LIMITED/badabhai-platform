@@ -9,35 +9,195 @@
 > **Nothing in this document mutated anything.**
 
 ---
+## PROJECT CONTROL REPORT — 2026-08-21
 
-## Scoreboard
+**Every claim below carries a label. No claim advances a level without evidence.**
 
 ```
-BadaBhai Architecture Status
-
-Overall:                     NOT MEASURABLE  (see note)
-
-Production blockers:         0 in code — all 3 were already shipped (measured 2026-08-21)
-Critical features complete:  NOT MEASURABLE — 8 of 22 feature rows are production-verified
-Architecture components:     8 of 9 running and health-gated in production
-Database/migration status:   87 of 87 recorded · 0 orphans · contract READY · RLS 78/78
-AI pipeline:                 1 of 6 provider tasks armed for real calls in production
-Taxonomy Phase 9:            4 DONE · 1 DECISION REQUIRED · 3 BLOCKED · 5 DEFERRED
-Observability:               3 of 5 wired · 1 unverified in production
-Security:                    RLS 78/78 · schema contract READY · 4 write runners unguarded
-
-Current phase:    The product WORKS end-to-end in production — 270 workers have completed it.
-Next milestone:   Voice: the one flow that is built and has never been used by anybody.
-Current blocker:  NONE in code. Path-B parity is a DECISION, not an outage.
-Next 3 actions:   1. Voice (G2) — zero events, zero rows, entirely unexercised.
-                  2. interview_kit render — 16 failed vs 12 completed (>50% failure).
-                  3. Decide Path-B (accept / roll back).
+BUILT      code exists and its tests pass
+DEPLOYED   it is running on the production box
+ENABLED    its feature flag is on in production
+EXERCISED  real users have actually driven it
+VERIFIED   production evidence was read back and checked
 ```
 
-**Why "Overall %" is NOT MEASURABLE.** There is no weighting of features to a denominator that
-would not be invented. Counts are given instead, and every count below is traceable to a command.
+### A. Architecture status
 
----
+**What we are building.** A relevance pipeline that turns unstructured worker speech into
+canonical skill ids, scopes retrieval by job domain, and ranks deterministically — so a worker
+sees jobs matched on skills rather than on recency.
+
+**Intended final architecture.** `job_domain_skill` (Path A) as the single retrieval contract;
+`skill_alias.domain_id` (Path B, the 11 hand-minted slugs) retired; canonicalization ON; the
+reach engine ranking by exact `skill_id` equality, with embeddings assigning ids UPSTREAM and
+never ranking (invariant #4).
+
+| component | state | note |
+|---|---|---|
+| Skill corpus (165 skills, 332 embedded aliases) | **VERIFIED** | measured in production today |
+| `job_domain_skill` edges (236, all active) | **VERIFIED** | 28 job domains, 130 skills |
+| `job_domain_alias` (9,121 rows, 9,121 embedded, 3,885 domains) | **VERIFIED** | Path A's domain resolver corpus is complete |
+| Path A retrieval (`nearestAliasesByJobDomain`) | **BUILT + DEPLOYED** | never ENABLED — no caller reaches it |
+| Path B retrieval (`legacyAliasRows`) | **BUILT + DEPLOYED** | never ENABLED — same flag gates both |
+| Canonicalization route | **BUILT + DEPLOYED** | `SKILL_CANONICALIZE_ENABLED=false` |
+| Domain match | **BUILT + DEPLOYED** | `DOMAIN_MATCH_ENABLED=false` |
+| Reach engine / `job_reach` | **BUILT + DEPLOYED** | 6 rows; not on the feed path |
+| Promotion runner (7 gates) | **BUILT** | never run — `version=1` on all 165 skill rows |
+| P1 / P1-B parity verifiers | **BUILT + VERIFIED** | P1-B PASS 2026-08-21 |
+| Stage C shadow (offline) | **BUILT + VERIFIED** | evidence committed today |
+| **Production job feed** | **VERIFIED, and it is UNRANKED** | `findOpenJobs`: `status='open' AND NOT applied`, `ORDER BY created_at` |
+
+**Connected to production matching: nothing in the taxonomy layer.** The feed emits
+`score: 0`, with the source comment *"Honest unranked values — nothing scored this alpha
+surface."*
+
+### B. Phase status
+
+| stage | state | evidence |
+|---|---|---|
+| **A Observe** | **DONE** | committed pre-D2 baseline |
+| **B Backfill** | **DONE** | P1-B PASS on all four rules; 102 candidates |
+| **C Dual-read shadow** | **DONE (offline)** | two evidence files committed today |
+| **D Parity** | **BLOCKED — on promotion, not on engineering** | see below |
+| **E Read switch** | **NOT STARTED — and must NOT start** | Path A empty on 52.8% of cases today |
+| **F Rollback window** | NOT STARTED | |
+| **G Legacy retirement** | NOT STARTED | |
+
+**The Stage C finding, which inverts the plan's ordering.**
+
+| signal | today (30 active skills) | if promotion happened |
+|---|---:|---:|
+| Path A returned nothing | **65 / 123 (52.8%)** | **0** |
+| Path B returned nothing | 0 | 0 |
+| empty-rate delta (A−B) | **+52.8%** | **0.00%** |
+| top-1 agreement | 15.5% | 1.6% |
+| score delta A−B, median | 0 | **+0.276** |
+| score delta A−B, p95 | +0.141 | **+0.430** |
+
+The plan aborts the read switch "if A exceeds B by any margin". **Today it exceeds it by 52.8
+points** — Stage E would be a catastrophic recall loss. After promotion it is 0, and Path A is
+better by a median +0.28 similarity.
+
+The low agreement is not a regression. It is Path A being right where Path B is wrong: Path B is
+hard-coded to the single legacy anchor `cnc-machining` for every caller
+(`job-postings.service.ts:146`), so it answers a warehouse job with `skill_turning` and a
+construction job with `skill_drilling`. Path A answers them with `skill_forklift_operation` and
+`skill_mortar_mixing`.
+
+**Exit criteria for Stage D**, stated so it can be checked rather than argued:
+1. Promotion executed, or explicitly declined with the consequence accepted.
+2. Empty-rate delta (A−B) ≤ 0 on the fixture. *(Currently +52.8%. After promotion: 0.)*
+3. Every top-1 disagreement classified by a human. *(121 enumerated in the committed evidence.)*
+4. The 5 legacy-only skills resolved — see the table in C.
+5. P1 (not P1-B) green for the switch itself, since Stage E's contract IS "no behaviour change".
+
+### C. Work remaining
+
+Already-built functionality is **not** counted here.
+
+| area | class | status | remaining work | blocker | effort |
+|---|---|---|---|---|---|
+| Promote 111 provisional skills | **DECISION** | runner BUILT, never run | run `db:promote:skills`, verify 7 gates | **product decision** | 1 session |
+| 5 skills reachable only via legacy slug | **DECISION** | measured | add `job_domain_skill` edges, or accept the loss | taxonomy call | 0.5 session |
+| Classify 121 top-1 disagreements | **VERIFY** | enumerated | human read of the committed list | needs promotion first | 1 session |
+| `cnc-programming` A/B/C ruling | **DECISION** | open | — | product decision | — |
+| US-04 ruling | **DECISION** | open | — | product decision | — |
+| Stage D parity report | **BUILD** | not started | thresholds from Stage C data | Stage D inputs | 0.5 session |
+| Stage E read switch | **BUILD** | not started | pass `job_domain_id` at the caller | gates above | 0.5 session |
+| Stage F rollback window | **VERIFY** | not started | observation period | E | — |
+| Stage G legacy retirement | **BUILD** | not started | delete the Path B branch | F | 0.5 session |
+| Live dual-read shadow | **DEFERRED** | not built | request-path instrumentation | **would observe ~0 traffic** | — |
+| 4 unguarded write runners | **HARDEN** | open | add `enforceOpsGuard` | none | 0.5 session |
+| `AI_SPEND_REDIS_URL` IPv6 | **HARDEN** | open | `127.0.0.1` not `localhost` | none | 15 min |
+| Latency p95, `unresolved_phrase` volume, real query distribution | **DEFERRED** | unmeasurable offline | needs live traffic | canonicalization off | — |
+
+**Why the live dual-read shadow is deferred rather than built.** It would observe almost nothing:
+`job_posting_skill` holds **0** rows, `worker_skill` holds **8** rows across 6 workers, and
+`unresolved_phrase` holds 36. The offline replay covers 123 scoreable cases against the real
+production vectors — strictly more evidence, today, at zero provider cost.
+
+### D. Production truth
+
+| feature | BUILT | DEPLOYED | ENABLED | EXERCISED | VERIFIED |
+|---|---|---|---|---|---|
+| Worker onboarding / profile | ✅ | ✅ | ✅ | ✅ 270 workers | ✅ |
+| Job feed (unranked) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Applications | ✅ | ✅ | ✅ | ✅ | ✅ |
+| AI profile extraction | ✅ | ✅ | ✅ | ✅ 223 extractions | ✅ |
+| Resume generation | ✅ | ✅ | ✅ | ✅ 114 resumes | ✅ |
+| Skill canonicalization | ✅ | ✅ | ❌ flag off | ❌ | n/a |
+| Domain match | ✅ | ✅ | ❌ flag off | ❌ | n/a |
+| Path A retrieval | ✅ | ✅ | ❌ | ❌ | offline only |
+| Path B retrieval | ✅ | ✅ | ❌ | ❌ | offline only |
+| Relevance ranking on the feed | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Voice notes | ✅ | ✅ | ❌ no consent purpose | ❌ 0 workers | n/a |
+
+### E. Manual verification
+
+```bash
+# 1. Stage B is closed under P1-B — all four rules
+pnpm --filter @badabhai/db exec tsx src/verify-stage-b-parity.ts \
+  --against=data/taxonomy/replay/phase-9-path-b-parity-BASELINE-PRE-S3.json \
+  --delta=data/taxonomy/replay/phase-9-stage-b-delta.json
+# expect: R1..R4 PASS, 102 live candidates
+
+# 2. The de-collision cannot be silently undone
+pnpm --filter @badabhai/db exec tsx src/embed-skill-aliases.ts --plan
+# expect: "4 alias(es) excluded", "aliases needing embedding= 0"
+
+# 3. Stage C evidence, reproducible from scratch
+pnpm --filter @badabhai/db exec tsx src/export-alias-vectors.ts --out=/tmp/v.tsv
+pnpm --filter @badabhai/db exec tsx src/s3d-shadow-report.ts --vectors=/tmp/v.tsv
+pnpm --filter @badabhai/db exec tsx src/s3d-shadow-report.ts --vectors=/tmp/v.tsv --if-promoted
+# expect: aEmpty 65 -> 0, emptyRateDelta 0.528 -> 0
+```
+
+```sql
+-- 4. The feed does no ranking. This is the whole relevance story today.
+--    (apps/api/src/applications/applications.repository.ts, findOpenJobs)
+SELECT id, title, created_at FROM jobs WHERE status='open' ORDER BY created_at ASC LIMIT 10;
+
+-- 5. Nothing has ever been promoted
+SELECT status, version, count(*) FROM skill GROUP BY 1,2;   -- version=1 everywhere
+
+-- 6. What promotion would add to Path B, before you run it
+SELECT sa.domain_id, count(*) AS aliases, count(DISTINCT sa.skill_id) AS skills
+FROM skill_alias sa JOIN skill s ON s.skill_id=sa.skill_id
+WHERE s.status <> 'active' AND sa.domain_id IS NOT NULL AND sa.embedding IS NOT NULL
+GROUP BY 1;   -- fitting-assembly 19/8, cnc-programming 14/7
+```
+
+### F. Matching / relevance architecture — arrow by arrow
+
+| arrow | code | tables | model | active in prod? | verified |
+|---|---|---|---|---|---|
+| worker speech → profile draft | `profile_extractor.py` | `worker_profile` | Gemini Flash | **YES** | 223 extractions |
+| profile → skill LABELS | `profile_extractor.py:652` | — | LLM | **YES** | in the draft |
+| labels → CANONICAL ids | `canonicalize_skill` | `skill_alias` | embed + ANN + floor | **NO** — flag off | offline only |
+| phrase → domain | `nearestDomains` | `job_domain_alias` | ANN | **NO** — flag off | offline |
+| domain + phrase → skill (Path A) | `nearestAliasesByJobDomain` | `job_domain_skill` | ANN, HNSW | **NO** | shadow |
+| domain + phrase → skill (Path B) | `legacyAliasRows` | `skill_alias.domain_id` | ANN, HNSW | **NO** | shadow |
+| job posting → posting skills | `job-postings.service.ts:146` | `job_posting_skill` | — | **NO** — 0 rows | — |
+| worker + job → reachability | `reach-engine` | `job_reach` | exact `skill_id` equality | **NO** — 6 rows | — |
+| reachability → ranking | `reach-engine/scoring.ts` | — | deterministic, no model | **NO** | unit tests |
+| **jobs → what the worker sees** | **`applications.repository.ts` `findOpenJobs`** | **`jobs`, `applications`** | **none** | **YES** | **`score: 0`** |
+| feed → application | `applications.service.ts` | `applications` | — | **YES** | verified |
+
+**How a worker gets jobs today, exactly.** Every OPEN job the worker has not already applied to,
+ordered by `created_at ASC, id ASC`, optionally filtered by `trade_key` and `city`. That is all.
+
+**How irrelevant jobs are prevented today.** They are not, beyond the trade/city filter. There is
+no relevance gate on the feed.
+
+**Producing `score = 0` / unranked / bypassing relevance:** `getFeed` emits `feed.shown` with
+`rank: index+1, score: 0, hot: false`. That is the only ranking signal in production.
+
+### G. Taxonomy completion ≠ product completion
+
+Phase 9/10 delivers **relevance**. It is not what makes BadaBhai work — the product is live and
+serving 270 workers with every taxonomy flag off. When Phase 9 and Phase 10 close, the next
+workstream is the Job Posting → Relevance → Visibility audit, and that audit becomes meaningful
+only once the feed actually ranks.
 
 ## The measured production funnel — 2026-08-21
 
@@ -338,18 +498,21 @@ Values below are the **production overlay defaults** (`docker-compose.staging.ym
 |---|---|---|
 | **S3-A** (seed wedge) | **DONE** | executed 2026-08-21: +16 skills, +41 aliases, 4 statuses held |
 | **S3-B** (seed growth) | **DONE** | executed 2026-08-21: +98 skills, +197 aliases, +236 edges (531 rows) |
-| **S3-C** (dual-read shadow) | **DEFERRED** | never built; the request shape *is* the switch |
-| **S3-D** (activation) | **BLOCKED** | no rollback procedure; 4 of 5 abort thresholds have no instrument |
-| **P1** (Path-B parity) | **DECISION REQUIRED** | FAIL, exit 1, 8/10 slugs drifted — see §3 |
+| **S3-C** (dual-read shadow) | **DONE (offline)** | run against the post-D2 corpus 2026-08-21; evidence committed. The LIVE dual-read stays deferred — it would observe ~0 traffic |
+| **S3-D** (activation) | **BLOCKED** | 3 of 5 abort thresholds now have an instrument and a number; latency + unresolved-volume + real query distribution still need live traffic |
+| **P1** (Path-B parity) | **RESOLVED** | additive-only, proven by digest reconstruction. P1 unchanged for Stages C-G; **P1-B** governs Stage B and PASSES — see §3 |
 | **TD-01** (explicit term model) | **DEFERRED** | superseded; ratified shape is a full merge |
 | **TD-07** (generic welding parent) | **BLOCKED** | evidence never supplied; denial claim corrected #1030 |
 | **OIE / O1** | **BLOCKED** | designed and measured (29.17% vs O2's 0.00%); switch **OFF**, not activated |
 | **CNC programming** | **DONE** | quantified and decided (`phase-9-cnc-programming-decision.md`) |
 | **EVAL_COVERED** | **BLOCKED** | 6 skills need one reviewed trainer phrase each; pack deliberately empty |
-| **Embedding coverage** | **DONE** | 336/336 aliases, 147 skills fully embedded, 111 provisional embedded |
-| **Promotion** | **BLOCKED** | gated behind EVAL_COVERED + the P1 decision; not run |
+| **Embedding coverage** | **DONE** | 332/332 aliases embedded (336 minus 4 de-elected by duplicate election) |
+| **Promotion** | **DECISION REQUIRED** | no longer merely "blocked": Stage C shows it is the PREREQUISITE for Stage D/E, not a follow-on. Path A is empty on 52.8% of cases without it and 0% with it |
 
-**Counts: 4 DONE · 1 DECISION REQUIRED · 4 BLOCKED · 3 DEFERRED.**
+**Counts: 6 DONE · 1 DECISION REQUIRED · 3 BLOCKED · 3 DEFERRED.**
+
+> **This table is subordinate to the PROJECT CONTROL REPORT at the top of this document.**
+> Where the two disagree, the control report is newer.
 
 ### Stale register rows found while compiling this
 
