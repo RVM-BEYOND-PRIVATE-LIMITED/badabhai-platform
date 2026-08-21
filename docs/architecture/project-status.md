@@ -359,13 +359,15 @@ Values below are the **production overlay defaults** (`docker-compose.staging.ym
 
 ---
 
-## 3. The Path-B parity failure — objective explanation
+## 3. The Path-B parity failure — resolved by measurement, 2026-08-21
 
-**No recommendation is made here.**
+**Verdict: the drift is PURELY ADDITIVE and is not a behavioural regression — but a real
+taxonomy defect was found inside it, and it is not the parity failure itself.**
 
-**What changed.** `db:verify:path-b-parity --against=<committed baseline>` now exits **1**.
-Candidate rows **76 → 106**; overall digest `d7f6cd4e…` → `876fcd58…`; **8 of 10 legacy slugs
-drifted** (`general-machining` and `vmc-machining` unchanged).
+**What changed.** `db:verify:path-b-parity --against=<committed baseline>` exits **1**.
+Candidate rows **76 → 106** (+30); distinct skills **33 → 34** (+1); overall digest
+`d7f6cd4e…` → `876fcd58…`; **8 of 10** legacy slugs drifted (`general-machining` and
+`vmc-machining` unchanged).
 
 **Why it changed.** Path B's candidate predicate, copied from `SkillsRepository.legacyAliasRows`:
 
@@ -373,51 +375,106 @@ drifted** (`general-machining` and `vmc-machining` unchanged).
 WHERE sa.domain_id = $1 AND s.status = 'active' AND sa.embedding IS NOT NULL
 ```
 
-Rows only enter when they have a **vector**. D2 Step 2 gave vectors to 260 aliases. 30 of those
-satisfied the other two conditions and entered the candidate set.
+A row enters only once it holds a vector. D2 Step 2 vectorised 260 aliases. Exactly 30 of them
+also satisfied the other two conditions. Where the other 230 landed, measured:
 
-**Does it break current production behaviour?** **No — because the paths that consume it are off.**
-`MATCH_V1_ENABLED=false` and `DOMAIN_MATCH_ENABLED=false`. The candidate set changed; no
-production request currently reads it through those flags. This was **not** separately proven by
-a live request trace — it is inferred from the flag values, which is a weaker form of evidence and
-is stated as such.
+| bucket | rows | reaches Path B? |
+|---|---:|---|
+| `active` skill **+** legacy `domain_id` | **30** | **yes — this is the entire drift** |
+| `provisional` skill + legacy `domain_id` | 33 | no — blocked by `status='active'` |
+| `provisional` skill, no legacy `domain_id` | 193 | no — blocked twice |
+| `deprecated` skill, no legacy `domain_id` | 4 | no — blocked twice |
+| | **260** | ✓ reconciles |
 
-**Is it expected from embedding previously-unembedded aliases?** **Yes, for the majority.** The
-runbook flagged 22 unembedded aliases as *"a pre-existing gap, not something D2 creates"*, and
-predicted Step 2 would pick them up. It did not carry that prediction forward to its consequence
-for Path B.
+The 30 split **22 + 8**: 22 alias rows created 2026-07-14 that had been sitting on production
+with `embedding IS NULL`, and 8 rows D2 itself seeded.
 
-**The 22 pre-existing aliases.** Alias rows created **before** D2 (before 2026-08-20 20:00 UTC),
-already attached to skills that were already `active`, sitting on production with
-`embedding IS NULL`. Step 2 embedded them. **These would have moved Path B with or without D2's
-seed** — running Step 2 alone on the old corpus produces the same 22.
+### PROVEN — every baseline row survives unchanged
 
-**The 8 D2 aliases.** Of the 238 aliases D2 seeded: **197** carry no `domain_id` (growth corpus —
-they feed Path A edges), **33** carry a `domain_id` but sit on `provisional` skills (excluded by
-`status='active'`), and **8** carry a `domain_id` on an already-`active` skill. Only those 8
-could ever reach Path B. **22 + 8 = 30.** ✓
+Recomputing each slug's digest with the verifier's own `slugDigest`, over **only the rows D2 did
+not embed**, reproduces the committed baseline digest **byte-for-byte in all 10 slugs**
+(22/11/6/5/2/3/4/11/3/9 rows, every digest MATCH). Nothing was removed, re-skilled, renamed or
+re-modelled. The candidate set did not *change*; it **grew**.
 
-**Would production matching return different results today?** **Not through the gated paths** —
-they are off. If a flag were switched on, yes: 8 slugs would retrieve from a larger candidate
-pool (e.g. `cnc-machining` 22 → 37 candidates, 10 → 11 skills). More candidates for
-substantially the same skills; only one slug gained a skill.
+This matters because the digest also covers `embedding_model`. The embed runner fetches only
+`embedding IS NULL` rows, so no existing vector was overwritten — and the digest reproduction is
+the evidence, not the reasoning.
 
-**What rolling back vectors would accomplish.** Setting the 30 aliases' `embedding` to NULL would
-restore digest `d7f6cd4e…` exactly. It would also **re-open the 22-alias pre-existing gap** that
-predates D2, and re-break `partially_embedded` from 0 back to 16. It cannot un-spend the provider
-call (0.0097 INR). It would preserve the baseline as a true statement about production.
+### PROVEN — no skill changed status
 
-**What accepting / re-baselining would accomplish.** It records that the candidate set legitimately
-grew, and makes future parity runs measure drift from the new reality. It **permanently destroys
-the ability to detect that this specific change happened** — which is precisely what the tool's
-own warning guards against: *"a failure here is evidence the STAGE is wrong, not that the
-assertion is too strict. Do not re-baseline to make it pass."*
+`version = 1` on **all 165** skill rows. SG-5 requires a status transition to bump `version`, so
+no promotion or demotion has ever run on this table. The 33 skills whose `updated_at` moved to
+`2026-08-20 20:30:25.985+00` were touched by the seed's idempotent upsert under
+`--preserve-existing-status`; all 33 were already `active`, and all 111 `provisional` rows were
+*created* by D2, never converted.
+
+### PROVEN — Path B is unreachable from production today
+
+`nearestAliases` has exactly one consumer chain: `canonicalize_skill` → `HttpSkillStore` →
+`POST /internal/skills/nearest-aliases`. All three entry points return before touching the store
+when the flag is off — `routers/skills.py:74`, `routers/profile.py:255`,
+`profiling/profile_extractor.py:652`. The flag is `false` in three independent places:
+`app/config.py:384` (`skill_canonicalize_enabled: bool = False`), `docker-compose.staging.yml`
+(`${SKILL_CANONICALIZE_ENABLED:-false}`, pinned by `deploy-workflow-taxonomy.guard.test.ts`), and
+the documented production posture. `cross-slug-alias.test.ts:17` states the same conclusion:
+*"`SKILL_CANONICALIZE_ENABLED=false`, so 0 workers reach Path B today."*
+
+**Limit of this evidence:** the deployed GitHub secret's value cannot be read from the
+repository. Everything short of that is verified.
+
+**Correction to the earlier draft of this section:** it named `MATCH_V1_ENABLED` and
+`DOMAIN_MATCH_ENABLED` as the gates. The gate on this path is `SKILL_CANONICALIZE_ENABLED`;
+`DOMAIN_MATCH_ENABLED` gates the *domain* ANN, not the skill-alias retrieval.
+
+### THE DEFECT — `skill_drawing_reading` duplicates `skill_gdt_reading`
+
+The +1 skill is `skill_drawing_reading` (created by D2, `active`, `cnc-machining`, 8 aliases).
+`skill_gdt_reading` already existed in the same slug, `active`, with 4 aliases — **and all four
+of its alias texts are now also aliases of `skill_drawing_reading`**:
+
+`blueprint reading` · `drawing reading` · `GD&T` · `geometric dimensioning and tolerancing`
+
+These are the **only** cross-skill duplicate alias texts inside any legacy slug, and **all four
+were introduced by D2**. Before D2 there were zero.
+
+Consequence, if Path B were switched on: a query for "GD&T" in `cnc-machining` returns two
+distinct `skill_id`s at effectively identical distance, so one `LIMIT k` slot is consumed twice
+for one concept and a genuinely different skill is displaced out of the top-k. That is **recall
+dilution, not an irrelevant match** — no unrelated worker or job becomes matchable.
+
+`skill_drawing_reading` also carries `CAD`, `drawing padhna`, `read engineering drawings` and
+`technical drawing`, which belong to `skill_cad_interpretation` — but that skill sits in
+`cnc-programming`, a different slug, so no in-slug collision arises today.
+
+Its row also has `updated_at` (20:30:25.985) **earlier than** `created_at` (20:30:30.440), a seed
+artifact. Cosmetic; recorded, not blocking.
+
+### The Phase-10 exposure, now quantified
+
+**33 embedded aliases across 15 `provisional` skills already carry a legacy `domain_id`** —
+`fitting-assembly` 19 aliases / 8 skills, `cnc-programming` 14 aliases / 7 skills. They are held
+out of Path B by `s.status = 'active'` and by nothing else. This is exactly the hazard
+`skills.repository.ts:104-108` predicted in writing. **The moment Phase 10 promotion flips those
+15 skills to `active`, Path B's candidate set grows by another 33 rows in two slugs with no
+further embedding.** Promotion must therefore be treated as a retrieval change, not a metadata
+change.
+
+Also measured: **0** `worker_skill` rows reference any provisional skill, and `job_domain_skill`
+holds **236** edges, all `active`.
+
+### Rollback
+
+**Not technically required.** Nulling the 30 vectors would restore digest `d7f6cd4e…` exactly,
+but it would re-open the 22-alias gap that predates D2, cannot un-spend the provider call
+(0.0097 INR), and would leave the duplicate-skill defect in place — the defect is the *skill
+row*, not the vectors.
 
 | | |
 |---|---|
-| **PRODUCT RISK** | **LOW** — both consuming flags are `false`; no live request path reads it |
-| **ARCHITECTURAL RISK** | **MEDIUM** — the P1 safety property is now failing, so the one instrument that would detect a *real* Path-B regression is red and would mask the next one |
-| **DECISION REQUIRED** | **YES** |
+| **PRODUCT RISK** | **NONE today** — no live request path reads Path B |
+| **DATA RISK** | **NONE** — additive only, proven by digest reproduction; no row altered or removed |
+| **RELEVANCE RISK** | **REAL but latent** — one duplicated skill dilutes `cnc-machining` top-k the moment Path B is switched on |
+| **DECISION REQUIRED** | **YES** — the P1 invariant wording, and the duplicate skill |
 
 ---
 
