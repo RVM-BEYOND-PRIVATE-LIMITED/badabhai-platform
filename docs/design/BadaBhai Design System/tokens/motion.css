@@ -1,0 +1,38 @@
+/* ============================================================
+   BadaBhai · Motion
+   ------------------------------------------------------------
+   Purposeful and reassuring. Most things fade and slide a short
+   distance on a confident ease-out. One earned exception: the
+   "stamp" — a small spring overshoot for verify / unlock / apply
+   success, like a rubber stamp hitting paper. Nothing loops.
+   Respect prefers-reduced-motion everywhere.
+   ============================================================ */
+:root {
+  --ease-out:    cubic-bezier(0.22, 0.61, 0.36, 1);   /* @kind other */
+  --ease-in-out: cubic-bezier(0.62, 0, 0.30, 1);      /* @kind other */
+  --ease-stamp:  cubic-bezier(0.18, 0.9, 0.32, 1.28); /* @kind other */
+  --ease-in:     cubic-bezier(0.55, 0, 1, 0.45);      /* @kind other */
+
+  --duration-instant: 80ms;   /* @kind other */
+  --duration-fast:    140ms;  /* @kind other */
+  --duration-base:    220ms;  /* @kind other */
+  --duration-slow:    320ms;  /* @kind other */
+  --duration-slower:  480ms;  /* @kind other */
+
+  /* common composed transitions */
+  --transition-control: background-color var(--duration-fast) var(--ease-out),
+                        border-color var(--duration-fast) var(--ease-out),
+                        color var(--duration-fast) var(--ease-out),
+                        box-shadow var(--duration-fast) var(--ease-out),
+                        transform var(--duration-fast) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-instant: 0ms;  /* @kind other */
+    --duration-fast:    0ms;  /* @kind other */
+    --duration-base:    0ms;  /* @kind other */
+    --duration-slow:    0ms;  /* @kind other */
+    --duration-slower:  0ms;  /* @kind other */
+  }
+}

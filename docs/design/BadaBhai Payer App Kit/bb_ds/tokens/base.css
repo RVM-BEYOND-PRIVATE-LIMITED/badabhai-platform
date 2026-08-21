@@ -1,0 +1,73 @@
+/* ============================================================
+   BadaBhai · Base reset & globals
+   ------------------------------------------------------------
+   Light defaults so consumers inherit the brand without effort.
+   Imported last so it can lean on every token above.
+   ============================================================ */
+:root {
+  /* z-index layers */
+  --z-base:     0;     /* @kind other */
+  --z-raised:   10;    /* @kind other */
+  --z-sticky:   100;   /* @kind other */
+  --z-nav:      200;   /* @kind other */
+  --z-overlay:  1000;  /* @kind other */
+  --z-modal:    1100;  /* @kind other */
+  --z-toast:    1200;  /* @kind other */
+  --z-tooltip:  1300;  /* @kind other */
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--font-body-size);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  background-color: var(--surface-page);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, h5 {
+  font-family: var(--font-display);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+p { margin: 0; text-wrap: pretty; }
+
+a {
+  color: var(--text-link);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+a:hover { text-decoration: underline; }
+
+::selection {
+  background: var(--marigold-200);
+  color: var(--ink-900);
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--ring-focus);
+  border-radius: var(--radius-sm);
+}
+
+button { font-family: inherit; }
+
+/* numbers in data contexts line up */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* the marigold under-stroke used on key headlines */
+.bb-mark {
+  background-image: linear-gradient(transparent 62%, var(--marigold-200) 62%);
+  padding: 0 0.04em;
+}

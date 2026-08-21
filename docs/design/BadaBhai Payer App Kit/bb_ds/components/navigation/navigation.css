@@ -1,0 +1,53 @@
+/* ============================================================
+   BadaBhai · Component styles — Navigation
+   Tabs, BottomNav. Prefix: .bb-
+   ============================================================ */
+
+/* ---------- Tabs ---------- */
+.bb-tabs { display: flex; gap: var(--space-1); font-family: var(--font-sans); }
+.bb-tab {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: var(--text-base); font-weight: var(--weight-semibold);
+  color: var(--text-muted); background: none; border: none; cursor: pointer;
+  padding: 12px 14px; border-radius: var(--radius-md);
+  transition: var(--transition-control); white-space: nowrap;
+}
+.bb-tab .ph, .bb-tab .ph-fill { font-size: 1.15em; }
+.bb-tab:hover { color: var(--text-primary); background: var(--surface-sunken); }
+.bb-tab:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+
+/* underline variant */
+.bb-tabs--underline { gap: var(--space-2); border-bottom: 1px solid var(--border-default); }
+.bb-tabs--underline .bb-tab { border-radius: 0; padding: 12px 6px; margin-bottom: -1px; border-bottom: 2.5px solid transparent; }
+.bb-tabs--underline .bb-tab:hover { background: none; }
+.bb-tabs--underline .bb-tab--active { color: var(--text-primary); border-bottom-color: var(--brand); }
+
+/* segmented variant */
+.bb-tabs--segmented { display: inline-flex; background: var(--surface-sunken); padding: 4px; border-radius: var(--radius-md); gap: 2px; }
+.bb-tabs--segmented .bb-tab { padding: 8px 16px; color: var(--text-secondary); }
+.bb-tabs--segmented .bb-tab:hover { background: transparent; color: var(--text-primary); }
+.bb-tabs--segmented .bb-tab--active { background: var(--surface-card); color: var(--text-primary); box-shadow: var(--shadow-xs); }
+
+/* ---------- BottomNav (worker app) ---------- */
+.bb-bottomnav {
+  display: flex; background: var(--surface-card);
+  border-top: 1px solid var(--border-subtle);
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+}
+.bb-bottomnav__item {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: none; border: none; cursor: pointer; padding: 6px 4px;
+  color: var(--text-muted); font-family: var(--font-sans);
+  font-size: 11px; font-weight: var(--weight-semibold);
+  min-height: var(--tap); transition: color var(--duration-fast) var(--ease-out);
+  position: relative;
+}
+.bb-bottomnav__item .ph, .bb-bottomnav__item .ph-fill { font-size: 24px; }
+.bb-bottomnav__item:active { transform: scale(0.94); }
+.bb-bottomnav__item--active { color: var(--brand-press); }
+.bb-bottomnav__badge {
+  position: absolute; top: 2px; left: 50%; margin-left: 6px;
+  background: var(--danger); color: #fff; font-size: 10px; font-weight: 700;
+  min-width: 16px; height: 16px; border-radius: var(--radius-pill);
+  display: flex; align-items: center; justify-content: center; padding: 0 4px;
+}
