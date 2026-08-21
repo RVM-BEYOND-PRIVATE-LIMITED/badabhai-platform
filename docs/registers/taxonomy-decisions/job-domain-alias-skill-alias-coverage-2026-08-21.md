@@ -30,6 +30,12 @@ Three corrections to the premise, in order of importance:
    **3,857 of 3,885** selectable-active domains (**99.28 %**) have zero skill edges. The live
    Path A query can return a candidate for only **19 of 3,885** (**0.49 %**).
 
+One thing the premise gets *right in spirit but wrong in target*: the 5,086 searchable domain
+aliases are **not** inert. They drive the interview today — question-pack selection, question
+predicates, the worker's `trade` answer of record, and the `occupation_label` echoed back in chat
+(§6.3). What they do not reach is the job feed, and they are severed from it **two layers above**
+`job_domain_skill` (§6.3b).
+
 And the finding that outranks all three:
 
 > **The bridge's skill vocabulary and the live matching engine's skill vocabulary are disjoint id
@@ -420,7 +426,8 @@ legacy `jobs` table minus already-applied. Event proof:
 | 1c | → **L2 trigram** | **ACTIVE** | [occupation.repository.ts:301-311](../../../apps/api/src/occupation/occupation.repository.ts#L301-L311) | none | request path |
 | 1d | → **L3 vector ANN** | **UNUSED — dead by construction** | `occupation.service.ts:200-204` → `skills.repository.ts:269-306` | `options.vector`, which no caller ever supplies (`apps/api` has no embedding client) | — |
 | 1e | → ai-service RAG classifier | **DISABLED** | [domain_match.py:260](../../../apps/ai-service/app/profiling/domain_match.py#L260) | `DOMAIN_MATCH_ENABLED=false` | — |
-| 2 | alias → domain → `worker_profiles.job_domain_id` | **ACTIVE — write-only, no reader** | [profile-extraction.processor.ts:1281](../../../apps/api/src/profiles/profile-extraction.processor.ts#L1281) | pin allow-set + `isSelectableDomain` | queue worker |
+| 2 | alias → domain → **`OccupationPin` on `conversation_state.occupation`** | **ACTIVE — five live consumers, see §6.3** | `identify.service.ts:125` / `:214` | none | request path |
+| 2b | pin → `worker_profiles.job_domain_id` | **WRITE-ONLY — the column has ZERO readers anywhere in the repo**, not even profile display | [profile-extraction.processor.ts:1281](../../../apps/api/src/profiles/profile-extraction.processor.ts#L1281) | pin allow-set + `isSelectableDomain` | queue worker |
 | 3 | `job_domain` → `skill` via `job_domain_skill` | **DISABLED** — one runtime statement, unreachable | [skills.repository.ts:213-226](../../../apps/api/src/skills/skills.repository.ts#L213-L226) | `SKILL_CANONICALIZE_ENABLED=false`; **and** only 19/3,885 domains could answer | — |
 | 4a | phrase → skill, **Path A** (canonical) | **SHADOW** — armed, dark | `processor.ts:798-801` sends `job_domain_id`; `canonicalScopeForPin` at `:1219-1248` | same flag | queue worker |
 | 4b | phrase → skill, **Path B** (legacy slug) | **LEGACY + DISABLED** | [skills.repository.ts:113-124](../../../apps/api/src/skills/skills.repository.ts#L113-L124), anchored to `cnc-machining` | same flag | — |
@@ -432,15 +439,59 @@ legacy `jobs` table minus already-applied. Event proof:
 | — | `job_domain` anywhere in ranking | **UNUSED** | `grep -c "job_domain"` → `match-engine` **0**, `reach-engine` **0**, `reach-learn` **0**, `taxonomy` **0** | structural | — |
 | — | employer "recommended skills" reader (`job_domain_id → job_domain_skill → skill`, promised at [job.ts:101-103](../../../packages/db/src/schema/job.ts#L101-L103)) | **DOES NOT EXIST** | the shipped payer picker reads the 18-row `MATCH_SKILLS` TS constant, no database | — | — |
 
-### 6.3 The chain stops at step 2
+### 6.3 Where the chain actually stops — and what the domain DOES drive
 
-`worker_profiles.job_domain_id` is written and **never read** — an exhaustive grep for
-`workerProfiles.jobDomainId` / `worker_profiles.job_domain_id` across `apps/**` and `packages/**`
-returns only an index declaration, an adopt-script string, and comments. (The pin's
-`job_domain_id` *is* read at runtime, but from `conversation_state`, to select the interview
-question pack — an interview concern, not matching.)
+**The matched domain is not inert.** It has **five live consumers**, all on the interview / chat
+hot path, and they are the real product value the 5,086 searchable aliases deliver today:
 
-**The 9,121 domain aliases have zero effect on which jobs a worker sees today.**
+| # | consumer | file:line | what it decides |
+|---|---|---|---|
+| 1 | **Question-pack selection** | `pack-registry.service.ts:156` → `pack.repository.ts:117-122` | **which questions the worker is asked.** Matches on `jobDomainId` **or** `iscoUnitCode` **or** the coarser rungs — and in production it is *never* the id: of the 101 committed bindings in `data/question-packs/_families.jsonl`, **0 are domain-keyed**; 41 are ISCO-unit, 59 ISCO-minor, 1 universal. The domain drives the pack through its **ISCO code**, not its id. |
+| 2 | Question predicates | `predicate.ts:202-205` — `case "occupation_is"` | whether an individual question fires |
+| 3 | **Answer settlement** | `orchestrator.service.ts:2563` + `:2590` — `const trade = (draft.role_label ?? draft.domain_label ?? occupationLabel ?? "").trim(); … if (trade) settle("trade", trade, trade)` | **the matched domain's label becomes the worker's `trade` answer of record** |
+| 4 | The OIE parse call | `profile-extraction.processor.ts:856-864` | the whole pin crosses to `/profile/parse` as `oie.v1` |
+| 5 | Worker-facing chat reply | `chat.service.ts:643` — `occupation_label` | what the worker is told we understood |
+
+**`worker_profiles.job_domain_id`, by contrast, is written and never read.** Exhaustive sweep:
+`grep -rn "workerProfiles\.jobDomainId"` → zero; every raw-SQL mention of
+`worker_profiles.job_domain_id` is a `packages/db` prose comment. It is pulled into memory by
+three star-selects but no mapper or DTO emits it, and `apps/api/src/workers/` and both Flutter
+clients contain **zero** `job_domain` tokens. **It is not read even for profile display.**
+
+### 6.3b The two cuts that sever the domain from the feed — both ABOVE `job_domain_skill`
+
+The last consumer whose output could in principle have reached the feed is #3 — the domain label
+becoming the `trade` answer. It dies at two independent points, and neither of them is the
+taxonomy bridge:
+
+**Cut 1 — the profile projection** ([profile-extraction.processor.ts:1801-1807](../../../apps/api/src/profiles/profile-extraction.processor.ts#L1801-L1807)):
+
+```ts
+const profile = DraftProfileSchema.parse({
+  // CANONICAL IDS ARE NOT INVENTED HERE. Skill/role canonicalization is the taxonomy's job …
+  canonical_trade_id: null,
+  canonical_role_id: null,
+  skills: [],
+```
+
+Those are **exactly** the two fields the match engine reads
+([derive.ts:54-65](../../../packages/match-engine/src/derive.ts#L54-L65):
+`matchSkillForRole(input.canonicalRoleId)` ∪ `matchSkillsForAttribute(...)` over
+`input.profileSkills`; `if (skillIds.size === 0) return []`).
+
+> **The OIE path — the only branch that carries the occupation — derives ZERO `worker_skill`
+> rows and therefore zero `job_reach` rows. The legacy `/profile/extract` branch, which *does*
+> populate `canonical_role_id` and `skills`, carries no occupation at all.** The two paths are
+> mutually exclusive, which is why 6 profiles have a `canonical_role_id` and 19 have a
+> `job_domain_id` and the sets barely meet.
+
+**Cut 2 — the feed flag** ([applications.service.ts:87](../../../apps/api/src/applications/applications.service.ts#L87)):
+`MATCH_V1_ENABLED` is absent from `ci.yml` entirely and `:-false` in compose, so `getFeed` never
+reads `job_reach`.
+
+**Net effect on which jobs a worker sees today: zero — but via the profile projection and the
+feed flag, not via `job_domain_skill`.** The taxonomy bridge is two layers below the first cut;
+fixing it changes nothing until both cuts are addressed.
 
 ### 6.4 Live evidence for every verdict
 

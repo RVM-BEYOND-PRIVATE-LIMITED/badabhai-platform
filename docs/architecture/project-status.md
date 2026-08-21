@@ -1,5 +1,8 @@
 # BadaBhai Architecture Status
 
+> **[docs/architecture/project-control.md](project-control.md) is the authoritative document.**
+> This file is its detailed evidence appendix. Where the two disagree, project-control.md is newer.
+
 > **What this document is.** The architecture that exists on `main` **today**, measured from the
 > repository, from CI run history, and from read-only queries against the production database. It
 > is not the intended architecture and not a plan.
@@ -773,6 +776,148 @@ row*, not the vectors.
 | **DATA RISK** | **NONE** — additive only, proven by digest reproduction; no row altered or removed |
 | **RELEVANCE RISK** | **REAL but latent** — one duplicated skill dilutes `cnc-machining` top-k the moment Path B is switched on |
 | **DECISION REQUIRED** | **YES** — the P1 invariant wording, and the duplicate skill |
+
+---
+
+## 3A. `job_domain_alias` → `skill_alias` coverage — DATA COVERAGE / ARCHITECTURE QUESTION
+
+> **Raised 2026-08-21** from a manual production read (`skill_alias` 336 vs `job_domain_alias`
+> "4,000+"). Investigated read-only the same day. **Not a blocker** — the intended relationship is
+> proven, and it is not the one the question assumed. Full record:
+> [`job-domain-alias-skill-alias-coverage-2026-08-21.md`](../registers/taxonomy-decisions/job-domain-alias-skill-alias-coverage-2026-08-21.md).
+
+### The premise, corrected
+
+`job_domain_alias` is **9,121** rows, not 4,000+. The 4,035 figure is the `is_searchable = false`
+subset (3,989 ISCO-shadowed + 70 duplicate-election losers − 24 in both). The retrieval surface is
+**5,086**.
+
+### PROVEN — the two tables are different vocabularies, not one at two granularities
+
+`job_domain_alias` holds **occupations** ("Admiral", "darji", "बढ़ई", "jcb", "कुली").
+`skill_alias` holds **units of work** ("bead check", "conduit bending", "first piece check").
+ADR-0030 states the split: *"occupation-classification standards code **jobs**, not **what a
+person can do**."* `schema/skill.ts:283-286` states the consequence: *"'fitter' is an unresolved
+SKILL and an unresolved OCCUPATION at the same time, with different follow-up work — one becomes a
+`skill_alias`, the other a `job_domain_alias`."*
+
+Measured: **0** of 8,762 distinct `job_domain_alias.text_norm` values occur among the 197 distinct
+`skill_alias.text_norm` values. Falling back to raw text gives 19 rows (**0.21 %**), all landing on
+the 139 un-normalized legacy skill aliases, and all explainable as (a) 7 `skill_*_occupation`
+rows that leaked into the skill vocabulary, (b) two wedge terms deliberately in both, (c) shared
+technique names — **or (d) two genuine false friends**: `threading` on **Manicurist** →
+`skill_tapping_threading`, and `sewer` on **Sewing, Embroidery and Related Workers** →
+`skill_drainage_systems`. Mechanically deriving skill aliases from domain aliases would put
+drainage work on a seamstress's profile.
+
+"Two tables, one concept" in `phase-9-unified-alias-architecture.md` refers to the alias
+**lifecycle** (`raw ▶ normalized ▶ elected ▶ embedded ▶ retrievable`), not the vocabulary —
+`alias-lifecycle.ts:99-135` gives the two tables deliberately *different* eligibility specs.
+**No document anywhere proposes deriving one table from the other.**
+
+### THE REAL GAP — `job_domain_skill`, and it is 99.28 %
+
+| measure | value |
+|---|---|
+| selectable-active `job_domain` rows | 3,885 |
+| …with **any** `job_domain_skill` edge | **28 (0.72 %)** |
+| …the **live** Path A query can answer for (`s.status='active'` + embedded alias) | **19 (0.49 %)** |
+| …effectively reachable (4 of the 28 are ISCO units with **zero** searchable aliases) | **24 domains / 204 edges** |
+| searchable domain aliases on a bridged domain | 82 / 5,086 = **1.61 %** |
+| searchable domain aliases the live query can answer for | 56 / 5,086 = **1.10 %** |
+| **UNRESOLVED share of the retrieval surface** | **4,996 / 5,086 = 98.23 %** |
+
+Concentrated in majors **7/8/9** — the industrial core — at 2,365 unresolved rows over 1,679
+domains (96.5 %). Majors 0, 1, 2, 3, 6 and 9 have **zero** bridged domains.
+
+### PROVEN — D2 was not truncated; the corpus is the ceiling
+
+`skill` 165 = 49 `SKILL_CORPUS` + 98 `skills.jsonl` + 18 `MATCH_SKILLS`. `skill_alias` 336 = 116 +
+22 wedge + 197 + 1 orphan. `job_domain_skill` 236 = 236 records on disk. The 238 aliases D2 added
+are exactly step 0 (41) + step 1 (197). The generator's domain universe is
+`data/taxonomy/sample-domains.jsonl` — **a 28-line hand-picked committed file**, and
+`generate-domain-skills.ts:255-267` can only *narrow* it. There is no widening path.
+
+### NEW FINDING — the ISCO inheritance materializer does not exist
+
+Migration 0076 shipped `source='inherited'` + `inherited_from_job_domain_id` with FK, index and two
+CHECKs. `taxonomy-corpus.ts:183` asserts *"the ISCO ladder resolver writes them"*. **No such code
+is in the repository** — a repo-wide grep returns zero write sites, and all 236 production edges
+are `llm_bootstrap` with a NULL parent link. Fanning the 28 authored domains down the ISCO tree
+would cover **397 (unit) / 752 (minor) / 1,047 (sub-major)** domains — a 14–37× improvement for
+**zero model spend**.
+
+### NEW FINDING — the taxonomy branch and the match engine are disjoint id spaces
+
+`job_domain_skill` points at **130 `skill_*`** ids, all `kind='attribute'`
+(`WHERE skill_id LIKE 'mskill\_%'` → **0**). The feed/reach path uses **9 live `mskill_*`** ids,
+`kind='match_skill'`. **Overlap = 0.** All 18 `mskill_*` rows have zero aliases and zero edges;
+`skill_alias` contains no `mskill_*` row. The only join between the id spaces is
+`ATTRIBUTE_TO_MATCH_SKILLS` — a hand-authored TS constant (`packages/taxonomy/src/match-skills.ts:436`)
+that never reads the database.
+
+**Consequence: closing the `job_domain_skill` gap to 100 % would still emit ids that nothing
+downstream reads.** This, not alias counts, is the decision that gates the whole area.
+
+### The live chain, and where it stops
+
+| transition | verdict |
+|---|---|
+| free text → `job_domain_alias` L0 exact / L2 trigram | **ACTIVE** (L1 has zero production hits; L3 never fires — `apps/api` mints no vectors) |
+| ai-service RAG domain classifier | **DISABLED** (`DOMAIN_MATCH_ENABLED=false`) |
+| → `OccupationPin` on `conversation_state` | **ACTIVE with five live consumers** — question-pack selection, question predicates, the worker's `trade` answer of record (`orchestrator.service.ts:2563`), the `/profile/parse` request, and the chat `occupation_label`. Packs key on **`isco_unit_code`**, not the id: 0 of 101 committed bindings are domain-keyed (41 unit · 59 minor · 1 universal) |
+| → `worker_profiles.job_domain_id` | **WRITE-ONLY.** 19 of 44 profiles. `grep -rn workerProfiles.jobDomainId` → **zero readers**; not read even for profile display |
+| `job_domain` → `skill` via `job_domain_skill` | **DISABLED** — one runtime statement (`skills.repository.ts:213-226`), behind `SKILL_CANONICALIZE_ENABLED=false` |
+| Path A scope wiring | **SHADOW** — armed (`profile-extraction.processor.ts:801`), dark |
+| skill → `worker_profile_skill` | **UNUSED — 0 rows, never written** |
+| profile → `worker_skill` (`mskill_*`) | **ACTIVE** — 8 rows / 6 workers, from checked-in TS maps, never from `job_domain_skill` |
+| `worker_skill` → `job_reach` | **ACTIVE but near-empty** — 6 rows, 1 posting |
+| `job_reach` → ranking → feed | **LEGACY.** `feed.shown` 7,652 events (live today) vs `feed.shown_v2` 28 (a 23-hour window in Aug, dead since). The serving query is `FROM jobs WHERE status='open' … ORDER BY created_at ASC` — **no skills, no domains, no score** |
+| `job_domain` anywhere in ranking | **UNUSED** — `grep -c job_domain` in `match-engine`, `reach-engine`, `reach-learn`, `taxonomy` → **0, 0, 0, 0** |
+
+**The 9,121 domain aliases have zero effect on which jobs a worker sees today — but they do steer
+the interview, and the severance happens two layers ABOVE the taxonomy bridge:**
+
+- **Cut 1 — the profile projection.** `profile-extraction.processor.ts:1801-1807` hardcodes
+  `canonical_trade_id: null, canonical_role_id: null, skills: []`. Those are exactly the two
+  fields `packages/match-engine/src/derive.ts:54-65` reads. **The OIE path — the only branch
+  carrying the occupation — derives zero `worker_skill` rows and therefore zero `job_reach`
+  rows.** The legacy `/profile/extract` branch that *does* populate them carries no occupation.
+  The two paths are mutually exclusive.
+- **Cut 2 — the feed flag.** `applications.service.ts:87`; `MATCH_V1_ENABLED` is absent from
+  `ci.yml` entirely and `:-false` in compose, so `getFeed` never reads `job_reach`.
+
+Fixing `job_domain_skill` changes nothing until both cuts are addressed.
+
+### Also found
+
+- **2,899 of 3,449 NCO L5 domains (84.1 %) carry exactly one alias, and it is a copy of
+  `label_en`** — the "vernacular overlay" does not exist for five-sixths of the leaf catalogue.
+  The whole `rvm` overlay is 426 rows over 102 domains (2.96 % of leaves); 142 of 9,121 aliases
+  are Hindi.
+- **96 of 4,071 `job_domain` rows carry a junk `label_en`** (18 end with `:`, 78 start lowercase),
+  all selectable + active, carrying **206 searchable alias rows (4.05 %)**. A live worker is
+  matched to `jd_nco_8155_0201` = *"skins or hides and keeps them near machine; …"*.
+- **Stale comment, worth fixing:** `apps/ai-service/app/routers/profile.py:265-267` claims
+  *"NOTHING POPULATES `body.job_domain_id` TODAY"*. False since OIE O2 —
+  `profile-extraction.processor.ts:801` populates it. Anyone assessing S3-C readiness from the
+  Python file will conclude the switch is unwired when it is wired-and-flag-gated.
+- **`ci.yml:1859-1862` / `docker-compose.staging.yml:465-467` claim neither taxonomy secret
+  exists.** Both now exist at `environment: production` (created 2026-08-18). Values remain
+  unreadable, but flipping either is a one-click secret edit with no code review.
+
+### Decisions this raises
+
+| # | decision | recommendation |
+|---|---|---|
+| **D-1** | Do the taxonomy branch and the match engine ever join? (130 `skill_*` vs 9 `mskill_*`, overlap 0, no ADR schedules a join) | **Answer first.** It is an ADR and it gates everything else here. |
+| **D-2** | Authorise the ISCO inheritance materializer | **Build + dry-run regardless of D-1** — 14–37× coverage, zero model spend |
+| **D-3** | Authorise a one-major-group edge-generation pilot (recommend major 7, 843 domains) | Only after D-1 is `yes` |
+| **D-4** | Deprecate the 7 `skill_*_occupation` rows | Yes — they are the leakage that makes the vocabularies look like one |
+| **D-5** | Clean the 96 junk-labelled `job_domain` rows | Low cost; fold into the next alias write |
+| **D-6** | Close the vernacular gap (84.1 % of leaves have no real alias) | **Higher product value per rupee than edge generation, and independent of D-1** |
+
+**Classification: DATA COVERAGE / ARCHITECTURE QUESTION. Not a blocker; D-1 is a DECISION.**
 
 ---
 
