@@ -117,6 +117,14 @@ class Routes {
 /// here (a `parentNavigatorKey: _rootNavKey` route covers the shell).
 final GlobalKey<NavigatorState> _rootNavKey =
     GlobalKey<NavigatorState>(debugLabel: 'root');
+
+/// The root navigator key, exposed so the app root ([BadaBhaiApp]) can present a
+/// GLOBAL, route-independent overlay — the account-deleted hard-logout dialog —
+/// over whatever screen is showing. Its `currentContext` sits UNDER the router's
+/// Navigator (so it has Directionality / Localizations / an Overlay), which the
+/// MaterialApp.router `builder` context does not — hence going through the router
+/// key rather than a widget-tree context. Null before the first frame is drawn.
+GlobalKey<NavigatorState> get rootNavigatorKey => _rootNavKey;
 final GlobalKey<NavigatorState> _jobsNavKey =
     GlobalKey<NavigatorState>(debugLabel: 'jobs');
 final GlobalKey<NavigatorState> _resumeNavKey =

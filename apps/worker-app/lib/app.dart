@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'core/auth/account_deleted_signal.dart';
 import 'core/auth/locale_store.dart';
 import 'core/config/app_config.dart';
 import 'core/di/locator.dart';
 import 'core/observability/crash_route_observer.dart';
 import 'core/theme/app_theme.dart';
+import 'core/widgets/bb_alert_dialog.dart';
 import 'core/widgets/feedback_fab.dart';
 import 'features/auth/domain/auth_session_manager.dart';
 import 'features/auth/presentation/lifecycle_relock_observer.dart';
@@ -38,6 +42,14 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
   /// Detaches the Crashlytics screen tracker (see [attachRouterScreenTracking]).
   VoidCallback? _detachScreenTracking;
 
+  /// Listens for the backend's "this worker's account is gone" signal (410
+  /// `WORKER_ACCOUNT_DELETED`). One app-scoped subscription for the whole app.
+  StreamSubscription<void>? _accountDeletedSub;
+
+  /// Guards against parallel 410s (several in-flight calls fail at once) showing
+  /// more than ONE dialog. Reset after the dialog is dismissed.
+  bool _accountDeletedDialogShown = false;
+
   @override
   void initState() {
     super.initState();
@@ -61,14 +73,52 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
       WidgetsBinding.instance.addObserver(observer);
       _relock = observer;
     }
+    // ADR account-deletion: subscribe to the app-scoped signal fired by the HTTP
+    // seams on a 410 { code: WORKER_ACCOUNT_DELETED }. Guarded like the observer
+    // above so legacy widget tests that never wire DI are unaffected.
+    if (locator.isRegistered<AccountDeletedSignal>()) {
+      _accountDeletedSub = locator<AccountDeletedSignal>()
+          .stream
+          .listen((_) => _onAccountDeleted());
+    }
   }
 
   @override
   void dispose() {
     _detachScreenTracking?.call();
+    unawaited(_accountDeletedSub?.cancel());
     final LifecycleRelockObserver? observer = _relock;
     if (observer != null) WidgetsBinding.instance.removeObserver(observer);
     super.dispose();
+  }
+
+  /// The backend has deleted this worker's account server-side. Show ONE
+  /// non-dismissible dialog over whatever screen is showing, then hard-logout on
+  /// OK — the router redirect sends the worker to phone login so they can start
+  /// again. Parallel 410s collapse to a single dialog via
+  /// [_accountDeletedDialogShown].
+  Future<void> _onAccountDeleted() async {
+    if (_accountDeletedDialogShown) return;
+    // Present through the ROUTER's navigator (see [rootNavigatorKey]) — its
+    // context has the Directionality / Localizations / Overlay that the
+    // MaterialApp.router builder context does not. Null before the first frame:
+    // the next authed call re-fires the signal, so nothing is lost.
+    final BuildContext? navContext = rootNavigatorKey.currentContext;
+    if (navContext == null) return;
+    _accountDeletedDialogShown = true;
+    // A single OK button; copy stays honest + simple for a low-literacy worker.
+    await showBbAlert(
+      navContext,
+      title: 'Account nahi mila',
+      message:
+          'Hamein aapki profile nahi mil rahi hai. Kripya dobara login karein.',
+    );
+    _accountDeletedDialogShown = false;
+    // Hard logout: wipe tokens + PIN, drop singleton-held user data
+    // (onSessionCleared), flip to loggedOut → the router bounces to phone login.
+    if (locator.isRegistered<AuthSessionManager>()) {
+      await locator<AuthSessionManager>().logout();
+    }
   }
 
   @override

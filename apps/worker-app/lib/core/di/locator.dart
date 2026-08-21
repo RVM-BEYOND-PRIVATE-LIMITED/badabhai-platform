@@ -11,6 +11,7 @@ import '../auth/device_id.dart';
 import '../auth/locale_store.dart';
 import '../otp/sms_otp_autofill.dart';
 import '../referral/pending_referral_store.dart';
+import '../auth/account_deleted_signal.dart';
 import '../auth/reauth_signal.dart';
 import '../nav/tab_focus.dart';
 import '../auth/secure_token_store.dart';
@@ -184,6 +185,12 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
     () => DeviceIdProvider(locator<SecureTokenStore>()),
   );
   locator.registerLazySingleton<ReauthSignal>(() => ReauthSignal());
+  // The account-DELETED signal (distinct from the recoverable ReauthSignal
+  // above): fired when a call for a valid worker token comes back on the
+  // reserved 410 { code: WORKER_ACCOUNT_DELETED } contract. The app root
+  // subscribes and hard-logs-out on OK. App-scoped, one instance.
+  locator.registerLazySingleton<AccountDeletedSignal>(
+      () => AccountDeletedSignal());
 
   // Which shell tab is visible. The IndexedStack keeps every visited branch
   // mounted, so a tab root's create:/initState runs once and never again — this
@@ -201,6 +208,9 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
           // #351: a 401 here gets ONE renew + retry; an unrecoverable refresh
           // flips the manager to loggedOut, which is what frees the router.
           onUnauthorized: _renewAuthOnUnauthorized,
+          // A 410 { code: WORKER_ACCOUNT_DELETED } on any worker-scoped call →
+          // the account-deleted hard-logout dialog (app root subscribes).
+          onAccountDeleted: () => locator<AccountDeletedSignal>().fire(),
           currentAuthToken: () => locator<SessionRepository>().sessionToken,
         ),
   );
@@ -558,6 +568,9 @@ Future<void> initAuthLocator({
           deviceId: locator<DeviceIdProvider>(),
           localeStore: locator<LocaleStore>(),
           reauthSignal: locator<ReauthSignal>(),
+          // A 410 { code: WORKER_ACCOUNT_DELETED } on the auth/refresh path fires
+          // the SAME signal the ApiClient seam does (registered in setupLocator).
+          onAccountDeleted: () => locator<AccountDeletedSignal>().fire(),
         ),
   );
 
