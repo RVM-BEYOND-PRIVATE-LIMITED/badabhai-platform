@@ -31,8 +31,10 @@ import { config } from "dotenv";
 import { createDbClient } from "./client";
 import { hostClass } from "./ops-guard";
 import {
+  fanOut,
   NO_RUNTIME_EFFECT_NOTICE,
   planInheritance,
+  verifyInvariants,
   type DomainNode,
   type ExistingEdge,
   type SkillRef,
@@ -63,6 +65,8 @@ async function main(): Promise<void> {
       SELECT skill_id, status FROM skill`)) as unknown as SkillRef[];
 
     const plan = planInheritance(domains, edges, skills);
+    const fan = fanOut(plan);
+    const inv = verifyInvariants(domains, edges, skills, plan);
 
     const authoredDomains = plan.roots.length;
     const reachable = plan.reachableDomains.length;
@@ -89,6 +93,45 @@ async function main(): Promise<void> {
     console.log(`  domains gaining edges      = ${plan.domainsGainingEdges}`);
     console.log(`  …of which depend on a PROVISIONAL skill = ${plan.candidatesOnProvisionalSkills}`);
     console.log(`  duplicates (impossible)    = 0  — PK (job_domain_id, skill_id) forbids them`);
+
+    // A single total invites "inheritance is broadly useful". The breakdown is what says whether
+    // it is, so it is printed unconditionally rather than behind a flag nobody passes.
+    console.log(`\n  === fan-out, per authored occupation ===`);
+    console.log(`  authored roots             = ${fan.authoredRoots}`);
+    console.log(`  …that reach any descendant = ${fan.rootsThatFanOut}  (the rest are childless leaves)`);
+    console.log(`  unique target domains      = ${fan.uniqueTargetDomains}`);
+    console.log(`  total fan-out edges        = ${fan.totalEdges}`);
+    console.log(`  two largest roots produce  = ${(fan.topTwoRootShare * 100).toFixed(1)}% of all of it`);
+    console.log(`  depth histogram            = ${JSON.stringify(fan.depthHistogram)}`);
+    let cum = 0;
+    for (const r of fan.byRoot) {
+      cum += r.edges;
+      const share = fan.totalEdges === 0 ? 0 : (100 * cum) / fan.totalEdges;
+      console.log(
+        `     ${r.root.padEnd(22)} edges ${String(r.edges).padStart(4)}  domains ${String(r.targets).padStart(3)}` +
+          `  cumulative ${share.toFixed(1)}%`,
+      );
+    }
+
+    console.log(`\n  === fan-out, per authored skill (${fan.bySkill.length} distinct) ===`);
+    for (const s of fan.bySkill.slice(0, Number(arg("skills") ?? 15))) {
+      console.log(`     ${s.skill_id.padEnd(48)} domains ${String(s.targets).padStart(3)}  [${s.skill_status}]`);
+    }
+    if (fan.bySkill.length > 15) console.log(`     (${fan.bySkill.length - 15} further skills not listed)`);
+
+    // Re-derived from the same inputs rather than trusted from the plan. A run that broke its
+    // own rule must say so here instead of printing a confident total above.
+    console.log(`\n  === invariants, re-derived ===`);
+    console.log(`  author -> strict descendant only   ${inv.downwardOnly ? "HOLDS" : "VIOLATED"}`);
+    console.log(`  inherited edges are never roots    ${inv.inheritedNeverRoot ? "HOLDS" : "VIOLATED"}`);
+    console.log(`  converges in one pass              ${inv.converged ? "HOLDS" : "VIOLATED"} (second pass proposes ${inv.secondPassCandidates})`);
+    for (const v of inv.violations.slice(0, 20)) console.log(`     !! ${v}`);
+
+    // A fail-closed count of zero is only evidence if the rule had something to look at.
+    console.log(`\n  === what each fail-closed rule was searching ===`);
+    for (const [k, v] of Object.entries(inv.population)) {
+      console.log(`  ${k.padEnd(42)} ${String(v).padStart(6)}`);
+    }
 
     if (plan.cycles.length > 0) {
       console.log(`\n  !! CYCLES IN THE DOMAIN TREE (${plan.cycles.length}) — walk stopped early:`);
@@ -130,10 +173,15 @@ async function main(): Promise<void> {
             target: hostClass(url),
             source: { domains: domains.length, edges: edges.length, skills: skills.length },
             roots: plan.roots,
-            reachable_domains: reachable,
+            // Was `reachable_domains`, holding a COUNT. A field named like a list and holding a
+            // number is a reader trap — it read as 64 domain ids to anyone consuming the file.
+            reachable_domain_count: reachable,
+            reachable_domains: plan.reachableDomains,
             counts: plan.counts,
             candidates_on_provisional_skills: plan.candidatesOnProvisionalSkills,
             domains_gaining_edges: plan.domainsGainingEdges,
+            fan_out: fan,
+            invariants: inv,
             cycles: plan.cycles,
             proposals: plan.proposals,
             notice: NO_RUNTIME_EFFECT_NOTICE,
