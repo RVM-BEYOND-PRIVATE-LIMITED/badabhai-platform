@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, HttpException, HttpStatus, Inject, Post, Req, UnauthorizedException, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, HttpException, HttpStatus, Inject, Logger, Post, Req, UnauthorizedException, UseGuards } from "@nestjs/common";
 import type { Request } from "express";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -17,6 +17,7 @@ import { ConsentNotRevokedGuard } from "./consent.guard";
 import { ConsentRepository } from "../consent/consent.repository";
 import { withConsentAccepted } from "../consent/consent-flag";
 import { WorkerAuthGuard, CurrentWorker, type AuthenticatedWorker } from "./worker-auth.guard";
+import { throwIfWorkerDeleted } from "./worker-account-deleted.exception";
 import { TestLoginGuard } from "./test-login.guard";
 import {
   OtpRequestSchema,
@@ -62,6 +63,8 @@ function bearer(req: Request): string {
 
 @Controller("auth")
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     private readonly auth: AuthService,
     private readonly sessions: SessionService,
@@ -354,6 +357,18 @@ export class AuthController {
       if (latest && latest.revokedAt !== null) {
         throw new ForbiddenException("consent required");
       }
+
+      // COLD-START SIGNAL: this is the one worker-authed path with no WorkerAuthGuard (the
+      // refresh token in the body IS the credential), so the guard's out-of-band-deletion 410
+      // never runs here. When a deleted worker's refresh token survives (a raw row delete does
+      // NOT revoke sessions — a normal AccountDeletionService erasure would, so `resolveRefreshToken`
+      // would return null and this branch is skipped), return the SAME reserved 410 rather than
+      // rotating a fresh token for a ghost, so a cold-started app gets the unambiguous hard-logout
+      // signal on its first call. A PRE-CHECK on the already-resolved (read-only, non-consuming)
+      // worker id — it never rotates/marks-used/flags-reuse, so it does not touch reuse-detection.
+      // FAIL-SAFE like the guard: a DB error leaves existence UNKNOWN → fall through to the normal
+      // rotation (never a false 410 during a DB incident).
+      await throwIfWorkerDeleted(this.workers, resolved.workerId, this.logger);
     }
 
     const outcome = await this.sessions.refreshByToken(dto.refresh_token, idempotencyKey);

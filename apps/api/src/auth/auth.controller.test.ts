@@ -22,6 +22,10 @@ import type { WorkersRepository } from "../workers/workers.repository";
 import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import type { ConsentRepository } from "../consent/consent.repository";
 import type { AuthenticatedWorker } from "./worker-auth.guard";
+import {
+  WorkerAccountDeletedException,
+  WORKER_ACCOUNT_DELETED_CODE,
+} from "./worker-account-deleted.exception";
 import type { RequestContext } from "../common/request-context";
 
 const CTX = { correlationId: "c", requestId: "r" } as RequestContext;
@@ -70,6 +74,9 @@ function make() {
   const workers = {
     // SELECT * — the account-delete step-up path needs the encrypted phone to send the OTP.
     findById: vi.fn(async () => ({ id: WORKER.id, status: "active", phoneE164: "ENC(+91999)" })),
+    // The out-of-band-deletion existence probe on POST /auth/token/refresh — DEFAULT-true (the
+    // row is present); a case overrides it to false to assert the reserved 410 signal.
+    existsById: vi.fn(async () => true),
     // ADR-0031 — GET /auth/me's EXPLICIT-projection read: status + the deletion marker only.
     // The absence of PII keys here is the point (see the /auth/me tests below).
     findSelfView: vi.fn(
@@ -211,6 +218,54 @@ describe("AuthController — consent-on-resume (A5 · ADR-0026 amendment)", () =
     (sessions.resolveRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
     await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
     expect(consents.findLatestByWorker).not.toHaveBeenCalled();
+    expect(sessions.refreshByToken).toHaveBeenCalled();
+  });
+});
+
+// The cold-start half of the contract: POST /auth/token/refresh carries NO WorkerAuthGuard (the
+// refresh token in the body IS the credential), so the guard's out-of-band-deletion 410 cannot
+// run here. When a deleted worker's refresh token survives a raw row delete, the endpoint returns
+// the SAME reserved 410 rather than minting a token for a ghost.
+describe("AuthController — token/refresh out-of-band deletion → 410 WORKER_ACCOUNT_DELETED", () => {
+  it("resolvable worker whose row is DELETED → 410 WORKER_ACCOUNT_DELETED and the token is NOT rotated", async () => {
+    const { controller, sessions, workers, consents } = make();
+    // Resolvable (refresh record survives) + not-revoked consent, but the DB row is gone.
+    (consents.findLatestByWorker as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      revokedAt: null,
+    });
+    (workers.existsById as ReturnType<typeof vi.fn>).mockResolvedValueOnce(false);
+    const err = await controller
+      .tokenRefresh({ refresh_token: "rt" } as never, reqIdem())
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(WorkerAccountDeletedException);
+    expect((err as WorkerAccountDeletedException).getResponse()).toEqual({
+      code: WORKER_ACCOUNT_DELETED_CODE,
+      message: expect.any(String),
+    });
+    // Denied BEFORE any rotation — the presented token is not consumed / reuse-flagged.
+    expect(sessions.refreshByToken).not.toHaveBeenCalled();
+    expect(workers.existsById).toHaveBeenCalledWith(WORKER.id);
+  });
+
+  it("existing worker → rotates normally (no 410)", async () => {
+    const { controller, sessions, workers } = make();
+    (workers.existsById as ReturnType<typeof vi.fn>).mockResolvedValueOnce(true);
+    await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
+    expect(sessions.refreshByToken).toHaveBeenCalled();
+  });
+
+  it("FAIL-SAFE: existence probe THROWS (DB down) → rotates normally, never a false 410", async () => {
+    const { controller, sessions, workers } = make();
+    (workers.existsById as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("pg down"));
+    await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
+    expect(sessions.refreshByToken).toHaveBeenCalled();
+  });
+
+  it("UNRESOLVABLE token → never probes existence (no oracle), falls through to the neutral 401 path", async () => {
+    const { controller, sessions, workers } = make();
+    (sessions.resolveRefreshToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    await controller.tokenRefresh({ refresh_token: "rt" } as never, reqIdem());
+    expect(workers.existsById).not.toHaveBeenCalled();
     expect(sessions.refreshByToken).toHaveBeenCalled();
   });
 });
