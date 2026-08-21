@@ -1,0 +1,92 @@
+/* ============================================================
+   BadaBhai · Typography
+   ------------------------------------------------------------
+   Baloo 2     — display. Big, warm, rounded. The voice of
+                 "bada bhai" — encouraging, never shouting.
+   Mukta       — body & UI. Calm, legible, multilingual. Carries
+                 Hinglish/regional copy at low-literacy sizes.
+   Roboto Mono — data. Wages, IDs, codes, counts.
+
+   Body never goes below 16px. Worker-facing copy skews larger.
+   ============================================================ */
+:root {
+  /* families */
+  --font-display: 'Baloo 2', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans:    'Mukta', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono:    'Roboto Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* type scale (px) — mobile-first, generous for low literacy */
+  --text-2xs:  11px;
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;  /* minimum body */
+  --text-md:   18px;
+  --text-lg:   20px;
+  --text-xl:   24px;
+  --text-2xl:  30px;
+  --text-3xl:  38px;
+  --text-4xl:  48px;
+  --text-5xl:  60px;
+  --text-6xl:  76px;
+
+  /* weights */
+  --weight-light:     300;
+  --weight-regular:   400;
+  --weight-medium:    500;
+  --weight-semibold:  600;
+  --weight-bold:      700;
+  --weight-extrabold: 800;
+
+  /* line-height */
+  --leading-none:    1;
+  --leading-tight:   1.1;
+  --leading-snug:    1.25;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.65;
+
+  /* tracking */
+  --tracking-tighter: -0.03em;
+  --tracking-tight:   -0.015em;
+  --tracking-normal:  0;
+  --tracking-wide:    0.04em;
+  --tracking-wider:   0.09em;  /* eyebrows / uppercase labels */
+
+  /* semantic roles */
+  --font-eyebrow-size:    var(--text-xs);
+  --font-eyebrow-spacing: var(--tracking-wider);
+  --font-eyebrow-weight:  var(--weight-bold);
+
+  --font-body-size:    var(--text-base);
+  --font-body-leading: var(--leading-normal);
+
+  --font-display-leading:  var(--leading-tight);
+  --font-display-tracking: var(--tracking-tight);
+}
+
+/* Optional helper classes (components mostly use the vars directly) */
+.bb-display {
+  font-family: var(--font-display);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  font-weight: var(--weight-bold);
+  color: var(--text-primary);
+}
+.bb-eyebrow {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--text-brand);
+}
+.bb-body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+.bb-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-tight);
+}

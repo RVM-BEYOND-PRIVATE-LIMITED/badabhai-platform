@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<!-- @template name="Company Dashboard" description="Payer KPIs + masked candidate list ready to unlock" -->
+<helmet>
+<script src="./ds-base.js"></script>
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+<style>
+body{margin:0;background:var(--surface-page);font-family:var(--font-sans);padding:28px 32px}
+.wrap{max-width:1040px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+.head{display:flex;align-items:center;justify-content:space-between}
+.title{font-family:var(--font-display);font-weight:700;font-size:26px;color:var(--text-primary);margin:0}
+.credits{display:inline-flex;align-items:center;gap:6px;font-size:14px;color:var(--text-secondary);background:var(--brand-tint);padding:8px 13px;border-radius:var(--radius-pill)}
+.credits b{font-family:var(--font-mono);color:var(--brand-press)}
+.credits .ph-fill{color:var(--brand)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.panel{background:var(--surface-card);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);box-shadow:var(--shadow-sm);padding:20px}
+.panel__h{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.panel__h h3{font-family:var(--font-display);font-size:18px;color:var(--text-primary);margin:0}
+.panel__note{font-size:13px;color:var(--text-muted)}
+.list{display:flex;flex-direction:column;gap:12px}
+</style>
+</helmet>
+<div class="wrap">
+<div class="head">
+<h1 class="title">Find candidates</h1>
+<span class="credits"><i class="ph-fill ph-lock-key-open"></i><b>184</b> unlocks left</span>
+</div>
+<div class="stats">
+<x-import component-from-global-scope="BadaBhaiDesignSystem_01ff85.StatTile" label="Paid unlocks this week" value="1,284" icon="lock-key-open" delta="+12% vs last" delta-dir="up" hint-size="100%,124px"></x-import>
+<x-import component-from-global-scope="BadaBhaiDesignSystem_01ff85.StatTile" label="Repeat-unlock rate" value="62%" icon="repeat" delta="health metric" delta-dir="flat" hint-size="100%,124px"></x-import>
+<x-import component-from-global-scope="BadaBhaiDesignSystem_01ff85.StatTile" label="Active jobs" value="7" icon="briefcase" delta="2 near quota" delta-dir="up" hint-size="100%,124px"></x-import>
+<x-import component-from-global-scope="BadaBhaiDesignSystem_01ff85.StatTile" label="Avg reply time" value="3.4h" icon="chat-circle-dots" delta="−18%" delta-dir="down" hint-size="100%,124px"></x-import>
+</div>
+<div class="panel">
+<div class="panel__h"><h3>Verified candidates</h3><span class="panel__note">Sorted by relevance, never by who paid</span></div>
+<div class="list">
+<x-import component-from-global-scope="BadaBhaiDesignSystem_01ff85.MaskedCandidate" trade="CNC Operator" experience="6 yrs" location="Pimpri, Pune" match-label="Strong match" masked="{{ true }}" hint-size="100%,84px"></x-import>
+<x-import component-from-global-scope="BadaBhaiDesignSystem_01ff85.MaskedCandidate" trade="VMC Setter" experience="4 yrs" location="Chakan, Pune" masked="{{ true }}" hint-size="100%,84px"></x-import>
+<x-import component-from-global-scope="BadaBhaiDesignSystem_01ff85.MaskedCandidate" name="Ramesh Kumar" trade="CNC Operator" experience="8 yrs" location="Bhosari, Pune" masked="{{ false }}" hint-size="100%,84px"></x-import>
+</div>
+</div>
+</div>
+</x-dc>
+</body>
+</html>

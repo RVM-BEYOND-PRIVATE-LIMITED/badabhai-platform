@@ -1,0 +1,113 @@
+
+BadaBhai — Latest Context · 2026-06-19
+The complete, current project context in one document (compiled 15:40 IST)
+Who this is for. Paste whole into any project chat — CEO's chat, build chat, operations tracker, model-research chat — to bring it fully current. Self-contained; assume no prior context. Supersedes BadaBhai_Latest_Context_2026-06-18.md and everything older. Where any older document disagrees with this one, this one wins.
+
+Status tags: [LOCKED] decided · [PROPOSED] starting config value · [PENDING] awaiting a named action · [IN-FLIGHT] executing now · [OPEN] undecided · [BUILT] in code · [INERT] built but not enforced (shadow).
+
+
+0 · WHAT CHANGED SINCE 06-18 (read this first if your chat has the older doc)
+The eight pricing/product decisions are now CEO-LOCKED (were recommendations on the 06-18 sheet; CEO approved the "My take" position on each). Full detail in §3A. Headlines: unlock = ₹40 flat (packs 50/200/1,000, real discount on the 1,000-pack, same price for companies and agencies) · posting free through launch, verification-gated (small/single bands free forever, bigger bands free in intro then cheap; monetize on unlocks not posting) · agency posting price = same as company · WhatsApp = 5 nudges (the 4 + "your resume is ready") · north star = weekly PAID unlocks, hero health metric = repeat-unlock rate · multi-trade visitors welcomed (free resume + waitlist, 100% self-serve) · resume = one branded share-optimized template per trade-family · Reach weights 35/20/15/15/10/5 confirmed as v1 cold-start defaults (engineering reconciles the ADR-0006 drift; ship flat, no city-tuning at launch; no demographic inputs — unambiguous yes).
+NEW LOCK — a Web App is committed alongside the worker mobile app, serving both Company and Agency with full operations. The Agency gets a separate, role-aware login (it carries the dual supply+demand flow; a company login does not). One role-aware platform, not two codebases — account type reveals the right sections.
+Build-scope clarification on the web app (to prevent timeline confusion): Company demand-loop + Agency demand-loop (post → browse masked → unlock → contact) are the alpha build; the Agency supply dashboard (referral links, payout/earnings, KYC, the 25% engine) remains the first fast-follow after alpha — it is the workstream parked since 06-18 and nothing in the alpha needs it. [If the CEO later wants agency-supply in the alpha cut, it pulls a parked, backend-heavy build forward — flag the slip.]
+One open sub-item: whether the Next.js ops console already partly built is extended into the company/agency self-serve web app, or the self-serve web is a distinct surface sharing the same backend. Resolve in the build chat — does not block the locks above.
+
+
+1 · Product in one page
+BadaBhai turns blue/grey-collar workers in India into live, profiled, contactable candidates — profiled by a conversational AI ("bada bhai," the helpful big brother who never tests, only helps) in Hinglish/regional language, chat + voice — and sells reach and access to anyone who pays: vacancy-banded job postings, boosts, and contact unlocks. Plus, for every worker: a free, perfect, AI-generated resume and a trade interview kit — the marketing front door. Two client surfaces: a worker mobile app and a Company/Agency web app. Not a staffing firm, not an employer-of-record, not a static job board. Money in → reach + data + access out.
+
+The moat: chat-built profiles (workers who could never write a resume) + live intent + the compounding behavioral event stream + the indefinitely-retained voice/transcript corpus (model-training consent from day one) + the resume artifact base.
+
+Wedge: Phase 1–2 industrial — 15 trades built (the 7 launch CNC/VMC roles + adjacent manufacturing trades, RVM-ratified 2026-06-17). Phase 3 hospitality (content pending product sign-off), Phase 4 gig. Primary strategic threat: Vahan.ai (manufacturing expansion underway); the CNC/VMC AI-placement niche is genuinely unoccupied but time-limited. Strongest moats: RVM institutional supply + CNC/VMC domain depth.
+
+Positioning: Naukri-Resdex-for-blue-collar with live intent + a posting product + the resume hook — non-competitive with staffing firms (customers, not rivals; no payroll/EOR) — opposite of Vahan's supply model while copying its Mitra-Leader referral mechanic. The long-horizon vision is a workforce-intelligence data layer (DaaS) — every profiled worker, on-wedge or not, is part of the asset.
+
+
+2 · Business & operating model [LOCKED]
+Objective: maximum hiring activity (volume). No hire signal exists → optimize in-app behavioral proxies (applies, unlocks, contacts, replies), payer-side weighted highest. North star: weekly PAID unlocks (see §3A.5).
+Three actors: Worker [BUILT] · Payer — tiered into Company account and Agency account with two modes (supply + demand); backend [BUILT] but no payer identity/auth yet (R16); staffing firms = company type + self-label; no identity verification of who the payer is (a GST proves nothing) — note this is distinct from verifying a job posting is real, which the posting gate now does (§3A.1) · Agency = separate role-aware login; supply mode earns, demand mode pays.
+Dual-channel supply, one funnel: direct (RVM marketing + organic, turbo-charged by the free-resume hook) and agency referral (Mitra-Leader pattern — supply dashboard is fast-follow). Every worker from every source is profiled by the bada bhai chat.
+Attribution [LOCKED, parked build]: first-to-introduce by phone · 90-day window, no resets · 25% rev-share per unlock in-window · ₹500 min monthly payout · PAN + bank at first payout.
+RVM = GTM fuel only. Never an algorithmic input. [HONORED]
+
+
+3 · Monetization [shape LOCKED + largely BUILT; PRICES NOW LOCKED; enforcement INERT]
+Six billable objects: unlock_credit [BUILT, gated] (bulk = discount on one purchase; spend = atomic per-worker records) · posting_fee [BUILT, gated] (free intro → vacancy bands; enforcement INERT, TD43/ADR-0016) · boost_fee [BUILT] (ranking deferred — TD42; boost↔floor invariant locks the guardrail) · credit_grant (ledger primitive today) · agency_payout (parked stub) · assisted_hiring_order (parked stub). Payments actor-agnostic. Razorpay approved but real payments OFF in alpha (R17). Resume is free forever. Workers-pay question [OPEN] (premium candidate / BB-assisted floated); integrity guardrail stands — money never tilts a worker's visibility (guard-enforced).
+3A · THE EIGHT CEO-LOCKED DECISIONS (2026-06-19) [LOCKED]
+Company job-posting price — Land-grab + guardrail. Posting stays free through launch (small/single-vacancy bands free forever; bigger bands free during the 15–30-day intro, then cheap). Verification-gated so ghost jobs don't waste worker swipes or erode trust. Monetize hard on unlocks, not posting. Revisit posting fees only once liquidity is proven. (Drives a "is this job real" check — distinct from payer-identity verification, which we still don't do.)
+Agency job-posting price — same as company. No agency-specific posting pricing at launch. Agency value is already captured two ways (their 25% supply rev-share and their unlock volume). Net-contribution models parked.
+Profile-unlock price — ₹40 flat. Packs of 50 / 200 / 1,000 with a real discount on the 1,000-pack (steers high-volume accounts to bulk → recurring revenue). Same price for agencies and companies. Logic: with the 5-unlocks/worker/week cap a worker earns max ~₹200/week, so revenue comes from worker volume → price for adoption, not extraction. Tune within 60 days on real buying.
+WhatsApp — 5 nudges, all opt-in, all pointing back into the app. The four (invite · job alert · contact notification · come-back nudge) plus "your resume is ready — download it" (closes the completion loop, pulls workers back). Referral nudge held until the referral mechanic is live (parked). Watch opt-out rates — they kill deliverability. The conversation itself stays in-app (the moat).
+North star — weekly PAID unlocks. Exclude seeded free credits so the number isn't flattered. Hero health metric = repeat-unlock rate (do payers come back? — the retention/NRR proof for the seed round). Dashboard to compute both still needs building (BUG-2).
+Multi-trade visitors — welcome all + free resume + waitlist, seen through the DaaS lens (every profiled worker is the data asset, ~₹4 CAC is trivial, it pre-fills trades before launch). Guardrail: off-wedge handling is 100% self-serve (resume + waitlist + alert, zero human ops) so it never drains the lean team; waitlist messaging stays honest (no implied imminent launch).
+Resume design — one excellent template per trade-family, subtly BadaBhai-branded + WhatsApp-share-optimized (every forwarded resume = free acquisition). The edit/enrich action quietly deepens the profile (resume edit = more profiling — the Trojan horse). Worker controls only safe fields (name spelling, photo on/off, phone shown/hidden, language). Multiple styles held for later, demand-driven.
+Reach weights — confirmed 35/20/15/15/10/5 as v1 cold-start defaults. Engineering reconciles the diverged code (ADR-0006) to these. No city-tuning at launch — ship flat, tune with data once the Learn layer has unlock/apply behavior. No gender/age/caste/religion — unambiguous yes (core to fairness positioning and real ethical/regulatory protection).
+
+Caps [PROPOSED, INERT]: 5 unlocks/worker/7d (15/30d) · 50/day/account · per-payer capacity not enforced (TD43). Exact rupee numbers for posting bands still come from the CBA (≤ Jul 2); the unlock price (₹40) is now fixed.
+
+
+4 · Product & UX [LOCKED]
+Chat-first (first screen = chat window; no forms/tiles) · role-dependent question depth · hybrid profiling (1–2 prompts → pre-filled form pop-up) · swipe-to-apply (right = apply, left = skip; each swipe a learning signal) · async voice notes ≤2 min (Sarvam; never real-time) · phone+OTP · low-literacy-first · offline-tolerant · canonical-at-capture · paused/quota-reached jobs vanish from feeds. Resume [BUILT]: deterministic template-fill, name injected post-LLM, no AI prose (ADR-0013), free download, now one branded share-optimized template per trade-family with safe-field worker controls. Interview kit [BUILT]: static curated per-trade content, 15 trades (TD24a), downloadable on the chat screen. The worker path works even with zero jobs present — resume-first and off-wedge users are first-class. Two client surfaces [LOCKED]: the worker mobile app (Flutter) and the Company/Agency web app (Next.js) — the agency on a separate role-aware login carrying its supply+demand flow.
+
+
+5 · The Reach Engine [architecture LOCKED; PARTIAL build; weights confirmed, code reconciling]
+REACH [BUILT — feed 0011/0015] → RANK [BUILT — core ADR-0006] → PACE [NOT STARTED] (fill target = the job's purchased applicant quota) → PROTECT [NOT STARTED] (contact caps; scrapers; canary profiles; resume rate-cap) → LEARN [BUILT offline — 0017] (classical ML on user actions; widen never narrow; re-weights the flat v1 defaults once behavior exists). Pillars: partial profiles work · relevance sorts, never blocks · hot tag ~12% · push floor 40/100 · LLM never ranks or rejects · boost-within-relevance — DECIDED + guard-enforced · no demographic inputs ever. Weights (Σ100) — CEO-confirmed 35/20/15/15/10/5 as v1 cold-start defaults; engineering reconciling diverged code (ADR-0006). Trade 35 · Location 20 · Skills 15 · Experience 15 · Salary 10 · Availability 5. Adjacency multipliers as previously locked. No city-tuning at launch.
+
+
+6 · Data model & schema [FROZEN — ADR-0014 CEO-signed 2026-06-17]
+Schema foundation signed. Six billable objects · job fields (vacancy_count, vacancy_band, applicant_quota stamped, boost fields, assisted_hiring, paused_quota_reached) + lifecycle events · account taxonomy (company / agency-dual-mode) · consent.purposes[] incl. model_training [BUILT — ADR-0018] · voice_note.retention_policy = retain_indefinitely + storage class [BUILT] · actor-scoped deletion [PARTIAL/UNVERIFIED — no proven erasure flow] · trust/abuse events · resume artifact + resume.* events [BUILT] · trade content library (versioned, never-purge) + interview_kit.downloaded [BUILT] · embeddings vector(768) column + HNSW index [BUILT], generation deferred.
+
+
+7 · Compliance [posture LOCKED; production copy/flows PENDING]
+DPDP consent gate [BUILT — consent.accepted]; production DPDP copy/retention text PENDING (R19). Includes model-training purpose from day one. Drafted by CEO's corporate legal, by Jun 27; needs the Grievance Officer's name [PENDING — still unnamed]. Prakash = 72-hr breach owner.
+Retention [LOCKED/BUILT]: voice ≤2 min/note · raw audio retained indefinitely (cold/physical archive) · transcripts + chat = account lifetime · 18-mo inactive → anonymize · deletion overrides everything.
+Deletion [PARTIAL]: auto-approved · OTP → 48-hr notice → purge ≤7 days → audit log · per-worker path built, erasure flow not yet proven.
+Vendors: Sarvam written enterprise terms required · Google + Anthropic DPAs before Jul 7 (no-training, ZDR). Pseudonymization gateway fail-closed before every LLM call — heuristic/non-NER today (TD3), full client-direct RLS pending (TD4), PII key-rotation pending (TD22). employer_sharing notice + routing-token/linkage retention pending (R19). Item 6 legal consult [PENDING].
+Residency: all data in-region — Supabase Mumbai + AWS ap-south-1.
+Open PII surfaces (pre-prod hardening): R10 raw-conversation JSON bucket · R13 resume name via signed URL · R18 raw-phone reveal/telephony out of alpha.
+
+
+8 · Technology stack [LOCKED unless tagged]
+badabhai-platform monorepo, pnpm + Turborepo · Backend: NestJS (API, Reach Engine, CRM) · AI service: Python/FastAPI, stateless · LLM routing: direct Gemini 2.5 Flash-Lite (~85%) + Claude Haiku 4.5 (~15%) via direct REST — LiteLLM removed (ADR-0008) · Data: PostgreSQL 16 + pgvector on Supabase Mumbai · S3-compatible storage · Drizzle ORM hand-reviewed SQL · Web: Next.js — Company/Agency self-serve web app + ops console (one role-aware platform; agency on separate login) · Mobile: Flutter — dev joins Jun 25; app screens day-1-ready, don't block the cut · Instructor + Pydantic (JSON-valid ≥99%) · Langfuse observability · Embeddings: Vertex AI managed, text-multilingual-embedding-002, 768-dim — column + HNSW built, generation deferred · STT: Sarvam Saaras v3 [BUILT — real; gated mock default] · pseudonymization fail-closed before every call (heuristic today, TD3) · avoid: Kafka, Temporal, Pinecone/Weaviate, LangChain-as-core, real-time voice. Cost discipline: ≤₹4/profile (absorbs resume gen) · ₹6 alert + auto-downgrade · token caps per conversation · ₹13K/mo Stage-1 cap · spend ledger must move to Redis shared store — caps are per-process today (TD27). Architecture principles: conversation app-owned (WhatsApp = alerts/invites only) · everything is an event · offline-tolerant clients · cost-tiered AI · offline-core only fine-tune (ADR-0018, no live promotion).
+
+
+9 · Build state & what's left [from 2026-06-18 codebase snapshot; web-app scope added 06-19]
+Net: volume-first faceless exchange built at backend; Phase-2 surface largely built ahead of schedule (ADR-governed), much of it inert/shadow pending enforcement + verification.
+
+A · ALPHA-GATING (close before internal alpha):
+
+B1 — real-handset device run of the worker core path vs staging, 3 evidence artifacts · QA · NO-GO, target 2026-06-20 · the sole NO-GO→GO blocker.
+BUG-2 — deploy + seed the employer/unlock schema to a reachable staging DB (~9 migrations behind → 0 unlock/contact/payment events ever recorded) · Divyanshu/DevOps · blocks all employer-loop runtime proof + the weekly-paid-unlocks dashboard.
+G1c PDF / G2 voice / G3 interview-kit app screens · Android dev (Jun 25) · do not block the cut.
+Company + Agency web app (demand loop) — post → browse masked → unlock → contact, role-aware login. In the alpha build (the surface payers actually use). Agency supply dashboard is fast-follow.
+
+B · PRE-PROD HARDENING (before real users / PII): real-LLM prod-flip prereqs (Redis shared spend ledger TD27 · secrets manager TD10 · p95-latency measure · ≥3 stability runs) · DPDP/payments gates (R16 payer identity · R17 real payments off · R18 telephony out of alpha · R19 DPDP lawful-basis + employer_sharing notice) · PII surfaces (R10 · R13 · TD3 · TD4 · TD22).
+
+C · FAST-FOLLOW / PARKED (post-alpha): agency supply dashboard (referral links + payouts + KYC + 25% engine) · seeding/credit-grants · TD42 boost ranking · TD43 per-payer capacity enforcement · TD24a questionnaire-driven trade content · hospitality PRD (pending product sign-off) · ADR-0018 fine-tune offline-core only.
+
+Risk posture: Amber trending Red — Phase-2-built-but-inert masks how much enforcement/verification remains; the web app adds demand-loop surface to the alpha cut; Prakash's concentration is standing risk #1; compliance gates protected above all.
+
+
+10 · Team & calendar
+Prakash Kantumutchu — Tech Lead/TPM/AI; verifies all output before Done · Akshit — CEO (domain truth, commercial sign-off, company docs, legal) · Divyanshu Pant — backend/NestJS, schema co-owner (joined Jun 9) · Utkarsh Bhadauriya — web/Next.js (now also the Company/Agency web app) · Flutter developer — joins Jun 25 · [REMOVED] Shubham Sharma; senior full-stack hire · [PENDING] HR-background ops hire. Calendar: B1 device run NO-GO→GO target Jun 20 · WhatsApp filing + Razorpay onboarding (docs from Akshit are the clock) · Flutter dev Jun 25 · RVM data fields Jun 25 · consent/T&C text Jun 27 (Grievance Officer name needed) · pricing CBA for posting bands ≤ Jul 2 (unlock ₹40 already fixed) · Google/Anthropic DPAs ≤ Jul 7 + Sarvam written terms · internal alpha (target window after B1/BUG-2 close) · soft launch Sep 2026.
+
+
+11 · Consolidated ledger
+[LOCKED] Volume-first faceless model · three actors, tiered payer accounts · two client surfaces (worker mobile app + Company/Agency web app, agency separate role-aware login) · dual-channel supply through the mandatory chat · first-to-introduce (90d/25%/₹500) · six billable objects · the eight pricing/product decisions (§3A): posting free-through-launch verification-gated, agency posting = company, unlock ₹40 packs 50/200/1000 bulk-discounted, 5 WhatsApp nudges, north star = weekly paid unlocks + repeat-unlock health metric, multi-trade welcome + self-serve waitlist, one branded share-optimized resume per trade-family, weights 35/20/15/15/10/5 flat no-demographics · vacancy bands → quotas → pause → top-up/boost · payments actor-agnostic · resume = versioned free front-door · interview kit = checklist + static per-trade Q&A · chat-first UX · Reach Engine architecture + pillars · Pace target = applicant quota · consent incl. model_training · audio retain-indefinitely · actor-scoped deletion; jobs + content library never-purge · anti-spam six layers + resume rate-cap · stack (NestJS/FastAPI/Supabase-Mumbai/Drizzle/direct-Gemini-Claude/Vertex-embeddings/Sarvam/Flutter/Next.js web) · pseudonymization fail-closed · DPDP gate · residency India · RVM = GTM only. [BUILT] Worker profiling · reach feed · RANK core · resume · interview kit (15 trades) · consent gate · audio retention · Sarvam STT · unlock + posting objects (gated) · boost object · Vertex vector column + HNSW · schema frozen (ADR-0014). [INERT/PARTIAL] Boost ranking (TD42) · per-payer capacity (TD43) · unlock loop (BUG-2) · weekly-paid-unlocks dashboard · PACE · PROTECT · deletion erasure flow · embeddings generation · payer identity/auth (R16) · Company/Agency web app demand loop (to build for alpha). [PENDING] Grievance Officer name (≤Jun 27) · item 6 legal consult · Sarvam written terms · HR ops hire · launch-district names · written alpha commitment countersign · posting-band rupee numbers (CBA ≤ Jul 2). [OPEN] Worker-premium / BB-assisted decision · daily push cap · Learn switch-on trigger · hospitality/gig weight columns · whether self-serve web extends the ops console or is a distinct surface (build-chat call) · agency-supply-dashboard timing if CEO wants it in alpha.
+
+
+12 · DEAD — never rebuild; correct in any chat still carrying these
+✗ 100-point precision matching score · ✗ old 7 weights with RVM-5 · ✗ precision matrices as locked spec · ✗ RVM as any ranking signal · ✗ structured "Employer" entity · ✗ surfacing payroll arrangements to workers · ✗ hire/no-show as captured signals · ✗ "match acceptance rate" north star (→ weekly PAID unlocks) · ✗ "posting free forever" as the final word (→ free through launch, verification-gated, revisit once liquidity proven) · ✗ "raw audio deleted after 30 days" (→ retained indefinitely) · ✗ "workers never pay" as a permanent locked principle (→ open; visibility-integrity guardrail stands) · ✗ BGE-M3 self-hosted on the RTX 3060 (→ Vertex managed embeddings) · ✗ Shubham/senior-FS staffing assumptions (→ Flutter dev Jun 25) · ✗ employer-specific interview prep (Version B) for launch (→ parked) · ✗ LiteLLM gateway (→ direct Gemini/Claude REST, ADR-0008) · ✗ AI-generated resume prose (→ deterministic template-fill, ADR-0013) · ✗ unlock price as an open range ₹30–50 (→ FIXED at ₹40 flat) [new] · ✗ worker mobile app as the only client surface (→ Company/Agency web app committed alongside) [new].
+
+
+13 · Artifact index
+This document — the master reference
+BadaBhai_CEO_Decisions_PricingProduct_2026-06-18 — the eight decisions (now all CEO-locked per §3A)
+BadaBhai_Latest_Context_2026-06-18.md and older — superseded by this document
+BadaBhai_Schema_RC2_Delta_Spec_2026-06-06.md · BadaBhai_Item10_Event_Walkthrough_CEO_2026-06-06.md (satisfied by ADR-0014)
+BadaBhai_CEO_Critical_Decision_Sheet_v2_2026-06-06 + returned remarks
+Master Technical Build Reference · Relevance Engine Config Spec · Operational & Informational Architecture v2 · Reach Engine reports · Critical Thinking logs (timestamped series)
+
+
+
+Compiled 2026-06-19 15:40 IST from the Decision-Making chat. Paste whole into any project chat; where older documents disagree, this one wins. Re-issue after B1/BUG-2 close, after the posting-band CBA, and after the agency-supply-dashboard timing call.

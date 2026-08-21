@@ -1,0 +1,34 @@
+/* ============================================================
+   BadaBhai · Elevation — shadows & borders
+   ------------------------------------------------------------
+   Objects rest on warm paper. Shadows are ink-tinted, soft, and
+   low — never the cold grey/blue drop shadow of generic SaaS.
+   The marigold glow is reserved for the one primary action on a
+   screen. Focus is always a marigold ring, never a browser blue.
+   ============================================================ */
+:root {
+  --shadow-xs: 0 1px 2px rgba(33, 30, 22, 0.06);
+  --shadow-sm: 0 1px 2px rgba(33, 30, 22, 0.06),
+               0 2px 6px rgba(33, 30, 22, 0.05);
+  --shadow-md: 0 2px 4px rgba(33, 30, 22, 0.05),
+               0 8px 20px rgba(33, 30, 22, 0.09);
+  --shadow-lg: 0 4px 10px rgba(33, 30, 22, 0.06),
+               0 18px 40px rgba(33, 30, 22, 0.14);
+  --shadow-xl: 0 24px 60px rgba(33, 30, 22, 0.22);
+
+  /* the one CTA per screen */
+  --shadow-brand: 0 6px 18px rgba(224, 55, 28, 0.34);
+  --shadow-brand-lg: 0 12px 30px rgba(224, 55, 28, 0.40);
+
+  /* pressed / sunken inputs */
+  --shadow-inset: inset 0 1px 2px rgba(33, 30, 22, 0.10);
+
+  /* focus ring (compose with box-shadow) */
+  --ring-focus: 0 0 0 3px var(--ring);
+  --ring-focus-tight: 0 0 0 2px var(--surface-card), 0 0 0 4px var(--ring);
+
+  /* border widths */
+  --border-hairline: 1px;
+  --border-medium:   1.5px;
+  --border-bold:     2px;
+}

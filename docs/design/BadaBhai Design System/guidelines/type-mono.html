@@ -1,0 +1,35 @@
+<!-- @dsCard group="Type" viewport="700x210" name="Data — Roboto Mono" subtitle="Self-hosted. Money, IDs, counts. Tabular numerals." -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 24px 28px; background: var(--surface-card); font-family: var(--font-sans); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 28px; }
+  .stat { }
+  .k { font-size: 12px; color: var(--text-muted); font-weight: 600; }
+  .v { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 700; color: var(--text-primary); }
+  .big { font-size: 30px; }
+  .row { display: flex; justify-content: space-between; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 15px; padding: 4px 0; border-bottom: 1px solid var(--divider); }
+  .row b { color: var(--success); }
+  .meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin-top: 14px; }
+</style>
+</head>
+<body>
+  <div class="grid">
+    <div class="stat"><div class="k">Unlock price</div><div class="v big">₹40</div></div>
+    <div class="stat"><div class="k">This week, paid unlocks</div><div class="v big">1,284</div></div>
+    <div class="stat">
+      <div class="k">Pack ledger</div>
+      <div class="row"><span>50 pack</span><span>₹2,000</span></div>
+      <div class="row"><span>200 pack</span><span>₹7,600</span></div>
+      <div class="row"><span>1,000 pack</span><b>₹34,000</b></div>
+    </div>
+    <div class="stat"><div class="k">Worker ID</div><div class="v" style="font-size:16px">BB-CNC-08823</div>
+      <div class="k" style="margin-top:10px">Repeat-unlock rate</div><div class="v big">62%</div>
+    </div>
+  </div>
+  <div class="meta">Roboto Mono · 400 / 700 · self-hosted in assets/fonts/</div>
+</body>
+</html>
