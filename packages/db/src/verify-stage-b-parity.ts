@@ -82,7 +82,7 @@ export interface StageBDelta {
 }
 
 const key = (r: CandidateRow): string =>
-  `${r.domain_id}${r.skill_id}${r.text}${r.embedding_model ?? ""}`;
+  `${r.domain_id}\u001f${r.skill_id}\u001f${r.text}\u001f${r.embedding_model ?? ""}`;
 
 export interface RuleResult {
   readonly rule: "R1" | "R2" | "R3" | "R4";
@@ -167,10 +167,10 @@ export function checkNewSkills(
 ): RuleResult {
   const detail: string[] = [];
   let pass = true;
-  const declared = new Map(delta.new_skills.map((s) => [`${s.domain_id}${s.skill_id}`, s]));
+  const declared = new Map(delta.new_skills.map((s) => [`${s.domain_id}\u001f${s.skill_id}`, s]));
   const seen = new Set<string>();
   for (const r of current) {
-    const k = `${r.domain_id}${r.skill_id}`;
+    const k = `${r.domain_id}\u001f${r.skill_id}`;
     if (seen.has(k)) continue;
     seen.add(k);
     if (baselineSkillsBySlug.get(r.domain_id)?.has(r.skill_id) === true) continue;
@@ -194,13 +194,13 @@ export function checkNewSkills(
 export function checkCollisions(current: readonly CandidateRow[]): RuleResult {
   const byText = new Map<string, Set<string>>();
   for (const r of current) {
-    const k = `${r.domain_id}${r.text.toLowerCase()}`;
+    const k = `${r.domain_id}\u001f${r.text.toLowerCase()}`;
     byText.set(k, (byText.get(k) ?? new Set()).add(r.skill_id));
   }
   const detail: string[] = [];
   for (const [k, skills] of byText) {
     if (skills.size > 1) {
-      const [slug, text] = k.split("");
+      const [slug, text] = k.split("\u001f");
       detail.push(`  COLLISION ${slug} ${JSON.stringify(text)} -> ${[...skills].sort().join(", ")}`);
     }
   }

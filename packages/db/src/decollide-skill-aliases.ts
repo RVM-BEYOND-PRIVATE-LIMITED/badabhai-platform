@@ -146,7 +146,7 @@ async function main(): Promise<void> {
                AND sa.skill_id IN ${inList(winners.map((x) => x.winner_skill_id as string))}
                AND lower(sa.text) IN ${inList(winners.map((x) => x.text.toLowerCase()))}`,
       )) as unknown as { skill_id: string; text: string }[];
-      for (const r of rows) held.add(`${r.skill_id}${r.text.toLowerCase()}`);
+      for (const r of rows) held.add(`${r.skill_id}\u001f${r.text.toLowerCase()}`);
     }
 
     console.log("");
@@ -155,7 +155,7 @@ async function main(): Promise<void> {
     for (const x of exclusions) {
       const row = byId.get(x.alias_id);
       const winnerHolds =
-        x.winner_skill_id === null || held.has(`${x.winner_skill_id}${x.text.toLowerCase()}`);
+        x.winner_skill_id === null || held.has(`${x.winner_skill_id}\u001f${x.text.toLowerCase()}`);
       const p = verifyExclusion(x, row, winnerHolds);
       const state = row === undefined ? "MISSING" : row.embedded ? "embedded" : "already NULL";
       console.log(`  ${x.alias_id}  ${x.skill_id.padEnd(24)} ${JSON.stringify(x.text)}`);
