@@ -1,5 +1,28 @@
 import 'dart:async';
 
+/// The RESERVED wire code for "a valid worker token resolved a worker whose row
+/// no longer exists" (backend: `WORKER_ACCOUNT_DELETED_CODE`). One definition
+/// shared by both HTTP seams and their tests so the client keys on it exactly.
+const String kWorkerAccountDeletedCode = 'WORKER_ACCOUNT_DELETED';
+
+/// True IFF a response is the RESERVED account-deleted signal: HTTP **410** AND a
+/// `code == WORKER_ACCOUNT_DELETED`.
+///
+/// The code is read from EITHER the top-level body OR the API's `{ error: { code
+/// } }` envelope — the global `AllExceptionsFilter` nests every thrown exception
+/// under `error`, so on the real wire the code lives at `body['error']['code']`,
+/// NOT top-level. Accepting both shapes makes the trigger robust to the envelope
+/// (and to any future flattening) without ever widening it: BOTH the 410 status
+/// AND the exact code are still required, so no generic error — a 500, a
+/// timeout, a bare 410, a different code, a 401 — can ever cause a false
+/// destructive logout. This is the single source of truth for the trigger.
+bool isWorkerAccountDeletedResponse(int statusCode, Map<String, dynamic>? body) {
+  if (statusCode != 410 || body == null) return false;
+  if (body['code'] == kWorkerAccountDeletedCode) return true;
+  final Object? error = body['error'];
+  return error is Map && error['code'] == kWorkerAccountDeletedCode;
+}
+
 /// A one-way "the backend says this worker's account no longer exists — send
 /// them back to a fresh login" signal.
 ///

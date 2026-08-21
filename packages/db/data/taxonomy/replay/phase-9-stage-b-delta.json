@@ -1,0 +1,201 @@
+{
+  "kind": "stage-b-delta",
+  "stage": "B — production backfill of the taxonomy corpus (D2), 2026-08-20/21",
+  "why": "P1-B requires Stage B to ENUMERATE its effect on Path B rather than merely pass a digest compare. This file is that enumeration, and it is what `db:verify:stage-b` subtracts from the live corpus to reconstruct the committed pre-D2 baseline.",
+  "added": [
+    {
+      "domain_id": "cnc-machining",
+      "skill_id": "skill_drawing_reading",
+      "text": "blueprint reading",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "cnc-machining",
+      "skill_id": "skill_drawing_reading",
+      "text": "CAD",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "cnc-machining",
+      "skill_id": "skill_drawing_reading",
+      "text": "drawing padhna",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "cnc-machining",
+      "skill_id": "skill_drawing_reading",
+      "text": "drawing reading",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "cnc-machining",
+      "skill_id": "skill_drawing_reading",
+      "text": "read engineering drawings",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "cnc-machining",
+      "skill_id": "skill_drawing_reading",
+      "text": "technical drawing",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "cnc-machining",
+      "skill_id": "skill_drilling",
+      "text": "chhed karna",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "cnc-machining",
+      "skill_id": "skill_drilling",
+      "text": "drilling ka kaam",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "cnc-machining",
+      "skill_id": "skill_fixture_setup",
+      "text": "job setting",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "cnc-machining",
+      "skill_id": "skill_fixture_setup",
+      "text": "setting karna",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "cnc-machining",
+      "skill_id": "skill_tapping_threading",
+      "text": "chudi katna",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "cnc-machining",
+      "skill_id": "skill_turning",
+      "text": "kharad",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "cnc-machining",
+      "skill_id": "skill_turning",
+      "text": "kharad ka kaam",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "cnc-programming",
+      "skill_id": "skill_cad_interpretation",
+      "text": "drawing padhna",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "cnc-programming",
+      "skill_id": "skill_cnc_programming",
+      "text": "program banana",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "cnc-programming",
+      "skill_id": "skill_program_editing",
+      "text": "program sudharna",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "fabrication",
+      "skill_id": "skill_deburring",
+      "text": "chhilai",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "fabrication",
+      "skill_id": "skill_deburring",
+      "text": "finishing ka kaam",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "fabrication",
+      "skill_id": "skill_gas_cutting",
+      "text": "gas se katna",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "fabrication",
+      "skill_id": "skill_sheet_metal",
+      "text": "chadar ka kaam",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "fitting-assembly",
+      "skill_id": "skill_bench_fitting",
+      "text": "fitting ka kaam",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "grinding",
+      "skill_id": "skill_grinding_ops",
+      "text": "ghisai",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "grinding",
+      "skill_id": "skill_grinding_ops",
+      "text": "ghisai ka kaam",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "maintenance",
+      "skill_id": "skill_machine_maintenance",
+      "text": "machine ki marammat",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "metrology-quality",
+      "skill_id": "skill_measuring_instruments",
+      "text": "micrometer se naapna",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "metrology-quality",
+      "skill_id": "skill_measuring_instruments",
+      "text": "naap tol",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "metrology-quality",
+      "skill_id": "skill_quality_control",
+      "text": "quality check karna",
+      "embedding_model": "gemini-embedding-001"
+    },
+    {
+      "domain_id": "welding",
+      "skill_id": "skill_welder_occupation",
+      "text": "welding ka kaam",
+      "embedding_model": "gemini-embedding-001"
+    }
+  ],
+  "removed": [
+    {
+      "domain_id": "cnc-machining",
+      "skill_id": "skill_gdt_reading",
+      "text": "blueprint reading",
+      "embedding_model": "gemini-embedding-001",
+      "reviewed_by": "product owner, 2026-08-21",
+      "reason": "Duplicate election. This row WAS in the pre-D2 baseline: before D2 no general drawing-comprehension skill existed, so skill_gdt_reading carried the phrase by default. D2 introduced skill_drawing_reading, which is where it belongs. A Path B query for 'blueprint reading' in cnc-machining therefore resolves to skill_drawing_reading instead of skill_gdt_reading. That is a REVIEWED BEHAVIOUR CHANGE, not a silent one, and it is an improvement: blueprint reading is not GD&T."
+    },
+    {
+      "domain_id": "cnc-machining",
+      "skill_id": "skill_gdt_reading",
+      "text": "drawing reading",
+      "embedding_model": "gemini-embedding-001",
+      "reviewed_by": "product owner, 2026-08-21",
+      "reason": "Duplicate election, same reasoning as 'blueprint reading' above. Also a pre-D2 baseline row, also a reviewed behaviour change, also an improvement."
+    }
+  ],
+  "new_skills": [
+    {
+      "skill_id": "skill_drawing_reading",
+      "domain_id": "cnc-machining",
+      "reviewed_by": "product owner, 2026-08-21",
+      "note": "General engineering-drawing comprehension. Kept as a skill distinct from skill_gdt_reading (the narrower GD&T competency) rather than merged; the two overlapping alias texts were split between them, GD&T terms to skill_gdt_reading and general drawing terms here. See data/taxonomy/decollided-aliases.json."
+    }
+  ]
+}
