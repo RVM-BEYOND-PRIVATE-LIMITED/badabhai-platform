@@ -143,9 +143,26 @@ class MockApiClient extends ApiClient {
     required String message,
     String? category,
     String? screen,
+    List<String>? attachmentPaths,
   }) async {
-    // No-op: canned success so the feedback flow is walkable in mock mode.
+    // No-op: canned success so the feedback flow is walkable in mock mode. The
+    // attachment_paths (if any) are already "uploaded" via the canned mint below.
     await _delay();
+  }
+
+  @override
+  Future<PhotoUploadTicket> mintFeedbackAttachmentUploadUrl({
+    required String authToken,
+  }) async {
+    await _delay();
+    // Mirrors the real shape (`feedback-attachments/<workerId>/<uuid>.jpg`) with
+    // obviously-fake sentinels. The upload_url is never PUT to in mock mode — the
+    // MockFeedbackAttachmentUploader skips it and returns its own canned path.
+    return const PhotoUploadTicket(
+      storagePath: 'feedback-attachments/mock-worker/mock-feedback-0001.jpg',
+      uploadUrl: 'https://mock.local/signed-upload/mock-feedback-0001.jpg',
+      expiresInSeconds: 7200,
+    );
   }
 
   @override

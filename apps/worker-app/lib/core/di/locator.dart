@@ -64,7 +64,11 @@ import '../../features/voice_form/domain/question_audio_player.dart';
 import '../../features/voice_form/domain/silence_endpointer.dart';
 import '../../features/voice_form/domain/voice_form_gateway.dart';
 import '../../features/voice_form/presentation/cubit/voice_form_cubit.dart';
+import '../../features/feedback/data/feedback_attachment_uploader_impl.dart';
 import '../../features/feedback/data/feedback_repository_impl.dart';
+import '../../features/feedback/data/image_picker_feedback_image_picker.dart';
+import '../../features/feedback/domain/feedback_attachment_uploader.dart';
+import '../../features/feedback/domain/feedback_image_picker.dart';
 import '../../features/feedback/domain/feedback_repository.dart';
 import '../../features/name/data/name_repository_impl.dart';
 import '../../features/name/domain/name_repository.dart';
@@ -235,6 +239,23 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   locator.registerLazySingleton<FeedbackRepository>(
     () => FeedbackRepositoryImpl(
         locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  // Feedback image attachments: the mint rides the ApiClient (so MockApiClient
+  // covers it in mock mode); ONLY the raw byte-PUT to the signed url needs its
+  // own MOCK/REAL split — the same shape as the profile-photo uploader.
+  locator.registerLazySingleton<FeedbackAttachmentUploader>(
+    () => kUseMocks
+        ? const MockFeedbackAttachmentUploader()
+        : RealFeedbackAttachmentUploader(
+            api: locator<ApiClient>(),
+            session: locator<SessionRepository>(),
+          ),
+  );
+  // The picker is a DEVICE capability (like the voice recorder / dictation), so
+  // the real one is wired in BOTH modes — constructing it touches no platform
+  // channel until first use. Widget tests override this with a fake.
+  locator.registerLazySingleton<FeedbackImagePicker>(
+    () => ImagePickerFeedbackImagePicker(),
   );
   locator.registerLazySingleton<ChatRepository>(
     () => ChatRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),

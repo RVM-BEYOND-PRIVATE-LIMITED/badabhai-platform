@@ -470,6 +470,14 @@ class ApiClient {
   /// concrete path, so it carries no identifier. OPTIONAL on the wire: the key is
   /// omitted when it is null, which is what every already-released build sends.
   ///
+  /// [attachmentPaths] are the server-owned storage keys of up to 3 images the
+  /// worker attached (`feedback-attachments/<workerId>/<uuid>.jpg`), each minted
+  /// by [mintFeedbackAttachmentUploadUrl] and PUT to storage BEFORE this call. It
+  /// is OMITTED from the body when null OR empty, so a submission with no image is
+  /// byte-identical to what every already-released build sends (and the retry-
+  /// without-`screen` path below is unaffected). The server re-validates each path
+  /// against the minted-key regex — the client never asserts ownership.
+  ///
   /// BACKEND: the endpoint is owned by the API/admin team (raised separately) —
   /// this is the client half of the contract.
   Future<void> submitFeedback({
@@ -477,6 +485,7 @@ class ApiClient {
     required String message,
     String? category,
     String? screen,
+    List<String>? attachmentPaths,
   }) async {
     await _post(
       '/workers/me/feedback',
@@ -484,9 +493,34 @@ class ApiClient {
         'message': message,
         if (category != null) 'category': category,
         if (screen != null) 'screen': screen,
+        if (attachmentPaths != null && attachmentPaths.isNotEmpty)
+          'attachment_paths': attachmentPaths,
       },
       authToken: authToken,
     );
+  }
+
+  /// POST /workers/me/feedback/attachment/upload-url — mints a signed slot for ONE
+  /// feedback image (up to 3 per submission). Worker from [authToken]; the body is
+  /// EMPTY — the SERVER chooses the object key
+  /// (`feedback-attachments/<workerId>/<uuid>.jpg`). The bytes are then PUT to
+  /// `upload_url` (RealFeedbackAttachmentUploader) and the returned `storage_path`
+  /// rides back on [submitFeedback]'s `attachment_paths`.
+  ///
+  /// A 503 means feedback attachments are dormant server-side (bucket unset); a
+  /// 404 that this endpoint is not deployed on that build. The caller treats both
+  /// as "drop this image" — the worker's TEXT feedback still sends. Reuses
+  /// [PhotoUploadTicket] (identical wire shape: `storage_path` / `upload_url` /
+  /// `expires_in`). PRIVACY: the returned url is SIGNED — never log it.
+  Future<PhotoUploadTicket> mintFeedbackAttachmentUploadUrl({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _post(
+      '/workers/me/feedback/attachment/upload-url',
+      <String, dynamic>{},
+      authToken: authToken,
+    );
+    return PhotoUploadTicket.fromJson(json);
   }
 
   /// GET /workers/me/resume-fields — the worker-editable "safe fields" (their OWN

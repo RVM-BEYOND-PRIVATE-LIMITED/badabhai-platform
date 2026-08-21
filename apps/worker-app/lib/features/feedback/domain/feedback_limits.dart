@@ -17,6 +17,14 @@
 /// shorten what the server sees.
 const int kWorkerFeedbackMessageMax = 4000;
 
+/// The most images a worker may attach to one feedback submission.
+///
+/// MIRRORS the server DTO's `attachment_paths ... .max(3)` (see the locked
+/// contract). The add affordance hides at this count, so the worker cannot pick a
+/// fourth image the server would then reject — the same "a bound they cannot
+/// cross beats an error about crossing it" posture as [kWorkerFeedbackMessageMax].
+const int kFeedbackMaxImages = 3;
+
 /// How close to the cap the character counter appears.
 ///
 /// It stays HIDDEN until then on purpose. A "0 / 4000" sitting under an empty box
