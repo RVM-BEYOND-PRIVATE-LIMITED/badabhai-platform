@@ -1093,6 +1093,25 @@ class ApiClient {
     );
   }
 
+  /// TEST-ONLY: immediately delete the signed-in worker's own account
+  /// (POST /auth/account/delete/immediate — worker-scoped, no body, no grace).
+  /// Exists purely so QA can trigger the account-deletion flow without a DBA;
+  /// it is reachable only from the [kEnableTestDelete] Profile button.
+  ///
+  /// Contract: any 2xx = SUCCESS (the account is gone). A non-2xx throws
+  /// [ApiException] (as [_post] already does), so 404 — the endpoint being
+  /// DISABLED on that server — surfaces as `ApiException(404)`, distinct from
+  /// other failures the caller may want to word differently.
+  Future<void> deleteAccountImmediatelyForTest({
+    required String authToken,
+  }) async {
+    await _post(
+      '/auth/account/delete/immediate',
+      <String, dynamic>{},
+      authToken: authToken,
+    );
+  }
+
   /// Records an APPLY decision on [jobId] (idempotent server-side). Worker-scoped
   /// — requires [authToken]. [rank] is the 1-based feed position the apply was
   /// taken from (nullable); [sourceSurface] mirrors the API enum and defaults to

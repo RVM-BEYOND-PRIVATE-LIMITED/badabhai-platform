@@ -736,6 +736,17 @@ class MockApiClient extends ApiClient {
     _deletionScheduledFor = null;
   }
 
+  @override
+  Future<void> deleteAccountImmediatelyForTest({
+    required String authToken,
+  }) async {
+    await _delay();
+    // Mirrors the real 2xx = SUCCESS contract: the mock account is "gone". No
+    // request leaves the device (this override keeps mock mode off the network),
+    // and the caller performs the local session wipe just as the real path does.
+    _deletionScheduledFor = null;
+  }
+
   // ── Network methods that were missing an override (#719 + gap scan). ──
   // Without these, mock mode falls through to the real ApiClient and fires a
   // request at mock://local (e.g. VoiceFormActionLog.flush → recordWorkerActions

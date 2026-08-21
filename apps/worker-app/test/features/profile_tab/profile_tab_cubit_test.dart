@@ -105,4 +105,72 @@ void main() {
       expect(empty.sessionToken, isNull);
     });
   });
+
+  group('deleteAccountForTest', () {
+    late MockApiClient api;
+    late SessionRepository session;
+
+    setUp(() {
+      api = MockApiClient();
+      session = SessionRepository()
+        ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 't1')
+        ..setProfile('p1')
+        ..setResume('r1');
+    });
+
+    test('success (2xx): calls the endpoint with the token, wipes the session, '
+        'returns true', () async {
+      when(() =>
+              api.deleteAccountImmediatelyForTest(
+                  authToken: any(named: 'authToken')))
+          .thenAnswer((_) async {});
+      // On success the cubit reuses logout()'s teardown (seam path → api.logout
+      // then session.clear), so stub the revoke too.
+      when(() => api.logout(authToken: any(named: 'authToken')))
+          .thenAnswer((_) async {});
+      final ProfileTabCubit cubit =
+          ProfileTabCubit(repo, api: api, session: session);
+
+      final bool result = await cubit.deleteAccountForTest();
+
+      expect(result, isTrue);
+      verify(() => api.deleteAccountImmediatelyForTest(authToken: 't1'))
+          .called(1);
+      expect(session.sessionToken, isNull);
+      expect(session.workerId, isNull);
+      expect(session.profileId, isNull);
+      expect(session.resumeId, isNull);
+    });
+
+    test('failure (ApiException, e.g. 404 disabled): returns false, no crash, '
+        'session untouched', () async {
+      when(() =>
+              api.deleteAccountImmediatelyForTest(
+                  authToken: any(named: 'authToken')))
+          .thenThrow(ApiException(404, 'test delete disabled'));
+      final ProfileTabCubit cubit =
+          ProfileTabCubit(repo, api: api, session: session);
+
+      final bool result = await cubit.deleteAccountForTest(); // must not throw
+
+      expect(result, isFalse);
+      verify(() => api.deleteAccountImmediatelyForTest(authToken: 't1'))
+          .called(1);
+      // A failed delete must NOT sign the worker out or wipe the session.
+      expect(session.sessionToken, 't1');
+      verifyNever(() => api.logout(authToken: any(named: 'authToken')));
+    });
+
+    test('no token: returns false without calling the endpoint', () async {
+      final SessionRepository empty = SessionRepository();
+      final ProfileTabCubit cubit =
+          ProfileTabCubit(repo, api: api, session: empty);
+
+      final bool result = await cubit.deleteAccountForTest();
+
+      expect(result, isFalse);
+      verifyNever(() => api.deleteAccountImmediatelyForTest(
+          authToken: any(named: 'authToken')));
+    });
+  });
 }

@@ -118,4 +118,40 @@ class ProfileTabCubit extends Cubit<ProfileTabState> {
     }
     session.clear();
   }
+
+  /// TEST-ONLY (see [kEnableTestDelete]): immediately delete the signed-in
+  /// worker's own account, then locally sign out with the SAME teardown
+  /// [logout] uses so no token / PIN / cached singleton survives.
+  ///
+  /// Resolves the bearer token the way [logout] does — from the injected
+  /// [_session] seam in tests, else [SessionRepository] from the locator (which
+  /// [AuthSessionManager] bridges the access token into for the real app).
+  ///
+  /// Returns `true` only when the server confirmed the delete (any 2xx) and the
+  /// local wipe ran; returns `false` on ANY failure — a 404 (endpoint disabled
+  /// on that server), any other non-2xx [ApiException], a [Failure], or a
+  /// missing session. It NEVER throws, so the screen can branch on the bool.
+  /// The 404-vs-other distinction is intentionally collapsed here: the caller
+  /// keeps its copy general-but-honest rather than guessing the cause.
+  Future<bool> deleteAccountForTest() async {
+    final SessionRepository session = _session ?? locator<SessionRepository>();
+    final String? token = session.sessionToken;
+    if (token == null || token.isEmpty) return false;
+    final ApiClient api = _api ?? locator<ApiClient>();
+    try {
+      await api.deleteAccountImmediatelyForTest(authToken: token);
+      // Server-side account is gone → wipe the local session (secure store +
+      // PIN + singletons) via the shared logout teardown, then the screen
+      // navigates back to login.
+      await logout();
+      return true;
+    } on ApiException {
+      return false;
+    } on Failure {
+      return false;
+    } catch (_) {
+      // Belt-and-braces: no unexpected error may escape this bool.
+      return false;
+    }
+  }
 }
