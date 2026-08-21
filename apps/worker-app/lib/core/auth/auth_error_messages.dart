@@ -48,6 +48,15 @@ const Map<String, Map<String, String>> kAuthErrorMessages =
     'bho': 'Surakshit rakhne ke liye dobara login karein.', // TODO l10n: bho
     'en': 'Please log in again to keep your account safe.',
   },
+  // The account was deleted server-side (410). The global dialog + hard-logout
+  // is the real UX; this copy only backstops any surface that reads the message
+  // directly, and mirrors the dialog so it can never read as a wrong PIN.
+  AuthErrorCode.accountDeleted: <String, String>{
+    'hi': 'Hamein aapki profile nahi mil rahi hai. Kripya dobara login karein.',
+    'mr': 'Hamein aapki profile nahi mil rahi hai. Kripya dobara login karein.', // TODO l10n: mr
+    'bho': 'Hamein aapki profile nahi mil rahi hai. Kripya dobara login karein.', // TODO l10n: bho
+    'en': "We can't find your profile. Please log in again.",
+  },
   AuthErrorCode.unavailable: <String, String>{
     'hi': 'Service abhi busy hai. Thodi der baad try karein.',
     'mr': 'Service abhi busy hai. Thodi der baad try karein.', // TODO l10n: mr

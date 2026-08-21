@@ -1,5 +1,8 @@
 # BadaBhai Architecture Status
 
+> **[docs/architecture/project-control.md](project-control.md) is the authoritative document.**
+> This file is its detailed evidence appendix. Where the two disagree, project-control.md is newer.
+
 > **What this document is.** The architecture that exists on `main` **today**, measured from the
 > repository, from CI run history, and from read-only queries against the production database. It
 > is not the intended architecture and not a plan.
@@ -9,35 +12,330 @@
 > **Nothing in this document mutated anything.**
 
 ---
+## PROJECT CONTROL REPORT — 2026-08-21
 
-## Scoreboard
+**Every claim below carries a label. No claim advances a level without evidence.**
 
 ```
-BadaBhai Architecture Status
-
-Overall:                     NOT MEASURABLE  (see note)
-
-Production blockers:         0 in code — all 3 were already shipped (measured 2026-08-21)
-Critical features complete:  NOT MEASURABLE — 8 of 22 feature rows are production-verified
-Architecture components:     8 of 9 running and health-gated in production
-Database/migration status:   87 of 87 recorded · 0 orphans · contract READY · RLS 78/78
-AI pipeline:                 1 of 6 provider tasks armed for real calls in production
-Taxonomy Phase 9:            4 DONE · 1 DECISION REQUIRED · 3 BLOCKED · 5 DEFERRED
-Observability:               3 of 5 wired · 1 unverified in production
-Security:                    RLS 78/78 · schema contract READY · 4 write runners unguarded
-
-Current phase:    The product WORKS end-to-end in production — 270 workers have completed it.
-Next milestone:   Voice: the one flow that is built and has never been used by anybody.
-Current blocker:  NONE in code. Path-B parity is a DECISION, not an outage.
-Next 3 actions:   1. Voice (G2) — zero events, zero rows, entirely unexercised.
-                  2. interview_kit render — 16 failed vs 12 completed (>50% failure).
-                  3. Decide Path-B (accept / roll back).
+BUILT      code exists and its tests pass
+DEPLOYED   it is running on the production box
+ENABLED    its feature flag is on in production
+EXERCISED  real users have actually driven it
+VERIFIED   production evidence was read back and checked
 ```
 
-**Why "Overall %" is NOT MEASURABLE.** There is no weighting of features to a denominator that
-would not be invented. Counts are given instead, and every count below is traceable to a command.
+### A. Architecture status
 
----
+**What we are building.** A relevance pipeline that turns unstructured worker speech into
+canonical skill ids, scopes retrieval by job domain, and ranks deterministically — so a worker
+sees jobs matched on skills rather than on recency.
+
+**Intended final architecture.** `job_domain_skill` (Path A) as the single retrieval contract;
+`skill_alias.domain_id` (Path B, the 11 hand-minted slugs) retired; canonicalization ON; the
+reach engine ranking by exact `skill_id` equality, with embeddings assigning ids UPSTREAM and
+never ranking (invariant #4).
+
+| component | state | note |
+|---|---|---|
+| Skill corpus (165 skills, 332 embedded aliases) | **VERIFIED** | measured in production today |
+| `job_domain_skill` edges (236, all active) | **VERIFIED** | 28 job domains, 130 skills |
+| `job_domain_alias` (9,121 rows, 9,121 embedded, 3,885 domains) | **VERIFIED** | Path A's domain resolver corpus is complete |
+| Path A retrieval (`nearestAliasesByJobDomain`) | **BUILT + DEPLOYED** | never ENABLED — no caller reaches it |
+| Path B retrieval (`legacyAliasRows`) | **BUILT + DEPLOYED** | never ENABLED — same flag gates both |
+| Canonicalization route | **BUILT + DEPLOYED** | `SKILL_CANONICALIZE_ENABLED=false` |
+| Domain match | **BUILT + DEPLOYED** | `DOMAIN_MATCH_ENABLED=false` |
+| Reach engine / `job_reach` | **BUILT + DEPLOYED** | 6 rows; not on the feed path |
+| Promotion runner (7 gates) | **BUILT** | never run — `version=1` on all 165 skill rows |
+| P1 / P1-B parity verifiers | **BUILT + VERIFIED** | P1-B PASS 2026-08-21 |
+| Stage C shadow (offline) | **BUILT + VERIFIED** | evidence committed today |
+| **Production job feed** | **VERIFIED, and it is UNRANKED** | `findOpenJobs`: `status='open' AND NOT applied`, `ORDER BY created_at` |
+
+**Connected to production matching: nothing in the taxonomy layer.** The feed emits
+`score: 0`, with the source comment *"Honest unranked values — nothing scored this alpha
+surface."*
+
+### B. Two tracks — Track B is not a subset of Track A
+
+The single most important correction in this document: **finishing Phase 9 does not give the
+product relevance.** Phase 9 is the taxonomy foundation. Coverage is a separate, larger track,
+and it must not be reported behind Phase 9's stage letters.
+
+```
+TRACK A — Taxonomy activation          TRACK B — Relevance coverage
+  Phase 9  A ✅ B ✅ C ✅                 Occupation coverage      0.69%
+           D ⛔ promotion readiness      Skill matching           NOT ACTIVE
+           E ⛔  F ⛔  G ⛔                Relevance ranking        NOT ACTIVE
+  Phase 10 ⛔                            Job visibility relevance NOT ACTIVE
+```
+
+#### Track A — Phase 9 stages
+
+| stage | status | evidence | remaining work | blocker |
+|---|---|---|---|---|
+| **A Observe** | ✅ DONE | committed pre-D2 baseline | — | — |
+| **B Backfill** | ✅ DONE | P1-B PASS all 4 rules; 102 candidates | — | — |
+| **C Shadow** | ✅ DONE (offline) | 2 evidence files, post-D2 corpus | live shadow deferred (would observe ~0 traffic) | — |
+| **D Parity** | ⛔ BLOCKED | gate audit: 55/41/2 of 98 | promotion readiness | **41 skills have no eval coverage** |
+| **E Read switch** | ⛔ NOT STARTED | Path A empty 52.8% | — | Stage D |
+| **F Rollback window** | ⛔ NOT STARTED | — | — | Stage E |
+| **G Legacy retirement** | ⛔ NOT STARTED | — | — | Stage F |
+| **Phase 10** | ⛔ NOT STARTED | — | promotion → canonicalize ON → pilot → rollout | Phase 9 |
+
+#### Promotion readiness — the 98 accepted skills
+
+Confirmed against production 2026-08-21 (`db:audit:promotion-gates`, read-only):
+
+| category | count | action |
+|---|---:|---|
+| accepted + provisional + eval-covered | **55** | candidate |
+| accepted + provisional + **no eval coverage** | **41** | needs decision |
+| accepted but now deprecated (stale batch list) | **2** | remove from batch |
+| | **98** | |
+
+The 2 stale rows are `skill_chassis_fitting` (→ `skill_mechanical_assembly`) and
+`skill_go_no_go_gauge_checking` (→ `skill_measuring_instruments`), both deprecated by D2's
+crosswalk *after* the batch's accepted list was written.
+
+Promotion is **fail-closed and all-or-nothing per batch**, so the batch as it stands promotes
+**zero** — even with the two paid evidence gates green.
+
+**What the 41 are.** All legitimate blue-collar trade skills, each with 1–3 active edges and
+exactly 2 aliases, clustered in the trades the growth corpus ADDED beyond the original CNC
+wedge: electrical (8), HVAC (5), plumbing (4), automotive (3), battery manufacturing (5),
+welding (4), sheet metal (2), warehouse (2), construction (2), QC/inspection (2), other (4).
+
+**Why they are not eval-covered.** The evaluation fixture (`retrieval-v2.jsonl`, 127 cases) was
+authored around the CNC/manufacturing wedge. Nobody has written trainer phrases for electrical,
+HVAC, plumbing, automotive or battery work. This is a gap in the FIXTURE, not a defect in the
+skills — which is exactly why the honest fix is trainer phrases, not a waiver.
+
+**Can they wait? Yes.** They are provisional, therefore invisible to production; no production
+path reads either retrieval path; and the feed does no relevance ranking at all. Nothing
+degrades by leaving them provisional.
+
+### B2. Track B — occupation → skill coverage
+
+`job_domain` is the full ISCO-08 + NCO-2015 occupation tree, not a curated list.
+
+| metric | count | % of 4,071 |
+|---|---:|---:|
+| Active job domains | 4,071 | 100% |
+| Non-selectable hierarchy aggregates (levels 1–3) | 186 | 4.6% |
+| **Selectable** (levels 4–5) | **3,885** | 95.4% |
+| With ≥1 alias | 3,885 | 95.4% — **100% of selectable** |
+| With ≥1 active skill edge | **28** | **0.69%** |
+| With ≥2 skill edges | 28 | 0.69% *(minimum observed is 6)* |
+| **Usable by Path A today** | **19** | **0.47%** |
+| Usable by Path A after promoting all provisional | 28 | 0.69% |
+
+**Alias coverage is already complete.** All 9,121 `job_domain_alias` rows are embedded and every
+selectable domain has at least one. Aliases are not the gap and generating more would not help.
+
+**Promotion moves Path A from 19 to 28 usable domains — +9, out of 3,885.**
+
+#### Classification of the 4,043 domains without edges
+
+| class | count | do they need edges? |
+|---|---:|---|
+| Non-selectable hierarchy aggregates | 186 | **No** — structural nodes, never selected |
+| ISCO 0/1/2 — armed forces, managers, professionals | 953 | **No** — outside a blue-collar platform |
+| ISCO 6 — agricultural/forestry/fishery | 137 | **Not now** — product-scope judgement |
+| ISCO 3/4/5 — technicians, clerical, service | 968 | **Partially** — warehouse/clerical already proven relevant |
+| **ISCO 7/8/9 — craft, machine operators, elementary** | **1,799** | **Yes — the real backlog** |
+| | **4,043** | |
+
+Duplicate/merge candidates are negligible: only **19** labels are shared by more than one
+selectable domain.
+
+#### Sizing the work
+
+Observed density over the 28 covered domains: **236 edges / 28 = 8.4 edges per domain.**
+
+| target | domains | edges at 8.4/domain |
+|---|---:|---:|
+| **Minimum viable** — the occupations behind actual demand | ~25 | ~210 *(already exceeded: 28 covered)* |
+| **Recommended** — ISCO 7/8/9 | 1,824 | **~15,300** |
+| **Full** — ISCO 3/4/5/7/8/9 | 2,795 | **~23,500** |
+
+**Minimum viable is already met.** Production has shown **25 distinct jobs** in the feed, ever
+(7,616 `feed.shown` events keyed on 25 jobs; 92 applications across 21 jobs). Coverage is a
+SCALING requirement, not a current-traffic blocker.
+
+**Skill vocabulary needed.** 165 skills serve 28 domains today. Skills are shared across
+occupations (236 edges / 130 skills = 1.8 domains per skill), and sharing rises with scale. For
+1,824 blue-collar occupations, a realistic target is **2,000–3,000 skills** — ESCO carries
+~13,900 across ALL occupations including professional ones.
+
+**What can be automated.** The generation pipeline already exists and is proven: batched LLM
+generation → quality gate → `accepted-skills.jsonl` → seed → embed. One batch produced 98
+accepted skills and 236 edges. Edges can additionally be derived from published ESCO
+occupation↔skill relations via NCO→ISCO→ESCO crosswalk — this is the single largest lever and
+requires no generation at all.
+
+**What needs humans.** The quality gate's accept/reject calls, and trainer phrases for the
+evaluation fixture — currently the binding constraint at 41 skills, and the thing that does not
+scale by machine, because a self-generated trainer phrase certifies nothing.
+
+### B3. Production relevance is NOT implemented
+
+Stated plainly so it cannot be read any other way. The production feed
+(`applications.repository.ts`, `findOpenJobs`) is:
+
+```
+open jobs
+  + city filter
+  + trade_key filter
+  + exclude already-applied
+  + ORDER BY created_at ASC, id ASC
+```
+
+It does **not** use worker skills, job skills, job domain, experience, salary, or any relevance
+score. `score: 0` is emitted honestly and is not a ranking.
+
+**Therefore the objective is not "finish Phase 9."** The objective is a trustworthy worker→job
+relevance system. Phase 9 is its taxonomy foundation.
+
+### B4. How a phrase travels the graph
+
+```
+    job_domain_alias                              skill_alias
+    (9,121, all embedded)                         (336, 332 embedded)
+           │  ANN on the phrase                          ▲  ANN on the phrase
+           ▼                                             │
+      job_domain  ────── job_domain_skill ──────────► skill
+      (4,071)            (236 edges, 28 domains)      (165)
+```
+
+**A JOB phrase** (employer posts "CNC turner needed, must read GD&T"):
+1. The job title embeds and ANN-searches `job_domain_alias` → resolves a `jd_*` id
+   (`nearestDomains`, gated by `DOMAIN_MATCH_ENABLED`).
+2. Each skill phrase embeds and ANN-searches `skill_alias`, **scoped through
+   `job_domain_skill` to that `jd_*`** (Path A, `nearestAliasesByJobDomain`).
+3. Above the 0.75 floor it becomes a canonical `skill_id` in `job_posting_skill`.
+   *(0 rows today — this path has never run in production.)*
+
+**A WORKER phrase** ("main kharad chalata hoon"):
+1. Extraction produces skill LABELS (**ACTIVE** — 223 real extractions).
+2. Each label embeds and ANN-searches `skill_alias` → canonical `skill_id` in `worker_skill`
+   (**DISABLED** — `SKILL_CANONICALIZE_ENABLED=false`; 8 rows exist from earlier work).
+
+**They meet** on `skill_id` by **exact equality** in the reach engine — no embedding, no
+similarity, no model (`scoring.ts`, invariant #4). Embeddings assign ids upstream; they never
+rank.
+
+**Where it breaks today:** both ANN steps are flag-off, `job_posting_skill` is empty, so the two
+sides never meet and the feed falls back to recency.
+### C. Work remaining
+
+Already-built functionality is **not** counted here.
+
+| area | class | status | remaining work | blocker | effort |
+|---|---|---|---|---|---|
+| Trainer phrases for the 41 uncovered skills | **BUILD (human)** | fixture gap, not a code gap | write + review 41 trainer phrases | **the binding Phase 9 constraint** | 1-2 sessions |
+| Re-scope the batch (drop the 2 deprecated) | **BUILD** | measured | new accepted-skills.jsonl, or a scoped waiver | — | 15 min |
+| Floor sweep + evaluation evidence | **VERIFY** | stale (no `corpus_fingerprint`) | re-run both `--run --experiment` | **paid provider runs — not authorised** | 0.5 session |
+| Promote the accepted batch | **DECISION** | runner BUILT, never run | fail-closed: promotes 0 until the above clears | above | 1 session |
+| 5 skills reachable only via legacy slug | **CLOSED — no action** | 3 are `*_occupation` (belong in `job_domain`); 2 are TD-01 merge predecessors whose successor holds the edges | — | — | — |
+| Classify 121 top-1 disagreements | **VERIFY** | enumerated | human read of the committed list | needs promotion first | 1 session |
+| ~~`cnc-programming` A/B/C ruling~~ | **CLOSED** | decided — `phase-9-cnc-programming-decision.md` | — | — | — |
+| ~~US-04 ruling~~ | **CLOSED** | re-pointed with TD-02, 2026-08-18 | — | — | — |
+| **Occupation→skill edges (Track B)** | **BUILD** | 28 of 3,885 selectable domains | ~15,300 edges for ISCO 7/8/9 | not a Phase 9 blocker | large — see §B2 |
+| Stage D parity report | **BUILD** | not started | thresholds from Stage C data | Stage D inputs | 0.5 session |
+| Stage E read switch | **BUILD** | not started | pass `job_domain_id` at the caller | gates above | 0.5 session |
+| Stage F rollback window | **VERIFY** | not started | observation period | E | — |
+| Stage G legacy retirement | **BUILD** | not started | delete the Path B branch | F | 0.5 session |
+| Live dual-read shadow | **DEFERRED** | not built | request-path instrumentation | **would observe ~0 traffic** | — |
+| 4 unguarded write runners | **HARDEN** | open | add `enforceOpsGuard` | none | 0.5 session |
+| `AI_SPEND_REDIS_URL` IPv6 | **HARDEN** | open | `127.0.0.1` not `localhost` | none | 15 min |
+| Latency p95, `unresolved_phrase` volume, real query distribution | **DEFERRED** | unmeasurable offline | needs live traffic | canonicalization off | — |
+
+**Why the live dual-read shadow is deferred rather than built.** It would observe almost nothing:
+`job_posting_skill` holds **0** rows, `worker_skill` holds **8** rows across 6 workers, and
+`unresolved_phrase` holds 36. The offline replay covers 123 scoreable cases against the real
+production vectors — strictly more evidence, today, at zero provider cost.
+
+### D. Production truth
+
+| feature | BUILT | DEPLOYED | ENABLED | EXERCISED | VERIFIED |
+|---|---|---|---|---|---|
+| Worker onboarding / profile | ✅ | ✅ | ✅ | ✅ 270 workers | ✅ |
+| Job feed (unranked) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Applications | ✅ | ✅ | ✅ | ✅ | ✅ |
+| AI profile extraction | ✅ | ✅ | ✅ | ✅ 223 extractions | ✅ |
+| Resume generation | ✅ | ✅ | ✅ | ✅ 114 resumes | ✅ |
+| Skill canonicalization | ✅ | ✅ | ❌ flag off | ❌ | n/a |
+| Domain match | ✅ | ✅ | ❌ flag off | ❌ | n/a |
+| Path A retrieval | ✅ | ✅ | ❌ | ❌ | offline only |
+| Path B retrieval | ✅ | ✅ | ❌ | ❌ | offline only |
+| Relevance ranking on the feed | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Voice notes | ✅ | ✅ | ❌ no consent purpose | ❌ 0 workers | n/a |
+
+### E. Manual verification
+
+```bash
+# 1. Stage B is closed under P1-B — all four rules
+pnpm --filter @badabhai/db exec tsx src/verify-stage-b-parity.ts \
+  --against=data/taxonomy/replay/phase-9-path-b-parity-BASELINE-PRE-S3.json \
+  --delta=data/taxonomy/replay/phase-9-stage-b-delta.json
+# expect: R1..R4 PASS, 102 live candidates
+
+# 2. The de-collision cannot be silently undone
+pnpm --filter @badabhai/db exec tsx src/embed-skill-aliases.ts --plan
+# expect: "4 alias(es) excluded", "aliases needing embedding= 0"
+
+# 3. Stage C evidence, reproducible from scratch
+pnpm --filter @badabhai/db exec tsx src/export-alias-vectors.ts --out=/tmp/v.tsv
+pnpm --filter @badabhai/db exec tsx src/s3d-shadow-report.ts --vectors=/tmp/v.tsv
+pnpm --filter @badabhai/db exec tsx src/s3d-shadow-report.ts --vectors=/tmp/v.tsv --if-promoted
+# expect: aEmpty 65 -> 0, emptyRateDelta 0.528 -> 0
+```
+
+```sql
+-- 4. The feed does no ranking. This is the whole relevance story today.
+--    (apps/api/src/applications/applications.repository.ts, findOpenJobs)
+SELECT id, title, created_at FROM jobs WHERE status='open' ORDER BY created_at ASC LIMIT 10;
+
+-- 5. Nothing has ever been promoted
+SELECT status, version, count(*) FROM skill GROUP BY 1,2;   -- version=1 everywhere
+
+-- 6. What promotion would add to Path B, before you run it
+SELECT sa.domain_id, count(*) AS aliases, count(DISTINCT sa.skill_id) AS skills
+FROM skill_alias sa JOIN skill s ON s.skill_id=sa.skill_id
+WHERE s.status <> 'active' AND sa.domain_id IS NOT NULL AND sa.embedding IS NOT NULL
+GROUP BY 1;   -- fitting-assembly 19/8, cnc-programming 14/7
+```
+
+### F. Matching / relevance architecture — arrow by arrow
+
+| arrow | code | tables | model | active in prod? | verified |
+|---|---|---|---|---|---|
+| worker speech → profile draft | `profile_extractor.py` | `worker_profile` | Gemini Flash | **YES** | 223 extractions |
+| profile → skill LABELS | `profile_extractor.py:652` | — | LLM | **YES** | in the draft |
+| labels → CANONICAL ids | `canonicalize_skill` | `skill_alias` | embed + ANN + floor | **NO** — flag off | offline only |
+| phrase → domain | `nearestDomains` | `job_domain_alias` | ANN | **NO** — flag off | offline |
+| domain + phrase → skill (Path A) | `nearestAliasesByJobDomain` | `job_domain_skill` | ANN, HNSW | **NO** | shadow |
+| domain + phrase → skill (Path B) | `legacyAliasRows` | `skill_alias.domain_id` | ANN, HNSW | **NO** | shadow |
+| job posting → posting skills | `job-postings.service.ts:146` | `job_posting_skill` | — | **NO** — 0 rows | — |
+| worker + job → reachability | `reach-engine` | `job_reach` | exact `skill_id` equality | **NO** — 6 rows | — |
+| reachability → ranking | `reach-engine/scoring.ts` | — | deterministic, no model | **NO** | unit tests |
+| **jobs → what the worker sees** | **`applications.repository.ts` `findOpenJobs`** | **`jobs`, `applications`** | **none** | **YES** | **`score: 0`** |
+| feed → application | `applications.service.ts` | `applications` | — | **YES** | verified |
+
+**How a worker gets jobs today, exactly.** Every OPEN job the worker has not already applied to,
+ordered by `created_at ASC, id ASC`, optionally filtered by `trade_key` and `city`. That is all.
+
+**How irrelevant jobs are prevented today.** They are not, beyond the trade/city filter. There is
+no relevance gate on the feed.
+
+**Producing `score = 0` / unranked / bypassing relevance:** `getFeed` emits `feed.shown` with
+`rank: index+1, score: 0, hot: false`. That is the only ranking signal in production.
+
+### G. Taxonomy completion ≠ product completion
+
+Phase 9/10 delivers **relevance**. It is not what makes BadaBhai work — the product is live and
+serving 270 workers with every taxonomy flag off. When Phase 9 and Phase 10 close, the next
+workstream is the Job Posting → Relevance → Visibility audit, and that audit becomes meaningful
+only once the feed actually ranks.
 
 ## The measured production funnel — 2026-08-21
 
@@ -338,18 +636,21 @@ Values below are the **production overlay defaults** (`docker-compose.staging.ym
 |---|---|---|
 | **S3-A** (seed wedge) | **DONE** | executed 2026-08-21: +16 skills, +41 aliases, 4 statuses held |
 | **S3-B** (seed growth) | **DONE** | executed 2026-08-21: +98 skills, +197 aliases, +236 edges (531 rows) |
-| **S3-C** (dual-read shadow) | **DEFERRED** | never built; the request shape *is* the switch |
-| **S3-D** (activation) | **BLOCKED** | no rollback procedure; 4 of 5 abort thresholds have no instrument |
-| **P1** (Path-B parity) | **DECISION REQUIRED** | FAIL, exit 1, 8/10 slugs drifted — see §3 |
+| **S3-C** (dual-read shadow) | **DONE (offline)** | run against the post-D2 corpus 2026-08-21; evidence committed. The LIVE dual-read stays deferred — it would observe ~0 traffic |
+| **S3-D** (activation) | **BLOCKED** | 3 of 5 abort thresholds now have an instrument and a number; latency + unresolved-volume + real query distribution still need live traffic |
+| **P1** (Path-B parity) | **RESOLVED** | additive-only, proven by digest reconstruction. P1 unchanged for Stages C-G; **P1-B** governs Stage B and PASSES — see §3 |
 | **TD-01** (explicit term model) | **DEFERRED** | superseded; ratified shape is a full merge |
 | **TD-07** (generic welding parent) | **BLOCKED** | evidence never supplied; denial claim corrected #1030 |
 | **OIE / O1** | **BLOCKED** | designed and measured (29.17% vs O2's 0.00%); switch **OFF**, not activated |
 | **CNC programming** | **DONE** | quantified and decided (`phase-9-cnc-programming-decision.md`) |
 | **EVAL_COVERED** | **BLOCKED** | 6 skills need one reviewed trainer phrase each; pack deliberately empty |
-| **Embedding coverage** | **DONE** | 336/336 aliases, 147 skills fully embedded, 111 provisional embedded |
-| **Promotion** | **BLOCKED** | gated behind EVAL_COVERED + the P1 decision; not run |
+| **Embedding coverage** | **DONE** | 332/332 aliases embedded (336 minus 4 de-elected by duplicate election) |
+| **Promotion** | **DECISION REQUIRED** | no longer merely "blocked": Stage C shows it is the PREREQUISITE for Stage D/E, not a follow-on. Path A is empty on 52.8% of cases without it and 0% with it |
 
-**Counts: 4 DONE · 1 DECISION REQUIRED · 4 BLOCKED · 3 DEFERRED.**
+**Counts: 6 DONE · 1 DECISION REQUIRED · 3 BLOCKED · 3 DEFERRED.**
+
+> **This table is subordinate to the PROJECT CONTROL REPORT at the top of this document.**
+> Where the two disagree, the control report is newer.
 
 ### Stale register rows found while compiling this
 
@@ -359,13 +660,15 @@ Values below are the **production overlay defaults** (`docker-compose.staging.ym
 
 ---
 
-## 3. The Path-B parity failure — objective explanation
+## 3. The Path-B parity failure — resolved by measurement, 2026-08-21
 
-**No recommendation is made here.**
+**Verdict: the drift is PURELY ADDITIVE and is not a behavioural regression — but a real
+taxonomy defect was found inside it, and it is not the parity failure itself.**
 
-**What changed.** `db:verify:path-b-parity --against=<committed baseline>` now exits **1**.
-Candidate rows **76 → 106**; overall digest `d7f6cd4e…` → `876fcd58…`; **8 of 10 legacy slugs
-drifted** (`general-machining` and `vmc-machining` unchanged).
+**What changed.** `db:verify:path-b-parity --against=<committed baseline>` exits **1**.
+Candidate rows **76 → 106** (+30); distinct skills **33 → 34** (+1); overall digest
+`d7f6cd4e…` → `876fcd58…`; **8 of 10** legacy slugs drifted (`general-machining` and
+`vmc-machining` unchanged).
 
 **Why it changed.** Path B's candidate predicate, copied from `SkillsRepository.legacyAliasRows`:
 
@@ -373,51 +676,304 @@ drifted** (`general-machining` and `vmc-machining` unchanged).
 WHERE sa.domain_id = $1 AND s.status = 'active' AND sa.embedding IS NOT NULL
 ```
 
-Rows only enter when they have a **vector**. D2 Step 2 gave vectors to 260 aliases. 30 of those
-satisfied the other two conditions and entered the candidate set.
+A row enters only once it holds a vector. D2 Step 2 vectorised 260 aliases. Exactly 30 of them
+also satisfied the other two conditions. Where the other 230 landed, measured:
 
-**Does it break current production behaviour?** **No — because the paths that consume it are off.**
-`MATCH_V1_ENABLED=false` and `DOMAIN_MATCH_ENABLED=false`. The candidate set changed; no
-production request currently reads it through those flags. This was **not** separately proven by
-a live request trace — it is inferred from the flag values, which is a weaker form of evidence and
-is stated as such.
+| bucket | rows | reaches Path B? |
+|---|---:|---|
+| `active` skill **+** legacy `domain_id` | **30** | **yes — this is the entire drift** |
+| `provisional` skill + legacy `domain_id` | 33 | no — blocked by `status='active'` |
+| `provisional` skill, no legacy `domain_id` | 193 | no — blocked twice |
+| `deprecated` skill, no legacy `domain_id` | 4 | no — blocked twice |
+| | **260** | ✓ reconciles |
 
-**Is it expected from embedding previously-unembedded aliases?** **Yes, for the majority.** The
-runbook flagged 22 unembedded aliases as *"a pre-existing gap, not something D2 creates"*, and
-predicted Step 2 would pick them up. It did not carry that prediction forward to its consequence
-for Path B.
+The 30 split **22 + 8**: 22 alias rows created 2026-07-14 that had been sitting on production
+with `embedding IS NULL`, and 8 rows D2 itself seeded.
 
-**The 22 pre-existing aliases.** Alias rows created **before** D2 (before 2026-08-20 20:00 UTC),
-already attached to skills that were already `active`, sitting on production with
-`embedding IS NULL`. Step 2 embedded them. **These would have moved Path B with or without D2's
-seed** — running Step 2 alone on the old corpus produces the same 22.
+### PROVEN — every baseline row survives unchanged
 
-**The 8 D2 aliases.** Of the 238 aliases D2 seeded: **197** carry no `domain_id` (growth corpus —
-they feed Path A edges), **33** carry a `domain_id` but sit on `provisional` skills (excluded by
-`status='active'`), and **8** carry a `domain_id` on an already-`active` skill. Only those 8
-could ever reach Path B. **22 + 8 = 30.** ✓
+Recomputing each slug's digest with the verifier's own `slugDigest`, over **only the rows D2 did
+not embed**, reproduces the committed baseline digest **byte-for-byte in all 10 slugs**
+(22/11/6/5/2/3/4/11/3/9 rows, every digest MATCH). Nothing was removed, re-skilled, renamed or
+re-modelled. The candidate set did not *change*; it **grew**.
 
-**Would production matching return different results today?** **Not through the gated paths** —
-they are off. If a flag were switched on, yes: 8 slugs would retrieve from a larger candidate
-pool (e.g. `cnc-machining` 22 → 37 candidates, 10 → 11 skills). More candidates for
-substantially the same skills; only one slug gained a skill.
+This matters because the digest also covers `embedding_model`. The embed runner fetches only
+`embedding IS NULL` rows, so no existing vector was overwritten — and the digest reproduction is
+the evidence, not the reasoning.
 
-**What rolling back vectors would accomplish.** Setting the 30 aliases' `embedding` to NULL would
-restore digest `d7f6cd4e…` exactly. It would also **re-open the 22-alias pre-existing gap** that
-predates D2, and re-break `partially_embedded` from 0 back to 16. It cannot un-spend the provider
-call (0.0097 INR). It would preserve the baseline as a true statement about production.
+### PROVEN — no skill changed status
 
-**What accepting / re-baselining would accomplish.** It records that the candidate set legitimately
-grew, and makes future parity runs measure drift from the new reality. It **permanently destroys
-the ability to detect that this specific change happened** — which is precisely what the tool's
-own warning guards against: *"a failure here is evidence the STAGE is wrong, not that the
-assertion is too strict. Do not re-baseline to make it pass."*
+`version = 1` on **all 165** skill rows. SG-5 requires a status transition to bump `version`, so
+no promotion or demotion has ever run on this table. The 33 skills whose `updated_at` moved to
+`2026-08-20 20:30:25.985+00` were touched by the seed's idempotent upsert under
+`--preserve-existing-status`; all 33 were already `active`, and all 111 `provisional` rows were
+*created* by D2, never converted.
+
+### PROVEN — Path B is unreachable from production today
+
+`nearestAliases` has exactly one consumer chain: `canonicalize_skill` → `HttpSkillStore` →
+`POST /internal/skills/nearest-aliases`. All three entry points return before touching the store
+when the flag is off — `routers/skills.py:74`, `routers/profile.py:255`,
+`profiling/profile_extractor.py:652`. The flag is `false` in three independent places:
+`app/config.py:384` (`skill_canonicalize_enabled: bool = False`), `docker-compose.staging.yml`
+(`${SKILL_CANONICALIZE_ENABLED:-false}`, pinned by `deploy-workflow-taxonomy.guard.test.ts`), and
+the documented production posture. `cross-slug-alias.test.ts:17` states the same conclusion:
+*"`SKILL_CANONICALIZE_ENABLED=false`, so 0 workers reach Path B today."*
+
+**Limit of this evidence:** the deployed GitHub secret's value cannot be read from the
+repository. Everything short of that is verified.
+
+**Correction to the earlier draft of this section:** it named `MATCH_V1_ENABLED` and
+`DOMAIN_MATCH_ENABLED` as the gates. The gate on this path is `SKILL_CANONICALIZE_ENABLED`;
+`DOMAIN_MATCH_ENABLED` gates the *domain* ANN, not the skill-alias retrieval.
+
+### THE DEFECT — `skill_drawing_reading` duplicates `skill_gdt_reading`
+
+The +1 skill is `skill_drawing_reading` (created by D2, `active`, `cnc-machining`, 8 aliases).
+`skill_gdt_reading` already existed in the same slug, `active`, with 4 aliases — **and all four
+of its alias texts are now also aliases of `skill_drawing_reading`**:
+
+`blueprint reading` · `drawing reading` · `GD&T` · `geometric dimensioning and tolerancing`
+
+These are the **only** cross-skill duplicate alias texts inside any legacy slug, and **all four
+were introduced by D2**. Before D2 there were zero.
+
+Consequence, if Path B were switched on: a query for "GD&T" in `cnc-machining` returns two
+distinct `skill_id`s at effectively identical distance, so one `LIMIT k` slot is consumed twice
+for one concept and a genuinely different skill is displaced out of the top-k. That is **recall
+dilution, not an irrelevant match** — no unrelated worker or job becomes matchable.
+
+`skill_drawing_reading` also carries `CAD`, `drawing padhna`, `read engineering drawings` and
+`technical drawing`, which belong to `skill_cad_interpretation` — but that skill sits in
+`cnc-programming`, a different slug, so no in-slug collision arises today.
+
+Its row also has `updated_at` (20:30:25.985) **earlier than** `created_at` (20:30:30.440), a seed
+artifact. Cosmetic; recorded, not blocking.
+
+### The Phase-10 exposure, now quantified
+
+**33 embedded aliases across 15 `provisional` skills already carry a legacy `domain_id`** —
+`fitting-assembly` 19 aliases / 8 skills, `cnc-programming` 14 aliases / 7 skills. They are held
+out of Path B by `s.status = 'active'` and by nothing else. This is exactly the hazard
+`skills.repository.ts:104-108` predicted in writing. **The moment Phase 10 promotion flips those
+15 skills to `active`, Path B's candidate set grows by another 33 rows in two slugs with no
+further embedding.** Promotion must therefore be treated as a retrieval change, not a metadata
+change.
+
+Also measured: **0** `worker_skill` rows reference any provisional skill, and `job_domain_skill`
+holds **236** edges, all `active`.
+
+### Rollback
+
+**Not technically required.** Nulling the 30 vectors would restore digest `d7f6cd4e…` exactly,
+but it would re-open the 22-alias gap that predates D2, cannot un-spend the provider call
+(0.0097 INR), and would leave the duplicate-skill defect in place — the defect is the *skill
+row*, not the vectors.
 
 | | |
 |---|---|
-| **PRODUCT RISK** | **LOW** — both consuming flags are `false`; no live request path reads it |
-| **ARCHITECTURAL RISK** | **MEDIUM** — the P1 safety property is now failing, so the one instrument that would detect a *real* Path-B regression is red and would mask the next one |
-| **DECISION REQUIRED** | **YES** |
+| **PRODUCT RISK** | **NONE today** — no live request path reads Path B |
+| **DATA RISK** | **NONE** — additive only, proven by digest reproduction; no row altered or removed |
+| **RELEVANCE RISK** | **REAL but latent** — one duplicated skill dilutes `cnc-machining` top-k the moment Path B is switched on |
+| **DECISION REQUIRED** | **YES** — the P1 invariant wording, and the duplicate skill |
+
+---
+
+## 3A. `job_domain_alias` → `skill_alias` coverage — DATA COVERAGE / ARCHITECTURE QUESTION
+
+> **Raised 2026-08-21** from a manual production read (`skill_alias` 336 vs `job_domain_alias`
+> "4,000+"). Investigated read-only the same day. **Not a blocker** — the intended relationship is
+> proven, and it is not the one the question assumed. Full record:
+> [`job-domain-alias-skill-alias-coverage-2026-08-21.md`](../registers/taxonomy-decisions/job-domain-alias-skill-alias-coverage-2026-08-21.md).
+
+### The premise, corrected
+
+`job_domain_alias` is **9,121** rows, not 4,000+. The 4,035 figure is the `is_searchable = false`
+subset (3,989 ISCO-shadowed + 70 duplicate-election losers − 24 in both). The retrieval surface is
+**5,086**.
+
+### PROVEN — the rule is DIRECTIONAL: the occupation alias corpus is never a source for the skill alias corpus
+
+`job_domain_alias` holds **occupations** ("Admiral", "darji", "बढ़ई", "jcb", "कुली").
+`skill_alias` holds **units of work** ("bead check", "conduit bending", "first piece check").
+ADR-0030 states the split: *"occupation-classification standards code **jobs**, not **what a
+person can do**."* `schema/skill.ts:283-286` states the consequence: *"'fitter' is an unresolved
+SKILL and an unresolved OCCUPATION at the same time, with different follow-up work — one becomes a
+`skill_alias`, the other a `job_domain_alias`."*
+
+Measured: **0** of 8,762 distinct `job_domain_alias.text_norm` values occur among the 197 distinct
+`skill_alias.text_norm` values. Falling back to raw text gives 19 rows (**0.21 %**), all landing on
+the 139 un-normalized legacy skill aliases, and all explainable as (a) 7 `skill_*_occupation`
+rows that leaked into the skill vocabulary, (b) two wedge terms deliberately in both, (c) shared
+technique names — **or (d) two genuine false friends**: `threading` on **Manicurist** →
+`skill_tapping_threading`, and `sewer` on **Sewing, Embroidery and Related Workers** →
+`skill_drainage_systems`. Mechanically deriving skill aliases from domain aliases would put
+drainage work on a seamstress's profile.
+
+"Two tables, one concept" in `phase-9-unified-alias-architecture.md` refers to the alias
+**lifecycle** (`raw ▶ normalized ▶ elected ▶ embedded ▶ retrievable`), not the vocabulary —
+`alias-lifecycle.ts:99-135` gives the two tables deliberately *different* eligibility specs.
+**No document anywhere proposes deriving one table from the other.**
+
+**Correction the verification pass forced, and it matters.** The `skill` *table* is **not** purely
+units of work and never was: ADR-0030 §(a) makes **NCO-2015 India occupation names** one of its
+four pillars (*"anchors skill entries to India-recognized occupations"*); `skill-corpus.ts:434`
+carries a section headed *"NCO-2015 India occupation-name anchors"*; `skill-corpus.test.ts:43`
+pins them; `PROVENANCE.md:23` licences them and defers a **full NCO bulk import**. All 18
+`kind='match_skill'` rows are literal job titles ("CNC Operator", "Plumber", "Delivery Rider"),
+and `ROLE_TO_MATCH_SKILL` canonicalizes a **canonical occupation id into a `skill` id at runtime
+today** — 114 `worker.match_skills_rebuilt` events, every live `worker_skill` row.
+
+So: occupations legitimately enter the `skill` **table**, as curated anchors and as the `mskill_*`
+posting vocabulary. What has no design, no precedent and no code is **bulk-transferring the
+occupation ALIAS corpus into the skill ALIAS corpus**. Measured on the retrieval surface:
+role-token hits **31.1 %** of searchable `job_domain_alias` rows vs **0.0 %** of searchable
+`skill_alias` rows; gerund-shaped **4.2 %** vs **40.8 %**. A clean inversion.
+
+### THE REAL GAP — `job_domain_skill`. Six framings, and 0.72 % is the least operational
+
+| measure | num / den | % |
+|---|---|---|
+| edge exists / selectable-active domains | 28 / 3,885 | 0.7207 |
+| reachable bridge heads / domains with a searchable alias | 24 / 3,515 | 0.6828 |
+| **the live Path A query can answer** | **19 / 3,885** | **0.4891** |
+| alias-weighted over the searchable surface | 82 / 5,086 | 1.6123 |
+| …that the live query can answer for | 56 / 5,086 | 1.1011 |
+| **pinned worker profiles on a bridged domain** | **3 / 19** | **15.7895** |
+| **UNRESOLVED share of the retrieval surface** | **4,996 / 5,086** | **98.23** |
+
+Three separate problems wear that one number:
+
+1. **A promotion gap is hiding inside the coverage gap.** 152 of 236 edges point at
+   `provisional` skills, 3 at `deprecated` — only **81** survive the live query's
+   `s.status='active'` filter. Nine of the 28 bridged domains therefore yield **zero**, wiping out
+   **warehouse-logistics, construction, HVAC and general electrical/plumbing entirely** — exactly
+   the trade groups the D2 runbook predicted would retrieve worst. `db:promote:skills` has never
+   run. **Running it takes live-answerable domains from 19 to 28 using edges already seeded and
+   embedded.**
+2. **370 selectable-active domains have no searchable alias**, and 4 of the 28 bridge heads are
+   among them — stranding 32 of 236 edges (13.56 %).
+3. **Demand-weighted the gap is 22× smaller than the headline** (15.79 %): the 28-domain pilot was
+   aimed at CNC/fitter/welding, which is where live pins land. That argues for sequencing the
+   remaining work by demand, not for calling it urgent.
+
+Unresolved mass is concentrated in majors **7/8/9** — the industrial core — at 2,365 rows over
+1,679 domains (96.5 %). Majors 0, 1, 2, 3, 6 and 9 have **zero** bridged domains.
+
+### PROVEN — D2 steps 0–1 were not truncated. 238 is the DELTA, not the corpus
+
+The full alias corpus on disk is **335** entries (116 `SKILL_CORPUS` + 22 wedge + 197
+`skills.jsonl`); **97 were already in production** from the 2026-07-14/16 seeds; D2 wrote the
+missing **238** (41 + 197). Production holds **336** = 335 + one TD-01 orphan
+(`skill_cad_interpretation / "drawing padhna" / hi`). Anti-joined both ways:
+**`corpus_entries_NOT_in_db = 0`**. `skill` 165 = 49 + 98 + 18 `MATCH_SKILLS`.
+*(Trap: 238 is also the record count of `accepted-domain-skills.jsonl` — two different 238s.)*
+
+The generator's domain universe is `data/taxonomy/sample-domains.jsonl` — **a 28-line hand-picked
+committed file, 28 lines since its only commit** — and `generate-domain-skills.ts:255-267` can
+only *narrow* it. There is no widening path.
+
+**D2 as a plan is three steps short, though:** step 2 (embed) failed once before succeeding,
+**step 3 (promote) has never run**, step 4 (re-measure) has never run. And the post-gate corpus
+edit (TD-01 repoint) stranded live assets — `skill_cad_interpretation` and `skill_gdt_reading` are
+both `active` with **8 aliases and 6 paid vectors between them and zero edges**, and neither
+carries `replaced_by`, so `retag-skills.ts` will never reach them.
+
+### NEW FINDING — the ISCO inheritance materializer does not exist, and it would not rescue today's corpus
+
+Migration 0076 shipped `source='inherited'` + `inherited_from_job_domain_id` with FK, index and two
+CHECKs. `taxonomy-corpus.ts:183` asserts *"the ISCO ladder resolver writes them"*. **No such code
+is in the repository** — a repo-wide grep returns zero write sites, and all 236 production edges
+are `llm_bootstrap` with a NULL parent link.
+
+**But it fans DOWN, and 24 of the 28 authored domains sit on childless NCO L5 leaves.** A strict
+materializer over today's corpus covers **89 of 3,885 = 2.29 %**, not 397. Recursive closure,
+measured:
+
+| scenario | authored sets | covered / 3,885 | % |
+|---|---:|---:|---:|
+| as authored today | 28 | 28 | 0.72 |
+| strict materializer over today's 28 | 28 | **89** | **2.29** |
+| re-author at ISCO L4 / L3 / L2 / L1 | 17 / 11 / 7 / 3 | 397 / 752 / 1,047 / 1,826 | 10.2 / 19.4 / 26.9 / 47.0 |
+| **author one set per ISCO L4 unit group, inherit down** | **436** | **3,874** | **99.72** |
+
+> **Generate at the ISCO L4 unit group, not at the leaf.** 436 authored sets reach 99.72 % of the
+> catalogue; per-leaf authoring needs 3,885 for the same coverage. Since generation is cheap and
+> **human diff review is the only real cost**, that is an ~89 % reduction in the work. This is the
+> most consequential conclusion of the investigation.
+
+### NEW FINDING — the taxonomy branch and the match engine are disjoint id spaces
+
+`job_domain_skill` points at **130 `skill_*`** ids, all `kind='attribute'`
+(`WHERE skill_id LIKE 'mskill\_%'` → **0**). The feed/reach path uses **9 live `mskill_*`** ids,
+`kind='match_skill'`. **Overlap = 0.** All 18 `mskill_*` rows have zero aliases and zero edges;
+`skill_alias` contains no `mskill_*` row. The only join between the id spaces is
+`ATTRIBUTE_TO_MATCH_SKILLS` — a hand-authored TS constant (`packages/taxonomy/src/match-skills.ts:436`)
+that never reads the database.
+
+**Consequence: closing the `job_domain_skill` gap to 100 % would still emit ids that nothing
+downstream reads.** This, not alias counts, is the decision that gates the whole area.
+
+### The live chain, and where it stops
+
+| transition | verdict |
+|---|---|
+| free text → `job_domain_alias` L0 exact / L2 trigram | **ACTIVE** (L1 has zero production hits; L3 never fires — `apps/api` mints no vectors) |
+| ai-service RAG domain classifier | **DISABLED** (`DOMAIN_MATCH_ENABLED=false`) |
+| → `OccupationPin` on `conversation_state` | **ACTIVE with five live consumers** — question-pack selection, question predicates, the worker's `trade` answer of record (`orchestrator.service.ts:2563`), the `/profile/parse` request, and the chat `occupation_label`. Packs key on **`isco_unit_code`**, not the id: 0 of 101 committed bindings are domain-keyed (41 unit · 59 minor · 1 universal) |
+| → `worker_profiles.job_domain_id` | **WRITE-ONLY.** 19 of 44 profiles. `grep -rn workerProfiles.jobDomainId` → **zero readers**; not read even for profile display |
+| `job_domain` → `skill` via `job_domain_skill` | **DISABLED** — one runtime statement (`skills.repository.ts:213-226`), behind `SKILL_CANONICALIZE_ENABLED=false` |
+| Path A scope wiring | **SHADOW** — armed (`profile-extraction.processor.ts:801`), dark |
+| skill → `worker_profile_skill` | **UNUSED — 0 rows, never written** |
+| profile → `worker_skill` (`mskill_*`) | **ACTIVE** — 8 rows / 6 workers, from checked-in TS maps, never from `job_domain_skill` |
+| `worker_skill` → `job_reach` | **ACTIVE but near-empty** — 6 rows, 1 posting |
+| `job_reach` → ranking → feed | **LEGACY.** `feed.shown` 7,652 events (live today) vs `feed.shown_v2` 28 (a 23-hour window in Aug, dead since). The serving query is `FROM jobs WHERE status='open' … ORDER BY created_at ASC` — **no skills, no domains, no score** |
+| `job_domain` anywhere in ranking | **UNUSED** — `grep -c job_domain` in `match-engine`, `reach-engine`, `reach-learn`, `taxonomy` → **0, 0, 0, 0** |
+
+**The 9,121 domain aliases have zero effect on which jobs a worker sees today — but they do steer
+the interview, and the severance happens two layers ABOVE the taxonomy bridge:**
+
+- **Cut 1 — the profile projection.** `profile-extraction.processor.ts:1801-1807` hardcodes
+  `canonical_trade_id: null, canonical_role_id: null, skills: []`. Those are exactly the two
+  fields `packages/match-engine/src/derive.ts:54-65` reads. **The OIE path — the only branch
+  carrying the occupation — derives zero `worker_skill` rows and therefore zero `job_reach`
+  rows.** The legacy `/profile/extract` branch that *does* populate them carries no occupation.
+  The two paths are mutually exclusive.
+- **Cut 2 — the feed flag.** `applications.service.ts:87`; `MATCH_V1_ENABLED` is absent from
+  `ci.yml` entirely and `:-false` in compose, so `getFeed` never reads `job_reach`.
+
+Fixing `job_domain_skill` changes nothing until both cuts are addressed.
+
+### Also found
+
+- **2,899 of 3,449 NCO L5 domains (84.1 %) carry exactly one alias, and it is a copy of
+  `label_en`** — the "vernacular overlay" does not exist for five-sixths of the leaf catalogue.
+  The whole `rvm` overlay is 426 rows over 102 domains (2.96 % of leaves); 142 of 9,121 aliases
+  are Hindi.
+- **96 of 4,071 `job_domain` rows carry a junk `label_en`** (18 end with `:`, 78 start lowercase),
+  all selectable + active, carrying **206 searchable alias rows (4.05 %)**. A live worker is
+  matched to `jd_nco_8155_0201` = *"skins or hides and keeps them near machine; …"*.
+- **Stale comment, worth fixing:** `apps/ai-service/app/routers/profile.py:265-267` claims
+  *"NOTHING POPULATES `body.job_domain_id` TODAY"*. False since OIE O2 —
+  `profile-extraction.processor.ts:801` populates it. Anyone assessing S3-C readiness from the
+  Python file will conclude the switch is unwired when it is wired-and-flag-gated.
+- **`ci.yml:1859-1862` / `docker-compose.staging.yml:465-467` claim neither taxonomy secret
+  exists.** Both now exist at `environment: production` (created 2026-08-18). Values remain
+  unreadable, but flipping either is a one-click secret edit with no code review.
+
+### Decisions this raises
+
+| # | decision | recommendation |
+|---|---|---|
+| **D-1** | Do the taxonomy branch and the match engine ever join? (130 `skill_*` vs 9 `mskill_*`, overlap 0, no ADR schedules a join) | **Answer first.** It is an ADR and it gates everything else here. |
+| **D-2** | Run `db:promote:skills`. *(The `EVAL_COVERED` half landed while this was being written — `c37abc90`, 41 reviewed trainer phrases covering the 43 skills the CNC-shaped fixture never named.)* | **Do this first among the buildable items** — 19 → 28 live-answerable domains, on edges already seeded and embedded |
+| **D-3** | Authorise edge generation **at the ISCO L4 unit group** (436 sets → 99.72 %) plus the inheritance materializer | Build + dry-run the materializer regardless of D-1; generate only after D-1 is `yes`, demand-ordered 7 → 8 → 9 → 6 |
+| **D-4** | ~~Deprecate the 7 `skill_*_occupation` rows~~ — **reversed by verification** | **Do not deprecate.** They are ADR-0030 pillar-4 NCO occupation-name anchors, pinned by a test, with a bulk import already licence-gated in `PROVENANCE.md:23`. The recorded defect is their **missing edge**, not their existence |
+| **D-5** | Clean the 96 junk-labelled `job_domain` rows | Low cost; fold into the next alias write |
+| **D-6** | Close the vernacular gap (84.1 % of leaves have no real alias) | **Higher product value per rupee than edge generation, and independent of D-1** |
+| **D-7** | Repair the TD-01 fallout: 2 active skills with 8 aliases / 6 vectors and zero edges; 3 edges pointing at deprecated skills | Fold into the next corpus write |
+
+**Classification: DATA COVERAGE / ARCHITECTURE QUESTION. Not a blocker; D-1 is a DECISION.**
 
 ---
 

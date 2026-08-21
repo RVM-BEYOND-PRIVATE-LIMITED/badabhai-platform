@@ -51,6 +51,33 @@ void main() {
       );
     });
 
+    test('pin/verify 410 → accountDeleted (NOT pinVerifyFailed / unknown) — a '
+        'deleted account on the PIN screen must never look like a wrong PIN',
+        () async {
+      // The RESERVED account-deleted contract on the real envelope.
+      final AuthApi api = _api(MockClient((http.Request req) async {
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'statusCode': 410,
+            'error': <String, dynamic>{
+              'code': 'WORKER_ACCOUNT_DELETED',
+              'message': 'This account no longer exists.',
+            },
+          }),
+          410,
+        );
+      }));
+
+      await expectLater(
+        () => api.pinVerify('1234', refreshToken: 'r'),
+        throwsA(isA<AuthFailure>()
+            .having((AuthFailure f) => f.code, 'code',
+                AuthErrorCode.accountDeleted)
+            .having((AuthFailure f) => f.isAccountDeleted, 'isAccountDeleted',
+                isTrue)),
+      );
+    });
+
     test('otp/verify 401 → otpInvalid (NOT a session-expired/reauth code)',
         () async {
       final AuthApi api = _api(MockClient((http.Request req) async {
