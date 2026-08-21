@@ -115,6 +115,7 @@ String resolveApiBaseUrl({String? configuredUrl, bool? isRelease}) {
 ApiClient createApiClient({
   void Function(String)? onSessionTokenRefreshed,
   Future<bool> Function()? onUnauthorized,
+  void Function()? onAccountDeleted,
   String? Function()? currentAuthToken,
 }) =>
     kUseMocks
@@ -124,5 +125,8 @@ ApiClient createApiClient({
             // #351: lets a 401 on the legacy worker-scoped path renew auth once
             // instead of dead-ending the worker behind the router redirect.
             onUnauthorized: onUnauthorized,
+            // A 410 { code: WORKER_ACCOUNT_DELETED } → hard-logout dialog. The
+            // mock has no network, so it never invokes the callback.
+            onAccountDeleted: onAccountDeleted,
             currentAuthToken: currentAuthToken,
           );
