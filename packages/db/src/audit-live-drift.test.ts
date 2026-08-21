@@ -74,10 +74,18 @@ describe("declaredTables — reads the real Drizzle schema", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it("does NOT declare the four GAP-DB-21 tables — that is the whole finding", () => {
+  it("DOES declare the four GAP-DB-21 tables — the finding, closed", () => {
+    // This assertion was `toBe(false)` and read "that is the whole finding": these four existed
+    // on production and in no schema file, which is exactly what `db:audit:live-drift` was
+    // written to surface. The owner ruled on 2026-08-20 to keep and MODEL them
+    // (`phase-9-decision-record.md` §6), `src/schema/payer-onboarding.ts` declares them and
+    // migration 0084 creates them everywhere, so the finding is closed rather than suppressed.
+    //
+    // Kept as an assertion, inverted, rather than deleted: it is now the guard that stops a
+    // future edit from silently un-declaring them and re-opening the gap.
     const names = new Set(declaredTables().map((x) => x.table));
     for (const t of ["agency_profiles", "employer_profiles", "payer_capabilities", "payer_member_invites"]) {
-      expect(names.has(t)).toBe(false);
+      expect(names.has(t)).toBe(true);
     }
   });
 });

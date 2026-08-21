@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { platformAiCostTotals, workerAiCostTotals } from "@badabhai/db";
 import { AdminDashboardRepository } from "./admin-dashboard.repository";
+import { PROFILE_COMPLETED_STATUSES, PROFILING_TASK_TYPES } from "./admin-dashboard.dto";
 import { captureQueries } from "./testing/query-capture";
 
 /**
@@ -101,6 +102,112 @@ describe("platform AI cost — read from platform_ai_cost_totals, and ONLY from 
     const c = captureQueries();
     await new AdminDashboardRepository(c.db).costByTaskType();
     expect(c.sql()).toContain('"platform_ai_cost_totals"."task_type"');
+  });
+});
+
+describe("the profiling subtotal — the numerator, and it is NOT the platform total", () => {
+  it("filters task_type to the passed allowlist, in SQL", async () => {
+    const c = captureQueries();
+    await new AdminDashboardRepository(c.db).profilingCostSubtotal(PROFILING_TASK_TYPES);
+    expect(c.sql()).toContain('"platform_ai_cost_totals"."task_type"');
+    // The bound values ARE the allowlist — an unfiltered sum would bind none of them.
+    for (const taskType of PROFILING_TASK_TYPES) {
+      expect(c.params, `${taskType} must be bound into the subtotal's IN list`).toContain(taskType);
+    }
+  });
+
+  it("EXCLUDES resume_generation — the trap this figure exists to avoid", () => {
+    // ₹5.629 of production's ₹77.4583 is `resume_generation`, rendered FROM a profile that
+    // already exists. In the numerator it inflates the cost of PRODUCING one by ~8% with work
+    // that produced none. Nothing else in the suite would notice: the query still compiles,
+    // still typechecks and still returns a plausible ₹ figure.
+    expect(PROFILING_TASK_TYPES).not.toContain("resume_generation");
+    const c = captureQueries();
+    void new AdminDashboardRepository(c.db).profilingCostSubtotal(PROFILING_TASK_TYPES);
+    expect(c.params).not.toContain("resume_generation");
+  });
+
+  it("is an ALLOWLIST, so an unclassified stored task_type is excluded, never swept in", async () => {
+    // `task_type` is plain `text` and `AiCostRecorder` writes the literal 'unknown' for an
+    // unlabelled call, so a value outside the enum really can be in the table. A `NOT IN (...)`
+    // denylist would pull every one of them into the profiling numerator.
+    const c = captureQueries();
+    await new AdminDashboardRepository(c.db).profilingCostSubtotal(PROFILING_TASK_TYPES);
+    expect(c.sql().toLowerCase()).toContain(" in (");
+    expect(c.sql().toLowerCase()).not.toContain("not in (");
+    expect(c.params).not.toContain("unknown");
+  });
+
+  it("sums ₹ IN POSTGRES as text — never the JS sum of costByTaskType()'s buckets", async () => {
+    const c = captureQueries();
+    await new AdminDashboardRepository(c.db).profilingCostSubtotal(PROFILING_TASK_TYPES);
+    expect(c.sql()).toMatch(/sum\("platform_ai_cost_totals"\."total_cost_inr"\)/);
+    expect(c.sql()).toContain("::text");
+  });
+
+  it("returns the call counts beside the ₹, so the card can say what the average is over", async () => {
+    const c = captureQueries();
+    await new AdminDashboardRepository(c.db).profilingCostSubtotal(PROFILING_TASK_TYPES);
+    expect(c.sql()).toMatch(/sum\("platform_ai_cost_totals"\."call_count"\)/);
+    expect(c.sql()).toMatch(/sum\("platform_ai_cost_totals"\."real_call_count"\)/);
+  });
+});
+
+describe("the profile count — the denominator, scoped to the SAME bound", () => {
+  const SINCE = new Date("2026-08-19T07:38:05.000Z");
+
+  const run = async () => {
+    const c = captureQueries();
+    await new AdminDashboardRepository(c.db).countCurrentProfilesCompletedSince(
+      SINCE,
+      PROFILE_COMPLETED_STATUSES,
+    );
+    return c;
+  };
+
+  it("dedupes PER WORKER through the same CURRENT_PROFILE_ORDER as the status breakdown", async () => {
+    const c = await run();
+    // `worker_profiles` holds a row per extraction, so without this a re-interviewed worker is
+    // counted once per interview and the average cost per profile falls by exactly that much.
+    expect(c.sql()).toContain('"worker_profiles"."worker_id"');
+    expect(c.sql()).toContain("<> 'draft'");
+    expect(c.sql()).toContain('"worker_profiles"."created_at" desc');
+    expect(c.sql()).toContain('"worker_profiles"."id" desc');
+  });
+
+  it("takes `since` as a BOUND PARAMETER — it never derives its own", async () => {
+    const c = await run();
+    // Compared as an INSTANT, not by identity: drizzle binds a real `timestamp` column's value
+    // through the driver's mapper (an ISO string), and only the stub's raw fragment leaves the
+    // `Date` intact. Asserting `toContainEqual(SINCE)` would pass here for a stub-shaped reason
+    // and say nothing about the statement Postgres receives.
+    const boundInstants = c.params
+      .filter((p): p is Date | string => p instanceof Date || typeof p === "string")
+      .map((p) => new Date(p).getTime());
+    expect(boundInstants).toContain(SINCE.getTime());
+    // A bound computed in SQL would drift from the one the response displays, which is the
+    // whole defect. `min(first_recorded_at)` must not appear anywhere in this statement, and
+    // neither may the cost table it would have to come from.
+    expect(c.sql()).not.toContain("first_recorded_at");
+    expect(c.sql()).not.toContain("platform_ai_cost_totals");
+  });
+
+  it("filters the RESOLVED row, above the DISTINCT ON — not the rows being resolved", async () => {
+    const c = await run();
+    // The subquery alias on both predicates is the assertion: filtering inside would let an
+    // in-window outage placeholder outrank a worker's real, older profile.
+    expect(c.sql()).toContain('"current_profile"."created_at"');
+    expect(c.sql()).toContain('"current_profile"."profile_status"');
+  });
+
+  it("counts `extracted`/`confirmed` only — the positive set, not `<> draft`", async () => {
+    const c = await run();
+    expect(c.params).toContain("extracted");
+    expect(c.params).toContain("confirmed");
+    // `extracting` is a declared status meaning an extraction IN FLIGHT. A `<> 'draft'`
+    // predicate would count it as a produced profile the day anything starts writing it.
+    expect(c.params).not.toContain("extracting");
+    expect(c.params).not.toContain("draft");
   });
 });
 

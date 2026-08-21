@@ -43,7 +43,7 @@ describe("R39_TABLES — the seven, and which half each belongs to", () => {
     ]);
   });
 
-  it("classifies the three 0048 declares separately from the four that are unmodelled", () => {
+  it("classifies the three 0048 declares separately from the four 0083 declares", () => {
     // The class decides whether "table absent" is a failure or the expected state. Getting it
     // backwards would make a fresh database fail the rehearsal, or make production pass it by
     // skipping a table that is really there.
@@ -53,7 +53,7 @@ describe("R39_TABLES — the seven, and which half each belongs to", () => {
       "agency_payout_accruals",
       "agency_payout_requests",
     ]);
-    expect(byClass("unmodelled")).toEqual([
+    expect(byClass("declared-by-0084")).toEqual([
       "agency_profiles",
       "employer_profiles",
       "payer_capabilities",
@@ -108,7 +108,7 @@ describe("the rehearsal matches the migration it rehearses", () => {
     // CI, in the e2e job, and on every new developer's machine — and take the slot with it.
     expect(DDL).toContain("to_regclass");
     for (const { table, cls } of R39_TABLES) {
-      if (cls !== "unmodelled") continue;
+      if (cls !== "declared-by-0084") continue;
       expect(DDL).toContain(`'${table}'`);
       expect(DDL, `${table} must not be locked by an unguarded ALTER`).not.toContain(
         `ALTER TABLE "${table}"`,

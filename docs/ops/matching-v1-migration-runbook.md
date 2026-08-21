@@ -43,11 +43,38 @@ already exercised from a fresh, empty database by `ci.yml`'s `e2e` job on every 
 All six share one CLI harness (`packages/db/src/match-v1-cli.ts`) and its guards:
 
 - **Dry-run is the default** for every script in this family — nothing writes until `--apply`.
-- **`NODE_ENV=production` refuses outright** unless `MATCH_V1_PROD_CONFIRM=apply-matching-v1` is
-  also set — the confirm token is the deliberate second key for a production run (this runbook is
-  what that error message points at).
+- **A production write needs TWO signals.** *(Changed 2026-08-20 — see the box below.)* The
+  harness now routes through `opsGuard`, which classifies the **connection string**, not the
+  process:
+
+  ```bash
+  OPS_ALLOW_PRODUCTION=<the script's own name> \
+    pnpm --filter @badabhai/db <cmd> -- --apply --i-am-authorised-to-write-to-production
+  ```
+
+  Both are required, and they are separate on purpose: a **flag** cannot be inherited from an
+  environment, and an **environment variable that names this runner** cannot be left over from
+  authorising a different one. The script name is the one in the error message — e.g.
+  `OPS_ALLOW_PRODUCTION=seed:domain-skills`.
+- **A read-only dry run is always allowed**, against production included. It prints the target
+  loudly and writes nothing. This is a deliberate reversal: the previous guard refused dry runs,
+  and the workaround for that also unblocked writes.
 - **`DATABASE_URL` must be set explicitly** — no localhost fallback, so a mis-pointed run cannot
-  silently target the wrong database.
+  silently target the wrong database. An unset one now refuses the **dry run** as well:
+  "read-only" is a claim about a database nobody has identified.
+
+> ### WARNING — `MATCH_V1_PROD_CONFIRM` was retired on 2026-08-20
+>
+> It keyed on `NODE_ENV`, which labels the **process**, while the blast radius is decided by
+> `DATABASE_URL`, which labels the **target**. Two consequences: a read-only dry run was refused
+> whenever the process was labelled production — which on this repository it always is, because
+> the repo-root environment file sets it — and once the token was exported, `--apply` proceeded
+> **against any database**. The token was the production key and it said nothing about which
+> database it was unlocking.
+>
+> **If you set it, the run refuses and tells you what to use instead.** It is not silently
+> ignored, precisely so that following an older copy of this page produces a clear answer rather
+> than a confusing one.
 - **PII-free by construction**: these scripts read `worker_profiles` signal columns, `jobs`,
   `job_postings`, and the skill vocabulary — never phone/name. Every log line is ids + counts.
 

@@ -78,6 +78,18 @@ export interface CoverageRow {
   readonly notCanonicalizing: number;
   /** Extraction jobs with no session — same branch, no state, never scopable. */
   readonly sessionlessJobs: number;
+  /**
+   * O1's side of the same question, and the number that sizes the restructure.
+   *
+   * `scoped` above asks it of the CANONICALIZING branch. These ask it of the OIE branch — the
+   * one O2 cannot reach by construction. Without them the report answers "is O1 urgent?" with
+   * "48 sessions go somewhere O2 cannot", which is a ceiling, not a projection: an OIE session
+   * with no usable pin is no more reachable by O1 than by O2.
+   */
+  readonly oieWithAnyPin: number;
+  readonly oieWithMatchedPin: number;
+  /** Of the OIE branch, sessions O1 could actually scope to Path A. */
+  readonly oieScoped: number;
 }
 
 /**
@@ -94,6 +106,12 @@ export function fractions(r: CoverageRow): {
   lostToNoPin: number;
   lostToAnUnmatchedPin: number;
   lostToADeadDomain: number;
+  /** What O1 would ADD on top of O2, in sessions: the OIE branch's own usable pins. */
+  o1Adds: number;
+  /** O2 + O1 together, as a fraction of every extraction. The ceiling for this design. */
+  o1PlusO2OfAll: number | null;
+  /** Still unreachable after BOTH: no session, or a session with no usable pin. */
+  unreachableByEither: number;
 } {
   const all = r.canonicalizing + r.notCanonicalizing + r.sessionlessJobs;
   return {
@@ -103,6 +121,12 @@ export function fractions(r: CoverageRow): {
     lostToNoPin: r.canonicalizing - r.withAnyPin,
     lostToAnUnmatchedPin: r.withAnyPin - r.withMatchedPin,
     lostToADeadDomain: r.withMatchedPin - r.scoped,
+    // O1 does not re-cover what O2 already covers: the two branches are disjoint by
+    // construction (`has_answers` partitions them), so the union is a plain sum with no
+    // overlap term. That is a property of the predicate, not an approximation.
+    o1Adds: r.oieScoped,
+    o1PlusO2OfAll: all === 0 ? null : (r.scoped + r.oieScoped) / all,
+    unreachableByEither: all - r.scoped - r.oieScoped,
   };
 }
 
@@ -138,7 +162,18 @@ SELECT
       AND EXISTS (SELECT 1 FROM job_domain d
                   WHERE d.job_domain_id = pin_domain AND d.selectable = true AND d.status = 'active')
   )::int AS scoped,
-  count(*) FILTER (WHERE has_answers)::int AS not_canonicalizing
+  count(*) FILTER (WHERE has_answers)::int AS not_canonicalizing,
+  -- The OIE branch, asked the SAME three questions. Deliberately the same predicates rather
+  -- than a second definition of "usable pin": if the two ever disagreed, the report would be
+  -- comparing O1 against a different bar than O2 and the comparison is the whole point.
+  count(*) FILTER (WHERE has_answers AND jsonb_typeof(pin) = 'object')::int AS oie_with_any_pin,
+  count(*) FILTER (WHERE has_answers AND pin_status = ANY($1::text[]))::int AS oie_with_matched_pin,
+  count(*) FILTER (
+    WHERE has_answers
+      AND pin_status = ANY($1::text[])
+      AND EXISTS (SELECT 1 FROM job_domain d
+                  WHERE d.job_domain_id = pin_domain AND d.selectable = true AND d.status = 'active')
+  )::int AS oie_scoped
 FROM s`;
 
 /**
@@ -179,6 +214,19 @@ export function render(r: CoverageRow): string[] {
     `    a pin, but an unmatched one                   ${f.lostToAnUnmatchedPin}`,
     `    a matched pin on a dead domain                ${f.lostToADeadDomain}`,
     "",
+    "  O1 PROJECTION — the OIE branch, asked the same three questions:",
+    `    OIE sessions                                  ${r.notCanonicalizing}`,
+    `    ...carrying a pin object                      ${r.oieWithAnyPin}`,
+    `    ...whose status is MATCHED                    ${r.oieWithMatchedPin}`,
+    `    ...whose domain is still selectable           ${r.oieScoped}   <- what O1 would ADD`,
+    "",
+    `  O1 would add                                  : ${r.oieScoped} session(s)`,
+    `  O2 + O1 coverage of ALL extractions           : ${pct(f.o1PlusO2OfAll)}`,
+    `  reachable by NEITHER                          : ${f.unreachableByEither}`,
+    "",
+    "  The two branches are disjoint by construction — `answer_map` empty or not partitions",
+    "  them — so O1's number is what it ADDS, never a re-count of O2's.",
+    "",
     "  Note: this measures whether a canonical SCOPE is sent, not whether canonicalization ran.",
     "  The pass itself is behind SKILL_CANONICALIZE_ENABLED, which is off by default.",
   ];
@@ -198,6 +246,9 @@ async function main(): Promise<void> {
       with_matched_pin: number;
       scoped: number;
       not_canonicalizing: number;
+      oie_with_any_pin: number;
+      oie_with_matched_pin: number;
+      oie_scoped: number;
     }[];
     const [s] = (await sql.unsafe(SESSIONLESS_SQL)) as unknown as { n: number }[];
     if (c === undefined || s === undefined) throw new Error(`[${SCRIPT}] no rows returned`);
@@ -209,6 +260,9 @@ async function main(): Promise<void> {
       scoped: c.scoped,
       notCanonicalizing: c.not_canonicalizing,
       sessionlessJobs: s.n,
+      oieWithAnyPin: c.oie_with_any_pin,
+      oieWithMatchedPin: c.oie_with_matched_pin,
+      oieScoped: c.oie_scoped,
     };
     for (const line of render(row)) console.log(line);
 

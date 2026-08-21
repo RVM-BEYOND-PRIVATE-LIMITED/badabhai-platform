@@ -1,4 +1,4 @@
-import { formatTimestamp } from "./format";
+import { formatCount, formatExactRupees, formatTimestamp } from "./format";
 
 /**
  * How AI spend is ALLOWED to be described. Pure, so the rule is testable without a DOM.
@@ -111,6 +111,329 @@ export function describeCapBreachScope(scope: string): string {
     );
   }
   return `The server reports a breach scope this portal does not recognise: ${scope}`;
+}
+
+// ---------------------------------------------------------------------------
+// Cost per profile
+// ---------------------------------------------------------------------------
+
+/**
+ * The API's two stable codes for the cost-per-profile block, mirrored from
+ * `apps/api/src/admin/admin-dashboard.dto.ts`. Compared, never assumed — same rule as
+ * `AI_COST_CAVEAT_SINCE_0077` above: a code this build has not been taught about must render
+ * as "this portal does not know what this means", not as the sentence for the old one.
+ */
+export const COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED =
+  "profiling_spend_per_completed_profile_incl_abandoned_interviews";
+export const COST_PER_PROFILE_WINDOW_EDGE_SKEW =
+  "interviews_straddling_the_accrual_bound_are_split";
+export const COST_PER_PROFILE_ERASURE_BIAS = "erased_workers_leave_the_count_but_not_the_spend";
+
+/** The wire block, narrowed to the fields the copy depends on. */
+export interface CostPerProfileInput {
+  /**
+   * The bound BOTH halves are scoped to — `min(first_recorded_at)` over the PROFILING task
+   * types. NOT `accruing_since`: that one is table-wide and is at or before this one, because a
+   * non-profiling task type can have accrued first. Every label in this block comes from HERE.
+   */
+  since: string;
+  profiling_task_types: readonly string[];
+  profiling_cost_inr: string;
+  profiling_calls: number;
+  profiling_real_calls: number;
+  profiles_extracted_or_confirmed: number;
+  cost_per_profile_inr: string | null;
+  basis: string;
+  window_caveat: string;
+  erasure_caveat: string;
+}
+
+/**
+ * Every sentence and every rendered value the cost-per-profile block is allowed to show.
+ * Four of the fields are nullable because four of the caveats are CONDITIONAL — a caveat band
+ * that renders on every load is a band operators learn to skip.
+ */
+export interface CostPerProfileView {
+  /**
+   * Goes in BOTH TILE LABELS — "since 2026-08-19" — so neither figure travels window-less.
+   *
+   * DERIVED FROM `per_profile.since` AND FROM NOTHING ELSE. An earlier revision took it from
+   * the section's basis headline whenever the two bounds agreed, which put "all time" on a
+   * count that is bounded in every case (`is_lifetime_total` is a claim about SPEND, and the
+   * server never made it about this profile count), and put the COUNT's bound on the SPEND tile
+   * in the fallback. One bound, one source, both tiles — the server guarantees the two halves
+   * share it, so there is nothing here for a second source to be right about.
+   */
+  windowLabel: string;
+  /** The headline claim, bolded by the caller. */
+  basisHeadline: string;
+  basisDetail: string;
+  /** What the NUMERATOR summed, naming the task-type rows so the operator can add them up. */
+  scopeSentence: string;
+  /** What the DENOMINATOR counted, and by which column it is timed. */
+  completedSentence: string;
+  /** The exact bound, and what the window edges do to the ratio. */
+  windowSentence: string;
+  /** What DPDP erasure does to it — permanent, one-directional, and it accumulates. */
+  erasureSentence: string;
+  /** Pre-formatted — either an exact ₹ amount or the stated ABSENCE. Never "₹0.00" for null. */
+  averageText: string;
+  /** True ⇒ `averageText` is a statement, not a number, and must not be styled as one. */
+  averageIsAbsent: boolean;
+  averageAbsentSentence: string | null;
+  mockPostureSentence: string | null;
+  /**
+   * Non-null ⇒ the section's ₹ figures start EARLIER than this block's, because a non-profiling
+   * task type accrued first. Expected and benign — it is plain copy, not a warning.
+   */
+  sectionBoundSentence: string | null;
+  /**
+   * Non-null ⇒ the server contradicted itself (a profiling bound BEFORE the table-wide minimum,
+   * which is impossible for a minimum over a subset) or sent a bound that will not parse. The
+   * ratio is then not a ratio of anything and the caller escalates the whole band.
+   */
+  windowMismatchSentence: string | null;
+}
+
+/**
+ * The three states this block can be in — a union, because they are three different answers and
+ * a bare `null` cannot tell the last two apart.
+ *
+ * `unsupported` exists because `per_profile` is `.optional()` on the wire. A portal newer than
+ * the API it is talking to must not take the WHOLE dashboard down over one analytics block
+ * (`aiCostSummarySchema` is nested inside `dashboardSummarySchema`, so a hard requirement here
+ * fails AI spend, volume, funnel — the page, not the block), and it must not silently render
+ * nothing either, which is pixel-identical to `absent` and therefore a false claim about a
+ * platform that is spending money. So it renders a sentence saying which of the two it is.
+ */
+export type CostPerProfileState =
+  | { kind: "absent" }
+  | { kind: "unsupported"; sentence: string }
+  | { kind: "measured"; view: CostPerProfileView };
+
+/** The one string the null average is allowed to render as. Pinned so a test can hold it. */
+const NO_AVERAGE_TEXT = "No profile finished yet";
+
+/**
+ * Turn the cost-per-profile block into the only words it may be described with — or NULL when
+ * there is no block to describe.
+ *
+ * ══ THE FOUR RULES THIS FUNCTION EXISTS FOR ═════════════════════════════════════════════
+ *
+ *  1. THE AVERAGE IS NOT A PER-WORKER UNIT COST. Its numerator carries the spend of every
+ *     interview in the window INCLUDING the ones abandoned before a profile existed; its
+ *     denominator counts only profiles that finished. So it answers "what does the platform
+ *     pay for each profile it actually gets", abandonment included. The two readings cannot be
+ *     told apart from the number, so the distinction is rendered ABOVE it, never beside it.
+ *
+ *  2. THE NUMERATOR IS NOT THE PLATFORM TOTAL, and the operator will try to reconcile it.
+ *     `profiling_task_types` arrives in band precisely so the sum is auditable, so it is
+ *     rendered VERBATIM from the response — never a hardcoded list of three, which would go
+ *     silently stale the day the API classifies voice spend as profiling. It is also
+ *     INTERSECTED with `by_task_type`: naming a row as reconcilable and then not rendering it
+ *     is an instruction the operator cannot follow, and a classified task type with no accrued
+ *     call has no row.
+ *
+ *  3. NULL AVERAGE IS A STATEMENT, NOT A ZERO. `cost_per_profile_inr === null` means spend in
+ *     the window with no profile finished — every interview still running or abandoned. A
+ *     rendered ₹0.00 would say profiling is free, which is the strongest available claim and
+ *     one nobody measured. Same discipline as `formatSuppressible` and `describeAiCostBasis`.
+ *
+ *  4. `accruing_since === null` RETURNS `absent` BEFORE ANYTHING ELSE. Nothing has ever accrued,
+ *     so there is no window for a profile count to cover and no ₹ may be rendered anywhere in
+ *     this section (panel rule 2). Checking it HERE rather than in the panel is what makes
+ *     that rule hold without a DOM: the block cannot be rendered into the nothing-accrued
+ *     state even by a caller that forgets to gate it.
+ *
+ *  5. EVERY LABEL IS DATED FROM `per_profile.since`, WHICH IS NOT `accruing_since`. The server
+ *     bounds this block at the first PROFILING accrual; the section above is bounded at the
+ *     first accrual of any kind, and the two differ whenever something that is not profiling
+ *     was paid for first. The section starting earlier is ordinary and gets plain copy; the
+ *     reverse is arithmetically impossible for a subset and gets the alarm.
+ */
+export function describeCostPerProfile(
+  cost: AiCostBasisInput & {
+    per_profile?: CostPerProfileInput | null;
+    by_task_type: readonly { task_type: string }[];
+  },
+): CostPerProfileState {
+  const basis = describeAiCostBasis(cost);
+  // Rule 4 — and it is checked on the BASIS, not on `per_profile`, so the two can never
+  // disagree about whether this section has a measurement in it at all.
+  if (basis.kind === "nothing_accrued") return { kind: "absent" };
+  const perProfile = cost.per_profile;
+  // MISSING and NULL are different answers, and only one of them is the server's. See
+  // `CostPerProfileState`.
+  if (perProfile === undefined) {
+    return {
+      kind: "unsupported",
+      sentence:
+        "This portal expects a cost-per-profile figure that the API it is talking to does not " +
+        "send. That is a version skew — usually a rolling deploy in progress — and not a " +
+        "statement that nothing was spent. Every other figure in this section is unaffected.",
+    };
+  }
+  if (perProfile === null) return { kind: "absent" };
+
+  /*
+   * ── THE TWO BOUNDS ARE DIFFERENT FIELDS WITH DIFFERENT JOBS ────────────────────────────
+   * `accruing_since` is `min(first_recorded_at)` over the WHOLE cost table and bounds the ₹
+   * figures at the top of this section. `per_profile.since` is the same minimum over the
+   * PROFILING task types only, and bounds both halves of this block. A minimum over a subset is
+   * never smaller than the minimum over the whole, so:
+   *
+   *   - `countBound > spendBound` is ORDINARY — something that is not profiling (a résumé, a
+   *     payer-side embedding) accrued first. Explained in plain copy, never warned about.
+   *   - `countBound === spendBound` — the first money the platform spent was profiling money.
+   *   - `countBound < spendBound` is IMPOSSIBLE and means the server is contradicting itself.
+   *
+   * Compared as INSTANTS rather than as strings: "…:05Z" and "…:05.000Z" are the same moment,
+   * and a serializer change that reformatted one of them must not raise a false alarm.
+   */
+  const countBound = Date.parse(perProfile.since);
+  const spendBound = cost.accruing_since === null ? Number.NaN : Date.parse(cost.accruing_since);
+  const boundReadable = Number.isFinite(countBound);
+  const boundsContradict = boundReadable && Number.isFinite(spendBound) && countBound < spendBound;
+  const sectionStartsEarlier =
+    boundReadable && Number.isFinite(spendBound) && countBound > spendBound;
+
+  // ONE BOUND, ONE SOURCE, BOTH TILES — and never a bare em dash in a tile label: an
+  // unreadable bound produces a neutral phrase plus the alarm below, not a figure captioned
+  // with a dash the reader has to interpret.
+  const windowLabel = boundReadable
+    ? `since ${formatTimestamp(perProfile.since).slice(0, 10)}`
+    : "in this period";
+
+  const knownBasis = perProfile.basis === COST_PER_PROFILE_BASIS_INCLUDES_ABANDONED;
+  const knownWindowCaveat = perProfile.window_caveat === COST_PER_PROFILE_WINDOW_EDGE_SKEW;
+  const knownErasureCaveat = perProfile.erasure_caveat === COST_PER_PROFILE_ERASURE_BIAS;
+  const averageIsAbsent = perProfile.cost_per_profile_inr === null;
+  const mockedCalls = perProfile.profiling_calls - perProfile.profiling_real_calls;
+
+  /*
+   * WHICH OF THE NAMED TASK TYPES ARE ACTUALLY IN THE TABLE BELOW. `by_task_type` is a GROUP BY
+   * over the cost table, so a classified-as-profiling task type with no accrued row simply is
+   * not there. Telling the operator to reconcile the numerator against "these rows below" and
+   * then not rendering them is an instruction that cannot be followed, so only the types that
+   * ARE below are named as rows, and the rest are reported as having recorded nothing.
+   */
+  const renderedBelow = new Set(cost.by_task_type.map((b) => b.task_type));
+  const present = perProfile.profiling_task_types.filter((t) => renderedBelow.has(t));
+  const absentTypes = perProfile.profiling_task_types.filter((t) => !renderedBelow.has(t));
+  const label = (types: readonly string[]) => types.map(taskTypeLabel).join(", ");
+
+  const view: CostPerProfileView = {
+    windowLabel,
+
+    basisHeadline: knownBasis
+      ? "Cost to produce one finished profile — not a per-worker unit cost"
+      : "Basis code not recognised",
+    basisDetail: knownBasis
+      ? "The spend side carries every interview in this period, including the ones abandoned " +
+        "before any profile existed; the count side carries only the profiles that finished. " +
+        "So it is what the platform pays for each profile it actually gets — not what " +
+        "profiling one worker costs."
+      : `The server reports a basis this portal does not recognise: ${perProfile.basis}. The ` +
+        "figures are shown as sent; do not assume what they count.",
+
+    scopeSentence:
+      perProfile.profiling_task_types.length === 0
+        ? "The server named no task types, so this spend cannot be reconciled against " +
+          "By task type below."
+        : present.length === 0
+          ? "Profiling spend only — résumé generation and every other task type are excluded. " +
+            `None of the task types this sums (${label(perProfile.profiling_task_types)}) has ` +
+            "a row in By task type below, so there is nothing there to reconcile it against."
+          : "Profiling spend only — résumé generation and every other task type are excluded. " +
+            `It is exactly these rows of By task type below: ${label(present)}.` +
+            (absentTypes.length > 0
+              ? ` ${label(absentTypes)} ${
+                  absentTypes.length === 1
+                    ? "also counts as profiling spend but has recorded no call, so no row " +
+                      "appears for it."
+                    : "also count as profiling spend but have recorded no call, so no rows " +
+                      "appear for them."
+                }`
+              : ""),
+
+    completedSentence:
+      "Completed means the worker's current profile reached extracted or confirmed — counted " +
+      "once per worker, not once per re-interview, and timed by when that profile row was " +
+      "first written. A profile extracted before this period and confirmed inside it is not " +
+      "counted, because the spend that produced it happened before the period too.",
+
+    windowSentence: !knownWindowCaveat
+      ? `The server reports a window caveat this portal does not recognise: ${perProfile.window_caveat}`
+      : (boundReadable
+          ? `Both halves start at ${formatTimestamp(perProfile.since)}. `
+          : "Both halves start at the same bound. ") +
+        "An interview that straddles it — begun before, finished after — lands in the count " +
+        "with only part of its cost in the spend; one still running has cost and no profile " +
+        "yet. Over a period this short that skew is material, and it cuts both ways.",
+
+    erasureSentence: knownErasureCaveat
+      ? "Erasing a worker under DPDP removes their profile from the count but not their spend " +
+        "from the total — the cost table holds no worker link by design. So this average " +
+        "drifts upward with every erasure, permanently, and that drift only accumulates."
+      : `The server reports an erasure caveat this portal does not recognise: ${perProfile.erasure_caveat}`,
+
+    // Rule 3. `formatExactRupees` is never reached with a null, so a ₹0.00 is unreachable
+    // rather than merely avoided.
+    averageText: averageIsAbsent
+      ? NO_AVERAGE_TEXT
+      : formatExactRupees(perProfile.cost_per_profile_inr as string),
+    averageIsAbsent,
+    averageAbsentSentence: averageIsAbsent
+      ? "No profile finished in this period, so there is no average to show. That is an " +
+        "absent measurement, not a measured ₹0.00 — every interview here is still running " +
+        "or was abandoned."
+      : null,
+
+    /*
+     * Only when it is true — TD81's failure mode is a mocked figure quoted as production money,
+     * and the platform tile above warns on the same comparison.
+     *
+     * AND IT POINTS THE OTHER WAY FROM WHAT THAT SUGGESTS. An earlier revision said "part of
+     * this spend is simulated money", which is false: `cost_tracker.build_call_metadata` sets
+     * `estimated = 0.0` for `real_call=False` BEFORE any override, so a mocked call contributes
+     * exactly ₹0.000000 and none of the rupees above are fictional. The real hazard is the
+     * mirror image — those calls are interviews that happened and cost nothing on paper, so
+     * they pad the volume the average is taken over and the figure UNDERSTATES what the same
+     * volume costs at real prices. `AI_REAL_CALL_TASKS` is a per-task allowlist that is empty
+     * by default, so a partial or total mock posture is ordinary, not exotic.
+     *
+     * It says "this SPEND", not "this average", deliberately: it also renders in the state where
+     * there is no average at all, and a sentence about a figure that is not on screen reads as a
+     * bug in the console rather than as a caveat about the money.
+     */
+    mockPostureSentence:
+      mockedCalls > 0
+        ? `${formatCount(mockedCalls)} of ${formatCount(perProfile.profiling_calls)} profiling ` +
+          "calls never reached a provider. Those are priced at ₹0 at source, so they add " +
+          "nothing to this spend while still counting as interviews — the average understates " +
+          "what this volume costs at real prices."
+        : null,
+
+    // Plain copy, not a warning: a subset's minimum is never earlier than the whole table's, so
+    // this is the expected shape whenever the platform spent on something else first.
+    sectionBoundSentence: sectionStartsEarlier
+      ? `The section's ₹ figures above start earlier (${basis.headline.toLowerCase()}) because ` +
+        "spend that is not profiling — a résumé, a payer-side embedding — accrued first. This " +
+        "block deliberately starts later, at the first profiling call."
+      : null,
+
+    windowMismatchSentence: boundsContradict
+      ? `The profile count is scoped to ${formatTimestamp(perProfile.since)}, which is EARLIER ` +
+        `than the bound the whole cost table reports (${basis.headline}). That is impossible ` +
+        "for a subset of the same rows, so the server is contradicting itself — read the raw " +
+        "figures, not the ratio."
+      : boundReadable
+        ? null
+        : `The server sent a bound this portal cannot read (${perProfile.since}), so neither ` +
+          "figure here can be dated. Read the raw figures, not the ratio.",
+  };
+
+  return { kind: "measured", view };
 }
 
 /**

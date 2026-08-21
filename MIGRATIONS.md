@@ -26,7 +26,7 @@ This has already cost the project real work:
 ## Reserved blocks
 
 Numbers are reserved **up front**, per developer, per workstream. Current head:
-**`0083_ai_call_traces`** (journal has 84 entries, `idx` 0–83).
+**`0086_bound_deletion_forensics`** (journal has 87 entries, `idx` 0–86).
 
 | Block         | Owner     | Workstream                                                    |
 | ------------- | --------- | ------------------------------------------------------------- |
@@ -46,7 +46,10 @@ Numbers are reserved **up front**, per developer, per workstream. Current head:
 | `0081`        | Prakash   | **APPLIED IN PRODUCTION** — `worker_feedback.screen_context` (#1036). Recorded in `drizzle.__drizzle_migrations` (`created_at=1787141865609`) and verified by `db:audit:schema-contract`. Note this migration is the ONLY one of `0076`–`0081` that is journal-recorded — see the drift note below |
 | `0082`        | Prakash   | **APPLIED IN PRODUCTION 2026-08-20, AND NOW RECORDED** — R39: re-lock the seven public tables `db:audit:rls` reported open. Permissions only; no table, column, index or constraint moves. Minted as `0081` and renumbered after `#1036` took that slot. Rehearsed first (`db:verify:rls-lock`, 22/22 PASS), then applied **by hand rather than through `db:migrate`**, so its objects are live and `drizzle.__drizzle_migrations` has no row for it. Verified after the fact: `db:audit:rls` = **77/77 locked, 0 deviating**; `db:audit:schema-contract` = **READY**. Recorded by adoption on 2026-08-20 — not by `db:migrate`, which can no longer reach it; see the drift note below |
 | `0083`        | Prakash   | **APPLIED IN PRODUCTION 2026-08-20, RECORDED, AND NOW MERGED** — `ai_call_traces`: the prompt + completion of every AI call, AES-256-GCM at rest behind a shape CHECK that refuses prose, `worker_id NOT NULL ON DELETE cascade` (the DSAR erasure IS the cascade), RLS + FORCE + four REVOKEs. Additive: one new table, nothing existing moves. Applied by hand with `created_at = 1787230000000` hand-pinned ABOVE `0082`'s `1787220000000` — deliberately, because `db:generate` stamped it at `1787213473538`, i.e. BELOW, and it would otherwise have been skipped silently and forever. **This is the "orphan row" the section below describes; merging this PR is what resolves it.** |
-| `0084`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own |
+| `0084`        | Prakash   | **MERGED AND APPLIED 2026-08-20** — GAP-DB-21 modelled: the four payer-onboarding tables that existed on production and in no migration and no schema file. Owner ruling 2026-08-20: keep and model, do not drop. A **no-op on production** — every CREATE is `IF NOT EXISTS`, every constraint add is preceded by a `DROP ... IF EXISTS`, and FORCE/REVOKE are idempotent; the only statements that do anything are FK re-adds on tables holding 0 rows. On every OTHER database it is the migration that finally creates them. Verified read-only against production before merge: `adopt-migrations --only=0084` reports **clean=1 mismatched=0** across the full static parse plus 24 effect assertions, which is a proof the declaration matches the live catalog object for object. Minted as `0083`, renumbered after `#1130` took that slot — the fifth collision recorded here; `when` hand-raised to `1787240000000`, above `0083`'s `1787230000000`, or the migrator would have skipped it |
+| `0085`        | Prakash   | **APPLIED 2026-08-21, journal row not yet recorded** — #1110: takes `EXECUTE` away from `PUBLIC`/`anon`/`authenticated`/`service_role` on the three undeclared `SECURITY DEFINER` functions (`_log_delete`, `rls_auto_enable`, `is_active_payer_member`). **No schema change at all** — no CREATE, no ALTER, no DROP, no data touched; it only removes privileges, and grants nothing. Snapshot is a byte-copy of `0084`'s with a fresh `id`, the `0082` convention for a privilege-only migration. **A no-op on every fresh database**, deliberately: the three functions are undeclared, so a database built from this repository does not have them and `to_regprocedure` skips each one with a NOTICE — the roles are guarded against `pg_roles` for the same reason. Every REVOKE sits inside `format()` behind those guards, so the static parse reads **nothing** out of the file and an effect verifier checks all 12 grants from the catalog instead. Verified read-only against production: adoption **refuses it with 12 mismatches** (including `PUBLIC`, which `information_schema.routine_privileges` does not report at all) and `db:audit:undeclared-routines --strict` exits **1** naming all three. Both are the *before* reading — they are what proves the REVOKE took once it is applied. **Awaiting the owner decision in `docs/registers/gap-db-undeclared-routines.md`** |
+| `0086`        | Prakash   | **APPLIED 2026-08-21, journal row not yet recorded** — #1110, the other half of the owner ruling: DECLARE the deletion trail (it stays), NARROW it, and BOUND it. Creates `_delete_forensics` (fresh databases only — production already had it, out of band, since 2026-08-13), replaces `_log_delete` so it no longer writes `current_query()` or the client IP, **DROPs `query` and `client_addr`**, re-creates both triggers idempotently, adds `_delete_forensics_at_idx` for the retention sweep, and states ENABLE + FORCE + four REVOKEs explicitly. **ORDER IS LOAD-BEARING**: the function is replaced BEFORE the columns are dropped, or a DELETE on `workers` inside that window fires a function referencing columns that no longer exist. **The one irreversible migration in the #1110 set** — `ALTER TABLE ... ADD COLUMN` restores the shape and not the 147 values — which is why it is separate from `0085` and why the PII was measured first: **0 phone-shaped, 0 email-shaped, 0 bare mobiles**. Touches NOTHING belonging to the DPDP erasure proof (`audit_logs`, the Redis tombstone, the event), and a test asserts that against the statements with comments stripped. First migration to use `bigserial`, which adoption refused as an unmapped type until `normalizeType` learned the serial pseudo-types — the refusal was correct. Verified after the apply: 17 effect assertions clean |
+| `0087`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own. **Bumped from `0085`+ on 2026-08-20**, which #1110's REVOKE took — the sixth slot collision this file records, and the reason the rule is to re-check the number immediately before pushing rather than when the branch is cut |
 
 ### The journal is five files behind, and what that actually costs — corrected 2026-08-20
 
@@ -76,10 +79,18 @@ twice in one day and the second change is the one worth remembering.
 
 | | |
 |---|---|
-| journal entries | 84 (`0000`–`0083`) |
-| recorded, matching a journal entry | **84** |
-| unrecorded | **0** |
-| recorded rows matching NO journal entry (orphans) | **0** — the one below closes with this merge |
+| journal entries | 87 (`0000`–`0086`) |
+| recorded, matching a journal entry | **85** |
+| unrecorded | **2** — `0085` and `0086`. Both were **applied by hand on 2026-08-21**; their journal rows are owed and adoption verifies both clean (16 and 17 effect assertions). Recording them is a two-row metadata write awaiting approval |
+| recorded rows matching NO journal entry (orphans) | **0** — the one described below was `0083_ai_call_traces`, and merging it closed it |
+
+**`0084` was reconciled on 2026-08-20.** The DDL was applied by hand, as every migration on this
+project is, and `adopt-migrations --only 0084_model_gap_db_21_payer_onboarding --apply
+--expect-host …` then wrote the journal row after re-verifying all 24 effect assertions against
+the live catalog. `--doctor` reads **85/85 match, 0 orphans**, and reports that `db:migrate` will
+now attempt no DDL. `db:audit:schema-contract` is **READY**, including the four
+`0084_model_gap_db_21_payer_onboarding` RLS entries, each of which asserts ENABLE + FORCE + no
+Data-API grant rather than mere existence.
 
 **The plan that stopped working.** `0082` was applied by hand, so it was live and unrecorded but
 *above* the watermark — which meant `db:migrate` would replay it (a measured no-op) and write the

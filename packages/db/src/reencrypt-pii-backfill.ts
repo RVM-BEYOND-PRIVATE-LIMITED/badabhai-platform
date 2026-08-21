@@ -50,7 +50,17 @@ import {
   isEncryptedPii,
   type PiiKeyring,
 } from "./crypto";
-import { adminUsers, agencyKyc, aiCallTraces, payerMembers, payerOrgs, payers, workers } from "./schema";
+import {
+  adminUsers,
+  agencyKyc,
+  aiCallTraces,
+  employerProfiles,
+  payerMemberInvites,
+  payerMembers,
+  payerOrgs,
+  payers,
+  workers,
+} from "./schema";
 
 config({ path: "../../.env" });
 
@@ -184,6 +194,34 @@ function buildTargets(db: Database): PiiTarget[] {
       "ai_call_traces",
       "response_enc",
       "responseEnc",
+    ),
+    // ── GAP-DB-21 (0084): the two encrypted columns modelling made VISIBLE ────────────────────
+    //
+    // `employer_profiles.gst_number_enc` and `payer_member_invites.invited_email_enc` have
+    // existed on production since those tables were created out of band. Because no schema file
+    // described them, `declaredEncryptedColumns()` could not see them and the coverage guard
+    // passed while two encrypted columns were unrotatable — a kid they depended on could never
+    // have been retired, and nothing would have said why. Declaring the tables surfaced it on
+    // the first test run.
+    //
+    // Both tables hold 0 rows, so these targets are no-ops today, and that is the point: added
+    // while the table is empty they cost nothing and make the FIRST row written rotatable,
+    // instead of the gap being found during a key retirement.
+    target(
+      employerProfiles,
+      employerProfiles.payerId,
+      employerProfiles.gstNumberEnc,
+      "employer_profiles",
+      "gst_number_enc",
+      "gstNumberEnc",
+    ),
+    target(
+      payerMemberInvites,
+      payerMemberInvites.id,
+      payerMemberInvites.invitedEmailEnc,
+      "payer_member_invites",
+      "invited_email_enc",
+      "invitedEmailEnc",
     ),
   ];
 }

@@ -385,11 +385,23 @@ describe("the 0082 R39 requirements", () => {
     ]);
   });
 
-  it("does NOT list the four unmodelled tables, which exist on production alone", () => {
-    // Listing them would make this audit answer "not ready" for every database that is in fact
-    // correct. They are GAP-DB-21's dead scaffolding and `db:audit:rls` is their authority.
-    const unmodelled = ["agency_profiles", "employer_profiles", "payer_capabilities", "payer_member_invites"];
-    expect(SCHEMA_REQUIREMENTS.filter((r) => unmodelled.includes(r.table))).toEqual([]);
+  it("lists the four GAP-DB-21 tables under 0084, not under 0082", () => {
+    // They could not be listed at all while they existed on production alone — the entry would
+    // have read MISSING on every correctly-migrated fresh database, inverting the question this
+    // audit answers. 0084 creates them everywhere, so the asymmetry is gone.
+    //
+    // Attribution matters: 0082 locks them behind a `to_regclass` guard that no-ops where they
+    // are absent, so it cannot be the migration an operator is told to apply to fix a fresh
+    // database. 0084 is, because it creates AND locks in one file.
+    const four = ["agency_profiles", "employer_profiles", "payer_capabilities", "payer_member_invites"];
+    const listed = SCHEMA_REQUIREMENTS.filter((r) => four.includes(r.table));
+    expect(listed.map((r) => r.table).sort()).toEqual([...four].sort());
+    for (const r of listed) {
+      expect(r.migration).toBe("0084_model_gap_db_21_payer_onboarding");
+      expect(r.kind).toBe("rls");
+      expect(r.object).toBeUndefined();
+    }
+    expect(r39.map((r) => r.table)).not.toContain("agency_profiles");
   });
 
   it("is `rls`-kind and whole-table, like the 0080 entry", () => {

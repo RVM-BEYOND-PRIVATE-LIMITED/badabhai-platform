@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { count, eq, like, sql } from "drizzle-orm";
+import { count, eq, inArray, like, sql } from "drizzle-orm";
 import {
   createDbClient,
   events,
@@ -20,6 +20,8 @@ import {
   ADMIN_DASHBOARD_WINDOW_DAYS_DEFAULT,
   DASHBOARD_OTHER_BUCKET,
   DASHBOARD_WORKER_STATUSES,
+  PROFILE_COMPLETED_STATUSES,
+  PROFILING_TASK_TYPES,
 } from "./admin-dashboard.dto";
 import type { WorkerStatus } from "@badabhai/types";
 
@@ -64,6 +66,20 @@ import type { WorkerStatus } from "@badabhai/types";
  * `CURRENT_PROFILE_ORDER` is what prevents both, and whether that ORDER BY actually EVALUATES
  * as claimed is a property of Postgres.
  *
+ * ── 3. COST PER PROFILE: TWO POPULATIONS, AND POSTGRES DECIDES BOTH ─────────────────────
+ * The ratio's numerator is the PROFILING slice of spend and its denominator is the profiles
+ * that COMPLETED SINCE the accrual bound. Three of its properties are the database's, not the
+ * service's, and every one of them fails silently:
+ *   - `resume_generation` must not be in the numerator. A résumé is rendered FROM a profile
+ *     that already exists; in production it is ₹5.629 of a ₹77.4583 total, so including it
+ *     inflates the cost of PRODUCING a profile by ~8% with work that produced none. The test
+ *     accrues both through the REAL writer and asserts the two subtotals move differently.
+ *   - A re-interviewed worker counts ONCE. `worker_profiles` holds a row per extraction, so
+ *     whether `DISTINCT ON (worker_id)` actually collapses them is a property of Postgres.
+ *   - The `created_at >= since` filter sits ABOVE the `DISTINCT ON`. That ordering is what
+ *     stops an in-window outage placeholder from being promoted to a worker's "current"
+ *     profile, and only an executed query can show which row survived.
+ *
  * ── DELTAS, NOT ABSOLUTES ───────────────────────────────────────────────────────────────
  * Both reads are UNFILTERED aggregates over shared tables (that is what a platform figure is),
  * so a developer's real local rows — or a previous crashed run — make an absolute assertion
@@ -99,6 +115,35 @@ const PROFILE_CONFIRMED = uuid(0xbb60);
 const PROFILE_EXTRACTED = uuid(0xbb61);
 const PROFILE_DRAFT_PLACEHOLDER = uuid(0xbb62);
 
+/**
+ * The cost-per-profile denominator fixtures. Three workers, one for each way the count can be
+ * wrong, all measured against ONE bound (`ACCRUAL_BOUND`) so the same query answers all three.
+ */
+const WORKER_REINTERVIEWED = uuid(0xbb54);
+const WORKER_PREDATES = uuid(0xbb55);
+const WORKER_OUTAGE = uuid(0xbb56);
+const PROFILE_REINTERVIEW_FIRST = uuid(0xbb63);
+const PROFILE_REINTERVIEW_SECOND = uuid(0xbb64);
+const PROFILE_PREDATES = uuid(0xbb65);
+const PROFILE_OUTAGE_REAL = uuid(0xbb66);
+const PROFILE_OUTAGE_PLACEHOLDER = uuid(0xbb67);
+
+/**
+ * The accrual bound these tests measure against — a fixed instant, because the fixtures'
+ * `created_at` values are fixed and the point is which side of it each one falls on. In
+ * production this is `min(first_recorded_at)`, read from the same response that displays it.
+ */
+const ACCRUAL_BOUND = new Date("2026-08-10T00:00:00.000Z");
+/** A bound before EVERY fixture — the guard that proves an exclusion is real, not vacuous. */
+const BOUND_BEFORE_EVERYTHING = new Date("2020-01-01T00:00:00.000Z");
+
+/** Run-namespaced providers for the numerator test, cleaned by the same `bp5-%` prefix. */
+const PROVIDER_PROFILING = `bp5-profiling-${process.pid}`;
+const PROVIDER_RESUME = `bp5-resume-${process.pid}`;
+/** ₹ chosen so profiling-only (0.400000) and profiling+résumé (1.150000) cannot be confused. */
+const PROFILING_COST = 0.4;
+const RESUME_COST = 0.75;
+
 /** Every `events` row this run writes carries this correlation id — the cleanup handle. */
 const CORRELATION = uuid(0xbb70);
 /**
@@ -132,6 +177,9 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
     // cascade is itself the DPDP story and is asserted by the ai/ suite.
     await client.db.delete(workers).where(eq(workers.id, WORKER));
     await client.db.delete(workers).where(eq(workers.id, WORKER_DRIFTED));
+    for (const id of [WORKER_REINTERVIEWED, WORKER_PREDATES, WORKER_OUTAGE]) {
+      await client.db.delete(workers).where(eq(workers.id, id));
+    }
     // BY PREFIX, not by this run's exact labels: the platform table has no cascade and no
     // worker to erase, so a crashed run's rows would otherwise be permanent (the ai/ suite
     // learned this the hard way).
@@ -292,6 +340,237 @@ describe.skipIf(!RUN)("admin dashboard reads (BP-5) against a real database", ()
     expect(delta("draft")).toBe(0);
     expect(delta("confirmed")).toBe(0);
     expect(delta("extracted") + delta("draft") + delta("confirmed") + delta("extracting")).toBe(1);
+  });
+
+  // ── cost per profile: the numerator ──────────────────────────────────────────────────────
+
+  it("the profiling subtotal EXCLUDES resume_generation, which the platform total includes", async () => {
+    const beforeSubtotal = await repo.profilingCostSubtotal(PROFILING_TASK_TYPES);
+    const beforeTotal = await repo.platformCostTotals();
+
+    await writer.withTransaction(async (tx) => {
+      // (a) profiling spend — an interview turn. IN the numerator.
+      await writer.accrue(
+        {
+          workerId: WORKER,
+          sessionId: null,
+          provider: PROVIDER_PROFILING,
+          taskType: "profiling_chat_turn",
+          costInr: PROFILING_COST,
+          realCall: true,
+        },
+        tx,
+      );
+      // (b) a résumé rendered FROM a profile that already exists. In the platform total, and
+      // NOT in the numerator — this is the ₹5.629-of-₹77.4583 case, at test scale.
+      await writer.accrue(
+        {
+          workerId: WORKER,
+          sessionId: null,
+          provider: PROVIDER_RESUME,
+          taskType: "resume_generation",
+          costInr: RESUME_COST,
+          realCall: true,
+        },
+        tx,
+      );
+    });
+
+    const afterSubtotal = await repo.profilingCostSubtotal(PROFILING_TASK_TYPES);
+    const afterTotal = await repo.platformCostTotals();
+
+    const subtotalDelta = Number(afterSubtotal.totalCostInr) - Number(beforeSubtotal.totalCostInr);
+    const totalDelta = Number(afterTotal.totalCostInr) - Number(beforeTotal.totalCostInr);
+
+    // THE ASSERTION. The numerator moved by the interview alone; the platform total moved by
+    // both. A dashboard dividing the total would charge résumé rendering to the cost of
+    // producing a profile, and every number on the page would still look reasonable.
+    expect(subtotalDelta).toBeCloseTo(PROFILING_COST, 10);
+    expect(totalDelta).toBeCloseTo(PROFILING_COST + RESUME_COST, 10);
+    expect(
+      subtotalDelta,
+      "the profiling numerator must NOT equal the platform total — that is the trap",
+    ).not.toBeCloseTo(totalDelta, 10);
+
+    // One call in the numerator, two in the total — the counts must split the same way.
+    expect(afterSubtotal.callCount - beforeSubtotal.callCount).toBe(1);
+    expect(afterSubtotal.realCallCount - beforeSubtotal.realCallCount).toBe(1);
+    expect(afterTotal.totalCalls - beforeTotal.totalCalls).toBe(2);
+
+    // THE BOUND COMES BACK WITH THE MONEY, from the SAME filtered aggregate — which is what
+    // makes it structurally impossible for the numerator and its denominator to cover
+    // different periods. It is a real instant, and never later than the table-wide minimum.
+    expect(afterSubtotal.since).not.toBeNull();
+    expect(afterSubtotal.since!.getTime()).toBeGreaterThanOrEqual(afterTotal.since!.getTime());
+
+    // `numeric`, not a float: exactly what the column holds, to six places.
+    expect(typeof afterSubtotal.totalCostInr).toBe("string");
+  });
+
+  // ── cost per profile: the denominator ────────────────────────────────────────────────────
+
+  /** The count under test, at the shared bound. */
+  const completedSince = (since: Date) =>
+    repo.countCurrentProfilesCompletedSince(since, PROFILE_COMPLETED_STATUSES);
+
+  async function insertWorker(id: string, suffix: string, hash: number): Promise<void> {
+    await client.db
+      .insert(workers)
+      .values({ id, phoneE164: `v1.bp5-${suffix}`, phoneHash: uuid(hash), status: "active" });
+  }
+
+  it("a RE-INTERVIEWED worker counts ONCE, not once per worker_profiles row", async () => {
+    const before = await completedSince(ACCRUAL_BOUND);
+    await insertWorker(WORKER_REINTERVIEWED, "reint", 0xbb57);
+    await client.db.insert(workerProfiles).values([
+      {
+        id: PROFILE_REINTERVIEW_FIRST,
+        workerId: WORKER_REINTERVIEWED,
+        profileStatus: "extracted",
+        createdAt: new Date("2026-08-20T00:00:00.000Z"),
+      },
+      // A second interview, a second row — both inside the window, both `extracted`.
+      {
+        id: PROFILE_REINTERVIEW_SECOND,
+        workerId: WORKER_REINTERVIEWED,
+        profileStatus: "extracted",
+        createdAt: new Date("2026-08-25T00:00:00.000Z"),
+      },
+    ]);
+    const after = await completedSince(ACCRUAL_BOUND);
+
+    // TWO ROWS, ONE WORKER, ONE PROFILE. Counting rows instead would put 2 in the denominator
+    // and HALVE the reported cost per profile for every worker who was interviewed twice.
+    expect(after - before).toBe(1);
+  });
+
+  it("a profile created BEFORE the accrual bound is EXCLUDED from the denominator", async () => {
+    const before = await completedSince(ACCRUAL_BOUND);
+    const beforeAllTime = await completedSince(BOUND_BEFORE_EVERYTHING);
+
+    await insertWorker(WORKER_PREDATES, "predates", 0xbb58);
+    await client.db.insert(workerProfiles).values({
+      id: PROFILE_PREDATES,
+      workerId: WORKER_PREDATES,
+      profileStatus: "extracted",
+      // Nine days before the bound: a real, completed profile the spend never paid for,
+      // because `platform_ai_cost_totals` had not started accruing yet.
+      createdAt: new Date("2026-08-01T00:00:00.000Z"),
+    });
+
+    const after = await completedSince(ACCRUAL_BOUND);
+    const afterAllTime = await completedSince(BOUND_BEFORE_EVERYTHING);
+
+    // Excluded at the accrual bound — a profile that predates the spend must not be divided
+    // into it, or the average reads LOWER than it is by exactly these workers.
+    expect(after - before).toBe(0);
+    // …AND THE GUARD THAT STOPS THAT BEING VACUOUS. The row is real and this query does see it;
+    // a method that always returned 0, or a filter that dropped every row, would pass the line
+    // above and fail this one.
+    expect(afterAllTime - beforeAllTime).toBe(1);
+  });
+
+  it("an in-window OUTAGE PLACEHOLDER does not promote itself to the worker's profile", async () => {
+    const before = await completedSince(ACCRUAL_BOUND);
+    const beforeAllTime = await completedSince(BOUND_BEFORE_EVERYTHING);
+
+    await insertWorker(WORKER_OUTAGE, "outage", 0xbb59);
+    await client.db.insert(workerProfiles).values([
+      // The worker's real profile — produced BEFORE the accrual bound.
+      {
+        id: PROFILE_OUTAGE_REAL,
+        workerId: WORKER_OUTAGE,
+        profileStatus: "extracted",
+        createdAt: new Date("2026-08-02T00:00:00.000Z"),
+      },
+      // What an ai-service outage writes: newer, empty, inside the window.
+      {
+        id: PROFILE_OUTAGE_PLACEHOLDER,
+        workerId: WORKER_OUTAGE,
+        profileStatus: "draft",
+        createdAt: new Date("2026-08-22T00:00:00.000Z"),
+      },
+    ]);
+
+    const after = await completedSince(ACCRUAL_BOUND);
+    const afterAllTime = await completedSince(BOUND_BEFORE_EVERYTHING);
+
+    // THE OUTCOME IS THE ASSERTION, and only the outcome. `CURRENT_PROFILE_ORDER` resolves this
+    // worker to the older EXTRACTED row (content beats recency) and the date filter then puts
+    // them outside the window, so the placeholder adds nothing to the denominator.
+    //
+    // WHAT THIS TEST CANNOT SEE, stated so nobody reads more into it than it proves: moving the
+    // date filter INSIDE the `DISTINCT ON` was measured against this whole file and changed
+    // nothing. It cannot, while `PROFILE_COMPLETED_STATUSES` stays a subset of the non-draft
+    // statuses — an in-window non-draft row can never be outranked by an out-of-window one. The
+    // placement is pinned by the SQL-shape test instead; see the repository header.
+    expect(after - before).toBe(0);
+    // Not vacuous: at an all-time bound the worker DOES count, once, under the real profile.
+    expect(afterAllTime - beforeAllTime).toBe(1);
+  });
+
+  it("the ratio reaches the response, scoped to the bound its own NUMERATOR begins at", async () => {
+    const summary = await service.summary({ windowDays: ADMIN_DASHBOARD_WINDOW_DAYS_DEFAULT });
+    const perProfile = summary.ai_cost.per_profile;
+
+    // This run has accrued profiling spend, so there IS a window and the block is present.
+    expect(summary.ai_cost.accruing_since).not.toBeNull();
+    expect(perProfile).not.toBeNull();
+
+    /*
+     * BOTH HALVES, ONE BOUND — AND IT IS THE PROFILING ONE, NOT `accruing_since`.
+     *
+     * The earlier version of this test asserted `perProfile.since === accruing_since`, which
+     * was the defect written down as a contract. `accruing_since` is `min(first_recorded_at)`
+     * over EVERY task type; the numerator is filtered, so the window it covers starts at the
+     * first PROFILING accrual. Those differ whenever a résumé or a payer-side embedding was paid
+     * for first — which is the state this very database is in, its oldest row being a
+     * `resume_generation` one. Read from Postgres here rather than trusted from the response.
+     */
+    const profilingMin = await client.db
+      .select({ m: sql<Date | null>`min(${platformAiCostTotals.firstRecordedAt})` })
+      .from(platformAiCostTotals)
+      .where(inArray(platformAiCostTotals.taskType, [...PROFILING_TASK_TYPES]));
+    expect(profilingMin[0]!.m).not.toBeNull();
+    expect(perProfile!.since).toEqual(new Date(profilingMin[0]!.m!));
+
+    // The invariant that must hold in every state: a minimum over a SUBSET of the rows is never
+    // earlier than the minimum over all of them.
+    expect(perProfile!.since.getTime()).toBeGreaterThanOrEqual(
+      summary.ai_cost.accruing_since!.getTime(),
+    );
+
+    // AND THE DENOMINATOR WAS FILTERED BY THAT SAME INSTANT — recomputed independently, so a
+    // response that reported one bound while counting from another would fail here.
+    const countAtReportedBound = await repo.countCurrentProfilesCompletedSince(
+      perProfile!.since,
+      PROFILE_COMPLETED_STATUSES,
+    );
+    expect(perProfile!.profiles_extracted_or_confirmed).toBe(countAtReportedBound);
+
+    // The numerator is the profiling slice, never the headline.
+    expect(Number(perProfile!.profiling_cost_inr)).toBeLessThanOrEqual(
+      Number(summary.ai_cost.total_cost_inr),
+    );
+    expect(perProfile!.profiling_task_types).toEqual(PROFILING_TASK_TYPES);
+    // The average is either absent or an exact six-place decimal — never a bare float.
+    if (perProfile!.cost_per_profile_inr !== null) {
+      expect(perProfile!.cost_per_profile_inr).toMatch(/^\d+\.\d{6}$/);
+    }
+  });
+
+  it("a task-type set that matches NO row yields a NULL bound, not a fabricated one", async () => {
+    /*
+     * THE STATE THAT USED TO RENDER A CONFIDENT ₹0.00. When no profiling task type has ever
+     * accrued, the subtotal is a real ₹0 — but there is no window, and dividing that ₹0 by a
+     * genuine profile count shipped `"0.000000"` as a measurement. `since` being NULL is what
+     * makes the service drop the whole block instead. Asserted against a synthetic task type so
+     * it holds no matter what this shared database already contains.
+     */
+    const empty = await repo.profilingCostSubtotal([`bp5-no-such-task-${process.pid}`]);
+    expect(empty.since).toBeNull();
+    expect(empty.totalCostInr).toBe("0");
+    expect(empty.callCount).toBe(0);
   });
 
   // ── the cap-breach split — the query that 500'd ──────────────────────────────────────────

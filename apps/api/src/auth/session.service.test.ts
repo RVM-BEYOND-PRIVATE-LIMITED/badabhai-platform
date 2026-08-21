@@ -398,6 +398,68 @@ describe("#999 — an honest retry under ONE idempotency key never trips reuse d
   });
 });
 
+// ===========================================================================
+// #1128 — the rotation lock must be RELEASED on the error path, and must NOT be
+// stolen from another in-flight rotation.
+// ===========================================================================
+describe("#1128 — the rotation lock is released on the error path (never strands a valid token)", () => {
+  it("a transient Redis fault AFTER the lock is won releases it, so a later honest retry is not blocked", async () => {
+    const { svc, redis } = setup();
+    const created = await svc.create("worker-1");
+    const lockKey = `refresh_lock:${sha256Hex(created.refresh.token)}`;
+
+    // Inject a transient fault AFTER the lock is won: the SET NX at the lock site already
+    // returned "OK", then rotateSession's `get session:<sid>` throws ONCE. Before the fix
+    // the catch returned holding the lock, stranding a STILL-VALID token for the 30s TTL.
+    const realGet = redis.client.get.bind(redis.client);
+    let armed = true;
+    redis.client.get = async (key: string) => {
+      if (armed && key.startsWith("session:")) {
+        armed = false; // one-shot blip — the "recovery window", not a full outage
+        throw new Error("transient redis blip");
+      }
+      return realGet(key);
+    };
+
+    const out = await svc.refreshByToken(created.refresh.token, "idem-blip");
+    // Still fails closed for THIS attempt (correct — the rotation did not complete).
+    expect(out).toEqual({ ok: false, reason: "invalid" });
+
+    // #1128 — the lock is GONE (the finally released the lock this call won), not left to
+    // idle out its 30s TTL.
+    expect(redis.store.has(lockKey)).toBe(false);
+
+    // The blip is over; the SAME still-valid token retries and rotates cleanly — it is not
+    // fenced out by a lock the failed attempt left behind. This is the forced-re-auth #999
+    // exists to prevent, now avoided on the recovery window.
+    const retry = await svc.refreshByToken(created.refresh.token, "idem-after-blip");
+    expect(retry.ok).toBe(true);
+    if (!retry.ok) return;
+    expect(retry.minted.refresh.token).not.toBe(created.refresh.token);
+  });
+
+  it("does NOT release a lock this call never won — a loser must not delete another rotation's mutex", async () => {
+    const { svc, redis } = setup();
+    const created = await svc.create("worker-1");
+    const lockKey = `refresh_lock:${sha256Hex(created.refresh.token)}`;
+
+    // Simulate ANOTHER in-flight rotation of this exact token holding the lock: pre-seed it
+    // so this call's SET NX refuses (locked !== "OK") and it takes the loser branch.
+    redis.store.set(lockKey, "held-by-another-rotation");
+
+    const out = await svc.refreshByToken(created.refresh.token, "idem-loser");
+    // The loser fails closed (no idem cache written yet), never a false reuse flag.
+    expect(out).toEqual({ ok: false, reason: "invalid" });
+
+    // The GUARD, tested for what it PERMITS: an over-broad finally that deleted on every
+    // path would have destroyed the mutex the OTHER rotation holds — worse than the leak.
+    // The lock survives, unchanged, and was never handed to `del`.
+    expect(redis.store.get(lockKey)).toBe("held-by-another-rotation");
+    const delOnLock = redis.calls.filter((c) => c[0] === "del" && c.includes(lockKey));
+    expect(delOnLock).toHaveLength(0);
+  });
+});
+
 describe("#999 — reuse detection still fails CLOSED, but says which kind it looks like", () => {
   /** Drive a lineage into the reuse branch, returning the warn spy. */
   async function reuseWith(consumeSuccessor: boolean) {

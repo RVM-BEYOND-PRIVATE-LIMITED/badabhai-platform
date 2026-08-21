@@ -278,6 +278,50 @@ async function main(): Promise<void> {
        WHERE table_schema='public'`;
     const grants = new Set(grantRows.map((r) => `${r.table_name}:${r.grantee.toLowerCase()}`));
 
+    // FUNCTION EXECUTE — the same blind spot one object class over, and the reason 0085 exists.
+    // `information_schema.routine_privileges` omits `PUBLIC` entirely (it reports named grantees
+    // only), and PUBLIC is the broadest grant of the four, so this reads `pg_proc.proacl`
+    // directly. `aclexplode` renders the PUBLIC grant as grantee OID 0, which `pg_get_userbyid`
+    // returns as `-` — normalised to `public` so it matches DATA_API_ROLES lowercased.
+    //
+    // A NULL `proacl` means "defaults apply", which for a function is EXECUTE to PUBLIC — so
+    // `coalesce(proacl, acldefault('f', proowner))` is not tidiness: without it a function that
+    // has never been touched by a GRANT reads as having no grants at all, which is the exact
+    // false PASS this check exists to prevent.
+    const fnAclRows = await sql<{ proname: string; grantee: string; priv: string }[]>`
+      SELECT p.proname,
+             CASE WHEN a.grantee = 0 THEN 'public'
+                  ELSE lower(pg_get_userbyid(a.grantee)) END AS grantee,
+             a.privilege_type AS priv
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        CROSS JOIN LATERAL aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+       WHERE n.nspname = 'public' AND a.privilege_type = 'EXECUTE'`;
+    const functionGrants = new Set(fnAclRows.map((r) => `${r.proname}:${r.grantee}`));
+
+    // DEFAULT PRIVILEGES — what a function created TOMORROW will arrive with. Nothing else in
+    // this catalog moves when `ALTER DEFAULT PRIVILEGES` runs, so without this the one statement
+    // in 0085 that stops the finding recurring would be unverifiable.
+    const defaclRows = await sql<{ schema: string; objtype: string; grantee: string }[]>`
+      SELECT d.defaclnamespace::regnamespace::text AS schema,
+             d.defaclobjtype::text                 AS objtype,
+             CASE WHEN a.grantee = 0 THEN 'public'
+                  ELSE lower(pg_get_userbyid(a.grantee)) END AS grantee
+        FROM pg_default_acl d
+        CROSS JOIN LATERAL aclexplode(d.defaclacl) a
+       WHERE pg_get_userbyid(d.defaclrole) = 'postgres'
+         AND a.privilege_type = 'EXECUTE'`;
+    const defaultFunctionAcls = new Set(
+      defaclRows.map((r) => `${r.schema}:${r.objtype}:${r.grantee}`),
+    );
+
+    // `_delete_forensics`'s live column set — 0086's DROP COLUMN IF EXISTS says the same thing
+    // whether the columns were dropped or never created, so the file cannot answer this.
+    const dfCols = await sql<{ column_name: string }[]>`
+      SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = '_delete_forensics'`;
+    const deleteForensicsColumns = new Set(dfCols.map((r) => r.column_name));
+
     const live: LiveCatalog = {
       tables: liveTables,
       columns: liveCols,
@@ -286,6 +330,9 @@ async function main(): Promise<void> {
       rlsEnabled: rlsOn,
       rlsForced,
       grants,
+      functionGrants,
+      defaultFunctionAcls,
+      deleteForensicsColumns,
     };
 
     const clean: JournalEntry[] = [];

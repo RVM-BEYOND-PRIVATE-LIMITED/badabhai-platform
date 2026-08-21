@@ -72,6 +72,32 @@ export interface LiveCatalog {
   readonly rlsForced: ReadonlySet<string>;
   /** "table:role", role lowercased — one entry per grantee holding ANY privilege. */
   readonly grants: ReadonlySet<string>;
+  /**
+   * "function:role" for EXECUTE, role lowercased, `PUBLIC` spelled `public`.
+   *
+   * Keyed on the BARE function name, not the signature: the three routines #1110 is about are
+   * not overloaded, and a signature-keyed set would make the verifier depend on how the
+   * argument list happens to be rendered. If an overload ever appears, the audit reports it as
+   * a separate routine and this set collapses them — which is a false PASS, so
+   * {@link executeRevokedProblems} states that limit rather than leaving it to be discovered.
+   *
+   * REQUIRED, not optional. An absent set and an empty set mean opposite things — "nobody
+   * collected this" versus "nobody holds it" — and a verifier that cannot tell them apart is
+   * the exact shape of false assurance the effect-verifier rules exist to prevent.
+   */
+  readonly functionGrants: ReadonlySet<string>;
+  /**
+   * `"schema:objtype:role"` for every DEFAULT privilege granted by `postgres`, role lowercased,
+   * `PUBLIC` spelled `public` — e.g. `"public:f:anon"`.
+   *
+   * `0085` Section A is the only statement in the #1110 set that changes what a FUTURE object
+   * means, and it is invisible to every other check here: a default ACL is not a grant on
+   * anything, so nothing in `grants` or `functionGrants` moves when it is revoked. Without this
+   * the section could be adopted as applied while still handing EXECUTE to every new function.
+   */
+  readonly defaultFunctionAcls: ReadonlySet<string>;
+  /** Columns present on `_delete_forensics`, or empty when the table is absent. */
+  readonly deleteForensicsColumns: ReadonlySet<string>;
 }
 
 /**
@@ -92,6 +118,13 @@ export function normalizeType(declared: string): string {
   if (/^varchar\(|^character varying/.test(t)) return "character varying";
   if (/^numeric|^decimal/.test(t)) return "numeric";
   if (/^vector\(/.test(t)) return "USER-DEFINED";
+  // THE SERIAL PSEUDO-TYPES. `bigserial` is not a type: Postgres expands it to `bigint` plus a
+  // sequence and a default, and `information_schema` reports the underlying integer type. First
+  // needed by `0086`, and worth mapping rather than special-casing because the refusal it caused
+  // was correct — an unmapped type must never be guessed at.
+  if (t === "serial" || t === "serial4") return "integer";
+  if (t === "bigserial" || t === "serial8") return "bigint";
+  if (t === "smallserial" || t === "serial2") return "smallint";
   // information_schema reports every array type as the literal "ARRAY" (e.g. `text[]`).
   if (/\[\s*\]$/.test(t)) return "ARRAY";
   const map: Record<string, string> = {
@@ -328,9 +361,10 @@ function r39LockProblems(live: LiveCatalog): string[] {
   const problems: string[] = [];
   for (const { table } of R39_TABLES) {
     if (!live.tables.has(table)) {
-      // Absent is not a pass. On a fresh database the four unmodelled tables genuinely are not
-      // there — but adoption only ever runs against a database claimed to ALREADY have the
-      // migration's effects, and "the table 0082 locks is missing" is never that.
+      // Absent is not a pass. On a database that has not applied `0084`, the four
+      // `declared-by-0084` tables genuinely are not there — but adoption only ever runs against
+      // a database claimed to ALREADY have the migration's effects, and "the table 0082 locks
+      // is missing" is never that.
       problems.push(`${table}: table MISSING — 0082 locks it, so it cannot already be applied here`);
       continue;
     }
@@ -345,6 +379,158 @@ function r39LockProblems(live: LiveCatalog): string[] {
   return problems;
 }
 
+/** The four `0084` creates and locks — the GAP-DB-21 half of the R39 list. */
+const GAP_DB_21_TABLES = R39_TABLES.filter((t) => t.cls === "declared-by-0084");
+
+/**
+ * `0084` creates the four GAP-DB-21 tables and locks them, and its ONE dynamic statement is the
+ * `auth.users` foreign key — guarded by `to_regclass` because that schema exists on Supabase and
+ * nowhere else.
+ *
+ * WHAT THIS VERIFIES, AND WHAT IT DELIBERATELY DOES NOT. It asserts the four tables exist and
+ * are locked, from the catalog. It does NOT assert the `auth.users` FK: whether that constraint
+ * should be present is a property of the ENVIRONMENT, not of whether the migration ran, so
+ * requiring it would make 0084 unadoptable on exactly the databases where it correctly did
+ * nothing. The static parse still covers everything else in the file — every CREATE TABLE,
+ * every index, every payer FK, every FORCE and every REVOKE is plain text and checked as usual.
+ *
+ * This verifier runs IN ADDITION to that parse, never instead of it.
+ */
+function gapDb21CreateLockProblems(live: LiveCatalog): string[] {
+  const problems: string[] = [];
+  for (const { table } of GAP_DB_21_TABLES) {
+    if (!live.tables.has(table)) {
+      problems.push(`${table}: table MISSING — 0084 creates it, so it cannot already be applied here`);
+      continue;
+    }
+    if (!live.rlsEnabled.has(table)) problems.push(`${table}: RLS is not ENABLED`);
+    if (!live.rlsForced.has(table)) problems.push(`${table}: RLS is not FORCED — the owner bypasses every policy`);
+    for (const role of DATA_API_ROLES) {
+      if (live.grants.has(`${table}:${role.toLowerCase()}`)) {
+        problems.push(`${table}: ${role} still holds a privilege — the REVOKE did not take`);
+      }
+    }
+  }
+  return problems;
+}
+
+/**
+ * The three undeclared `SECURITY DEFINER` functions `0085` revokes EXECUTE on — #1110.
+ *
+ * Bare names, because {@link LiveCatalog.functionGrants} is keyed that way and none of the three
+ * is overloaded on this database.
+ */
+export const UNDECLARED_DEFINER_FUNCTIONS: readonly string[] = [
+  "_log_delete",
+  "is_active_payer_member",
+  "rls_auto_enable",
+];
+
+/**
+ * `0085` is one `DO` block and {@link parseMigration} can read nothing out of it — every REVOKE
+ * is inside `format()`, behind a `to_regprocedure` guard, behind a loop.
+ *
+ * ABSENCE IS A PASS HERE, and that is the opposite of the rule 0082 and 0084 follow — so it is
+ * argued rather than assumed. For those two, a missing table means "this migration did not run"
+ * and adoption must refuse. For 0085 there is no object it creates: it constrains three
+ * functions that NO migration declares, so a database built from this repository correctly does
+ * not have them and there is genuinely no privilege left to take away. Requiring their presence
+ * would make 0085 unadoptable on exactly the databases where it correctly did nothing.
+ *
+ * What still cannot pass: a function that IS present while a Data-API role still holds EXECUTE.
+ * That is the whole finding, and it is the one state this refuses to record as applied.
+ *
+ * LIMIT, stated: `functionGrants` is keyed on the bare name, so an overload of one of these
+ * three would be collapsed into the same key and its grants would read as the original's. None
+ * of the three is overloaded today; `db:audit:undeclared-routines` is what would report a new
+ * one, and it lists routines rather than merging them.
+ */
+function executeRevokedProblems(live: LiveCatalog): string[] {
+  const problems: string[] = [];
+
+  // SECTION A FIRST, because it is the half that decides whether this recurs. A default ACL is
+  // not a grant on any object, so nothing else in this catalog moves when it is revoked — and a
+  // verifier that only checked the three functions would happily record 0085 as applied on a
+  // database still handing EXECUTE to every function created tomorrow.
+  for (const role of DATA_API_ROLES) {
+    if (live.defaultFunctionAcls.has(`public:f:${role.toLowerCase()}`)) {
+      problems.push(
+        `DEFAULT PRIVILEGES still grant EXECUTE on new functions in public to ${role} — ` +
+          `Section A did not take`,
+      );
+    }
+  }
+
+  for (const fn of UNDECLARED_DEFINER_FUNCTIONS) {
+    for (const role of DATA_API_ROLES) {
+      if (live.functionGrants.has(`${fn}:${role.toLowerCase()}`)) {
+        problems.push(`${fn}(): ${role} still holds EXECUTE — the REVOKE did not take`);
+      }
+    }
+  }
+  return problems;
+}
+
+/** The two columns `0086` removes — the only ones that could carry raw PII into an audit record. */
+export const DELETE_FORENSICS_DROPPED_COLUMNS: readonly string[] = ["query", "client_addr"];
+
+/** What must survive, so "narrowed" is never confused with "gutted". */
+export const DELETE_FORENSICS_KEPT_COLUMNS: readonly string[] = [
+  "id",
+  "at",
+  "txid",
+  "table_name",
+  "row_id",
+  "worker_id",
+  "db_user",
+  "app_name",
+  "backend_pid",
+];
+
+/**
+ * `0086` narrows the deletion trail, and its two `DROP COLUMN IF EXISTS` statements are exactly
+ * the shape the static parse cannot judge: `IF EXISTS` means the file says the same thing on a
+ * database where the columns were dropped and on one where they never existed.
+ *
+ * ABSENCE OF THE TABLE IS NOT A PASS, unlike `0085`. `0086` CREATEs `_delete_forensics`, so on a
+ * database where this migration ran the table is there by definition — the 0082/0084 rule, not
+ * the 0085 exception.
+ *
+ * IT ALSO ASSERTS WHAT SURVIVED. A verifier that only checked the two columns were gone would
+ * pass against a dropped table, which is the one outcome the owner decision explicitly forbids:
+ * *"preserve the actual DPDP erasure proof"*. The kept-column list is how "narrowed" is
+ * distinguished from "gutted".
+ */
+function deletionForensicsProblems(live: LiveCatalog): string[] {
+  const problems: string[] = [];
+  const table = "_delete_forensics";
+
+  if (!live.tables.has(table)) {
+    problems.push(`${table}: table MISSING — 0086 creates it, so it cannot already be applied here`);
+    return problems;
+  }
+
+  for (const c of DELETE_FORENSICS_DROPPED_COLUMNS) {
+    if (live.deleteForensicsColumns.has(c)) {
+      problems.push(`${table}.${c} still exists — the DROP did not take, and it is the PII column`);
+    }
+  }
+  for (const c of DELETE_FORENSICS_KEPT_COLUMNS) {
+    if (!live.deleteForensicsColumns.has(c)) {
+      problems.push(`${table}.${c} is MISSING — the trail was gutted, not narrowed`);
+    }
+  }
+
+  if (!live.rlsEnabled.has(table)) problems.push(`${table}: RLS is not ENABLED`);
+  if (!live.rlsForced.has(table)) problems.push(`${table}: RLS is not FORCED`);
+  for (const role of DATA_API_ROLES) {
+    if (live.grants.has(`${table}:${role.toLowerCase()}`)) {
+      problems.push(`${table}: ${role} still holds a privilege — the REVOKE did not take`);
+    }
+  }
+  return problems;
+}
+
 /** Every migration whose effects may be verified from the catalog instead of from its text. */
 export const EFFECT_VERIFIERS: readonly EffectVerifier[] = [
   {
@@ -352,6 +538,24 @@ export const EFFECT_VERIFIERS: readonly EffectVerifier[] = [
     why: "Section B locks four GAP-DB-21 tables through a to_regclass-guarded DO block",
     assertions: R39_TABLES.length * (2 + DATA_API_ROLES.length),
     verify: r39LockProblems,
+  },
+  {
+    tag: "0084_model_gap_db_21_payer_onboarding",
+    why: "the auth.users foreign key is guarded by to_regclass — present on Supabase, absent elsewhere",
+    assertions: GAP_DB_21_TABLES.length * (2 + DATA_API_ROLES.length),
+    verify: gapDb21CreateLockProblems,
+  },
+  {
+    tag: "0085_revoke_execute_undeclared_routines",
+    why: "every REVOKE is inside format() behind a to_regprocedure guard, so the file text states none of them",
+    assertions: (UNDECLARED_DEFINER_FUNCTIONS.length + 1) * DATA_API_ROLES.length,
+    verify: executeRevokedProblems,
+  },
+  {
+    tag: "0086_bound_deletion_forensics",
+    why: "the two DROP COLUMNs are no-ops where the columns never existed, so the file text cannot say whether they are gone",
+    assertions: DELETE_FORENSICS_DROPPED_COLUMNS.length + DELETE_FORENSICS_KEPT_COLUMNS.length + 2 + DATA_API_ROLES.length,
+    verify: deletionForensicsProblems,
   },
 ];
 

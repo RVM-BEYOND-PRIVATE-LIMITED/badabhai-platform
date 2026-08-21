@@ -25,9 +25,13 @@ import {
   verifyAgainst,
   EFFECT_VERIFIERS,
   effectVerifierFor,
+  UNDECLARED_DEFINER_FUNCTIONS,
+  DELETE_FORENSICS_DROPPED_COLUMNS,
+  DELETE_FORENSICS_KEPT_COLUMNS,
   type Expect,
   type LiveCatalog,
 } from "./migration-adoption";
+import { declaredRoutines } from "./audit-live-drift";
 import { DATA_API_ROLES, R39_TABLES } from "./schema-contract";
 
 const MIGRATIONS = join(__dirname, "..", "migrations");
@@ -42,6 +46,9 @@ const emptyCatalog: LiveCatalog = {
   rlsEnabled: new Set(),
   rlsForced: new Set(),
   grants: new Set(),
+  functionGrants: new Set(),
+  defaultFunctionAcls: new Set(),
+  deleteForensicsColumns: new Set(),
 };
 
 /** A catalog that satisfies everything a migration declares — optionally minus/plus some grants. */
@@ -54,6 +61,9 @@ function catalogSatisfying(e: Expect, grants: string[] = []): LiveCatalog {
     rlsEnabled: new Set([...e.rlsEnabled, ...e.rlsForced]),
     rlsForced: new Set(e.rlsForced),
     grants: new Set(grants),
+    functionGrants: new Set(),
+    defaultFunctionAcls: new Set(),
+    deleteForensicsColumns: new Set(),
   };
 }
 
@@ -311,6 +321,9 @@ describe("effect verifiers — the one narrow way past the dynamic-SQL refusal",
       rlsEnabled: new Set(R39_TABLES.map((t) => t.table)),
       rlsForced: new Set(R39_TABLES.map((t) => t.table)),
       grants: new Set(),
+      functionGrants: new Set(),
+      defaultFunctionAcls: new Set(),
+      deleteForensicsColumns: new Set(),
     };
   }
 
@@ -323,8 +336,30 @@ describe("effect verifiers — the one narrow way past the dynamic-SQL refusal",
     expect(v!.assertions).toBe(R39_TABLES.length * (2 + DATA_API_ROLES.length));
   });
 
-  it("registers NOTHING else — the hatch is per-migration, not a general relaxation", () => {
-    expect(EFFECT_VERIFIERS.map((v) => v.tag)).toEqual([TAG]);
+  it("registers ONLY the migrations that genuinely need it — per-migration, not a relaxation", () => {
+    // The list is asserted EXACTLY, not by membership: the hatch's whole safety argument is
+    // that it is opened one migration at a time, for a stated reason, and an assertion that
+    // merely checks 0082 is present would let a general relaxation land beside it unnoticed.
+    //
+    // 0084 joined it because its `auth.users` foreign key is `to_regclass`-guarded — that
+    // schema exists on Supabase and nowhere else — while everything else in the file is plain
+    // text the static parse still checks in full.
+    //
+    // 0085 joined it because EVERY one of its REVOKEs is inside `format()`, behind a
+    // `to_regprocedure` guard, behind a loop — the file states not one of them in plain text.
+    //
+    // 0086 joined it because its two `DROP COLUMN IF EXISTS` statements say the same thing on a
+    // database where the columns were dropped and on one where they never existed.
+    expect(EFFECT_VERIFIERS.map((v) => v.tag)).toEqual([
+      TAG,
+      "0084_model_gap_db_21_payer_onboarding",
+      "0085_revoke_execute_undeclared_routines",
+      "0086_bound_deletion_forensics",
+    ]);
+    for (const v of EFFECT_VERIFIERS) {
+      expect(v.assertions).toBeGreaterThan(0);
+      expect(v.why.length).toBeGreaterThan(20);
+    }
   });
 
   it("still refuses dynamic SQL when the migration has no verifier", () => {
@@ -365,13 +400,297 @@ describe("effect verifiers — the one narrow way past the dynamic-SQL refusal",
     // Section B's tables appear ONLY inside the DO block, so `parseMigration` cannot see them.
     // If the verifier did not name them, adopting 0082 would assert nothing about four of seven.
     const parsed = parseMigration(read(TAG));
-    const unmodelled = R39_TABLES.filter((t) => t.cls === "unmodelled").map((t) => t.table);
-    for (const t of unmodelled) {
+    const sectionB = R39_TABLES.filter((t) => t.cls === "declared-by-0084").map((t) => t.table);
+    for (const t of sectionB) {
       expect([...parsed.rlsForced]).not.toContain(t);
       const live = locked();
       const forced = new Set(live.rlsForced);
       forced.delete(t);
       expect(adoptionProblems(read(TAG), { ...live, rlsForced: forced }, TAG).join(" ")).toContain(t);
     }
+  });
+});
+
+describe("0085 — the REVOKE nobody can read off the file", () => {
+  const TAG_85 = "0085_revoke_execute_undeclared_routines";
+
+  /** A catalog in which the three functions exist and NOBODY but the owner may execute them. */
+  function revoked(): LiveCatalog {
+    return { ...emptyCatalog, functionGrants: new Set(["_log_delete:postgres"]) };
+  }
+
+  it("the static parse reads NOTHING out of it — which is why the verifier exists", () => {
+    const e = parseMigration(read(TAG_85));
+    expect([...e.tables]).toEqual([]);
+    expect([...e.revoked]).toEqual([]);
+    expect(e.columns.size).toBe(0);
+  });
+
+  it("asserts a non-zero, exactly-stated number of facts", () => {
+    const v = effectVerifierFor(TAG_85);
+    expect(v).toBeDefined();
+    // 3 functions x 4 roles, PLUS the 4 default-ACL roles Section A revokes.
+    expect(v!.assertions).toBe((UNDECLARED_DEFINER_FUNCTIONS.length + 1) * DATA_API_ROLES.length);
+    expect(v!.assertions).toBeGreaterThan(0);
+  });
+
+  it("PASSES on a database where the three functions carry no Data-API EXECUTE", () => {
+    expect(adoptionProblems(read(TAG_85), revoked(), TAG_85)).toEqual([]);
+  });
+
+  it("PASSES on a fresh database that has none of the three — absence is a pass HERE, and only here", () => {
+    // The opposite of 0082/0084, and the reason it is argued in the verifier's own docblock:
+    // 0085 creates nothing. It constrains three functions that NO migration declares, so a
+    // database built from this repository correctly does not have them and there is no
+    // privilege left to take. Requiring their presence would make 0085 unadoptable on exactly
+    // the databases where it correctly did nothing.
+    expect(adoptionProblems(read(TAG_85), emptyCatalog, TAG_85)).toEqual([]);
+  });
+
+  it("REFUSES when a single Data-API role still holds EXECUTE on a single function", () => {
+    for (const fn of UNDECLARED_DEFINER_FUNCTIONS) {
+      for (const role of DATA_API_ROLES) {
+        const live = revoked();
+        const functionGrants = new Set(live.functionGrants);
+        functionGrants.add(`${fn}:${role.toLowerCase()}`);
+        const problems = adoptionProblems(read(TAG_85), { ...live, functionGrants }, TAG_85);
+        expect(problems).toContain(`${fn}(): ${role} still holds EXECUTE — the REVOKE did not take`);
+      }
+    }
+  });
+
+  it("REFUSES the exact production state this migration was written against", () => {
+    // 2026-08-20: all three SECURITY DEFINER, all three =X/postgres + anon + authenticated +
+    // service_role. Twelve grants, twelve problems — the verifier must see every one.
+    const functionGrants = new Set(
+      UNDECLARED_DEFINER_FUNCTIONS.flatMap((fn) =>
+        DATA_API_ROLES.map((r) => `${fn}:${r.toLowerCase()}`),
+      ),
+    );
+    const problems = adoptionProblems(read(TAG_85), { ...emptyCatalog, functionGrants }, TAG_85);
+    expect(problems).toHaveLength(UNDECLARED_DEFINER_FUNCTIONS.length * DATA_API_ROLES.length);
+  });
+
+  it("catches PUBLIC, which is the grant the default privileges actually create", () => {
+    // `information_schema.routine_privileges` omits PUBLIC entirely. If the catalog reader used
+    // it, the broadest grant of the four would be invisible and this migration would adopt
+    // clean with PUBLIC still holding EXECUTE.
+    const functionGrants = new Set(["_log_delete:public"]);
+    expect(adoptionProblems(read(TAG_85), { ...emptyCatalog, functionGrants }, TAG_85)).toContain(
+      "_log_delete(): PUBLIC still holds EXECUTE — the REVOKE did not take",
+    );
+  });
+
+  it("declares ONLY what an owner decided to keep, and still hides nothing else", () => {
+    // THE TRAP THIS TEST EXISTS FOR. `declaredRoutines` scans every migration for CREATE
+    // FUNCTION / CREATE TRIGGER, so the moment a migration names one of #1110's routines in a
+    // CREATE, `db:audit:live-drift` stops reporting it and the open ownership question goes
+    // green WITHOUT ANYONE DECIDING IT.
+    //
+    // UPDATED 2026-08-21, and the update is the interesting part. `_log_delete` and both
+    // triggers are now genuinely declared — by 0086, because the owner ruled that the deletion
+    // trail stays, bounded. That is a decision being recorded, which is exactly what should
+    // flip this. `rls_auto_enable` and `is_active_payer_member` have had NO such ruling, so
+    // they must still read as undeclared; if either ever flips, it has to be for the same
+    // reason and not by accident.
+    const declared = declaredRoutines(MIGRATIONS);
+
+    expect(declared.functions.has("_log_delete"), "0086 declares it — owner decision").toBe(true);
+    for (const t of ["_t_log_del_workers", "_t_log_del_worker_profiles"]) {
+      expect(declared.triggers.has(t), "0086 declares it — owner decision").toBe(true);
+    }
+
+    for (const fn of ["rls_auto_enable", "is_active_payer_member"]) {
+      expect(declared.functions.has(fn), `${fn} has no owner ruling yet`).toBe(false);
+    }
+    expect(declared.triggers.has("ensure_rls")).toBe(false);
+  });
+
+  it("guards every REVOKE, so a database without the functions or the roles does not abort", () => {
+    const sql = read(TAG_85);
+    const body = sql.replace(/^\s*--.*$/gm, "");
+    expect(body).toContain("to_regprocedure(target) IS NULL");
+    expect(body).toContain("FROM pg_roles WHERE rolname = role_name");
+    // No unguarded REVOKE outside the DO block — the guard is the whole safety argument.
+    expect(/^\s*REVOKE/im.test(body)).toBe(false);
+  });
+
+  it("is stamped ABOVE the newest journal entry before it — the silent-skip trap", () => {
+    // drizzle-kit migrate branches on a HIGH-WATER MARK, not set membership: an entry stamped
+    // at or below the newest recorded `created_at` is skipped silently and permanently.
+    // drizzle-kit's own stamp has been below it twice in a row on this repository.
+    const journal = JSON.parse(readFileSync(join(MIGRATIONS, "meta", "_journal.json"), "utf8")) as {
+      entries: { when: number; tag: string }[];
+    };
+    // NOT "is the newest" — 0086 lands after it. The property that matters is the one the
+    // watermark cares about: nothing BEFORE it is stamped at or above it.
+    const idx = journal.entries.findIndex((e) => e.tag === TAG_85);
+    expect(idx).toBeGreaterThanOrEqual(0);
+    const mine = journal.entries[idx]!;
+    for (const e of journal.entries.slice(0, idx)) expect(e.when).toBeLessThan(mine.when);
+  });
+});
+
+describe("0086 — narrowing a table the file cannot describe", () => {
+  const TAG_86 = "0086_bound_deletion_forensics";
+  const TABLE = "_delete_forensics";
+
+  /**
+   * A catalog in which 0086 IS applied: table present, narrowed, locked.
+   *
+   * Built from `catalogSatisfying(parseMigration(...))` rather than by hand, because the
+   * verifier runs IN ADDITION to the static parse — 0086 states a CREATE TABLE and a CREATE
+   * INDEX in plain text, and a fixture that only satisfied the verifier would fail on ten
+   * perfectly correct parse expectations and teach nothing.
+   */
+  function narrowed(): LiveCatalog {
+    return {
+      ...catalogSatisfying(parseMigration(read(TAG_86))),
+      rlsEnabled: new Set([TABLE]),
+      rlsForced: new Set([TABLE]),
+      deleteForensicsColumns: new Set(DELETE_FORENSICS_KEPT_COLUMNS),
+    };
+  }
+
+  it("asserts a non-zero, exactly-stated number of facts", () => {
+    const v = effectVerifierFor(TAG_86);
+    expect(v).toBeDefined();
+    expect(v!.assertions).toBe(
+      DELETE_FORENSICS_DROPPED_COLUMNS.length + DELETE_FORENSICS_KEPT_COLUMNS.length + 2 + DATA_API_ROLES.length,
+    );
+  });
+
+  it("PASSES against a database where the columns are gone and the rest survived", () => {
+    expect(adoptionProblems(read(TAG_86), narrowed(), TAG_86)).toEqual([]);
+  });
+
+  it("REFUSES while either PII column still exists — the whole point of the migration", () => {
+    for (const col of DELETE_FORENSICS_DROPPED_COLUMNS) {
+      const live = narrowed();
+      const cols = new Set(live.deleteForensicsColumns);
+      cols.add(col);
+      const problems = adoptionProblems(read(TAG_86), { ...live, deleteForensicsColumns: cols }, TAG_86);
+      expect(problems.join(" ")).toContain(`${TABLE}.${col} still exists`);
+    }
+  });
+
+  it("REFUSES a GUTTED table as loudly as an un-narrowed one", () => {
+    // THE OUTCOME THE OWNER DECISION FORBIDS. "Remove unnecessary exposure" and "preserve the
+    // DPDP erasure proof" are one instruction, and a verifier that only checked the two columns
+    // were gone would pass against a table someone had emptied of everything.
+    for (const kept of DELETE_FORENSICS_KEPT_COLUMNS) {
+      const live = narrowed();
+      const cols = new Set(live.deleteForensicsColumns);
+      cols.delete(kept);
+      const problems = adoptionProblems(read(TAG_86), { ...live, deleteForensicsColumns: cols }, TAG_86);
+      expect(problems.join(" ")).toContain(`${TABLE}.${kept} is MISSING`);
+    }
+  });
+
+  it("REFUSES when the table is absent — unlike 0085, absence is NOT a pass here", () => {
+    expect(adoptionProblems(read(TAG_86), emptyCatalog, TAG_86).join(" ")).toContain("table MISSING");
+  });
+
+  it("REFUSES an unlocked table — the house pattern applies to a table it now declares", () => {
+    const noForce = narrowed();
+    expect(
+      adoptionProblems(read(TAG_86), { ...noForce, rlsForced: new Set() }, TAG_86).join(" "),
+    ).toContain("RLS is not FORCED");
+    const granted = narrowed();
+    expect(
+      adoptionProblems(read(TAG_86), { ...granted, grants: new Set([TABLE + ":anon"]) }, TAG_86).join(" "),
+    ).toContain("anon still holds a privilege");
+  });
+
+  it("replaces the trigger function BEFORE dropping the columns it used to write", () => {
+    // ORDERING, AND IT IS NOT COSMETIC. The old body inserts into the two columns; dropping them
+    // first leaves a window in which any DELETE on `workers` fires a function referencing
+    // columns that no longer exist. Nothing but reading the file can check this.
+    const sql = read(TAG_86);
+    expect(sql.indexOf("CREATE OR REPLACE FUNCTION public._log_delete")).toBeLessThan(
+      sql.indexOf('DROP COLUMN IF EXISTS "query"'),
+    );
+  });
+
+  it("the replacement function names none of the dropped columns in its INSERT", () => {
+    const sql = read(TAG_86);
+    const body = sql.slice(
+      sql.indexOf("CREATE OR REPLACE FUNCTION public._log_delete"),
+      sql.indexOf("$function$;"),
+    );
+    const insert = body.slice(body.indexOf("insert into"), body.indexOf("values"));
+    for (const col of DELETE_FORENSICS_DROPPED_COLUMNS) expect(insert).not.toContain(col);
+    for (const col of ["txid", "table_name", "row_id", "worker_id", "db_user", "app_name", "backend_pid"]) {
+      expect(insert).toContain(col);
+    }
+  });
+
+  it("touches nothing belonging to the DPDP erasure proof", () => {
+    // The instruction most easily broken by accident. The proof is `audit_logs`, the tombstone
+    // is Redis on the phone_hash, the event is `worker.account_deleted`.
+    // STRIP THE COMMENTS FIRST. The header names all three mechanisms precisely BECAUSE it
+    // must not touch them, and a check that could not tell prose from a statement would make
+    // documenting the constraint impossible — which is the wrong incentive to create.
+    const statements = read(TAG_86)
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("--"))
+      .join("\n");
+    for (const forbidden of ["audit_logs", "erasure_executed", "account_deleted", "phone_hash"]) {
+      expect(statements, "0086 must not touch " + forbidden).not.toContain(forbidden);
+    }
+    // ...and the header MUST still name them, so the constraint is stated where it is checked.
+    for (const named of ["audit_logs", "phone_hash"]) expect(read(TAG_86)).toContain(named);
+  });
+
+  it("is stamped above every entry before it", () => {
+    const journal = JSON.parse(readFileSync(join(MIGRATIONS, "meta", "_journal.json"), "utf8")) as {
+      entries: { when: number; tag: string }[];
+    };
+    const mine = journal.entries.find((e) => e.tag === TAG_86);
+    expect(mine).toBeDefined();
+    const others = journal.entries.filter((e) => e.tag !== TAG_86).map((e) => e.when);
+    expect(mine!.when).toBeGreaterThan(Math.max(...others));
+  });
+});
+
+describe("0085 Section A — the default that made this a class of problem", () => {
+  const TAG_85 = "0085_revoke_execute_undeclared_routines";
+
+  it("counts the default-ACL roles as well as the three functions", () => {
+    expect(effectVerifierFor(TAG_85)!.assertions).toBe(
+      (UNDECLARED_DEFINER_FUNCTIONS.length + 1) * DATA_API_ROLES.length,
+    );
+  });
+
+  it("REFUSES while the default still grants EXECUTE on new functions", () => {
+    // The failure this exists for: the three functions are fixed, adoption records the migration
+    // as applied, and the FOURTH function created tomorrow arrives with the same grant.
+    for (const role of DATA_API_ROLES) {
+      const live = { ...emptyCatalog, defaultFunctionAcls: new Set(["public:f:" + role.toLowerCase()]) };
+      expect(adoptionProblems(read(TAG_85), live, TAG_85).join(" ")).toContain(
+        "DEFAULT PRIVILEGES still grant EXECUTE on new functions in public to " + role,
+      );
+    }
+  });
+
+  it("ignores a default ACL in another schema — `storage` is the platform's", () => {
+    const live = { ...emptyCatalog, defaultFunctionAcls: new Set(["storage:f:anon"]) };
+    expect(adoptionProblems(read(TAG_85), live, TAG_85)).toEqual([]);
+  });
+});
+
+describe("the serial pseudo-types", () => {
+  it("maps every serial to the integer type information_schema reports", () => {
+    // `bigserial` is not a type: Postgres expands it to bigint plus a sequence and a default.
+    // 0086 was the first migration to use one, and the refusal it caused was CORRECT — an
+    // unmapped type must never be guessed at, which is why this is a mapping and not a fallback.
+    expect(normalizeType("bigserial PRIMARY KEY NOT NULL")).toBe("bigint");
+    expect(normalizeType("serial")).toBe("integer");
+    expect(normalizeType("smallserial")).toBe("smallint");
+    expect(normalizeType("serial8")).toBe("bigint");
+  });
+
+  it("still refuses a type it does not know", () => {
+    expect(() => normalizeType("quantum_flux")).toThrow();
   });
 });

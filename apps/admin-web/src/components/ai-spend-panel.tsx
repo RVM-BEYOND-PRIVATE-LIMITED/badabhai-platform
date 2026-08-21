@@ -4,6 +4,7 @@ import {
   describeAiCostBasis,
   describeAiCostCaveat,
   describeCapBreachScope,
+  describeCostPerProfile,
   isPlatformWideBreach,
   providerLabel,
   providerNote,
@@ -50,11 +51,29 @@ import { Stat } from "./stat";
  *
  * The provider and task-type sets are OPEN. A label this build has never seen renders
  * de-snaked with a note saying so, rather than being dropped or crashing the section.
+ *
+ * ══ THE COST-PER-PROFILE BLOCK ══════════════════════════════════════════════════════════
+ * A ratio is two claims, and its shape hides both of them. Its numerator is the PROFILING
+ * slice of spend (résumé generation is rendered from a profile that already exists and is not
+ * billed to producing one) and its denominator is the profiles that FINISHED inside the very
+ * same window — so the figure means "what it costs to produce one finished profile, including
+ * everyone who started and did not finish", and NOT "what it costs to profile one worker".
+ * Nothing on screen can tell those two readings apart, so the block leads with the distinction
+ * and puts the window in both tile labels.
+ *
+ * THAT WINDOW IS THE BLOCK'S OWN, AND IT IS NOT THE SECTION'S. `per_profile.since` is the first
+ * PROFILING accrual; `accruing_since` at the top of the section is the first accrual of any
+ * kind, and it is earlier whenever something that is not profiling was paid for first. Both of
+ * this block's tiles are dated from the former, and `describeCostPerProfile` returns `absent`
+ * for the nothing-accrued state — which is what keeps rule 2 above absolute here too, and what
+ * stops a ₹0.00 average from rendering on a platform whose only spend so far is résumés.
  */
 export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
   const basis = describeAiCostBasis(cost);
   const measured = basis.kind !== "nothing_accrued";
   const breaches = cost.cap_breaches;
+  const perProfile = cost.per_profile;
+  const perProfileState = describeCostPerProfile(cost);
 
   return (
     <section className="panel" aria-labelledby="ai-spend-heading">
@@ -109,6 +128,89 @@ export function AiSpendPanel({ cost }: { cost: AiCostSummary }) {
           tone={breaches.total > 0 ? "warn" : undefined}
         />
       </div>
+
+      {/* ── WHAT A FINISHED PROFILE COSTS ────────────────────────────────────────────────
+          Sits directly ABOVE "By task type" on purpose: the numerator is some of that
+          table's rows, the caption names exactly which, and an operator WILL try to add
+          them up. Three states, and `describeCostPerProfile` decides which — `absent`
+          renders nothing at all (no profiling spend has accrued, so there is no window and
+          no ratio), `unsupported` renders the version-skew sentence and no ₹ anywhere, and
+          only `measured` renders figures. */}
+      {perProfileState.kind === "unsupported" ? (
+        <div>
+          <h3 className="panel__title" id="ai-spend-per-profile">
+            What a finished profile costs
+          </h3>
+          {/* NOT SILENTLY DROPPED. An absent block is pixel-identical to "no profiling
+              spend has accrued", which would be a false claim about a spending platform. */}
+          <p className="notice notice--warn" role="note">
+            {perProfileState.sentence}
+          </p>
+        </div>
+      ) : null}
+
+      {perProfileState.kind === "measured" && perProfile ? (
+        <div>
+          <h3 className="panel__title" id="ai-spend-per-profile">
+            What a finished profile costs
+          </h3>
+          {/* THE BASIS RIDES ABOVE THE FIGURES, exactly as it does for the section total —
+              and here it is doing more work, because "cost per profile" and "cost per
+              worker" are both plausible readings of the same tile and only one is true. */}
+          <p className="panel__sub">
+            <strong>{perProfileState.view.basisHeadline}.</strong>{" "}
+            {perProfileState.view.basisDetail}
+          </p>
+
+          <div className="stats stats--compact">
+            {/* Numerator, denominator, quotient — in that order, so the arithmetic the
+                caption describes is the arithmetic on screen. BOTH dated labels come from
+                the one `windowLabel`, which is derived from this block's own bound and
+                never from the section's; see rule 5 in `describeCostPerProfile`. */}
+            <Stat
+              label={`Profiling spend ${perProfileState.view.windowLabel}`}
+              value={formatExactRupees(perProfile.profiling_cost_inr)}
+            />
+            <Stat
+              label={`Profiles completed ${perProfileState.view.windowLabel}`}
+              value={formatCount(perProfile.profiles_extracted_or_confirmed)}
+            />
+            <Stat
+              label="Average per profile produced"
+              /* `averageText` is either an exact ₹ amount or the ABSENCE, and `absent`
+                 stops the second from being set in the KPI face like the first. */
+              value={perProfileState.view.averageText}
+              absent={perProfileState.view.averageIsAbsent}
+            />
+          </div>
+
+          <p
+            className={`notice${perProfileState.view.windowMismatchSentence ? " notice--warn" : ""}`}
+            role="note"
+          >
+            {perProfileState.view.scopeSentence} {perProfileState.view.completedSentence}{" "}
+            {perProfileState.view.windowSentence} {perProfileState.view.erasureSentence}
+            {perProfileState.view.sectionBoundSentence ? (
+              <> {perProfileState.view.sectionBoundSentence}</>
+            ) : null}
+            {perProfileState.view.averageAbsentSentence ? (
+              <> {perProfileState.view.averageAbsentSentence}</>
+            ) : null}
+            {perProfileState.view.mockPostureSentence ? (
+              <> {perProfileState.view.mockPostureSentence}</>
+            ) : null}
+            {/* Only reachable if the server contradicts itself about the bound, or sends
+                one that will not parse. Bolded because the ratio above it is then not a
+                ratio of anything. */}
+            {perProfileState.view.windowMismatchSentence ? (
+              <>
+                {" "}
+                <strong>{perProfileState.view.windowMismatchSentence}</strong>
+              </>
+            ) : null}
+          </p>
+        </div>
+      ) : null}
 
       {measured ? (
         <div className="cols">
