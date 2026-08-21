@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Card, Dialog, Toast } from "../../../components/ds";
 import { formatInr } from "../../../lib/format";
@@ -29,6 +29,21 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
+  // ONE idempotency key per PURCHASE, not per attempt (#1148). A duplicate capacity buy is worse
+  // than a duplicate pack — it double-fires the payment/coupon spine for zero extra allowance
+  // (`greatest()`). Minted on the confirm below, held across every retry of the SAME tier so a
+  // re-tap dedupes into a replay, and reset on success / a genuinely new tier. A ref (survives
+  // re-renders, no render on reuse). PII-free (`crypto.randomUUID()`), no payer id (XB-A).
+  const purchaseKeyRef = useRef<{ key: string; tier: string } | null>(null);
+
+  /** Reuse the pending key for a retry of the SAME tier; mint a fresh one otherwise. */
+  function idempotencyKeyFor(tier: string): string {
+    if (purchaseKeyRef.current === null || purchaseKeyRef.current.tier !== tier) {
+      purchaseKeyRef.current = { key: crypto.randomUUID(), tier };
+    }
+    return purchaseKeyRef.current.key;
+  }
+
   // The largest concurrent allowance is the "most capacity" tile — config-derived, never a
   // literal. Used only to flag the tile; the price/allowance themselves always come from config.
   const topTierCode =
@@ -51,14 +66,27 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
     setError(null);
     setMessage(null);
     setPendingCode(tier.code);
+    // One key per purchase, reused across a retry of THIS tier (safe re-tap after a timeout).
+    const idempotencyKey = idempotencyKeyFor(tier.code);
     startTransition(async () => {
       // Send ONLY the tier CODE (XT5 / XB-A) — never the displayed price/allowance.
-      const res = await upgradeCapacityAction({ tier: tier.code });
+      const res = await upgradeCapacityAction({ tier: tier.code, idempotencyKey });
       setPendingCode(null);
       if (res.ok) {
-        setMessage(`Capacity recorded — ${res.resumedCount} posting(s) resumed.`);
+        // The purchase is DONE — drop the key so a genuine next buy mints a fresh one.
+        purchaseKeyRef.current = null;
+        if ("duplicate" in res) {
+          // A 409 replay: the first tap already recorded the capacity. `allowance` is the REAL
+          // re-read figure (server-side GET), never a guessed number — show it as-is.
+          setMessage(
+            `Capacity already recorded — your allowance is ${res.allowance} concurrent vacancies.`,
+          );
+        } else {
+          setMessage(`Capacity recorded — ${res.resumedCount} posting(s) resumed.`);
+        }
         router.refresh();
       } else {
+        // KEEP the key: the next tap of this SAME tier replays it and the server dedupes.
         setError(res.error);
       }
     });

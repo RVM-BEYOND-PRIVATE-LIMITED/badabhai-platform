@@ -17,6 +17,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const requirePayer = vi.fn();
 const buyCapacity = vi.fn();
+const getCapacity = vi.fn();
 const hiringCapacityTiers = vi.fn();
 const revalidatePath = vi.fn();
 // The LIVE catalog seam (D-6): the value guard now checks the tier against the LIVE tiers.
@@ -24,8 +25,23 @@ const revalidatePath = vi.fn();
 // the (mocked) pricing-config reader, so the guard's behaviour stays the thing under test.
 const getLiveCatalog = vi.fn();
 
+/**
+ * The REAL typed 409 the seam throws (#1165). `instanceof` must hold across the mock boundary,
+ * so the class defined here is the one exported from the mocked module.
+ */
+class PurchaseConflictError extends Error {
+  constructor() {
+    super("duplicate purchase in flight");
+    this.name = "PurchaseConflictError";
+  }
+}
+
 vi.mock("../../../lib/auth", () => ({ requirePayer: () => requirePayer() }));
-vi.mock("../../../lib/payer-api", () => ({ buyCapacity: (i: { tier: string }) => buyCapacity(i) }));
+vi.mock("../../../lib/payer-api", () => ({
+  buyCapacity: (i: { tier: string; idempotencyKey?: string }) => buyCapacity(i),
+  getCapacity: () => getCapacity(),
+  PurchaseConflictError,
+}));
 vi.mock("../../../lib/pricing-config", () => ({ hiringCapacityTiers: () => hiringCapacityTiers() }));
 vi.mock("../../../lib/live-catalog", () => ({ getLiveCatalog: () => getLiveCatalog() }));
 vi.mock("next/cache", () => ({ revalidatePath: (p: string) => revalidatePath(p) }));
@@ -40,6 +56,7 @@ const TIERS = [
 beforeEach(() => {
   requirePayer.mockReset().mockResolvedValue({ payerId: "p", role: "employer", displayLabel: "Acme" });
   buyCapacity.mockReset();
+  getCapacity.mockReset().mockResolvedValue({ activeVacancyAllowance: 10 });
   hiringCapacityTiers.mockReset().mockReturnValue(TIERS);
   getLiveCatalog.mockReset().mockResolvedValue({ products: [], live: true });
   revalidatePath.mockReset();
@@ -108,5 +125,67 @@ describe("upgradeCapacityAction — neutral failure (no fake success, no leaked 
       expect(res.error).not.toMatch(/payer_id|forbidden|employer|agent|consent|phone|email/i);
     }
     expect(revalidatePath).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * IDEMPOTENCY + 409 RE-READ (#1165 / #1148). The action threads the client-minted per-purchase key
+ * to the seam, and on the 409 a duplicate-in-flight capacity purchase gets it RE-READS the real
+ * allowance (`getCapacity`) rather than re-posting (which would double-fire the payment/coupon
+ * spine) or rendering a guessed figure.
+ */
+describe("upgradeCapacityAction — Idempotency-Key threading + 409 re-read (#1165)", () => {
+  const KEY = "5f9d1c2e-1a2b-4c3d-8e4f-0a1b2c3d4e5f"; // a client crypto.randomUUID()
+
+  it("forwards a well-formed idempotency key to the seam (alongside the tier CODE)", async () => {
+    buyCapacity.mockResolvedValueOnce({
+      ok: true,
+      allowance: 10,
+      sourceTier: "growth",
+      expiresAt: null,
+      resumedPlanIds: [],
+    });
+    await upgradeCapacityAction({ tier: "growth", idempotencyKey: KEY });
+    expect(buyCapacity).toHaveBeenCalledWith({ tier: "growth", idempotencyKey: KEY });
+  });
+
+  it("DROPS a malformed key (degrades to no-key) rather than forwarding junk", async () => {
+    buyCapacity.mockResolvedValueOnce({
+      ok: true,
+      allowance: 10,
+      sourceTier: "growth",
+      expiresAt: null,
+      resumedPlanIds: [],
+    });
+    await upgradeCapacityAction({ tier: "growth", idempotencyKey: "not-a-uuid" });
+    expect(buyCapacity).toHaveBeenCalledWith({ tier: "growth", idempotencyKey: undefined });
+  });
+
+  it("a 409 (PurchaseConflictError) RE-READS the real allowance and renders NO guessed number — no second POST", async () => {
+    buyCapacity.mockRejectedValueOnce(new PurchaseConflictError());
+    getCapacity.mockResolvedValueOnce({ activeVacancyAllowance: 10 }); // the REAL post-grant allowance
+    const res = await upgradeCapacityAction({ tier: "growth", idempotencyKey: KEY });
+
+    // The real re-read allowance is surfaced, flagged duplicate, with NO fabricated resumedCount.
+    expect(res).toEqual({ ok: true, allowance: 10, duplicate: true });
+    if (res.ok) expect(res).not.toHaveProperty("resumedCount"); // never a guessed number
+
+    // Exactly ONE capacity POST (buyCapacity), then a GET re-read — never a re-POST.
+    expect(buyCapacity).toHaveBeenCalledTimes(1);
+    expect(getCapacity).toHaveBeenCalledTimes(1);
+    // The view is revalidated so the page reflects the (already-committed) real allowance.
+    expect(revalidatePath).toHaveBeenCalledWith("/capacity");
+  });
+
+  it("a 409 whose re-read ALSO blips returns a neutral 'processing' line — never a fabricated allowance", async () => {
+    buyCapacity.mockRejectedValueOnce(new PurchaseConflictError());
+    getCapacity.mockRejectedValueOnce(new Error("boom"));
+    const res = await upgradeCapacityAction({ tier: "growth", idempotencyKey: KEY });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toMatch(/being processed|refresh/i);
+      expect(res.error).not.toMatch(/payer_id|forbidden|\d{2,}/i); // no leak, no invented number
+    }
+    expect(buyCapacity).toHaveBeenCalledTimes(1); // no re-POST
   });
 });

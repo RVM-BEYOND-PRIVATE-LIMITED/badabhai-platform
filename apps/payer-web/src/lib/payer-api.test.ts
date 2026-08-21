@@ -533,6 +533,118 @@ describe("buyCapacity — capacity BUY (A1, LIVE): POSTs ONLY { tier } + Bearer 
 });
 
 /**
+ * IDEMPOTENCY WIRING (#1165 — credits #1046 / capacity #1148). The seam THREADS a per-purchase
+ * key from the client through to the backend request header, and translates the 409 a duplicate
+ * in-flight purchase gets into the typed {@link PurchaseConflictError} so the action re-reads the
+ * real figure instead of re-posting or rendering a guessed number.
+ *
+ *  - a key present ⇒ the outbound POST carries an `Idempotency-Key` header equal to it verbatim
+ *    (NOT regenerated in the seam — the CLIENT-minted key survives the round trip);
+ *  - no key ⇒ NO header (backward compatible: the header is optional by design);
+ *  - a 409 ⇒ PurchaseConflictError (distinct from the 404 → null and the neutral-failure paths).
+ */
+describe("topUp / buyCapacity — Idempotency-Key wiring + 409 → PurchaseConflictError (#1165)", () => {
+  const PAYER_A = "11111111-1111-4111-8111-111111111111";
+  const KEY = "5f9d1c2e-1a2b-4c3d-8e4f-0a1b2c3d4e5f"; // a client-minted crypto.randomUUID()
+
+  it("topUp sends the Idempotency-Key header verbatim when a key is passed", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ payer_id: PAYER_A, balance: 57, credits: 50, pack_code: "pack_50" }, 201),
+    );
+    const { topUp } = await import("./payer-api");
+    await topUp({ packCode: "pack_50", idempotencyKey: KEY });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/payer/credits");
+    expect(init.method).toBe("POST");
+    // The exact client key reaches the backend header — the seam does NOT mint its own.
+    expect((init.headers as Record<string, string>)["Idempotency-Key"]).toBe(KEY);
+    // Still XB-A: the key is a header, never a body field, and carries no payer_id.
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(Object.keys(body)).toEqual(["pack_code"]);
+    expect(JSON.stringify(body)).not.toMatch(/idempotency|payer_id/i);
+  });
+
+  it("topUp sends NO Idempotency-Key header when none is passed (backward compatible)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ payer_id: PAYER_A, balance: 57, credits: 50, pack_code: "pack_50" }, 201),
+    );
+    const { topUp } = await import("./payer-api");
+    await topUp({ packCode: "pack_50" });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.headers as Record<string, string>).not.toHaveProperty("Idempotency-Key");
+  });
+
+  it("topUp maps a 409 (duplicate in flight) to PurchaseConflictError — not null, not a generic throw", async () => {
+    // 409 body carries NO renderable balance by design (asserted server-side).
+    fetchMock.mockResolvedValue(jsonResponse({ message: "purchase already in progress" }, 409));
+    const { topUp, PurchaseConflictError } = await import("./payer-api");
+    await expect(topUp({ packCode: "pack_50", idempotencyKey: KEY })).rejects.toBeInstanceOf(
+      PurchaseConflictError,
+    );
+    // The 409 is NOT confused with the unknown-pack 404 → null path.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("buyCapacity sends the Idempotency-Key header verbatim when a key is passed", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        payer_id: PAYER_A,
+        quote: {},
+        max_active_vacancies: 10,
+        source_tier: "growth",
+        expires_at: null,
+        resumed_plan_ids: [],
+      }),
+    );
+    const { buyCapacity } = await import("./payer-api");
+    await buyCapacity({ tier: "growth", idempotencyKey: KEY });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("http://api.test/payer/capacity");
+    expect((init.headers as Record<string, string>)["Idempotency-Key"]).toBe(KEY);
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    // Still tier CODE only (XB-A/XT5) — the key never leaks into the body.
+    expect(Object.keys(body)).toEqual(["tier"]);
+    expect(JSON.stringify(body)).not.toMatch(/idempotency|payer_id/i);
+  });
+
+  it("buyCapacity sends NO Idempotency-Key header when none is passed (backward compatible)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        payer_id: PAYER_A,
+        quote: {},
+        max_active_vacancies: 10,
+        source_tier: "growth",
+        expires_at: null,
+        resumed_plan_ids: [],
+      }),
+    );
+    const { buyCapacity } = await import("./payer-api");
+    await buyCapacity({ tier: "growth" });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.headers as Record<string, string>).not.toHaveProperty("Idempotency-Key");
+  });
+
+  it("buyCapacity maps a 409 to PurchaseConflictError, NOT the neutral { ok:false } (that would invite a re-tap)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ message: "purchase already in progress" }, 409));
+    const { buyCapacity, PurchaseConflictError } = await import("./payer-api");
+    // A 409 must THROW the typed conflict — collapsing it to { ok:false } would let the panel
+    // message a duplicate-charge-prevention as a retryable failure (a re-tap = a second attempt).
+    await expect(buyCapacity({ tier: "growth", idempotencyKey: KEY })).rejects.toBeInstanceOf(
+      PurchaseConflictError,
+    );
+  });
+
+  it("buyCapacity STILL returns the neutral { ok:false } for a non-409 transport error (no leak)", async () => {
+    fetchMock.mockRejectedValue(new Error("http://api.test/payer/capacity returned 500"));
+    const { buyCapacity } = await import("./payer-api");
+    const res = await buyCapacity({ tier: "growth", idempotencyKey: KEY });
+    expect(res.ok).toBe(false);
+  });
+});
+
+/**
  * LIVE posting lifecycle: PAUSE / RESUME / quota-top-up on the payer-authed
  * `POST /payer/job-postings/:id/{pause|resume|quota-topup}` routes (#178/#180).
  * TENANCY (XB-A): Bearer-only — the bodies never carry a payer_id; the quota body

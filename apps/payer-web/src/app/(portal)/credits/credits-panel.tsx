@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { CreditPack } from "../../../lib/contracts";
 import { Badge, Button, Card, Dialog, Toast } from "../../../components/ds";
@@ -35,6 +35,21 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
+  // ONE idempotency key per PURCHASE, not per attempt (#1046). Minted when the payer COMMITS
+  // (the confirm below), held across every retry of that SAME pack so the backend dedupes a
+  // re-tap into a replay (charged once), and reset on success or a genuinely new pack so a real
+  // second purchase gets a FRESH key. A ref, not state: reusing a key must not trigger a render,
+  // and the value must survive re-renders. PII-free (`crypto.randomUUID()`), no payer id (XB-A).
+  const purchaseKeyRef = useRef<{ key: string; packCode: string } | null>(null);
+
+  /** Reuse the pending key for a retry of the SAME pack; mint a fresh one otherwise. */
+  function idempotencyKeyFor(packCode: string): string {
+    if (purchaseKeyRef.current === null || purchaseKeyRef.current.packCode !== packCode) {
+      purchaseKeyRef.current = { key: crypto.randomUUID(), packCode };
+    }
+    return purchaseKeyRef.current.key;
+  }
+
   // The best ₹/credit pack — config-derived (the larger packs carry the real discount), never a
   // hardcoded "1000". Used only to flag the tile; the price itself always comes from the catalog.
   const bestValueCode =
@@ -65,13 +80,24 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
     setPendingConfirm(null);
     resetBanners();
     setPendingCode(pack.code);
+    // One key per purchase, reused across a retry of THIS pack (safe re-tap after a timeout).
+    const idempotencyKey = idempotencyKeyFor(pack.code);
     startTransition(async () => {
-      const res = await topUpAction({ packCode: pack.code });
+      const res = await topUpAction({ packCode: pack.code, idempotencyKey });
       setPendingCode(null);
       if (res.ok) {
-        setMessage(`Added ${res.creditsAdded} credits. New balance: ${res.balance}.`);
+        // The purchase is DONE — drop the key so a genuine next buy mints a fresh one.
+        purchaseKeyRef.current = null;
+        if ("duplicate" in res) {
+          // A 409 replay: the first tap already added the credits. The balance is the REAL
+          // re-read figure (server-side GET), never a guessed delta — so show it, don't invent one.
+          setNotice(`Already added — your balance is now ${res.balance} credits.`);
+        } else {
+          setMessage(`Added ${res.creditsAdded} credits. New balance: ${res.balance}.`);
+        }
         router.refresh();
       } else {
+        // KEEP the key: the next tap of this SAME pack replays it and the server dedupes.
         setError(res.error);
       }
     });
