@@ -131,9 +131,17 @@ services:
     # BOTH binds would survive and the 0.0.0.0 exposure would remain. (compose-spec
     # 13-merge.md "Unique resources"; verified with `docker compose config`.)
     #
-    # Local dev is unaffected: host tools still reach it at localhost:6379, and the
-    # api container reaches it over the compose network at redis:6379 — published
-    # ports are host->container only and play no part in container->container.
+    # Host tools must use 127.0.0.1:6379, NOT localhost:6379. This bind is IPv4-only,
+    # and on a dual-stack host `localhost` resolves to ::1 first — nothing listens
+    # there, so the connection does not refuse fast, it HANGS to the client timeout.
+    # That is how it presents: `AI_SPEND_REDIS_URL=redis://localhost:6379` made every
+    # real AI call fail closed after a 2s SpendLedger timeout, with a healthy Redis
+    # container sitting right there (measured 2026-08-21: localhost 2.016s fail,
+    # 127.0.0.1 0.000s). This comment previously claimed localhost was fine.
+    #
+    # The api container is unaffected: it reaches redis over the compose network at
+    # redis:6379 — published ports are host->container only and play no part in
+    # container->container.
     ports:
       - "127.0.0.1:6379:6379"
     volumes:

@@ -792,7 +792,7 @@ row*, not the vectors.
 subset (3,989 ISCO-shadowed + 70 duplicate-election losers − 24 in both). The retrieval surface is
 **5,086**.
 
-### PROVEN — the two tables are different vocabularies, not one at two granularities
+### PROVEN — the rule is DIRECTIONAL: the occupation alias corpus is never a source for the skill alias corpus
 
 `job_domain_alias` holds **occupations** ("Admiral", "darji", "बढ़ई", "jcb", "कुली").
 `skill_alias` holds **units of work** ("bead check", "conduit bending", "first piece check").
@@ -815,37 +815,92 @@ drainage work on a seamstress's profile.
 `alias-lifecycle.ts:99-135` gives the two tables deliberately *different* eligibility specs.
 **No document anywhere proposes deriving one table from the other.**
 
-### THE REAL GAP — `job_domain_skill`, and it is 99.28 %
+**Correction the verification pass forced, and it matters.** The `skill` *table* is **not** purely
+units of work and never was: ADR-0030 §(a) makes **NCO-2015 India occupation names** one of its
+four pillars (*"anchors skill entries to India-recognized occupations"*); `skill-corpus.ts:434`
+carries a section headed *"NCO-2015 India occupation-name anchors"*; `skill-corpus.test.ts:43`
+pins them; `PROVENANCE.md:23` licences them and defers a **full NCO bulk import**. All 18
+`kind='match_skill'` rows are literal job titles ("CNC Operator", "Plumber", "Delivery Rider"),
+and `ROLE_TO_MATCH_SKILL` canonicalizes a **canonical occupation id into a `skill` id at runtime
+today** — 114 `worker.match_skills_rebuilt` events, every live `worker_skill` row.
 
-| measure | value |
-|---|---|
-| selectable-active `job_domain` rows | 3,885 |
-| …with **any** `job_domain_skill` edge | **28 (0.72 %)** |
-| …the **live** Path A query can answer for (`s.status='active'` + embedded alias) | **19 (0.49 %)** |
-| …effectively reachable (4 of the 28 are ISCO units with **zero** searchable aliases) | **24 domains / 204 edges** |
-| searchable domain aliases on a bridged domain | 82 / 5,086 = **1.61 %** |
-| searchable domain aliases the live query can answer for | 56 / 5,086 = **1.10 %** |
-| **UNRESOLVED share of the retrieval surface** | **4,996 / 5,086 = 98.23 %** |
+So: occupations legitimately enter the `skill` **table**, as curated anchors and as the `mskill_*`
+posting vocabulary. What has no design, no precedent and no code is **bulk-transferring the
+occupation ALIAS corpus into the skill ALIAS corpus**. Measured on the retrieval surface:
+role-token hits **31.1 %** of searchable `job_domain_alias` rows vs **0.0 %** of searchable
+`skill_alias` rows; gerund-shaped **4.2 %** vs **40.8 %**. A clean inversion.
 
-Concentrated in majors **7/8/9** — the industrial core — at 2,365 unresolved rows over 1,679
-domains (96.5 %). Majors 0, 1, 2, 3, 6 and 9 have **zero** bridged domains.
+### THE REAL GAP — `job_domain_skill`. Six framings, and 0.72 % is the least operational
 
-### PROVEN — D2 was not truncated; the corpus is the ceiling
+| measure | num / den | % |
+|---|---|---|
+| edge exists / selectable-active domains | 28 / 3,885 | 0.7207 |
+| reachable bridge heads / domains with a searchable alias | 24 / 3,515 | 0.6828 |
+| **the live Path A query can answer** | **19 / 3,885** | **0.4891** |
+| alias-weighted over the searchable surface | 82 / 5,086 | 1.6123 |
+| …that the live query can answer for | 56 / 5,086 | 1.1011 |
+| **pinned worker profiles on a bridged domain** | **3 / 19** | **15.7895** |
+| **UNRESOLVED share of the retrieval surface** | **4,996 / 5,086** | **98.23** |
 
-`skill` 165 = 49 `SKILL_CORPUS` + 98 `skills.jsonl` + 18 `MATCH_SKILLS`. `skill_alias` 336 = 116 +
-22 wedge + 197 + 1 orphan. `job_domain_skill` 236 = 236 records on disk. The 238 aliases D2 added
-are exactly step 0 (41) + step 1 (197). The generator's domain universe is
-`data/taxonomy/sample-domains.jsonl` — **a 28-line hand-picked committed file**, and
-`generate-domain-skills.ts:255-267` can only *narrow* it. There is no widening path.
+Three separate problems wear that one number:
 
-### NEW FINDING — the ISCO inheritance materializer does not exist
+1. **A promotion gap is hiding inside the coverage gap.** 152 of 236 edges point at
+   `provisional` skills, 3 at `deprecated` — only **81** survive the live query's
+   `s.status='active'` filter. Nine of the 28 bridged domains therefore yield **zero**, wiping out
+   **warehouse-logistics, construction, HVAC and general electrical/plumbing entirely** — exactly
+   the trade groups the D2 runbook predicted would retrieve worst. `db:promote:skills` has never
+   run. **Running it takes live-answerable domains from 19 to 28 using edges already seeded and
+   embedded.**
+2. **370 selectable-active domains have no searchable alias**, and 4 of the 28 bridge heads are
+   among them — stranding 32 of 236 edges (13.56 %).
+3. **Demand-weighted the gap is 22× smaller than the headline** (15.79 %): the 28-domain pilot was
+   aimed at CNC/fitter/welding, which is where live pins land. That argues for sequencing the
+   remaining work by demand, not for calling it urgent.
+
+Unresolved mass is concentrated in majors **7/8/9** — the industrial core — at 2,365 rows over
+1,679 domains (96.5 %). Majors 0, 1, 2, 3, 6 and 9 have **zero** bridged domains.
+
+### PROVEN — D2 steps 0–1 were not truncated. 238 is the DELTA, not the corpus
+
+The full alias corpus on disk is **335** entries (116 `SKILL_CORPUS` + 22 wedge + 197
+`skills.jsonl`); **97 were already in production** from the 2026-07-14/16 seeds; D2 wrote the
+missing **238** (41 + 197). Production holds **336** = 335 + one TD-01 orphan
+(`skill_cad_interpretation / "drawing padhna" / hi`). Anti-joined both ways:
+**`corpus_entries_NOT_in_db = 0`**. `skill` 165 = 49 + 98 + 18 `MATCH_SKILLS`.
+*(Trap: 238 is also the record count of `accepted-domain-skills.jsonl` — two different 238s.)*
+
+The generator's domain universe is `data/taxonomy/sample-domains.jsonl` — **a 28-line hand-picked
+committed file, 28 lines since its only commit** — and `generate-domain-skills.ts:255-267` can
+only *narrow* it. There is no widening path.
+
+**D2 as a plan is three steps short, though:** step 2 (embed) failed once before succeeding,
+**step 3 (promote) has never run**, step 4 (re-measure) has never run. And the post-gate corpus
+edit (TD-01 repoint) stranded live assets — `skill_cad_interpretation` and `skill_gdt_reading` are
+both `active` with **8 aliases and 6 paid vectors between them and zero edges**, and neither
+carries `replaced_by`, so `retag-skills.ts` will never reach them.
+
+### NEW FINDING — the ISCO inheritance materializer does not exist, and it would not rescue today's corpus
 
 Migration 0076 shipped `source='inherited'` + `inherited_from_job_domain_id` with FK, index and two
 CHECKs. `taxonomy-corpus.ts:183` asserts *"the ISCO ladder resolver writes them"*. **No such code
 is in the repository** — a repo-wide grep returns zero write sites, and all 236 production edges
-are `llm_bootstrap` with a NULL parent link. Fanning the 28 authored domains down the ISCO tree
-would cover **397 (unit) / 752 (minor) / 1,047 (sub-major)** domains — a 14–37× improvement for
-**zero model spend**.
+are `llm_bootstrap` with a NULL parent link.
+
+**But it fans DOWN, and 24 of the 28 authored domains sit on childless NCO L5 leaves.** A strict
+materializer over today's corpus covers **89 of 3,885 = 2.29 %**, not 397. Recursive closure,
+measured:
+
+| scenario | authored sets | covered / 3,885 | % |
+|---|---:|---:|---:|
+| as authored today | 28 | 28 | 0.72 |
+| strict materializer over today's 28 | 28 | **89** | **2.29** |
+| re-author at ISCO L4 / L3 / L2 / L1 | 17 / 11 / 7 / 3 | 397 / 752 / 1,047 / 1,826 | 10.2 / 19.4 / 26.9 / 47.0 |
+| **author one set per ISCO L4 unit group, inherit down** | **436** | **3,874** | **99.72** |
+
+> **Generate at the ISCO L4 unit group, not at the leaf.** 436 authored sets reach 99.72 % of the
+> catalogue; per-leaf authoring needs 3,885 for the same coverage. Since generation is cheap and
+> **human diff review is the only real cost**, that is an ~89 % reduction in the work. This is the
+> most consequential conclusion of the investigation.
 
 ### NEW FINDING — the taxonomy branch and the match engine are disjoint id spaces
 
@@ -911,11 +966,12 @@ Fixing `job_domain_skill` changes nothing until both cuts are addressed.
 | # | decision | recommendation |
 |---|---|---|
 | **D-1** | Do the taxonomy branch and the match engine ever join? (130 `skill_*` vs 9 `mskill_*`, overlap 0, no ADR schedules a join) | **Answer first.** It is an ADR and it gates everything else here. |
-| **D-2** | Authorise the ISCO inheritance materializer | **Build + dry-run regardless of D-1** — 14–37× coverage, zero model spend |
-| **D-3** | Authorise a one-major-group edge-generation pilot (recommend major 7, 843 domains) | Only after D-1 is `yes` |
-| **D-4** | Deprecate the 7 `skill_*_occupation` rows | Yes — they are the leakage that makes the vocabularies look like one |
+| **D-2** | Run `db:promote:skills`. *(The `EVAL_COVERED` half landed while this was being written — `c37abc90`, 41 reviewed trainer phrases covering the 43 skills the CNC-shaped fixture never named.)* | **Do this first among the buildable items** — 19 → 28 live-answerable domains, on edges already seeded and embedded |
+| **D-3** | Authorise edge generation **at the ISCO L4 unit group** (436 sets → 99.72 %) plus the inheritance materializer | Build + dry-run the materializer regardless of D-1; generate only after D-1 is `yes`, demand-ordered 7 → 8 → 9 → 6 |
+| **D-4** | ~~Deprecate the 7 `skill_*_occupation` rows~~ — **reversed by verification** | **Do not deprecate.** They are ADR-0030 pillar-4 NCO occupation-name anchors, pinned by a test, with a bulk import already licence-gated in `PROVENANCE.md:23`. The recorded defect is their **missing edge**, not their existence |
 | **D-5** | Clean the 96 junk-labelled `job_domain` rows | Low cost; fold into the next alias write |
 | **D-6** | Close the vernacular gap (84.1 % of leaves have no real alias) | **Higher product value per rupee than edge generation, and independent of D-1** |
+| **D-7** | Repair the TD-01 fallout: 2 active skills with 8 aliases / 6 vectors and zero edges; 3 edges pointing at deprecated skills | Fold into the next corpus write |
 
 **Classification: DATA COVERAGE / ARCHITECTURE QUESTION. Not a blocker; D-1 is a DECISION.**
 
