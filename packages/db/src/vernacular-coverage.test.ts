@@ -107,10 +107,12 @@ describe("the committed fixture, measured", () => {
     expect(coverage.byRegister.devanagari).toBe(41);
   });
 
-  // THE GAP, PINNED. The particle corpus carries 38 tokens whose whole purpose is romanized
-  // Hindi, and not one evaluation case exercises them. Asserting the zero makes the hole
-  // visible in CI instead of leaving it to be rediscovered by reading the fixture.
-  it("has NO romanized-Hindi coverage at all — the measured D-6 gap", () => {
+  // THE GAP, PINNED — and scoped precisely. Romanized Hindi IS measured elsewhere, by the
+  // wedge eval (`apps/ai-service/tests/wedge_eval/scores_2026_07_14.json`, 13 romanized cases).
+  // What this asserts is narrower and worse: the fixture wired to the PROMOTION GATES has no
+  // romanized coverage, so the register the 38-token particle corpus exists for is invisible
+  // to every gate decision. Asserting the zero keeps that visible in CI.
+  it("the gate-bearing fixture has NO romanized-Hindi coverage — the D-6 gap", () => {
     expect(coverage.byRegister.hinglish_latin).toBe(0);
     expect(coverage.absent).toEqual(["hinglish_latin"]);
   });

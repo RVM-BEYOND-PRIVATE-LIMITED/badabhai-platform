@@ -12,6 +12,22 @@ Every claim is tagged:
 
 ---
 
+## CORRECTION — 2026-08-21, same day
+
+**The first version of this document said Hinglish was "NOT MEASURED — 0 cases". That was
+wrong.** It was true of `retrieval-v3.jsonl` and false of the platform, and I had not looked
+beyond the one fixture before saying so.
+
+There is a **second, older evaluation instrument** — the wedge eval
+(`apps/ai-service/tests/wedge_eval/scores_2026_07_14.json`, `gemini-embedding-001`, real
+vectors, 33 cases) — that measures romanized Hindi directly. Its evidence **strengthens** §0's
+conclusion in one place and **overturns** it in another, and §2A now carries both.
+
+There is also an owner-ratified remediation from 2026-07-16 that **was never shipped**. See
+§2B. That, not the fixture gap, is the most actionable finding in this document.
+
+---
+
 ## 0. The finding that reframes the task
 
 The task was framed as *"make retrieval robust to how Indian workers actually speak"*, with an
@@ -117,8 +133,10 @@ purpose-built Hinglish mechanism, and **it does not run on the skill path at all
 particles. `paraphrase_latin` is a misleading category name: all 66 cases are fluent English
 prose ("driving the forklift in the warehouse"), not romanized Hindi.
 
-> **The one vernacular mechanism the codebase invested in has never been evaluated, in either
-> path.** It is also not wired into the path where skills are resolved.
+> **The retrieval fixture that governs promotion has no romanized-Hindi coverage at all.**
+> Romanized Hindi *is* measured — by the separate wedge eval (§2A) — so the accurate statement
+> is that the two instruments disagree about what matters, and the one wired to the gates is
+> the one that is blind to it. The particle mechanism is also not wired into the skill path.
 
 **[DATA]** `lang` takes only `en` and `hi`, though `LANGUAGE_CODES` admits twelve
 (`en hi bn te ta mr gu kn ml pa or as`). The committed alias corpus is 392 `en` / 396 `hi` and
@@ -130,15 +148,100 @@ contains no other language.
 |---|---|---|
 | Hindi / Devanagari | `वेल्डिंग करना` | **MEASURED** — alias R@1 1.000; paraphrase R@1 0.917 |
 | English paraphrase | `checking the weld looks clean` | **MEASURED** — R@1 0.955 |
-| Hinglish / romanized | `motor repair karta hoon` | **NOT MEASURED** — 0 cases |
-| Latin transliteration | `bijli ki wiring` | **NOT MEASURED** — 0 cases |
-| Code-switching | `panel ka wiring aur breaker testing` | **NOT MEASURED** — 0 cases |
-| Spelling variation | `weldar`, `vaildar` | **NOT MEASURED** — 0 cases |
+| Hinglish / romanized | `motor repair karta hoon` | **MEASURED — in the wedge eval, not this fixture.** See §2A |
+| Latin transliteration | `bijli ki wiring` | **MEASURED** for 5 single-word trade terms (§2A); absent from `retrieval-v3` |
+| Code-switching | `panel ka wiring aur breaker testing` | **NOT MEASURED** — 0 cases in either instrument |
+| Spelling variation | `weldar`, `vaildar` | **NOT MEASURED** — 0 cases in either instrument |
 | Colloquial activity | `motor khol ke seal badalta hoon` | **PARTIAL** — the Devanagari paraphrases are activity descriptions; the romanized form is absent |
 | Regional languages | Marathi, Tamil, Bengali… | **NOT MEASURED** — no corpus, no fixture, no aliases. **An evidence gap, not an established requirement.** |
 
 **[REC]** Regional-language support must not be assumed into the roadmap. There is no demand
 evidence in this repository. Treat it as a question for the product owner, not a backlog item.
+
+---
+
+## 2A. The wedge eval — Hinglish measured, and the floor argument settled
+
+**[DATA]** `apps/ai-service/tests/wedge_eval/scores_2026_07_14.json` — 33 cases,
+`gemini-embedding-001`, real vectors, anchored on `cnc-machining`.
+
+| tier | n | score range | what it shows |
+|---|---:|---|---|
+| `exact` | 12 | 0.859 – 1.000 | alias hits are perfect, as in `retrieval-v3` |
+| `paraphrase` (romanized Hindi) | 8 | **0.666 – 0.902** | 5/8 correct at rank 1 |
+| `vernacular` (single Hindi trade word) | 5 | **0.528 – 0.603** | **4/5 CORRECT — and all 5 below the floor** |
+| `negative` | 6 | **0.518 – 0.572** | correctly unmatched |
+| `cross_domain` | 2 | 0.577 – 0.598 | correctly unmatched |
+
+Two findings, and the second is the important one.
+
+**First — Hinglish paraphrase corroborates §0.** `lathe machine chalana` 0.8235,
+`surface grinding ka kaam` 0.9020, `micrometer se measurement` 0.8217, `job set karna` 0.7815,
+`thread katna` 0.7219, `welding karna` 0.7212, `g code likhna` 0.7220, `program banana` 0.6664.
+That distribution sits right alongside English paraphrase (mean 0.7465). **Romanized Hindi
+paraphrase is not measurably harder than English paraphrase.** §0 stands.
+
+**Second — single-word vernacular is a genuinely different population, and it settles the
+floor question in the opposite direction from the one people expect:**
+
+```
+correct vernacular   chhilai 0.5284   ghisai 0.5352   kharad 0.5750   chudi katna 0.5863   kharad ka kaam 0.6034
+negatives            security guard ki naukri 0.5183   astrophysics lecturer 0.5290   english bolna 0.5298
+                     biryani banana 0.5427   driving licence hai 0.5402   computer typing 0.5722
+```
+
+**These two sets interleave.** `chhilai` is the CORRECT answer at 0.5284 and scores *below*
+`biryani banana` at 0.5427. There is no threshold anywhere that admits the true vernacular
+matches and rejects the nonsense ones.
+
+> **[DATA] Lowering the floor cannot fix vernacular coverage. It is not a tuning problem —
+> the correct and incorrect answers are not separable by score at all in this register.**
+
+This is a stronger statement than §0 made, and it points at the same remedy from a different
+direction: the only thing that moves `chhilai` from 0.53 to a trustworthy match is **having the
+word in the corpus**, which makes it an exact hit at ≈1.0. Not a threshold, not a model.
+
+**[REC]** This evidence belongs in the 0.75 floor owner decision as an argument *against*
+lowering it. It is not permission to change anything.
+
+---
+
+## 2B. Twenty-two ratified vernacular aliases were never shipped
+
+**[DATA]** `docs/registers/skill-vernacular-ratification-packet.md`: **22 vernacular aliases
+RATIFIED by the RVM domain owner on 2026-07-16**, none struck, with two explicit rulings
+(Q-A `chhilai` → `skill_deburring`, Q-B `drawing padhna` → `skill_drawing_reading`).
+
+**[DATA]** They live in `packages/taxonomy/src/wedge-aliases.ts` as `WEDGE_ALIASES`, all
+carrying `ratified: true`. And:
+
+- **none of the 22 appears in `packages/db/data/taxonomy/skills.jsonl`** (197 committed aliases,
+  zero matches for `kharad`, `chhilai`, `ghisai`, `chudi katna`, `chhed karna`,
+  `finishing ka kaam`, `job setting`);
+- **no seeder consumes `WEDGE_ALIASES`.** The only non-test reference in the repository is the
+  generated `dist/wedge-aliases.d.ts`.
+
+The packet itself flags the dependency — *"Seed / embed / re-sweep remain PENDING the SR-1
+staging env"* — so this is a known blocked step, not a forgotten one. But it has been blocked
+for **five weeks**, and the measurement says each of those aliases converts a ~0.55
+UNRESOLVED into a ≈1.0 exact hit.
+
+> **The highest-value vernacular work in this repository is already designed, already measured,
+> and already ratified by the owner. It is unshipped.**
+
+**[DATA]** All 22 target skills are in `SKILL_CORPUS` (0 dangling) and **0 of the 22 appear as
+`SKILL_CORPUS` aliases**. That corpus is exactly the set `ATTRIBUTE_TO_MATCH_SKILLS` covers, so
+these aliases would improve retrieval for skills that **actually reach matching** — unlike the
+96 promotable growth skills, which reach nothing (Q1, TASK 9B).
+
+They target `SKILL_CORPUS`, **not** the D2 growth corpus in `data/taxonomy/skills.jsonl`. The
+two are disjoint id spaces, and an earlier draft of the delivery tripwire checked the wrong one
+and reported 15 skills as "dangling" that were nothing of the kind.
+
+**[REC]** This reorders the roadmap: the first vernacular improvement is not authoring new
+material, it is delivering material a human already approved. It is also the *cheapest* — the
+decision cost is spent, and only seeding + embedding remains. It is **not** actioned here: it
+requires a corpus write and a paid embed run, both owner-gated.
 
 ---
 
@@ -268,6 +371,7 @@ inherits the guarantee by calling one function.
 
 | phase | work | needs spend? | gate |
 |---|---|---|---|
+| **D6-0** | **Ship the 22 already-ratified wedge aliases** (§2B). Corpus write + embed. Decision cost already paid. | paid embed | owner |
 | **D6-1** | Author the vernacular fixture (4 categories, human-written, hygiene-checked). Extend `Register` coverage assertions. | **₹0** | none — repository work |
 | **D6-2** | Run the existing instrument over it. Also run the Layer-A experiment: normalized query vs raw, same corpus. | **paid embeddings — STOP and request approval first** | owner |
 | **D6-3** | If D6-2 shows lexical distance is the cause, add validated worker-language aliases to existing skills. Corpus edit + embed run. | paid embed | owner |
@@ -275,8 +379,10 @@ inherits the guarantee by calling one function.
 | **D6-5** | Reranking — only for residual sibling ambiguity after D6-3 | — | owner |
 | **D6-6** | Production decision | — | owner |
 
-**[REC]** D6-1 is the only phase that should start without a further decision. **D6-2 requires
-paid embedding calls and must not be self-authorized.**
+**[REC]** D6-1 is the only phase that should start without a further decision. **D6-0 and D6-2
+both require paid runs and must not be self-authorized** - but D6-0 is the one to authorize
+first: its design and human ratification are already complete, and it is the only item with a
+measured before/after (~0.55 UNRESOLVED to ~1.0 exact).
 
 ---
 
@@ -320,27 +426,47 @@ authorized here and none was incurred.**
 2. **Where?** Normalization + L0/L2/L3 on the **occupation** path. On the **skill** path:
    the embedding model alone — raw text, ANN only, no normalization, no exact tier.
 3. **Measured vs assumed?** Devanagari **measured** (alias 1.000, paraphrase 0.917). English
-   paraphrase **measured** (0.955). Hinglish, transliteration, code-switching, spelling
-   variation, regional languages: **NOT MEASURED, zero cases.**
-4. **What's missing from evaluation?** The four categories in §5 — above all `hinglish_latin`,
-   which is the register the particle corpus was purpose-built for.
+   paraphrase **measured** (0.955). Romanized Hindi **measured — but by the wedge eval, not by
+   the gate-bearing fixture** (§2A): paraphrase 0.666–0.902, single-word trade terms
+   0.528–0.603. Code-switching, spelling variation, regional languages: **NOT MEASURED in
+   either instrument.**
+4. **What's missing from evaluation?** The categories in §5 — above all `hinglish_latin` in
+   `retrieval-v3`, which is the register the particle corpus was purpose-built for and the one
+   the promotion gates cannot see. The wedge eval covers it but governs nothing.
 5. **Preventing sibling leakage?** §6 — `siblingLexicalLeaks`, now reusable and asserted over
    all 168 cases.
 6. **Aliases, embeddings, normalization, or extraction?** **[REC]** Aliases (Layer B) first,
    normalization (Layer A) second and only after the re-embedding asymmetry is resolved by
    measurement. Not the model. Not extraction.
-7. **Lowest-risk path?** D6-1 → D6-2 → D6-3. Fixture, then measurement, then data.
+7. **Lowest-risk path?** **D6-0 first** — ship the 22 aliases a human already ratified (§2B).
+   Then D6-1 → D6-2 → D6-3. Delivering an approved decision outranks authoring new material.
 8. **How to prove improvement without false assignments?** The instrument already reports
    `cross_domain_isolation` and `competitor_outranking` alongside recall. **[REC]** Any
    vernacular change must hold those constant while recall rises — recall alone is not proof.
-9. **Does it require changing 0.75?** **[DATA] No — and the evidence argues against the
-   premise.** Hindi paraphrase clears the floor at the same rate as English. Floor pressure is
-   about paraphrase distance, not language. The floor stays an owner decision on its own terms.
+9. **Does it require changing 0.75?** **[DATA] No — and the wedge eval makes that conclusive,
+   not merely unsupported.** Hindi paraphrase clears the floor at the same rate as English; and
+   for single-word vernacular the correct answers (0.528–0.603) *interleave* with the negatives
+   (0.518–0.572), so **no threshold separates them at all** (§2A). Lowering the floor to admit
+   `chhilai` (0.5284) would also admit `biryani banana` (0.5427). The fix is the corpus, not
+   the threshold. This is evidence **for** the existing floor, not permission to move it.
 10. **Owner decisions required?** See below.
 
 ---
 
 ## 11. Owner decisions
+
+**Decision 0 — Ship the 22 ratified wedge aliases?**
+*Evidence:* ratified by the RVM owner 2026-07-16, none struck; all 22 target live
+`SKILL_CORPUS` skills; none is in the corpus; nothing consumes `WEDGE_ALIASES`. Measured
+before/after: ~0.55 UNRESOLVED → ≈1.0 exact.
+*Options:* (a) authorize the corpus write + embed; (b) keep waiting on SR-1; (c) strike the
+ratification.
+*Recommendation:* **(a).** It is the highest-value, lowest-uncertainty vernacular work
+available, and the expensive part — human judgement — is already spent.
+*Risk:* one corpus write and one small embed run. The aliases target `SKILL_CORPUS`, which is
+inside the runtime bridge, so the benefit reaches matching.
+*If chosen:* five weeks of ratified work lands. *Still blocked:* nothing.
+*Not actioned here:* corpus write and paid embed are both owner-gated.
 
 **Decision 1 — Authorize D6-2's paid embedding run?**
 *Evidence:* four vernacular categories have zero coverage; the instrument is ready.
