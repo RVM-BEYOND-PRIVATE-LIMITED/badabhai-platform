@@ -52,6 +52,26 @@ void main() {
     ],
   );
 
+  // A server-side account deletion (410 WORKER_ACCOUNT_DELETED) reaches unlock as
+  // an AuthFailure too — but the app-root AccountDeletedSignal already shows the
+  // ONE dialog + hard-logout. The cubit must NOT ALSO go to `failure` (which
+  // pops this screen's local "PIN sahi nahi" dialog): two stacked dialogs made
+  // the first OK dismiss the wrong one and skip logout, so the worker had to tap
+  // OK twice. It must land on `idle` — no message, no forgot nudge.
+  blocTest<EnterPinCubit, EnterPinState>(
+    'account deleted (410) does NOT raise the local wrong-PIN dialog (single-OK)',
+    build: () {
+      when(() => manager.unlockWithPin(any())).thenThrow(
+          const AuthFailure(AuthErrorCode.accountDeleted, statusCode: 410));
+      return EnterPinCubit(manager, locale: 'en');
+    },
+    act: (EnterPinCubit c) => c.unlock('7416'),
+    expect: () => const <EnterPinState>[
+      EnterPinState(status: EnterPinStatus.submitting),
+      EnterPinState(status: EnterPinStatus.idle),
+    ],
+  );
+
   // The threshold is the whole feature. Asserting the FULL state sequence over
   // three misses pins it at exactly 3 in both directions — a `>` / `>=` slip or
   // a threshold bumped to 2 or 4 breaks this test, not just production.

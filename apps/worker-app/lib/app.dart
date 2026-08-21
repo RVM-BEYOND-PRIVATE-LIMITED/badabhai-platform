@@ -113,12 +113,16 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
       message:
           'Hamein aapki profile nahi mil rahi hai. Kripya dobara login karein.',
     );
-    _accountDeletedDialogShown = false;
     // Hard logout: wipe tokens + PIN, drop singleton-held user data
     // (onSessionCleared), flip to loggedOut → the router bounces to phone login.
+    // Do this BEFORE releasing the guard: a second in-flight 410 (a screen with
+    // several concurrent authed calls) must not re-open the dialog in the window
+    // between the OK tap and the session wipe. Once logged out the session is
+    // gone, so no further call can 410 — then it is safe to release the guard.
     if (locator.isRegistered<AuthSessionManager>()) {
       await locator<AuthSessionManager>().logout();
     }
+    _accountDeletedDialogShown = false;
   }
 
   @override

@@ -62,6 +62,17 @@ class EnterPinCubit extends Cubit<EnterPinState> {
       emit(const EnterPinState(status: EnterPinStatus.done));
     } on AuthFailure catch (failure) {
       if (isClosed) return;
+      // Account deleted server-side (410 WORKER_ACCOUNT_DELETED): the app-root
+      // AccountDeletedSignal already shows the ONE non-dismissible dialog and
+      // hard-logs-out. Do NOT also raise this screen's local "PIN sahi nahi"
+      // dialog — two stacked dialogs meant the first OK dismissed the wrong one
+      // and did not log out (the worker had to tap OK twice). Just leave the
+      // submitting state (do not count it as a PIN fail); the global flow drives
+      // the exit to login.
+      if (failure.isAccountDeleted) {
+        emit(const EnterPinState(status: EnterPinStatus.idle));
+        return;
+      }
       _failCount++;
       emit(EnterPinState(
         status: EnterPinStatus.failure,
