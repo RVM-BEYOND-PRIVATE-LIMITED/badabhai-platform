@@ -1,0 +1,160 @@
+/* ============================================================
+   BadaBhai · Component styles — Forms
+   Buttons, inputs, selects, choices, switch, OTP.
+   All values reference tokens. Prefix: .bb-
+   ============================================================ */
+
+/* ---------- Button ---------- */
+.bb-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--space-2);
+  height: var(--control-md); min-height: var(--control-md);
+  padding: 0 var(--space-5);
+  font-family: var(--font-sans);
+  font-size: var(--text-base); font-weight: var(--weight-bold);
+  line-height: 1; letter-spacing: 0;
+  border: var(--border-medium) solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer; white-space: nowrap; user-select: none;
+  transition: var(--transition-control);
+  text-decoration: none;
+}
+.bb-btn:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+.bb-btn:disabled, .bb-btn[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+.bb-btn .ph, .bb-btn .ph-fill, .bb-btn .ph-bold { font-size: 1.25em; }
+
+.bb-btn--sm { height: var(--control-sm); min-height: var(--control-sm); padding: 0 var(--space-3); font-size: var(--text-sm); border-radius: var(--radius-sm); }
+.bb-btn--lg { height: var(--control-lg); min-height: var(--control-lg); padding: 0 var(--space-6); font-size: var(--text-md); }
+.bb-btn--block { display: flex; width: 100%; }
+
+/* primary — marigold, the one CTA */
+.bb-btn--primary { background: var(--brand); color: var(--text-on-brand); box-shadow: var(--shadow-brand); }
+.bb-btn--primary:hover { background: var(--brand-hover); box-shadow: var(--shadow-brand-lg); }
+.bb-btn--primary:active { background: var(--brand-press); transform: scale(0.97); box-shadow: var(--shadow-brand); }
+
+/* secondary — outlined, ink */
+.bb-btn--secondary { background: var(--surface-card); color: var(--text-primary); border-color: var(--border-strong); box-shadow: var(--shadow-xs); }
+.bb-btn--secondary:hover { background: var(--surface-sunken); border-color: var(--ink-400); }
+.bb-btn--secondary:active { transform: scale(0.97); background: var(--surface-inset); }
+
+/* tonal — soft marigold */
+.bb-btn--tonal { background: var(--brand-tint-2); color: var(--brand-press); }
+.bb-btn--tonal:hover { background: var(--marigold-200); }
+.bb-btn--tonal:active { transform: scale(0.97); }
+
+/* ghost */
+.bb-btn--ghost { background: transparent; color: var(--text-primary); }
+.bb-btn--ghost:hover { background: var(--surface-sunken); }
+.bb-btn--ghost:active { transform: scale(0.97); }
+
+/* success / danger */
+.bb-btn--success { background: var(--success); color: #fff; box-shadow: var(--shadow-sm); }
+.bb-btn--success:hover { background: var(--success-press); }
+.bb-btn--success:active { transform: scale(0.97); }
+.bb-btn--danger { background: var(--danger); color: #fff; box-shadow: var(--shadow-sm); }
+.bb-btn--danger:hover { background: var(--danger-press); }
+.bb-btn--danger:active { transform: scale(0.97); }
+
+.bb-btn__spinner { width: 1.1em; height: 1.1em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: bb-spin 0.6s linear infinite; }
+@keyframes bb-spin { to { transform: rotate(360deg); } }
+
+/* ---------- IconButton ---------- */
+.bb-iconbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: var(--control-md); height: var(--control-md);
+  border-radius: var(--radius-md);
+  border: var(--border-medium) solid transparent;
+  background: transparent; color: var(--text-secondary);
+  cursor: pointer; transition: var(--transition-control); font-size: 20px;
+}
+.bb-iconbtn:hover { background: var(--surface-sunken); color: var(--text-primary); }
+.bb-iconbtn:active { transform: scale(0.92); }
+.bb-iconbtn:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+.bb-iconbtn--sm { width: var(--control-sm); height: var(--control-sm); font-size: 17px; }
+.bb-iconbtn--lg { width: var(--control-lg); height: var(--control-lg); font-size: 24px; }
+.bb-iconbtn--solid { background: var(--brand); color: var(--text-on-brand); box-shadow: var(--shadow-brand); }
+.bb-iconbtn--solid:hover { background: var(--brand-hover); color: var(--text-on-brand); }
+.bb-iconbtn--outline { border-color: var(--border-strong); color: var(--text-primary); }
+.bb-iconbtn--outline:hover { background: var(--surface-sunken); }
+
+/* ---------- Field shell (Input / Textarea / Select) ---------- */
+.bb-field { display: flex; flex-direction: column; gap: var(--space-2); font-family: var(--font-sans); }
+.bb-field__label { font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text-primary); }
+.bb-field__label .bb-field__opt { color: var(--text-faint); font-weight: var(--weight-regular); }
+.bb-field__hint { font-size: var(--text-sm); color: var(--text-muted); }
+.bb-field__error { font-size: var(--text-sm); color: var(--danger); font-weight: var(--weight-medium); display: flex; align-items: center; gap: 5px; }
+
+.bb-input-wrap { position: relative; display: flex; align-items: center; }
+.bb-input {
+  width: 100%; height: var(--control-lg);
+  font-family: var(--font-sans); font-size: var(--text-base); color: var(--text-primary);
+  background: var(--surface-card);
+  border: var(--border-medium) solid var(--border-strong);
+  border-radius: var(--radius-md); padding: 0 var(--space-4);
+  transition: var(--transition-control);
+}
+.bb-input::placeholder { color: var(--text-faint); }
+.bb-input:hover { border-color: var(--ink-400); }
+.bb-input:focus { outline: none; border-color: var(--brand); box-shadow: var(--ring-focus); }
+.bb-input:disabled { background: var(--surface-sunken); color: var(--text-muted); cursor: not-allowed; }
+.bb-input--has-left { padding-left: 44px; }
+.bb-input--has-right { padding-right: 44px; }
+.bb-input--error { border-color: var(--danger); }
+.bb-input--error:focus { box-shadow: 0 0 0 3px var(--danger-tint); }
+.bb-input__icon { position: absolute; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 20px; width: 44px; pointer-events: none; }
+.bb-input__icon--left { left: 0; }
+.bb-input__icon--right { right: 0; }
+
+.bb-textarea { height: auto; min-height: 96px; padding: var(--space-3) var(--space-4); line-height: var(--leading-normal); resize: vertical; }
+
+/* Select */
+.bb-select-wrap { position: relative; display: flex; align-items: center; }
+.bb-select { appearance: none; -webkit-appearance: none; padding-right: 44px; cursor: pointer; }
+.bb-select-wrap .bb-select__chevron { position: absolute; right: var(--space-4); pointer-events: none; color: var(--text-muted); font-size: 18px; }
+
+/* ---------- Checkbox / Radio ---------- */
+.bb-choice { display: inline-flex; align-items: center; gap: var(--space-3); cursor: pointer; font-family: var(--font-sans); font-size: var(--text-base); color: var(--text-primary); min-height: var(--tap); user-select: none; }
+.bb-choice input { position: absolute; opacity: 0; width: 0; height: 0; }
+.bb-choice__box {
+  width: 24px; height: 24px; flex: none;
+  border: var(--border-bold) solid var(--border-strong);
+  background: var(--surface-card);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 15px;
+  transition: var(--transition-control);
+}
+.bb-choice--checkbox .bb-choice__box { border-radius: var(--radius-xs); }
+.bb-choice--radio .bb-choice__box { border-radius: 50%; }
+.bb-choice__box .ph, .bb-choice__box .ph-bold { opacity: 0; transform: scale(0.5); transition: var(--transition-control); }
+.bb-choice__dot { width: 10px; height: 10px; border-radius: 50%; background: #fff; opacity: 0; transform: scale(0.4); transition: var(--transition-control); }
+.bb-choice input:checked + .bb-choice__box { background: var(--brand); border-color: var(--brand); }
+.bb-choice input:checked + .bb-choice__box .ph,
+.bb-choice input:checked + .bb-choice__box .ph-bold { opacity: 1; transform: scale(1); }
+.bb-choice input:checked + .bb-choice__box .bb-choice__dot { opacity: 1; transform: scale(1); }
+.bb-choice input:focus-visible + .bb-choice__box { box-shadow: var(--ring-focus); }
+.bb-choice:hover .bb-choice__box { border-color: var(--ink-400); }
+.bb-choice input:checked:hover + .bb-choice__box { border-color: var(--brand-press); }
+
+/* ---------- Switch ---------- */
+.bb-switch { display: inline-flex; align-items: center; gap: var(--space-3); cursor: pointer; min-height: var(--tap); font-family: var(--font-sans); font-size: var(--text-base); color: var(--text-primary); user-select: none; }
+.bb-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.bb-switch__track {
+  width: 52px; height: 30px; flex: none; border-radius: var(--radius-pill);
+  background: var(--ink-300); padding: 3px; transition: var(--transition-control);
+}
+.bb-switch__thumb { width: 24px; height: 24px; border-radius: 50%; background: #fff; box-shadow: var(--shadow-sm); transition: transform var(--duration-base) var(--ease-out); }
+.bb-switch input:checked + .bb-switch__track { background: var(--success); }
+.bb-switch input:checked + .bb-switch__track .bb-switch__thumb { transform: translateX(22px); }
+.bb-switch input:focus-visible + .bb-switch__track { box-shadow: var(--ring-focus); }
+
+/* ---------- OTP input (brand) ---------- */
+.bb-otp { display: inline-flex; gap: var(--space-3); }
+.bb-otp__cell {
+  width: 52px; height: 60px; text-align: center;
+  font-family: var(--font-mono); font-size: var(--text-2xl); font-weight: var(--weight-bold);
+  color: var(--text-primary); background: var(--surface-card);
+  border: var(--border-bold) solid var(--border-strong); border-radius: var(--radius-md);
+  transition: var(--transition-control);
+}
+.bb-otp__cell:focus { outline: none; border-color: var(--brand); box-shadow: var(--ring-focus); }
+.bb-otp__cell--filled { border-color: var(--brand); background: var(--brand-tint); }

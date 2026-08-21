@@ -1,0 +1,26 @@
+<!-- @dsCard group="Spacing" viewport="700x190" name="Corner radius" subtitle="Friendly but sturdy. Controls 14, cards 18, pills for chips." -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 24px 28px; background: var(--surface-card); font-family: var(--font-sans); }
+  .row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .item { text-align: center; }
+  .box { width: 76px; height: 60px; background: var(--ink-900); border-top: 4px solid var(--brand); }
+  .lab { font-size: 12px; font-weight: 700; color: var(--text-primary); margin-top: 8px; }
+  .tok { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="item"><div class="box" style="border-radius:6px"></div><div class="lab">xs · 6</div><div class="tok">--radius-xs</div></div>
+    <div class="item"><div class="box" style="border-radius:10px"></div><div class="lab">sm · 10</div><div class="tok">--radius-sm</div></div>
+    <div class="item"><div class="box" style="border-radius:14px"></div><div class="lab">md · 14</div><div class="tok">control</div></div>
+    <div class="item"><div class="box" style="border-radius:18px"></div><div class="lab">lg · 18</div><div class="tok">card</div></div>
+    <div class="item"><div class="box" style="border-radius:24px"></div><div class="lab">xl · 24</div><div class="tok">sheet</div></div>
+    <div class="item"><div class="box" style="border-radius:999px;width:60px"></div><div class="lab">pill</div><div class="tok">chip/status</div></div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,50 @@
+<!-- @dsCard group="Colors" viewport="700x196" name="Status & support" subtitle="Green (go), crimson (skip), saffron (warn), teal (info)." -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin: 0; padding: 22px 24px; background: var(--surface-card); font-family: var(--font-sans); }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .col .chip { height: 56px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); display: flex; align-items: flex-end; padding: 8px 10px; }
+  .name { font-size: 12px; font-weight: 700; color: var(--text-primary); margin-top: 9px; }
+  .role { font-size: 11px; color: var(--text-muted); }
+  .hex { font-family: var(--font-mono); font-size: 10px; color: var(--text-faint); }
+  .tints { display: flex; gap: 5px; margin-top: 7px; }
+  .tints i { width: 22px; height: 14px; border-radius: 4px; display: block; }
+</style>
+</head>
+<body>
+  <div class="grid">
+    <div class="col">
+      <div class="chip" style="background:var(--success)"></div>
+      <div class="name">Green</div>
+      <div class="role">go · apply · verified · ₹</div>
+      <div class="tints"><i style="background:var(--green-50)"></i><i style="background:var(--green-100)"></i><i style="background:var(--green-600)"></i></div>
+      <div class="hex">--success 0E7A4F</div>
+    </div>
+    <div class="col">
+      <div class="chip" style="background:var(--danger)"></div>
+      <div class="name">Crimson</div>
+      <div class="role">skip · error · urgent</div>
+      <div class="tints"><i style="background:var(--red-50)"></i><i style="background:var(--red-100)"></i><i style="background:var(--red-600)"></i></div>
+      <div class="hex">--danger C8142C</div>
+    </div>
+    <div class="col">
+      <div class="chip" style="background:var(--warning)"></div>
+      <div class="name">Saffron</div>
+      <div class="role">warning · attention</div>
+      <div class="tints"><i style="background:var(--saffron-50)"></i><i style="background:var(--saffron-300)"></i><i style="background:var(--saffron-700)"></i></div>
+      <div class="hex">--warning C06E08</div>
+    </div>
+    <div class="col">
+      <div class="chip" style="background:var(--info)"></div>
+      <div class="name">Turquoise</div>
+      <div class="role">info · links · festive</div>
+      <div class="tints"><i style="background:var(--teal-50)"></i><i style="background:var(--teal-100)"></i><i style="background:var(--teal-600)"></i></div>
+      <div class="hex">--info 0E8488</div>
+    </div>
+  </div>
+</body>
+</html>
