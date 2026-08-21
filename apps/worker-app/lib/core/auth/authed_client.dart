@@ -50,6 +50,7 @@ class AuthedClient {
     required DeviceIdProvider deviceId,
     required LocaleStore localeStore,
     required ReauthSignal reauthSignal,
+    this.onAccountDeleted,
     http.Client? client,
     Uuid? uuid,
     this.refreshSkew = const Duration(seconds: 90),
@@ -68,6 +69,15 @@ class AuthedClient {
   final DeviceIdProvider _deviceId;
   final LocaleStore _localeStore;
   final ReauthSignal _reauthSignal;
+
+  /// Invoked when a response carries the RESERVED account-deleted contract — HTTP
+  /// 410 Gone + body `{ "code": "WORKER_ACCOUNT_DELETED" }`. Wired to
+  /// [AccountDeletedSignal.fire] so the auth/refresh path (not just data reads)
+  /// triggers the hard-logout dialog. Fired on BOTH the status AND the code, so a
+  /// bare 410 can never cause a false destructive logout; the [AuthResponse] is
+  /// still returned unchanged so the caller keeps failing as it did before.
+  final void Function()? onAccountDeleted;
+
   final Uuid _uuid;
   final http.Client _client;
 
@@ -249,6 +259,14 @@ class AuthedClient {
               return <String, dynamic>{};
             }
           }();
+    // The RESERVED account-deleted contract (410 Gone + { code:
+    // WORKER_ACCOUNT_DELETED }) can arrive on the auth/refresh path too. Fire the
+    // hard-logout signal, then continue returning the AuthResponse exactly as
+    // before — the caller still sees the 410 and fails cleanly. Predicate is BOTH
+    // status AND code so no other 410 can trip a false destructive logout.
+    if (res.statusCode == 410 && body['code'] == 'WORKER_ACCOUNT_DELETED') {
+      onAccountDeleted?.call();
+    }
     return AuthResponse(res.statusCode, body);
   }
 

@@ -22,6 +22,7 @@ AuthApi createAuthApi({
   required DeviceIdProvider deviceId,
   required LocaleStore localeStore,
   required ReauthSignal reauthSignal,
+  void Function()? onAccountDeleted,
   String? baseUrl,
 }) {
   if (kUseMocks) {
@@ -33,6 +34,9 @@ AuthApi createAuthApi({
     deviceId: deviceId,
     localeStore: localeStore,
     reauthSignal: reauthSignal,
+    // A 410 { code: WORKER_ACCOUNT_DELETED } on the auth/refresh path → the
+    // account-deleted hard-logout dialog (mirrors the ApiClient seam).
+    onAccountDeleted: onAccountDeleted,
   );
   // Thread the SAME device-id provider that signs `X-Device-Id` so OTP verify's
   // `device_info.device_id` matches the header (ADR-0026 Phase 2 device binding).

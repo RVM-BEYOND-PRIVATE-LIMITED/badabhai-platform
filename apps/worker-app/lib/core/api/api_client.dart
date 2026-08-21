@@ -165,6 +165,7 @@ class ApiClient {
     http.Client? client,
     this.onSessionTokenRefreshed,
     this.onUnauthorized,
+    this.onAccountDeleted,
     this.currentAuthToken,
   })  : baseUrl = baseUrl ?? resolveApiBaseUrl(),
         _client = client ?? http.Client();
@@ -193,6 +194,17 @@ class ApiClient {
   /// Returning false (or an unrecoverable refresh, which flips the manager to
   /// loggedOut and frees the router) leaves the original 401 to surface.
   final Future<bool> Function()? onUnauthorized;
+
+  /// Invoked ONCE when any response carries the RESERVED account-deleted
+  /// contract: HTTP 410 Gone with body `{ "code": "WORKER_ACCOUNT_DELETED" }`
+  /// (a valid worker token whose row no longer exists server-side).
+  ///
+  /// 410 is reserved EXCLUSIVELY for this, and the predicate is deliberately
+  /// BOTH the status AND the code — a bare 410 or any other `code` must never
+  /// trigger it, because a false destructive logout is unacceptable. The seam
+  /// still throws the [ApiException] afterward so the in-flight call fails
+  /// cleanly; this hook only lets the app root wipe + return to phone login.
+  final void Function()? onAccountDeleted;
 
   /// Reads the CURRENT bearer, after [onUnauthorized] renewed it. Callers pass
   /// their token by value, so the retry would otherwise re-send the same dead
@@ -1259,10 +1271,20 @@ class ApiClient {
       // Attach the decoded body so a typed error caller can read structured
       // detail (e.g. the profiling stale-answer 409's `stale_reason`, #806)
       // without a second round trip. Null when the body is not a JSON object.
+      final Map<String, dynamic>? errorBody = _tryDecodeMap(res.body);
+      // The RESERVED account-deleted contract: a valid worker token whose row no
+      // longer exists → 410 Gone + { code: WORKER_ACCOUNT_DELETED }. Fire the
+      // hard-logout signal, then STILL throw below so this in-flight call fails
+      // cleanly (never swallowed). Guarded on BOTH the status AND the code so a
+      // bare 410 — or any other 410 — can never cause a false destructive logout.
+      if (res.statusCode == 410 &&
+          errorBody?['code'] == 'WORKER_ACCOUNT_DELETED') {
+        onAccountDeleted?.call();
+      }
       throw ApiException(
         res.statusCode,
         _messageFrom(res.body),
-        body: _tryDecodeMap(res.body),
+        body: errorBody,
       );
     }
     if (res.body.isEmpty) return <String, dynamic>{};
