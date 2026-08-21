@@ -2,7 +2,13 @@
 
 import { z } from "zod";
 import { requireOwner } from "../../../lib/auth/org-roles";
-import { createCreditOrder, topUp, verifyCreditPayment } from "../../../lib/payer-api";
+import {
+  createCreditOrder,
+  getCredits,
+  PurchaseConflictError,
+  topUp,
+  verifyCreditPayment,
+} from "../../../lib/payer-api";
 
 /**
  * MOCK credit top-up Server Action (XT5 / E-R2 — MOCK ledger only).
@@ -19,11 +25,28 @@ import { createCreditOrder, topUp, verifyCreditPayment } from "../../../lib/paye
  */
 export type TopUpActionResult =
   | { ok: true; balance: number; creditsAdded: number }
+  // A 409 DUPLICATE (#1046): the first tap of THIS purchase charged once; `balance` is the REAL
+  // re-read figure (never a guessed delta), and `creditsAdded` is deliberately absent.
+  | { ok: true; balance: number; duplicate: true }
   | { ok: false; error: string };
 
 const packCodeSchema = z.string().min(1).max(64);
 
-export async function topUpAction(input: { packCode: string }): Promise<TopUpActionResult> {
+/**
+ * The per-purchase idempotency key (#1046) — a client-minted `crypto.randomUUID()`. Validated at
+ * this boundary (invariant #7): a well-formed UUID is threaded to the seam; anything else is
+ * DROPPED (the call degrades to the pre-fix no-key behaviour) rather than forwarding a junk
+ * header. PII-free by construction; it carries no payer id (XB-A — the session is the identity).
+ */
+const idempotencyKeySchema = z.string().uuid();
+function safeIdempotencyKey(key: string | undefined): string | undefined {
+  return key && idempotencyKeySchema.safeParse(key).success ? key : undefined;
+}
+
+export async function topUpAction(input: {
+  packCode: string;
+  idempotencyKey?: string;
+}): Promise<TopUpActionResult> {
   // GATE FIRST (#463 — TD79). A Next.js Server Action is an INDEPENDENTLY INVOCABLE POST
   // endpoint, not a child of the page that renders the button: the page's requireOwner()
   // protects the RENDER only. Before this line the action had NO gate at all, so a RECRUITER
@@ -45,12 +68,31 @@ export async function topUpAction(input: { packCode: string }): Promise<TopUpAct
     return { ok: false, error: "Choose a pack to top up." };
   }
   try {
-    const result = await topUp({ packCode: input.packCode });
+    const result = await topUp({
+      packCode: input.packCode,
+      idempotencyKey: safeIdempotencyKey(input.idempotencyKey),
+    });
     if (!result) return { ok: false, error: "That pack is no longer available." };
     return { ok: true, balance: result.balance, creditsAdded: result.creditsAdded };
-  } catch {
-    // Every non-404 failure collapses to ONE retryable line — the caller never learns whether
-    // the pack, the org, or the backend was the reason (no-oracle, same posture as the gate).
+  } catch (e) {
+    // 409 DUPLICATE (#1046): a re-tap of THIS purchase landed while the first was still in flight.
+    // The first charged ONCE; the 409 carries no balance, so the correct answer is to RE-READ the
+    // REAL balance and surface it — NEVER re-POST (that would be a fresh purchase attempt) and
+    // NEVER render a guessed number. `getCredits` is a payer-authed GET (XB-A, session-scoped).
+    if (e instanceof PurchaseConflictError) {
+      try {
+        const { balance } = await getCredits();
+        return { ok: true, balance, duplicate: true };
+      } catch {
+        // The re-read itself blipped — do NOT fabricate a balance. Point the payer at a refresh.
+        return {
+          ok: false,
+          error: "Your top-up is being processed. Refresh in a moment to see your balance.",
+        };
+      }
+    }
+    // Every other failure collapses to ONE retryable line — the caller never learns whether the
+    // pack, the org, or the backend was the reason (no-oracle, same posture as the gate).
     return { ok: false, error: "Top-up failed (service unavailable). Please retry." };
   }
 }

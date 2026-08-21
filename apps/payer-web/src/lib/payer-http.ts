@@ -38,6 +38,14 @@ interface RequestOptions<T> {
   schema: z.ZodType<T>;
   /** When true, omit the Authorization header (public auth endpoints). */
   public?: boolean;
+  /**
+   * Optional `Idempotency-Key` for a MUTATING purchase (POST /payer/credits, /payer/capacity —
+   * #1046/#1148). When present the SAME key across a re-tap makes the backend charge ONCE and
+   * replay the first result; a second in-flight duplicate answers 409 with no renderable figure.
+   * PII-free (a random UUID minted per purchase). Absent ⇒ the header is OMITTED and the call
+   * behaves exactly as before (backward compatible — the header is optional by design).
+   */
+  idempotencyKey?: string;
 }
 
 /** Low-level authed JSON call to the payer API. Throws on 401 / non-2xx / parse fail. */
@@ -50,6 +58,11 @@ export async function payerFetch<T>(path: string, opts: RequestOptions<T>): Prom
     if (!token) throw new PayerUnauthorizedError();
     headers.authorization = `Bearer ${token}`;
   }
+
+  // Per-purchase idempotency (#1046/#1148). The key is minted CLIENT-side (per purchase intent)
+  // and threaded through the server action + seam to here — it is NOT regenerated server-side,
+  // so a retry of the same tap carries the same key and the backend dedupes it.
+  if (opts.idempotencyKey) headers["Idempotency-Key"] = opts.idempotencyKey;
 
   const res = await fetch(`${apiBaseUrl}${path}`, {
     method: opts.method ?? "GET",

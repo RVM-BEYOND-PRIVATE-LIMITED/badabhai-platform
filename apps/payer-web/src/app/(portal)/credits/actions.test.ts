@@ -33,6 +33,19 @@ const requireOwner = vi.fn();
 const topUp = vi.fn();
 const createCreditOrder = vi.fn();
 const verifyCreditPayment = vi.fn();
+const getCredits = vi.fn();
+
+/**
+ * The REAL typed 409 the seam throws (#1165). The action does `e instanceof PurchaseConflictError`,
+ * so the mock MUST export the same class the action imports — defining it here and exporting it
+ * from the mock keeps `instanceof` honest across the module boundary.
+ */
+class PurchaseConflictError extends Error {
+  constructor() {
+    super("duplicate purchase in flight");
+    this.name = "PurchaseConflictError";
+  }
+}
 
 vi.mock("../../../lib/auth/org-roles", () => ({
   requireOwner: () => {
@@ -41,7 +54,7 @@ vi.mock("../../../lib/auth/org-roles", () => ({
   },
 }));
 vi.mock("../../../lib/payer-api", () => ({
-  topUp: (i: { packCode: string }) => {
+  topUp: (i: { packCode: string; idempotencyKey?: string }) => {
     calls.push("topUp");
     return topUp(i);
   },
@@ -53,6 +66,11 @@ vi.mock("../../../lib/payer-api", () => ({
     calls.push("verifyCreditPayment");
     return verifyCreditPayment(i);
   },
+  getCredits: () => {
+    calls.push("getCredits");
+    return getCredits();
+  },
+  PurchaseConflictError,
 }));
 
 const { topUpAction, createOrderAction, verifyPaymentAction } = await import("./actions");
@@ -69,6 +87,7 @@ beforeEach(() => {
     packCode: "pack_50",
     realCall: false,
   });
+  getCredits.mockReset().mockResolvedValue({ payerId: "p1", balance: 60 });
   createCreditOrder.mockReset().mockResolvedValue({
     order_id: "order_1",
     key_id: "rzp_test_keyid",
@@ -289,5 +308,53 @@ describe("verifyPaymentAction — gate FIRST, and NEVER a fabricated success", (
       error: "We couldn't confirm that payment. Please contact support.",
     });
     expect(verifyCreditPayment).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * IDEMPOTENCY + 409 RE-READ (#1165). `topUpAction` threads the client-minted per-purchase key to
+ * the seam, and on the 409 a duplicate-in-flight purchase gets it RE-READS the real balance
+ * (`getCredits`) rather than re-posting or rendering a guessed number.
+ */
+describe("topUpAction — Idempotency-Key threading + 409 re-read (#1165)", () => {
+  const KEY = "5f9d1c2e-1a2b-4c3d-8e4f-0a1b2c3d4e5f"; // a client crypto.randomUUID()
+
+  it("forwards a well-formed idempotency key to the seam", async () => {
+    await topUpAction({ packCode: "pack_50", idempotencyKey: KEY });
+    expect(topUp).toHaveBeenCalledWith({ packCode: "pack_50", idempotencyKey: KEY });
+  });
+
+  it("DROPS a malformed key (degrades to no-key) rather than forwarding junk to the header", async () => {
+    await topUpAction({ packCode: "pack_50", idempotencyKey: "not-a-uuid" });
+    // The seam is called with an UNDEFINED key — the boundary refuses to forward a junk value.
+    expect(topUp).toHaveBeenCalledWith({ packCode: "pack_50", idempotencyKey: undefined });
+  });
+
+  it("a 409 (PurchaseConflictError) RE-READS the real balance and renders NO guessed number — no second POST", async () => {
+    topUp.mockRejectedValueOnce(new PurchaseConflictError());
+    getCredits.mockResolvedValueOnce({ payerId: "p1", balance: 71 }); // the REAL post-charge balance
+    const res = await topUpAction({ packCode: "pack_50", idempotencyKey: KEY });
+
+    // The real re-read balance is surfaced, flagged as a duplicate, with NO fabricated delta.
+    expect(res).toEqual({ ok: true, balance: 71, duplicate: true });
+    if (res.ok) expect(res).not.toHaveProperty("creditsAdded"); // never a guessed number
+
+    // Exactly ONE purchase POST (topUp), then a GET re-read (getCredits) — never a re-POST.
+    expect(topUp).toHaveBeenCalledTimes(1);
+    expect(getCredits).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual(["requireOwner", "topUp", "getCredits"]);
+  });
+
+  it("a 409 whose re-read ALSO blips returns a neutral 'processing' line — never a fabricated balance", async () => {
+    topUp.mockRejectedValueOnce(new PurchaseConflictError());
+    getCredits.mockRejectedValueOnce(new Error("boom"));
+    const res = await topUpAction({ packCode: "pack_50", idempotencyKey: KEY });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error).toMatch(/being processed|refresh/i);
+      expect(res.error).not.toMatch(/payer_id|forbidden|\d{2,}/); // no leak, no invented number
+    }
+    // Still no re-POST on the failed-re-read path.
+    expect(topUp).toHaveBeenCalledTimes(1);
   });
 });
