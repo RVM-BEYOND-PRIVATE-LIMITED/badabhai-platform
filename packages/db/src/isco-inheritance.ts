@@ -171,7 +171,11 @@ export function planInheritance(
   const kids = childrenOf(domains);
   const cycles: string[] = [];
 
-  const existingKey = (d: string, s: string): string => `${d}${s}`;
+  // Unit separator, written as an ESCAPE not a raw byte: a raw 0x1f makes ripgrep treat the
+  // whole file as binary and skip it, so every grep over it silently returns nothing
+  // (`source-hygiene.test.ts`). It also cannot occur inside a domain or skill id, so
+  // `jd_a` + `skill_b` can never collide with `jd_ask` + `ill_b`.
+  const existingKey = (d: string, s: string): string => `${d}\u001f${s}`;
   const existing = new Map(edges.map((e) => [existingKey(e.job_domain_id, e.skill_id), e]));
 
   // Roots: domains with at least one ACTIVE, AUTHORED edge. Inherited edges are excluded so
