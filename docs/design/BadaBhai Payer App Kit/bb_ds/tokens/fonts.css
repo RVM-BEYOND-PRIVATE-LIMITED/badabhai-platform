@@ -1,0 +1,43 @@
+/* ============================================================
+   BadaBhai · Webfonts
+   ------------------------------------------------------------
+   · Baloo 2     — display / brand voice   (Google Fonts CDN)
+   · Mukta       — body & UI               (Google Fonts CDN)
+   · Roboto Mono — data / IDs / numbers    (self-hosted, shipped)
+
+   Baloo 2 and Mukta are open-source and loaded from the Google
+   Fonts CDN; both carry Devanagari + Latin for Hinglish/regional
+   copy. They can be self-hosted on request (see readme → Visual
+   Foundations). Roboto Mono ships as real binaries in
+   assets/fonts/ so data renders identically offline.
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700;800&family=Mukta:wght@300;400;500;600;700;800&display=swap');
+
+@font-face {
+  font-family: 'Roboto Mono';
+  src: url('../assets/fonts/RobotoMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Roboto Mono';
+  src: url('../assets/fonts/RobotoMono-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Roboto Mono';
+  src: url('../assets/fonts/RobotoMono-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Roboto Mono';
+  src: url('../assets/fonts/RobotoMono-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}

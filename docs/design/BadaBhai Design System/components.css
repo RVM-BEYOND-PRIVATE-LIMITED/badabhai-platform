@@ -1,0 +1,11 @@
+/* ============================================================
+   BadaBhai · Component styles barrel
+   ------------------------------------------------------------
+   Imported by styles.css so consumers get component styling from
+   the single linked file. One @import per component group.
+   ============================================================ */
+@import url('components/forms/forms.css');
+@import url('components/display/display.css');
+@import url('components/feedback/feedback.css');
+@import url('components/navigation/navigation.css');
+@import url('components/brand/brand.css');

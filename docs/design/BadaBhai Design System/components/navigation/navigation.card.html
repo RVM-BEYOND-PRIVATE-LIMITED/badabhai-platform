@@ -1,0 +1,66 @@
+<!-- @dsCard group="Components" viewport="700x320" name="Navigation" subtitle="Tabs (underline / segmented) + worker bottom nav" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  body { margin: 0; padding: 24px; background: var(--surface-page); }
+  .grp { margin-bottom: 22px; }
+  .grp h4 { font-family: var(--font-sans); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); margin: 0 0 12px; }
+  .phone { max-width: 380px; border: 1px solid var(--border-default); border-radius: var(--radius-xl); overflow: hidden; box-shadow: var(--shadow-md); background: var(--surface-card); }
+  .phone__body { height: 90px; background: var(--surface-page); }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="react">
+    const { Tabs, BottomNav } = window.BadaBhaiDesignSystem_01ff85;
+
+    function Demo() {
+      const [t1, setT1] = React.useState('jobs');
+      const [t2, setT2] = React.useState('company');
+      const [nav, setNav] = React.useState('jobs');
+      return (
+        <React.Fragment>
+          <div className="grp">
+            <h4>Underline tabs</h4>
+            <Tabs value={t1} onChange={setT1} tabs={[
+              { id: 'jobs', label: 'Jobs', icon: 'briefcase' },
+              { id: 'unlocked', label: 'Unlocked', icon: 'lock-key-open' },
+              { id: 'posted', label: 'Posted', icon: 'megaphone' },
+            ]} />
+          </div>
+
+          <div className="grp">
+            <h4>Segmented (role view)</h4>
+            <Tabs variant="segmented" value={t2} onChange={setT2} tabs={[
+              { id: 'company', label: 'Company' },
+              { id: 'agency', label: 'Agency' },
+            ]} />
+          </div>
+
+          <div className="grp" style={{ marginBottom: 0 }}>
+            <h4>Worker bottom nav</h4>
+            <div className="phone">
+              <div className="phone__body"></div>
+              <BottomNav value={nav} onChange={setNav} items={[
+                { id: 'chat', label: 'Chat', icon: 'chat-circle-dots' },
+                { id: 'jobs', label: 'Jobs', icon: 'briefcase', badge: 3 },
+                { id: 'resume', label: 'Resume', icon: 'file-text' },
+                { id: 'profile', label: 'Profile', icon: 'user' },
+              ]} />
+            </div>
+          </div>
+        </React.Fragment>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+  </script>
+</body>
+</html>

@@ -29,7 +29,11 @@ import { join } from "node:path";
 const MIGRATIONS = join(__dirname, "..", "migrations");
 const JOURNAL = journalEntries(MIGRATIONS);
 const DECLARED = declaredTables();
-const NO_ROUTINES = { triggers: new Set<string>(), functions: new Set<string>() };
+const NO_ROUTINES = {
+  triggers: new Set<string>(),
+  functions: new Set<string>(),
+  eventTriggers: new Set<string>(),
+};
 const FRESH = expectedFreshCatalog(JOURNAL);
 
 const judge = (c: LiveCatalog) => ciVerdict(c, DECLARED, NO_ROUTINES, JOURNAL);
@@ -115,7 +119,13 @@ describe("every direction of drift turns it red", () => {
   it("accepts a routine a migration DOES declare", () => {
     // The other half: the gate must go green again once the routine is written down, or the only
     // way to satisfy it would be to delete the routine.
-    const declared = { triggers: new Set(["_t_log_del_workers", "ensure_rls"]), functions: new Set(["_log_delete"]) };
+    // `ensure_rls` moved out of `triggers` and into `eventTriggers`: the catalog reads
+    // `pg_event_trigger` for it, so a table-trigger declaration never could have matched it.
+    const declared = {
+      triggers: new Set(["_t_log_del_workers"]),
+      functions: new Set(["_log_delete"]),
+      eventTriggers: new Set(["ensure_rls"]),
+    };
     const v = ciVerdict(
       { ...FRESH, triggers: ["workers._t_log_del_workers"], functions: ["_log_delete"], eventTriggers: ["ensure_rls"] },
       DECLARED,
@@ -255,17 +265,38 @@ describe("design Q4 — the fresh-database view is independent of #1110's outcom
     // The case the question worried about: `ensure_rls` and friends land in a migration. The
     // fresh database then HAS them and the repo DECLARES them, so the gate stays green — the
     // two move together by construction.
+    //
+    // RESOLVED 2026-08-21. This case used to end by recording a caveat: "an event trigger is not
+    // a function and has no CREATE FUNCTION to match, so it is still reported — which is the one
+    // thing declaring them would have to handle." 0088 is that declaration, and handling it is
+    // what `declaredRoutines.eventTriggers` now does. The assertion is inverted deliberately.
     const fresh = expectedFreshCatalog(JOURNAL);
     const withRoutines = {
       ...fresh,
       functions: ["rls_auto_enable"],
       eventTriggers: ["ensure_rls"],
     };
-    const declaredToo = { triggers: new Set<string>(), functions: new Set(["rls_auto_enable"]) };
+    const declaredToo = {
+      triggers: new Set<string>(),
+      functions: new Set(["rls_auto_enable"]),
+      eventTriggers: new Set(["ensure_rls"]),
+    };
     const v = ciVerdict(withRoutines, DECLARED, declaredToo, JOURNAL);
     expect(v.undeclaredFunctions).toEqual([]);
-    // An event trigger is not a function and has no CREATE FUNCTION to match, so it is still
-    // reported — which is correct and is the one thing declaring them would have to handle.
+    expect(v.undeclaredEventTriggers).toEqual([]);
+  });
+
+  it("an event trigger declared ONLY as a table trigger is still undeclared", () => {
+    // The non-vacuity of the split. If `eventTriggers` fell back to `triggers`, this would pass
+    // while asserting nothing — and a table trigger sharing a name would silently satisfy an
+    // event trigger's declaration.
+    const fresh = expectedFreshCatalog(JOURNAL);
+    const v = ciVerdict(
+      { ...fresh, eventTriggers: ["ensure_rls"] },
+      DECLARED,
+      { triggers: new Set(["ensure_rls"]), functions: new Set<string>(), eventTriggers: new Set<string>() },
+      JOURNAL,
+    );
     expect(v.undeclaredEventTriggers).toEqual(["ensure_rls"]);
   });
 });

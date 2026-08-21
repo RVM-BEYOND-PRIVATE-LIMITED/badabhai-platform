@@ -237,3 +237,66 @@ describe("findApplicationsByWorker — the trade_key boundary (#1027)", () => {
     }
   });
 });
+
+/**
+ * TD73 — `GET /feed` must exclude the worker's APPLIED jobs SERVER-SIDE.
+ *
+ * WHY THIS NEEDS ITS OWN TEST. The exclusion is a `NOT EXISTS` inside the WHERE, and
+ * every service/controller test mocks `findOpenJobs`, so deleting the anti-join leaves
+ * the whole api suite green. The failure it guards against is not cosmetic: `LIMIT 50`
+ * applies BEFORE any client-side filter, so once a worker decides the first 50 open jobs
+ * the deck is empty forever while undecided jobs 51+ never surface (WA-1).
+ *
+ * The position of the anti-join is the assertion that matters. In the WHERE it shrinks
+ * the set the LIMIT then pages; anywhere after it, the page is already chosen.
+ */
+describe("findOpenJobs — TD73 applied-exclusion (the WA-1 starvation guard)", () => {
+  it("excludes applied jobs with a NOT EXISTS anti-join in the WHERE", async () => {
+    const { repo, captured } = makeDb();
+    await repo.findOpenJobs(WORKER, 50);
+
+    const where = render(captured.where).toLowerCase();
+    expect(where).toContain("not exists");
+    expect(where).toContain("applications");
+    // Scoped to THIS worker and THIS job — a bare NOT EXISTS on the table would
+    // empty the feed for everyone the moment any worker applied to anything.
+    expect(where).toContain("worker_id");
+    expect(where).toContain("job_id");
+  });
+
+  it("excludes ONLY `applied` — skips keep re-serving (owner ruling 2026-07-21)", async () => {
+    // Deliberate, not an oversight: re-serving skips preserves the ADR-0009 mind-change
+    // path. If a future change starts excluding skips too, that is a PRODUCT decision and
+    // this assertion is where it must be argued.
+    const { repo, captured } = makeDb();
+    await repo.findOpenJobs(WORKER, 50);
+
+    const where = render(captured.where).toLowerCase();
+    expect(where).toContain("'applied'");
+    expect(where).not.toContain("'skipped'");
+  });
+
+  it("still restricts to OPEN jobs, and pages AFTER the exclusion", async () => {
+    // The ordering of these two is the whole point of TD73: filter, then limit.
+    const { repo, captured } = makeDb();
+    await repo.findOpenJobs(WORKER, 50);
+
+    // `status` is BOUND ($1) while `action = 'applied'` is inlined — the anti-join is
+    // raw SQL, the eq() is not. Assert on the column, not on a literal that never appears.
+    expect(render(captured.where).toLowerCase()).toContain('"jobs"."status" =');
+    expect(captured.limit).toBe(50);
+  });
+
+  it("adds the optional trade/city filters without dropping the anti-join", async () => {
+    // TD66 will push more filters through this seam. Whatever else it adds, the
+    // exclusion must survive — a filtered feed that re-serves applied jobs is the
+    // same bug in a smaller window.
+    const { repo, captured } = makeDb();
+    await repo.findOpenJobs(WORKER, 50, { tradeKey: "welding", city: "Pune" });
+
+    const where = render(captured.where).toLowerCase();
+    expect(where).toContain("not exists");
+    expect(where).toContain("trade_key");
+    expect(where).toContain("city");
+  });
+});

@@ -1724,6 +1724,36 @@ jobs:
     #     taxonomy gates stay `false` in that same scope; Phase-9 activation is unrelated
     #     to this change and is not authorized.
     environment: production
+    # #1131 — SERIALISE THE DEPLOY ITSELF, at the job level, without touching the workflow-level
+    # concurrency rule above.
+    #
+    # The workflow-level `group: ci-${{ github.ref }}` / `cancel-in-progress: false` (on main)
+    # already stops the NEWEST main run being cancelled, so the tip of `main` always reaches this
+    # job (#1041/#1117). What it deliberately does NOT do is protect the box from two deploys of
+    # DIFFERENT commits landing on it at once, and it cannot be widened to do so: GitHub forbids
+    # `cancel-in-progress: true` together with an unbounded pending queue, and after #1117 that
+    # expression already evaluates `true` on PR branches — adding a workflow-level `queue`/`true`
+    # combination makes ci.yml fail validation and produce ZERO checks (worse than a red X,
+    # because the required check never appears at all). So the serialisation lives HERE instead.
+    #
+    # GROUP: a fixed, deploy-scoped constant — NOT keyed on `github.ref`. This job's `if:` already
+    # restricts it to `refs/heads/main`, so every instance shares this one group and the deploys
+    # run strictly one-at-a-time in merge order. Keying on `github.ref` would put each ref in its
+    # own group and defeat the point; there is only ever one production box.
+    #
+    # cancel-in-progress: false — QUEUE deploys, never cancel a running one. Cancelling a deploy
+    # mid-flight can leave the box half-updated; a queued deploy only waits. Mirrors
+    # `staging-cd.yml`, the other deploy workflow in this repo.
+    #
+    # CAVEAT FOR THE OWNER (weigh this on review): `environment: production` carries required
+    # reviewers, and a run parked in approval HOLDS this concurrency slot the entire time it
+    # waits (measured up to ~29m). Because the deploys already serialise behind a human gate, a
+    # job-level queue can ACCUMULATE approval-pending deploys rather than smooth them out. This is
+    # the issue's stated safe shape and is implemented as recommended, but the interaction with
+    # the approval gate is real and is called out in the PR body.
+    concurrency:
+      group: deploy-lightsail-main
+      cancel-in-progress: false
     steps:
       # ---- M2: EVERY IMAGE THIS RUN BUILDS MUST HAVE SOMEWHERE TO GO ----
       #
@@ -1838,6 +1868,31 @@ jobs:
           EMAIL_FROM_ADDRESS: ${{ secrets.EMAIL_FROM_ADDRESS }}
           CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
 
+          # ---- ADR-0022 Amdt 2 / #1129 — the agency SUPPLY-MONEY launch gate ----
+          #
+          # Declared in docker-compose.staging.yml as `${AGENCY_PAYOUTS_ENABLED:-false}` and
+          # bridged from NOWHERE until now, so the only way to set it was a manual `export` on
+          # the box — invisible to code review and invisible to this file. That is the whole
+          # defect #1129 item 1 records: not that the value was wrong, but that it was
+          # unreviewable.
+          #
+          # A LITERAL, NOT `secrets.*`, AND THAT IS THE POINT. Every other name in this block is
+          # a secret because it carries a value only the environment knows. This one carries a
+          # DECISION — the owner ruled the flag stays OFF (#1006) — and a decision belongs in a
+          # reviewed diff. As `${{ secrets.AGENCY_PAYOUTS_ENABLED }}` an Environment secret could
+          # arm the money surface with no code review at all, and arming it begins LIVE
+          # collection of real PAN + bank details from real agencies. Same shape and same
+          # reasoning as staging-cd.yml's forced-false gates.
+          #
+          # DEPLOYED BEHAVIOUR IS BYTE-IDENTICAL TO TODAY: compose already resolves this name to
+          # `false`. What changes is that it now resolves to false because a reviewed line says
+          # so, and a box-level `export AGENCY_PAYOUTS_ENABLED=true` no longer survives a deploy.
+          #
+          # Flipping this is NOT a config change — ADR-0022 calls it a legal authorization, and
+          # #1129 lists the six other things that must be true first. Do not edit this line to
+          # `"true"` without that issue closed.
+          AGENCY_PAYOUTS_ENABLED: "false"
+
           # ---- GAP-XC-06 (#920): payer-web's external port, box-specific and NOT a
           # secret in the confidentiality sense — bridged through `secrets.*` anyway,
           # for the SAME reason CORS_ALLOWED_ORIGINS above is: consistency with the one
@@ -1886,7 +1941,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,PAYER_WEB_PORT,ADMIN_WEB_PORT,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN
           # #994 — THE BODY OF THIS DEPLOY LIVES IN scripts/deploy/staging-deploy.sh.
           #
           # It is not inlined here because GitHub Actions caps a single step input at

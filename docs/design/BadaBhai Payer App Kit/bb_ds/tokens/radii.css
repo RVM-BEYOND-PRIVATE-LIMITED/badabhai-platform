@@ -1,0 +1,17 @@
+/* ============================================================
+   BadaBhai · Radius
+   ------------------------------------------------------------
+   Friendly but sturdy. Soft enough to feel warm and human;
+   never so round it turns toy-like. Controls 14, cards 18,
+   sheets 24. Pills for chips, status, and the swipe affordances.
+   ============================================================ */
+:root {
+  --radius-xs:   6px;
+  --radius-sm:   10px;
+  --radius-md:   14px;  /* default control: button, input */
+  --radius-lg:   18px;  /* card */
+  --radius-xl:   24px;  /* sheet / large card */
+  --radius-2xl:  32px;  /* hero / bottom sheet */
+  --radius-pill: 999px;
+  --radius-round: 50%;
+}

@@ -1,0 +1,18 @@
+/* ============================================================
+   BadaBhai Design System — global entry point
+   ------------------------------------------------------------
+   Consumers link THIS one file. It is an @import manifest only;
+   every rule lives in a token file below. Order matters: fonts
+   first, then primitives, then semantics, then base globals.
+   ============================================================ */
+@import url('tokens/fonts.css');
+@import url('tokens/colors.css');
+@import url('tokens/typography.css');
+@import url('tokens/spacing.css');
+@import url('tokens/radii.css');
+@import url('tokens/elevation.css');
+@import url('tokens/motion.css');
+@import url('tokens/base.css');
+
+/* component styles (kept out of the token files, still shipped in this closure) */
+@import url('components.css');

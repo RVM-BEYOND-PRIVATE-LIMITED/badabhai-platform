@@ -1,0 +1,48 @@
+<!-- @dsCard group="Brand" viewport="700x250" name="The masking motif" subtitle="Candidates are masked until unlocked. A first-class pattern." -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+<style>
+  body { margin: 0; padding: 24px 28px; background: var(--surface-page); font-family: var(--font-sans); }
+  .row { display: flex; gap: 18px; align-items: stretch; }
+  .card { background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 16px; width: 300px; display: flex; gap: 13px; align-items: center; }
+  .ph-avatar { width: 56px; height: 56px; border-radius: 50%; flex: none; background: linear-gradient(135deg, var(--ink-300), var(--ink-200)); display: flex; align-items: center; justify-content: center; color: var(--ink-500); font-size: 26px; }
+  .masked .ph-avatar { filter: blur(1px); }
+  .name { font-weight: 700; font-size: 17px; color: var(--text-primary); }
+  .masked .name { filter: blur(5px); user-select: none; }
+  .meta { font-size: 13px; color: var(--text-muted); margin-top: 2px; display: flex; align-items: center; gap: 5px; }
+  .lock { margin-left: auto; display: flex; flex-direction: column; align-items: center; gap: 6px; flex: none; }
+  .unlock-btn { background: var(--brand); color: var(--text-on-brand); border: none; font-family: var(--font-sans); font-weight: 700; font-size: 13px; padding: 9px 12px; border-radius: var(--radius-md); box-shadow: var(--shadow-brand); display: flex; align-items: center; gap: 5px; cursor: pointer; }
+  .seal { color: var(--success); display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 700; }
+  .tag { position: absolute; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="card masked">
+      <div class="ph-avatar"><i class="ph ph-user"></i></div>
+      <div>
+        <div class="name">Ramesh K.</div>
+        <div class="meta"><i class="ph ph-wrench"></i> CNC Operator · 6 yrs</div>
+        <div class="seal" style="margin-top:6px"><i class="ph-fill ph-seal-check"></i> Verified</div>
+      </div>
+      <div class="lock">
+        <i class="ph ph-lock-simple" style="font-size:20px;color:var(--text-faint)"></i>
+        <button class="unlock-btn"><i class="ph ph-lock-key-open"></i> ₹40</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="ph-avatar" style="background:linear-gradient(135deg,var(--marigold-300),var(--marigold-200));color:var(--marigold-800)"><i class="ph-fill ph-user"></i></div>
+      <div>
+        <div class="name">Ramesh Kumar</div>
+        <div class="meta"><i class="ph ph-phone"></i> +91 98xxx · unlocked</div>
+        <div class="seal" style="margin-top:6px"><i class="ph-fill ph-seal-check"></i> Verified</div>
+      </div>
+      <div class="lock"><i class="ph-fill ph-lock-key-open" style="font-size:20px;color:var(--success)"></i></div>
+    </div>
+  </div>
+</body>
+</html>

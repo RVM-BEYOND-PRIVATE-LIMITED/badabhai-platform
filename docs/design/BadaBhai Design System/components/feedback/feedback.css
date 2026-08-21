@@ -1,0 +1,78 @@
+/* ============================================================
+   BadaBhai · Component styles — Feedback
+   Dialog, Toast, Tooltip, ProgressBar. Prefix: .bb-
+   ============================================================ */
+
+/* ---------- Dialog ---------- */
+.bb-scrim {
+  position: fixed; inset: 0; background: var(--scrim);
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--space-5); z-index: var(--z-modal);
+  animation: bb-fade var(--duration-base) var(--ease-out);
+}
+.bb-scrim--sheet { align-items: flex-end; padding: 0; }
+.bb-dialog {
+  background: var(--surface-card); border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl); width: 100%; max-width: 440px;
+  max-height: 90vh; overflow: auto;
+  animation: bb-pop var(--duration-base) var(--ease-stamp);
+}
+.bb-dialog--sheet {
+  max-width: 520px; border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
+  animation: bb-slideup var(--duration-base) var(--ease-out);
+}
+.bb-dialog__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); padding: var(--space-6) var(--space-6) 0; }
+.bb-dialog__title { font-family: var(--font-display); font-weight: var(--weight-bold); font-size: var(--text-xl); color: var(--text-primary); }
+.bb-dialog__body { padding: var(--space-3) var(--space-6) 0; color: var(--text-secondary); font-size: var(--text-base); line-height: var(--leading-normal); }
+.bb-dialog__foot { display: flex; gap: var(--space-3); justify-content: flex-end; padding: var(--space-6); }
+.bb-dialog__foot--stack { flex-direction: column-reverse; }
+.bb-dialog__foot--stack .bb-btn { width: 100%; }
+
+@keyframes bb-fade { from { opacity: 0; } }
+@keyframes bb-pop { from { opacity: 0; transform: scale(0.94) translateY(8px); } }
+@keyframes bb-slideup { from { transform: translateY(100%); } }
+
+/* ---------- Toast ---------- */
+.bb-toast {
+  display: flex; gap: var(--space-3); align-items: flex-start;
+  background: var(--surface-ink); color: var(--text-inverse);
+  border-radius: var(--radius-md); padding: var(--space-3) var(--space-4);
+  box-shadow: var(--shadow-lg); max-width: 420px;
+  animation: bb-pop var(--duration-base) var(--ease-out);
+}
+.bb-toast__icon { font-size: 20px; flex: none; margin-top: 1px; color: var(--ink-200); }
+.bb-toast--success .bb-toast__icon { color: var(--green-300); }
+.bb-toast--danger  .bb-toast__icon { color: var(--red-300); }
+.bb-toast--brand   .bb-toast__icon { color: var(--marigold-300); }
+.bb-toast__content { flex: 1; }
+.bb-toast__title { font-family: var(--font-sans); font-weight: var(--weight-bold); font-size: var(--text-base); }
+.bb-toast__msg { font-size: var(--text-sm); color: var(--ink-200); margin-top: 2px; line-height: 1.4; }
+.bb-toast__close { background: none; border: none; color: var(--ink-300); cursor: pointer; padding: 2px; font-size: 18px; display: inline-flex; border-radius: var(--radius-xs); }
+.bb-toast__close:hover { color: #fff; }
+
+/* ---------- Tooltip ---------- */
+.bb-tooltip-wrap { position: relative; display: inline-flex; }
+.bb-tooltip {
+  position: absolute; bottom: calc(100% + 8px); left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: var(--ink-900); color: var(--paper-1);
+  font-family: var(--font-sans); font-size: var(--text-sm); font-weight: var(--weight-medium);
+  padding: 7px 10px; border-radius: var(--radius-sm); white-space: nowrap;
+  box-shadow: var(--shadow-md); opacity: 0; pointer-events: none;
+  transition: opacity var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+  z-index: var(--z-tooltip);
+}
+.bb-tooltip::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: var(--ink-900); }
+.bb-tooltip--bottom { bottom: auto; top: calc(100% + 8px); transform: translateX(-50%) translateY(-4px); }
+.bb-tooltip--bottom::after { top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: var(--ink-900); }
+.bb-tooltip-wrap:hover .bb-tooltip,
+.bb-tooltip-wrap:focus-within .bb-tooltip { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---------- ProgressBar ---------- */
+.bb-progress { font-family: var(--font-sans); }
+.bb-progress__head { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--text-primary); margin-bottom: 7px; }
+.bb-progress__head .bb-progress__pct { font-family: var(--font-mono); color: var(--text-muted); }
+.bb-progress__track { height: 10px; background: var(--surface-inset); border-radius: var(--radius-pill); overflow: hidden; }
+.bb-progress__fill { height: 100%; background: var(--brand); border-radius: var(--radius-pill); transition: width var(--duration-slow) var(--ease-out); }
+.bb-progress--success .bb-progress__fill { background: var(--success); }
+.bb-progress--thick .bb-progress__track { height: 14px; }

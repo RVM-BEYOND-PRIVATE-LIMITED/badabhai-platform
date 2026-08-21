@@ -89,17 +89,39 @@ export interface Drift {
  * so every routine in production's `public` schema is undeclared. That is the finding, not a
  * bug in this parser.
  */
-export function declaredRoutines(migrationsDir: string): { triggers: Set<string>; functions: Set<string> } {
+/**
+ * What the migration TEXT declares. Three sets rather than two, because #1110 declared an EVENT
+ * trigger and an event trigger is not a trigger: `undeclaredEventTriggers` is computed from a
+ * `pg_event_trigger` read, so matching it against table triggers would have reported `ensure_rls`
+ * as undeclared forever no matter what any migration said.
+ */
+export type DeclaredRoutines = {
+  triggers: Set<string>;
+  functions: Set<string>;
+  eventTriggers: Set<string>;
+};
+
+export function declaredRoutines(migrationsDir: string): DeclaredRoutines {
   const triggers = new Set<string>();
   const functions = new Set<string>();
+  const eventTriggers = new Set<string>();
   for (const f of readdirSync(migrationsDir).filter((n) => n.endsWith(".sql"))) {
     const sql = readFileSync(join(migrationsDir, f), "utf8");
+    // ORDER MATTERS. `CREATE EVENT TRIGGER` is matched FIRST and its name is deliberately NOT
+    // added to `triggers`: an event trigger lives in `pg_event_trigger`, a table trigger in
+    // `pg_trigger`, and they are compared against different catalog reads. Conflating them would
+    // let a table trigger read as declared because an event trigger happened to share its name.
+    //
+    // The table-trigger pattern below cannot match an event trigger anyway — after `CREATE` it
+    // allows only an optional `CONSTRAINT`, so the `EVENT` keyword fails it — but that is a
+    // property of the regex rather than an intention, so the intention is written here.
+    for (const m of sql.matchAll(/CREATE\s+EVENT\s+TRIGGER\s+"?([\w]+)"?/gi)) eventTriggers.add(m[1]!);
     for (const m of sql.matchAll(/CREATE\s+(?:CONSTRAINT\s+)?TRIGGER\s+"?([\w]+)"?/gi)) triggers.add(m[1]!);
     for (const m of sql.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:"?public"?\.)?"?([\w]+)"?/gi)) {
       functions.add(m[1]!);
     }
   }
-  return { triggers, functions };
+  return { triggers, functions, eventTriggers };
 }
 
 /** `true` when the database owns this name and we never expect to model it. */
@@ -277,12 +299,13 @@ async function main(): Promise<void> {
       .filter((t) => !routines.triggers.has(t.name))
       .map((t) => `${t.tbl}.${t.name}`);
     const undeclaredEventTriggers = evt
-      .filter((e) => !routines.triggers.has(e.name))
+      .filter((e) => !routines.eventTriggers.has(e.name))
       .map((e) => `${e.name} (${e.event} -> ${e.fn}())`);
     const undeclaredFunctions = fns.filter((f) => !routines.functions.has(f.name)).map((f) => f.name);
 
     console.log(
-      `\n  routines declared by migrations = ${routines.triggers.size} trigger(s), ${routines.functions.size} function(s)`,
+      `\n  routines declared by migrations = ${routines.triggers.size} trigger(s), ` +
+        `${routines.functions.size} function(s), ${routines.eventTriggers.size} event trigger(s)`,
     );
     report(
       "UNDECLARED triggers (public)",
