@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'package:badabhai_worker_app/core/api/api_client.dart';
+import 'package:badabhai_worker_app/core/config/app_config.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/features/invite/data/invite_repository_impl.dart';
@@ -51,8 +52,10 @@ void main() {
     expect(body, isEmpty);
 
     expect(link.code, 'abcdef012345');
-    // kInviteLinkBase (default) + server-relative link.
-    expect(link.url, 'https://app.badabhai.in/i/abcdef012345');
+    // kInviteLinkBase + server-relative link. Asserted against the constant, not a
+    // literal host: #1144 moved the origin and left this expectation behind,
+    // reddening main. Binding to the constant stops it drifting again.
+    expect(link.url, '$kInviteLinkBase/i/abcdef012345');
   });
 
   test('passes campaign through when supplied', () async {
