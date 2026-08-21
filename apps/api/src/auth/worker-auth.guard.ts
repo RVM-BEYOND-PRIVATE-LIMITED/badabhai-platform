@@ -3,6 +3,7 @@ import {
   type ExecutionContext,
   Inject,
   Injectable,
+  Logger,
   UnauthorizedException,
   createParamDecorator,
 } from "@nestjs/common";
@@ -12,7 +13,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { ConsentRepository } from "../consent/consent.repository";
 import { WorkersRepository } from "../workers/workers.repository";
 import { SessionService } from "./session.service";
-import { WorkerAccountDeletedException } from "./worker-account-deleted.exception";
+import { throwIfWorkerDeleted } from "./worker-account-deleted.exception";
 
 /** The authenticated worker attached to the request by {@link WorkerAuthGuard}. */
 export interface AuthenticatedWorker {
@@ -69,6 +70,8 @@ declare global {
  */
 @Injectable()
 export class WorkerAuthGuard implements CanActivate {
+  private readonly logger = new Logger(WorkerAuthGuard.name);
+
   constructor(
     private readonly session: SessionService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
@@ -96,13 +99,7 @@ export class WorkerAuthGuard implements CanActivate {
     // worker route — only a DEFINITIVE row-absent throws. This is the single UNCONDITIONAL
     // per-request DB read the guard now takes; it is the only signal Redis cannot carry (the
     // session record survives a raw row delete), so the contract requires reading Postgres here.
-    let workerExists = true;
-    try {
-      workerExists = await this.workers.existsById(validated.workerId);
-    } catch {
-      workerExists = true; // unknown existence → fail safe, never a false 410
-    }
-    if (!workerExists) throw new WorkerAccountDeletedException();
+    await throwIfWorkerDeleted(this.workers, validated.workerId, this.logger);
 
     req.worker = { id: validated.workerId, sid: validated.sid, deviceId: validated.deviceId };
 

@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus } from "@nestjs/common";
+import { HttpException, HttpStatus, Logger } from "@nestjs/common";
 
 /**
  * The RESERVED error code for "a valid worker session resolved a worker whose row no longer
@@ -39,4 +39,49 @@ export class WorkerAccountDeletedException extends HttpException {
       HttpStatus.GONE,
     );
   }
+}
+
+/**
+ * The minimal surface {@link throwIfWorkerDeleted} needs. Narrower than `WorkersRepository` on
+ * purpose: the helper is a pure function over an existence probe, so it stays trivially testable
+ * and cannot reach a PII-bearing column even by accident.
+ */
+export interface WorkerExistenceProbe {
+  existsById(id: string): Promise<boolean>;
+}
+
+/**
+ * Enforce the 410 contract in ONE place. Both callers — {@link WorkerAuthGuard} (every worker
+ * route) and the unguarded `POST /auth/token/refresh` cold-start path — must apply IDENTICAL
+ * semantics, so the rule lives here rather than being copy-pasted into two files where a later
+ * edit could silently desync them.
+ *
+ * Throws {@link WorkerAccountDeletedException} **iff** the row is DEFINITIVELY absent.
+ *
+ * FAIL-SAFE: a probe ERROR leaves existence UNKNOWN, which is treated as PRESENT — a Postgres
+ * incident must never 410-storm every worker route (least of all `POST /auth/logout`, which has
+ * to survive a DB outage). The degradation is now LOGGED rather than silent: without this line a
+ * persistently failing probe would disable the whole deleted-account signal with no operator
+ * signal at all.
+ *
+ * PII-FREE (CLAUDE.md §2): logs the error NAME only — never the worker id, the token, or the
+ * error message, which can carry query text or parameter values. Mirrors the same restraint in
+ * `OptionalWorkerAuthGuard`.
+ */
+export async function throwIfWorkerDeleted(
+  workers: WorkerExistenceProbe,
+  workerId: string,
+  logger: Logger,
+): Promise<void> {
+  let exists: boolean;
+  try {
+    exists = await workers.existsById(workerId);
+  } catch (err) {
+    logger.warn(
+      `worker existence probe unavailable (request allowed through, no 410 emitted): ` +
+        `${err instanceof Error ? err.name : "unknown error"}`,
+    );
+    return;
+  }
+  if (!exists) throw new WorkerAccountDeletedException();
 }
