@@ -31,6 +31,17 @@ const bool kUseMocks = bool.fromEnvironment('USE_MOCKS', defaultValue: false);
 const bool kPersistentAuth =
     kUseMocks || bool.fromEnvironment('PERSISTENT_AUTH', defaultValue: true);
 
+/// TEST-ONLY affordance: shows a "Delete account (test)" button in the Profile
+/// tab that immediately deletes the signed-in worker's own account (no DBA, no
+/// 7-day grace) so QA can exercise the account-deletion flow end to end.
+///
+/// Compiled OUT of a normal release — the button never renders unless the build
+/// opts in:  `flutter build apk --dart-define=ENABLE_TEST_DELETE=true`. Because
+/// this is a compile-time `const false` by default, the entire button subtree is
+/// tree-shaken from a stock release; a shipped store build can never carry it.
+const bool kEnableTestDelete =
+    bool.fromEnvironment('ENABLE_TEST_DELETE', defaultValue: false);
+
 /// Absolute base for referral invite links (A3). The `POST /invites` response
 /// carries a SERVER-RELATIVE `link` (`/i/<code>`); the share sheet prepends this
 /// so the shared text is a tappable URL. Overridable per build:

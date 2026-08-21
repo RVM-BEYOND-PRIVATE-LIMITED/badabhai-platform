@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/config/app_config.dart';
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure_reason.dart';
@@ -95,6 +96,12 @@ class _ProfileTabView extends StatelessWidget {
         // Comfortable separation from the content above; logout sits last.
         const SizedBox(height: AppSpacing.s8),
         _logoutButton(context),
+        // TEST-ONLY (kEnableTestDelete): compiled out of a normal release, so a
+        // stock build never carries it. Sits just below logout for QA.
+        if (kEnableTestDelete) ...<Widget>[
+          const SizedBox(height: AppSpacing.s3),
+          _deleteAccountButton(context),
+        ],
       ],
     );
   }
@@ -137,6 +144,59 @@ class _ProfileTabView extends StatelessWidget {
     await cubit.logout();
     if (!context.mounted) return;
     context.go(Routes.phoneLogin);
+  }
+
+  /// TEST-ONLY affordance (rendered only when [kEnableTestDelete]): a danger
+  /// button that triggers the immediate account-delete flow so QA can reach it
+  /// without a DBA. Mirrors [_logoutButton]'s shape.
+  Widget _deleteAccountButton(BuildContext context) {
+    return BbButton(
+      label: 'Delete account (test)',
+      block: true,
+      variant: BbButtonVariant.danger,
+      iconLeft: Icons.delete_forever_rounded,
+      onPressed: () => _confirmDeleteAccount(context),
+    );
+  }
+
+  Future<void> _confirmDeleteAccount(BuildContext context) async {
+    final ProfileTabCubit cubit = context.read<ProfileTabCubit>();
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    final bool confirmed = await showDialog<bool>(
+          context: context,
+          builder: (BuildContext dialogContext) => AlertDialog(
+            title: const Text('Account delete karein?'),
+            content: const Text('Yeh aapka account turant delete kar dega.'),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: AppColors.red600),
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+
+    // On success the account is gone and the session is wiped — leave the shell
+    // for the login flow. On failure (incl. a 404 = endpoint disabled on this
+    // server, which the bool can't distinguish) surface an honest, general line.
+    final bool deleted = await cubit.deleteAccountForTest();
+    if (!context.mounted) return;
+    if (deleted) {
+      context.go(Routes.phoneLogin);
+    } else {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Test delete is not enabled on this server.'),
+        ),
+      );
+    }
   }
 
   /// Full-bleed blue identity header — kit language (blue = structure / trust).

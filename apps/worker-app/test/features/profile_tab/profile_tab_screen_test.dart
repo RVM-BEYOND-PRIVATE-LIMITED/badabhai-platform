@@ -157,4 +157,22 @@ void main() {
       expect(find.byType(BbChip), findsNothing);
     },
   );
+
+  testWidgets(
+    'the TEST-ONLY delete button is compiled out of a normal build: with '
+    'kEnableTestDelete false (the default), only Logout renders — no '
+    '"Delete account (test)"',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 3),
+      );
+
+      // Logout is always present, proving the profile rendered to its footer.
+      expect(find.text('Logout'), findsOneWidget);
+      // The flag is a compile-time const false in tests, so the button subtree
+      // is never built.
+      expect(find.text('Delete account (test)'), findsNothing);
+    },
+  );
 }
