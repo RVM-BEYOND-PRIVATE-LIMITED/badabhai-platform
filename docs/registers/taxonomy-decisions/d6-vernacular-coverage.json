@@ -1,5 +1,11 @@
 {
   "kind": "vernacular-coverage",
+  "measured_at": "2026-08-24T06:24:24.525Z",
+  "source": "pnpm db:audit:vernacular",
+  "target": "repository-only (no database)",
+  "read_only": true,
+  "role": null,
+  "population_predicate": "every case in data/taxonomy/eval/retrieval-v3.jsonl",
   "fixture": "data/taxonomy/eval/retrieval-v3.jsonl",
   "floor_in_force": 0.75,
   "particle_vocabulary": {

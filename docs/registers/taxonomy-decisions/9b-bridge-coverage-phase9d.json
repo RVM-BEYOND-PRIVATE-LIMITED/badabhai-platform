@@ -1,5 +1,11 @@
 {
   "kind": "runtime-bridge-coverage",
+  "measured_at": "2026-08-24T06:24:21.370Z",
+  "source": "pnpm db:audit:bridge-coverage",
+  "target": "repository-only (no database)",
+  "read_only": true,
+  "role": null,
+  "population_predicate": "accepted-skills.jsonl of data/taxonomy/batches/batch_2026-08-16T14-30-41Z-remediation-phase9d",
   "batch": "data/taxonomy/batches/batch_2026-08-16T14-30-41Z-remediation-phase9d",
   "skill_corpus_size": 49,
   "bridge_keys": 49,

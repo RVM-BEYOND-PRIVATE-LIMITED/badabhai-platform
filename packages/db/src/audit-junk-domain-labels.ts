@@ -31,6 +31,7 @@ import { sql as dsql } from "drizzle-orm";
 import { config } from "dotenv";
 
 import { createDbClient } from "./client";
+import { provenance } from "./evidence-provenance";
 import { hostClass } from "./ops-guard";
 import {
   classifyAlias,
@@ -289,19 +290,14 @@ async function main(): Promise<void> {
         `${JSON.stringify(
           {
             kind: "junk-domain-label-audit",
-            // PROVENANCE. An evidence artifact without these is unfalsifiable: a reader cannot
-            // tell WHEN it was true, WHICH database it describes, whether the reader could see
-            // through RLS, or WHAT defined the population. Every one of those has already
-            // caused a wrong conclusion in this programme — most recently worker-side counts
-            // quoted from a document measured before the rows went away.
-            measured_at: new Date().toISOString(),
-            target: hostClass(url),
-            role: who?.who ?? null,
-            bypass_rls: canSeeEverything,
-            // The predicate that DEFINES the population, carried with the numbers so a later
-            // run can be compared like for like rather than re-derived from prose.
-            population_predicate: "job_domain.label_en LIKE '%:' OR label_en ~ '^[a-z]'",
-            read_only_session: true,
+            ...provenance({
+              source: "pnpm db:audit:junk-labels",
+              target: hostClass(url),
+              readOnly: true,
+              role: who?.who ?? null,
+              bypassRls: canSeeEverything,
+              populationPredicate: "job_domain.label_en LIKE '%:' OR label_en ~ '^[a-z]'",
+            }),
             tables_absent: missing,
             reference_totals: refTotals,
             domain_counts: domainCounts,

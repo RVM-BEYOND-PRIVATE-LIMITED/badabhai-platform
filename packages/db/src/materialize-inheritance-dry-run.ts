@@ -29,6 +29,7 @@ import { sql as dsql } from "drizzle-orm";
 import { config } from "dotenv";
 
 import { createDbClient } from "./client";
+import { provenance } from "./evidence-provenance";
 import { hostClass } from "./ops-guard";
 import {
   fanOut,
@@ -170,8 +171,17 @@ async function main(): Promise<void> {
         `${JSON.stringify(
           {
             kind: "inheritance-dry-run",
-            target: hostClass(url),
-            source: { domains: domains.length, edges: edges.length, skills: skills.length },
+            ...provenance({
+              source: "pnpm db:materialize:inheritance:dry-run",
+              target: hostClass(url),
+              readOnly: true,
+              populationPredicate:
+                "job_domain_skill rows with source in (llm_bootstrap, curated) and status = active",
+            }),
+            // Renamed from `source`: that key is the provenance contract (WHICH command
+            // produced this), and the spread above was being silently clobbered by these row
+            // counts. `evidence-provenance.test.ts` caught it on its first run.
+            source_rows: { domains: domains.length, edges: edges.length, skills: skills.length },
             roots: plan.roots,
             // Was `reachable_domains`, holding a COUNT. A field named like a list and holding a
             // number is a reader trap — it read as 64 domain ids to anyone consuming the file.
