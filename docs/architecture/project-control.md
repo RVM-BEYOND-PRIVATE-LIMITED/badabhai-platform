@@ -13,7 +13,13 @@ ACTIVE    production configuration actually routes traffic through it
 COMPLETE  all of the above AND acceptance criteria met
 ```
 
-"Working", "done" and "production-ready" are not used. **Last updated 2026-08-21.**
+"Working", "done" and "production-ready" are not used. **Last updated 2026-08-24.**
+
+> **Every count in this file carries a measurement date, and they are not all the same date.**
+> On 2026-08-21 at 10:36 UTC, 119 `workers` and 45 `worker_profiles` rows were deleted manually
+> through the Supabase dashboard (`worker-data-discrepancy-resolved.md`). Counts taken before
+> that moment are pre-deletion snapshots — accurate when taken, and not current. Rows below are
+> marked **[08-24]** where re-measured and **[08-21 pre]** where not.
 
 ---
 
@@ -71,19 +77,19 @@ COMPLETE  all of the above AND acceptance criteria met
 
 | Component | Built | Deployed | Production verified | Actually used | Flag | Status |
 |---|:--:|:--:|:--:|:--:|---|---|
-| OTP / auth | ✅ | ✅ | ✅ 382 verified | ✅ 270 workers | — | **ACTIVE** |
-| Consent / DPDP | ✅ | ✅ | ✅ 333 accepted | ✅ | — | **ACTIVE** |
-| AI profiling | ✅ | ✅ | ✅ 223 extractions | ✅ | on | **ACTIVE** |
+| OTP / auth | ✅ | ✅ | ✅ 382 verified **[08-21 pre]** | ✅ **1 worker [08-24]** | — | **ACTIVE** |
+| Consent / DPDP | ✅ | ✅ | ✅ 333 accepted **[08-21 pre]** | ✅ | — | **ACTIVE** |
+| AI profiling | ✅ | ✅ | ✅ 223 extractions **[08-21 pre]** | ✅ | on | **ACTIVE** |
 | Resume | ✅ | ✅ | ✅ 114 generated / 196 downloads | ✅ | — | **ACTIVE** |
 | Job feed | ✅ | ✅ | ✅ 7,616 shows / 25 jobs | ✅ | — | **ACTIVE — basic filters only** |
 | Applications | ✅ | ✅ | ✅ 92 across 21 jobs | ✅ | — | **ACTIVE** |
 | Interview kit | ✅ | ✅ | ⚠ 16 failed / 12 completed | ✅ | — | **DEGRADED** |
 | Voice | ✅ | ✅ | ❌ 0 events | ❌ | consent purpose unissued | **DORMANT** |
-| Skill taxonomy corpus | ✅ | ✅ | ✅ counts verified | ❌ | — | **BUILT, not routed** |
+| Skill taxonomy corpus | ✅ | ✅ | ✅ 4,071 domains / 9,121 aliases **[08-24]** | ❌ | — | **BUILT, not routed** |
 | Skill canonicalization | ✅ | ✅ | ❌ | ❌ | `SKILL_CANONICALIZE_ENABLED=false` | **FLAG-OFF** |
 | Domain match | ✅ | ✅ | ❌ | ❌ | `DOMAIN_MATCH_ENABLED=false` | **FLAG-OFF** |
 | Path A / Path B retrieval | ✅ | ✅ | shadow only | ❌ | gated by canonicalize | **SHADOW** |
-| Reach engine / `job_reach` | ✅ | ✅ | ❌ 6 rows | ❌ | — | **NOT CONNECTED** |
+| Reach engine / `job_reach` | ✅ | ✅ | ❌ **0 rows [08-24]** | ❌ | — | **NOT CONNECTED** |
 | Relevance ranking | ✅ | ✅ | ❌ | ❌ | — | **NOT CONNECTED** |
 | Job visibility relevance | ❌ | ❌ | ❌ | ❌ | — | **NOT BUILT** |
 
@@ -196,4 +202,56 @@ regardless of skill match.
 | **Is deployed** | all of it ships in the production image |
 | **Is actually used** | **none of it.** Two flags are off and `job_posting_skill` is empty |
 | **Remains** | Phase 9 D–G, Phase 10, then connect reach → score → feed |
+| **What changed 08-21 → 08-24** | the *evidence* moved, not the system: nine investigations landed, none touching production. The programme is no longer blocked on knowing things — it is blocked on deciding them (§H) |
 | **Verify it** | §E above |
+
+---
+
+## G. Investigation ledger — 2026-08-21 → 2026-08-24
+
+Nine tasks landed. **None mutated production, none changed a gate, floor or baseline, and
+total AI spend across all of them was zero.** Each is one PR, merged and verified on `origin/main`.
+
+| task | PR | what it established |
+|---|---|---|
+| 9A ISCO materializer | #1184 | pure core + dry-run with **no write path at all**, asserted by reading its own source |
+| 9B fan-out measurement | #1188 | 488 edges / **64** domains, not the predicted 89; 4 of 28 roots produce all of it, two produce 81.8% |
+| D-5 junk labels | #1189 | 96 non-title labels are NCO scrape residue — **Class A is empty**, none is disposable |
+| D-6 vernacular | #1190 | floor pressure is a **paraphrase** property, not a language one |
+| D-6 correction | #1192 | Hinglish **is** measured — by the wedge eval, not the gate-bearing fixture |
+| D-7 crosswalks | #1193 | re-tagging can **invent** a match claim; two widening crosswalks, one live |
+| D-5 artifact | #1194 | the owed JSON, with provenance |
+| Provenance | #1195 | the worker-count discrepancy **resolved**; artifacts must now say when they were true |
+
+### What each one refuses to let regress
+
+Nine tripwires now fail if a finding silently changes: the dry-run's absent write path, the
+inheritance invariants, the promotable-vs-bridge gap (96/96 outside `SKILL_CORPUS`), the
+coded-occupation protection, cross-domain alias collisions, the zero romanized-Hindi coverage,
+the 22 undelivered ratified aliases, the two widening crosswalks, and evidence provenance.
+
+---
+
+## H. The decision surface — everything now waits on a human
+
+**No independently executable engineering task remains in this programme.** Every remaining item
+is blocked on one of the four things an agent must not decide for itself.
+
+| # | decision | evidence | recommendation |
+|---|---|---|---|
+| **Q1** | who owns the attribute→match mapping | **96 of 96** promotable skills are outside `SKILL_CORPUS`; promotion would make them active and reach nothing, **failing no test** | require a mapping or an explicit "not matched" per promotable skill |
+| **0.75 floor** | keep or move | Hindi and English paraphrase sit at the same distance from it; for single-word vernacular the correct answers **interleave with the negatives** (`chhilai` 0.5284 < `biryani banana` 0.5427) | **keep** — no threshold separates them; the fix is the corpus |
+| **`NO_REGRESSION`** | fixture-version semantics | rejects on version mismatch before comparing scores | unchanged — decision recorded separately |
+| **D6-0** | ship the 22 ratified vernacular aliases | ratified 2026-07-16, none struck, **none delivered**; nothing consumes `WEDGE_ALIASES`; measured ~0.55 UNRESOLVED → ≈1.0 exact | **highest value available** — the human judgement is already spent |
+| **D-7 A** | should `skill_boring` inherit `mskill_cnc_turner` | bridge maps boring to `[]` deliberately; TD-03 routes it to turning | re-point, or accept explicitly. **Dormant** until a seed run |
+| **D-7 B** | should `skill_chassis_fitting` inherit `mskill_fitter` | same shape, **and live in production today** | rule before the next `db:retag:skills` |
+| **D-7 C** | seed the 4 corpus deprecations | 4 rows drift; the seeder warns `--preserve-existing-status` is mandatory | not until A and B are ruled on — seeding arms the dormant hazard |
+| **D6-1** | who authors the vernacular fixture | 0 romanized cases in the gate-bearing fixture; `db:mine:aliases` has **nothing to mine** (1 worker) | needs human authoring or worker traffic — not an agent |
+| **Promotion** | — | `RESOLVABLE_ABOVE_FLOOR` FAIL 62/96, `NO_REGRESSION` FAIL | **0 candidates.** Blocked on the above |
+
+### Infrastructure
+
+The Supabase pooler (`EMAXCONNSESSION`, `pool_size: 15`) blocked read-only verification eight
+times on 2026-08-21 and was responsive on 2026-08-24. It is intermittent rather than fixed, it
+is the binding constraint on every measurement task, and **no configuration was changed**. It
+warrants its own owner and task.
