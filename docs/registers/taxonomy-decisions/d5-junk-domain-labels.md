@@ -8,14 +8,14 @@ Both facts matter and are stated for a reason — see §0.
 
 Reproduce: `pnpm db:audit:junk-labels --json=<out>`
 
-> **Provenance, stated plainly.** Every figure below was measured by read-only SQL against
-> production. The committed audit script reproduces those queries, but **it has not yet emitted
-> its JSON artifact** — the Supabase pooler saturated
-> (`EMAXCONNSESSION … pool_size: 15`) after the measurements were taken and before the script
-> could run, across three attempts. Pooler configuration was not touched. The script is
-> committed, typechecked and unit-tested; `d5-junk-label-audit.json` is **owed** and is one
-> command away once capacity frees. Where a number below is the classification *rule* applied
-> to a measured input rather than script output, §3 says so.
+> **Provenance.** Every figure below was measured by read-only SQL against production.
+>
+> **Artifact delivered 2026-08-24** — [`d5-junk-label-audit.json`](./d5-junk-label-audit.json),
+> carrying `measured_at`, `target`, `role`, `bypass_rls`, `read_only_session` and the
+> `population_predicate` that defines the 96. It was owed for three days: the Supabase pooler
+> saturated (`EMAXCONNSESSION … pool_size: 15`) across four attempts on 2026-08-21, and no
+> pooler configuration was changed. The run confirms every classification figure below,
+> including the 88/8 split that §3 had derived by applying the rule to measured inputs.
 
 Each claim is tagged:
 **[CODE]** what the code does today · **[DATA]** what production holds today ·
@@ -110,6 +110,10 @@ code **and** at least one title-shaped alias → `C`; no code **and** no alias �
 | B — legacy referenced | **0** | |
 | D — structural | **0** | |
 
+**Confirmed by the artifact run (2026-08-24):** `{"C_MISLABELLED_LEGITIMATE": 88,
+"E_AMBIGUOUS": 8}` — the script reproduces the split exactly, and `A`, `B`, `D` are empty as
+predicted.
+
 **How this table was derived.** The three inputs are measured: references = 0 for all 96 (§2),
 children = 0 for all 96 (§1), and **88 of 96 domains have ≥1 title-shaped alias** while 8 have
 none (§4). A published code is guaranteed for all 96 by CHECK constraint. Applying the rule to
@@ -158,6 +162,20 @@ Both carry a searchable, embedded alias normalizing to `cable jointer`. **[CODE]
 therefore in the retrieval index (§5), so a worker who says "cable jointer" can be resolved to
 a domain whose entire identity is a scrape header. This is the only junk↔clean collision in
 the corpus.
+
+### Alias classification — measured 2026-08-24
+
+| class | count | reading |
+|---|---:|---|
+| `LEGITIMATE_ALIAS` | **102** | title-shaped, unique — the usable worker vocabulary these rows carry |
+| `JUNK` | **78** | scraped prose, not something a worker says as their trade |
+| `CONFLICTING_ALIAS` | **19** | normalizes onto another domain's alias; both retrievable |
+| `AMBIGUOUS` | **7** | shape gives no honest signal — owner review |
+| `DUPLICATE` | **3** | non-searchable, lost a within-domain election |
+| | **209** | |
+
+**102 of 209 are legitimate.** That is the number that settles the "is this junk?" question:
+these rows carry more usable vocabulary than residue, which is why Class A came back empty.
 
 **[REC]** `TYPO` and `LEGACY_ALIAS` are **not** decided. A typo needs the intended spelling and
 a legacy title needs supersession history; neither is derivable from the columns available, and
