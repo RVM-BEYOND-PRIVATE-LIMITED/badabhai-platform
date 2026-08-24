@@ -121,6 +121,8 @@ function make(
     /** The bulk answer INSERT throws — the flush must roll back with it. */
     answersThrow?: boolean;
     oneShotOpener?: boolean;
+    /** #1197 — what `findActiveSessionByWorker` returns. undefined = no live session. */
+    liveSession?: { id: string; status: string; startedAt: Date } | undefined;
   } = {},
 ) {
   const session = {
@@ -134,6 +136,9 @@ function make(
   let nextMessageId = 0;
   const chat = {
     findSession: vi.fn().mockResolvedValue(session),
+    // #1197 — the reattach read. DEFAULT undefined = no live session = mint, which is what
+    // every pre-existing test in this file assumes.
+    findActiveSessionByWorker: vi.fn().mockResolvedValue(opts.liveSession ?? undefined),
     createSession: vi.fn().mockResolvedValue({ id: SESSION, status: "active", startedAt: T0 }),
     insertMessage: vi.fn().mockResolvedValue({ id: "msg-1" }),
     listMessages: vi.fn().mockResolvedValue([]),
@@ -1350,6 +1355,47 @@ describe("ChatService.startSession — the opener is reviewed copy, not a model 
   it("still emits chat.session_started", async () => {
     const { svc, events } = make();
     await svc.startSession(WORKER, CTX);
+    expect(emittedNames(events)).toEqual(["chat.session_started"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1197 — reattach before mint
+// ---------------------------------------------------------------------------
+
+describe("ChatService.startSession — reattaches to the live session instead of minting", () => {
+  it("returns the live session and never calls createSession", async () => {
+    const live = { id: "33333333-3333-4333-8333-333333333333", status: "active", startedAt: new Date(T0) };
+    const { svc, chat } = make({ liveSession: live });
+    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    expect(res.session_id).toBe(live.id);
+    expect(res.status).toBe("active");
+    expect(chat.createSession).not.toHaveBeenCalled();
+  });
+
+  it("serves NO opening_text on reattach — the transcript the client redraws already has the questions", async () => {
+    const live = { id: SESSION, status: "active", startedAt: new Date(T0) };
+    const { svc } = make({ liveSession: live, oneShotOpener: true });
+    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    expect("opening_text" in res).toBe(false);
+  });
+
+  it("emits nothing on reattach — no state changed", async () => {
+    const live = { id: SESSION, status: "active", startedAt: new Date(T0) };
+    const { svc, events } = make({ liveSession: live });
+    await svc.startSession(WORKER, CTX);
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("mints a fresh session when the worker holds none (or only ended ones)", async () => {
+    // `findActiveSessionByWorker` filters status='active' in SQL (asserted at the
+    // repository level), so undefined here covers BOTH "never started" and
+    // "everything ended" — an old transcript must not swallow a new interview.
+    const { svc, chat, events } = make();
+    const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
+    expect(res.session_id).toBe(SESSION);
+    expect(chat.findActiveSessionByWorker).toHaveBeenCalledWith(WORKER);
+    expect(chat.createSession).toHaveBeenCalledTimes(1);
     expect(emittedNames(events)).toEqual(["chat.session_started"]);
   });
 });

@@ -176,6 +176,33 @@ export class ChatService {
     const worker = await this.workers.findById(workerId);
     if (!worker) throw new NotFoundException(`Worker ${workerId} not found`);
 
+    // REATTACH BEFORE MINT (#1197) — the server-side twin of the voice form's
+    // `ProfilingSessionService.start`. This POST fires on every cold app open, and until now
+    // it inserted unconditionally: a trail of one-row `'active'` sessions that the
+    // abandonment sweep then drains at 100/hour. The client's `GET /session/latest` resume
+    // is best-effort (its failure falls through to THIS POST) and older shipped builds never
+    // had it at all, so the guard belongs here, where every caller lands.
+    //
+    // A live session is returned VERBATIM in the same three keys a fresh start serves, and
+    // deliberately WITHOUT `opening_text`: this is a resume, and the transcript the client
+    // redraws via GET /messages already contains the questions that greeting precedes.
+    // No `chat.session_started` either — nothing changed state, and the original start
+    // already emitted it under this session's idempotency key.
+    //
+    // KNOWN RACE, ACCEPTED: two concurrent POSTs can both miss the read and mint. Closing it
+    // needs a partial unique index on `(worker_id) WHERE status = 'active'`, which the
+    // existing multi-active backlog would violate on creation; the sweep already retires
+    // those rows, and the loser of the race loses nothing but an empty row.
+    const live = await this.chat.findActiveSessionByWorker(workerId);
+    if (live) {
+      this.logger.log(`reattached to live session worker=${workerId} session=${live.id}`);
+      return {
+        session_id: live.id,
+        status: live.status,
+        started_at: live.startedAt,
+      };
+    }
+
     const session = await this.chat.createSession(workerId);
     await this.events.emit({
       event_name: "chat.session_started",

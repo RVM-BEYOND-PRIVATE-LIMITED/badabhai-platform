@@ -208,3 +208,48 @@ describe("ChatRepository.findLatestSessionByWorker — WHICH session 'latest' me
     expect(out).toBeUndefined();
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * findActiveSessionByWorker — the #1197 reattach read.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+describe("ChatRepository.findActiveSessionByWorker — WHICH session 'live' means", () => {
+  it("filters status='active' IN the WHERE clause, not after ranking", async () => {
+    const h = makeSelectingDb();
+    await new ChatRepository(h.db as never).findActiveSessionByWorker(WORKER);
+
+    // THE ASSERTION THAT JUSTIFIES THE SEPARATE QUERY. Reusing findLatestSessionByWorker
+    // with a post-hoc status check would rank an old ENDED session (it has messages, so
+    // last_message_at) above a newer empty active one — the check fails and the
+    // duplicate-minting the reattach guard exists to stop continues on every later open.
+    const where = renderWhere(h.captured.where);
+    expect(where).toContain('"worker_id"');
+    expect(where).toContain('"status"');
+    expect(where.toLowerCase()).toContain(" and ");
+  });
+
+  it("orders by coalesce(last_message_at, started_at) DESC — most recently TOUCHED active wins", async () => {
+    const h = makeSelectingDb();
+    await new ChatRepository(h.db as never).findActiveSessionByWorker(WORKER);
+
+    // The pre-guard backlog left workers holding several ACTIVE rows; among them the one
+    // the worker actually conversed in must win, exactly the activity-first principle
+    // findLatestSessionByWorker documents. An all-empty field falls back to newest
+    // started_at via the same coalesce.
+    const order = renderOrderBy(h);
+    expect(order).toMatch(/coalesce\(.*last_message_at.*started_at.*\)\s+DESC/i);
+    expect(h.captured.limit).toBe(1);
+  });
+
+  it("scopes to the worker — the id arrives from the bearer token, never a param", async () => {
+    const h = makeSelectingDb();
+    await new ChatRepository(h.db as never).findActiveSessionByWorker(WORKER);
+    expect(renderWhere(h.captured.where)).toContain('"worker_id"');
+  });
+
+  it("returns undefined when every session is closed", async () => {
+    const h = makeSelectingDb([]);
+    const out = await new ChatRepository(h.db as never).findActiveSessionByWorker(WORKER);
+    expect(out).toBeUndefined();
+  });
+});

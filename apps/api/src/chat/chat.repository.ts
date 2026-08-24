@@ -168,6 +168,32 @@ export class ChatRepository {
   }
 
   /**
+   * The worker's LIVE session — `status = 'active'`, most recently touched — or undefined
+   * when everything they hold is ended.
+   *
+   * Backs the server-side reattach guard in `ChatService.startSession` (#1197), and is a
+   * separate query rather than a status check over {@link findLatestSessionByWorker}
+   * deliberately: that method's `last_message_at DESC NULLS LAST` ordering ranks an old
+   * ENDED session with messages above a newer empty active one, the status test then fails,
+   * and the exact duplicate-minting the guard exists to stop continues on every later open.
+   * The `status` predicate has to be in the WHERE clause, not after the ORDER BY.
+   *
+   * Among several active rows (the pre-guard backlog made these common), the most recently
+   * TOUCHED one wins — `coalesce(last_message_at, started_at) DESC`, the same
+   * activity-first principle that method's docstring argues for; an all-empty field of
+   * actives falls back to newest `started_at`.
+   */
+  async findActiveSessionByWorker(workerId: string): Promise<ChatSession | undefined> {
+    const rows = await this.db
+      .select()
+      .from(chatSessions)
+      .where(and(eq(chatSessions.workerId, workerId), eq(chatSessions.status, "active")))
+      .orderBy(sql`coalesce(${chatSessions.lastMessageAt}, ${chatSessions.startedAt}) DESC`)
+      .limit(1);
+    return rows[0];
+  }
+
+  /**
    * Pin the question pack this session is running — WRITE-ONCE, enforced in SQL.
    *
    * THE COLUMNS SHIPPED IN MIGRATION 0071 AND NOTHING WROTE THEM. A live interview proved it:
