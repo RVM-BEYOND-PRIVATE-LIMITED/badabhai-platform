@@ -1,11 +1,12 @@
 {
   "kind": "junk-domain-label-audit",
-  "measured_at": "2026-08-24T06:11:43.811Z",
+  "measured_at": "2026-08-24T06:24:32.976Z",
+  "source": "pnpm db:audit:junk-labels",
   "target": "SUPABASE (remote)",
+  "read_only": true,
   "role": "postgres",
   "bypass_rls": true,
   "population_predicate": "job_domain.label_en LIKE '%:' OR label_en ~ '^[a-z]'",
-  "read_only_session": true,
   "tables_absent": [],
   "reference_totals": {
     "job_domain_skill": 0,

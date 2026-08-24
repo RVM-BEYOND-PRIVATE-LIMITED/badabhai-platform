@@ -30,6 +30,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 import { ATTRIBUTE_TO_MATCH_SKILLS, SKILL_CORPUS } from "@badabhai/taxonomy";
 
+import { provenance, REPOSITORY_ONLY } from "./evidence-provenance";
+
 const SCRIPT = "audit:bridge-coverage";
 
 /** The batch that would actually promote — the phase-9d derived set. */
@@ -160,6 +162,13 @@ function main(): void {
       `${JSON.stringify(
         {
           kind: "runtime-bridge-coverage",
+          ...provenance({
+            source: "pnpm db:audit:bridge-coverage",
+            target: REPOSITORY_ONLY,
+            readOnly: true,
+            role: null,
+            populationPredicate: `accepted-skills.jsonl of ${batchDir}`,
+          }),
           batch: batchDir,
           skill_corpus_size: corpusIds.size,
           bridge_keys: Object.keys(bridge).length,

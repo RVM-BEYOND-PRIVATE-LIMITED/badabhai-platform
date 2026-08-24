@@ -1,7 +1,11 @@
 {
   "kind": "inheritance-dry-run",
+  "measured_at": "2026-08-24T06:26:58.069Z",
+  "source": "pnpm db:materialize:inheritance:dry-run",
   "target": "SUPABASE (remote)",
-  "source": {
+  "read_only": true,
+  "population_predicate": "job_domain_skill rows with source in (llm_bootstrap, curated) and status = active",
+  "source_rows": {
     "domains": 4071,
     "edges": 236,
     "skills": 165

@@ -25,6 +25,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 import { occupationParticles } from "@badabhai/profiling-lexicon";
 
+import { provenance, REPOSITORY_ONLY } from "./evidence-provenance";
 import { loadEvalFixture } from "./taxonomy-eval-fixture";
 import {
   classifyRegister,
@@ -165,6 +166,13 @@ function main(): void {
       `${JSON.stringify(
         {
           kind: "vernacular-coverage",
+          ...provenance({
+            source: "pnpm db:audit:vernacular",
+            target: REPOSITORY_ONLY,
+            readOnly: true,
+            role: null,
+            populationPredicate: `every case in ${FIXTURE}`,
+          }),
           fixture: FIXTURE,
           floor_in_force: FLOOR,
           particle_vocabulary: {
