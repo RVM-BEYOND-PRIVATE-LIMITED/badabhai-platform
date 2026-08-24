@@ -201,4 +201,4 @@ promotion, no floor or baseline touched. **AI spend ₹0.** The only production 
 `--plan` and read-only `SELECT`s.
 
 **Not blocked.** The pooler was responsive for this task; both the static and database halves
-completed. The still-owed `d5-junk-label-audit.json` remains outstanding from TASK 10.
+completed. The `d5-junk-label-audit.json` owed from TASK 10 was delivered in the same window.
