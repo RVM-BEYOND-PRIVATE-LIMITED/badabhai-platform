@@ -39,6 +39,7 @@ class ScriptAuthApi extends AuthApi {
   AuthFailure? throwOnVerify;
   AuthFailure? throwOnPinVerify;
   int logoutCalls = 0;
+  int logoutAllCalls = 0;
   int revokeCalls = 0;
 
   AuthTokens _mint(String access, String refresh) => AuthTokens(
@@ -115,6 +116,9 @@ class ScriptAuthApi extends AuthApi {
 
   @override
   Future<void> logout() async => logoutCalls++;
+
+  @override
+  Future<void> logoutAll() async => logoutAllCalls++;
 
   @override
   Future<List<AuthDevice>> listDevices() async => <AuthDevice>[
@@ -697,6 +701,47 @@ void main() {
     });
   });
 
+  // logout-all is the lost/stolen-handset panic button. The server revokes EVERY
+  // session (this device included), so a success MUST hard-log-out locally — the
+  // same wipe as logout, driven off POST /auth/logout-all instead of /auth/logout.
+  group('logoutAll', () {
+    test('revokes ALL sessions server-side, wipes BOTH stores, routes loggedOut',
+        () async {
+      api
+        ..isNewUser = false
+        ..pinIsSet = true;
+      await manager.verifyOtp('+91999', '1234');
+
+      await manager.logoutAll();
+
+      expect(api.logoutAllCalls, 1);
+      expect(api.logoutCalls, 0, reason: 'logout-all is a distinct endpoint');
+      expect(manager.status, AuthStatus.loggedOut);
+      expect(session.sessionToken, isNull);
+      expect(await store.readRefreshToken(), isNull);
+    });
+
+    test('offline-safe: a failed revoke still wipes locally', () async {
+      final AuthSessionManager m = AuthSessionManager(
+        authApi: _ThrowingLogoutAllApi(store)
+          ..isNewUser = false
+          ..pinIsSet = true,
+        tokenStore: store,
+        session: session,
+        reauthSignal: reauth,
+        persistentAuthEnabled: true,
+      );
+      await m.verifyOtp('+91999', '1234');
+
+      await m.logoutAll(); // must not throw despite the failing revoke
+
+      expect(m.status, AuthStatus.loggedOut);
+      expect(await store.readRefreshToken(), isNull);
+      expect(session.sessionToken, isNull);
+      m.dispose();
+    });
+  });
+
   group('reauth signal', () {
     test('a fired ReauthSignal clears the session and forces loggedOut',
         () async {
@@ -1088,6 +1133,16 @@ class _ThrowingLogoutApi extends ScriptAuthApi {
 
   @override
   Future<void> logout() async => throw const AuthFailure(AuthErrorCode.network);
+}
+
+/// An api whose logout-all throws — proves the offline-safe local wipe on the
+/// panic-button path (a failed/queued revoke must never block sign-out).
+class _ThrowingLogoutAllApi extends ScriptAuthApi {
+  _ThrowingLogoutAllApi(super.store);
+
+  @override
+  Future<void> logoutAll() async =>
+      throw const AuthFailure(AuthErrorCode.network);
 }
 
 /// An api that models the REAL [AuthApi]: it returns the server's flags but

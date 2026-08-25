@@ -423,6 +423,55 @@ void main() {
       expect(method, 'DELETE');
       expect(path, '/auth/devices/dev-123');
     });
+
+    test('logout issues POST /auth/logout (204)', () async {
+      late final String method;
+      late final String path;
+      final AuthApi api = _api(MockClient((http.Request req) async {
+        method = req.method;
+        path = req.url.path;
+        return http.Response('', 204);
+      }));
+
+      await api.logout();
+
+      expect(method, 'POST');
+      expect(path, '/auth/logout');
+    });
+
+    // logout-all is the lost/stolen-handset panic button: POST /auth/logout-all
+    // (authed) → 204, no body. The server revokes EVERY session incl. this device.
+    // (The authed wiring — a bearer is attached for `authed: true` — is proven by
+    // the 401 → reauthRequired mapping below; this asserts the wire shape.)
+    test('logoutAll issues POST /auth/logout-all with an empty body (204)',
+        () async {
+      late final String method;
+      late final String path;
+      late final String body;
+      final AuthApi api = _api(MockClient((http.Request req) async {
+        method = req.method;
+        path = req.url.path;
+        body = req.body;
+        return http.Response('', 204);
+      }));
+
+      await api.logoutAll();
+
+      expect(method, 'POST');
+      expect(path, '/auth/logout-all');
+      expect(jsonDecode(body), isEmpty);
+    });
+
+    test('logoutAll maps a 401 to reauthRequired (authed endpoint)', () async {
+      final AuthApi api = _api(MockClient((http.Request req) async =>
+          http.Response(_nestError(401, 'Unauthorized'), 401)));
+
+      await expectLater(
+        () => api.logoutAll(),
+        throwsA(isA<AuthFailure>().having(
+            (AuthFailure f) => f.code, 'code', AuthErrorCode.reauthRequired)),
+      );
+    });
   });
 
   // F5 — AuthTokens.fromJson read only access_token/refresh_token/

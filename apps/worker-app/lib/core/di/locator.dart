@@ -34,6 +34,7 @@ import '../../features/chat/presentation/bloc/chat_bloc.dart';
 import '../../features/consent/data/consent_repository_impl.dart';
 import '../../features/consent/domain/consent_repository.dart';
 import '../../features/consent/presentation/cubit/consent_cubit.dart';
+import '../../features/consent/presentation/cubit/consent_withdraw_cubit.dart';
 import '../../features/invite/data/invite_repository_impl.dart';
 import '../../features/invite/domain/invite_repository.dart';
 import '../../features/invite/presentation/cubit/invite_cubit.dart';
@@ -460,6 +461,9 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerFactory<ConsentCubit>(
     () => ConsentCubit(locator<ConsentRepository>()),
+  );
+  locator.registerFactory<ConsentWithdrawCubit>(
+    () => ConsentWithdrawCubit(locator<ConsentRepository>()),
   );
   locator.registerFactory<NameCubit>(
     () => NameCubit(locator<NameRepository>()),

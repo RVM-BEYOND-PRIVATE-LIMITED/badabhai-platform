@@ -123,4 +123,55 @@ void main() {
     expect(repo.acceptConsent(purposes: <String>['profiling']),
         throwsA(isA<UnauthorizedFailure>()));
   });
+
+  group('withdrawConsent', () {
+    test('POSTs /consent/withdraw with the session bearer, empty body',
+        () async {
+      final List<http.Request> requests = <http.Request>[];
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          requests.add(req);
+          return http.Response(jsonEncode(<String, dynamic>{'ok': true}), 200);
+        }),
+      );
+      final ConsentRepositoryImpl repo = ConsentRepositoryImpl(api, _session());
+
+      await repo.withdrawConsent();
+
+      expect(requests, hasLength(1));
+      expect(requests.single.url.path, '/consent/withdraw');
+      expect(requests.single.headers['authorization'], 'Bearer tok');
+      expect(jsonDecode(requests.single.body), isEmpty);
+    });
+
+    test('missing token fails closed with UnauthorizedFailure (no unauthed call)',
+        () {
+      final List<http.Request> requests = <http.Request>[];
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          requests.add(req);
+          return http.Response('{}', 200);
+        }),
+      );
+      final ConsentRepositoryImpl repo =
+          ConsentRepositoryImpl(api, SessionRepository());
+
+      expect(repo.withdrawConsent(), throwsA(isA<UnauthorizedFailure>()));
+      expect(requests, isEmpty);
+    });
+
+    test('a server error is mapped to a typed Failure (not raw ApiException)',
+        () {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async =>
+            http.Response(jsonEncode(<String, dynamic>{'message': 'no'}), 500)),
+      );
+      final ConsentRepositoryImpl repo = ConsentRepositoryImpl(api, _session());
+
+      expect(repo.withdrawConsent(), throwsA(isA<Failure>()));
+    });
+  });
 }

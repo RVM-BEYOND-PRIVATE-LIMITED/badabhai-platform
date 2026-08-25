@@ -236,6 +236,24 @@ class ApiClient {
     );
   }
 
+  /// Withdraws DPDP consent for the SESSION worker (POST /consent/withdraw —
+  /// WorkerAuthGuard, no body, 200 `{ ok: true }`). Mirrors [acceptConsent]: the
+  /// subject is taken from the bearer, never the body, so there is no id to send.
+  ///
+  /// SIDE EFFECT the caller MUST honour (confirmed in consent.service.ts): the
+  /// server stamps `revokedAt` on the worker's latest consent row AND revokes
+  /// EVERY active session (`sessions.revokeAll`), the current device included.
+  /// The 200 returns before that token dies, but the next authed call will 401 —
+  /// so the client hard-logs-out after a success and the worker must re-login and
+  /// re-consent (next login returns `consent_accepted:false`, driving the gate).
+  Future<void> withdrawConsent({required String authToken}) async {
+    await _post(
+      '/consent/withdraw',
+      const <String, dynamic>{},
+      authToken: authToken,
+    );
+  }
+
   /// Starts a chat session. Worker-scoped — requires [authToken]; the worker is
   /// taken from the token (WorkerAuthGuard + ConsentGuard), never from the body.
   ///

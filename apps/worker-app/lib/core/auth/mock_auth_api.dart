@@ -104,6 +104,15 @@ class MockAuthApi extends AuthApi {
   }
 
   @override
+  Future<void> logoutAll() async {
+    await _delay();
+    // Mirrors POST /auth/logout-all → 204: the current device is revoked too, so
+    // the local wipe is the same as logout(). AuthSessionManager.logoutAll then
+    // flips the app to loggedOut.
+    await _tokenStore.clear();
+  }
+
+  @override
   Future<List<AuthDevice>> listDevices() async {
     await _delay();
     // Mirrors the real GET /auth/devices DeviceListItem shape (id / platform /
