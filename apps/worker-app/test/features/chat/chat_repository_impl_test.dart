@@ -131,6 +131,184 @@ void main() {
     });
   });
 
+  // #1198 — resume is best-effort but must NOT be silent: a failed
+  // GET /chat/session/latest is retried ONCE, then (if it still fails) mapped +
+  // logged as a non-fatal and fallen-through to opening a new session. A fast
+  // double entry must not mint two sessions. And an old-build POST that returns
+  // the worker's EXISTING session (no opening_text) must keep the canned greeting.
+  group('resume hardening (#1198)', () {
+    test('a failing /latest is retried once, logged (not swallowed), then falls '
+        'through to open a new session', () async {
+      final SessionRepository session = SessionRepository()
+        ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok');
+
+      final List<String> hitPaths = <String>[];
+      int latestHits = 0;
+      final List<Object> loggedErrors = <Object>[];
+      final List<String> loggedReasons = <String>[];
+
+      final ChatRepositoryImpl repo = ChatRepositoryImpl(
+        ApiClient(
+          baseUrl: 'http://test',
+          client: MockClient((http.Request req) async {
+            hitPaths.add(req.url.path);
+            if (req.url.path == '/chat/session/latest') {
+              latestHits++;
+              // Both attempts time out (2G) — the whole point of #1198.
+              throw const SocketException('2G timeout');
+            }
+            if (req.url.path == '/chat/session') {
+              return http.Response(
+                  jsonEncode(<String, dynamic>{'session_id': 'fresh-1'}), 201);
+            }
+            return fail('unexpected path ${req.url.path}');
+          }),
+        ),
+        session,
+        reportNonFatal:
+            (Object error, StackTrace stack, {required String reason}) {
+          loggedErrors.add(error);
+          loggedReasons.add(reason);
+        },
+      );
+
+      final String? opener = await repo.ensureSession();
+
+      // Fell through to a NEW session (no opening_text on this stub → null opener).
+      expect(opener, isNull);
+      expect(session.sessionId, 'fresh-1');
+      // Retried exactly ONCE (two /latest hits), then the POST.
+      expect(latestHits, 2, reason: '/latest is tried, then retried once');
+      expect(hitPaths, <String>[
+        '/chat/session/latest',
+        '/chat/session/latest',
+        '/chat/session',
+      ]);
+      // LOGGED, not swallowed: exactly one non-fatal, carrying the MAPPED
+      // Failure (a SocketException maps to NetworkFailure) and a static reason.
+      expect(loggedErrors, hasLength(1),
+          reason: 'logged once, after the retry also failed');
+      expect(loggedErrors.single, isA<NetworkFailure>());
+      expect(loggedReasons.single, 'chat_resume_latest_failed');
+    });
+
+    test('the single retry RECOVERS: a transient /latest blip resumes and never '
+        'logs or opens a new session', () async {
+      final SessionRepository session = SessionRepository()
+        ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok');
+
+      final List<String> hitPaths = <String>[];
+      int latestHits = 0;
+      int logCount = 0;
+
+      final ChatRepositoryImpl repo = ChatRepositoryImpl(
+        ApiClient(
+          baseUrl: 'http://test',
+          client: MockClient((http.Request req) async {
+            hitPaths.add(req.url.path);
+            if (req.url.path == '/chat/session/latest') {
+              latestHits++;
+              if (latestHits == 1) throw const SocketException('blip');
+              return http.Response(
+                  jsonEncode(<String, dynamic>{'session_id': 'prior-1'}), 200);
+            }
+            return fail('must not open a new session after a recovered resume');
+          }),
+        ),
+        session,
+        reportNonFatal:
+            (Object error, StackTrace stack, {required String reason}) =>
+                logCount++,
+      );
+
+      final String? opener = await repo.ensureSession();
+
+      expect(opener, isNull, reason: 'a resume serves no opener');
+      expect(session.sessionId, 'prior-1', reason: 'the retry resumed the session');
+      expect(latestHits, 2, reason: 'first failed, retry succeeded');
+      expect(hitPaths, <String>['/chat/session/latest', '/chat/session/latest'],
+          reason: 'no /chat/session — the resume recovered');
+      expect(logCount, 0, reason: 'a recovered blip is not logged');
+    });
+
+    test('concurrent ensureSession calls open exactly ONE session (in-flight guard)',
+        () async {
+      final SessionRepository session = SessionRepository()
+        ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok');
+
+      int startSessionHits = 0;
+      final ChatRepositoryImpl repo = ChatRepositoryImpl(
+        ApiClient(
+          baseUrl: 'http://test',
+          client: MockClient((http.Request req) async {
+            if (req.url.path == '/chat/session/latest') {
+              // No prior session → both concurrent callers race to the POST.
+              return http.Response(
+                  jsonEncode(<String, dynamic>{'session_id': null}), 200);
+            }
+            if (req.url.path == '/chat/session') {
+              startSessionHits++;
+              // A slow open widens the concurrency window a real network has.
+              await Future<void>.delayed(const Duration(milliseconds: 20));
+              return http.Response(
+                  jsonEncode(<String, dynamic>{'session_id': 's1'}), 201);
+            }
+            return fail('unexpected path ${req.url.path}');
+          }),
+        ),
+        session,
+      );
+
+      // Fire two opens in the SAME microtask before either resolves.
+      final List<String?> openers =
+          await Future.wait(<Future<String?>>[
+        repo.ensureSession(),
+        repo.ensureSession(),
+      ]);
+
+      expect(startSessionHits, 1,
+          reason: 'the in-flight guard collapses the double entry to one POST');
+      expect(session.sessionId, 's1');
+      expect(openers, <String?>[null, null],
+          reason: 'both callers await the same open');
+    });
+
+    test('an old-build POST returning the worker\'s existing session carries NO '
+        'opening_text → ensureSession yields null → canned greeting stays',
+        () async {
+      // #1197/#1198: once the backend reattach guard ships, a POST /chat/session
+      // can return the EXISTING session with no opener. The client must render its
+      // canned greeting (ensureSession -> null, which ChatBloc._withOpener keeps),
+      // not crash on a missing opening_text.
+      final SessionRepository session = SessionRepository()
+        ..setWorker(phone: '+910000000000', workerId: 'w1', sessionToken: 'tok');
+
+      final ChatRepositoryImpl repo = ChatRepositoryImpl(
+        ApiClient(
+          baseUrl: 'http://test',
+          client: MockClient((http.Request req) async {
+            if (req.url.path == '/chat/session/latest') {
+              return http.Response(
+                  jsonEncode(<String, dynamic>{'session_id': null}), 200);
+            }
+            if (req.url.path == '/chat/session') {
+              // The reattach response: an id, but NO opening_text.
+              return http.Response(
+                  jsonEncode(<String, dynamic>{'session_id': 's-existing'}), 201);
+            }
+            return fail('unexpected path ${req.url.path}');
+          }),
+        ),
+        session,
+      );
+
+      final String? opener = await repo.ensureSession();
+      expect(opener, isNull,
+          reason: 'no opening_text → null → the canned greeting is kept');
+      expect(session.sessionId, 's-existing');
+    });
+  });
+
   // #478 + honesty cues — the reply's new fields must reach the ChatTurn the
   // bloc consumes, or the named-gaps helper and the blocked/mock cues go dark.
   test('sendMessage carries unanswered_essentials, blocked and is_mock through',
