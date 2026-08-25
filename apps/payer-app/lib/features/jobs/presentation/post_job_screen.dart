@@ -689,7 +689,13 @@ class _PostJobScreenState extends State<PostJobScreen> {
   /// column for them. Nothing on this form is prefilled and nothing is dropped.
   List<Widget> _companyFields() => <Widget>[
         _sectionCard('Company & role', <Widget>[
-          BbField(label: 'Company / org name', controller: _org),
+          BbField(
+            label: 'Company / org name',
+            controller: _org,
+            // Identity name field: keep the keyboard from resurfacing an org
+            // name typed in another app (matches signup + account, #1227).
+            suppressSuggestions: true,
+          ),
           const SizedBox(height: AppSpacing.s4),
           BbField(
             label: 'Job title',
