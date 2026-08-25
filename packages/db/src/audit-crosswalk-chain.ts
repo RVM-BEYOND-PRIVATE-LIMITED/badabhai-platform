@@ -20,7 +20,8 @@
  *
  *   pnpm db:audit:crosswalk-chain [--skill=<id>] [--json=<out>]
  */
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { sql as dsql } from "drizzle-orm";
 import { config } from "dotenv";
@@ -89,7 +90,25 @@ async function main(): Promise<void> {
     const subject = await ONE(db, subjectId);
     if (subject === undefined) throw new Error(`[${SCRIPT}] ${subjectId} is not in production`);
 
-    const successorId = subject.replaced_by;
+    /*
+     * Successor resolution, production FIRST and the corpus as a declared fallback.
+     *
+     * The interesting cases are exactly the drifted ones: the corpus marks a skill deprecated
+     * with a successor and production still has it `active` with `replaced_by` NULL. Refusing
+     * to analyse those would blind the instrument to D-7A and D-7C, which are entirely made of
+     * that shape.
+     */
+    const corpusSuccessor =
+      SKILL_CORPUS.find((c) => c.skillId === subjectId)?.replacedBy ??
+      readFileSync(join(__dirname, "..", "data", "taxonomy", "skills.jsonl"), "utf8")
+        .split(/\r?\n/)
+        .filter((l) => l.trim() !== "" && !l.startsWith("#"))
+        .map((l) => JSON.parse(l) as { skill_id: string; replaced_by?: string | null })
+        .find((r) => r.skill_id === subjectId)?.replaced_by ??
+      null;
+    const successorId = subject.replaced_by ?? corpusSuccessor;
+    const successorSource: "production" | "corpus" | "none" =
+      subject.replaced_by !== null ? "production" : corpusSuccessor !== null ? "corpus" : "none";
     const successor = successorId === null ? undefined : await ONE(db, successorId);
 
     // HOP 3 is CODE, not data: the bridge is a TypeScript constant, never a table.
@@ -166,6 +185,40 @@ async function main(): Promise<void> {
     }
     const liveNow = reachability.filter((r) => r.top_skill === successorId);
 
+    /*
+     * If the subject is ACTIVE today, deprecating it is what would trigger the HOP-0 route.
+     * Simulate by excluding the subject from the candidate set — the exact effect of the
+     * `s.status='active'` filter once the status flips.
+     */
+    const ifDeprecated: Array<{ alias: string; job_domain_id: string; top_skill: string; score: number }> = [];
+    if (subject.status === "active") {
+      for (const a of subjectAliases) {
+        const rows = (await db.execute(dsql`
+          WITH q AS (SELECT embedding FROM skill_alias WHERE skill_id = ${subjectId} AND text = ${a.text}),
+          scored AS (
+            SELECT jds.job_domain_id, sa.skill_id,
+                   1 - (sa.embedding <=> (SELECT embedding FROM q)) AS score,
+                   row_number() OVER (PARTITION BY jds.job_domain_id
+                                      ORDER BY sa.embedding <=> (SELECT embedding FROM q)) AS rn
+            FROM skill_alias sa
+            JOIN skill s ON s.skill_id = sa.skill_id
+            JOIN job_domain_skill jds ON jds.skill_id = sa.skill_id
+            WHERE jds.status = 'active' AND s.status = 'active' AND sa.embedding IS NOT NULL
+              AND sa.skill_id <> ${subjectId})
+          SELECT job_domain_id, skill_id, score FROM scored
+          WHERE rn = 1 AND score >= ${FLOOR} ORDER BY score DESC
+        `)) as unknown as Array<{ job_domain_id: string; skill_id: string; score: number }>;
+        for (const r of rows) {
+          ifDeprecated.push({
+            alias: a.text,
+            job_domain_id: r.job_domain_id,
+            top_skill: r.skill_id,
+            score: Number(r.score.toFixed(4)),
+          });
+        }
+      }
+    }
+
     console.log(`[${SCRIPT}] READ-ONLY. No write path, no provider call.`);
     console.log(`  target                 = ${hostClass(url)}`);
     console.log(`  role                   = ${who?.who} (bypassrls=${String(who?.bypass_rls)})`);
@@ -213,6 +266,19 @@ async function main(): Promise<void> {
       }
     }
     console.log(`  domains where the SUCCESSOR is already assigned = ${liveNow.length}`);
+    if (subject.status === "active") {
+      console.log(`
+  === IF THIS SUBJECT WERE DEPRECATED (simulated, nothing changed) ===`);
+      if (ifDeprecated.length === 0) {
+        console.log(`  nothing would clear the floor — the phrase would fail closed to UNRESOLVED`);
+      } else {
+        for (const r of ifDeprecated) {
+          const b = bridge[r.top_skill] ?? [];
+          const note = b.length > 0 ? `  -> BRIDGED ${JSON.stringify(b)}  *** WIDENING ***` : "  -> bridge [] (no claim)";
+          console.log(`     "${r.alias}" @ ${r.job_domain_id.padEnd(20)} -> ${r.top_skill.padEnd(26)} ${r.score}${note}`);
+        }
+      }
+    }
     if (liveNow.length > 0) {
       console.log(
         `
@@ -251,6 +317,9 @@ async function main(): Promise<void> {
             skill_id: subject.skill_id,
             status: subject.status,
             replaced_by: subject.replaced_by,
+            successor_id: successorId,
+            successor_source: successorSource,
+            if_deprecated_above_floor: ifDeprecated,
             successor_status: successor?.status ?? null,
             successor_in_skill_corpus: successor === undefined ? null : corpusIds.has(successor.skill_id),
             subject_match_skills: subjectMatch,

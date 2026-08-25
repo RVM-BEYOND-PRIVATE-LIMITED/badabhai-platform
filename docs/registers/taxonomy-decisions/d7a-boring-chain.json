@@ -1,0 +1,62 @@
+{
+  "kind": "crosswalk-chain",
+  "measured_at": "2026-08-25T11:58:52.056Z",
+  "source": "pnpm db:audit:crosswalk-chain --skill=skill_boring",
+  "target": "SUPABASE (remote)",
+  "read_only": true,
+  "role": "postgres",
+  "bypass_rls": true,
+  "population_predicate": "skill.skill_id = 'skill_boring' and its replaced_by chain",
+  "skill_id": "skill_boring",
+  "status": "active",
+  "replaced_by": null,
+  "successor_id": "skill_turning",
+  "successor_source": "corpus",
+  "if_deprecated_above_floor": [
+    {
+      "alias": "boring",
+      "job_domain_id": "jd_nco_7223_0701",
+      "top_skill": "skill_drilling",
+      "score": 0.7556
+    }
+  ],
+  "successor_status": "active",
+  "successor_in_skill_corpus": true,
+  "subject_match_skills": [],
+  "successor_match_skills": [
+    "mskill_cnc_turner"
+  ],
+  "match_skills_gained_by_retag": [
+    "mskill_cnc_turner"
+  ],
+  "crosswalk_widening": true,
+  "successor_already_reachable_domains": 0,
+  "reachability_above_floor": [
+    {
+      "alias": "boring",
+      "job_domain_id": "jd_nco_7223_0701",
+      "top_skill": "skill_boring",
+      "score": 1,
+      "above_floor": true
+    }
+  ],
+  "subject_aliases": 1,
+  "subject_edges": 1,
+  "successor_aliases": 5,
+  "successor_edges": 2,
+  "stored_worker_skill_rows_on_chain": 0,
+  "worker_skill_total": 0,
+  "job_reach_total": 0,
+  "retag_predicate_rows": [
+    {
+      "skill_id": "skill_chassis_fitting",
+      "replaced_by": "skill_mechanical_assembly"
+    },
+    {
+      "skill_id": "skill_go_no_go_gauge_checking",
+      "replaced_by": "skill_measuring_instruments"
+    }
+  ],
+  "production_mutation_required": true,
+  "owner_decision_required": true
+}
