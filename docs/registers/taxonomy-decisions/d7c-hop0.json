@@ -1,0 +1,398 @@
+{
+  "measured_at": "2026-08-25T12:57:41.714Z",
+  "source": "pnpm db:audit:deprecation-hop0 --skills=skill_gdt_reading,skill_cad_interpretation,skill_dimensional_inspection",
+  "target": "SUPABASE (remote)",
+  "read_only": true,
+  "role": "postgres",
+  "bypass_rls": true,
+  "population_predicate": "every embedded skill_alias row of {skill_gdt_reading, skill_cad_interpretation, skill_dimensional_inspection}, scored in each retrieval scope it is reachable in (legacy skill_alias.domain_id and every canonical job_domain_skill.job_domain_id), with all subjects excluded together",
+  "floor": 0.75,
+  "subjects": [
+    "skill_gdt_reading",
+    "skill_cad_interpretation",
+    "skill_dimensional_inspection"
+  ],
+  "excluded": {
+    "skill_boring": "D-7A, OWNER-HELD: seeding lands 'boring' on skill_drilling at 0.7556 — above the floor, a different operation, and the corpus's named successor (skill_turning, 0.6652) would not win. No option has been selected."
+  },
+  "production_state": [
+    {
+      "skill_id": "skill_cad_interpretation",
+      "status": "active",
+      "replaced_by": null,
+      "domain_id": "cnc-programming",
+      "aliases": 4,
+      "active_edges": 0,
+      "corpus_successor": "skill_drawing_reading"
+    },
+    {
+      "skill_id": "skill_dimensional_inspection",
+      "status": "active",
+      "replaced_by": null,
+      "domain_id": "metrology-quality",
+      "aliases": 3,
+      "active_edges": 2,
+      "corpus_successor": "skill_quality_control"
+    },
+    {
+      "skill_id": "skill_gdt_reading",
+      "status": "active",
+      "replaced_by": null,
+      "domain_id": "cnc-machining",
+      "aliases": 4,
+      "active_edges": 0,
+      "corpus_successor": "skill_drawing_reading"
+    }
+  ],
+  "observations": [
+    {
+      "subject": "skill_cad_interpretation",
+      "phrase": "CAD",
+      "scope": "cnc-programming",
+      "scopeKind": "legacy",
+      "today": {
+        "skillId": "skill_cad_interpretation",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_cam_software",
+        "score": 0.681161761283875
+      },
+      "successor_id": "skill_drawing_reading",
+      "verdict": "FALLS_BELOW_FLOOR",
+      "subject_bridge": [],
+      "landing_bridge": [
+        "mskill_cam_programmer"
+      ]
+    },
+    {
+      "subject": "skill_cad_interpretation",
+      "phrase": "drawing padhna",
+      "scope": "cnc-programming",
+      "scopeKind": "legacy",
+      "today": {
+        "skillId": "skill_cad_interpretation",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_program_editing",
+        "score": 0.617118670596918
+      },
+      "successor_id": "skill_drawing_reading",
+      "verdict": "FALLS_BELOW_FLOOR",
+      "subject_bridge": [],
+      "landing_bridge": []
+    },
+    {
+      "subject": "skill_cad_interpretation",
+      "phrase": "read engineering drawings",
+      "scope": "cnc-programming",
+      "scopeKind": "legacy",
+      "today": {
+        "skillId": "skill_cad_interpretation",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_cnc_programming",
+        "score": 0.593876260336526
+      },
+      "successor_id": "skill_drawing_reading",
+      "verdict": "FALLS_BELOW_FLOOR",
+      "subject_bridge": [],
+      "landing_bridge": [
+        "mskill_cnc_programmer"
+      ]
+    },
+    {
+      "subject": "skill_cad_interpretation",
+      "phrase": "technical drawing",
+      "scope": "cnc-programming",
+      "scopeKind": "legacy",
+      "today": {
+        "skillId": "skill_cad_interpretation",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_cnc_programming",
+        "score": 0.590709770279541
+      },
+      "successor_id": "skill_drawing_reading",
+      "verdict": "FALLS_BELOW_FLOOR",
+      "subject_bridge": [],
+      "landing_bridge": [
+        "mskill_cnc_programmer"
+      ]
+    },
+    {
+      "subject": "skill_dimensional_inspection",
+      "phrase": "dimensional inspection",
+      "scope": "jd_nco_7313_2601",
+      "scopeKind": "canonical",
+      "today": {
+        "skillId": "skill_dimensional_inspection",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_drawing_reading",
+        "score": 0.756977453411971
+      },
+      "successor_id": "skill_quality_control",
+      "verdict": "LANDS_ELSEWHERE_ABOVE_FLOOR",
+      "subject_bridge": [
+        "mskill_quality_inspector"
+      ],
+      "landing_bridge": []
+    },
+    {
+      "subject": "skill_dimensional_inspection",
+      "phrase": "inspection",
+      "scope": "jd_nco_7313_2601",
+      "scopeKind": "canonical",
+      "today": {
+        "skillId": "skill_dimensional_inspection",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_quality_control",
+        "score": 0.651674827833485
+      },
+      "successor_id": "skill_quality_control",
+      "verdict": "FALLS_BELOW_FLOOR",
+      "subject_bridge": [
+        "mskill_quality_inspector"
+      ],
+      "landing_bridge": [
+        "mskill_quality_inspector"
+      ]
+    },
+    {
+      "subject": "skill_dimensional_inspection",
+      "phrase": "quality check",
+      "scope": "jd_nco_7313_2601",
+      "scopeKind": "canonical",
+      "today": {
+        "skillId": "skill_dimensional_inspection",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_quality_control",
+        "score": 0.821867178567221
+      },
+      "successor_id": "skill_quality_control",
+      "verdict": "LANDS_ON_SUCCESSOR",
+      "subject_bridge": [
+        "mskill_quality_inspector"
+      ],
+      "landing_bridge": [
+        "mskill_quality_inspector"
+      ]
+    },
+    {
+      "subject": "skill_dimensional_inspection",
+      "phrase": "dimensional inspection",
+      "scope": "jd_nco_7543_2001",
+      "scopeKind": "canonical",
+      "today": {
+        "skillId": "skill_dimensional_inspection",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_drawing_reading",
+        "score": 0.756977453411971
+      },
+      "successor_id": "skill_quality_control",
+      "verdict": "LANDS_ELSEWHERE_ABOVE_FLOOR",
+      "subject_bridge": [
+        "mskill_quality_inspector"
+      ],
+      "landing_bridge": []
+    },
+    {
+      "subject": "skill_dimensional_inspection",
+      "phrase": "inspection",
+      "scope": "jd_nco_7543_2001",
+      "scopeKind": "canonical",
+      "today": {
+        "skillId": "skill_dimensional_inspection",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_measuring_instruments",
+        "score": 0.625375688076019
+      },
+      "successor_id": "skill_quality_control",
+      "verdict": "FALLS_BELOW_FLOOR",
+      "subject_bridge": [
+        "mskill_quality_inspector"
+      ],
+      "landing_bridge": []
+    },
+    {
+      "subject": "skill_dimensional_inspection",
+      "phrase": "quality check",
+      "scope": "jd_nco_7543_2001",
+      "scopeKind": "canonical",
+      "today": {
+        "skillId": "skill_dimensional_inspection",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_measuring_instruments",
+        "score": 0.610457241535187
+      },
+      "successor_id": "skill_quality_control",
+      "verdict": "FALLS_BELOW_FLOOR",
+      "subject_bridge": [
+        "mskill_quality_inspector"
+      ],
+      "landing_bridge": []
+    },
+    {
+      "subject": "skill_dimensional_inspection",
+      "phrase": "dimensional inspection",
+      "scope": "metrology-quality",
+      "scopeKind": "legacy",
+      "today": {
+        "skillId": "skill_dimensional_inspection",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_cmm",
+        "score": 0.700837194919591
+      },
+      "successor_id": "skill_quality_control",
+      "verdict": "FALLS_BELOW_FLOOR",
+      "subject_bridge": [
+        "mskill_quality_inspector"
+      ],
+      "landing_bridge": [
+        "mskill_quality_inspector"
+      ]
+    },
+    {
+      "subject": "skill_dimensional_inspection",
+      "phrase": "inspection",
+      "scope": "metrology-quality",
+      "scopeKind": "legacy",
+      "today": {
+        "skillId": "skill_dimensional_inspection",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_quality_control",
+        "score": 0.651674827833485
+      },
+      "successor_id": "skill_quality_control",
+      "verdict": "FALLS_BELOW_FLOOR",
+      "subject_bridge": [
+        "mskill_quality_inspector"
+      ],
+      "landing_bridge": [
+        "mskill_quality_inspector"
+      ]
+    },
+    {
+      "subject": "skill_dimensional_inspection",
+      "phrase": "quality check",
+      "scope": "metrology-quality",
+      "scopeKind": "legacy",
+      "today": {
+        "skillId": "skill_dimensional_inspection",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_quality_control",
+        "score": 0.821867178567221
+      },
+      "successor_id": "skill_quality_control",
+      "verdict": "LANDS_ON_SUCCESSOR",
+      "subject_bridge": [
+        "mskill_quality_inspector"
+      ],
+      "landing_bridge": [
+        "mskill_quality_inspector"
+      ]
+    },
+    {
+      "subject": "skill_gdt_reading",
+      "phrase": "blueprint reading",
+      "scope": "cnc-machining",
+      "scopeKind": "legacy",
+      "today": {
+        "skillId": "skill_gdt_reading",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_drawing_reading",
+        "score": 1
+      },
+      "successor_id": "skill_drawing_reading",
+      "verdict": "LANDS_ON_SUCCESSOR",
+      "subject_bridge": [],
+      "landing_bridge": []
+    },
+    {
+      "subject": "skill_gdt_reading",
+      "phrase": "drawing reading",
+      "scope": "cnc-machining",
+      "scopeKind": "legacy",
+      "today": {
+        "skillId": "skill_gdt_reading",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_drawing_reading",
+        "score": 1
+      },
+      "successor_id": "skill_drawing_reading",
+      "verdict": "LANDS_ON_SUCCESSOR",
+      "subject_bridge": [],
+      "landing_bridge": []
+    },
+    {
+      "subject": "skill_gdt_reading",
+      "phrase": "GD&T",
+      "scope": "cnc-machining",
+      "scopeKind": "legacy",
+      "today": {
+        "skillId": "skill_drawing_reading",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_drawing_reading",
+        "score": 1
+      },
+      "successor_id": "skill_drawing_reading",
+      "verdict": "UNCHANGED",
+      "subject_bridge": [],
+      "landing_bridge": []
+    },
+    {
+      "subject": "skill_gdt_reading",
+      "phrase": "geometric dimensioning and tolerancing",
+      "scope": "cnc-machining",
+      "scopeKind": "legacy",
+      "today": {
+        "skillId": "skill_drawing_reading",
+        "score": 1
+      },
+      "ifSeeded": {
+        "skillId": "skill_drawing_reading",
+        "score": 1
+      },
+      "successor_id": "skill_drawing_reading",
+      "verdict": "UNCHANGED",
+      "subject_bridge": [],
+      "landing_bridge": []
+    }
+  ],
+  "summary": {
+    "total": 17,
+    "match_set_neutral": true,
+    "gained_match_skills": [],
+    "misassignments": 2,
+    "coverage_losses": 9,
+    "neutral_only_via_floor": 6
+  },
+  "production_mutation_performed": false
+}
