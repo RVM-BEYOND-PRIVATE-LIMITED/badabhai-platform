@@ -1,0 +1,66 @@
+{
+  "kind": "crosswalk-chain",
+  "measured_at": "2026-08-25T11:29:52.252Z",
+  "source": "pnpm db:audit:crosswalk-chain --skill=skill_chassis_fitting",
+  "target": "SUPABASE (remote)",
+  "read_only": true,
+  "role": "postgres",
+  "bypass_rls": true,
+  "population_predicate": "skill.skill_id = 'skill_chassis_fitting' and its replaced_by chain",
+  "skill_id": "skill_chassis_fitting",
+  "status": "deprecated",
+  "replaced_by": "skill_mechanical_assembly",
+  "successor_status": "active",
+  "successor_in_skill_corpus": true,
+  "subject_match_skills": null,
+  "successor_match_skills": [
+    "mskill_fitter"
+  ],
+  "match_skills_gained_by_retag": [
+    "mskill_fitter"
+  ],
+  "crosswalk_widening": true,
+  "successor_already_reachable_domains": 3,
+  "reachability_above_floor": [
+    {
+      "alias": "chassis assembly",
+      "job_domain_id": "jd_nco_7231_0400",
+      "top_skill": "skill_mechanical_assembly",
+      "score": 0.757,
+      "above_floor": true
+    },
+    {
+      "alias": "chassis assembly",
+      "job_domain_id": "jd_nco_8211_1200",
+      "top_skill": "skill_mechanical_assembly",
+      "score": 0.757,
+      "above_floor": true
+    },
+    {
+      "alias": "chassis assembly",
+      "job_domain_id": "jd_nco_8212_0100",
+      "top_skill": "skill_mechanical_assembly",
+      "score": 0.757,
+      "above_floor": true
+    }
+  ],
+  "subject_aliases": 2,
+  "subject_edges": 1,
+  "successor_aliases": 2,
+  "successor_edges": 3,
+  "stored_worker_skill_rows_on_chain": 0,
+  "worker_skill_total": 0,
+  "job_reach_total": 0,
+  "retag_predicate_rows": [
+    {
+      "skill_id": "skill_chassis_fitting",
+      "replaced_by": "skill_mechanical_assembly"
+    },
+    {
+      "skill_id": "skill_go_no_go_gauge_checking",
+      "replaced_by": "skill_measuring_instruments"
+    }
+  ],
+  "production_mutation_required": true,
+  "owner_decision_required": true
+}
