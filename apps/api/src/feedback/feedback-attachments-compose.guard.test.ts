@@ -55,6 +55,12 @@ describe("docker-compose.staging.yml — feedback attachments can be armed from 
     expect(api.has(name), `${name} missing from the api service`).toBe(true);
   });
 
+  // ⚠ THIS ASSERTS THE LITERAL AND NOT ITS CONSEQUENCE, WHICH IS HOW IT PASSED WHILE THE API
+  // CRASH-LOOPED (2026-08-25). `` passes `VAR=""` INTO the container, and the two numeric
+  // knobs below could not parse an empty string — a boot failure this file was green for.
+  // `config/compose-empty-passthrough.guard.test.ts` is the guard on the EFFECT: it boots
+  // `loadServerConfig` with every bare pass-through blanked. Keep both; they answer different
+  // questions ("is it declared?" and "does what it declares work?").
   it.each(API_ONLY_VARS)("%s is a fail-closed `:-` pass-through, never required", (name) => {
     // `${VAR:?}` would fail the whole deploy when unset, which is what the owner's small
     // required-secret set is deliberately kept small to avoid. Empty must stay a legal,

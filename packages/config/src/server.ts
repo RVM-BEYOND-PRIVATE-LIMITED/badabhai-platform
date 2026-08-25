@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { booleanFromString, portSchema, nodeEnvSchema, isDevEnv, formatEnvError } from "./shared";
+import {
+  booleanFromString,
+  portSchema,
+  positiveIntFromString,
+  nodeEnvSchema,
+  isDevEnv,
+  formatEnvError,
+} from "./shared";
 
 /**
  * Server-side (secret-bearing) configuration.
@@ -159,7 +166,13 @@ export const serverEnvSchema = z.object({
   // are then referenced by nothing — so the cost is bounded by how often a slot can be
   // minted, not by how often feedback can be filed. The per-WORKER minute/hour caps below
   // already bound the submissions themselves.
-  FEEDBACK_ATTACHMENT_RATE_LIMIT_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  //
+  // `positiveIntFromString` RATHER THAN `z.coerce.number()…`, and the two are NOT
+  // interchangeable here. These two are the only numeric knobs docker-compose.staging.yml
+  // passes through, so they are the only ones that actually receive `""` — and `.default()`
+  // does not fire for an empty string, it fires for `undefined`. Shipping them with the
+  // ordinary coercion crash-looped the staging API on 2026-08-25. See the helper's own header.
+  FEEDBACK_ATTACHMENT_RATE_LIMIT_PER_IP_PER_HOUR: positiveIntFromString(20),
   // #694 — actions a single AUTHENTICATED worker may record per rolling UTC hour, across
   // `POST /workers/me/actions` and its batch sibling. Counted in ACTIONS, not requests: the
   // batch route exists because the client buffers and flushes opportunistically, so capping
@@ -205,11 +218,7 @@ export const serverEnvSchema = z.object({
    * and a future read-edge check cannot pick different ones, and so raising it is a config
    * change rather than an archaeology exercise.
    */
-  FEEDBACK_ATTACHMENT_MAX_BYTES: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(5 * 1024 * 1024),
+  FEEDBACK_ATTACHMENT_MAX_BYTES: positiveIntFromString(5 * 1024 * 1024),
   /**
    * PAY-SEC-07 — per-payer hourly cap on the AI job-posting chat. Each message is a PAID LLM
    * call, so this route is a direct spend surface: uncapped, one authenticated payer can bill
