@@ -234,6 +234,10 @@ the 22 undelivered ratified aliases, the two widening crosswalks, and evidence p
 
 ## H. The decision surface — everything now waits on a human
 
+> **The full brief is [`owner-decision-packet.md`](./owner-decision-packet.md)** — eight
+> decisions in FACTS / MEASURED EVIDENCE / RISK / OPTIONS / RECOMMENDATION form, plus the
+> mutation plans, rollbacks, sequencing and the pooler note. The table below is the index.
+
 **No independently executable engineering task remains in this programme.** Every remaining item
 is blocked on one of the four things an agent must not decide for itself.
 
