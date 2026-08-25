@@ -105,6 +105,24 @@ export const serverEnvSchema = z.object({
   // dormant. The photo is for the worker's OWN app + OWN resume PDF only — it must
   // NEVER reach the payer surface, the disclosure PDF, events, ai_jobs, or logs.
   WORKER_PHOTOS_BUCKET: z.string().default(""),
+  // #1191 — private Storage bucket for the images a worker attaches to a FEEDBACK
+  // submission. Same Storage Mode A (service-role, backend-only) and the same
+  // server-chosen opaque key shape as the photos bucket above:
+  // `feedback-attachments/{workerId}/{uuid}.jpg`, never client-supplied.
+  //
+  // EMPTY DEFAULT IS DELIBERATE AND IS THE SHIPPED CONTRACT, not a placeholder: the
+  // Flutter client is ALREADY RELEASED against this route and degrades honestly on a
+  // 503 — it drops the image and still submits the worker's typed message. So while
+  // this is unset the mint 503s fail-closed, the feature is inert, and nobody loses
+  // feedback. Setting it (the bucket exists PRIVATE, provisioned out-of-band with its
+  // own `file_size_limit` and `allowed_mime_types`) arms the whole path at once.
+  //
+  // ERASURE IS THE PREFIX SWEEP THE PHOTOS BUCKET ALREADY DOES: the key is worker-
+  // scoped, so account deletion removes these with the same mechanism. A DIFFERENT
+  // bucket from the photos one on purpose — a face photo and a screenshot of a broken
+  // screen are different sensitivity classes and get different retention and different
+  // mime allowlists; sharing one bucket would fuse those two decisions forever.
+  WORKER_FEEDBACK_ATTACHMENTS_BUCKET: z.string().default(""),
   // Private Storage bucket holding rendered per-trade interview-kit PDFs (TD24, Task 4).
   // Same Storage Mode A (service-role, backend-only). Object keys are
   // `interview-kits/{tradeKey}/{contentVersion}/interview-kit.pdf` — fully deterministic,
@@ -135,6 +153,13 @@ export const serverEnvSchema = z.object({
   // would let a hostile worker fabricate unlimited ≤2MiB orphan objects (upload-but-
   // never-confirm) — a storage-cost + erasure-surface abuse. Same fail-closed idiom.
   PHOTO_RATE_LIMIT_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // #1191 — the same cap on the FEEDBACK attachment mint, and it is per-IP rather than
+  // per-worker for the same reason the photo one is: minting is what creates the orphan.
+  // A worker can mint three slots, upload three objects and never submit, and those bytes
+  // are then referenced by nothing — so the cost is bounded by how often a slot can be
+  // minted, not by how often feedback can be filed. The per-WORKER minute/hour caps below
+  // already bound the submissions themselves.
+  FEEDBACK_ATTACHMENT_RATE_LIMIT_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(20),
   // #694 — actions a single AUTHENTICATED worker may record per rolling UTC hour, across
   // `POST /workers/me/actions` and its batch sibling. Counted in ACTIONS, not requests: the
   // batch route exists because the client buffers and flushes opportunistically, so capping
@@ -164,6 +189,27 @@ export const serverEnvSchema = z.object({
    */
   WORKER_FEEDBACK_PER_MINUTE: z.coerce.number().int().positive().default(3),
   WORKER_FEEDBACK_PER_HOUR: z.coerce.number().int().positive().default(20),
+  /**
+   * #1191 — the size ceiling for ONE feedback attachment, in bytes. 5 MiB.
+   *
+   * ⚠ DECLARED AND DELIBERATELY NOT READ ON THE REQUEST PATH. The obvious place to enforce it
+   * is the submit call, via `StorageService.getObjectInfo` per path — and that is exactly where
+   * it must NOT go: submit writes the row and emits `feedback.submitted` in ONE transaction, so
+   * a storage blip during the check rolls back the worker's typed message over an image. Losing
+   * a paragraph to a size probe on an attachment is the wrong failure direction, and it is the
+   * same ruling migration 0081 made about a telemetry column that could abort the write.
+   *
+   * WHERE THE CEILING ACTUALLY BELONGS is the bucket's own `file_size_limit` (Supabase rejects
+   * the PUT itself, before any of our code runs) — see infra/supabase/storage-buckets.sql. This
+   * value exists so that number has ONE name in the repo, so an operator provisioning the bucket
+   * and a future read-edge check cannot pick different ones, and so raising it is a config
+   * change rather than an archaeology exercise.
+   */
+  FEEDBACK_ATTACHMENT_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(5 * 1024 * 1024),
   /**
    * PAY-SEC-07 — per-payer hourly cap on the AI job-posting chat. Each message is a PAID LLM
    * call, so this route is a direct spend surface: uncapped, one authenticated payer can bill

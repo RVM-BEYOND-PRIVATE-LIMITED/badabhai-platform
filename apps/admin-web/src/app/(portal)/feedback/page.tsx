@@ -169,10 +169,12 @@ export default async function FeedbackPage({
           <p className="page__sub">
             What workers typed into the app&apos;s Feedback button, newest first. This is the one
             screen here that shows a worker&apos;s own words, so a message may contain details they
-            chose to include about themselves. Nothing else on the row is identifying — no name or
+            chose to include about themselves — and, since they may attach photos of what they are
+            reporting, so may an image. Nothing else on the row is identifying — no name or
             number is looked up, and the screen a message is about is recorded by matching what
             the app sent against the list of screens the app has, so it says where the worker was
-            rather than what they were looking at.
+            rather than what they were looking at. Image links expire after a few minutes; reload
+            the page to get working ones.
           </p>
         </div>
       </header>
@@ -290,6 +292,7 @@ export default async function FeedbackPage({
                   <th scope="col">Category</th>
                   <th scope="col">Build</th>
                   <th scope="col">Screen</th>
+                  <th scope="col">Images</th>
                   <th scope="col">Message</th>
                 </tr>
               </thead>
@@ -377,6 +380,64 @@ export default async function FeedbackPage({
                         // only claim the row supports, so it is the one made: the same dash the
                         // untagged category renders, for the same reason.
                         <span title="This submission arrived without a screen — an older app build, or a value that matched none of the app's screens.">
+                          —
+                        </span>
+                      )}
+                    </td>
+                    <td className="cell--images">
+                      {f.attachment_urls.length > 0 ? (
+                        /* Each thumbnail is its own link, opened in a new tab so the operator
+                           never loses the page of messages they are reading.
+
+                           `rel="noreferrer"` COVERS TWO THINGS AT ONCE and both matter here.
+                           It implies `noopener`, so the opened tab cannot reach back through
+                           `window.opener` and navigate this console somewhere else — and it
+                           suppresses the `Referer`, which on THIS surface would otherwise carry
+                           `?workerId=<uuid>` from the address bar to the storage origin. A
+                           filter value is not something to hand to a third party in a header
+                           nobody looks at.
+
+                           The `href` and the `src` are the SAME signed url. The server asks the
+                           storage origin for `Content-Disposition: attachment` on it, so a click
+                           downloads the file rather than rendering worker-supplied bytes on that
+                           origin; browsers ignore that header for `<img>`, so the thumbnail
+                           below still renders. */
+                        <span className="thumbs">
+                          {f.attachment_urls.map((url, i) => (
+                            <a
+                              className="thumb"
+                              href={url}
+                              key={url}
+                              rel="noreferrer"
+                              target="_blank"
+                              title="Open the full image in a new tab"
+                            >
+                              {/* A PLAIN img, NOT `next/image`, and that is a privacy decision rather
+                                  than a shortcut: the optimizer proxies the url through
+                                  /_next/image and caches by it, so a worker's private photograph
+                                  would keep being served after the signed url expired. A plain img
+                                  fetches it directly and stops working exactly when the credential
+                                  does, which is the behaviour this feature needs. */}
+                              <img
+                                alt={`Attachment ${i + 1} of ${f.attachment_urls.length}`}
+                                loading="lazy"
+                                src={url}
+                              />
+                            </a>
+                          ))}
+                        </span>
+                      ) : (
+                        /* EMPTY HAS FOUR CAUSES AND THIS PAGE CAN TELL THEM APART FROM NONE OF
+                           THEM — the worker attached nothing, the row predates the feature, the
+                           attachments bucket is not provisioned, or signing this row's images
+                           failed. All four mean "no images to show", so the same dash the
+                           untagged category and the unknown build render, for the same reason.
+                           Claiming any one of the four would be a guess an operator might act
+                           on. */
+                        <span
+                          className="table__meta"
+                          title="No images are shown for this submission."
+                        >
                           —
                         </span>
                       )}

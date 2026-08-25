@@ -1739,6 +1739,44 @@ textarea.field__input {
   max-inline-size: 24ch;
 }
 
+/* The IMAGES column (#1191). At most three thumbnails, and they wrap rather than widen the
+   table: under the table's `nowrap` three of them side by side would push the message column —
+   the reason this screen exists — off the right edge, which is the same failure `.cell--screen`
+   above was carved out to avoid.
+
+   Small on purpose. This is a recognition cue sitting beside a paragraph ("they photographed the
+   error screen"), not a viewer; the full image is one click away in its own tab, which is where
+   an operator can actually zoom. `object-fit: cover` so a portrait phone photo and a landscape
+   screenshot occupy the same square and the rows stay aligned.
+
+   The BORDER is not decoration: these bytes are worker-supplied and may be a white screenshot on
+   a white panel, so without an edge the thumbnail would read as a missing image rather than as a
+   photograph of a blank screen — which is a report in itself. */
+.table--prose .cell--images {
+  white-space: normal;
+  max-inline-size: 15ch;
+}
+
+.thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.thumb {
+  display: inline-flex;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+  line-height: 0;
+}
+
+.thumb img {
+  inline-size: 40px;
+  block-size: 40px;
+  object-fit: cover;
+}
+
 /* ==================================================================
  * 0083 · AI CALL TRACES — the one block on this console that holds a whole request body.
  * ================================================================== */

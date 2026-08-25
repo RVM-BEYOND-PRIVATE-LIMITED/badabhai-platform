@@ -897,7 +897,11 @@ export const EVENT_REGISTRY = {
   // `job.search_performed` records the shape of a search and never the term. The row id is
   // carried so an operator can get from a spine trace to the admin screen without a text
   // search. Emitted inside the same transaction as the insert, so a feedback row without an
-  // audit record cannot exist. v1.
+  // audit record cannot exist. WIDENED TWICE SINCE, both additive and both STILL v1:
+  // `screen_context` (which screen the report is about, a member of the app's own route table)
+  // and `attachment_count` (#1191 — HOW MANY images the worker attached, never the object keys
+  // and never a url, the same count-not-content ruling `message_length` makes about the text).
+  // v1.
   "feedback.submitted": {
     version: 1,
     domain: "feedback",

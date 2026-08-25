@@ -276,6 +276,38 @@ services:
       # VOICE_NOTES_BUCKET: unset expands to empty and compose still starts clean.
       WORKER_PHOTOS_BUCKET: ${WORKER_PHOTOS_BUCKET:-}
 
+      # ---- #1191 FEEDBACK IMAGE ATTACHMENTS: PASS-THROUGH, NEVER REQUIRED — the same three
+      # names, in the same shape, for the same reasons as the block above. Declared HERE and
+      # nowhere else because compose forwards only the names a service's `environment:` block
+      # lists: this is the whole lesson of WORKER_PHOTOS_BUCKET (#794),
+      # CHAT_LLM_INTERVIEW_ENABLED (#798) and ZEPTOMAIL_API_URL (#813), and the point of
+      # writing these lines in the same PR as the feature rather than after the first
+      # "why is it still 503-ing on staging?".
+      #
+      # THE DORMANT STATE IS THE SHIPPED CONTRACT, not a placeholder. The Flutter client is
+      # ALREADY RELEASED against this route and degrades honestly on a 503 — it drops the
+      # image and still submits the worker's typed message. So an empty bucket name costs
+      # nobody their feedback, and `:-` keeps the required-secret set unchanged.
+      #
+      # ARMING STILL NEEDS TWO THINGS. This entry alone arms nothing; the
+      # `worker-feedback-attachments` bucket must also exist PRIVATE in the real Supabase
+      # project, with its own `file_size_limit` and `allowed_mime_types = {image/jpeg}`
+      # (infra/supabase/storage-buckets.sql). The mime allowlist is a SECURITY control, not
+      # hygiene: it is what stops a worker storing markup that an admin's thumbnail click
+      # would then render on the storage origin.
+      #
+      # A DIFFERENT BUCKET FROM THE PHOTOS ONE, DELIBERATELY. A face photo and a photograph of
+      # a broken screen are different sensitivity classes and will want different retention
+      # and different mime allowlists; one bucket would fuse those two decisions forever.
+      #
+      # api-only, like the photos block: attachments never reach the ai-service.
+      WORKER_FEEDBACK_ATTACHMENTS_BUCKET: ${WORKER_FEEDBACK_ATTACHMENTS_BUCKET:-}
+      # The per-IP mint cap and the (declared, dormant) size ceiling. Both have safe schema
+      # defaults, so these lines exist to make them TUNABLE from the box rather than to arm
+      # anything — the same reason every other cap in this file is passed through.
+      FEEDBACK_ATTACHMENT_RATE_LIMIT_PER_IP_PER_HOUR: ${FEEDBACK_ATTACHMENT_RATE_LIMIT_PER_IP_PER_HOUR:-}
+      FEEDBACK_ATTACHMENT_MAX_BYTES: ${FEEDBACK_ATTACHMENT_MAX_BYTES:-}
+
       # ---- BL-22: 12 REAL-PROVIDER/FEATURE BOOLEAN GATES, PREVIOUSLY UNREACHABLE FROM THE BOX.
       #
       # THE SAME FAILURE CLASS AS EVERY BLOCK ABOVE (WORKER_PHOTOS_BUCKET #794,

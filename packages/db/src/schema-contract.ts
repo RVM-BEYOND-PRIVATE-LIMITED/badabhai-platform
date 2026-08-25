@@ -276,6 +276,19 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "identical to the 0080 table entry and for the same reason — both surfaces 500. Listed SEPARATELY because the table can be present while the column is not, which is exactly the state a deploy that skips this migration produces",
   },
   {
+    id: "0092-attachment-paths-column",
+    migration: "0092_flawless_glorian",
+    kind: "column",
+    table: "worker_feedback",
+    object: "attachment_paths",
+    requiredBy:
+      "FeedbackRepository.insert (the drizzle model's full column list, on POST /workers/me/feedback) " +
+      "and AdminFeedbackRepository.list (an explicit SELECT column on GET /admin/feedback) — the " +
+      "same two unconditional readers as 0081, and neither is behind the attachments bucket flag",
+    failureMode:
+      "identical to 0081 and worse in one respect: EVERY feedback submission 500s, including the ones carrying no image at all, because the insert names the model's whole column list rather than only the fields the request filled in. The dormant-bucket 503 does NOT protect this — that flag only gates the MINT route",
+  },
+  {
     id: "0084-ai-call-traces-table",
     migration: "0083_ai_call_traces",
     kind: "table",

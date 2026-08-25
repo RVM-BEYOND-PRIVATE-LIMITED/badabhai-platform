@@ -59,8 +59,8 @@ NestJS boot assertion).
 - **Supabase (backend-only)** — `SUPABASE_URL` (safe to expose), `SUPABASE_SERVICE_ROLE_KEY`
   (a god-key, backend-only, never `NEXT_PUBLIC_*`), the Storage bucket names
   (`RESUMES_BUCKET`, `INTERVIEW_KIT_BUCKET`, `VOICE_NOTES_BUCKET`, `WORKER_PHOTOS_BUCKET`,
-  `CONVERSATIONS_BUCKET`). An empty bucket var means that feature is **dormant by design**, not
-  broken — see `docs/observability-runbook.md` §3 for how `GET /health` distinguishes "dormant"
+  `WORKER_FEEDBACK_ATTACHMENTS_BUCKET`, `CONVERSATIONS_BUCKET`). An empty bucket var means
+  that feature is **dormant by design**, not broken — see `docs/observability-runbook.md` §3 for how `GET /health` distinguishes "dormant"
   from "armed without credentials" (#793).
 - **PII protection** — `PII_HASH_PEPPER`, `PII_ENCRYPTION_KEY` (legacy single-key), the TD22-1
   keyring pair. Full rotation procedure: `docs/pii-key-rotation-runbook.md`.

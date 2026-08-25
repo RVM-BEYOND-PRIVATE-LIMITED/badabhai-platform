@@ -1,4 +1,15 @@
-import { Body, Controller, Headers, HttpCode, Inject, Logger, Post, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Header,
+  Headers,
+  HttpCode,
+  Inject,
+  Ip,
+  Logger,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
 import type { ServerConfig } from "@badabhai/config";
 import { WORKER_APP_SCREEN_TEMPLATES } from "@badabhai/types";
 
@@ -13,12 +24,25 @@ import { APP_BUILD_HEADER, sanitizeAppBuild } from "../common/app-build";
 import { resolveScreenTemplate } from "../common/screen-context";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import { SubjectRateLimit } from "../common/rate-limit/subject-rate-limit.service";
-import { FeedbackService } from "./feedback.service";
+import { FeedbackService, type FeedbackAttachmentTicket } from "./feedback.service";
 import { SubmitFeedbackSchema, type SubmitFeedbackDto } from "./feedback.dto";
 
 /** Redis key namespace for the per-worker caps. Short, and never a worker's own data. */
 const RATE_LIMIT_SCOPE = "worker_feedback";
+
+/**
+ * Redis key namespace for the per-IP ATTACHMENT MINT cap (#1191).
+ *
+ * ITS OWN SCOPE, not a second charge against {@link RATE_LIMIT_SCOPE}, and the reason is that the
+ * two count different things against different keys: the submit caps are per-WORKER and bound how
+ * often a row may be written, while this one is per-IP and bounds how many orphan objects may be
+ * created. Sharing a namespace would let three image mints consume a worker's whole minute of
+ * feedback — which is precisely backwards, since minting three slots is what ONE submission with
+ * three images looks like.
+ */
+const ATTACHMENT_RATE_LIMIT_SCOPE = "feedback_attachment_upload_url";
 
 /**
  * The worker's own feedback sink (#997) — `POST /workers/me/feedback`, behind the app-wide
@@ -54,8 +78,57 @@ export class WorkerFeedbackController {
   constructor(
     private readonly feedback: FeedbackService,
     private readonly rateLimit: SubjectRateLimit,
+    private readonly ipRateLimit: IpRateLimit,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
+
+  /**
+   * Mint one signed UPLOAD slot for a feedback image (#1191) —
+   * `POST /workers/me/feedback/attachment/upload-url`.
+   *
+   * THE PHOTO SEAM, ROUTE FOR ROUTE (ADR-0032 / `POST /workers/me/photo/upload-url`), because
+   * the shipped Flutter client already speaks it: an EMPTY body, a 201, and
+   * `{ storage_path, upload_url, expires_in }` in snake_case. Keeping the two identical is not
+   * tidiness — the client parses both with the same code, and this half is already released.
+   *
+   * ⚠ AND THERE IS NO CONFIRM STEP, WHICH IS THE ONE PLACE IT DIVERGES FROM THE PHOTO FLOW. A
+   * photo is confirmed by `POST /workers/me/photo`, which validates the uploaded object's mime
+   * and size before persisting the pointer. Here the SUBMIT call is the confirm: it takes the
+   * paths, proves ownership of each, and stores them with the message in one transaction. That
+   * is why no object check happens at submit time — see `FeedbackService.validateAttachmentPaths`
+   * for why a storage probe inside that transaction would cost workers their typed message, and
+   * why the mime/size ceilings live on the bucket instead.
+   *
+   * NO EVENT, deliberately: minting is an authorization grant, not a state change. The
+   * submission that follows carries `attachment_count`.
+   *
+   * GUARDS ARE THE CLASS'S — `WorkerAuthGuard` then `ConsentGuard`, in that order, and the
+   * order is load-bearing (see the class header). Attaching an image is processing of the
+   * worker's personal data exactly as storing their words is, so it sits behind the same gate.
+   *
+   * `Cache-Control: no-store` because the response body carries a BEARER CREDENTIAL: the signed
+   * url authorizes a write into a private bucket for two hours. It is never logged either.
+   */
+  @Post("attachment/upload-url")
+  @HttpCode(201)
+  @Header("Cache-Control", "no-store") // response carries a signed bearer URL — never cache
+  async createAttachmentUploadUrl(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Ip() ip: string,
+  ): Promise<FeedbackAttachmentTicket> {
+    // PER-IP, NOT PER-WORKER, and the same bb-security-review M-1 reasoning the photo mint
+    // records: an unthrottled mint lets a caller fabricate unlimited orphan objects
+    // (upload-but-never-submit) that no row references and only the account-deletion prefix
+    // sweep would ever remove. What is being bounded is object creation, which is why it is not
+    // charged against the per-worker submission caps below. Fail-closed: a Redis outage rejects
+    // (429) rather than uncapping the mint.
+    await this.ipRateLimit.assertWithinHourlyIpCap(
+      ATTACHMENT_RATE_LIMIT_SCOPE,
+      ip,
+      this.config.FEEDBACK_ATTACHMENT_RATE_LIMIT_PER_IP_PER_HOUR,
+    );
+    return this.feedback.createAttachmentUploadUrl(worker.id);
+  }
 
   /**
    * The response is `{ ok: true }` and nothing else. The shipped client ignores the body, and

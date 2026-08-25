@@ -68,10 +68,18 @@ interface Row {
   message: string;
   app_build: string | null;
   screen_context: string | null;
+  attachment_urls: string[];
   created_at: string;
 }
 
 const WORKER_ID = "5eeded00-0001-4a00-8000-000000000001";
+
+/** Two signed GETs, shaped as the API mints them — token in the query, download hint appended. */
+const URL_A =
+  "https://project.supabase.co/storage/v1/object/sign/worker-feedback-attachments/" +
+  "feedback-attachments/w/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg?token=tokA" +
+  "&download=aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg";
+const URL_B = URL_A.replace("tokA", "tokB").replace(/aaaaaaaa/g, "bbbbbbbb");
 
 /**
  * The message carries a name and a phone number deliberately. They are the worker's OWN, sent
@@ -85,6 +93,7 @@ const TAGGED: Row = {
   message: "App band ho jata hai. Ramesh, 98765 43210.",
   app_build: "9fd0b09",
   screen_context: "/jobs/detail/:id",
+  attachment_urls: [],
   created_at: "2026-08-19T09:00:00.000Z",
 };
 
@@ -632,3 +641,86 @@ describe("the message cell is really exempt from the table's nowrap", () => {
     expect(rule).toMatch(/max-inline-size:\s*\d+ch/);
   });
 });
+
+/**
+ * ── THE IMAGES COLUMN (#1191) ────────────────────────────────────────────────────────────
+ *
+ * Rendered, not inferred. Three things can only be checked in the markup: that a click opens
+ * the image WITHOUT handing this page's `?workerId=` filter to the storage origin in a
+ * `Referer`, that the thumbnail is a plain `<img>` rather than the Next optimizer (which
+ * caches by url and would outlive the signature), and that "no images" reads the same dash as
+ * every other absent value on this row rather than as a broken cell.
+ */
+describe("the images column (#1191)", () => {
+  const WITH_IMAGES: Row = { ...TAGGED, attachment_urls: [URL_A, URL_B] };
+
+  it("renders one linked thumbnail per url, both pointing at the SIGNED url", async () => {
+    stub.page = { items: [WITH_IMAGES], nextCursor: null };
+    const html = await render();
+
+    expect(html).toContain(`href="${escapeHtml(URL_A)}"`);
+    expect(html).toContain(`href="${escapeHtml(URL_B)}"`);
+    expect(html).toContain(`src="${escapeHtml(URL_A)}"`);
+    expect(html).toContain(`src="${escapeHtml(URL_B)}"`);
+  });
+
+  it("opens in a new tab with rel=noreferrer — the filter must not ride a Referer", async () => {
+    // `noreferrer` implies `noopener` (the opened tab cannot navigate this console) AND
+    // suppresses the header, which on THIS page would otherwise carry `?workerId=<uuid>` to
+    // the storage origin.
+    stub.page = { items: [WITH_IMAGES], nextCursor: null };
+    const html = await render({ workerId: WORKER_ID });
+
+    const anchors = html.match(/<a class="thumb"[^>]*>/g) ?? [];
+    expect(anchors).toHaveLength(2);
+    for (const a of anchors) {
+      expect(a).toContain('rel="noreferrer"');
+      expect(a).toContain('target="_blank"');
+    }
+  });
+
+  it("uses a PLAIN img — never the Next optimizer, which would outlive the signature", async () => {
+    // `next/image` rewrites the src to `/_next/image?url=…` and caches by that url, so a
+    // worker's private photograph would keep being served after the signed url expired.
+    stub.page = { items: [WITH_IMAGES], nextCursor: null };
+    const html = await render();
+    expect(html).not.toContain("/_next/image");
+  });
+
+  it("gives every thumbnail a real alt, so the column is readable without images", async () => {
+    stub.page = { items: [WITH_IMAGES], nextCursor: null };
+    const html = await render();
+    expect(html).toContain('alt="Attachment 1 of 2"');
+    expect(html).toContain('alt="Attachment 2 of 2"');
+  });
+
+  it("renders a DASH when there are none — the same absent-value mark as the rest of the row", async () => {
+    // Empty has four causes this page cannot tell apart (nothing attached, a row older than
+    // the feature, an unprovisioned bucket, a signing failure). All four mean "no images", so
+    // none of them is claimed.
+    stub.page = { items: [TAGGED], nextCursor: null };
+    const html = await render();
+    expect(html).not.toContain('class="thumb"');
+    expect(html).toContain("No images are shown for this submission.");
+  });
+
+  it("adds exactly one column to the header, between Screen and Message", async () => {
+    stub.page = { items: [TAGGED], nextCursor: null };
+    const html = await render();
+    const headers = [...html.matchAll(/<th scope="col">([^<]*)<\/th>/g)].map((m) => m[1]);
+    expect(headers).toEqual(["When", "Worker", "Category", "Build", "Screen", "Images", "Message"]);
+  });
+
+  it("still shows the MESSAGE for a row whose images are missing — the words are the feature", async () => {
+    // The server fails OPEN on signing precisely so this holds: a Storage blip costs the
+    // thumbnails, never the complaint.
+    stub.page = { items: [{ ...TAGGED, attachment_urls: [] }], nextCursor: null };
+    const html = await render();
+    expect(html).toContain("App band ho jata hai.");
+  });
+});
+
+/** Minimal entity-escaping, matching what `renderToStaticMarkup` does to an attribute value. */
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}

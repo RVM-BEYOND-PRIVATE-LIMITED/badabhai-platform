@@ -1,5 +1,5 @@
 /**
- * Worker app feedback (migrations 0080 + 0081) — schema contract tests.
+ * Worker app feedback (migrations 0080 + 0081 + 0092) — schema contract tests.
  *
  * Same posture as `canonical-taxonomy-schema.test.ts` and `unresolved-phrase-job-domain.test.ts`:
  * these read the drizzle model and the generated SQL, never a live database, so they run in
@@ -40,6 +40,16 @@ const MIGRATION = read("0080_worker_feedback.sql");
 /** The `screen_context` follow-up. Read separately, because "which file introduced it" is
  *  exactly what the column assertions below have to be able to check. */
 const MIGRATION_0081 = read("0081_worker_feedback_screen_context.sql");
+/**
+ * The `attachment_paths` follow-up (#1191). Read separately for the same reason 0081 is: "which
+ * file introduced this column" is the half of the column assertion that has any teeth, because
+ * adding a column to an ALREADY-APPLIED migration is a change no database ever runs.
+ *
+ * Named by drizzle-kit, not by hand — the recent convention (0089-0091) is to keep the generated
+ * tag and put the explanation in the file's own header, and `_journal.json` binds the tag to the
+ * filename, so renaming one means renaming both.
+ */
+const MIGRATION_0092 = read("0092_flawless_glorian.sql");
 
 /**
  * A migration with every `--` comment line removed.
@@ -57,6 +67,7 @@ const executable = (sql: string): string =>
 
 const EXECUTABLE = executable(MIGRATION);
 const EXECUTABLE_0081 = executable(MIGRATION_0081);
+const EXECUTABLE_0092 = executable(MIGRATION_0092);
 
 const config = getTableConfig(workerFeedback);
 const columns = new Map(config.columns.map((c) => [c.name, c]));
@@ -64,12 +75,15 @@ const checkNames = config.checks.map((c) => c.name);
 const indexNames = config.indexes.map((i) => i.config.name);
 
 describe("0080/0081 — the drizzle model and the SQL describe the same table", () => {
-  it("models exactly the seven columns the two migrations create, each in its own file", () => {
+  it("models exactly the eight columns the three migrations create, each in its own file", () => {
     // Both directions. A column added to the model without a migration is a read that fails
     // against every deployed database; a column in the SQL that the model does not know about
     // is one drizzle will never select and `db:generate` will try to drop.
     expect([...columns.keys()].sort()).toEqual([
       "app_build",
+      // #1191 — the object KEYS of the images a worker attached. Keys, never bytes and never
+      // urls: a signed url is a bearer credential with a lifetime and would outlive the row.
+      "attachment_paths",
       "category",
       "created_at",
       "id",
@@ -80,13 +94,25 @@ describe("0080/0081 — the drizzle model and the SQL describe the same table", 
     // WHICH FILE introduces a column is the load-bearing half once there are two: asserting only
     // "it appears somewhere in the migrations" would pass for a column added to 0080 after that
     // file had already been applied to a database, which is a change no database ever runs.
+    const introducedBy: Record<string, string> = {
+      screen_context: MIGRATION_0081,
+      attachment_paths: MIGRATION_0092,
+    };
     for (const name of columns.keys()) {
-      const sql = name === "screen_context" ? MIGRATION_0081 : MIGRATION;
+      const sql = introducedBy[name] ?? MIGRATION;
       expect(sql, `${name} must appear in the migration that introduces it`).toContain(`"${name}"`);
     }
     expect(MIGRATION, "screen_context is 0081's — 0080 must not know about it").not.toContain(
       '"screen_context"',
     );
+    for (const [file, sql] of [
+      ["0080", MIGRATION],
+      ["0081", MIGRATION_0081],
+    ] as const) {
+      expect(sql, `attachment_paths is 0092's — ${file} must not know about it`).not.toContain(
+        '"attachment_paths"',
+      );
+    }
   });
 
   /**
@@ -104,6 +130,11 @@ describe("0080/0081 — the drizzle model and the SQL describe the same table", 
     // stored as NULL rather than failing the worker's submission.
     expect(columns.get("screen_context")?.notNull).toBe(false);
     expect(columns.get("screen_context")?.hasDefault).toBe(false);
+    // #1191, and the same two properties for the same reason: NULLABLE AND NO DEFAULT is what
+    // makes 0092 catalog-only against a table that already holds feedback. NULL and `[]` are
+    // the same fact ("no images") and the writer never produces the second spelling.
+    expect(columns.get("attachment_paths")?.notNull).toBe(false);
+    expect(columns.get("attachment_paths")?.hasDefault).toBe(false);
     expect(columns.get("message")?.notNull).toBe(true);
     expect(columns.get("worker_id")?.notNull).toBe(true);
   });
@@ -411,5 +442,84 @@ describe("0081 — the screen_context column is additive to a table that may alr
     expect(EXECUTABLE_0081).not.toMatch(/\bGRANT\b/i);
     expect(EXECUTABLE_0081).not.toMatch(/\bPOLICY\b/i);
     expect(EXECUTABLE_0081).not.toMatch(/ROW LEVEL SECURITY/i);
+  });
+});
+
+describe("0092 — attachment_paths is additive to a table that may already have rows (#1191)", () => {
+  it("adds ONE column and nothing else — no constraint, no index, no rewrite", () => {
+    for (const pattern of [
+      /\bDROP\b/i,
+      /\bTRUNCATE\b/i,
+      /\bDELETE\s+FROM\b/i,
+      /\bUPDATE\s+"/i,
+      /\bALTER COLUMN\b/i,
+      /\bCREATE TABLE\b/i,
+      /\bCREATE INDEX\b/i,
+      // A DEFAULT or a NOT NULL is what turns a catalog-only ADD COLUMN into a rewrite (and,
+      // for NOT NULL, into a statement that cannot succeed on an existing row at all).
+      /\bDEFAULT\b/i,
+      /\bNOT NULL\b/i,
+    ]) {
+      expect(EXECUTABLE_0092, `must not contain ${pattern}`).not.toMatch(pattern);
+    }
+    const added = EXECUTABLE_0092.split("\n").filter((l) => /ADD COLUMN/.test(l));
+    expect(added).toHaveLength(1);
+    expect(added[0]).toContain('"attachment_paths" jsonb');
+  });
+
+  /**
+   * ⚠ THE DELIBERATE ABSENCE, ASSERTED SO IT CANNOT BE "TIDIED UP" LATER.
+   *
+   * Every other column on this table is bounded at the database, so a reviewer meeting this one
+   * will reach for a CHECK — either a cardinality bound (`jsonb_array_length(...) <= 3`) or a
+   * per-element shape rule. Both are refused, and the migration's own header carries the full
+   * argument; the short version is that a CHECK here can only fire INSIDE the transaction that
+   * carries the worker's typed message, so raising the cap would become a migration that must
+   * land before the code accepting a fourth image or every such INSERT is a 23514 that costs
+   * the worker their paragraph. That is the failure migration 0081 already ruled out.
+   *
+   * The control that replaces it is not a bound at all: `FeedbackService.validateAttachmentPaths`
+   * proves OWNERSHIP of every path against the session worker's own minted-key shape, and 400s
+   * the whole submission before the write. Adding a CHECK here would not strengthen that; it
+   * would only add a way to lose feedback.
+   */
+  it("adds NO CHECK — deliberately, and this assertion is the record of why", () => {
+    expect(EXECUTABLE_0092).not.toMatch(/\bCHECK\b/i);
+    expect(EXECUTABLE_0092).not.toMatch(/ADD CONSTRAINT/i);
+    expect(checkNames).not.toContain("worker_feedback_attachment_paths_chk");
+    // ...and the migration explains itself, so the next reader finds the argument rather than
+    // an omission.
+    expect(MIGRATION_0092).toMatch(/WHY THERE IS NO CHECK HERE/);
+  });
+
+  it("touches only worker_feedback", () => {
+    const subjects = EXECUTABLE_0092.split("\n")
+      .map((l) => /^ALTER TABLE "([^"]+)"/.exec(l)?.[1])
+      .filter((t): t is string => t !== undefined);
+    expect(new Set(subjects)).toEqual(new Set(["worker_feedback"]));
+  });
+
+  it("states the deploy ordering HONESTLY — apply-before-deploy for the READ too", () => {
+    // The tempting and wrong header is "additive, so the read is safe". The insert names the
+    // model's WHOLE column list, so every submission 500s without this column — including the
+    // ones carrying no image at all — and `AdminFeedbackRepository` names it in its explicit
+    // SELECT, so the admin screen 500s on first page load.
+    expect(MIGRATION_0092).toMatch(/APPLY BEFORE DEPLOY/);
+    expect(MIGRATION_0092).toMatch(/READ:/);
+    expect(MIGRATION_0092).toMatch(/WRITE:/);
+  });
+
+  it("documents a rollback, and says what it does NOT undo", () => {
+    const rollback = MIGRATION_0092.slice(MIGRATION_0092.indexOf("ROLLBACK"));
+    expect(rollback).toContain('DROP COLUMN IF EXISTS "attachment_paths"');
+    // Dropping the pointers leaves the OBJECTS in the bucket. Saying so is the difference
+    // between a reversible migration and one that quietly strands a worker's private images.
+    expect(rollback).toMatch(/orphan/i);
+  });
+
+  it("adds no grant and no policy — the table-level RLS posture from 0080 still governs", () => {
+    expect(EXECUTABLE_0092).not.toMatch(/\bGRANT\b/i);
+    expect(EXECUTABLE_0092).not.toMatch(/\bPOLICY\b/i);
+    expect(EXECUTABLE_0092).not.toMatch(/ROW LEVEL SECURITY/i);
   });
 });

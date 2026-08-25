@@ -27,7 +27,7 @@
  * because this is the one worker-owned table whose contents are unbounded free text.
  */
 import { sql } from "drizzle-orm";
-import { pgTable, uuid, text, timestamp, index, check } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, index, check, jsonb } from "drizzle-orm/pg-core";
 import type { WorkerFeedbackCategory } from "@badabhai/types";
 
 import { workers } from "./worker";
@@ -60,6 +60,31 @@ export const workerFeedback = pgTable(
     // reach this column. NULL when absent or matching no screen, because losing a worker's typed
     // feedback over a route string their client got wrong is the wrong failure direction.
     screenContext: text("screen_context"),
+    // THE OBJECT KEYS of the images the worker attached, in the private attachments bucket
+    // (#1191) — `feedback-attachments/<worker_id>/<uuid>.jpg`, at most three.
+    //
+    // KEYS, NEVER BYTES AND NEVER URLS. The images live in Storage; this column is a pointer
+    // list, exactly as `workers.photo_storage_key` is for a profile photo (ADR-0032). A signed
+    // URL is a BEARER CREDENTIAL with a lifetime, so storing one would put a live capability in
+    // a row that outlives it and hand every future reader of this table a way to fetch the
+    // bytes without passing the admin surface that audits the read.
+    //
+    // PRIVACY CLASS: the same as `message`, and treated the same. A worker photographs what is
+    // in front of them — a payslip, a gate pass, a supervisor — so the BYTES may carry their own
+    // PII and the bytes are why the bucket is private and read only through a short-TTL signed
+    // URL. The PATHS themselves must never ride the spine either: `feedback.submitted` carries
+    // `attachment_count` and nothing more, which is the same ruling this table's header makes
+    // about `message` carrying only a length.
+    //
+    // NULLABLE, NO DEFAULT — the two properties that make the migration catalog-only against a
+    // table that already holds feedback. NULL and `[]` are the same fact here ("no images") and
+    // the readers treat them identically; no writer produces `[]`, because the shipped client
+    // omits the key entirely when the worker attached nothing.
+    //
+    // ERASURE IS STILL THE CASCADE for the ROW. The OBJECTS are erased by the worker-prefix
+    // sweep `AccountDeletionService` already runs per bucket — which is why the key is
+    // worker-scoped rather than flat, and why a bucket that is set must also be swept.
+    attachmentPaths: jsonb("attachment_paths").$type<string[]>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

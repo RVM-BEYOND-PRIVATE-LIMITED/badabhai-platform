@@ -3594,6 +3594,39 @@ export const FeedbackSubmittedPayload = z
      * guarding a property this one already makes impossible to violate.
      */
     screen_context: z.enum(WORKER_APP_SCREEN_TEMPLATES).nullable().default(null),
+    /**
+     * HOW MANY IMAGES the worker attached (#1191) — 0 through {@link WORKER_FEEDBACK_ATTACHMENTS_MAX}.
+     *
+     * A COUNT, AND THE COUNT IS THE WHOLE OF IT. Not the object keys, not a signed url, not a
+     * byte total, not a mime type — and that is the same ruling `message_length` records one
+     * field above, applied to the other thing this row now holds. An attachment is a photograph
+     * a worker took of what is in front of them (a payslip, a gate pass, a supervisor), so the
+     * BYTES are personal data; the KEY is a live pointer at them, which is worse on a spine than
+     * the bytes would be useless, because a key on the audit trail is a durable handle to a
+     * private object that outlives every signed url minted for it. The paths stay in
+     * `worker_feedback.attachment_paths`, behind the one audited admin surface.
+     *
+     * WHAT A COUNT IS FOR, since a field with no consumer should not be on the spine at all: it
+     * answers "did the attach flow actually reach production?" and "are problem reports arriving
+     * with evidence?" — the two questions #1191 exists to make answerable — and it answers them
+     * without the spine holding anything a reader could dereference. It is also the only way to
+     * see the shipped client's honest degradation: while the bucket is unset the mint 503s, the
+     * app drops the image and submits the text anyway, so a run of `attachment_count: 0` from a
+     * build that supports images is the signal that the bucket is still dormant.
+     *
+     * `.default(0)` FOR THE SAME REASON `screen_context` DEFAULTS TO NULL: every event written
+     * before this widening re-validates as "no attachments" rather than as a missing key, so no
+     * consumer ever has to tell "none were attached" from "this event predates the field". Still
+     * v1 and additive — the `AgencyInviteCreatedPayload` precedent, with the same caveat the
+     * `screen_context` note records about `.strict()` and a pinned read-side parser.
+     *
+     * ⚠ THE BOUND IS `nonnegative()` AND NOT `.max(WORKER_FEEDBACK_ATTACHMENTS_MAX)`, deliberately.
+     * The cap is a PRODUCT rule enforced at the DTO, where exceeding it is a 400 and the worker
+     * is told; here it would be a spine refusal, and a spine refusal on this event fails the
+     * transaction that carries the worker's typed message. Raising the cap must never require
+     * this file to be edited first.
+     */
+    attachment_count: z.number().int().nonnegative().default(0),
   })
   .strict();
 export type FeedbackSubmittedPayload = z.infer<typeof FeedbackSubmittedPayload>;

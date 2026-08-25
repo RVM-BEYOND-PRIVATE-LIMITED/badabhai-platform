@@ -94,6 +94,49 @@ on conflict (id) do update
       file_size_limit    = excluded.file_size_limit,
       allowed_mime_types = excluded.allowed_mime_types;
 
+-- worker-feedback-attachments — the images a worker attaches to a FEEDBACK submission
+-- (#1191). Personal data in the same class as the message they arrive with: a worker
+-- photographs what is in front of them, which is routinely a payslip, a gate pass, a
+-- supervisor, or their own face — so the bucket MUST be PRIVATE. The only write path is a
+-- short-TTL signed UPLOAD url minted by the backend over a SERVER-chosen opaque key
+-- `feedback-attachments/{workerId}/{uuid}.jpg` (feedback.service.ts
+-- `createAttachmentUploadUrl`, whose submit step re-validates that exact shape against the
+-- SESSION worker, so one worker cannot claim another's object); the only read path is a
+-- short-TTL signed GET minted per admin page view. NEVER payer-readable, NEVER world-readable.
+--
+-- A SEPARATE BUCKET FROM `worker-profile-photos`, DELIBERATELY. A face photo the worker chose
+-- as their profile picture and a photograph of a broken screen are different sensitivity
+-- classes that will want different retention and different mime rules; one bucket would fuse
+-- those two decisions permanently. The account-deletion sweep records them as two legs for the
+-- same reason.
+--
+-- ⚠ `allowed_mime_types` IS A SECURITY CONTROL HERE, NOT HYGIENE — this is the one bucket
+-- whose objects are LINKED TO AND CLICKED by a human on an internal console. A signed upload
+-- url cannot constrain what the client PUTs, and this feature deliberately has no confirm step
+-- (a submit-time `getObjectInfo` would sit inside the transaction carrying the worker's typed
+-- message). So THIS LIST is what stops a worker storing `text/html` that an admin's click
+-- would then render on the storage origin. The admin surface asks for
+-- `Content-Disposition: attachment` on the signed GET as a second layer; this is the first.
+-- `image/jpeg` only: the shipped Flutter client re-encodes every pick to JPEG and the server's
+-- minted key ends `.jpg`, so anything else is already refused one layer up.
+--
+-- Size cap: 5 MiB, matching FEEDBACK_ATTACHMENT_MAX_BYTES. THE BUCKET IS WHERE THAT CEILING IS
+-- ENFORCED — Supabase refuses the PUT itself, before any of our code runs. The config value
+-- exists so the number has one name in the repo, and is deliberately NOT read on the submit
+-- path (see its own note in packages/config/src/server.ts).
+--
+-- DSAR: `AccountDeletionService` sweeps the `feedback-attachments/{workerId}/` prefix against
+-- this bucket. The prefix sweep is load-bearing rather than belt-and-braces here, because with
+-- no confirm step an object whose submission was never sent is referenced by NO row at all —
+-- which is exactly why the key is worker-scoped instead of flat.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('worker-feedback-attachments', 'worker-feedback-attachments', false, 5242880,
+        array['image/jpeg'])
+on conflict (id) do update
+  set public             = false,                       -- enforce PRIVATE even if it drifted
+      file_size_limit    = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
 -- RETIRED: `worker-conversations` — DO NOT PROVISION.
 --
 -- ADR-0003 planned this bucket as an archival mirror of each finished interview. It was

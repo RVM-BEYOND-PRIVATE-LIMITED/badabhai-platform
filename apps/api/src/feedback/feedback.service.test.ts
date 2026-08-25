@@ -1,6 +1,10 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
-import { NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { WORKER_FEEDBACK_CATEGORIES } from "@badabhai/types";
 import type { NewWorkerFeedback } from "@badabhai/db";
 
@@ -8,6 +12,7 @@ import { FeedbackService } from "./feedback.service";
 import type { FeedbackRepository } from "./feedback.repository";
 import type { SubmitFeedbackDto } from "./feedback.dto";
 import type { EventsService } from "../events/events.service";
+import type { StorageService } from "../storage/storage.service";
 import type { WorkersRepository } from "../workers/workers.repository";
 import type { RequestContext } from "../common/request-context";
 
@@ -30,6 +35,15 @@ const MESSAGE = `${NAME} hai, ${PHONE} par call karo, app kal se khul hi nahi ra
 
 /** A fake `tx` token the mocked withTransaction hands to the callback (the mocks ignore it). */
 const FAKE_TX = { __tx: true } as unknown;
+
+/** The attachments bucket, as an armed deployment has it. Empty means DORMANT. */
+const BUCKET = "worker-feedback-attachments";
+/** A key this server would have minted for {@link WORKER_ID} — the only shape submit accepts. */
+const MINE = `feedback-attachments/${WORKER_ID}/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg`;
+const MINE_2 = `feedback-attachments/${WORKER_ID}/11111111-2222-4333-8444-555555555555.jpg`;
+/** The same shape under ANOTHER worker's prefix — the whole IDOR this feature has to refuse. */
+const SOMEONE_ELSE = "22222222-2222-4222-8222-222222222222";
+const THEIRS = `feedback-attachments/${SOMEONE_ELSE}/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg`;
 
 /** Recursively collect every primitive leaf value of an object (for the no-PII scan). */
 function leaves(value: unknown, out: string[] = []): string[] {
@@ -74,7 +88,9 @@ interface CapturedEmit {
   tx?: unknown;
 }
 
-function make(opts: { workerExists?: boolean; emitThrows?: boolean } = {}) {
+function make(
+  opts: { workerExists?: boolean; emitThrows?: boolean; bucket?: string; signThrows?: boolean } = {},
+) {
   /** Call order across the two mocked layers — how "inside the transaction" is asserted. */
   const trace: string[] = [];
   const emitted: CapturedEmit[] = [];
@@ -106,10 +122,20 @@ function make(opts: { workerExists?: boolean; emitThrows?: boolean } = {}) {
     }),
   };
 
+  const storage = {
+    createSignedUploadUrl: vi.fn(async (objectKey: string, _bucket?: string) => {
+      trace.push("sign-upload");
+      if (opts.signThrows) throw new ServiceUnavailableException("storage down");
+      return { url: `https://storage.test/upload/${objectKey}?token=secret`, expiresIn: 7200 };
+    }),
+  };
+
   const service = new FeedbackService(
     repo as unknown as FeedbackRepository,
     workers as unknown as WorkersRepository,
     events as unknown as EventsService,
+    storage as unknown as StorageService,
+    { WORKER_FEEDBACK_ATTACHMENTS_BUCKET: opts.bucket ?? BUCKET } as never,
   );
 
   // Capture logger output so we can prove the worker's words never reach a log line.
@@ -120,7 +146,7 @@ function make(opts: { workerExists?: boolean; emitThrows?: boolean } = {}) {
     error: (m) => logs.push(m),
   };
 
-  return { service, repo, workers, events, emitted, logs, trace };
+  return { service, repo, workers, events, storage, emitted, logs, trace };
 }
 
 const dto = (over: Partial<SubmitFeedbackDto> = {}): SubmitFeedbackDto => ({
@@ -139,6 +165,9 @@ describe("FeedbackService.submit — the row (#997)", () => {
         message: MESSAGE,
         appBuild: APP_BUILD,
         screenContext: SCREEN,
+        // ABSENT IS NULL, NEVER `[]`. The shipped client omits the key when the worker attached
+        // nothing, and writing an empty array would give one fact two spellings in the column.
+        attachmentPaths: null,
       },
       FAKE_TX,
     );
@@ -196,6 +225,7 @@ describe("FeedbackService.submit — the event", () => {
       message_length: MESSAGE.length,
       app_build: APP_BUILD,
       screen_context: SCREEN,
+      attachment_count: 0,
     });
     expect(evt.correlationId).toBe(CTX.correlationId);
     expect(evt.requestId).toBe(CTX.requestId);
@@ -351,5 +381,248 @@ describe("FeedbackService.submit — the screen context is carried, and it is a 
     });
     expect(emitted[0]!.payload.app_build).toBe(APP_BUILD);
     expect(emitted[0]!.payload.screen_context).toBe(SCREEN);
+  });
+});
+
+describe("FeedbackService — minting an attachment slot (#1191)", () => {
+  it("mints a WORKER-SCOPED, SERVER-CHOSEN key and returns the photo route's ticket shape", async () => {
+    // The shape is the contract: the Flutter client is already released against
+    // `{ storage_path, upload_url, expires_in }` and parses this route with the same code it
+    // uses for the profile-photo one.
+    const { service, storage } = make();
+
+    const ticket = await service.createAttachmentUploadUrl(WORKER_ID);
+
+    expect(Object.keys(ticket).sort()).toEqual(["expires_in", "storage_path", "upload_url"]);
+    expect(ticket.expires_in).toBe(7200);
+    // A uuid v4 under the CALLER'S OWN prefix, and `.jpg`. Nothing about the destination came
+    // from the request — which is what makes the submit-time ownership check a proof.
+    expect(ticket.storage_path).toMatch(
+      new RegExp(
+        `^feedback-attachments/${WORKER_ID}/` +
+          "[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\\.jpg$",
+      ),
+    );
+    expect(storage.createSignedUploadUrl).toHaveBeenCalledWith(ticket.storage_path, BUCKET);
+  });
+
+  it("mints a DIFFERENT key every call — a slot is never reused", async () => {
+    const { service } = make();
+    const a = await service.createAttachmentUploadUrl(WORKER_ID);
+    const b = await service.createAttachmentUploadUrl(WORKER_ID);
+    expect(a.storage_path).not.toBe(b.storage_path);
+  });
+
+  it("503s while the bucket is unset, WITHOUT touching storage", async () => {
+    // The dormant state the shipped client is built for: it drops the image and still submits
+    // the worker's typed message. Failing closed here costs nobody their feedback.
+    const { service, storage } = make({ bucket: "" });
+    await expect(service.createAttachmentUploadUrl(WORKER_ID)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(storage.createSignedUploadUrl).not.toHaveBeenCalled();
+  });
+
+  it("404s an unknown worker rather than signing into a prefix nothing will sweep", async () => {
+    const { service, storage } = make({ workerExists: false });
+    await expect(service.createAttachmentUploadUrl(WORKER_ID)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(storage.createSignedUploadUrl).not.toHaveBeenCalled();
+  });
+
+  it("NEVER logs the signed url — it is a write credential, not a diagnostic", async () => {
+    const { service, logs } = make();
+    const ticket = await service.createAttachmentUploadUrl(WORKER_ID);
+    expect(logs.join("\n")).not.toContain(ticket.upload_url);
+    expect(logs.join("\n")).not.toContain("token=secret");
+  });
+
+  it("emits NOTHING — minting is an authorization grant, not a state change", async () => {
+    const { service, emitted, repo } = make();
+    await service.createAttachmentUploadUrl(WORKER_ID);
+    expect(emitted).toEqual([]);
+    expect(repo.insert).not.toHaveBeenCalled();
+  });
+});
+
+describe("FeedbackService.submit — attachment OWNERSHIP is the IDOR control (#1191)", () => {
+  it("stores the paths and counts them on the event when they are the caller's own", async () => {
+    const { service, repo, emitted } = make();
+
+    await service.submit(
+      WORKER_ID,
+      dto({ attachment_paths: [MINE, MINE_2] }),
+      { appBuild: null, screenContext: null },
+      CTX,
+    );
+
+    expect(repo.insert.mock.calls[0]![0]).toMatchObject({ attachmentPaths: [MINE, MINE_2] });
+    expect(emitted[0]!.payload.attachment_count).toBe(2);
+  });
+
+  it("REFUSES a path under ANOTHER worker's prefix — the whole point of the check", async () => {
+    // Session-derived worker id vs a body-supplied key. Every shape rule in the DTO accepts
+    // this string; only the ownership regex does not.
+    const { service, repo, emitted } = make();
+
+    await expect(
+      service.submit(
+        WORKER_ID,
+        dto({ attachment_paths: [THEIRS] }),
+        { appBuild: null, screenContext: null },
+        CTX,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(repo.insert).not.toHaveBeenCalled();
+    expect(emitted).toEqual([]);
+  });
+
+  it("is ALL-OR-NOTHING — one bad path in three loses the whole submission, not just that path", async () => {
+    // Dropping the bad one and storing the rest would be worse in both directions: an honest
+    // client with a bug would never learn its images did not land, and a hostile one would
+    // learn which of its guesses were accepted.
+    const { service, repo, trace } = make();
+
+    await expect(
+      service.submit(
+        WORKER_ID,
+        dto({ attachment_paths: [MINE, THEIRS, MINE_2] }),
+        { appBuild: null, screenContext: null },
+        CTX,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(repo.insert).not.toHaveBeenCalled();
+    // And NO TRANSACTION WAS EVER OPENED. The refusal happens above `withTransaction`, so there
+    // is nothing to roll back rather than something that was rolled back.
+    expect(trace).not.toContain("tx:open");
+  });
+
+  it("refuses every near-miss shape a forged path can take", async () => {
+    for (const bad of [
+      THEIRS,
+      // right prefix, right worker, WRONG extension — the bucket only ever gets .jpg keys
+      `feedback-attachments/${WORKER_ID}/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.png`,
+      // right prefix, right worker, not a uuid
+      `feedback-attachments/${WORKER_ID}/../../secrets.jpg`,
+      `feedback-attachments/${WORKER_ID}/anything.jpg`,
+      // the PHOTO bucket's key shape — a different feature's object, correctly refused
+      `photos/${WORKER_ID}/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg`,
+      // no prefix at all
+      `${WORKER_ID}/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg`,
+      // ⚠ ANCHORING. Without `^`/`$` each of these would pass while pointing somewhere else.
+      `x/feedback-attachments/${WORKER_ID}/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg`,
+      `feedback-attachments/${WORKER_ID}/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg/x`,
+      // ...and the one a naive `\\.jpg` (unescaped dot) would wave through.
+      `feedback-attachments/${WORKER_ID}/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeeexjpg`,
+    ]) {
+      const { service, repo } = make();
+      await expect(
+        service.submit(
+          WORKER_ID,
+          dto({ attachment_paths: [bad] }),
+          { appBuild: null, screenContext: null },
+          CTX,
+        ),
+        bad,
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(repo.insert, bad).not.toHaveBeenCalled();
+    }
+  });
+
+  it("NEVER echoes the rejected path back — it is the one caller-controlled string here", async () => {
+    // It would reach the response body, and `AllExceptionsFilter` on any later 5xx.
+    const { service, logs } = make();
+    const err: unknown = await service
+      .submit(
+        WORKER_ID,
+        dto({ attachment_paths: [THEIRS] }),
+        { appBuild: null, screenContext: null },
+        CTX,
+      )
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BadRequestException);
+    const message = (err as BadRequestException).message;
+    expect(message).not.toContain(THEIRS);
+    expect(message).not.toContain(SOMEONE_ELSE);
+    expect(logs.join("\n")).not.toContain(THEIRS);
+  });
+
+  it("treats an ABSENT key as NULL and an EXPLICIT empty array as zero images", async () => {
+    // Both mean "no images" and both must reach the column as NULL — the two spellings are
+    // collapsed at the writer so no reader ever has to know there were two.
+    const absent = make();
+    await absent.service.submit(WORKER_ID, dto(), { appBuild: null, screenContext: null }, CTX);
+    expect(absent.repo.insert.mock.calls[0]![0]).toMatchObject({ attachmentPaths: null });
+    expect(absent.emitted[0]!.payload.attachment_count).toBe(0);
+
+    const empty = make();
+    await empty.service.submit(
+      WORKER_ID,
+      dto({ attachment_paths: [] }),
+      { appBuild: null, screenContext: null },
+      CTX,
+    );
+    // An explicit `[]` is a truthful "no images" and must not cost the worker their message.
+    expect(empty.repo.insert.mock.calls[0]![0]).toMatchObject({ attachmentPaths: [] });
+    expect(empty.emitted[0]!.payload.attachment_count).toBe(0);
+  });
+
+  it("puts the COUNT on the event and never a path", async () => {
+    // The same ruling `message_length` records about the text. A key on the audit trail is a
+    // durable handle to a private image that outlives every signed url minted for it.
+    const { service, emitted } = make();
+    await service.submit(
+      WORKER_ID,
+      dto({ attachment_paths: [MINE, MINE_2] }),
+      { appBuild: null, screenContext: null },
+      CTX,
+    );
+    const serialized = JSON.stringify(emitted[0]!);
+    expect(serialized).not.toContain("feedback-attachments");
+    expect(serialized).not.toContain(MINE);
+    expect(emitted[0]!.payload.attachment_count).toBe(2);
+  });
+
+  it("does not name a path in the log line either", async () => {
+    const { service, logs } = make();
+    await service.submit(
+      WORKER_ID,
+      dto({ attachment_paths: [MINE] }),
+      { appBuild: null, screenContext: null },
+      CTX,
+    );
+    const line = logs.join("\n");
+    expect(line).not.toContain("feedback-attachments");
+    // The COUNT is loggable for the same reason it is eventable.
+    expect(line).toContain("attachments=1");
+  });
+
+  it("accepts attachments while the BUCKET IS UNSET — the flag gates the mint, not the write", async () => {
+    // A worker who minted slots seconds before the bucket was cleared must not lose the
+    // paragraph they typed. The submit path never reads the bucket at all; only the mint does.
+    const { service, repo } = make({ bucket: "" });
+    await service.submit(
+      WORKER_ID,
+      dto({ attachment_paths: [MINE] }),
+      { appBuild: null, screenContext: null },
+      CTX,
+    );
+    expect(repo.insert.mock.calls[0]![0]).toMatchObject({ attachmentPaths: [MINE] });
+  });
+
+  it("never calls STORAGE on the submit path — a blip must not roll back the message", async () => {
+    // The reason there is no `getObjectInfo` mime/size check here: it would sit inside the
+    // transaction that carries the worker's words. The ceilings live on the bucket instead.
+    const { service, storage } = make({ signThrows: true });
+    await service.submit(
+      WORKER_ID,
+      dto({ attachment_paths: [MINE, MINE_2] }),
+      { appBuild: null, screenContext: null },
+      CTX,
+    );
+    expect(storage.createSignedUploadUrl).not.toHaveBeenCalled();
   });
 });

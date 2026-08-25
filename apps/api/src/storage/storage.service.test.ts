@@ -300,3 +300,68 @@ describe("StorageService.downloadObject — absent handling", () => {
     expect(out).toEqual(Buffer.from([1, 2, 3]));
   });
 });
+
+/**
+ * The DOWNLOAD HINT on a signed GET (#1191).
+ *
+ * WHY A SIGNED READ URL NEEDS ONE AT ALL. Every other object this service signs was produced by
+ * us — a rendered PDF, an interview kit. A feedback attachment is WORKER-SUPPLIED bytes, and the
+ * signed url is handed to an admin as a clickable link. Asking the storage origin for
+ * `Content-Disposition: attachment` means a click downloads a file instead of RENDERING whatever
+ * the worker uploaded on that origin. It is defence in depth behind the bucket's own
+ * `allowed_mime_types`, not a replacement for it.
+ */
+describe("StorageService.createSignedUrl — the download hint", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function signMock() {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ signedURL: "/object/sign/bkt/k.jpg?token=tok" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("returns the plain absolute url when no name is asked for", async () => {
+    signMock();
+    const svc = new StorageService(config);
+    const url = await svc.createSignedUrl("k.jpg", 900, "bkt");
+    expect(url).toBe(`${SUPABASE_URL}/storage/v1/object/sign/bkt/k.jpg?token=tok`);
+    expect(url).not.toContain("download=");
+  });
+
+  it("appends the hint with an ampersand, never a second question mark", async () => {
+    // The signed url ALREADY carries its token in a query string. A second question mark would
+    // fold the download hint into the TOKEN's value: the link would still look right, the hint
+    // would silently do nothing, and the signature might not verify at all.
+    signMock();
+    const svc = new StorageService(config);
+    const url = await svc.createSignedUrl("k.jpg", 900, "bkt", "abc.jpg");
+    expect(url).toBe(`${SUPABASE_URL}/storage/v1/object/sign/bkt/k.jpg?token=tok&download=abc.jpg`);
+    expect(url.split("?")).toHaveLength(2);
+  });
+
+  it("url-encodes the name, so a caller cannot smuggle another parameter into the url", async () => {
+    // Callers are supposed to pass a value THEY derived (the key's own uuid basename). This is
+    // the backstop for the day one does not: without encoding, a name carrying an ampersand
+    // would append a second query parameter to a signed url.
+    signMock();
+    const svc = new StorageService(config);
+    const url = await svc.createSignedUrl("k.jpg", 900, "bkt", "a b&foo=1.jpg");
+    expect(url).toContain("download=a%20b%26foo%3D1.jpg");
+    expect(url).not.toContain("&foo=1");
+  });
+
+  it("still asks for the requested TTL — the hint changes nothing about the lifetime", async () => {
+    const fetchMock = signMock();
+    const svc = new StorageService(config);
+    await svc.createSignedUrl("k.jpg", 900, "bkt", "abc.jpg");
+    const init = fetchMock.mock.calls[0]![1] as { body: string };
+    expect(JSON.parse(init.body)).toEqual({ expiresIn: 900 });
+  });
+});

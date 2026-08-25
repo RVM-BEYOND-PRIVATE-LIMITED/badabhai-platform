@@ -1,0 +1,99 @@
+-- ===========================================================================
+-- 0092 — WORKER FEEDBACK: the images a worker attached (#1191)
+--
+-- ONE NULLABLE jsonb COLUMN on the table 0080 created, holding the OBJECT KEYS of up to three
+-- images a worker attached to a feedback submission — `feedback-attachments/<worker_id>/<uuid>.jpg`,
+-- server-minted, never client-composed. Nothing is dropped, nothing is renamed, no shipped
+-- column changes meaning, and every existing row stays valid with NULL.
+--
+-- KEYS, NEVER BYTES AND NEVER URLS. The bytes live in the private
+-- `WORKER_FEEDBACK_ATTACHMENTS_BUCKET`; this column is a pointer list, the same shape
+-- `workers.photo_storage_key` already uses (ADR-0032). A signed URL is a BEARER CREDENTIAL with
+-- a lifetime — storing one would put a live capability in a row that outlives it and hand every
+-- future reader of this table a way to fetch a worker's images without passing the admin surface
+-- that audits the read. The admin list mints its own, short-lived, per request.
+--
+-- PRIVACY. The BYTES are the same class as `message`: a worker photographs what is in front of
+-- them — a payslip, a gate pass, a supervisor — so an attachment may carry their own PII and, as
+-- with the text, this table is where it may live and nowhere else. `feedback.submitted` gains
+-- `attachment_count` and NOT the paths, which is the identical ruling this table's header already
+-- makes about the message carrying only a length (CLAUDE.md §2). The `admin.feedback_viewed`
+-- audit carries neither paths nor urls.
+--
+-- ── WHY THERE IS NO CHECK HERE, WHEN EVERY OTHER COLUMN ON THIS TABLE HAS ONE ───────────────
+-- `message`, `app_build` and `screen_context` are each bounded at the database, and the absence
+-- of a fourth bound is a decision rather than an omission. The two candidates were:
+--
+--   * A CARDINALITY check (`jsonb_array_length(attachment_paths) <= 3`). It would make raising
+--     the cap a MIGRATION that must land before the code that accepts a fourth image, and getting
+--     that order wrong is a 23514 raised INSIDE the same transaction as the `feedback.submitted`
+--     emit — which costs the worker the paragraph they typed, over an image. Migration 0081's
+--     header already ruled that no column of this kind may be able to do that.
+--   * A SHAPE check (every element matching the key pattern). It cannot be written usefully in
+--     SQL without embedding the `feedback-attachments/` prefix as a literal — a second copy of
+--     `WORKER_FEEDBACK_ATTACHMENT_PREFIX` that SQL cannot import and only another equality test
+--     could keep honest, guarding a value exactly one writer produces.
+--
+-- WHERE THE CONTROL ACTUALLY IS, and it is stronger than either: `FeedbackService.submit`
+-- validates EVERY submitted path against `^feedback-attachments/<session worker id>/<uuid>.jpg$`
+-- — the worker id taken from `@CurrentWorker`, never from the body — and rejects the WHOLE
+-- submission with a 400 before the write if any path fails. That is an ownership proof, which is
+-- the property that matters here; a length or a count is not. The bucket carries the size and
+-- mime ceilings (`file_size_limit`, `allowed_mime_types`), where Supabase refuses the PUT itself
+-- rather than our transaction refusing the row.
+--
+-- ORDER: APPLY BEFORE DEPLOY — for BOTH api surfaces, as 0081 was.
+--   * WRITE: `FeedbackRepository.insert` inserts the drizzle model's full column list on the
+--     request path of POST /workers/me/feedback, sharing a transaction with its
+--     `feedback.submitted` event — no savepoint, no catch. Against a database without this
+--     column EVERY submission 500s, including the ones with no images at all, and the worker's
+--     typed message is lost with the response.
+--   * READ: `AdminFeedbackRepository.list` names `attachment_paths` in its explicit SELECT list
+--     unconditionally, so GET /admin/feedback 500s on first page load too.
+-- Recorded in `schema-contract.ts` as `0092-attachment-paths-column`, so
+-- `pnpm --filter @badabhai/db db:audit:schema-contract` answers "is this database ready?" rather
+-- than anyone taking it on report — the 0078 lesson.
+--
+-- ⚠ AND THE PORTAL IS NOT A THIRD ORDERING CONSTRAINT, WHICH IS WHERE THIS DIFFERS FROM 0081.
+-- That migration had to order `api` ahead of `admin-web` because `feedbackItemSchema` declared
+-- `screen_context` REQUIRED, so a portal parsing a response without it threw and blanked the
+-- whole page. `attachment_urls` is declared `.default([])` instead — an api that has not shipped
+-- the field yet renders as "no images", which is the true answer for every row today. The
+-- asymmetry is deliberate: a missing `screen_context` means a projection silently stopped
+-- sending a field, while a missing `attachment_urls` is the ordinary state of a feature whose
+-- bucket is not provisioned yet.
+--   FORWARD:  apply 0092  ->  deploy api  ->  deploy admin-web (order of the last two free)
+--   ROLLBACK: revert api  ->  run the SQL below   (admin-web needs no revert)
+--
+-- ⚠ 0080 IS MERGED BUT NOT APPLIED IN PRODUCTION (see MIGRATIONS.md). This migration ALTERs the
+-- table that one creates, so it is strictly ordered behind it and behind 0081, and inherits their
+-- journal-drift problem: `db:migrate` alone still cannot reach any of the three until 0076-0079
+-- are adopted.
+--
+-- TIMING. `ADD COLUMN ... jsonb` with no DEFAULT and no NOT NULL is CATALOG-ONLY in every
+-- supported Postgres — no table rewrite, no row read, no constraint to validate. It still takes
+-- ACCESS EXCLUSIVE for the catalog update, and that lock conflicts with every other lock, so the
+-- statement queues behind any in-flight statement and every reader arriving meanwhile queues
+-- behind IT. Per the 0073/0077/0080/0081 precedent this is timing guidance, not a blocker: run
+-- under `SET lock_timeout = '3s';` and retry on 55P03 (lock_not_available). This is the CHEAPEST
+-- migration in the worker_feedback family — 0081 had an ADD CONSTRAINT that validated every row;
+-- this one has nothing to validate.
+--
+-- BACKFILL: NONE, and none is possible. No feedback submitted before this column existed had
+-- images to point at. Pre-existing rows keep NULL, which every reader treats identically to an
+-- empty list — the admin screen renders a dash.
+--
+-- RLS. NOTHING TO RE-APPLY. RLS is a TABLE-level posture and 0080 already set ENABLE + FORCE +
+-- the four REVOKEs on `worker_feedback`; a new column inherits it. This migration deliberately
+-- adds no grant and no policy — `rls-spine.e2e.test.ts` still asserts the table denies all four
+-- Data-API roles, and that assertion is what would catch it if this were ever wrong.
+--
+-- ROLLBACK. One statement, safe with the app live ONLY after the api is reverted (both surfaces
+-- name the column):
+--   ALTER TABLE "worker_feedback" DROP COLUMN IF EXISTS "attachment_paths";
+-- Lossy for the POINTERS only. The OBJECTS are untouched and stay in the bucket, referenced by
+-- nothing — orphans keyed by an opaque uuid under the worker's own prefix, which is the state
+-- `AccountDeletionService`'s per-bucket prefix sweep already erases on account deletion. The
+-- feedback rows themselves, message included, are unaffected.
+-- ===========================================================================
+ALTER TABLE "worker_feedback" ADD COLUMN "attachment_paths" jsonb;

@@ -56,6 +56,8 @@ function make(
     redisDelThrows?: boolean;
     voiceBucket?: string;
     photoBucket?: string;
+    /** #1191 — arms the feedback-attachment prefix sweep. Empty (default) = DORMANT. */
+    feedbackAttachmentsBucket?: string;
     hadPin?: boolean;
     devices?: number;
     sessions?: number;
@@ -119,6 +121,9 @@ function make(
     VOICE_NOTES_BUCKET: opts.voiceBucket ?? "",
     // ADR-0032: same dormant default; setting it arms the photo prefix-sweep leg.
     WORKER_PHOTOS_BUCKET: opts.photoBucket ?? "",
+    // #1191: same dormant default again. While unset the attachment MINT 503s, so nothing can
+    // have been uploaded to orphan — which is why "skipped" is the honest record, not a gap.
+    WORKER_FEEDBACK_ATTACHMENTS_BUCKET: opts.feedbackAttachmentsBucket ?? "",
     ACCOUNT_DELETION_COOLDOWN_SECONDS: opts.cooldown ?? 604800,
     // ADR-0031 — the grace window schedule() stamps (default 7 days).
     ACCOUNT_DELETION_GRACE_DAYS: 7,
@@ -920,10 +925,80 @@ describe("the erasure records what each store actually reported (#712)", () => {
       "chat:transcript:*",
       `voice-notes/${WORKER_ID}/`,
       `photos/${WORKER_ID}/`,
+      `feedback-attachments/${WORKER_ID}/`,
       `${WORKER_ID}/`,
     ]);
     for (const leg of auditOf(h).legs) {
       expect(ALLOWED, `unexpected audit target ${leg.target}`).toContain(leg.target);
     }
+  });
+});
+
+/**
+ * ── FEEDBACK ATTACHMENTS (#1191) ─────────────────────────────────────────────────────────
+ *
+ * The images a worker attached to a feedback submission live in object storage; the cascade
+ * that erases `worker_feedback` does not touch them. A PREFIX sweep rather than a per-row read
+ * is load-bearing here in a way it is not for photos: this feature has NO confirm step, so an
+ * object uploaded to a minted slot whose submission was never sent — or was refused by the
+ * ownership check — is referenced by no row at all, and only the prefix knows about it.
+ */
+describe("erasing the feedback attachments (#1191)", () => {
+  const BUCKET = "worker-feedback-attachments";
+  const PREFIX = `feedback-attachments/${WORKER_ID}/`;
+
+  it("sweeps the worker's OWN prefix, in the attachments bucket", async () => {
+    const h = make({ feedbackAttachmentsBucket: BUCKET });
+    h.storage.deleteByPrefix.mockResolvedValue(3);
+
+    await h.svc.execute(WORKER_ID);
+
+    expect(h.storage.deleteByPrefix).toHaveBeenCalledWith(PREFIX, BUCKET);
+    const leg = auditOf(h).legs.find((l) => l.leg === "feedback_attachment_prefix");
+    expect(leg).toMatchObject({ target: PREFIX, outcome: "deleted", deleted: 3 });
+  });
+
+  it("records a DORMANT bucket as SKIPPED, never as an empty sweep", async () => {
+    // "We looked and found nothing" and "we never looked" are different claims, and only the
+    // first is evidence a DSAR request was honoured.
+    const h = make();
+    await h.svc.execute(WORKER_ID);
+
+    expect(h.storage.deleteByPrefix).not.toHaveBeenCalledWith(PREFIX, expect.anything());
+    expect(auditOf(h).legs.find((l) => l.leg === "feedback_attachment_prefix")).toMatchObject({
+      outcome: "skipped",
+    });
+  });
+
+  it("is its OWN leg — never folded into the photo sweep", async () => {
+    // Different bucket, different env var, different sensitivity class. A record that fused
+    // them could report a sweep that only one of the two buckets actually received.
+    const h = make({ photoBucket: "worker-profile-photos", feedbackAttachmentsBucket: BUCKET });
+    await h.svc.execute(WORKER_ID);
+
+    const legs = auditOf(h).legs.map((l) => l.leg);
+    expect(legs).toContain("photo_prefix");
+    expect(legs).toContain("feedback_attachment_prefix");
+    expect(h.storage.deleteByPrefix).toHaveBeenCalledWith(
+      `photos/${WORKER_ID}/`,
+      "worker-profile-photos",
+    );
+    expect(h.storage.deleteByPrefix).toHaveBeenCalledWith(PREFIX, BUCKET);
+  });
+
+  it("records a storage failure as FAILED — an incomplete erasure must say so", async () => {
+    const h = make({ feedbackAttachmentsBucket: BUCKET });
+    h.storage.deleteByPrefix.mockImplementation(async (prefix: string) => {
+      if (prefix === PREFIX) throw new Error("bucket unreachable");
+      return 0;
+    });
+
+    await h.svc.execute(WORKER_ID);
+
+    expect(auditOf(h).legs.find((l) => l.leg === "feedback_attachment_prefix")).toMatchObject({
+      outcome: "failed",
+    });
+    // Fail CLOSED at the top level: one dead bucket is not a successful erasure with a footnote.
+    expect(auditOf(h).outcome).toBe("failed");
   });
 });

@@ -38,6 +38,12 @@ export type ErasureLeg =
   | "voice_objects"
   | "voice_prefix"
   | "photo_prefix"
+  // #1191 — the images a worker attached to a feedback submission. Its own leg rather than a
+  // second target under `photo_prefix`: they live in a DIFFERENT bucket (a face photo and a
+  // photograph of a broken screen are different sensitivity classes), the two are armed by
+  // different env vars, and a DSAR record that fused them could report a sweep that only one
+  // of the two buckets actually received.
+  | "feedback_attachment_prefix"
   | "conversation_prefix"
   | "transcript_buffer";
 

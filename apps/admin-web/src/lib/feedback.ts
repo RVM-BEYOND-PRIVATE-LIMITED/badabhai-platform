@@ -72,6 +72,26 @@ export const feedbackItemSchema = z.object({
    * display; refusing to display it is the only way this schema could make things worse.
    */
   screen_context: z.string().nullable(),
+  /**
+   * SHORT-LIVED SIGNED URLs for the images the worker attached (#1191). The server mints one per
+   * stored object key, per request, and this surface never sees a key — see the route's own
+   * contract for why a key on the wire would be a durable handle to a private image where a url
+   * is a temporary one.
+   *
+   * `.default([])` AND DELIBERATELY NOT REQUIRED, WHICH IS THE OPPOSITE CALL FROM
+   * `screen_context` ONE FIELD UP. That one is required because an absent key can only mean a
+   * projection stopped sending a field, and rendering that as "unknown screen" on every row
+   * would hide the column going missing. Here an absent key is the ORDINARY state of a feature
+   * whose bucket is not provisioned yet: an api that has not shipped #1191, or one where signing
+   * fell back to empty, means "no images" — which is the true answer for every row today. A
+   * required key would instead throw `AdminRequestError` and blank the WHOLE page, costing the
+   * operator every worker's message over a column of thumbnails.
+   *
+   * BARE `z.string()`, NOT `.url()`. The value came from our own server and is rendered into an
+   * `href`/`src`, never parsed — and a stricter rule here could only ever turn a page of real
+   * feedback into a whole-page error over a url shape this portal does not need to adjudicate.
+   */
+  attachment_urls: z.array(z.string()).default([]),
   created_at: z.string(),
 });
 export type FeedbackItem = z.infer<typeof feedbackItemSchema>;
