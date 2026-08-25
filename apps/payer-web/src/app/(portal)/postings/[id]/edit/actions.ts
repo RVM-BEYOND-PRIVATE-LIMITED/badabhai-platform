@@ -28,6 +28,14 @@ export async function updatePostingAction(input: {
   vacancies?: number;
   locationLabel?: string;
   description?: string;
+  // Worker-visible display fields the backend UPDATE schema accepts (city/pay/shift/needed_by).
+  // Client input — re-validated below by `updatePostingInputSchema` (the authority). Pay rides
+  // straight through from form state; nothing here computes or defaults a price.
+  city?: string;
+  payMin?: number;
+  payMax?: number;
+  shift?: string;
+  neededBy?: string;
 }): Promise<EditPostingActionResult> {
   if (!postingIdSchema.safeParse(input.postingId).success) {
     return { ok: false, error: "That posting could not be found." };
@@ -41,6 +49,11 @@ export async function updatePostingAction(input: {
     ...(input.description !== undefined && input.description !== ""
       ? { description: input.description }
       : {}),
+    ...(input.city !== undefined && input.city !== "" ? { city: input.city } : {}),
+    ...(input.payMin !== undefined ? { payMin: input.payMin } : {}),
+    ...(input.payMax !== undefined ? { payMax: input.payMax } : {}),
+    ...(input.shift !== undefined && input.shift !== "" ? { shift: input.shift } : {}),
+    ...(input.neededBy !== undefined && input.neededBy !== "" ? { neededBy: input.neededBy } : {}),
   });
   if (!parsed.success) {
     return {

@@ -61,12 +61,63 @@ describe("updatePostingAction — validation gates", () => {
       roleTitle: "CNC Machinist",
       locationLabel: "",
       description: "",
+      city: "",
+      shift: "",
+      neededBy: "",
     });
     const [, input] = updatePosting.mock.calls[0] as [string, Record<string, unknown>];
     expect(input).toEqual({ roleTitle: "CNC Machinist" });
     expect(input).not.toHaveProperty("vacancies");
     expect(input).not.toHaveProperty("locationLabel");
     expect(input).not.toHaveProperty("description");
+    expect(input).not.toHaveProperty("city");
+    expect(input).not.toHaveProperty("shift");
+    expect(input).not.toHaveProperty("neededBy");
+  });
+
+  it("the wider UPDATE fields (city/pay/shift/needed_by) are re-validated and threaded to the seam", async () => {
+    await updatePostingAction({
+      postingId: ID,
+      roleTitle: "CNC Machinist",
+      city: "Pune",
+      payMin: 20000,
+      payMax: 35000,
+      shift: "rotational",
+      neededBy: "immediate",
+    });
+    const [, input] = updatePosting.mock.calls[0] as [string, Record<string, unknown>];
+    // Passed STRAIGHT THROUGH from form state (camelCase domain shape) — the seam mapper
+    // snake-cases them. Nothing invented or defaulted a price.
+    expect(input).toMatchObject({
+      roleTitle: "CNC Machinist",
+      city: "Pune",
+      payMin: 20000,
+      payMax: 35000,
+      shift: "rotational",
+      neededBy: "immediate",
+    });
+  });
+
+  it("an off-enum shift is rejected server-side (no field NEITHER schema accepts slips through)", async () => {
+    const res = await updatePostingAction({
+      postingId: ID,
+      roleTitle: "CNC Machinist",
+      shift: "graveyard",
+    });
+    expect(res.ok).toBe(false);
+    expect(updatePosting).not.toHaveBeenCalled();
+  });
+
+  it("an inverted pay band (max < min) is rejected by the server refine", async () => {
+    const res = await updatePostingAction({
+      postingId: ID,
+      roleTitle: "CNC Machinist",
+      payMin: 40000,
+      payMax: 20000,
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toMatch(/Max pay/);
+    expect(updatePosting).not.toHaveBeenCalled();
   });
 });
 

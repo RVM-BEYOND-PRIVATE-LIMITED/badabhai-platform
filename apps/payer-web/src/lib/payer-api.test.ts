@@ -975,6 +975,29 @@ describe("getPosting / updatePosting / closePosting — LIVE: faceless, no-oracl
     expect(body).not.toHaveProperty("vacancy_band");
   });
 
+  it("updatePosting rides the wider worker-visible fields (city/pay/shift/needed_by) on the PATCH", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(jobPostingRow()));
+    const { updatePosting } = await import("./payer-api");
+    await updatePosting(POSTING_ID, {
+      roleTitle: "CNC Machinist",
+      city: "Pune",
+      payMin: 20000,
+      payMax: 35000,
+      shift: "rotational",
+      neededBy: "immediate",
+    });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    // Snake_case, straight through from form state — no invented price, no camelCase leak.
+    expect(body.city).toBe("Pune");
+    expect(body.pay_min).toBe(20000);
+    expect(body.pay_max).toBe(35000);
+    expect(body.shift).toBe("rotational");
+    expect(body.needed_by).toBe("immediate");
+    expect(body).not.toHaveProperty("payMin");
+    expect(body).not.toHaveProperty("neededBy");
+  });
+
   it("updatePosting maps a 404 to a neutral null", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ message: "not found" }, 404));
     const { updatePosting } = await import("./payer-api");

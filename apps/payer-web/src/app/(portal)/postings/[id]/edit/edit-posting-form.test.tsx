@@ -10,7 +10,9 @@ import type * as ReactModule from "react";
  * server-side), client validate() blocks the action, success → router.push to detail.
  *
  * Env is node (no DOM); React state injected via mocked useState (source order:
- * roleTitle, locationLabel, vacancies, description, error); useTransition runs inline.
+ * roleTitle, locationLabel, vacancies, description, error, THEN the wider UPDATE fields
+ * city, payMin, payMax, shift, neededBy — those hooks live after `error` on purpose so
+ * this positional seeding of the first five stays stable); useTransition runs inline.
  */
 
 const updatePostingAction = vi.fn();
@@ -49,6 +51,11 @@ const INITIAL = {
   locationLabel: "Pune, MH",
   vacanciesHint: 26, // a "25+" posting's band-representative seed
   description: null,
+  city: null,
+  payMin: null,
+  payMax: null,
+  shift: null,
+  neededBy: null,
 };
 
 function findForm(node: ReactNode): ReactElement<{ onSubmit: (e: unknown) => void }> | null {
@@ -76,6 +83,11 @@ function render(state: {
   locationLabel?: string;
   vacancies?: string;
   description?: string;
+  city?: string;
+  payMin?: string;
+  payMax?: string;
+  shift?: string;
+  neededBy?: string;
 }) {
   stateQueue = [
     state.roleTitle ?? INITIAL.roleTitle,
@@ -83,6 +95,11 @@ function render(state: {
     state.vacancies ?? String(INITIAL.vacanciesHint),
     state.description ?? "",
     null, // error
+    state.city ?? "",
+    state.payMin ?? "",
+    state.payMax ?? "",
+    state.shift ?? "",
+    state.neededBy ?? "",
   ];
   stateCursor = 0;
   setters = [];
@@ -120,6 +137,42 @@ describe("EditPostingForm — the band-downgrade guard (vacancies omission)", ()
     const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
     expect(input.locationLabel).toBeUndefined();
     expect(input.description).toBeUndefined();
+  });
+});
+
+describe("EditPostingForm — the wider UPDATE fields (city/pay/shift/needed_by)", () => {
+  it("threads city/pay/shift/needed_by to the action; pay is passed straight through", async () => {
+    await submit(
+      render({
+        city: "Pune",
+        payMin: "20000",
+        payMax: "35000",
+        shift: "rotational",
+        neededBy: "immediate",
+      }),
+    );
+    const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input.city).toBe("Pune");
+    expect(input.payMin).toBe(20000);
+    expect(input.payMax).toBe(35000);
+    expect(input.shift).toBe("rotational");
+    expect(input.neededBy).toBe("immediate");
+  });
+
+  it("blank city/pay/shift/needed_by thread as undefined (kept server-side)", async () => {
+    await submit(render({}));
+    const input = updatePostingAction.mock.calls[0]![0] as Record<string, unknown>;
+    expect(input.city).toBeUndefined();
+    expect(input.payMin).toBeUndefined();
+    expect(input.payMax).toBeUndefined();
+    expect(input.shift).toBeUndefined();
+    expect(input.neededBy).toBeUndefined();
+  });
+
+  it("an inverted pay band (max < min) is blocked client-side (parity with the server refine)", async () => {
+    await submit(render({ payMin: "40000", payMax: "20000" }));
+    expect(updatePostingAction).not.toHaveBeenCalled();
+    expect(setters[4]).toHaveBeenCalledWith("Max pay must be greater than or equal to min pay.");
   });
 });
 
