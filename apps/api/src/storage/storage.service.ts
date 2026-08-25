@@ -284,8 +284,29 @@ export class StorageService {
   /**
    * Mint a short-lived signed URL for `${bucket}/${objectKey}`. Returns an
    * ABSOLUTE url. Throws a PII-free error on failure.
+   *
+   * `downloadAs` (#1191, optional) makes the storage origin answer with
+   * `Content-Disposition: attachment; filename="<name>"` instead of rendering the
+   * object inline. DEFENCE IN DEPTH FOR ONE SPECIFIC CASE: the feedback-attachment
+   * bytes are WORKER-SUPPLIED, and a signed url to them is handed to an admin as a
+   * clickable link. Without this, a worker who defeated the bucket's mime allowlist
+   * and stored markup would get it RENDERED on the storage origin the moment an
+   * operator opened the thumbnail. With it, the click downloads a file instead.
+   *
+   * It does NOT stop the object being used as an `<img src>`: browsers ignore
+   * `Content-Disposition` for subresource loads, so the thumbnail still renders —
+   * only a top-level navigation is affected, which is exactly the case that matters.
+   *
+   * The name is a QUERY PARAMETER on the signed url (Supabase's `?download=`), so it
+   * costs no extra round trip. Callers must pass a value THEY derived — never a
+   * caller-supplied string — and it is url-encoded here regardless.
    */
-  async createSignedUrl(objectKey: string, ttlSeconds: number, bucket?: string): Promise<string> {
+  async createSignedUrl(
+    objectKey: string,
+    ttlSeconds: number,
+    bucket?: string,
+    downloadAs?: string,
+  ): Promise<string> {
     const { url, serviceKey, bucket: b } = this.requireStorage(bucket);
     const target = `${url}/storage/v1/object/sign/${b}/${encodeURI(objectKey)}`;
     return this.handleStorageError("storage createSignedUrl", b, async () => {
@@ -308,7 +329,10 @@ export class StorageService {
         if (!body.signedURL) {
           throw new ServiceUnavailableException("storage sign-url response missing signedURL");
         }
-        return `${url}/storage/v1${body.signedURL}`;
+        const signed = `${url}/storage/v1${body.signedURL}`;
+        // `&`, never `?`: the signed url ALREADY carries `?token=…`, so a second `?` would
+        // make the download hint part of the token value and silently do nothing.
+        return downloadAs ? `${signed}&download=${encodeURIComponent(downloadAs)}` : signed;
       } finally {
         clearTimeout(timeout);
       }

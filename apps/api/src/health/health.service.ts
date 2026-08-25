@@ -46,6 +46,12 @@ export interface StorageBucketPresence {
   photos: boolean;
   voice_notes: boolean;
   interview_kit: boolean;
+  /**
+   * #1191 — the feedback-attachment bucket. Additive to this response, and reported for the
+   * reason the block exists at all: the DORMANT state of this feature is invisible from every
+   * other surface, because the shipped worker app degrades honestly on the mint 503.
+   */
+  feedback_attachments: boolean;
 }
 
 /**
@@ -392,6 +398,11 @@ export class HealthService {
       photos: Boolean(this.config.WORKER_PHOTOS_BUCKET),
       voice_notes: Boolean(this.config.VOICE_NOTES_BUCKET),
       interview_kit: Boolean(this.config.INTERVIEW_KIT_BUCKET),
+      // #1191 — reported for the reason this whole block exists: the DORMANT state of feedback
+      // attachments is invisible from outside. The shipped worker app degrades honestly on the
+      // mint's 503 (it drops the image and still submits the text), so an unprovisioned bucket
+      // and a working one look identical to everyone except this line.
+      feedback_attachments: Boolean(this.config.WORKER_FEEDBACK_ATTACHMENTS_BUCKET),
     };
 
     // ARMED = this box has been told to do something that needs Supabase Storage. A bucket

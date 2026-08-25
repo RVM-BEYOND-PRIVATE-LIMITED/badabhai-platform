@@ -113,5 +113,45 @@ export interface AdminFeedbackListItem {
    * identifies no job, no session and no worker, which is the point.
    */
   screen_context: string | null;
+  /**
+   * SHORT-LIVED SIGNED URLs for the images the worker attached (#1191) — never the stored object
+   * keys, and never a path a reader could hold onto.
+   *
+   * URLS RATHER THAN KEYS IS THE WHOLE PRIVACY DESIGN OF THIS FIELD. The bucket is private and
+   * the objects are worker-supplied photographs — a payslip, a gate pass, a supervisor — so a
+   * KEY on this contract would be a durable handle to that image, reusable by anyone who ever
+   * saw a response and outliving the audited read that produced it. A url minted per request
+   * with `RESUME_SIGNED_URL_TTL_SECONDS` expires on its own, which is what makes "look at this
+   * row" and "keep access to these bytes" different acts.
+   *
+   * ALWAYS AN ARRAY, NEVER NULL, and EMPTY IS AN HONEST ANSWER WITH FOUR CAUSES the reader
+   * cannot tell apart and does not need to: the worker attached nothing, the row predates the
+   * column, the attachments bucket is unset (the feature is dormant), or signing this row's
+   * paths failed. The first two are the ordinary case; the last two are why the minting is
+   * best-effort — see `AdminFeedbackService`. A failure to sign one row's images must never cost
+   * an operator the whole page, and above all must never cost them the MESSAGE, which is what
+   * this screen is actually for.
+   *
+   * NOT ON THE AUDIT RECORD. `admin.feedback_viewed` carries the filters and a count; putting a
+   * url on it would park a live credential on the event spine, and putting a path there would
+   * park a permanent one.
+   */
+  attachment_urls: string[];
   created_at: Date;
+}
+
+/**
+ * ONE ROW AS THE DATABASE HOLDS IT — {@link AdminFeedbackListItem} with the stored object keys
+ * in place of the minted urls. The repository's return type, and never a response body.
+ *
+ * THE SPLIT IS THE POINT AND IT IS AN ARCHITECTURE RULE, NOT A CONVENIENCE (CLAUDE.md §4).
+ * Signing is an outbound Storage call — business logic, and the service's job — while the
+ * repository does database access and nothing else. Handing the paths across one boundary and
+ * turning them into urls on the other side is what keeps `attachment_paths` from ever being a
+ * field on a type that a controller could `return`: the wire contract above simply has no such
+ * key, so leaking one is a compile error rather than a review catch.
+ */
+export interface AdminFeedbackRow extends Omit<AdminFeedbackListItem, "attachment_urls"> {
+  /** The stored keys, worker-scoped and opaque. Never leaves the service. */
+  attachment_paths: string[];
 }

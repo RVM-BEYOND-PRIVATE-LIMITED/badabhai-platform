@@ -2,8 +2,13 @@ import { describe, it, expect, vi } from "vitest";
 import { AdminFeedbackService } from "./admin-feedback.service";
 import type { AdminFeedbackRepository } from "./admin-feedback.repository";
 import { decodeEntityCursor, encodeEntityCursor, type EntityCursor } from "./admin-entities.cursor";
-import type { AdminFeedbackListItem, AdminFeedbackQueryDto } from "./admin-feedback.dto";
+import type {
+  AdminFeedbackListItem,
+  AdminFeedbackQueryDto,
+  AdminFeedbackRow,
+} from "./admin-feedback.dto";
 import type { EventsService } from "../events/events.service";
+import type { StorageService } from "../storage/storage.service";
 import type { RequestContext } from "../common/request-context";
 
 /**
@@ -43,9 +48,46 @@ function eventsStub(opts: { throws?: boolean } = {}) {
  * exercised by all of them — a change that dropped the emit would fail the dedicated assertions
  * below AND leave every paging test running against a service that no longer audits.
  */
-function svcWith(list: AdminFeedbackRepository["list"], opts: { emitThrows?: boolean } = {}) {
+function svcWith(
+  list: AdminFeedbackRepository["list"],
+  opts: { emitThrows?: boolean; bucket?: string; signThrowsFor?: (path: string) => boolean } = {},
+) {
   const { emit, events } = eventsStub({ throws: opts.emitThrows });
-  return { svc: new AdminFeedbackService(repoStub(list), events), emit };
+  const { storage, sign } = storageStub(opts);
+  return { svc: new AdminFeedbackService(repoStub(list), events, storage, cfg(opts.bucket)), emit, sign };
+}
+
+/** The attachments bucket, as an armed deployment has it. Empty means DORMANT. */
+const BUCKET = "worker-feedback-attachments";
+/** The TTL the signed GETs are minted with — the resume download's, reused deliberately. */
+const TTL = 900;
+
+/** The two config values this service reads, and nothing else. */
+const cfg = (bucket?: string) =>
+  ({
+    WORKER_FEEDBACK_ATTACHMENTS_BUCKET: bucket ?? BUCKET,
+    RESUME_SIGNED_URL_TTL_SECONDS: TTL,
+  }) as never;
+
+/**
+ * A `StorageService` double that mints a recognisable url per key — and can be told to fail for
+ * a chosen path, which is how the FAIL-OPEN posture is exercised. Every call is recorded, so the
+ * tests can assert that the over-fetched row is never signed and that the download hint is set.
+ */
+function storageStub(opts: { signThrowsFor?: (path: string) => boolean } = {}) {
+  const sign = vi.fn(
+    async (objectKey: string, ttlSeconds: number, bucket?: string, downloadAs?: string) => {
+      if (opts.signThrowsFor?.(objectKey)) throw new Error("simulated storage failure");
+      return `https://storage.test/${bucket}/${objectKey}?token=t&ttl=${ttlSeconds}` +
+        (downloadAs ? `&download=${downloadAs}` : "");
+    },
+  );
+  return { sign, storage: { createSignedUrl: sign } as unknown as StorageService };
+}
+
+/** A key this server would have minted, for the worker on fixture row `n`. */
+function pathFor(n: number): string {
+  return `feedback-attachments/${uuidFor(1000 + n)}/aaaaaaaa-bbbb-4ccc-8ddd-${String(n).padStart(12, "0")}.jpg`;
 }
 
 /**
@@ -56,7 +98,7 @@ function svcWith(list: AdminFeedbackRepository["list"], opts: { emitThrows?: boo
  * COMPILE error — which is how the arguments this service forwards would stop being checked
  * at all if the spy were left untyped.
  */
-function listSpy(rows: AdminFeedbackListItem[] = []) {
+function listSpy(rows: AdminFeedbackRow[] = []) {
   return vi.fn<AdminFeedbackRepository["list"]>(async () => rows);
 }
 
@@ -77,7 +119,7 @@ function uuidFor(n: number): string {
   return `3f2504e0-4f89-41d3-9a0c-${h}`;
 }
 
-function rows(n: number, base = Date.parse("2026-08-19T12:00:00.000Z")): AdminFeedbackListItem[] {
+function rows(n: number, base = Date.parse("2026-08-19T12:00:00.000Z")): AdminFeedbackRow[] {
   return Array.from({ length: n }, (_, i) => ({
     // A real uuid, because the service refuses a cursor id that is not one (a non-uuid can
     // only ever fail at BIND against a `uuid` column). Sequenced so the walk below is stable.
@@ -87,6 +129,10 @@ function rows(n: number, base = Date.parse("2026-08-19T12:00:00.000Z")): AdminFe
     message: `message ${i}`,
     app_build: null,
     screen_context: null,
+    // The REPOSITORY's shape: stored keys, not urls. The service is what turns one into the
+    // other, and typing the fixture this way is what makes a projection that forgot to a
+    // compile error rather than a review catch.
+    attachment_paths: [],
     created_at: new Date(base - Math.floor(i / 3) * 1000),
   }));
 }
@@ -192,7 +238,7 @@ describe("walking the whole list — no row skipped, no row seen twice", () => {
    * where the page ended. A double that ignored the cursor would return page one forever and
    * make every assertion below vacuously true.
    */
-  function pagingRepo(data: AdminFeedbackListItem[]): AdminFeedbackRepository {
+  function pagingRepo(data: AdminFeedbackRow[]): AdminFeedbackRepository {
     const ordered = [...data].sort(
       (a, b) => b.created_at.getTime() - a.created_at.getTime() || (a.id < b.id ? 1 : -1),
     );
@@ -208,7 +254,7 @@ describe("walking the whole list — no row skipped, no row seen twice", () => {
 
   it("paging a tie-heavy list end to end yields every row exactly once, newest first", async () => {
     const data = rows(20);
-    const svc = new AdminFeedbackService(pagingRepo(data), eventsStub().events);
+    const svc = new AdminFeedbackService(pagingRepo(data), eventsStub().events, storageStub().storage, cfg());
 
     const seen: AdminFeedbackListItem[] = [];
     let cursor: string | undefined;
@@ -231,7 +277,7 @@ describe("walking the whole list — no row skipped, no row seen twice", () => {
     // group repeatedly. Without `id` in the cursor the predicate is `created_at < t`, which
     // drops the rest of the group: the list comes up short and nothing errors.
     const data = rows(9);
-    const svc = new AdminFeedbackService(pagingRepo(data), eventsStub().events);
+    const svc = new AdminFeedbackService(pagingRepo(data), eventsStub().events, storageStub().storage, cfg());
 
     const seen: string[] = [];
     let cursor: string | undefined;
@@ -247,7 +293,7 @@ describe("walking the whole list — no row skipped, no row seen twice", () => {
   it("the walk is genuinely multi-page (the fixture is not one page in disguise)", async () => {
     // Guards the two assertions above: if `pagingRepo` ever returned everything at once they
     // would still pass, and would be testing nothing.
-    const svc = new AdminFeedbackService(pagingRepo(rows(20)), eventsStub().events);
+    const svc = new AdminFeedbackService(pagingRepo(rows(20)), eventsStub().events, storageStub().storage, cfg());
     const first = await svc.list(ADMIN, query({ limit: 3 }), CTX);
     expect(first.items).toHaveLength(3);
     expect(first.nextCursor).not.toBeNull();
@@ -437,5 +483,120 @@ describe("the worker filter reaches the repository verbatim", () => {
     await svc.list(ADMIN, query({ limit: 3, workerId: worker, cursor: first.nextCursor! }), CTX);
     expect(list.mock.calls).toHaveLength(2);
     for (const call of list.mock.calls) expect(call[0]).toMatchObject({ workerId: worker });
+  });
+});
+
+/**
+ * ── THE ATTACHMENTS (#1191) ──────────────────────────────────────────────────────────────
+ *
+ * Two properties, and they pull in opposite directions on purpose:
+ *
+ *   1. NO KEY EVER LEAVES. The repository hands the service stored object keys; the wire
+ *      contract has no key-shaped field at all. A key is a durable handle to a worker's private
+ *      photograph and would outlive every signed url minted for it.
+ *   2. SIGNING FAILS OPEN. Everything else on this surface fails closed — the audit emit
+ *      propagates, a bad cursor is refused. This one does not, because the MESSAGE is the
+ *      feature and the images support it: a Storage blip must never cost an operator the
+ *      complaint they came here to read.
+ */
+describe("attachment urls — minted per request, never the stored keys (#1191)", () => {
+  /** `n` rows where row `i` carries `counts[i]` attachments. */
+  function rowsWithAttachments(counts: number[]): AdminFeedbackRow[] {
+    return rows(counts.length).map((r, i) => ({
+      ...r,
+      attachment_paths: Array.from({ length: counts[i]! }, (_, k) => pathFor(i * 10 + k)),
+    }));
+  }
+
+  it("mints one short-lived signed url per stored key, in order", async () => {
+    const data = rowsWithAttachments([2, 0]);
+    const { svc, sign } = svcWith(listSpy(data));
+
+    const page = await svc.list(ADMIN, query({ limit: 10 }), CTX);
+
+    expect(page.items[0]!.attachment_urls).toHaveLength(2);
+    expect(page.items[1]!.attachment_urls).toEqual([]);
+    // The TTL is the resume download's, and the bucket is the attachments one — reusing a
+    // long-lived TTL here would make "look at this row" and "keep these bytes" the same act.
+    expect(sign.mock.calls[0]![1]).toBe(TTL);
+    expect(sign.mock.calls[0]![2]).toBe(BUCKET);
+    expect(page.items[0]!.attachment_urls[0]).toContain(data[0]!.attachment_paths[0]!);
+  });
+
+  it("asks the storage origin for Content-Disposition: attachment, named from OUR key", async () => {
+    // Defence in depth: the bytes are worker-supplied, so a top-level click must download
+    // rather than render them on the storage origin. The filename is the key's own basename —
+    // a uuid this server minted — so no caller-chosen byte reaches it.
+    const data = rowsWithAttachments([1]);
+    const { svc, sign } = svcWith(listSpy(data));
+    await svc.list(ADMIN, query({ limit: 10 }), CTX);
+
+    const key = data[0]!.attachment_paths[0]!;
+    expect(sign.mock.calls[0]![3]).toBe(key.slice(key.lastIndexOf("/") + 1));
+    expect(sign.mock.calls[0]![3]).toMatch(/^[0-9a-f-]+\.jpg$/);
+  });
+
+  it("NEVER puts a stored key on the response", async () => {
+    const data = rowsWithAttachments([3, 1]);
+    const { svc } = svcWith(listSpy(data));
+
+    const page = await svc.list(ADMIN, query({ limit: 10 }), CTX);
+
+    for (const item of page.items) {
+      expect(item).not.toHaveProperty("attachment_paths");
+    }
+  });
+
+  it("serves the row with NO images when signing fails — the message still arrives", async () => {
+    // THE FAIL-OPEN, and the only place on this surface that has one. A whole-page error over a
+    // thumbnail would trade the thing that matters for the thing that supports it.
+    const data = rowsWithAttachments([2, 2]);
+    const doomed = data[0]!.attachment_paths[0]!;
+    const { svc } = svcWith(listSpy(data), { signThrowsFor: (path) => path === doomed });
+
+    const page = await svc.list(ADMIN, query({ limit: 10 }), CTX);
+
+    expect(page.items).toHaveLength(2);
+    expect(page.items[0]!.message).toBe(data[0]!.message);
+    // PER ROW, not per path: a partial list would show one of two images with nothing saying
+    // the other existed, which is a quieter lie than an empty cell.
+    expect(page.items[0]!.attachment_urls).toEqual([]);
+    // ...and the failure is contained — the untouched row keeps its images.
+    expect(page.items[1]!.attachment_urls).toHaveLength(2);
+  });
+
+  it("serves empty urls and touches storage NOT AT ALL while the bucket is unset", async () => {
+    // The dormant deployment. Nothing could have been uploaded, so there is nothing to sign —
+    // and no reason to log a failure once per row forever.
+    const { svc, sign } = svcWith(listSpy(rowsWithAttachments([2])), { bucket: "" });
+    const page = await svc.list(ADMIN, query({ limit: 10 }), CTX);
+    expect(page.items[0]!.attachment_urls).toEqual([]);
+    expect(sign).not.toHaveBeenCalled();
+  });
+
+  it("does not sign the OVER-FETCHED row nobody will see", async () => {
+    // The repository is asked for limit+1 to detect a next page. Signing the peeked row would
+    // spend a Storage round trip on a row that is sliced off, on every full page.
+    const { svc, sign } = svcWith(listSpy(rowsWithAttachments([1, 1, 1])));
+    const page = await svc.list(ADMIN, query({ limit: 2 }), CTX);
+    expect(page.items).toHaveLength(2);
+    expect(sign).toHaveBeenCalledTimes(2);
+  });
+
+  it("signs AFTER the audit — a url is never minted for a read whose trail did not commit", async () => {
+    // The audit is the compensating control that makes this surface acceptable, and a signed
+    // url is the most durable thing it hands out. Emit first, or hand out nothing.
+    const { svc, sign } = svcWith(listSpy(rowsWithAttachments([2])), { emitThrows: true });
+    await expect(svc.list(ADMIN, query(), CTX)).rejects.toThrow();
+    expect(sign).not.toHaveBeenCalled();
+  });
+
+  it("keeps urls and paths OFF the audit record", async () => {
+    const data = rowsWithAttachments([2]);
+    const { svc, emit } = svcWith(listSpy(data));
+    await svc.list(ADMIN, query(), CTX);
+    const serialized = JSON.stringify(emit.mock.calls[0]![0]);
+    expect(serialized).not.toContain("feedback-attachments");
+    expect(serialized).not.toContain("storage.test");
   });
 });

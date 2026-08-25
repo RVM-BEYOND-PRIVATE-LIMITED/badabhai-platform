@@ -44,29 +44,32 @@ describe("the capture helper is CAPABLE of failing (guards every assertion below
 });
 
 describe("the projection — worker-authored text, and an OPAQUE worker", () => {
-  it("selects EXACTLY the seven contracted columns — no more, no fewer", async () => {
-    // Asserted as an equality, not as seven `toContain` checks: the interface in the dto is the
-    // entire contract, so "an eighth column appeared" has to fail here, and a containment
+  it("selects EXACTLY the eight contracted columns — no more, no fewer", async () => {
+    // Asserted as an equality, not as eight `toContain` checks: the interface in the dto is the
+    // entire contract, so "a ninth column appeared" has to fail here, and a containment
     // assertion cannot see one.
     const c = captureQueries();
     await new AdminFeedbackRepository(c.db).list({}, null, 10);
     // The projection is captured first, one statement per column, before WHERE and ORDER BY.
-    expect(c.statements.slice(0, 7)).toEqual([
+    expect(c.statements.slice(0, 8)).toEqual([
       '"worker_feedback"."id"',
       '"worker_feedback"."worker_id"',
       '"worker_feedback"."category"',
       '"worker_feedback"."message"',
       '"worker_feedback"."app_build"',
       '"worker_feedback"."screen_context"',
+      // #1191 — the stored KEYS, which stop at the service. The wire contract has no
+      // key-shaped field at all; `AdminFeedbackService` mints a short-lived url per key.
+      '"worker_feedback"."attachment_paths"',
       '"worker_feedback"."created_at"',
     ]);
     // The FROM source is captured too — BP-5 (#1005) taught the harness to record it. Asserting
     // it HERE is what makes "this read has a single source" a property of the projection test
     // rather than an inference from the absence test below: one table, named, with nothing else
     // in scope to project from.
-    expect(c.statements[7]).toBe('"worker_feedback"');
+    expect(c.statements[8]).toBe('"worker_feedback"');
     // ...and the only remaining statements on an unfiltered first page are the ORDER BY pair.
-    expect(c.statements).toHaveLength(10);
+    expect(c.statements).toHaveLength(11);
   });
 
   it("never touches a `workers` identity column, for any filter or cursor combination", async () => {
@@ -105,6 +108,7 @@ describe("the projection — worker-authored text, and an OPAQUE worker", () => 
         message: "the supervisor keeps my wages",
         appBuild: "abc1234",
         screenContext: "/jobs/:id/apply",
+        attachmentPaths: ["feedback-attachments/w-1/aaaa.jpg"],
         createdAt: created,
       },
     ]);
@@ -116,8 +120,30 @@ describe("the projection — worker-authored text, and an OPAQUE worker", () => 
       message: "the supervisor keeps my wages",
       app_build: "abc1234",
       screen_context: "/jobs/:id/apply",
+      attachment_paths: ["feedback-attachments/w-1/aaaa.jpg"],
       created_at: created,
     });
+  });
+
+  it("collapses a NULL attachment_paths to an empty array, at this boundary and only here", async () => {
+    // NULL and `[]` are the same fact — "no images" — and the column is nullable only because
+    // that is what makes migration 0092 catalog-only. Deciding between the two spellings once,
+    // here, is what keeps every reader above from having to re-decide; a row written before
+    // #1191 and one from a worker who attached nothing must be indistinguishable.
+    const c = captureQueries([
+      {
+        id: "f-3",
+        workerId: "w-3",
+        category: null,
+        message: "m",
+        appBuild: null,
+        screenContext: null,
+        attachmentPaths: null,
+        createdAt: new Date(CURSOR_TS),
+      },
+    ]);
+    const [row] = await new AdminFeedbackRepository(c.db).list({}, null, 10);
+    expect(row?.attachment_paths).toEqual([]);
   });
 
   it("a null category, app_build and screen_context survive the mapping as null", async () => {
@@ -132,6 +158,7 @@ describe("the projection — worker-authored text, and an OPAQUE worker", () => 
         message: "m",
         appBuild: null,
         screenContext: null,
+        attachmentPaths: null,
         createdAt: new Date(CURSOR_TS),
       },
     ]);

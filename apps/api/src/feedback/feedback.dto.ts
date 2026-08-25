@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { WORKER_FEEDBACK_CATEGORIES, WORKER_FEEDBACK_MESSAGE_MAX } from "@badabhai/types";
+import {
+  WORKER_FEEDBACK_ATTACHMENT_PATH_MAX,
+  WORKER_FEEDBACK_ATTACHMENTS_MAX,
+  WORKER_FEEDBACK_CATEGORIES,
+  WORKER_FEEDBACK_MESSAGE_MAX,
+} from "@badabhai/types";
 
 /**
  * Control characters that must never enter the `message` column.
@@ -68,6 +73,36 @@ export const SubmitFeedbackSchema = z
     category: z.enum(WORKER_FEEDBACK_CATEGORIES).optional(),
     // See the header. Declared, never validated — resolved or nulled by `resolveScreenTemplate`.
     screen: z.unknown().optional(),
+    /**
+     * The object keys of the images the worker attached (#1191), minted by
+     * `POST /workers/me/feedback/attachment/upload-url` and PUT to Storage by the client before
+     * this call.
+     *
+     * ⚠ THIS SCHEMA IS NOT THE OWNERSHIP CONTROL AND MUST NOT BE READ AS ONE. Everything here is
+     * a SHAPE bound — an array, at most three, each a non-empty string under
+     * {@link WORKER_FEEDBACK_ATTACHMENT_PATH_MAX} — and a caller who sends
+     * `["feedback-attachments/<someone-else>/<uuid>.jpg"]` passes every one of them. The control
+     * is in `FeedbackService.submit`, which tests each path against the minted-key shape for the
+     * SESSION worker (`@CurrentWorker`, never the body) and 400s the whole submission on any
+     * mismatch. What the bounds here are for is arriving at that regex with something small: they
+     * stop a megabyte of caller-chosen bytes, or ten thousand of them, being handed to
+     * `RegExp.test` at all.
+     *
+     * `.optional()` AND NEVER `.default([])`. The shipped client omits the key entirely when the
+     * worker attached nothing — it does not send `[]` — and the column mirrors that: absent means
+     * NULL, which every reader treats as "no images". Defaulting here would write `[]` on every
+     * text-only submission and make a row that predates this feature indistinguishable from one
+     * where the mint 503'd and the client dropped the image, which is exactly the degradation
+     * `attachment_count` exists to make visible on the spine.
+     *
+     * The array itself is NOT `.min(1)`: an explicit empty array from some future client is a
+     * truthful "no images", and 400ing it would cost that worker their typed message over a
+     * distinction nothing downstream can act on.
+     */
+    attachment_paths: z
+      .array(z.string().trim().min(1).max(WORKER_FEEDBACK_ATTACHMENT_PATH_MAX))
+      .max(WORKER_FEEDBACK_ATTACHMENTS_MAX)
+      .optional(),
   })
   .strict();
 export type SubmitFeedbackDto = z.infer<typeof SubmitFeedbackSchema>;

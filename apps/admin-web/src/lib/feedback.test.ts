@@ -56,6 +56,8 @@ const ROW = {
   message: "App band ho jata hai. Ramesh, 98765 43210.",
   app_build: "9fd0b09",
   screen_context: "/jobs/:id/apply",
+  // Two short-lived signed GETs, as the server mints them — the token rides in the query.
+  attachment_urls: ["https://s.test/a.jpg?token=a", "https://s.test/b.jpg?token=b"],
   created_at: "2026-08-19T09:00:00.000Z",
 };
 
@@ -250,6 +252,11 @@ describe("privacy — the projection cannot grow an identity field", () => {
     expect(parsed).not.toHaveProperty("worker_phone");
     expect(Object.keys(parsed).sort()).toEqual([
       "app_build",
+      // #1191 — SHORT-LIVED SIGNED URLS, and the reason they are on a privacy assertion at
+      // all: the server deliberately does not send the stored object KEYS, because a key is a
+      // durable handle to a worker's private photograph while a url expires. A regression that
+      // started sending `attachment_paths` would land in this list and fail here.
+      "attachment_urls",
       "category",
       "created_at",
       "id",
@@ -257,5 +264,52 @@ describe("privacy — the projection cannot grow an identity field", () => {
       "screen_context",
       "worker_id",
     ]);
+  });
+
+  it("DROPS a stored attachment PATH if the server ever sent one", () => {
+    const parsed = feedbackItemSchema.parse({
+      ...ROW,
+      attachment_paths: ["feedback-attachments/w/aaaa.jpg"],
+    });
+    expect(parsed).not.toHaveProperty("attachment_paths");
+  });
+});
+
+describe("attachment_urls — the field that must never blank the page (#1191)", () => {
+  it("defaults to an empty array when the key is ABSENT", () => {
+    // THE OPPOSITE CALL FROM `screen_context`, deliberately. An api that has not shipped #1191
+    // — or one whose signing fell back to empty — means "no images", which is the true answer
+    // for every row today. Requiring the key instead would throw `AdminRequestError` and cost
+    // the operator every worker's MESSAGE over a column of thumbnails.
+    const { attachment_urls: _drop, ...rest } = ROW;
+    expect(feedbackItemSchema.parse(rest).attachment_urls).toEqual([]);
+  });
+
+  it("carries the urls through untouched, in order", () => {
+    const urls = ["https://s.test/a.jpg?token=a", "https://s.test/b.jpg?token=b"];
+    expect(feedbackItemSchema.parse({ ...ROW, attachment_urls: urls }).attachment_urls).toEqual(
+      urls,
+    );
+  });
+
+  it("accepts an EMPTY array — 'no images' is a real answer, not a missing field", () => {
+    expect(feedbackItemSchema.parse({ ...ROW, attachment_urls: [] }).attachment_urls).toEqual([]);
+  });
+
+  it("does not re-adjudicate the url SHAPE the server already vouched for", () => {
+    // A bare `z.string()`, not `.url()`. The value came from our own server and is rendered
+    // into an href/src, never parsed — and a stricter rule here could only ever turn a page of
+    // real feedback into a whole-page error over a shape this portal need not judge.
+    expect(feedbackItemSchema.safeParse({ ...ROW, attachment_urls: ["not-a-url"] }).success).toBe(
+      true,
+    );
+  });
+
+  it("REFUSES a non-array, because that is a contract break rather than a dormant feature", () => {
+    expect(feedbackItemSchema.safeParse({ ...ROW, attachment_urls: "one.jpg" }).success).toBe(
+      false,
+    );
+    expect(feedbackItemSchema.safeParse({ ...ROW, attachment_urls: null }).success).toBe(false);
+    expect(feedbackItemSchema.safeParse({ ...ROW, attachment_urls: [1, 2] }).success).toBe(false);
   });
 });

@@ -24,13 +24,20 @@ const STORAGE_CONFIGURED = {
   WORKER_PHOTOS_BUCKET: "worker-profile-photos",
   VOICE_NOTES_BUCKET: "worker-voice-notes",
   INTERVIEW_KIT_BUCKET: "interview-kits",
+  WORKER_FEEDBACK_ATTACHMENTS_BUCKET: "worker-feedback-attachments",
   RESUME_RENDER_ENABLED: true,
 };
 
 /** The expected `storage_config` body for the STORAGE_CONFIGURED fixture above. */
 const STORAGE_CONFIG_UP = {
   supabase: "configured",
-  buckets: { resumes: true, photos: true, voice_notes: true, interview_kit: true },
+  buckets: {
+    resumes: true,
+    photos: true,
+    voice_notes: true,
+    interview_kit: true,
+    feedback_attachments: true,
+  },
   resume_render_enabled: true,
   armed_without_credentials: false,
 };
@@ -537,7 +544,26 @@ describe("HealthController.check — readiness probes", () => {
       photos: false,
       voice_notes: true,
       interview_kit: true,
+      feedback_attachments: true,
     });
+  });
+
+  it("WORKER_FEEDBACK_ATTACHMENTS_BUCKET unset → buckets.feedback_attachments false only", async () => {
+    // #1191 — the dormant state this line exists for. The shipped worker app degrades honestly
+    // on the mint's 503 (it drops the image and still submits the text), so an unprovisioned
+    // bucket looks exactly like a working one from every surface except this one.
+    const { controller } = setup({
+      config: {
+        NODE_ENV: "test",
+        ...STORAGE_CONFIGURED,
+        WORKER_FEEDBACK_ATTACHMENTS_BUCKET: "",
+      },
+    });
+    const body = await controller.check(fakeRes());
+
+    expect(body.checks.storage_config.buckets.feedback_attachments).toBe(false);
+    expect(body.checks.storage_config.buckets.photos).toBe(true);
+    expect(body.checks.storage_config.buckets.resumes).toBe(true);
   });
 
   it("VOICE_NOTES_BUCKET unset → buckets.voice_notes false only", async () => {
@@ -581,7 +607,13 @@ describe("HealthController.check — readiness probes", () => {
     expect(body.status).toBe("ok");
     expect(body.checks.storage_config).toEqual({
       supabase: "not_configured",
-      buckets: { resumes: true, photos: false, voice_notes: false, interview_kit: true },
+      buckets: {
+        resumes: true,
+        photos: false,
+        voice_notes: false,
+        interview_kit: true,
+        feedback_attachments: false,
+      },
       resume_render_enabled: false,
       // TRUE even here, and the 200 above is what proves the scoping works: the two
       // schema-defaulted buckets DO arm this box, so the fact is reported honestly — but

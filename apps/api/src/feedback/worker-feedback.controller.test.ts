@@ -1,12 +1,18 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { BadRequestException, HttpException, HttpStatus } from "@nestjs/common";
-import { WORKER_FEEDBACK_CATEGORIES, WORKER_FEEDBACK_MESSAGE_MAX } from "@badabhai/types";
+import {
+  WORKER_FEEDBACK_ATTACHMENT_PATH_MAX,
+  WORKER_FEEDBACK_ATTACHMENTS_MAX,
+  WORKER_FEEDBACK_CATEGORIES,
+  WORKER_FEEDBACK_MESSAGE_MAX,
+} from "@badabhai/types";
 
 import { WorkerFeedbackController } from "./worker-feedback.controller";
 import { SubmitFeedbackSchema, type SubmitFeedbackDto } from "./feedback.dto";
 import type { FeedbackService } from "./feedback.service";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import type { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import type { SubjectRateLimit } from "../common/rate-limit/subject-rate-limit.service";
 import type { RequestContext } from "../common/request-context";
 
@@ -16,13 +22,26 @@ const SOMEONE_ELSE = "99999999-9999-4999-8999-999999999999";
 const CTX = { correlationId: "c", requestId: "r" } as RequestContext;
 const PER_MINUTE = 3;
 const PER_HOUR = 20;
+/** The per-IP cap on the ATTACHMENT MINT — a different bucket from the two above. */
+const MINT_PER_IP_PER_HOUR = 20;
+const IP = "203.0.113.7";
+/** One minted slot, as `FeedbackService` returns it. */
+const TICKET = {
+  storage_path: `feedback-attachments/${WORKER.id}/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg`,
+  upload_url: "https://storage.test/upload/x?token=secret",
+  expires_in: 7200,
+};
 const DTO: SubmitFeedbackDto = { message: "the app logs me out every morning" };
 
-function make(opts: { overMinute?: boolean; overHour?: boolean } = {}) {
+function make(opts: { overMinute?: boolean; overHour?: boolean; overIpHour?: boolean } = {}) {
   /** The order the two caps were charged in — the assertion the 429 path depends on. */
   const charged: string[] = [];
   const feedback = {
     submit: vi.fn(async () => ({ id: "ffffffff-0000-4000-8000-000000000001" })),
+    createAttachmentUploadUrl: vi.fn(async () => {
+      charged.push("mint");
+      return TICKET;
+    }),
   };
   const rateLimit = {
     assertWithinMinuteCap: vi.fn(async () => {
@@ -34,12 +53,20 @@ function make(opts: { overMinute?: boolean; overHour?: boolean } = {}) {
       if (opts.overHour) throw new HttpException("Too many requests", 429);
     }),
   };
+  const ipRateLimit = {
+    assertWithinHourlyIpCap: vi.fn(async () => {
+      charged.push("ip-hour");
+      if (opts.overIpHour) throw new HttpException("Too many requests", 429);
+    }),
+  };
   const controller = new WorkerFeedbackController(
     feedback as unknown as FeedbackService,
     rateLimit as unknown as SubjectRateLimit,
+    ipRateLimit as unknown as IpRateLimit,
     {
       WORKER_FEEDBACK_PER_MINUTE: PER_MINUTE,
       WORKER_FEEDBACK_PER_HOUR: PER_HOUR,
+      FEEDBACK_ATTACHMENT_RATE_LIMIT_PER_IP_PER_HOUR: MINT_PER_IP_PER_HOUR,
     } as never,
   );
   // Captured so the divergence WARN can be asserted on BOTH counts: that it fires, and that it
@@ -51,7 +78,7 @@ function make(opts: { overMinute?: boolean; overHour?: boolean } = {}) {
     error: (m) => logs.push(m),
   };
 
-  return { controller, feedback, rateLimit, charged, logs };
+  return { controller, feedback, rateLimit, ipRateLimit, charged, logs };
 }
 
 describe("the worker's OWN feedback sink (#997)", () => {
@@ -331,5 +358,115 @@ describe("the route-table divergence warning", () => {
     expect(all).toContain("matched none of the");
     expect(all).not.toContain(hostile);
     expect(all).not.toContain("dGVzdEBleGFtcGxlLmNvbQ");
+  });
+});
+
+describe("minting an attachment slot — POST /workers/me/feedback/attachment/upload-url (#1191)", () => {
+  it("mints for the TOKEN's worker and returns the ticket unchanged", async () => {
+    const { controller, feedback } = make();
+    const res = await controller.createAttachmentUploadUrl(WORKER as never, IP);
+    expect(feedback.createAttachmentUploadUrl).toHaveBeenCalledWith(WORKER.id);
+    expect(res).toEqual(TICKET);
+  });
+
+  it("charges the PER-IP hourly cap, in its own scope, BEFORE minting", async () => {
+    // Its own namespace, not the per-worker feedback one: this cap bounds ORPHAN OBJECTS, and
+    // sharing a bucket would let three image mints eat a worker's whole minute of feedback —
+    // which is backwards, since three mints is what ONE submission with three images looks like.
+    const { controller, ipRateLimit, charged } = make();
+    await controller.createAttachmentUploadUrl(WORKER as never, IP);
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
+      "feedback_attachment_upload_url",
+      IP,
+      MINT_PER_IP_PER_HOUR,
+    );
+    expect(charged).toEqual(["ip-hour", "mint"]);
+  });
+
+  it("MINTS NOTHING when the per-IP cap rejects", async () => {
+    const { controller, feedback } = make({ overIpHour: true });
+    await expect(
+      controller.createAttachmentUploadUrl(WORKER as never, IP),
+    ).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
+    expect(feedback.createAttachmentUploadUrl).not.toHaveBeenCalled();
+  });
+
+  it("does NOT charge the per-worker submission caps — a mint is not a submission", async () => {
+    const { controller, rateLimit } = make();
+    await controller.createAttachmentUploadUrl(WORKER as never, IP);
+    expect(rateLimit.assertWithinMinuteCap).not.toHaveBeenCalled();
+    expect(rateLimit.assertWithinHourlyCap).not.toHaveBeenCalled();
+  });
+
+  it("answers 201 with no-store — the body carries a bearer credential", () => {
+    // Asserted off the route metadata rather than through a live request: the signed url
+    // authorizes a write into a private bucket for two hours, and a cached copy of it is a
+    // credential sitting in a proxy. `@Header` is what stops that.
+    const handler = (WorkerFeedbackController.prototype as unknown as Record<string, object>)
+      .createAttachmentUploadUrl!;
+    expect(Reflect.getMetadata("__httpCode__", handler)).toBe(201);
+    expect(Reflect.getMetadata("__headers__", handler)).toEqual([
+      { name: "Cache-Control", value: "no-store" },
+    ]);
+    expect(Reflect.getMetadata("path", handler)).toBe("attachment/upload-url");
+  });
+
+  it("never logs the minted url", async () => {
+    const { controller, logs } = make();
+    await controller.createAttachmentUploadUrl(WORKER as never, IP);
+    expect(logs.join("\n")).not.toContain(TICKET.upload_url);
+  });
+});
+
+describe("what the request schema will and will not accept — attachment_paths (#1191)", () => {
+  const PATH = "feedback-attachments/11111111-1111-4111-8111-111111111111/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg";
+
+  it("accepts a submission with NO attachment_paths — the shipped client omits the key", () => {
+    const parsed = SubmitFeedbackSchema.safeParse({ message: "the app logs me out" });
+    expect(parsed.success).toBe(true);
+    // `.optional()`, never `.default([])`: an absent key must stay absent all the way to a NULL
+    // column, so a text-only submission and one that predates the feature look the same.
+    expect(parsed.success && "attachment_paths" in parsed.data).toBe(false);
+  });
+
+  it("accepts up to the product cap and refuses one more", () => {
+    const at = Array.from({ length: WORKER_FEEDBACK_ATTACHMENTS_MAX }, () => PATH);
+    expect(SubmitFeedbackSchema.safeParse({ ...DTO, attachment_paths: at }).success).toBe(true);
+    expect(
+      SubmitFeedbackSchema.safeParse({ ...DTO, attachment_paths: [...at, PATH] }).success,
+    ).toBe(false);
+  });
+
+  it("accepts an EXPLICIT empty array — a truthful 'no images' must not cost a message", () => {
+    expect(SubmitFeedbackSchema.safeParse({ ...DTO, attachment_paths: [] }).success).toBe(true);
+  });
+
+  it("bounds each path BEFORE it ever reaches the ownership regex", () => {
+    // Not the ownership control — that is `FeedbackService` — but the reason a megabyte of
+    // caller-chosen bytes is never handed to a `RegExp.test` in the first place.
+    expect(SubmitFeedbackSchema.safeParse({ ...DTO, attachment_paths: [""] }).success).toBe(false);
+    expect(SubmitFeedbackSchema.safeParse({ ...DTO, attachment_paths: ["   "] }).success).toBe(
+      false,
+    );
+    expect(
+      SubmitFeedbackSchema.safeParse({
+        ...DTO,
+        attachment_paths: ["x".repeat(WORKER_FEEDBACK_ATTACHMENT_PATH_MAX + 1)],
+      }).success,
+    ).toBe(false);
+    expect(SubmitFeedbackSchema.safeParse({ ...DTO, attachment_paths: [42] }).success).toBe(false);
+    expect(SubmitFeedbackSchema.safeParse({ ...DTO, attachment_paths: PATH }).success).toBe(false);
+    expect(SubmitFeedbackSchema.safeParse({ ...DTO, attachment_paths: null }).success).toBe(false);
+  });
+
+  it("⚠ ACCEPTS a path belonging to another worker — the DTO is NOT the IDOR control", () => {
+    // Stated as a test on purpose. Every shape rule above passes for a forged key, and reading
+    // this schema as the boundary is exactly the mistake that would make the feature an IDOR.
+    // `FeedbackService.validateAttachmentPaths` is where it is refused; see its own tests.
+    const theirs =
+      "feedback-attachments/99999999-9999-4999-8999-999999999999/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jpg";
+    expect(SubmitFeedbackSchema.safeParse({ ...DTO, attachment_paths: [theirs] }).success).toBe(
+      true,
+    );
   });
 });

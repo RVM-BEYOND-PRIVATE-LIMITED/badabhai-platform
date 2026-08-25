@@ -5,6 +5,7 @@ import { WorkerFeedbackController } from "./worker-feedback.controller";
 import { FeedbackService } from "./feedback.service";
 import { FeedbackRepository } from "./feedback.repository";
 import { AuthModule } from "../auth/auth.module";
+import { StorageModule } from "../storage/storage.module";
 import { ConsentGuard } from "../auth/consent.guard";
 import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 import { WorkerAuthGuard } from "../auth/worker-auth.guard";
@@ -35,6 +36,14 @@ const getMeta = (key: string, target: unknown): unknown[] =>
 describe("FeedbackModule wiring (#997 DI regression guard)", () => {
   it("imports AuthModule — the guards' own dependencies resolve through it", () => {
     expect(getMeta("imports", FeedbackModule)).toContain(AuthModule);
+  });
+
+  it("imports StorageModule — the #1191 mint resolves StorageService through it", () => {
+    // NOT a @Global module, so this import is the only thing that resolves
+    // `FeedbackService`'s `StorageService` dependency. Its absence is a BOOT-TIME failure of
+    // exactly the shape the AuthModule assertion above exists for, and equally invisible to
+    // every unit test that constructs the service by hand.
+    expect(getMeta("imports", FeedbackModule)).toContain(StorageModule);
   });
 
   it("declares the worker front door and both layers behind it", () => {

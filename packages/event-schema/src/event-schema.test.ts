@@ -4032,6 +4032,9 @@ describe("feedback.submitted (#997) — the SHAPE of a worker's feedback, never 
     const shape = FeedbackSubmittedPayload.shape;
     expect(Object.keys(shape).sort()).toEqual([
       "app_build",
+      // A COUNT of the images attached (#1191) — never the object keys, never a signed url. A
+      // key on the spine is a durable handle to a private object; a count dereferences nothing.
+      "attachment_count",
       "category",
       "feedback_id",
       "message_length",
@@ -4140,6 +4143,51 @@ describe("feedback.submitted (#997) — the SHAPE of a worker's feedback, never 
     expect(() =>
       make({ ...base, app_build: "a".repeat(WORKER_FEEDBACK_APP_BUILD_MAX + 1) }),
     ).toThrow(EventValidationException);
+  });
+
+  it("counts the ATTACHMENTS, and defaults an absent count to 0", () => {
+    // ADDITIVE WIDENING, STILL v1 — the same shape and the same reason as `screen_context`
+    // above. The default is what makes every event written before #1191 re-validate as "no
+    // attachments" rather than as a missing key, so a consumer never has to tell "none were
+    // attached" from "this event predates the field".
+    expect(validateEvent(make({ ...base, attachment_count: 3 })).success).toBe(true);
+    expect(validateEvent(make({ ...base, attachment_count: 0 })).success).toBe(true);
+    const without = validateEvent(make(base));
+    expect(without.success).toBe(true);
+    if (without.success && without.event.event_name === "feedback.submitted") {
+      expect(without.event.payload.attachment_count).toBe(0);
+    }
+  });
+
+  it("REJECTS the attachment PATHS and every other handle to the bytes (.strict)", () => {
+    // THE FIELD THIS WIDENING EXISTS NOT TO CARRY, and the reason it is a count. An object key
+    // is a DURABLE POINTER at a private image a worker took of what was in front of them — a
+    // payslip, a gate pass, a supervisor — so a key on the audit trail outlives every signed
+    // url minted for it and routes around the one admin surface that audits the read. The
+    // paths live in `worker_feedback.attachment_paths`; a count dereferences nothing.
+    for (const smuggled of [
+      { attachment_paths: ["feedback-attachments/w/1.jpg"] },
+      { attachment_path: "feedback-attachments/w/1.jpg" },
+      { attachment_urls: ["https://x.supabase.co/storage/v1/object/sign/a/b?token=e"] },
+      { attachment_keys: ["a/b.jpg"] },
+      { attachment_bytes: 4096 },
+      { attachment_mime: "image/jpeg" },
+    ]) {
+      expect(() => make({ ...base, ...smuggled }), JSON.stringify(smuggled)).toThrow(
+        EventValidationException,
+      );
+    }
+  });
+
+  it("rejects a negative or fractional attachment count, and NOT a count above the product cap", () => {
+    // A count is evidence; a negative or fractional one is a bug in the emitter.
+    expect(() => make({ ...base, attachment_count: -1 })).toThrow(EventValidationException);
+    expect(() => make({ ...base, attachment_count: 1.5 })).toThrow(EventValidationException);
+    // ⚠ AND THE CAP IS DELIBERATELY NOT PINNED HERE. `WORKER_FEEDBACK_ATTACHMENTS_MAX` is a
+    // PRODUCT rule enforced at the request DTO, where exceeding it is a 400 the worker is told
+    // about. As a spine refusal it would instead fail the transaction that carries the worker's
+    // typed message — so raising the cap must never require this file to be edited first.
+    expect(validateEvent(make({ ...base, attachment_count: 99 })).success).toBe(true);
   });
 });
 

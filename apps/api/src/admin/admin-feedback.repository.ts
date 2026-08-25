@@ -5,7 +5,7 @@ import type { WorkerFeedbackCategory } from "@badabhai/types";
 import { workerFeedback, type Database } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import type { EntityCursor } from "./admin-entities.cursor";
-import type { AdminFeedbackListItem } from "./admin-feedback.dto";
+import type { AdminFeedbackRow } from "./admin-feedback.dto";
 
 /**
  * SELECT-ONLY data access for the admin worker-feedback read (#997).
@@ -82,7 +82,7 @@ export class AdminFeedbackRepository {
     filter: { category?: WorkerFeedbackCategory; workerId?: string },
     cursor: EntityCursor | null,
     limit: number,
-  ): Promise<AdminFeedbackListItem[]> {
+  ): Promise<AdminFeedbackRow[]> {
     const clauses: SQL[] = [];
     if (filter.category) clauses.push(eq(workerFeedback.category, filter.category));
     // The narrow lookup, served by `worker_feedback_worker_id_idx` — see the header for why that
@@ -107,6 +107,10 @@ export class AdminFeedbackRepository {
         // The route PATTERN, never a path — normalized at the edge, so no id can be here to
         // project. This is what turns "button kaam nahi kar raha" into an actionable report.
         screenContext: workerFeedback.screenContext,
+        // THE STORED KEYS, WHICH STOP HERE. `AdminFeedbackService` turns them into short-lived
+        // signed urls and the wire contract has no key-shaped field at all — see
+        // {@link AdminFeedbackRow}. A key is a durable handle to a private image; a url expires.
+        attachmentPaths: workerFeedback.attachmentPaths,
         createdAt: workerFeedback.createdAt,
       })
       .from(workerFeedback)
@@ -123,6 +127,11 @@ export class AdminFeedbackRepository {
       message: r.message,
       app_build: r.appBuild,
       screen_context: r.screenContext,
+      // NULL AND `[]` ARE THE SAME FACT HERE — "no images" — and they are collapsed at this
+      // boundary rather than downstream. The column is nullable because that is what makes
+      // migration 0092 catalog-only, and no writer produces `[]`; every reader above this line
+      // gets an array and never has to re-decide which spelling it is looking at.
+      attachment_paths: r.attachmentPaths ?? [],
       created_at: r.createdAt,
     }));
   }

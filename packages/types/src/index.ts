@@ -299,6 +299,49 @@ export const WORKER_FEEDBACK_APP_BUILD_MAX = 64;
 export const WORKER_FEEDBACK_SCREEN_MAX = 128;
 
 /**
+ * How many images a worker may attach to ONE feedback submission (#1191).
+ *
+ * THREE, and the number is the SHIPPED CLIENT'S — the Flutter picker stops offering the camera
+ * at three, so this is the server restating a limit that already exists rather than inventing
+ * one. It lives here because three layers pin it and a private copy in any of them is how they
+ * drift: the request DTO's `.max()` (apps/api), the admin projection that mints one signed URL
+ * per stored path (apps/api/src/admin), and the worker app's own picker.
+ *
+ * DELIBERATELY NOT PINNED AT THE DATABASE, unlike every other bound on this table (`message`,
+ * `app_build`, `screen_context`). A jsonb CHECK counting array elements would make raising the
+ * cap a MIGRATION that has to land before the code accepting a fourth image — and get that
+ * order wrong and the INSERT is a 23514 inside the same transaction as the event, costing the
+ * worker the paragraph they typed. Migration 0081's header already ruled that a column of this
+ * kind must never be able to do that. The control that actually matters on this field is the
+ * per-path ownership regex in `FeedbackService`, which is not a bound at all.
+ */
+export const WORKER_FEEDBACK_ATTACHMENTS_MAX = 3;
+
+/**
+ * Ceiling on ONE stored attachment path, in characters.
+ *
+ * A generous bound on a value the SERVER minted: the real key is
+ * `feedback-attachments/<uuid>/<uuid>.jpg` — 78 characters, fixed — so nothing honest comes near
+ * this. It exists because the path arrives BACK from the client on the submit call and is
+ * untrusted at that moment: bounding it before the ownership regex runs is what keeps a megabyte
+ * of caller-chosen bytes from being handed to a `RegExp.test` at all.
+ */
+export const WORKER_FEEDBACK_ATTACHMENT_PATH_MAX = 512;
+
+/**
+ * The object-key PREFIX every feedback attachment lives under in the private attachments bucket:
+ * `feedback-attachments/<workerId>/<uuid>.jpg`.
+ *
+ * ONE CONSTANT BECAUSE TWO PLACES MUST AGREE OR THE FEATURE IS AN IDOR. The mint builds the key
+ * from it and the submit route's ownership regex re-derives the same shape from it. Had those
+ * two strings been written out twice and drifted, one direction is loud and harmless (every
+ * honest submission 400s) and the other is silent and the whole control (the regex stops
+ * anchoring on the prefix the mint actually uses). Kept beside the worker-scoped `photos/`
+ * precedent it copies (ADR-0032).
+ */
+export const WORKER_FEEDBACK_ATTACHMENT_PREFIX = "feedback-attachments";
+
+/**
  * EVERY SCREEN THE WORKER APP HAS. The closed set a `screen_context` may be drawn from.
  *
  * ── WHY A TABLE AND NOT A PATTERN ────────────────────────────────────────────────────────

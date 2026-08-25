@@ -151,7 +151,9 @@ const CONTRACT: ControllerContract[] = [
   {
     name: "WorkerFeedback",
     ctor: WorkerFeedbackController,
-    routes: { submit: [C, W] },
+    // #1191 adds the attachment MINT to the same class, so it inherits the same class-level
+    // pair — which is the point of listing it: a route added here can only ever be [C, W].
+    routes: { submit: [C, W], createAttachmentUploadUrl: [C, W] },
   },
   {
     name: "Applications",

@@ -1,11 +1,18 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import type { ServerConfig } from "@badabhai/config";
 import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
+import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
+import { StorageService } from "../storage/storage.service";
 import { AdminFeedbackRepository } from "./admin-feedback.repository";
 import { decodeEntityCursor, encodeEntityCursor } from "./admin-entities.cursor";
 import type { AdminPage } from "./admin-entities.dto";
-import type { AdminFeedbackListItem, AdminFeedbackQueryDto } from "./admin-feedback.dto";
+import type {
+  AdminFeedbackListItem,
+  AdminFeedbackQueryDto,
+  AdminFeedbackRow,
+} from "./admin-feedback.dto";
 
 /**
  * The admin worker-feedback read service (#997).
@@ -47,10 +54,85 @@ import type { AdminFeedbackListItem, AdminFeedbackQueryDto } from "./admin-feedb
 
 @Injectable()
 export class AdminFeedbackService {
+  /** Only ever used for the best-effort signing WARN below. Named for the class, like every
+   *  other logger in this API, so the line is greppable by the surface that emitted it. */
+  private readonly logger = new Logger(AdminFeedbackService.name);
+
   constructor(
     private readonly repo: AdminFeedbackRepository,
     private readonly events: EventsService,
+    private readonly storage: StorageService,
+    @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
+
+  /**
+   * Turn each row's STORED KEYS into short-lived signed urls (#1191) — best-effort, per row.
+   *
+   * ── FAIL OPEN, AND THIS IS THE ONE PLACE ON THIS SURFACE THAT DOES ────────────────────────
+   * Everything else here fails closed: the audit emit is awaited and propagates, a bad cursor
+   * is refused rather than guessed at. This is the deliberate exception, because of what the
+   * screen is FOR. The message is the feature — the words a worker typed to reach us — and the
+   * images are corroboration. Letting a Storage blip, an unprovisioned bucket, or one row's
+   * missing object turn the whole page into an error would trade the thing that matters for the
+   * thing that supports it. So a row that cannot be signed reports `attachment_urls: []`, which
+   * is the same shape a row with no images has, and the operator still reads the complaint.
+   *
+   * PER ROW, NOT PER PATH, and that is the granularity the issue specifies. Within one row the
+   * mints are sequential and the first failure abandons the rest: a partial list would show two
+   * of three images with nothing saying the third existed, which is a quieter lie than an empty
+   * cell next to a message that says "photo attached".
+   *
+   * DORMANT BUCKET IS NOT AN ERROR. While `WORKER_FEEDBACK_ATTACHMENTS_BUCKET` is unset no
+   * worker could have uploaded anything, so there is nothing to sign and nothing to warn about
+   * — the check is first so the dormant deployment does not log once per row forever.
+   *
+   * VOLUME. Rows are signed concurrently and paths within a row are not, so the fan-out is
+   * bounded by the rows on ONE page that actually carry images (`ADMIN_FEEDBACK_PAGE_MAX` = 100
+   * in the worst case, and in practice a small fraction of a page, since most feedback is text).
+   * If that ever stops being true, Supabase's batch sign endpoint takes a whole page in one
+   * request; it is not used today because `createSignedUrl` is the call path already proven in
+   * production by the resume download, and a fail-open feature should not be the first caller of
+   * an untested endpoint.
+   */
+  private async withSignedAttachments(rows: AdminFeedbackRow[]): Promise<AdminFeedbackListItem[]> {
+    const bucket = this.config.WORKER_FEEDBACK_ATTACHMENTS_BUCKET;
+    const ttl = this.config.RESUME_SIGNED_URL_TTL_SECONDS;
+
+    return Promise.all(
+      rows.map(async ({ attachment_paths, ...row }): Promise<AdminFeedbackListItem> => {
+        if (!bucket || attachment_paths.length === 0) return { ...row, attachment_urls: [] };
+        try {
+          const attachment_urls: string[] = [];
+          for (const path of attachment_paths) {
+            // `Content-Disposition: attachment` on the signed url (defence in depth): these
+            // are WORKER-SUPPLIED bytes, so a top-level click must never render them on the
+            // storage origin. The filename is the key's own basename — a uuid this server
+            // minted — so no caller-chosen byte reaches it. Thumbnails are unaffected:
+            // browsers ignore the header for `<img src>`.
+            attachment_urls.push(
+              await this.storage.createSignedUrl(
+                path,
+                ttl,
+                bucket,
+                path.slice(path.lastIndexOf("/") + 1),
+              ),
+            );
+          }
+          return { ...row, attachment_urls };
+        } catch (err) {
+          // NEITHER THE PATH NOR THE URL IS LOGGED. A path is a durable handle to a worker's
+          // private image and a url is a live one; the row id is the diagnosable half, and the
+          // bucket name (config, never PII) is what an operator actually needs — StorageService
+          // has already named it and the status in its own error line.
+          this.logger.warn(
+            `feedback attachment signing failed for row ${row.id}; the row is served with no ` +
+              `images (message unaffected): ${err instanceof Error ? err.message : String(err)}`,
+          );
+          return { ...row, attachment_urls: [] };
+        }
+      }),
+    );
+  }
 
   /**
    * Turn `limit + 1` fetched rows into a page plus an HONEST `nextCursor`.
@@ -65,10 +147,7 @@ export class AdminFeedbackService {
    * `AdminFinancePage` there) over different row types, and BP-2 already made the same call.
    * Extracting it would mean a generic over the envelope for eight lines of slicing.
    */
-  private static page(
-    rows: AdminFeedbackListItem[],
-    limit: number,
-  ): AdminPage<AdminFeedbackListItem> {
+  private static page(rows: AdminFeedbackRow[], limit: number): AdminPage<AdminFeedbackRow> {
     const hasMore = rows.length > limit;
     const items = hasMore ? rows.slice(0, limit) : rows;
     const last = items[items.length - 1];
@@ -115,7 +194,12 @@ export class AdminFeedbackService {
     // peeked row would claim the admin saw one message more than they did on every full page.
     await this.auditFeedbackRead(adminId, dto, page.items.length, ctx);
 
-    return page;
+    // SIGNING HAPPENS AFTER THE SLICE, so the over-fetched row nobody will see never costs a
+    // Storage round trip — and AFTER THE AUDIT, so a page of images cannot be minted for a read
+    // whose trail failed to commit. Neither ordering is cosmetic: the audit is the compensating
+    // control that makes this surface acceptable, and a signed url is the most durable thing it
+    // hands out.
+    return { items: await this.withSignedAttachments(page.items), nextCursor: page.nextCursor };
   }
 
   /**

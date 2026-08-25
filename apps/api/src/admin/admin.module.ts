@@ -6,6 +6,7 @@ import { SERVER_CONFIG } from "../config/config.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
+import { StorageModule } from "../storage/storage.module";
 import { PayersModule } from "../payers/payers.module";
 import { AdminRepository } from "./admin.repository";
 import { AdminSessionService } from "./admin-session.service";
@@ -115,6 +116,11 @@ import { AdminAiTracesController } from "./admin-ai-traces.controller";
   imports: [
     DatabaseModule,
     EventsModule,
+    // #1191 — AdminFeedbackService mints a short-lived signed GET per stored attachment key so
+    // the Feedback screen can show the images beside the message. StorageModule is NOT global,
+    // and its absence would be a boot-time resolve failure no unit test constructing the
+    // service by hand can see.
+    StorageModule,
     // ADR-0037 — AdminActionsService needs PayerSessionService so suspending a payer
     // revokes their live sessions immediately. PayersModule exports it. One-directional:
     // PayersModule does not import AdminModule, so no forwardRef is needed.

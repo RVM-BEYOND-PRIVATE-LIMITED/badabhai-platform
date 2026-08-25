@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/commo
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
+import { WORKER_FEEDBACK_ATTACHMENT_PREFIX } from "@badabhai/types";
 import { conversationWorkerPrefix, uuidSchema } from "@badabhai/validators";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
@@ -356,6 +357,44 @@ export class AccountDeletionService {
       }
     } else {
       audit.skipped("photo_prefix", photoPrefix);
+    }
+
+    // 2d-bis. Erase the FEEDBACK ATTACHMENT objects (#1191). A worker photographs what they are
+    // reporting — a payslip, a gate pass, a supervisor — so these bytes are personal data in the
+    // same class as the `message` they arrived with, and the cascade that erases the row does
+    // NOT touch object storage.
+    //
+    // A PREFIX SWEEP, AND HERE IT IS LOAD-BEARING RATHER THAN BELT-AND-BRACES. The photo leg
+    // above has a stored key it could have deleted instead; this feature has NO confirm step, so
+    // an object uploaded to a minted slot whose submission was never sent, or was rejected by the
+    // ownership check, is referenced by no row at all. The prefix is the only thing that knows
+    // about it — which is exactly why the mint scopes the key by worker
+    // (`feedback-attachments/{workerId}/{uuid}.jpg`) rather than using a flat namespace.
+    //
+    // Gated on the bucket like both legs above (WIRED-BUT-DORMANT while unset — and while unset
+    // the mint 503s, so nothing can have been uploaded to orphan). The prefix is built from the
+    // shared constant, not a local literal: a drifted copy here would sweep nothing and report a
+    // successful erasure, which is the one failure mode a DSAR record must never have.
+    const feedbackAttachmentPrefix = `${WORKER_FEEDBACK_ATTACHMENT_PREFIX}/${workerId}/`;
+    if (this.config.WORKER_FEEDBACK_ATTACHMENTS_BUCKET) {
+      try {
+        const attachmentsDeleted = await this.storage.deleteByPrefix(
+          feedbackAttachmentPrefix,
+          this.config.WORKER_FEEDBACK_ATTACHMENTS_BUCKET,
+        );
+        audit.swept("feedback_attachment_prefix", feedbackAttachmentPrefix, 1, attachmentsDeleted);
+      } catch (err) {
+        audit.failed("feedback_attachment_prefix", feedbackAttachmentPrefix, 1);
+        this.logger.warn(
+          `account deletion feedback-attachment-prefix delete failed worker=${idPrefix} (reason: ${
+            err instanceof Error ? err.message : String(err)
+          })`,
+        );
+      }
+    } else {
+      // "We looked and found nothing" and "we never looked" are different claims, and only the
+      // first is evidence a DSAR request was honoured — the voice leg's own note.
+      audit.skipped("feedback_attachment_prefix", feedbackAttachmentPrefix);
     }
 
     const conversationPrefix = conversationWorkerPrefix(workerId);
