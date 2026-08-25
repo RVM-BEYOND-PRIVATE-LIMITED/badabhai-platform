@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import type { JobStatus } from "@badabhai/db";
 import { AgencyService } from "./agency.service";
 import { CreateAgencyJobSchema, UpdateAgencyJobSchema } from "./agency.dto";
 
@@ -31,7 +32,9 @@ type JobRow = {
   shift: "day" | "night" | "rotational" | null;
   benefits: string[] | null;
   requirements: string[] | null;
-  status: "open" | "closed";
+  // #1202 — mirrors the real `JobStatus` union rather than a narrowed copy of it. A local
+  // narrowing is how a test file stops being able to express the states production can hold.
+  status: JobStatus;
   applicantsReceived: number;
   createdAt: Date;
   updatedAt: Date;
@@ -75,7 +78,7 @@ function make(opts?: {
   const jobsRepo = {
     create: vi
       .fn()
-      .mockImplementation((input: Partial<JobRow>, status: "open" | "closed") =>
+      .mockImplementation((input: Partial<JobRow>, status: JobStatus) =>
         Promise.resolve(jobRow({ ...input, status })),
       ),
     findOwnedById: vi.fn().mockResolvedValue(opts?.ownedJob),
@@ -85,10 +88,23 @@ function make(opts?: {
       .mockImplementation((id: string, _p: string, patch: Partial<JobRow>) =>
         Promise.resolve(jobRow({ ...opts?.ownedJob, ...patch, id })),
       ),
-    closeOwnedIfOpen: vi
+    // #1202 — the three guarded transitions. Each resolves to the row in its TARGET state,
+    // mirroring the real `.returning()`; the service's own from-state guard is what the
+    // tests below exercise, so an undefined-returning arm is set per-case where needed.
+    closeOwnedIfLive: vi
       .fn()
       .mockImplementation((id: string) =>
         Promise.resolve(jobRow({ ...opts?.ownedJob, id, status: "closed" })),
+      ),
+    pauseOwnedIfOpen: vi
+      .fn()
+      .mockImplementation((id: string) =>
+        Promise.resolve(jobRow({ ...opts?.ownedJob, id, status: "paused" })),
+      ),
+    resumeOwnedIfPaused: vi
+      .fn()
+      .mockImplementation((id: string) =>
+        Promise.resolve(jobRow({ ...opts?.ownedJob, id, status: "open" })),
       ),
   };
 
@@ -300,7 +316,7 @@ describe("AgencyService.updateJob", () => {
   });
 });
 
-describe("AgencyService.closeJob / pauseJob (pause==close, Phase-1)", () => {
+describe("AgencyService close / pause / resume — pause is REVERSIBLE (#1202)", () => {
   it("closeJob emits job.closed (terminal)", async () => {
     const { svc, emit } = make({ ownedJob: jobRow() });
     await svc.closeJob(PAYER_A, JOB_ID, CTX);
@@ -310,13 +326,81 @@ describe("AgencyService.closeJob / pauseJob (pause==close, Phase-1)", () => {
     expect(evt.payload.previous_status).toBe("open");
   });
 
-  it("pauseJob sets status=closed (Reach stops serving) and emits job.updated[status]", async () => {
-    const { svc, emit } = make({ ownedJob: jobRow() });
+  // THE BUG #1202 EXISTS FOR. This assertion used to read `toBe("closed")` — the Payer App
+  // called Pause, the server wrote a terminal close, and the user lost the job with no way
+  // back. The old test passed while the product was wrong, which is why it is replaced
+  // rather than added to.
+  it("pauseJob sets status=PAUSED, not closed — the job is recoverable", async () => {
+    const { svc, emit, jobsRepo } = make({ ownedJob: jobRow() });
     const view = await svc.pauseJob(PAYER_A, JOB_ID, CTX);
-    expect(view.status).toBe("closed");
+    expect(view.status).toBe("paused");
+    expect(jobsRepo.pauseOwnedIfOpen).toHaveBeenCalledTimes(1);
+    // ...and emphatically NOT through the close path, which is what it used to do.
+    expect(jobsRepo.closeOwnedIfLive).not.toHaveBeenCalled();
     const evt = firstEmit(emit);
     expect(evt.event_name).toBe("job.updated");
+    expect(evt.payload.status).toBe("paused");
     expect(evt.payload.changed_fields).toEqual(["status"]);
+  });
+
+  it("resumeJob returns a paused job to open and emits job.updated[status]", async () => {
+    const { svc, emit, jobsRepo } = make({ ownedJob: jobRow({ status: "paused" }) });
+    const view = await svc.resumeJob(PAYER_A, JOB_ID, CTX);
+    expect(view.status).toBe("open");
+    expect(jobsRepo.resumeOwnedIfPaused).toHaveBeenCalledTimes(1);
+    const evt = firstEmit(emit);
+    expect(evt.event_name).toBe("job.updated");
+    expect(evt.payload.status).toBe("open");
+  });
+
+  it("a PAUSED job can still be closed — pause must not strand it (#1202)", async () => {
+    // The gap the issue did not name. While pause WAS close, only `open` ever reached
+    // closeJob, so its guard accepted `open` alone. Left that way, a paused job could be
+    // resumed forever but never ended.
+    const { svc, emit, jobsRepo } = make({ ownedJob: jobRow({ status: "paused" }) });
+    await svc.closeJob(PAYER_A, JOB_ID, CTX);
+    expect(jobsRepo.closeOwnedIfLive).toHaveBeenCalledTimes(1);
+    const evt = firstEmit(emit);
+    expect(evt.event_name).toBe("job.closed");
+    // The state it ACTUALLY left — a hardcoded "open" would put a transition on the spine
+    // that never happened.
+    expect(evt.payload.previous_status).toBe("paused");
+  });
+
+  it("pauseJob refuses a job that is not open, neutrally", async () => {
+    for (const status of ["closed", "paused", "suspended"] as const) {
+      const { svc, jobsRepo } = make({ ownedJob: jobRow({ status }) });
+      await expect(svc.pauseJob(PAYER_A, JOB_ID, CTX)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(jobsRepo.pauseOwnedIfOpen).not.toHaveBeenCalled();
+    }
+  });
+
+  it("resumeJob refuses anything that is not paused — SUSPENDED especially (ADR-0037)", async () => {
+    // `suspended` is SYSTEM-owned: only the reinstate cascade may lift it. A payer resuming
+    // out of suspension would defeat it, so this is a security property, not tidiness.
+    for (const status of ["open", "closed", "suspended"] as const) {
+      const { svc, jobsRepo } = make({ ownedJob: jobRow({ status }) });
+      await expect(svc.resumeJob(PAYER_A, JOB_ID, CTX)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(jobsRepo.resumeOwnedIfPaused).not.toHaveBeenCalled();
+    }
+  });
+
+  it("a lost race is refused rather than reported as success", async () => {
+    // The repo returns undefined when its guarded WHERE matches nothing — a concurrent
+    // transition, or a cross-tenant id. The service must not treat that as done.
+    const { svc, jobsRepo } = make({ ownedJob: jobRow() });
+    jobsRepo.pauseOwnedIfOpen.mockResolvedValueOnce(undefined);
+    await expect(svc.pauseJob(PAYER_A, JOB_ID, CTX)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("an unknown or unowned job is 404, never a 400 that confirms it exists", async () => {
+    const { svc } = make({ ownedJob: undefined });
+    await expect(svc.pauseJob(PAYER_A, JOB_ID, CTX)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.resumeJob(PAYER_A, JOB_ID, CTX)).rejects.toBeInstanceOf(NotFoundException);
   });
 });
 

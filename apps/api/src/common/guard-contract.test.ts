@@ -340,6 +340,7 @@ const CONTRACT: ControllerContract[] = [
       update: [P, R],
       close: [P, R],
       pause: [P, R],
+      resume: [P, R],
     },
   },
   {

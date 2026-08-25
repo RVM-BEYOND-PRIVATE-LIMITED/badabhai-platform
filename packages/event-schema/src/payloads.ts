@@ -1931,7 +1931,7 @@ export type PayerAccountUpdatedPayload = z.infer<typeof PayerAccountUpdatedPaylo
  * mirror that silently omits a value the column can hold would make a legitimate emit fail
  * validation at runtime rather than at compile time.
  */
-export const JobStatusEnum = z.enum(["open", "closed", "suspended"]);
+export const JobStatusEnum = z.enum(["open", "closed", "suspended", "paused"]);
 export type JobStatusEnum = z.infer<typeof JobStatusEnum>;
 
 /** Coarse city label (e.g. "Pune") — NOT an address. Short, non-PII bound. */

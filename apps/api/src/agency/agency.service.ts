@@ -325,7 +325,13 @@ export class AgencyService {
     return AgencyService.toJobView(updated);
   }
 
-  /** Close an owned job (open -> closed, terminal). Emits job.closed. */
+  /**
+   * Close an owned job — `open` OR `paused` -> `closed`, terminal. Emits job.closed.
+   *
+   * #1202 widened the accepted from-states. While pause WAS close, only `open` could ever
+   * reach here; now that a pause is reversible a job can sit in `paused`, and refusing to
+   * close it would strand it in a state its owner can resume but never end.
+   */
   async closeJob(payerId: string, jobId: string, ctx: RequestContext): Promise<AgencyJobView> {
     const current = await this.readOwnedJob(payerId, jobId);
     if (!current) throw new NotFoundException("Job not found");
@@ -333,7 +339,7 @@ export class AgencyService {
       throw new BadRequestException("Job is already closed");
     }
 
-    const closed = await this.jobsRepo.closeOwnedIfOpen(jobId, payerId, new Date());
+    const closed = await this.jobsRepo.closeOwnedIfLive(jobId, payerId, new Date());
     if (!closed) {
       // Raced to closed (or no longer owned-open) — neutral conflict, no oracle.
       throw new BadRequestException("Job is already closed");
@@ -342,7 +348,10 @@ export class AgencyService {
     const payload: PayloadInputOf<"job.closed"> = {
       job_id: closed.id,
       payer_id: payerId,
-      previous_status: "open",
+      // The state it ACTUALLY left. Hardcoding "open" was correct only while `open` was the
+      // one closable state; a job closed from `paused` would otherwise report a transition
+      // that never happened, on the spine, permanently.
+      previous_status: current.status,
       status: "closed",
     };
     await this.events.emit(this.jobEmitParams("job.closed", closed.id, payerId, payload, ctx));
@@ -351,23 +360,37 @@ export class AgencyService {
   }
 
   /**
-   * PAUSE — Phase-1 decision: `JobStatus` is `open|closed` ONLY (no DB CHECK adds a third
-   * value cheaply, and a `paused` literal would mutate a SHIPPED union consumed by the
-   * Reach open-feed filter + exhaustive switches). So pause == close for Phase-1: it sets
-   * `status='closed'` (the Reach open-feed correctly stops serving it) and emits
-   * `job.updated` with `changed_fields:["status"]` to record it as a serving-state toggle
-   * distinct from a terminal close. Reopen is out of scope for this slice.
+   * PAUSE — `open -> paused`, reversible (#1202).
+   *
+   * THE BUG THIS REPLACES. Phase-1 implemented pause AS close, on the reasoning that
+   * `JobStatus` had no third value and adding one would disturb the Reach open-feed filter
+   * and exhaustive switches over the union. The user-visible result was the report that
+   * opened #1202: "I clicked Pause on both my jobs, now both show Closed UI and status."
+   * A button labelled Pause that terminally closes is a lie about server state, which is why
+   * the Payer App removed it rather than keep shipping it.
+   *
+   * WHY THE ORIGINAL CONCERN DID NOT MATERIALISE. Every worker-facing read over this table
+   * asks for `status = 'open'` POSITIVELY — the Reach feed, the apply path, the single-job
+   * read — rather than excluding `closed`. A new value is therefore invisible to all of
+   * them by construction, which is what makes this additive rather than a widening. There
+   * are no exhaustive switches over `JobStatus`, and the column is `text` with no CHECK, so
+   * nothing needed a migration.
+   *
+   * Emits `job.updated` with `changed_fields:["status"]` — a serving-state toggle, kept
+   * deliberately distinct from the terminal `job.closed`.
    */
   async pauseJob(payerId: string, jobId: string, ctx: RequestContext): Promise<AgencyJobView> {
     const current = await this.readOwnedJob(payerId, jobId);
     if (!current) throw new NotFoundException("Job not found");
-    if (current.status === "closed") {
-      throw new BadRequestException("Job is already closed/paused");
+    if (current.status !== "open") {
+      // Neutral for every non-open state (closed, already paused, or system-suspended), so
+      // the message is not an oracle for which one it is.
+      throw new BadRequestException("Job is not open");
     }
 
-    const paused = await this.jobsRepo.closeOwnedIfOpen(jobId, payerId, new Date());
+    const paused = await this.jobsRepo.pauseOwnedIfOpen(jobId, payerId, new Date());
     if (!paused) {
-      throw new BadRequestException("Job is already closed/paused");
+      throw new BadRequestException("Job is not open");
     }
 
     const payload: PayloadInputOf<"job.updated"> = {
@@ -379,6 +402,44 @@ export class AgencyService {
     await this.events.emit(this.jobEmitParams("job.updated", paused.id, payerId, payload, ctx));
 
     return AgencyService.toJobView(paused);
+  }
+
+  /**
+   * RESUME — `paused -> open` (#1202). The other half of a reversible pause, and the reason
+   * pause could stop meaning close.
+   *
+   * NOT REACHABLE FOR A `suspended` JOB, guarded twice. `suspended` is SYSTEM-owned
+   * (ADR-0037): only the reinstate cascade may lift it, and a payer resuming out of it would
+   * defeat the suspension. The repository's WHERE requires `paused`, and PayerAuthGuard
+   * admits `active` payers only — a suspended payer cannot reach this route at all.
+   *
+   * NO REACH RE-MATERIALISATION AND NO `published_at` RESTAMP, both of which #1202 asked
+   * about. Neither applies to THIS table: pausing never de-materialised anything (the Reach
+   * feed reads `status = 'open'` live at query time, so the row simply stops and starts
+   * appearing), and `published_at` lives on `job_postings`, not here. The company path's
+   * re-materialisation on unpause (ADR-0036 moment 3) is a property of that other table.
+   */
+  async resumeJob(payerId: string, jobId: string, ctx: RequestContext): Promise<AgencyJobView> {
+    const current = await this.readOwnedJob(payerId, jobId);
+    if (!current) throw new NotFoundException("Job not found");
+    if (current.status !== "paused") {
+      throw new BadRequestException("Job is not paused");
+    }
+
+    const resumed = await this.jobsRepo.resumeOwnedIfPaused(jobId, payerId, new Date());
+    if (!resumed) {
+      throw new BadRequestException("Job is not paused");
+    }
+
+    const payload: PayloadInputOf<"job.updated"> = {
+      job_id: resumed.id,
+      payer_id: payerId,
+      status: resumed.status,
+      changed_fields: ["status"],
+    };
+    await this.events.emit(this.jobEmitParams("job.updated", resumed.id, payerId, payload, ctx));
+
+    return AgencyService.toJobView(resumed);
   }
 
   // ───────────────────────────── Mock invite hook ─────────────────────────────
