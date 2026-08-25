@@ -1,5 +1,6 @@
 import 'package:get_it/get_it.dart';
 
+import '../auth/payer_account_deleted_signal.dart';
 import '../auth/payer_auth_api.dart';
 import '../auth/payer_http.dart';
 import '../auth/payer_token_store.dart';
@@ -71,6 +72,12 @@ void setupLocator({
   locator.registerLazySingleton<PayerTokenStore>(
     () => PayerTokenStore(secureStore ?? FlutterSecureKeyValueStore()),
   );
+  // App-scoped "this payer's account is gone" signal (410 PAYER_ACCOUNT_DELETED).
+  // One instance; PayerHttp fires it, the app root shows ONE dialog + hard-logs-
+  // out. Distinct from the 401 refresh path — see [AccountDeletedSignal].
+  locator.registerLazySingleton<AccountDeletedSignal>(
+    () => AccountDeletedSignal(),
+  );
   locator.registerLazySingleton<PayerHttp>(
     () => PayerHttp(
       // Non-null whenever a real request can actually happen; the MOCK/test
@@ -80,6 +87,10 @@ void setupLocator({
       // On a 401 that survives a refresh attempt: wipe the bearer + bounce back
       // to Login. Resolved lazily (closure) so there is no construction cycle.
       onReauth: () => locator<AppSessionCubit>().signOut(),
+      // On a 410 PAYER_ACCOUNT_DELETED: fire the app-scoped signal so the app
+      // root shows ONE non-dismissible dialog and hard-logs-out on OK. Additive
+      // and separate from the recoverable 401 path above.
+      onAccountDeleted: () => locator<AccountDeletedSignal>().fire(),
       // A 401 first tries ONE silent refresh; PayerHttp persists the new bearer
       // + retries. The auth API is resolved lazily (it is itself built over this
       // PayerHttp) so this closure only runs when a refresh is actually needed.

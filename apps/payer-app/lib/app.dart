@@ -1,12 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import 'core/auth/payer_account_deleted_signal.dart';
 import 'core/config/app_config.dart';
 import 'core/di/locator.dart';
 import 'core/observability/crash_route_observer.dart';
 import 'core/session/app_session.dart';
 import 'core/session/app_session_cubit.dart';
 import 'core/theme/app_theme.dart';
+import 'core/widgets/bb_alert_dialog.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/shell/presentation/app_shell.dart';
 
@@ -66,10 +70,62 @@ class _RootState extends State<_Root> {
   /// worker app's `bootstrap()` + `isReady` gate.
   Future<void>? _boot;
 
+  /// Listens for the backend's "this payer's account is gone" signal (410
+  /// PAYER_ACCOUNT_DELETED). One app-scoped subscription for the whole app life.
+  StreamSubscription<void>? _accountDeletedSub;
+
+  /// Guards against parallel 410s (several in-flight calls fail at once) showing
+  /// more than ONE dialog. Released after the dialog is dismissed + sign-out.
+  bool _accountDeletedDialogShown = false;
+
   @override
   void initState() {
     super.initState();
     _boot = context.read<AppSessionCubit>().bootstrap();
+    // Subscribe to the app-scoped signal fired by PayerHttp on a 410
+    // { code: PAYER_ACCOUNT_DELETED }. Guarded by `isRegistered` so widget tests
+    // that pump the app without wiring DI are unaffected.
+    if (locator.isRegistered<AccountDeletedSignal>()) {
+      _accountDeletedSub = locator<AccountDeletedSignal>()
+          .stream
+          .listen((_) => _onAccountDeleted());
+    }
+  }
+
+  @override
+  void dispose() {
+    unawaited(_accountDeletedSub?.cancel());
+    super.dispose();
+  }
+
+  /// The backend has deleted this payer's account server-side. Show ONE
+  /// non-dismissible dialog over whatever screen is showing, then hard-logout on
+  /// OK — [AppSessionCubit.signOut] wipes the bearer and emits `null`, so the
+  /// top-level BlocBuilder swaps to Login. Parallel 410s collapse to a single
+  /// dialog via [_accountDeletedDialogShown].
+  Future<void> _onAccountDeleted() async {
+    if (_accountDeletedDialogShown) return;
+    // `_Root` is mounted as `home:` for the whole app life, so its own context
+    // carries the Overlay / Directionality / Localizations the dialog needs.
+    // Defensive: if it is ever gone, the next authed call re-fires the signal.
+    if (!mounted) return;
+    _accountDeletedDialogShown = true;
+    // A single OK button; copy stays honest + simple.
+    await showBbAlert(
+      context,
+      title: 'Account nahi mila',
+      message:
+          'Hamein aapka account nahi mil raha hai. Kripya dobara login karein.',
+    );
+    // Hard logout: revoke the server session (best-effort), wipe the bearer, emit
+    // null (→ Login), reset the shared CreditsCubit. Do this BEFORE releasing the
+    // guard: a second in-flight 410 must not re-open the dialog in the window
+    // between the OK tap and the wipe. Once signed out no further call can 410, so
+    // it is then safe to release the guard.
+    if (locator.isRegistered<AppSessionCubit>()) {
+      await locator<AppSessionCubit>().signOut();
+    }
+    _accountDeletedDialogShown = false;
   }
 
   @override
