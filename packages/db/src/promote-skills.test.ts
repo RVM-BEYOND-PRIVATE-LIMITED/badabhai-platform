@@ -285,6 +285,13 @@ describe("the audit report", () => {
     },
     sweep_record: "sweep.json",
     eval_record: "eval.json",
+    // An APPLY report can only exist with a passing tripwire — a failing one refuses before
+    // anything is written — so the default fixture is the only state APPLY can be in.
+    match_vocabulary: {
+      passed: true,
+      counts: { MATCHED: 1, INTENTIONALLY_UNMATCHED: 0, MISSING_DECISION: 0, INVALID_TARGET: 0 },
+      blocking: [],
+    },
     candidates: 1,
     eligible: 1,
     blocked: 0,

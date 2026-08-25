@@ -71,6 +71,8 @@ import { config } from "dotenv";
 import { and, eq, inArray } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 
+import { ATTRIBUTE_TO_MATCH_SKILLS, MATCH_SKILLS } from "@badabhai/taxonomy";
+
 import { createDbClient } from "./client";
 import { enforceOpsGuard } from "./ops-guard";
 import { skills } from "./schema";
@@ -84,6 +86,7 @@ import {
   type CorpusFingerprint,
   type FingerprintComponent,
 } from "./corpus-fingerprint";
+import { vocabularyCoverage, vocabularyTripwireError } from "./match-vocabulary-coverage";
 import { countsAsEvalCoverage, loadEvalFixture, type EvalFixture } from "./taxonomy-eval-fixture";
 import { DEFAULT_FIXTURE, MOCK_MODEL_TAG } from "./taxonomy-retrieval-eval";
 
@@ -473,6 +476,19 @@ export interface PromotionReport {
   regression: RegressionVerdict;
   sweep_record: string | null;
   eval_record: string | null;
+  /**
+   * Q1 match-vocabulary coverage over THIS batch, at the moment of the run.
+   *
+   * Recorded in the artifact and not only on stdout: a promotion report is read long after
+   * the run, and "did every promoted skill have a match-vocabulary decision?" is exactly the
+   * question a later reader cannot otherwise answer. On APPLY this is always passing, because
+   * a failing tripwire refuses before anything is written.
+   */
+  match_vocabulary: {
+    passed: boolean;
+    counts: Record<string, number>;
+    blocking: readonly string[];
+  };
   candidates: number;
   eligible: number;
   blocked: number;
@@ -607,6 +623,28 @@ async function main(): Promise<void> {
       );
     }
     const scope = batchScopeSkillIds(batchDir); // throws for a BLOCKED batch
+
+    // ── Q1 MATCH-VOCABULARY TRIPWIRE ──────────────────────────────────────
+    // A batch-level precondition, not a per-skill criterion: coverage is a property of the
+    // SET being promoted, and the criteria list is closed by a deliberate decision recorded
+    // in `promote-skills.test.ts`. Same shape as the --sweep/--eval requirements above.
+    //
+    // The universe is `scope` — the batch that would actually promote. Using SKILL_CORPUS
+    // here would reproduce the blind spot this exists to close, and would look clean doing it.
+    const coverage = vocabularyCoverage(
+      scope,
+      ATTRIBUTE_TO_MATCH_SKILLS,
+      new Set(MATCH_SKILLS.map((m) => m.skillId)),
+    );
+    // Reported in PLAN, refused in APPLY. Plan mode exists so an operator can see the whole
+    // gate report and learn what to fix; throwing there would hide the other seven criteria
+    // behind this one and make the tripwire harder to act on, not easier. The refusal lands
+    // where the mutation does.
+    const tripwire = vocabularyTripwireError(coverage, SCRIPT, batchDir);
+    if (tripwire !== null) {
+      if (hasFlag(argv, "--apply")) throw new Error(tripwire);
+      console.log(`${tripwire}\n\n[${SCRIPT}] PLAN mode: reported, not enforced. --apply would refuse.`);
+    }
     // The two new gates are EVIDENCE-BACKED: they read recorded experiment artifacts rather
     // than re-deriving anything here. That keeps the runner file+DB only, and it makes the
     // basis for a promotion auditable long after the run.
@@ -760,6 +798,11 @@ async function main(): Promise<void> {
       regression_baseline: { ...REGRESSION_BASELINE },
       regression: regression,
       sweep_record: sweepPath,
+      match_vocabulary: {
+        passed: coverage.passed,
+        counts: { ...coverage.counts },
+        blocking: coverage.blocking,
+      },
       eval_record: evalPath,
       candidates: verdicts.length,
       eligible: eligible.length,

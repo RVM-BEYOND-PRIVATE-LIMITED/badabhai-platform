@@ -91,6 +91,7 @@
     "db:audit:promotion-gates": "tsx src/audit-promotion-gates.ts",
     "db:audit:floor-gate": "tsx src/audit-floor-gate.ts",
     "db:audit:bridge-coverage": "tsx src/audit-runtime-bridge-coverage.ts",
+    "db:audit:match-vocabulary": "tsx src/audit-match-vocabulary-coverage.ts",
     "db:audit:junk-labels": "tsx src/audit-junk-domain-labels.ts",
     "db:audit:vernacular": "tsx src/audit-vernacular-coverage.ts",
     "db:audit:anchor-path": "tsx src/audit-anchor-path-retrieval.ts",
