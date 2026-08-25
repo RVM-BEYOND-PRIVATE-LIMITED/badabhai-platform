@@ -16,10 +16,17 @@ import 'edit_agency_job_screen.dart';
 
 /// My jobs — AGENCY branch. Lists the agency session's own faceless postings
 /// (`GET /payer/agency/jobs`): trade label · title · city/area · pay & experience
-/// bands (if set) · applicants-received · a status pill (open/paused/closed). An
-/// open row offers Pause/Close, a PAUSED row offers Resume (#1202, reversible),
-/// and a closed row is terminal. Agent-only — the shell only mounts this for an
-/// agency session (the routes 403 for a company).
+/// bands (if set) · applicants-received · a status pill (open/paused/closed). A
+/// non-closed row offers Close; a closed row is terminal. Agent-only — the shell
+/// only mounts this for an agency session (the routes 403 for a company).
+///
+/// NO PAUSE BUTTON (backend contract): on the deployed backend
+/// `POST /payer/agency/jobs/:id/pause` maps to a TERMINAL close ("pause ==
+/// close", Phase-1). A button labelled Pause that permanently closes the job is
+/// a lie about server state, so until the backend ships a real paused state +
+/// resume (RVM repo issue #1202) a non-closed row offers Close ONLY. A `paused`
+/// row (should the model carry one) renders a READ-ONLY pill and still offers
+/// Close only — never a Pause or Resume control.
 class AgencyJobsView extends StatelessWidget {
   const AgencyJobsView({super.key, required this.onPost});
 
@@ -234,7 +241,6 @@ class _AgencyJobCard extends StatelessWidget {
   }
 
   List<Widget> _actions(BuildContext context) {
-    final String id = job.id;
     if (job.isClosed) {
       return <Widget>[
         Text(
@@ -246,47 +252,20 @@ class _AgencyJobCard extends StatelessWidget {
         ),
       ];
     }
-    // A PAUSED row offers a single loud Resume (#1202) — mirrors the company
-    // card's paused affordance (navy commitment, keeps the header 'Post' as the
-    // view's sole haldi).
-    if (job.isPaused) {
-      return <Widget>[
-        BbButton(
-          label: 'Resume',
-          variant: BbButtonVariant.navy,
-          size: BbButtonSize.md,
-          iconLeft: Icons.play_arrow,
-          block: true,
-          onPressed: () =>
-              _run(context, (AgencyJobsCubit c) => c.resumePosting(id)),
-        ),
-      ];
-    }
-    // Open — Pause (reversible) or Close (terminal).
+    final String id = job.id;
+    // Close ONLY — see the class doc: the backend pause endpoint is a terminal
+    // close, so offering Pause here would mislead the agent into losing a live
+    // posting. A `paused` row is treated the same (read-only pill, Close only).
+    // Restored once #1202 ships a real paused state + resume.
     return <Widget>[
-      Row(
-        children: <Widget>[
-          Expanded(
-            child: BbButton(
-              label: 'Pause',
-              variant: BbButtonVariant.secondary,
-              size: BbButtonSize.sm,
-              iconLeft: Icons.pause,
-              onPressed: () =>
-                  _run(context, (AgencyJobsCubit c) => c.pausePosting(id)),
-            ),
-          ),
-          const SizedBox(width: AppSpacing.s2),
-          Expanded(
-            child: BbButton(
-              label: 'Close',
-              variant: BbButtonVariant.secondary,
-              size: BbButtonSize.sm,
-              onPressed: () =>
-                  _run(context, (AgencyJobsCubit c) => c.closePosting(id)),
-            ),
-          ),
-        ],
+      BbButton(
+        label: 'Close',
+        variant: BbButtonVariant.secondary,
+        size: BbButtonSize.sm,
+        iconLeft: Icons.close,
+        block: true,
+        onPressed: () =>
+            _run(context, (AgencyJobsCubit c) => c.closePosting(id)),
       ),
     ];
   }
