@@ -27,6 +27,9 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
   const [pendingConfirm, setPendingConfirm] = useState<CapacityTier | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A NEUTRAL "still processing" notice — distinct from `message` (success) and `error` (danger).
+  // A 409 duplicate-in-flight (#1185) lands here: it is NOT a success, so it must not read as one.
+  const [notice, setNotice] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   // ONE idempotency key per PURCHASE, not per attempt (#1148). A duplicate capacity buy is worse
@@ -55,6 +58,7 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
   function onUpgrade(tier: CapacityTier) {
     setError(null);
     setMessage(null);
+    setNotice(null);
     setPendingConfirm(tier);
   }
 
@@ -65,6 +69,7 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
     setPendingConfirm(null);
     setError(null);
     setMessage(null);
+    setNotice(null);
     setPendingCode(tier.code);
     // One key per purchase, reused across a retry of THIS tier (safe re-tap after a timeout).
     const idempotencyKey = idempotencyKeyFor(tier.code);
@@ -73,17 +78,21 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
       const res = await upgradeCapacityAction({ tier: tier.code, idempotencyKey });
       setPendingCode(null);
       if (res.ok) {
-        // The purchase is DONE — drop the key so a genuine next buy mints a fresh one.
+        // TERMINAL success — the purchase is DONE. Drop the key so a genuine next buy mints a fresh one.
         purchaseKeyRef.current = null;
-        if ("duplicate" in res) {
-          // A 409 replay: the first tap already recorded the capacity. `allowance` is the REAL
-          // re-read figure (server-side GET), never a guessed number — show it as-is.
-          setMessage(
-            `Capacity already recorded — your allowance is ${res.allowance} concurrent vacancies.`,
-          );
-        } else {
-          setMessage(`Capacity recorded — ${res.resumedCount} posting(s) resumed.`);
-        }
+        setMessage(`Capacity recorded — ${res.resumedCount} posting(s) resumed.`);
+        router.refresh();
+      } else if ("pending" in res) {
+        // A 409 DUPLICATE-IN-FLIGHT (#1185): the FIRST attempt is still running and MAY STILL THROW —
+        // NOT a completed purchase, so NOT a success toast. Show a NEUTRAL processing notice (the
+        // allowance, if re-read, is current-not-final). KEEP the key so a re-tap replays the SAME key
+        // and the backend dedupes it — clearing it here would mint a new key and could double-charge
+        // the payment/coupon spine (the exact regression #1178 fixed).
+        setNotice(
+          typeof res.allowance === "number"
+            ? `Purchase is still processing. Your allowance shows ${res.allowance} concurrent vacancies for now — check again in a moment.`
+            : "Purchase is still processing — check your allowance in a moment.",
+        );
         router.refresh();
       } else {
         // KEEP the key: the next tap of this SAME tier replays it and the server dedupes.
@@ -137,6 +146,7 @@ export function CapacityPanel({ tiers }: { tiers: CapacityTier[] }) {
 
       <div aria-live="polite" className="capacity-result">
         {message ? <Toast tone="success">{message}</Toast> : null}
+        {notice ? <Toast tone="neutral">{notice}</Toast> : null}
         {error ? <Toast tone="danger">{error}</Toast> : null}
       </div>
 

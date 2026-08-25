@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/config/app_config.dart';
 import '../../../core/data/models.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/error/payer_failure.dart';
@@ -12,16 +14,43 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
 import '../../../core/widgets/bb_icon_button.dart';
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/bb_toast.dart';
 import 'cubit/credits_screen_cubit.dart';
 
+/// Opens an external URL. Overridable so widget tests can assert WHERE a link
+/// went without a platform channel (`launchUrl` throws MissingPluginException
+/// under `flutter test`). Mirrors the `ExternalUrlLauncher` seam in
+/// `jobs_screen.dart`.
+typedef CreditsUrlLauncher = Future<bool> Function(Uri url);
+
+/// Production launcher: hand the url to the OS browser, never an in-app webview —
+/// the payer signs in and pays on the web portal, outside this app.
+Future<bool> defaultCreditsUrlLauncher(Uri url) =>
+    launchUrl(url, mode: LaunchMode.externalApplication);
+
+/// The seam the "buy credits on web" link leaves through. Production must always
+/// leave this as [defaultCreditsUrlLauncher].
+@visibleForTesting
+CreditsUrlLauncher creditsExternalUrlLauncher = defaultCreditsUrlLauncher;
+
+/// Label of the external affordance that REPLACED the in-app pack purchase.
+const String kBuyCreditsOnWebLabel = 'Buy credits on web';
+
+/// Says the missing capability out loud on the screen, so "where do I buy
+/// credits?" is answered here instead of read as a bug — the same honesty the
+/// Jobs screen applies to plans, boosts and quota top-ups.
+const String kBuyCreditsOnWebNote =
+    'Credit packs are bought on the BadaBhai website.';
+
 /// Credits — the REAL balance (`GET /payer/credits`, ink card) and the REAL
-/// credit ledger (`GET /payer/credits/ledger`).
+/// credit ledger (`GET /payer/credits/ledger`), both READ-ONLY.
 ///
-/// The purchase surface was REMOVED: there is no payment provider (the
-/// "Secure checkout · Razorpay · UPI / card" line described one that does not
-/// exist), and the pack catalogue's prices were hardcoded client-side and
-/// contradicted the server's pricing catalog. This screen now only REPORTS what
-/// the server says the payer has and has spent.
+/// There is NO in-app purchase surface here. Selling a digital entitlement from
+/// inside a store-distributed app is exactly what App Store / Play Store IAP
+/// policy covers, and the mobile-payments rule bars it outright. Credit packs are
+/// bought on the payer WEB portal, so this screen REPORTS what the server says
+/// the payer has and has spent, and POINTS to the web for the purchase — the same
+/// hand-off the Jobs screen uses for plans, boosts and quota top-ups.
 class CreditsScreen extends StatelessWidget {
   const CreditsScreen({super.key, required this.onBack});
 
@@ -41,22 +70,36 @@ class _CreditsView extends StatelessWidget {
 
   final VoidCallback onBack;
 
+  /// Hands the payer to the WEB portal to buy credit packs. This REPLACED an
+  /// in-app pack catalogue + Buy buttons that granted credits from inside the
+  /// app — a store-barred payment surface. Falls back to an honest toast (no
+  /// dead end, no fabricated link) when no usable web origin is configured or
+  /// nothing on the device can open it.
+  Future<void> _openCreditsOnWeb(BuildContext context) async {
+    final String? base = resolvePayerWebUrl();
+    bool opened = false;
+    if (base != null) {
+      final Uri? url = Uri.tryParse('$base/credits');
+      if (url != null) {
+        try {
+          opened = await creditsExternalUrlLauncher(url);
+        } catch (_) {
+          opened = false;
+        }
+      }
+    }
+    if (opened || !context.mounted) return;
+    showBbToast(
+      context,
+      title: 'Open on web',
+      message: kBuyCreditsOnWebNote,
+      icon: Icons.open_in_new,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return BlocConsumer<CreditsScreenCubit, CreditsScreenState>(
-      listenWhen: (CreditsScreenState p, CreditsScreenState c) =>
-          p.purchased != c.purchased || p.purchaseFailed != c.purchaseFailed,
-      listener: (BuildContext context, CreditsScreenState state) {
-        final ScaffoldMessengerState m = ScaffoldMessenger.of(context)
-          ..clearSnackBars();
-        if (state.purchased) {
-          m.showSnackBar(
-              const SnackBar(content: Text('Credits add ho gaye.')));
-        } else if (state.purchaseFailed) {
-          m.showSnackBar(const SnackBar(
-              content: Text('Purchase nahi hua. Dobara try karein.')));
-        }
-      },
+    return BlocBuilder<CreditsScreenCubit, CreditsScreenState>(
       builder: (BuildContext context, CreditsScreenState state) {
         if (state.status == CreditsScreenStatus.loading ||
             state.status == CreditsScreenStatus.initial) {
@@ -92,13 +135,10 @@ class _CreditsView extends StatelessWidget {
                   onPressed: onBack,
                 ),
                 const SizedBox(width: AppSpacing.s3),
-                // #376 — was 'Buy credits'. The purchase surface was removed
-                // (see the class doc above): there is no pack, price, or
-                // checkout element anywhere on this screen, so that title
-                // promised the one capability it does not have. A payer sent
-                // here by Home's "View ledger" with 0 credits would scroll for
-                // a buy button that does not exist and conclude the app is
-                // broken. The title now names what the screen actually is.
+                // #376 — was 'Buy credits'. There is no pack, price, or checkout
+                // element anywhere on this screen (the purchase lives on the web),
+                // so that title promised a capability it does not have. The title
+                // now names what the screen actually is.
                 Text(
                   'Credits',
                   style: AppTypography.display(
@@ -145,34 +185,12 @@ class _CreditsView extends StatelessWidget {
                 ],
               ),
             ),
-            // Buy credits — packs come from the SERVER pricing catalog
-            // (`GET /payer/pricing/catalog`), never a client-invented price, and
-            // the buy is the MOCK path (`POST /payer/credits`, no real money).
-            // Only shown when the catalog returned packs.
-            if (state.packs.isNotEmpty) ...<Widget>[
-              const SizedBox(height: AppSpacing.s5),
-              Text(
-                'Buy credits',
-                style: AppTypography.display(
-                  size: AppTypography.sizeBase,
-                  weight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.s2),
-              for (final CreditPack pack in state.packs)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.s2),
-                  child: _PackCard(
-                    pack: pack,
-                    busy: state.purchasing == pack.code,
-                    // Freeze the other packs while one purchase is in flight.
-                    locked: state.purchasing != null &&
-                        state.purchasing != pack.code,
-                    onBuy: () =>
-                        context.read<CreditsScreenCubit>().buyPack(pack.code),
-                  ),
-                ),
-            ],
+            // #1200 — the in-app "Buy credits" pack catalogue + Buy buttons were
+            // REMOVED (store IAP policy / mobile-payments rule). In their place, an
+            // honest pointer to the web portal where the purchase actually happens,
+            // mirroring the Jobs screen's plan/boost/top-up hand-off.
+            const SizedBox(height: AppSpacing.s5),
+            _BuyCreditsOnWeb(onOpen: () => _openCreditsOnWeb(context)),
             const SizedBox(height: AppSpacing.s5),
             // #376 follow-up — this section reads `GET /payer/credits/ledger`
             // (pack purchases, unlock debits, grants, refunds), so it is the
@@ -236,59 +254,36 @@ class _CreditsView extends StatelessWidget {
   }
 }
 
-/// One buyable credit pack: credits + the server's ₹ price + a Buy button. The
-/// button shows a spinner for the pack being bought and is disabled for the
-/// others while a purchase is in flight.
-class _PackCard extends StatelessWidget {
-  const _PackCard({
-    required this.pack,
-    required this.busy,
-    required this.locked,
-    required this.onBuy,
-  });
+/// The external "buy credits on web" affordance + the one-line note that says out
+/// loud why there is no in-app Buy button here. Mirrors the Jobs screen's
+/// `_manageOnWeb` (secondary, block button + a muted note).
+class _BuyCreditsOnWeb extends StatelessWidget {
+  const _BuyCreditsOnWeb({required this.onOpen});
 
-  final CreditPack pack;
-  final bool busy;
-  final bool locked;
-  final VoidCallback onBuy;
+  final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
-    return BbCard(
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  '${pack.credits} unlocks',
-                  style: AppTypography.display(
-                    size: AppTypography.sizeBase,
-                    weight: FontWeight.w700,
-                  ),
-                ),
-                Text(
-                  '₹${formatIndianGrouped(pack.priceInr)}',
-                  style: AppTypography.body(
-                    size: AppTypography.sizeSm,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        BbButton(
+          label: kBuyCreditsOnWebLabel,
+          variant: BbButtonVariant.secondary,
+          size: BbButtonSize.sm,
+          iconLeft: Icons.open_in_new,
+          block: true,
+          onPressed: onOpen,
+        ),
+        const SizedBox(height: AppSpacing.s1),
+        Text(
+          kBuyCreditsOnWebNote,
+          style: AppTypography.body(
+            size: AppTypography.sizeXs,
+            color: AppColors.textMuted,
           ),
-          const SizedBox(width: AppSpacing.s3),
-          BbButton(
-            label: 'Buy',
-            // md (44px) not sm — a loud primary CTA must clear the 48px tap
-            // floor via its material tap target (#1082).
-            size: BbButtonSize.md,
-            loading: busy,
-            onPressed: (busy || locked) ? null : onBuy,
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

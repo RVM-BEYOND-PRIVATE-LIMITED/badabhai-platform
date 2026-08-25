@@ -1,10 +1,28 @@
 import '../../../core/api/api_client.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_mapper.dart';
+import '../../../core/observability/crash_reporter.dart';
 import '../../../core/session/session_repository.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_repository.dart';
 import '../domain/chat_turn.dart';
+
+/// Reports a caught, NON-FATAL error to the app's observability sink.
+///
+/// A thin seam over [CrashReporter.recordNonFatal] so [ChatRepositoryImpl] can be
+/// unit-tested for "this failure was LOGGED, not swallowed" without a live
+/// Firebase (which makes `recordNonFatal` a no-op in tests). Production wiring
+/// uses [_recordNonFatal]; a test injects a spy.
+typedef NonFatalReporter = void Function(
+  Object error,
+  StackTrace stack, {
+  required String reason,
+});
+
+/// Default [NonFatalReporter] — routes to the same crash/observability sink every
+/// other caught error in the app uses. [reason] is a short, STATIC, PII-free key.
+void _recordNonFatal(Object error, StackTrace stack, {required String reason}) =>
+    CrashReporter.recordNonFatal(error, stack, reason: reason);
 
 /// Strips the persona's `{{worker_name}}` vocative from a STORED outbound line.
 ///
@@ -32,16 +50,45 @@ String? _hydratedTts(String? raw) {
 }
 
 class ChatRepositoryImpl implements ChatRepository {
-  ChatRepositoryImpl(this._api, this._session);
+  ChatRepositoryImpl(
+    this._api,
+    this._session, {
+    NonFatalReporter reportNonFatal = _recordNonFatal,
+  }) : _report = reportNonFatal;
 
   final ApiClient _api;
   final SessionRepository _session;
+  final NonFatalReporter _report;
+
+  /// The open-session call currently in flight, or null when none is (#1198).
+  ///
+  /// The `_session.sessionId != null` short-circuit only fences a SECOND entry
+  /// once the FIRST has already stored an id — it does nothing during the window
+  /// where the first open is still awaiting the network. A fast double entry in
+  /// that window (e.g. `ChatStarted` racing the lazy re-open inside [sendMessage],
+  /// which bloc 8.x runs concurrently) would otherwise fire two `POST /chat/session`
+  /// and mint two sessions. Memoising the in-flight future makes concurrent callers
+  /// await the SAME open, so exactly one session is minted. Cleared on completion
+  /// so a later entry (or a self-heal after a failed open) starts fresh.
+  Future<String?>? _inFlightOpen;
 
   @override
   Future<String?> ensureSession() async {
     final String? token = _session.sessionToken;
     if (token == null) throw const UnauthorizedFailure();
     if (_session.sessionId != null) return null; // already open (in-memory)
+    // In-flight guard (#1198): kept `async` so the synchronous throw above
+    // surfaces as a rejected future (the callers await it). No `await` runs
+    // between the checks above and this assignment, so two concurrent callers
+    // cannot both pass it — the second reuses the first's in-flight future and
+    // only ONE `_openSession` (hence one `POST /chat/session`) runs.
+    return _inFlightOpen ??=
+        _openSession(token).whenComplete(() => _inFlightOpen = null);
+  }
+
+  /// Resumes the worker's latest session, or opens a new one. Wrapped so any
+  /// transport error becomes a mapped [Failure] for the caller.
+  Future<String?> _openSession(String token) async {
     try {
       // RESUME the worker's latest session before opening a new one. The session
       // id lives in memory only, so after a cold restart (or opening the "Bada
@@ -50,23 +97,53 @@ class ChatRepositoryImpl implements ChatRepository {
       // [loadHistory] redraws that transcript instead of a fresh empty thread, and
       // any further chat appends to the SAME session. A resume serves no opener
       // (the client renders its canned greeting, then the history redraw follows).
-      // Best-effort: a failed lookup falls through to opening a new session rather
-      // than blocking the chat.
-      try {
-        final String? latest = await _api.latestChatSessionId(authToken: token);
-        if (latest != null) {
-          _session.setSession(latest);
-          return null;
-        }
-      } catch (_) {
-        // Swallow: resume is an optimisation, never a gate — fall through to open.
+      final String? latest = await _resumeLatest(token);
+      if (latest != null) {
+        _session.setSession(latest);
+        return null;
       }
       final ChatSessionStart start = await _api.startSession(authToken: token);
+      // An old-build POST that returns the worker's EXISTING session (once the
+      // backend reattach guard, #1197, ships) carries no `opening_text`, so
+      // [ChatSessionStart.openingText] is null and the caller keeps its canned
+      // greeting — no re-greet, no regression.
       _session.setSession(start.sessionId);
       return start.openingText;
     } catch (error) {
       throw mapError(error);
     }
+  }
+
+  /// `GET /chat/session/latest` with ONE retry (#1198).
+  ///
+  /// Resume is an optimisation, never a gate, so a failure must never BLOCK the
+  /// chat — but it must not be SWALLOWED either. The old code caught-and-dropped
+  /// silently, so a routine 2G timeout or a 5xx fell straight through to
+  /// `POST /chat/session`, minting a FRESH session and orphaning the worker's
+  /// whole signup Q&A. Now: try once, retry once, and only if BOTH attempts fail
+  /// map the error to the app's [Failure] type, LOG it as a non-fatal through the
+  /// same sink every other caught error uses (never a raw print, never PII), and
+  /// return null so the caller falls through to opening a new session.
+  ///
+  /// A `null` result (the worker simply has no prior session) is NOT a failure —
+  /// it returns immediately and the caller opens a new session.
+  Future<String?> _resumeLatest(String token) async {
+    for (int attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await _api.latestChatSessionId(authToken: token);
+      } catch (error, stack) {
+        if (attempt == 1) {
+          _report(
+            mapError(error),
+            stack,
+            reason: 'chat_resume_latest_failed',
+          );
+          return null;
+        }
+        // First attempt failed — fall round the loop for the single retry.
+      }
+    }
+    return null;
   }
 
   @override

@@ -25,9 +25,11 @@ import { hiringCapacityTiers } from "../../../lib/pricing-config";
  */
 export type UpgradeCapacityActionResult =
   | { ok: true; resumedCount: number; allowance: number }
-  // A 409 DUPLICATE (#1148): the first tap of THIS purchase already granted; `allowance` is the
-  // REAL re-read figure (never guessed), and `resumedCount` is absent (the 409 carries none).
-  | { ok: true; allowance: number; duplicate: true }
+  // A 409 DUPLICATE-IN-FLIGHT (#1185, correcting #1148's inverted reading): the backend 409s ONLY
+  // while the FIRST attempt's in-flight sentinel still stands — it has NOT committed and MAY STILL
+  // THROW. So a 409 is "still processing, outcome UNKNOWN", NOT a completed purchase. Non-terminal:
+  // `allowance` (when present) is the CURRENT figure, re-read for display only — never final.
+  | { ok: false; pending: true; allowance?: number }
   | { ok: false; error: string };
 
 /**
@@ -69,20 +71,21 @@ export async function upgradeCapacityAction(input: {
     revalidatePath("/capacity");
     return { ok: true, resumedCount: res.resumedPlanIds.length, allowance: res.allowance };
   } catch (e) {
-    // 409 DUPLICATE (#1148): a re-tap landed while the first was still in flight. The first
-    // granted ONCE (and `greatest()` means a second grants no extra allowance anyway); the 409
-    // carries no allowance, so RE-READ the REAL one and surface it — NEVER re-POST (a second
-    // purchase would double-fire the payment/coupon spine) and NEVER render a guessed number.
+    // 409 DUPLICATE-IN-FLIGHT (#1185): the backend 409s ONLY while the FIRST attempt's in-flight
+    // sentinel still stands — it has NOT committed and may still throw. This is "still processing,
+    // outcome UNKNOWN", NOT "already granted" (the earlier #1148 branch read this inverted and
+    // reported a false terminal success over the PRE-purchase allowance). So return a NON-terminal
+    // `pending` result: NEVER re-POST (a second purchase would double-fire the payment/coupon
+    // spine), and NEVER claim it completed. We MAY re-read the CURRENT allowance to SHOW it —
+    // presented as current-not-final.
     if (e instanceof PurchaseConflictError) {
       try {
         const cap = await getCapacity();
         revalidatePath("/capacity");
-        return { ok: true, allowance: cap.activeVacancyAllowance, duplicate: true };
+        return { ok: false, pending: true, allowance: cap.activeVacancyAllowance };
       } catch {
-        return {
-          ok: false,
-          error: "Your capacity change is being processed. Refresh in a moment to see your allowance.",
-        };
+        // The re-read blipped — still pending, just with no current figure to show.
+        return { ok: false, pending: true };
       }
     }
     // Any OTHER thrown transport error collapses to one retryable line (no leaked reason).
