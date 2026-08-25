@@ -238,29 +238,68 @@ describe("searchOpenPostings — the filters #822 specifies", () => {
     expect(params).toContain("%maha%");
   });
 
-  it("q matches the role title OR a skill phrase", async () => {
+  it("q probes the search_vec GIN index over BOTH role_title (A) and skill_phrases (B)", async () => {
+    // Migration 0089: membership moved from a per-row ILIKE OR EXISTS scan to one
+    // tsvector probe. The vector carries both halves (title weight A, phrases weight B),
+    // so this one predicate preserves the old "title OR phrase" reach over an index.
     const { repo, queries } = makeSearchDb();
     await repo.searchOpenPostings({ ...SEARCH_ARGS, q: "welder" });
     const { sql: text, params } = compile(queries[0]!.where);
-    expect(text).toMatch(/"role_title" ilike \$\d/i);
-    expect(text).toMatch(/jsonb_array_elements_text/i);
-    expect(params).toContain("%welder%");
+    expect(text).toMatch(/"search_vec" @@ to_tsquery\('simple', \$\d+\)/i);
+    expect(params).toContain("welder:*");
   });
 
-  it("a worker's wildcards are LITERAL — the term is a parameter, never interpolated", async () => {
+  it("AND-joins multiple terms and prefix-marks only the LAST one", async () => {
+    // "mig welder" must require BOTH tokens ("mig & welder:*"), not become a typeahead
+    // for every posting containing mig-ish words. Prefixing every token would silently
+    // turn the search box into autocomplete.
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, q: "MIG Welder night" });
+    expect(compile(queries[0]!.where).params).toContain("mig & welder & night:*");
+  });
+
+  it("strips tsquery SYNTAX from the term before to_tsquery ever sees it", async () => {
+    // `to_tsquery` parses operators (& | ! ( ) : *). Interpolating raw worker text there
+    // is both a syntax-error DoS on the endpoint and a semantic lie ("welder !fitter"
+    // would EXCLUDE fitter postings the worker never asked to exclude). The sanitizer
+    // reduces the term to bare tokens, so operators are inert by construction.
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, q: "welder & (helper) | !fitter" });
+    const { sql: text, params } = compile(queries[0]!.where);
+    expect(params).toContain("welder & helper & fitter:*");
+    expect(text).not.toContain("!");
+  });
+
+  it("a worker's wildcards are LITERAL — the sanitized term is a parameter, never interpolated", async () => {
     // Interpolating would let a search box become a wildcard the worker never asked for and —
-    // with the term inside the statement text — an injection surface.
+    // with the term inside the statement text — an injection surface. `%` and `_` are not
+    // in the sanitizer's allowed set, so they are STRIPPED rather than escaped.
     const { repo, queries } = makeSearchDb();
     await repo.searchOpenPostings({ ...SEARCH_ARGS, q: "100%_operator" });
     const { sql: text, params } = compile(queries[0]!.where);
     expect(text).not.toContain("100%_operator");
-    expect(params).toContain("%100%_operator%");
+    expect(params).toContain("100operator:*");
+  });
+
+  it("falls back to literal ILIKE containment when NO token survives sanitizing", async () => {
+    // A symbol-only query ("???") has no token for to_tsquery (an empty string is a
+    // guaranteed parser error), but dead-ending the box would read as "no jobs exist".
+    // The pre-0089 ILIKE OR EXISTS branch handles it literally instead.
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, q: "!!!" });
+    const { sql: text, params } = compile(queries[0]!.where);
+    expect(text).toMatch(/"role_title" ilike \$\d/i);
+    expect(text).toMatch(/jsonb_array_elements_text/i);
+    expect(params).toContain("%!!!%");
+    expect(text).not.toMatch(/@@/);
   });
 
   it("omits every filter clause when no filter is given", async () => {
     const { repo, queries } = makeSearchDb();
     await repo.searchOpenPostings(SEARCH_ARGS);
-    expect(compile(queries[0]!.where).sql).not.toMatch(/ilike/i);
+    const where = compile(queries[0]!.where).sql;
+    expect(where).not.toMatch(/ilike/i);
+    expect(where).not.toMatch(/@@/);
   });
 
   it("EXCLUDES what the worker already applied to or skipped, scoped to that worker", async () => {

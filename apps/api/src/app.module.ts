@@ -40,6 +40,7 @@ import { EmailNotificationModule } from "./notifications/email-notification.modu
 import { RateLimitModule } from "./common/rate-limit/rate-limit.module";
 import { PdfModule } from "./common/pdf/pdf.module";
 import { MatchModule } from "./match/match.module";
+import { LearnModule } from "./learn/learn.module";
 import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
 
 @Module({
@@ -99,6 +100,10 @@ import { RequestIdMiddleware } from "./common/middleware/request-id.middleware";
     MessagingModule,
     ResumeDisclosureModule,
     PaceModule,
+    // LEARN label producer (migration 0091) — drains spine events into `learn_labels`
+    // so reach-learn can train on real outcomes instead of synthetic fixtures. Ships
+    // INERT: LEARN_LABELS_ENABLED defaults false (dry-run counts only until armed).
+    LearnModule,
     // Payer portal (ADR-0019 Phase 1 — closes R16/LC-1): the previously un-wired
     // identity/tenancy foundation + the external self-serve `/payer/*` route group.
     PayersModule,

@@ -140,6 +140,11 @@ const LOCKED_TABLES = [
   "payer_capabilities", // 0084: the superseded per-payer boolean permission matrix (`payer_members.org_role` is the live model) — an authorization table, so a readable default would publish who may do what; RLS+FORCE+REVOKE in migration 0082, re-stated by 0084
   "_delete_forensics", // 0086: the deletion trail #1110 found, DECLARED once the owner ruled it stays. It records that a worker row was destroyed and is keyed to the erased `worker_id`, so a readable default would publish exactly who has exercised their right to erasure — the one fact an erasure is supposed to end. `query` and `client_addr` were DROPPED by 0086; RLS+FORCE+REVOKE stated explicitly by 0086 (0082 had already swept it on production)
   "payer_member_invites", // 0084: email invites into a payer org — `invited_email_enc` ciphertext plus `invite_token_hash`, a BEARER credential: a client that could read it could accept someone else's invite; RLS+FORCE+REVOKE in migration 0082, re-stated by 0084
+  // ── Policy 27 widen expiry (migration 0090) ─────────────────────────────────
+  "job_reach_widen", // 0090: one row per OPS reach-widen grant (closed-vocabulary mskill ids + opaque actor + expires_at) — the reach-set system of record's shadow; PII-free but it IS who ops paid to reach, so the default-deny posture applies like job_reach; RLS+FORCE+REVOKE in migration 0090
+  // ── LEARN label store (migration 0091) ──────────────────────────────────────
+  "learn_labels", // 0091: per-impression training labels keyed by an opaque worker_id (rank/tier/outcome at show time) — same linkage class as job_reach; worker_id cascade is the DSAR coverage; RLS+FORCE+REVOKE in migration 0091
+  "learn_labels_cursor", // 0091: single-row sweep watermark over events.created_at — no PII at all, locked because the posture here is table-DEFAULT; RLS+FORCE+REVOKE in migration 0091
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

@@ -88,10 +88,15 @@ import {
 } from "./payer";
 import {
   jobReach,
+  jobReachWiden,
   matchConfig,
   workerIndustryTenure,
   workerSkills,
 } from "./match";
+import {
+  learnLabels,
+  learnLabelsCursor,
+} from "./learn";
 import {
   agencyInvites,
   agencyKyc,
@@ -141,6 +146,7 @@ export * from "./delete-forensics";
 export * from "./ai-cost";
 export * from "./feedback";
 export * from "./ai-trace";
+export * from "./learn";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.
@@ -366,4 +372,9 @@ export const schema = {
   // no-drift E2E counts against the live `pg_tables`. Missing here, a table that exists on
   // every database reads as model drift.
   deleteForensics,
+  // Policy 27 widen-expiry provenance (0090) + LEARN label store (0091) — same rule as
+  // deleteForensics above: present on every migrated database, so they belong here.
+  jobReachWiden,
+  learnLabels,
+  learnLabelsCursor,
 };

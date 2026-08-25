@@ -59,6 +59,17 @@ export const MatchConfigSchema = z.object({
   freeUnlockCredits: z.number().int().nonnegative().default(50),
   /** A boost is refused below this much matched supply — boosting nothing is a lie. */
   boostSupplyFloor: z.number().int().nonnegative().default(25),
+  /**
+   * POLICY 27 third leg ("Expiring") — how long an OPS REACH-WIDEN stays in force,
+   * in hours. After this the widened skills are retracted from `reach_skill_ids` and
+   * the posting re-materializes from its base set (`reach-widen-expiry` sweep; provenance
+   * in `job_reach_widen`). 720h = 30 days: long enough for a supply crunch to pass,
+   * short enough that a forgotten widen cannot silently become permanent.
+   *
+   * A MEMBERSHIP knob, not an ordering dial: it decides who is IN the reach set at all
+   * (the hard gate), never the order within it — same class as `maxSkillsPerPosting`.
+   */
+  widenExpiryHours: z.number().int().positive().default(720),
 });
 
 export type MatchConfig = z.infer<typeof MatchConfigSchema>;

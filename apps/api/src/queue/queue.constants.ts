@@ -47,6 +47,35 @@ export const CHAT_ABANDONMENT_QUEUE = "chat-abandonment";
  */
 export const CHAT_ABANDONMENT_SWEEP_SCHEDULER_ID = "chat-abandonment-sweep";
 
+/**
+ * Policy 27 third leg ("Expiring", TD127) — reach-widen expiry sweep queue. The
+ * repeatable tick carries NO payload: the predicate over `job_reach_widen`
+ * (un-retracted + past `expires_at`) is the authoritative work list, so a lost or
+ * duplicated Redis job is harmless — the next tick re-evaluates it. The RETRACT
+ * decision itself lives in PublishReachService.retractExpiredWidens; this queue only
+ * supplies the clock.
+ */
+export const REACH_WIDEN_EXPIRY_QUEUE = "reach-widen-expiry";
+
+/**
+ * Stable BullMQ job-scheduler id for the widen-expiry sweep (same doctrine as its
+ * ACCOUNT_DELETION / AI_JOBS_RETENTION / CHAT_ABANDONMENT twins): the idempotent upsert
+ * key the processor re-asserts at every boot.
+ */
+export const REACH_WIDEN_EXPIRY_SWEEP_SCHEDULER_ID = "reach-widen-expiry-sweep";
+
+/**
+ * LEARN label producer sweep (migration 0091) — drains spine events
+ * (feed.shown_v2 / application.submitted / application.skipped) into `learn_labels`
+ * for the offline reach-learn calibrator. The repeatable tick carries NO payload: the
+ * cursor + UNIQUE impression key in the store are authoritative, so a lost or
+ * duplicated Redis job is harmless.
+ */
+export const LEARN_LABELS_QUEUE = "learn-labels";
+
+/** Stable BullMQ job-scheduler id for the learn-labels sweep (twin doctrine). */
+export const LEARN_LABELS_SWEEP_SCHEDULER_ID = "learn-labels-sweep";
+
 /** ADR-0034 worker push-notification queue. */
 export const PUSH_QUEUE = "worker-push";
 

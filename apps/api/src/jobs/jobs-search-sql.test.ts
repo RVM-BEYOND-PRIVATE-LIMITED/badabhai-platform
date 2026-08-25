@@ -123,6 +123,10 @@ const P_DRAFT = uuid(9409); // status='draft' → invisible to every search
 const P_OTHER_CITY = uuid(9410); // same state, different city
 const P_NULL_CITY = uuid(9411); // city IS NULL — a city filter must never match it
 const P_OTHER_STATE = uuid(9412); // different state entirely
+// Migration 0089 fixtures — the full-text `search_vec` probe. Own ids, own city token,
+// so the closed-set premises above are untouched by anything this block adds.
+const P_FTS_PHRASE = uuid(9413); // reachable ONLY through a skill_phrase token (weight B)
+const P_FTS_TITLE = uuid(9414); // reachable through its role_title tokens (weight A)
 
 /** The worker every search below runs as. He has already decided on two postings. */
 const WORKER_MAIN = uuid(9501);
@@ -146,6 +150,8 @@ const CITY_OTHER = "Kotagate";
 const CITY_FOREIGN = "Suratgate";
 const STATE = "Rajasthangate";
 const STATE_FOREIGN = "Gujaratgate";
+/** Isolation token for the 0089 FTS block — a city no seed and no sibling gate writes. */
+const CITY_FTS = "Nagpurgate";
 
 /** The term every `q` search uses. Lower case on purpose — the titles are not. */
 const TERM = "welderzz";
@@ -182,6 +188,8 @@ const POSTING_IDS = [
   P_OTHER_CITY,
   P_NULL_CITY,
   P_OTHER_STATE,
+  P_FTS_PHRASE,
+  P_FTS_TITLE,
 ];
 const FIXTURE_IDS = new Set(POSTING_IDS);
 
@@ -456,6 +464,44 @@ describe.skipIf(!RUN)("#982 — GET /jobs/search, executed against Postgres (#97
       },
     ]);
 
+    // ── STATEMENT 3 (migration 0089): the full-text probe fixtures, under their OWN city
+    // token so no closed-set assertion above can see them. P_FTS_PHRASE is reachable only
+    // through a skill_phrase token (the weight-B half of `search_vec`); its title shares a
+    // stem with neither {@link TERM} nor the FTS queries below. P_FTS_TITLE exists so an
+    // operator-laden query has something to find.
+    await client.db.insert(jobPostings).values([
+      {
+        id: P_FTS_PHRASE,
+        createdBy: OPS_ACTOR,
+        orgLabel: "Search Gate Fixture Co",
+        roleTitle: "Mistrizz Work (fts)",
+        vacancyBand: "1" as const,
+        status: "open" as const,
+        // Hinglish vernacular phrase — "kharadzz master". The query token below ("kharad")
+        // matches it through the vector's PREFIX path (`kharad:*`), which is exactly how
+        // Roman-script Hindi inflection behaves and why config 'simple' was chosen over
+        // any stemming dictionary.
+        skillPhrases: ["kharadzz master"],
+        city: CITY_FTS,
+        state: STATE,
+        publishedAt: PUB_SKILL_ONLY,
+      },
+      {
+        id: P_FTS_TITLE,
+        createdBy: OPS_ACTOR,
+        orgLabel: "Search Gate Fixture Co",
+        // NOT "Welderzz…": the q-only ladder case below runs DATABASE-WIDE with
+        // {@link TERM} and pins EXACT equality — a second welderzz-tokened row here
+        // (tier 0, no less) would break it. This token belongs to this block alone.
+        roleTitle: "Operatorzz FTS Probe",
+        vacancyBand: "1" as const,
+        status: "open" as const,
+        city: CITY_FTS,
+        state: STATE,
+        publishedAt: PUB_SKILL_ONLY,
+      },
+    ]);
+
     // The two decisions. Keyed on `job_posting_id` — a V1 decision leaves `job_id` NULL, and
     // the search's anti-join reads the posting side only. `reason` MUST stay NULL on an apply
     // (`applications_reason_chk`).
@@ -643,6 +689,38 @@ describe.skipIf(!RUN)("#982 — GET /jobs/search, executed against Postgres (#97
     // typing on a phone keyboard.
     expect(TERM).toBe(TERM.toLowerCase());
     expect(TITLE_PREFIX).not.toBe(TITLE_PREFIX.toLowerCase());
+  });
+
+  // ── Migration 0089: membership moved from ILIKE to the `search_vec @@ to_tsquery`
+  // probe. These cases execute the SHIPPED predicate against real Postgres: they are
+  // what proves the vector actually contains both halves and that worker-typed tsquery
+  // operators cannot break the endpoint. Isolation rides {@link CITY_FTS}.
+
+  it("FTS weight B — a term reaching only a skill_phrase token still finds the posting", async () => {
+    const { rows } = await search({ q: "kharad", city: CITY_FTS });
+
+    // The title carries no kharad token; only the phrase does. Under the pre-0089 ILIKE
+    // this was the EXISTS(jsonb) branch; under FTS it is the weight-B half of the same
+    // vector — if the generated column had dropped phrases, this would return nothing.
+    expect(mine(rows)).toEqual([P_FTS_PHRASE]);
+  });
+
+  it("FTS PREFIX — 'mistr' matches the 'Mistrizz' title token (Hinglish suffix inflection)", async () => {
+    const { rows } = await search({ q: "mistr", city: CITY_FTS });
+
+    // Whole-word ILIKE would have missed ("mistr" is not a substring of the TOKEN list
+    // under word semantics); prefix matching is the deliberate semantic that keeps Hindi
+    // pluralization/suffix drift reachable without a stemmer.
+    expect(mine(rows)).toEqual([P_FTS_PHRASE]);
+  });
+
+  it("FTS OPERATOR SAFETY — tsquery metacharacters typed by a worker are inert", async () => {
+    // Pre-sanitization this string is a guaranteed to_tsquery syntax error ("&" with an
+    // empty left side, bare parens) — a 500 on the search screen from a typed "&". The
+    // sanitizer strips it to three plain tokens ANDed together, so the query must EXECUTE
+    // and match only the row holding all three tokens.
+    const { rows } = await search({ q: "Operatorzz & (FTS) | !probe", city: CITY_FTS });
+    expect(mine(rows)).toEqual([P_FTS_TITLE]);
   });
 
   it("published_at DESC is NULLS LAST — an open-but-unpublished posting sorts to the end", async () => {

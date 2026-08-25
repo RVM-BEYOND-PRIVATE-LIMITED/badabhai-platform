@@ -2959,6 +2959,28 @@ export const JobPostingReachWidenedPayload = z
 export type JobPostingReachWidenedPayload = z.infer<typeof JobPostingReachWidenedPayload>;
 
 /**
+ * POLICY 27 — the EXPIRING leg, closing TD127. When an ops reach-widen reaches
+ * `match_config.widen_expiry_hours`, the expiry sweep retracts exactly the widened ids
+ * that are not otherwise protected (never a POSTED skill, never a skill still held by a
+ * live widen row) and re-materializes the posting from its base set.
+ *
+ * The payload is the narrowing MIRROR of `reach_widened`: which `mskill_*` ids left the
+ * reach set and the before/after counts, so "the widen expired and here is what it did"
+ * is auditable without re-running anything. Emitted by the sweep with actor_type
+ * "system" — no human decided this retraction, time did. IDS AND COUNTS ONLY.
+ */
+export const JobPostingReachWidenExpiredPayload = z
+  .object({
+    job_posting_id: uuidSchema,
+    /** The `mskill_*` ids REMOVED from `reach_skill_ids`. Never includes a posted skill. */
+    expired_skill_ids: z.array(matchSkillIdSchema).min(1),
+    reach_before: z.number().int().nonnegative(),
+    reach_after: z.number().int().nonnegative(),
+  })
+  .strict();
+export type JobPostingReachWidenExpiredPayload = z.infer<typeof JobPostingReachWidenExpiredPayload>;
+
+/**
  * A boost purchase was REFUSED because the posting's matched supply is below
  * `match_config.boost_supply_floor` (ADR-0036 §7). Selling a ₹999 boost into a trade
  * with four workers costs the ₹999 AND the renewal behind it, so the refusal is a

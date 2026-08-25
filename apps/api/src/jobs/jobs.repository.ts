@@ -60,6 +60,45 @@ export interface JobSearchRow {
  * addendum, 2026-07-16). Pure data access only — the neutral 404 and the wire
  * mapping live in the service.
  */
+/**
+ * Builds the `to_tsquery('simple', …)` argument for a worker's search box (migration 0089).
+ *
+ * The term is lowercased, split on whitespace, and every token is stripped to
+ * `[a-z0-9]` — so what reaches `to_tsquery` can only ever be `token [& token …][:*]`.
+ * That makes three classes of input safe by construction:
+ *
+ * 1. tsquery SYNTAX typed by a worker (`cnc & welder | !fitter`) is stripped to plain
+ *    tokens — operators never survive into the query string, so `to_tsquery` cannot be
+ *    handed a syntax error or a negation the worker did not mean.
+ * 2. SQL injection is structurally impossible — the result travels as one bound
+ *    parameter, exactly like the ILIKE parameter it replaces.
+ * 3. Wildcards stay literal — `%` and `_` are not in the allowed set, so "100%_operator"
+ *    searches FOR that string rather than becoming a pattern.
+ *
+ * Underscore is deliberately stripped (treated as a separator) because Postgres's
+ * default parser does not treat it as a word character; keeping it would desynchronize
+ * the query tokens from how the vector was tokenized. Devanagari and other non-Roman
+ * script strips to nothing — the caller falls back to literal ILIKE containment for
+ * such terms instead of dead-ending the search box.
+ *
+ * AND-joins the tokens (every term must appear), prefix-marking only the LAST one:
+ * `"mig welder" → mig & welder:*`. Prefixing every token would turn "welder helper"
+ * into a typeahead for "welder…", which is not what a search box promises.
+ *
+ * Returns null when no usable token survives — the caller's cue to use the ILIKE
+ * fallback rather than hand `to_tsquery` an empty string (a guaranteed syntax error).
+ */
+function searchTsQuery(q: string): string | null {
+  const tokens = q
+    .toLowerCase()
+    .split(/\s+/)
+    .map((token) => token.replace(/[^a-z0-9]/g, ""))
+    .filter((token) => token.length > 0);
+  if (tokens.length === 0) return null;
+  const last = tokens.length - 1;
+  return `${tokens.slice(0, last).map((token) => `${token} & `).join("")}${tokens[last]}:*`;
+}
+
 @Injectable()
 export class JobsRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
@@ -173,16 +212,38 @@ export class JobsRepository {
   }): Promise<{ rows: JobSearchRow[]; hasMore: boolean }> {
     const conditions = [eq(jobPostings.status, "open")];
 
-    // ILIKE with the term as a PARAMETER, never interpolated — `%` and `_` inside a worker's
-    // search box are then literal characters rather than wildcards they did not ask for.
+    // ── Membership: the `search_vec` GIN probe (migration 0089) ──
+    //
+    // The term is tokenized in TypeScript and passed as ONE bound parameter to
+    // `to_tsquery` — never interpolated into statement text, so it cannot become an
+    // injection surface, and Postgres tsquery operators (`&`, `|`, `!`, `:*`) typed by
+    // a worker are inert: they were stripped by the sanitizer before they reached this
+    // string. The last token gets the prefix suffix (`"mig welder" → "mig & welder:*"`),
+    // which is what keeps Hinglish suffix inflection ("plumbers", pluralized trade
+    // names) matching without any stemmer.
+    //
+    // The vector carries role_title at weight A and skill_phrases at weight B (migration
+    // 0089), so one probe answers both halves of the old ILIKE OR EXISTS predicate over
+    // the GIN index instead of a sequential scan per row.
+    //
+    // SEMANTIC DELTA vs ILIKE, stated honestly: FTS matches whole TOKENS with optional
+    // prefix. A query term landing MID-WORD ("elde" inside "welder") no longer matches;
+    // every prefix/whole-word case behaves identically, which is how workers actually
+    // type. Symbol-only queries (no usable tokens after sanitizing) fall back to the
+    // literal-containment ILIKE branch below rather than dead-ending the search box.
     if (args.q) {
-      const like = `%${args.q}%`;
-      conditions.push(
-        sql`(${jobPostings.roleTitle} ILIKE ${like} OR EXISTS (
-          SELECT 1 FROM jsonb_array_elements_text(${jobPostings.skillPhrases}) AS phrase
-          WHERE phrase ILIKE ${like}
-        ))`,
-      );
+      const tsquery = searchTsQuery(args.q);
+      if (tsquery) {
+        conditions.push(sql`${jobPostings.searchVec} @@ to_tsquery('simple', ${tsquery})`);
+      } else {
+        const like = `%${args.q}%`;
+        conditions.push(
+          sql`(${jobPostings.roleTitle} ILIKE ${like} OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(${jobPostings.skillPhrases}) AS phrase
+            WHERE phrase ILIKE ${like}
+          ))`,
+        );
+      }
     }
     // PARTIAL and case-insensitive, unlike the feed's exact equality — "pun" finds "Pune",
     // which is the whole point of a search box.

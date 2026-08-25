@@ -903,6 +903,22 @@ export const EVENT_REGISTRY = {
     domain: "feedback",
     payload: p.FeedbackSubmittedPayload,
   },
+
+  // ── Policy 27 third leg (TD127 closure) ───────────────────────────────────
+  // APPENDED AT THE END, never inserted among the entries above: the registry is
+  // append-only by protocol, because an edited entry is a mutated event schema and
+  // consumers version off these definitions.
+  //
+  // An OPS reach-widen aged past `match_config.widen_expiry_hours` and the expiry sweep
+  // retracted exactly the widened skills nothing else protects, re-materializing the
+  // posting from its base set. The narrowing mirror of `job_posting.reach_widened`, so
+  // the full widen lifecycle ("who widened, what it did, when it ended") is one audit
+  // trail. Actor is "system" — no human decided the retraction; time did. v1.
+  "job_posting.reach_widen_expired": {
+    version: 1,
+    domain: "job_posting",
+    payload: p.JobPostingReachWidenExpiredPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

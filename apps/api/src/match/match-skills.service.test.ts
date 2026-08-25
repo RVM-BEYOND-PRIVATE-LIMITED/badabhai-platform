@@ -61,6 +61,7 @@ function setup(overrides: Partial<MatchConfig> = {}) {
     tierFloorMonths: 36,
     freeUnlockCredits: 50,
     boostSupplyFloor: 25,
+    widenExpiryHours: 720,
     ...overrides,
   } satisfies MatchConfig;
 

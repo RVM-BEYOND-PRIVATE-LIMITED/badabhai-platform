@@ -3042,13 +3042,16 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 167 event names (166 prior + the admin AI-trace decrypt audit)", () => {
-    expect(EVENT_NAMES).toHaveLength(167);
+  it("exposes all 168 event names (167 prior + the Policy 27 widen-expiry event)", () => {
+    expect(EVENT_NAMES).toHaveLength(168);
     // #997 — the worker addressing the platform in their own words. The only worker-authored
     // free text on the spine whose system-of-record row is deliberately allowed to hold the
     // worker's own PII; the EVENT carries the category, the length and the build, never the
     // words. Its own `describe` block below is what keeps that true.
     expect(isEventName("feedback.submitted")).toBe(true);
+    // TD127 closure — the EXPIRING leg of "Ops may widen a reach set, never narrow one.
+    // Expiring, audited, evented." Appended at the registry tail per protocol.
+    expect(isEventName("job_posting.reach_widen_expired")).toBe(true);
     // S3-C / D-6 — the canonical-scope generation of the skill-miss event. A SECOND
     // registry entry rather than a v1 mutation; see the payload's own note.
     expect(isEventName("skill.phrase_unresolved_v2")).toBe(true);
