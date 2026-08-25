@@ -174,31 +174,6 @@ class LedgerEntry extends Equatable {
   List<Object?> get props => <Object?>[label, amount, direction];
 }
 
-/// A buyable credit pack from the server pricing catalog
-/// (`GET /payer/pricing/catalog`, products of kind `credit_pack`). [code] is the
-/// pack/tier code sent to `POST /payer/credits {pack_code}`; [priceInr] +
-/// [credits] are display-only (the price is ALWAYS the server's, never
-/// client-invented — the reason the old hardcoded pack list was removed).
-class CreditPack extends Equatable {
-  const CreditPack({
-    required this.code,
-    required this.credits,
-    required this.priceInr,
-  });
-
-  /// The tier code — the `pack_code` sent to the buy endpoint.
-  final String code;
-
-  /// Credits (unlocks) this pack grants.
-  final int credits;
-
-  /// Price in whole ₹, as the server's catalog states it.
-  final int priceInr;
-
-  @override
-  List<Object?> get props => <Object?>[code, credits, priceInr];
-}
-
 /// The agency's referral link + funnel counts. The link is the one part of this
 /// supply surface with a real backend (`POST /payer/agency/invites` →
 /// `{code, link}`); the funnel mirrors `GET /payer/agency/referrals/summary`.

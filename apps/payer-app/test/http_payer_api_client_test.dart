@@ -92,36 +92,6 @@ void main() {
       expect(await h.api.fetchCreditBalance(), 0);
     });
 
-    // #1046 — the client half of one-tap-one-pack: buyCreditPack must put the
-    // caller's key on the wire so the server can dedupe a re-tap after a timeout.
-    test('buyCreditPack sends the Idempotency-Key header + {pack_code} body',
-        () async {
-      final h = _harness(<String, http.Response>{
-        'POST /payer/credits': _json(<String, dynamic>{'balance': 250}),
-      });
-
-      final int balance =
-          await h.api.buyCreditPack('growth', idempotencyKey: 'idem-abc-123');
-
-      expect(balance, 250);
-      final http.Request req = h.router.seen.single;
-      expect(req.method, 'POST');
-      // package:http header map is case-insensitive; we set it lower-cased.
-      expect(req.headers['idempotency-key'], 'idem-abc-123');
-      expect(jsonDecode(req.body), <String, dynamic>{'pack_code': 'growth'});
-    });
-
-    test('buyCreditPack omits the header when no key is given', () async {
-      final h = _harness(<String, http.Response>{
-        'POST /payer/credits': _json(<String, dynamic>{'balance': 250}),
-      });
-
-      await h.api.buyCreditPack('growth');
-
-      final http.Request req = h.router.seen.single;
-      expect(req.headers.containsKey('idempotency-key'), isFalse);
-    });
-
     // fetchCredits used to swallow EVERY non-2xx and return 0 — a real 500/401
     // rendered as an honest-looking "0 credits". It must fail instead.
     test('fetchCredits non-2xx → PayerApiException (never a fabricated 0)',
