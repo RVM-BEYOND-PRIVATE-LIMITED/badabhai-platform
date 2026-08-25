@@ -6,22 +6,19 @@ import 'package:payer_app/features/jobs/presentation/cubit/agency_jobs_cubit.dar
 
 /// #366 — AgencyJobsCubit (the agency My-jobs list + per-row lifecycle) had no
 /// test, so a regression in its status-code mapping or its refetch-on-success
-/// would pass CI. Since #1202 a pause is REVERSIBLE: pause → `paused`, resume →
-/// `open`, only a close is terminal. The copy must reflect that (a pause is not
-/// a close), and Resume must reach `POST /payer/agency/jobs/:id/resume`.
+/// would pass CI. NOTE: no pause/resume coverage — the cubit no longer exposes
+/// `pausePosting`/`resumePosting` (on the deployed backend a pause is a terminal
+/// close; issue #1202 tracks the real paused state + resume), and the buttons
+/// are gone from the card with them. The card offers Close only.
 class _ScriptedAgencyApi extends MockPayerApiClient {
   List<AgencyJobView> jobs = const <AgencyJobView>[];
 
   Object? throwOnFetch;
   Object? throwOnClose;
-  Object? throwOnPause;
-  Object? throwOnResume;
   Object? throwOnUpdate;
 
   int fetches = 0;
   final List<String> closed = <String>[];
-  final List<String> paused = <String>[];
-  final List<String> resumed = <String>[];
   final List<String> updated = <String>[];
   String? lastUpdatedTitle;
 
@@ -37,20 +34,6 @@ class _ScriptedAgencyApi extends MockPayerApiClient {
     closed.add(id);
     if (throwOnClose != null) throw throwOnClose!;
     return _transitionTo(id, 'closed');
-  }
-
-  @override
-  Future<AgencyJobView> pauseAgencyJob(String id) async {
-    paused.add(id);
-    if (throwOnPause != null) throw throwOnPause!;
-    return _transitionTo(id, 'paused');
-  }
-
-  @override
-  Future<AgencyJobView> resumeAgencyJob(String id) async {
-    resumed.add(id);
-    if (throwOnResume != null) throw throwOnResume!;
-    return _transitionTo(id, 'open');
   }
 
   @override
@@ -239,77 +222,6 @@ void main() {
       api.throwOnUpdate = Exception('socket closed');
 
       final JobActionResult result = await cubit.editJob('j1', title: 'x');
-
-      expect(result.success, isFalse);
-      expect(result.message, 'Network error. Check your connection.');
-    });
-  });
-
-  group('pausePosting', () {
-    setUp(() async {
-      api.jobs = <AgencyJobView>[_job('j1')];
-      await cubit.load();
-      api.fetches = 0;
-    });
-
-    test('success reports a REVERSIBLE pause (#1202) and lands `paused`',
-        () async {
-      final JobActionResult result = await cubit.pausePosting('j1');
-
-      expect(result.success, isTrue);
-      // Since #1202 a pause is reversible — the row comes back `paused`, so the
-      // copy invites a resume rather than implying a terminal close.
-      expect(result.message, 'Paused — hidden from workers. Resume it anytime.');
-      expect(api.paused, <String>['j1']);
-      expect(api.fetches, 1, reason: 'the pill/buttons come from a refetch');
-      expect(cubit.state.jobs.single.status, 'paused');
-    });
-
-    test('shares the close error mapping (404 → not available)', () async {
-      api.throwOnPause = const PayerApiException(404);
-
-      final JobActionResult result = await cubit.pausePosting('j1');
-
-      expect(result.success, isFalse);
-      expect(result.message, "This job isn't available.");
-      expect(api.fetches, 0);
-    });
-  });
-
-  group('resumePosting', () {
-    setUp(() async {
-      api.jobs = <AgencyJobView>[_job('j1', status: 'paused')];
-      await cubit.load();
-      api.fetches = 0;
-    });
-
-    test('success hits the resume endpoint, refetches, and lands `open`',
-        () async {
-      final JobActionResult result = await cubit.resumePosting('j1');
-
-      expect(result.success, isTrue);
-      expect(result.message, 'Resumed — live again for applicants.');
-      expect(api.resumed, <String>['j1'],
-          reason: 'Resume must reach POST /payer/agency/jobs/:id/resume');
-      expect(api.fetches, 1, reason: 'the pill/buttons come from a refetch');
-      expect(cubit.state.jobs.single.status, 'open');
-    });
-
-    test('404 (unknown / not-owned) is a failure and does not refetch',
-        () async {
-      api.throwOnResume = const PayerApiException(404);
-
-      final JobActionResult result = await cubit.resumePosting('ghost');
-
-      expect(result.success, isFalse);
-      expect(result.message, "This job isn't available.");
-      expect(api.fetches, 0);
-    });
-
-    test('a transport error is reported as a network error', () async {
-      api.throwOnResume = Exception('socket closed');
-
-      final JobActionResult result = await cubit.resumePosting('j1');
 
       expect(result.success, isFalse);
       expect(result.message, 'Network error. Check your connection.');
