@@ -3,18 +3,38 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { looksLikePii } from "@badabhai/validators";
-import { Button, Input, Textarea } from "../../../../../components/ds";
+import { Button, Input, Select, Textarea } from "../../../../../components/ds";
+import { NEEDED_BY, SHIFTS } from "../../../../../lib/contracts";
+import { neededByLabel, shiftLabel } from "../../../../../lib/agency-view";
 import { updatePostingAction } from "./actions";
 
 /**
  * Client form for EDITING a posting (EMPLOYER self-serve; LIVE
- * `PATCH /payer/job-postings/:id`). Fields are EXACTLY the PATCHable set the wire
- * carries (role_title / vacancies / location_label? / description?; see
- * `toPayerJobPostingPatchBody`) — no trade/pay/experience here because the PATCH
- * schema does not accept them (parity, never invented). Runs in the BROWSER and sees
- * NO secret; the session payer is stamped server-side (XB-A). The inline validation is
- * UX parity only — `updatePostingInputSchema` in the action stays the authority.
+ * `PATCH /payer/job-postings/:id`). Fields are EXACTLY the PATCHable set the backend
+ * `UpdateJobPostingSchema` accepts: role_title / vacancies / location_label? /
+ * description? PLUS the worker-visible display fields the UPDATE schema is WIDER on than
+ * create — city / pay_min / pay_max / shift / needed_by (migration 0054). This is the
+ * ONLY self-serve place a payer edits those (create cannot take them). There is NO
+ * trade/experience field here — the PATCH schema accepts neither, so they are never
+ * invented. Runs in the BROWSER and sees NO secret; the session payer is stamped
+ * server-side (XB-A). The inline validation is UX parity — `updatePostingInputSchema` in
+ * the action stays the authority; pay rides straight through, never computed or defaulted.
  */
+
+const PAY_MAX_INR = 10_000_000; // ₹/month sanity ceiling — parity with contracts.ts
+
+/** Parse an optional non-negative integer field; "" → undefined; bad → NaN (caught in validate). */
+function optInt(value: string): number | undefined {
+  const t = value.trim();
+  if (t === "") return undefined;
+  const n = Number(t);
+  return Number.isInteger(n) && n >= 0 ? n : Number.NaN;
+}
+
+/** Seed a closed-enum <select> from a raw wire string, blank when it is null/off-enum. */
+function seedEnum<T extends string>(value: string | null, allowed: readonly T[]): string {
+  return value !== null && (allowed as readonly string[]).includes(value) ? value : "";
+}
 
 export function EditPostingForm({
   postingId,
@@ -27,15 +47,30 @@ export function EditPostingForm({
     /** Band lower bound — the stored row keeps only the BAND; adjust if needed. */
     vacanciesHint: number;
     description: string | null;
+    city: string | null;
+    payMin: number | null;
+    payMax: number | null;
+    /** Raw wire strings — only seed the <select> when they match the closed enum. */
+    shift: string | null;
+    neededBy: string | null;
   };
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  // useState order (mirrored positionally by edit-posting-form.test.tsx): roleTitle,
+  // locationLabel, vacancies, description, error — then the fields added for the wider
+  // UPDATE schema. New hooks stay AFTER `error` so that test's positional seeding of the
+  // first five keeps working unchanged.
   const [roleTitle, setRoleTitle] = useState(initial.roleTitle);
   const [locationLabel, setLocationLabel] = useState(initial.locationLabel ?? "");
   const [vacancies, setVacancies] = useState(String(initial.vacanciesHint));
   const [description, setDescription] = useState(initial.description ?? "");
   const [error, setError] = useState<string | null>(null);
+  const [city, setCity] = useState(initial.city ?? "");
+  const [payMin, setPayMin] = useState(initial.payMin !== null ? String(initial.payMin) : "");
+  const [payMax, setPayMax] = useState(initial.payMax !== null ? String(initial.payMax) : "");
+  const [shift, setShift] = useState(seedEnum(initial.shift, SHIFTS));
+  const [neededBy, setNeededBy] = useState(seedEnum(initial.neededBy, NEEDED_BY));
 
   function validate(): string | null {
     if ([...roleTitle.trim()].length < 2) return "Role title must be at least 2 characters.";
@@ -43,6 +78,18 @@ export function EditPostingForm({
     if (!Number.isInteger(count) || count <= 0) return "Vacancies must be a positive number.";
     if (description.trim() !== "" && looksLikePii(description)) {
       return "Remove contact details (phone/email) from the description.";
+    }
+    // Pay: whole, non-negative, within the C10 ceiling, and ordered (parity with the server Zod).
+    const min = optInt(payMin);
+    const max = optInt(payMax);
+    if (Number.isNaN(min) || (min !== undefined && min > PAY_MAX_INR)) {
+      return "Min pay must be a whole number within the allowed range.";
+    }
+    if (Number.isNaN(max) || (max !== undefined && max > PAY_MAX_INR)) {
+      return "Max pay must be a whole number within the allowed range.";
+    }
+    if (min !== undefined && max !== undefined && max < min) {
+      return "Max pay must be greater than or equal to min pay.";
     }
     return null;
   }
@@ -65,6 +112,13 @@ export function EditPostingForm({
         vacancies: vacancies === String(initial.vacanciesHint) ? undefined : Number(vacancies),
         locationLabel: locationLabel.trim() === "" ? undefined : locationLabel.trim(),
         description: description.trim() === "" ? undefined : description.trim(),
+        // Blank → undefined (kept server-side, never sent as ""/0). Pay is passed straight
+        // through from form state — the client never computes or defaults a price.
+        city: city.trim() === "" ? undefined : city.trim(),
+        payMin: optInt(payMin),
+        payMax: optInt(payMax),
+        shift: shift === "" ? undefined : shift,
+        neededBy: neededBy === "" ? undefined : neededBy,
       });
       if (res.ok) {
         router.push(`/postings/${postingId}`);
@@ -102,6 +156,64 @@ export function EditPostingForm({
                 hint="Left unchanged, the stored vacancy band is kept as-is; a new count re-derives the band server-side."
                 required
               />
+            </div>
+            <Input
+              label="City (optional)"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              hint="A coarse city bucket workers filter on. Leaving this blank keeps the current value."
+            />
+          </div>
+
+          <div className="form__section">
+            <p className="form__legend">Pay and timing</p>
+            <div className="form-grid">
+              <Input
+                label="Pay — min (₹ / month)"
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={payMin}
+                onChange={(e) => setPayMin(e.target.value)}
+                hint="Optional. Leaving this blank keeps the current value."
+              />
+              <Input
+                label="Pay — max (₹ / month)"
+                type="number"
+                min={0}
+                inputMode="numeric"
+                value={payMax}
+                onChange={(e) => setPayMax(e.target.value)}
+                hint="Optional. Leaving this blank keeps the current value."
+              />
+            </div>
+            <div className="form-grid">
+              <Select
+                label="Shift"
+                optional
+                value={shift}
+                onChange={(e) => setShift(e.target.value)}
+              >
+                <option value="">— keep current —</option>
+                {SHIFTS.map((s) => (
+                  <option key={s} value={s}>
+                    {shiftLabel(s)}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                label="Needed by"
+                optional
+                value={neededBy}
+                onChange={(e) => setNeededBy(e.target.value)}
+              >
+                <option value="">— keep current —</option>
+                {NEEDED_BY.map((n) => (
+                  <option key={n} value={n}>
+                    {neededByLabel(n)}
+                  </option>
+                ))}
+              </Select>
             </div>
           </div>
 

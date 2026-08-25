@@ -93,6 +93,23 @@ export type TradeKey = z.infer<typeof tradeKeySchema>;
 const PAY_MAX_INR = 10_000_000; // ₹/month sanity ceiling (₹1 crore)
 const EXPERIENCE_MAX_YEARS = 60; // a plausible career length ceiling
 
+/**
+ * Coarse timing enum — mirrors db.JobNeededBy and BOTH the backend agency DTO and the
+ * posting `UpdateJobPostingSchema` `needed_by`. Defined here (not in the agency block
+ * below) so the shared demand schemas above can reference it before that block loads.
+ */
+export const NEEDED_BY = ["immediate", "soon", "flexible"] as const;
+export const neededBySchema = z.enum(NEEDED_BY);
+export type NeededBy = z.infer<typeof neededBySchema>;
+
+/**
+ * Coarse work-shift enum — mirrors the backend `UpdateJobPostingSchema` `shift`
+ * (`day|night|rotational`). A closed enum, PII-free by construction.
+ */
+export const SHIFTS = ["day", "night", "rotational"] as const;
+export const shiftSchema = z.enum(SHIFTS);
+export type Shift = z.infer<typeof shiftSchema>;
+
 /* ── Post a job ─────────────────────────────────────────────────────────────── */
 
 /**
@@ -161,30 +178,48 @@ export type CreatePostingInput = z.infer<typeof createPostingInputSchema>;
 
 /**
  * The EDITABLE subset of a posting — exactly the fields the LIVE
- * `PATCH /payer/job-postings/:id` body carries (role_title / vacancies /
- * location_label? / description?; see `toPayerJobPostingPatchBody`). A structural
- * subset of {@link CreatePostingInput}, so create-form inputs satisfy it unchanged.
+ * `PATCH /payer/job-postings/:id` body carries (see `toPayerJobPostingPatchBody`).
+ *
+ * WIDER than {@link CreatePostingInput}'s wire body: the backend `UpdateJobPostingSchema`
+ * accepts `city / pay_min / pay_max / shift / needed_by` on UPDATE (migration 0054's
+ * worker-visible display fields) even though `PayerCreateJobPostingSchema` does not, so a
+ * payer sets those self-serve HERE. NOT accepted by either schema — and therefore NOT
+ * present — are `tradeKey`, `state`, and experience years; those stay collected-only.
  */
-export const updatePostingInputSchema = z.object({
-  // max 200 (NOT the create form's 120): the backend PATCH accepts up to 200, and an
-  // ops-created posting with a 121–200-char title must stay saveable in the edit form.
-  roleTitle: z.string().min(2).max(200),
-  /**
-   * OPTIONAL: omitted when the user did not touch the count, so an edit of another
-   * field can NEVER silently re-derive (and possibly downgrade) the stored vacancy
-   * band — the backend re-bands ONLY when a count is actually submitted.
-   */
-  vacancies: z.number().int().positive().optional(),
-  locationLabel: z.string().max(120).optional(),
-  description: z
-    .string()
-    .min(1)
-    .max(2000)
-    .refine((s) => !looksLikePii(s), {
-      message: "Remove contact details (phone/email) from the description.",
-    })
-    .optional(),
-});
+export const updatePostingInputSchema = z
+  .object({
+    // max 200 (NOT the create form's 120): the backend PATCH accepts up to 200, and an
+    // ops-created posting with a 121–200-char title must stay saveable in the edit form.
+    roleTitle: z.string().min(2).max(200),
+    /**
+     * OPTIONAL: omitted when the user did not touch the count, so an edit of another
+     * field can NEVER silently re-derive (and possibly downgrade) the stored vacancy
+     * band — the backend re-bands ONLY when a count is actually submitted.
+     */
+    vacancies: z.number().int().positive().optional(),
+    locationLabel: z.string().max(120).optional(),
+    description: z
+      .string()
+      .min(1)
+      .max(2000)
+      .refine((s) => !looksLikePii(s), {
+        message: "Remove contact details (phone/email) from the description.",
+      })
+      .optional(),
+    // Worker-visible display fields the UPDATE schema accepts (backend `UpdateJobPostingSchema`
+    // / migration 0054). Coarse + PII-free: a city bucket, an integer ₹ band, two coarse enums.
+    // `city` mirrors the backend cap (trim, 1–80). Pay is passed straight through from form
+    // state — the client NEVER invents or defaults a price.
+    city: z.string().trim().min(1).max(80).optional(),
+    payMin: z.number().int().nonnegative().max(PAY_MAX_INR).optional(),
+    payMax: z.number().int().nonnegative().max(PAY_MAX_INR).optional(),
+    shift: shiftSchema.optional(),
+    neededBy: neededBySchema.optional(),
+  })
+  .refine((o) => o.payMin === undefined || o.payMax === undefined || o.payMax >= o.payMin, {
+    message: "Max pay must be greater than or equal to min pay.",
+    path: ["payMax"],
+  });
 export type UpdatePostingInput = z.infer<typeof updatePostingInputSchema>;
 
 /* ── Matching V1 — the posting form's skill surface (ADR-0036) ───────────────── */
@@ -780,6 +815,16 @@ export const jobPostingWireSchema = z.object({
   status: z.enum(["draft", "open", "closed", "paused"]),
   skill_phrases: z.array(z.string()),
   skill_ids: z.array(z.string()),
+  // Worker-visible display fields the backend `JobPostingApi` projection returns (migration
+  // 0054). Read here PURELY so the payer's OWN edit form can prefill them — the sibling of the
+  // `description` prefill. Coarse + PII-free (a city bucket, an integer ₹ band, two coarse
+  // enums), and the payer's OWN data, never worker PII. `nullable().optional()` because a
+  // pre-0054 row (or a fixture) may omit them; unset reads as null.
+  city: z.string().nullable().optional(),
+  pay_min: z.number().nullable().optional(),
+  pay_max: z.number().nullable().optional(),
+  shift: z.string().nullable().optional(),
+  needed_by: z.string().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
   closed_at: z.string().nullable(),
@@ -797,11 +842,6 @@ export const jobPostingListWireSchema = z.array(jobPostingWireSchema);
  * worker identity by construction. `payer_id` is NEVER a field — tenancy is the SESSION
  * (XB-A), stamped server-side. Distinct from the @parked SUPPLY shells below (payouts/KYC).
  */
-
-/** Coarse timing enum — mirrors db.JobNeededBy / the agency DTO. */
-export const NEEDED_BY = ["immediate", "soon", "flexible"] as const;
-export const neededBySchema = z.enum(NEEDED_BY);
-export type NeededBy = z.infer<typeof neededBySchema>;
 
 /**
  * One faceless agency job — the EXACT camelCase projection `AgencyService.toJobView`

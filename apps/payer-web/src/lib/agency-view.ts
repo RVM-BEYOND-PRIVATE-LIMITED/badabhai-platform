@@ -1,4 +1,4 @@
-import type { AgencyJob, AgencyPayoutBlockedReason, NeededBy } from "./contracts";
+import type { AgencyJob, AgencyPayoutBlockedReason, NeededBy, Shift } from "./contracts";
 import { formatInr } from "./format";
 
 /**
@@ -35,6 +35,20 @@ export function neededByLabel(neededBy: NeededBy | null): string {
       return "Soon";
     case "flexible":
       return "Flexible";
+    default:
+      return "—";
+  }
+}
+
+/** Human label for the coarse work-shift enum. */
+export function shiftLabel(shift: Shift | null): string {
+  switch (shift) {
+    case "day":
+      return "Day";
+    case "night":
+      return "Night";
+    case "rotational":
+      return "Rotational";
     default:
       return "—";
   }

@@ -54,8 +54,8 @@ export default async function EditPostingPage({
           {/* The role title is the payer's OWN posting field — it identifies which posting
               is being edited. FACELESS: no worker field is ever rendered here. */}
           <p className="page-head__sub">
-            Change the role title, location, vacancy count or description for{" "}
-            {draft.summary.roleTitle}.
+            Change the role title, location, vacancy count, pay, shift, timing or
+            description for {draft.summary.roleTitle}.
           </p>
         </div>
       </div>
@@ -66,6 +66,11 @@ export default async function EditPostingPage({
           locationLabel: draft.summary.locationLabel,
           vacanciesHint: bandRepresentativeCount(draft.summary.vacancyBand),
           description: draft.description,
+          city: draft.city,
+          payMin: draft.payMin,
+          payMax: draft.payMax,
+          shift: draft.shift,
+          neededBy: draft.neededBy,
         }}
       />
     </>

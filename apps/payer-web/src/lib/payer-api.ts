@@ -1026,8 +1026,11 @@ export async function getPostings(): Promise<PostingSummary[]> {
  *   - sends the RAW `vacancies` count and NO `vacancy_band` ⇒ EXACTLY ONE of the two (the
  *     backend derives its OWN band — the frontend/backend band-sets differ).
  *   - NEVER `payer_id` / `created_by` (the verified session is owner+creator).
- *   - trade/pay/exp are NOT included: `PayerCreateJobPostingSchema` does not accept them yet
- *     (collected for demand parity, validated client+server, withheld until the schema grows).
+ *   - trade/pay/exp are NOT included: the CREATE schema `PayerCreateJobPostingSchema` accepts
+ *     only org_label/role_title/location_label?/description?/vacancy(_band|ies)/skills?. Those
+ *     three stay collected-for-parity but unsent here. NOTE: pay/city/shift/needed_by ARE
+ *     accepted by the WIDER UPDATE schema, so a payer sets them via the edit PATCH
+ *     ({@link toPayerJobPostingPatchBody}); trade/exp are accepted by neither schema.
  * Optional labels are omitted when absent so the body carries only meaningful keys.
  */
 export function toPayerJobPostingBody(
@@ -1066,18 +1069,35 @@ export async function createPosting(input: CreatePostingInput): Promise<PostingS
 
 /**
  * GET /payer/job-postings/:id — the caller's OWN posting as an EDIT DRAFT (LIVE): the
- * faceless summary PLUS the payer's OWN description (their registered text, needed to
- * prefill the edit form — it is the caller's data, the sibling of GET /payer/me). Same
- * neutral 404 → `null` contract as {@link getPosting}. Still NO worker PII by design.
+ * faceless summary PLUS the payer's OWN editable fields (their registered description +
+ * the coarse worker-visible city/pay/shift/needed_by), needed to PREFILL the edit form —
+ * all the caller's own data, the sibling of GET /payer/me. Same neutral 404 → `null`
+ * contract as {@link getPosting}. Still NO worker PII by design (these are the posting's
+ * own coarse, PII-free fields). `shift`/`neededBy` are surfaced as the raw wire strings;
+ * the edit form only seeds a `<select>` from them when they match the closed enum.
  */
-export async function getPostingDraft(
-  postingId: string,
-): Promise<{ summary: PostingSummary; description: string | null } | null> {
+export async function getPostingDraft(postingId: string): Promise<{
+  summary: PostingSummary;
+  description: string | null;
+  city: string | null;
+  payMin: number | null;
+  payMax: number | null;
+  shift: string | null;
+  neededBy: string | null;
+} | null> {
   try {
     const wire = await payerFetch(`/payer/job-postings/${postingId}`, {
       schema: jobPostingWireSchema,
     });
-    return { summary: toPostingSummary(wire), description: wire.description };
+    return {
+      summary: toPostingSummary(wire),
+      description: wire.description,
+      city: wire.city ?? null,
+      payMin: wire.pay_min ?? null,
+      payMax: wire.pay_max ?? null,
+      shift: wire.shift ?? null,
+      neededBy: wire.needed_by ?? null,
+    };
   } catch (e) {
     if (e instanceof Error && /returned 404/.test(e.message)) return null;
     throw e;
@@ -1106,8 +1126,15 @@ export async function getPosting(postingId: string): Promise<PostingSummary | nu
  * sends NO `org_label` (the session identity is not edited) and NEVER payer_id/created_by; it
  * sends the RAW `vacancies` count (at most one of vacancy_band|vacancies — the backend derives
  * its band and discards the integer). Pure + exported so the wire contract is unit-pinned, the
- * sibling of {@link toPayerJobPostingBody}. Optional labels are omitted when absent.
- * Accepts the {@link UpdatePostingInput} subset (a CreatePostingInput satisfies it unchanged).
+ * sibling of {@link toPayerJobPostingBody}.
+ *
+ * The UPDATE schema `UpdateJobPostingSchema` is WIDER than create: it accepts the worker-visible
+ * display fields `city / pay_min / pay_max / shift / needed_by` (migration 0054), so those are
+ * mapped through HERE when the form set them — the ONLY self-serve way a payer edits them. Pay is
+ * passed STRAIGHT THROUGH from validated form state; this never computes or defaults a price.
+ * Fields the update schema does NOT accept (trade/exp) are never mapped. Every optional key is
+ * omitted when absent, so the body carries only meaningful keys and an untouched field is left
+ * server-side. Accepts the {@link UpdatePostingInput} subset (a CreatePostingInput satisfies it).
  */
 export function toPayerJobPostingPatchBody(input: UpdatePostingInput): Record<string, unknown> {
   const body: Record<string, unknown> = {
@@ -1116,6 +1143,11 @@ export function toPayerJobPostingPatchBody(input: UpdatePostingInput): Record<st
   };
   if (input.locationLabel !== undefined) body.location_label = input.locationLabel;
   if (input.description !== undefined) body.description = input.description;
+  if (input.city !== undefined) body.city = input.city;
+  if (input.payMin !== undefined) body.pay_min = input.payMin;
+  if (input.payMax !== undefined) body.pay_max = input.payMax;
+  if (input.shift !== undefined) body.shift = input.shift;
+  if (input.neededBy !== undefined) body.needed_by = input.neededBy;
   return body;
 }
 
