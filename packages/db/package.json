@@ -93,6 +93,7 @@
     "db:audit:bridge-coverage": "tsx src/audit-runtime-bridge-coverage.ts",
     "db:audit:junk-labels": "tsx src/audit-junk-domain-labels.ts",
     "db:audit:vernacular": "tsx src/audit-vernacular-coverage.ts",
+    "db:audit:anchor-path": "tsx src/audit-anchor-path-retrieval.ts",
     "db:materialize:inheritance:dry-run": "tsx src/materialize-inheritance-dry-run.ts",
     "db:decollide:aliases": "tsx src/decollide-skill-aliases.ts",
     "db:verify:unresolved-write": "tsx src/verify-unresolved-write.ts",

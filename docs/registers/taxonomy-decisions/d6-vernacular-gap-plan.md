@@ -23,8 +23,12 @@ There is a **second, older evaluation instrument** — the wedge eval
 vectors, 33 cases) — that measures romanized Hindi directly. Its evidence **strengthens** §0's
 conclusion in one place and **overturns** it in another, and §2A now carries both.
 
-There is also an owner-ratified remediation from 2026-07-16 that **was never shipped**. See
-§2B. That, not the fixture gap, is the most actionable finding in this document.
+~~There is also an owner-ratified remediation from 2026-07-16 that **was never shipped**.~~
+
+**Second correction, 2026-08-24: that was wrong too.** The 22 ratified aliases were shipped on
+2026-07-16 — the ratification date — and all 22 are embedded in production. §2B carries the
+measurement and an account of how I got it wrong. What is genuinely outstanding is the
+**re-sweep**, which has never run, so the 0.350 recall on record is still the pre-alias number.
 
 ---
 
@@ -206,7 +210,49 @@ lowering it. It is not permission to change anything.
 
 ---
 
-## 2B. Twenty-two ratified vernacular aliases were never shipped
+## 2B. ~~Twenty-two ratified vernacular aliases were never shipped~~ — WRONG, corrected 2026-08-24
+
+> ### This section was wrong. The aliases shipped on the ratification date.
+>
+> **MEASURED 2026-08-24, read-only:** all 22 are in production `skill_alias`, all 22 carry a
+> `gemini-embedding-001` vector, all 16 target skills are `active`, and every row has a
+> `domain_id` so the legacy retrieval path can reach them. 21 were created **2026-07-16** — the
+> day they were ratified; `drawing padhna` on 2026-08-20 (the Q-B remap).
+>
+> **How I got it wrong.** Three compounding mistakes, none of them a typo:
+>
+> 1. I checked `SKILL_CORPUS`'s literal alias arrays and `data/taxonomy/skills.jsonl`, found the
+>    phrases in neither, and called them undelivered. **Neither file is where a delivered alias
+>    lives** — `skill_alias` is, and I never queried it.
+> 2. I grepped for the identifier `WEDGE_ALIASES` to find a consumer. `seed-skills.ts` consumes
+>    the accessor `ratifiedWedgeAliases()`, so the grep missed a wire that was **fully
+>    connected** — the planner even takes the wedge as a dedicated parameter.
+> 3. `skill-vernacular-ratification-packet.md` said seed/embed were "PENDING the SR-1 staging
+>    env". That line was five weeks stale and corroborated the wrong answer.
+>
+> **What IS still owed:** step 5, the re-sweep. The only wedge scores on disk are
+> `scores_2026_07_14.json`, which predates the ratification — so **the 0.350 recall quoted below
+> is the pre-alias number and is not the shipped state.** Measuring the shipped state needs a
+> paid run and is not authorized here.
+>
+> The rest of this section's evidence — the 0.528–0.603 scores, the interleaving with negatives,
+> the floor conclusion — was measured on 2026-07-14 and is unaffected. Only the delivery claim
+> was wrong.
+
+### The original text, kept for the record
+
+> **SUPERSEDED — DO NOT QUOTE ANY SENTENCE BELOW.** Every delivery claim in it is false.
+> Specifically: "no seeder consumes `WEDGE_ALIASES`" (the seeder consumes the accessor
+> `ratifiedWedgeAliases()`, and `planSeedSkills` takes the wedge as a parameter); "blocked for
+> five weeks" (seed and embed ran on the ratification date); "converts a ~0.55 UNRESOLVED into
+> a ≈1.0 exact hit" (the ~0.55 is measured 2026-07-14, the ≈1.0 is an unverified prediction and
+> the wedge eval's own exact tier spans 0.859–1.000); "all 22 target skills" (22 aliases, **16**
+> distinct target skills); "would improve retrieval for skills that actually reach matching"
+> (only **6 of the 16** carry a non-empty bridge mapping — 8 of the 22 aliases).
+>
+> And the outcome it promised did not occur: see `d60-anchor-path-retrieval.json` — **8 of 22
+> reachable on the scope production queries, and two produce a false assignment above the
+> floor.**
 
 **[DATA]** `docs/registers/skill-vernacular-ratification-packet.md`: **22 vernacular aliases
 RATIFIED by the RVM domain owner on 2026-07-16**, none struck, with two explicit rulings
@@ -226,8 +272,10 @@ staging env"* — so this is a known blocked step, not a forgotten one. But it h
 for **five weeks**, and the measurement says each of those aliases converts a ~0.55
 UNRESOLVED into a ≈1.0 exact hit.
 
-> **The highest-value vernacular work in this repository is already designed, already measured,
-> and already ratified by the owner. It is unshipped.**
+> ~~**The highest-value vernacular work in this repository is already designed, already
+> measured, and already ratified by the owner. It is unshipped.**~~
+>
+> **FALSE — see the correction at the head of this section. It was shipped on 2026-07-16.**
 
 **[DATA]** All 22 target skills are in `SKILL_CORPUS` (0 dangling) and **0 of the 22 appear as
 `SKILL_CORPUS` aliases**. That corpus is exactly the set `ATTRIBUTE_TO_MATCH_SKILLS` covers, so
@@ -371,7 +419,7 @@ inherits the guarantee by calling one function.
 
 | phase | work | needs spend? | gate |
 |---|---|---|---|
-| **D6-0** | **Ship the 22 already-ratified wedge aliases** (§2B). Corpus write + embed. Decision cost already paid. | paid embed | owner |
+| ~~**D6-0**~~ | ~~Ship the 22 already-ratified wedge aliases~~ — **ALREADY DONE 2026-07-16** (§2B). What remains is the **re-sweep** that measures the effect. | paid embed (~INR 0.003) | owner |
 | **D6-1** | Author the vernacular fixture (4 categories, human-written, hygiene-checked). Extend `Register` coverage assertions. | **₹0** | none — repository work |
 | **D6-2** | Run the existing instrument over it. Also run the Layer-A experiment: normalized query vs raw, same corpus. | **paid embeddings — STOP and request approval first** | owner |
 | **D6-3** | If D6-2 shows lexical distance is the cause, add validated worker-language aliases to existing skills. Corpus edit + embed run. | paid embed | owner |
@@ -379,10 +427,10 @@ inherits the guarantee by calling one function.
 | **D6-5** | Reranking — only for residual sibling ambiguity after D6-3 | — | owner |
 | **D6-6** | Production decision | — | owner |
 
-**[REC]** D6-1 is the only phase that should start without a further decision. **D6-0 and D6-2
-both require paid runs and must not be self-authorized** - but D6-0 is the one to authorize
-first: its design and human ratification are already complete, and it is the only item with a
-measured before/after (~0.55 UNRESOLVED to ~1.0 exact).
+**[REC]** D6-1 is the only phase that should start without a further decision. **The shipping
+half of D6-0 is already done**; what is left of it — and D6-2 — require paid runs and must not
+be self-authorized. The re-sweep is the one to authorize first: it is the only outstanding item
+with a defined before (0.350, 2026-07-14) and an unmeasured after.
 
 ---
 
@@ -438,7 +486,8 @@ authorized here and none was incurred.**
 6. **Aliases, embeddings, normalization, or extraction?** **[REC]** Aliases (Layer B) first,
    normalization (Layer A) second and only after the re-embedding asymmetry is resolved by
    measurement. Not the model. Not extraction.
-7. **Lowest-risk path?** **D6-0 first** — ship the 22 aliases a human already ratified (§2B).
+7. **Lowest-risk path?** **The D6-0 re-sweep first** — the 22 aliases are already live (§2B), so
+   this measures a change already in production rather than making one.
    Then D6-1 → D6-2 → D6-3. Delivering an approved decision outranks authoring new material.
 8. **How to prove improvement without false assignments?** The instrument already reports
    `cross_domain_isolation` and `competitor_outranking` alongside recall. **[REC]** Any
@@ -455,7 +504,12 @@ authorized here and none was incurred.**
 
 ## 11. Owner decisions
 
-**Decision 0 — Ship the 22 ratified wedge aliases?**
+**Decision 0 — ~~Ship the 22 ratified wedge aliases?~~ Re-sweep to measure the ones already shipped**
+*(Corrected 2026-08-24: the shipping question is moot — 21 rows went live on the ratification
+date, `drawing padhna` on 2026-08-20. **Every line of the decision body below is void**: the
+aliases are in the corpus, the seeder does consume them, no write or embed is pending, and
+option (c) "strike the ratification" would now mean deleting live production rows. The live
+question is whether to authorize the ~INR 0.003 re-sweep.)*
 *Evidence:* ratified by the RVM owner 2026-07-16, none struck; all 22 target live
 `SKILL_CORPUS` skills; none is in the corpus; nothing consumes `WEDGE_ALIASES`. Measured
 before/after: ~0.55 UNRESOLVED → ≈1.0 exact.
