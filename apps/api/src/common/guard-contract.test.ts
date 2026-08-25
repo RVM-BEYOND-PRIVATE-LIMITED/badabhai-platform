@@ -206,8 +206,11 @@ const CONTRACT: ControllerContract[] = [
     ctor: JobPostingsController,
     // ADR-0036 Policy 27: `widenReach` is the ONE guarded route on this otherwise
     // alpha-open ops controller — widening a reach set changes which workers see a job
-    // on a posting whose owner chose a narrower net, so it takes the ops service guard
-    // even though its siblings do not.
+    // on a posting whose owner chose a narrower net, so it takes a STRICTER guard than
+    // its siblings. #1213: the actor recorded in `job_reach_widen.ops_actor_id` used to
+    // be a client-body-supplied uuid; it is now the AUTHENTICATED admin session's own
+    // id, so `AdminAuthGuard` is ADDED on top of the existing `InternalServiceGuard`
+    // (both required — the fix narrows who can reach this route, it does not widen it).
     routes: {
       create: [I],
       list: [I],
@@ -216,7 +219,7 @@ const CONTRACT: ControllerContract[] = [
       close: [I],
       verify: [I],
       reject: [I],
-      widenReach: [I],
+      widenReach: [A, I],
     },
   },
   {

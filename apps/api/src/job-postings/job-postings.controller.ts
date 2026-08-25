@@ -13,6 +13,7 @@ import {
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { InternalServiceGuard } from "../common/guards/internal-service.guard";
+import { AdminAuthGuard, CurrentAdmin, type AuthenticatedAdmin } from "../admin/admin-auth.guard";
 import { ReachWidenSchema, type ReachWidenDto } from "../match/match.dto";
 import { JobPostingsService } from "./job-postings.service";
 import {
@@ -45,9 +46,7 @@ export class JobPostingsController {
 
   /** List postings, newest first; optional `?status=` filter. Read-only. */
   @Get()
-  list(
-    @Query(new ZodValidationPipe(ListJobPostingsQuerySchema)) query: ListJobPostingsQueryDto,
-  ) {
+  list(@Query(new ZodValidationPipe(ListJobPostingsQuerySchema)) query: ListJobPostingsQueryDto) {
     return this.jobPostings.list(query);
   }
 
@@ -71,10 +70,7 @@ export class JobPostingsController {
   /** Close a posting (draft|open -> closed). Terminal. */
   @Post(":id/close")
   @HttpCode(200)
-  close(
-    @Param("id", new ParseUUIDPipe()) id: string,
-    @Ctx() ctx: RequestContext,
-  ) {
+  close(@Param("id", new ParseUUIDPipe()) id: string, @Ctx() ctx: RequestContext) {
     return this.jobPostings.close(id, ctx);
   }
 
@@ -103,25 +99,37 @@ export class JobPostingsController {
    * open ops posture; this one does not, and the difference is deliberate: widening a
    * reach set changes WHICH WORKERS SEE A JOB, on a posting whose owner explicitly
    * chose a narrower net. That is not the same class of action as reading a register or
-   * flipping a verification badge, so it takes the ops service guard even though the
-   * surrounding routes do not. If the whole controller later gains ops auth, this line
-   * becomes redundant rather than wrong.
+   * flipping a verification badge, so it takes a STRICTER guard than the surrounding
+   * routes even though they do not.
+   *
+   * #1213 — TWO GUARDS, BOTH REQUIRED (the class-level `InternalServiceGuard` above
+   * still applies — Nest unions class + method guards, it is not overridden here). A
+   * caller now needs the internal-service shared secret AND a real authenticated admin
+   * session, which can only ever be a NARROWER set of callers than the shared secret
+   * alone — the fix does not widen who may reach this route, it makes the recorded
+   * actor real. `ops_actor_id` on `job_reach_widen` (migration 0090) is now the
+   * AUTHENTICATED admin's own id (`@CurrentAdmin()`), never a body-supplied value — the
+   * DTO no longer accepts one at all (see `ReachWidenSchema`). Once this route gets a
+   * real admin-web caller, revisit whether `InternalServiceGuard` should drop entirely
+   * (a browser session cannot hold the internal-service secret) — that is a follow-on
+   * guard-composition decision, not this fix's scope.
    *
    * APPEND-ONLY: the DTO has no field that can remove a skill, so "ops narrowed a reach
    * set" is not expressible on this route.
    *
-   * EXPIRY IS NOT IMPLEMENTED — the widen is permanent until the posting is
-   * re-published from its posted skills. That needs a column + a sweep (a migration),
-   * which is outside this change's boundary; see `PublishReachService.opsWiden`.
+   * EXPIRY (migration 0090/0091) — the grant's provenance + expiry are recorded by
+   * `PublishReachService.opsWiden`; `reach-widen-expiry-sweep.processor.ts` retracts it
+   * later. See that service for the full mechanism.
    */
   @Post(":id/reach/widen")
   @HttpCode(200)
-  @UseGuards(InternalServiceGuard)
+  @UseGuards(AdminAuthGuard)
   widenReach(
     @Param("id", new ParseUUIDPipe()) id: string,
     @Body(new ZodValidationPipe(ReachWidenSchema)) dto: ReachWidenDto,
+    @CurrentAdmin() admin: AuthenticatedAdmin,
     @Ctx() ctx: RequestContext,
   ) {
-    return this.jobPostings.opsWidenReach(id, dto.add_skill_ids, dto.ops_actor, ctx);
+    return this.jobPostings.opsWidenReach(id, dto.add_skill_ids, admin.id, ctx);
   }
 }

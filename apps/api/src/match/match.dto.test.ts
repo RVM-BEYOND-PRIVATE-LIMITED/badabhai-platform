@@ -43,7 +43,13 @@ describe("matchSkillIdSchema — the mskill_ id shape", () => {
   });
 
   it("rejects near-misses: an empty suffix, uppercase, a hyphen, whitespace", () => {
-    for (const id of ["mskill_", "mskill_VMC", "mskill_cnc-turner", " mskill_fitter", "mskill fitter"]) {
+    for (const id of [
+      "mskill_",
+      "mskill_VMC",
+      "mskill_cnc-turner",
+      " mskill_fitter",
+      "mskill fitter",
+    ]) {
       expect(matchSkillIdSchema.safeParse(id).success, JSON.stringify(id)).toBe(false);
     }
   });
@@ -84,7 +90,8 @@ describe("ReachPreviewSchema — the posting form's request", () => {
 
   it("rejects a malformed id inside an otherwise valid list", () => {
     expect(
-      ReachPreviewSchema.safeParse({ match_skill_ids: [VMC, "'; DROP TABLE job_reach; --"] }).success,
+      ReachPreviewSchema.safeParse({ match_skill_ids: [VMC, "'; DROP TABLE job_reach; --"] })
+        .success,
     ).toBe(false);
   });
 });
@@ -100,7 +107,9 @@ describe("MatchPublishFieldsSchema — the publish half", () => {
   });
 
   it("accepts an EQUAL band (a fixed wage is a legal posting)", () => {
-    expect(MatchPublishFieldsSchema.safeParse({ pay_min: 20000, pay_max: 20000 }).success).toBe(true);
+    expect(MatchPublishFieldsSchema.safeParse({ pay_min: 20000, pay_max: 20000 }).success).toBe(
+      true,
+    );
   });
 
   it("does not fire the band check when only ONE side is given", () => {
@@ -130,7 +139,6 @@ describe("ReachWidenSchema — Policy 27: ops may widen, never narrow", () => {
   it("has NO field in which a removal could be expressed", () => {
     const parsed = ReachWidenSchema.parse({
       add_skill_ids: [HMC],
-      ops_actor: OPS,
       // A client trying to narrow the set. There is nowhere for this to land.
       removed_skill_ids: [VMC],
       remove_skill_ids: [VMC],
@@ -138,25 +146,26 @@ describe("ReachWidenSchema — Policy 27: ops may widen, never narrow", () => {
 
     // "Ops narrowed a reach set" is not EXPRESSIBLE on this route — the strongest form
     // of the guarantee, because it needs no check anywhere to keep holding.
-    expect(Object.keys(parsed).sort()).toEqual(["add_skill_ids", "ops_actor"]);
+    expect(Object.keys(parsed).sort()).toEqual(["add_skill_ids"]);
     expect(parsed).not.toHaveProperty("removed_skill_ids");
   });
 
   it("requires at least one id to add (an empty widen is a no-op audit event)", () => {
-    expect(ReachWidenSchema.safeParse({ add_skill_ids: [], ops_actor: OPS }).success).toBe(false);
+    expect(ReachWidenSchema.safeParse({ add_skill_ids: [] }).success).toBe(false);
   });
 
-  it("requires an ops actor uuid — the AUDITED half of the policy", () => {
-    // The widen is only defensible because it is attributable. An unnamed widen is an
-    // untraceable change to who a paid posting reaches.
-    expect(ReachWidenSchema.safeParse({ add_skill_ids: [HMC] }).success).toBe(false);
-    expect(ReachWidenSchema.safeParse({ add_skill_ids: [HMC], ops_actor: "ops" }).success).toBe(false);
-    expect(ReachWidenSchema.safeParse({ add_skill_ids: [HMC], ops_actor: OPS }).success).toBe(true);
+  // #1213 — `ops_actor` is NOT a field on this schema, on purpose: the AUDITED half of
+  // Policy 27 (who widened the reach set) is derived server-side from the authenticated
+  // admin session (`AdminAuthGuard` + `@CurrentAdmin()`), never from the request body.
+  // A client attempting to supply one has it silently stripped (Zod's default
+  // unknown-key behaviour), which is the correct outcome for an id that must never be
+  // client-controlled — see #1130 for the same bug class.
+  it("silently strips a client-supplied ops_actor — it is never read from the body", () => {
+    const parsed = ReachWidenSchema.parse({ add_skill_ids: [HMC], ops_actor: OPS } as never);
+    expect(parsed).not.toHaveProperty("ops_actor");
   });
 
   it("rejects an id outside the mskill_ space", () => {
-    expect(
-      ReachWidenSchema.safeParse({ add_skill_ids: ["skill_turning"], ops_actor: OPS }).success,
-    ).toBe(false);
+    expect(ReachWidenSchema.safeParse({ add_skill_ids: ["skill_turning"] }).success).toBe(false);
   });
 });
