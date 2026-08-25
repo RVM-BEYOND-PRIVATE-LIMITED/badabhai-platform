@@ -544,8 +544,9 @@ class BoostPurchase extends Equatable {
 // The agency (role='agent') owns its OWN faceless `jobs` rows: a coarse
 // trade/title/city/pay/experience posting with NO employer name or worker
 // identity by construction. `snake_case` IN (create/update body), `camelCase`
-// OUT (the [AgencyJobView] projection). Phase-1 status is only `open|closed`
-// (there is NO `paused` literal — a pause maps to closed server-side).
+// OUT (the [AgencyJobView] projection). Status is `open | paused | closed`
+// (#1202): a pause is REVERSIBLE (`open -> paused -> open`); only a close is
+// terminal.
 
 /// The ratified manufacturing alpha trade keys the agency create/edit route
 /// accepts (`trade_key` enum — the same set the Reach core + resume content
@@ -616,11 +617,11 @@ String _formatInr(int value) {
 }
 
 /// One agency-owned job posting (`GET /payer/agency/jobs` rows +
-/// `POST/PATCH/close/pause` results). PII-free by construction: a coarse trade
-/// key, generic title, city/area label, integer ₹ pay band, year counts, and a
-/// coarse timing enum — NEVER an employer name or worker identity. [status] is
-/// only `open|closed` (Phase-1 has no `paused` literal — a pause maps to
-/// closed server-side; the difference is only in the emitted event).
+/// `POST/PATCH/close/pause/resume` results). PII-free by construction: a coarse
+/// trade key, generic title, city/area label, integer ₹ pay band, year counts,
+/// and a coarse timing enum — NEVER an employer name or worker identity.
+/// [status] is `open | paused | closed` (#1202): a pause is REVERSIBLE
+/// (`open -> paused -> open` via resume); only a close is terminal.
 class AgencyJobView extends Equatable {
   const AgencyJobView({
     required this.id,
@@ -661,7 +662,8 @@ class AgencyJobView extends Equatable {
   /// Opaque job UUID.
   final String id;
 
-  /// `open` | `closed` — the only Phase-1 states (a pause returns `closed`).
+  /// `open` | `paused` | `closed` (#1202). A pause is reversible via resume;
+  /// only a close is terminal.
   final String status;
   final String tradeKey;
   final String title;
@@ -677,6 +679,7 @@ class AgencyJobView extends Equatable {
   final String? updatedAt;
 
   bool get isOpen => status == 'open';
+  bool get isPaused => status == 'paused';
   bool get isClosed => status == 'closed';
 
   /// Display label for the trade key (never the raw key on-screen).
@@ -760,6 +763,246 @@ class ReferralsSummary extends Equatable {
 
   @override
   List<Object?> get props => <Object?>[created, clicked, accepted, minBucket];
+}
+
+// --- Agency supply-money — KYC · earnings · payouts (ADR-0022 Amdt 2) ------
+// AGENT-only + FLAG-GATED: every `/payer/agency/{kyc,earnings,payouts}` route
+// sits behind `AgencyPayoutsEnabledGuard`, which returns a NEUTRAL 404 while the
+// launch flag is OFF (the whole surface is inert by default). The client treats
+// that 404 as an honest "not available yet" state, NEVER a crash/generic error.
+// All money is MOCK server-side (no disbursement); a payout REQUEST is a plain
+// authed POST — there is NO gateway/card/checkout here (money-OUT, not money-IN).
+// Reads are MASKED: KYC only ever returns last-4, never full PAN/bank. camelCase
+// on the wire.
+
+/// The masked KYC view (`POST /payer/agency/kyc` 201 + `GET /payer/agency/kyc`).
+/// Financial PII is encrypted at rest server-side and NEVER echoed — the only
+/// derivatives here are the [status] enum and the last-4 of PAN / bank account.
+class AgencyKycView extends Equatable {
+  const AgencyKycView({
+    required this.status,
+    this.panLast4,
+    this.bankLast4,
+    this.rejectReason,
+    this.updatedAt,
+  });
+
+  factory AgencyKycView.fromJson(Map<String, dynamic> row) => AgencyKycView(
+        status: row['status'] as String? ?? 'not_submitted',
+        panLast4: row['panLast4'] as String?,
+        bankLast4: row['bankLast4'] as String?,
+        rejectReason: row['rejectReason'] as String?,
+        updatedAt: row['updatedAt'] as String?,
+      );
+
+  /// `not_submitted` | `pending` | `verified` | `rejected`.
+  final String status;
+
+  /// Last 4 of the PAN (masked) — null until a submission exists.
+  final String? panLast4;
+
+  /// Last 4 of the bank account (masked) — null until a submission exists.
+  final String? bankLast4;
+
+  /// A bounded reason CODE when [status] is `rejected` (never free-text PII).
+  final String? rejectReason;
+
+  /// ISO-8601 last-updated timestamp, or null when never submitted.
+  final String? updatedAt;
+
+  bool get isNotSubmitted => status == 'not_submitted';
+  bool get isPending => status == 'pending';
+  bool get isVerified => status == 'verified';
+  bool get isRejected => status == 'rejected';
+
+  @override
+  List<Object?> get props =>
+      <Object?>[status, panLast4, bankLast4, rejectReason, updatedAt];
+}
+
+/// Earnings analytics + the payout-gate state (`GET /payer/agency/earnings`).
+/// PII-free: ₹ integers + config economics + the gate flags. [canRequest] is the
+/// server's own decision (KYC verified AND ≥ threshold AND flag on); the client
+/// never re-derives it — it only reflects it and shows [blockedReason] honestly.
+class AgencyEarnings extends Equatable {
+  const AgencyEarnings({
+    required this.totalAccruedInr,
+    required this.requestableInr,
+    required this.inRequestInr,
+    required this.paidInr,
+    required this.accrualCount,
+    required this.kycStatus,
+    required this.thresholdInr,
+    required this.basisInr,
+    required this.rateBps,
+    required this.windowDays,
+    required this.payoutsEnabled,
+    required this.canRequest,
+    this.blockedReason,
+  });
+
+  factory AgencyEarnings.fromJson(Map<String, dynamic> row) => AgencyEarnings(
+        totalAccruedInr: (row['totalAccruedInr'] as num?)?.toInt() ?? 0,
+        requestableInr: (row['requestableInr'] as num?)?.toInt() ?? 0,
+        inRequestInr: (row['inRequestInr'] as num?)?.toInt() ?? 0,
+        paidInr: (row['paidInr'] as num?)?.toInt() ?? 0,
+        accrualCount: (row['accrualCount'] as num?)?.toInt() ?? 0,
+        kycStatus: row['kycStatus'] as String? ?? 'not_submitted',
+        thresholdInr: (row['thresholdInr'] as num?)?.toInt() ?? 0,
+        basisInr: (row['basisInr'] as num?)?.toInt() ?? 0,
+        rateBps: (row['rateBps'] as num?)?.toInt() ?? 0,
+        windowDays: (row['windowDays'] as num?)?.toInt() ?? 0,
+        payoutsEnabled: row['payoutsEnabled'] as bool? ?? false,
+        canRequest: row['canRequest'] as bool? ?? false,
+        blockedReason: row['blockedReason'] as String?,
+      );
+
+  /// Lifetime ₹ accrued (all commission ever earned).
+  final int totalAccruedInr;
+
+  /// Unclaimed ₹ available to request right now.
+  final int requestableInr;
+
+  /// ₹ claimed into an open (mock-pending) payout request.
+  final int inRequestInr;
+
+  /// ₹ claimed into a settled (mock) payout.
+  final int paidInr;
+
+  /// Number of commission accruals behind [totalAccruedInr].
+  final int accrualCount;
+
+  /// The KYC gate state (`not_submitted`|`pending`|`verified`|`rejected`).
+  final String kycStatus;
+
+  /// Minimum ₹ a request must clear.
+  final int thresholdInr;
+
+  /// ₹ commission basis per qualifying unlock.
+  final int basisInr;
+
+  /// Commission rate in basis points (e.g. 2500 = 25%).
+  final int rateBps;
+
+  /// The attribution window in days.
+  final int windowDays;
+
+  /// Whether the launch flag is on server-side.
+  final bool payoutsEnabled;
+
+  /// The server's decision: may a payout be requested right now?
+  final bool canRequest;
+
+  /// Why a request would be refused (`kyc_not_verified`|`below_threshold`|
+  /// `disabled`), or null when [canRequest]. A CODE — humanize at the edge.
+  final String? blockedReason;
+
+  bool get isKycVerified => kycStatus == 'verified';
+
+  /// ₹ short of the threshold (0 once cleared) — drives the progress copy.
+  int get remainingToThresholdInr {
+    final int gap = thresholdInr - requestableInr;
+    return gap > 0 ? gap : 0;
+  }
+
+  @override
+  List<Object?> get props => <Object?>[
+        totalAccruedInr,
+        requestableInr,
+        inRequestInr,
+        paidInr,
+        accrualCount,
+        kycStatus,
+        thresholdInr,
+        basisInr,
+        rateBps,
+        windowDays,
+        payoutsEnabled,
+        canRequest,
+        blockedReason,
+      ];
+}
+
+/// The outcome of `POST /payer/agency/payouts` — HTTP 200 EITHER way. A pass
+/// carries the created request; a gate refusal carries a [blockedReason] CODE
+/// and changes nothing server-side. NOT a payment: no gateway/card is involved.
+class PayoutRequestResult extends Equatable {
+  const PayoutRequestResult({
+    required this.ok,
+    this.requestId,
+    this.amountInr,
+    this.accrualCount,
+    this.blockedReason,
+  });
+
+  factory PayoutRequestResult.fromJson(Map<String, dynamic> row) =>
+      PayoutRequestResult(
+        ok: row['ok'] as bool? ?? false,
+        requestId: row['requestId'] as String?,
+        amountInr: (row['amountInr'] as num?)?.toInt(),
+        accrualCount: (row['accrualCount'] as num?)?.toInt(),
+        blockedReason: row['reason'] as String?,
+      );
+
+  /// True when the request was accepted (accruals claimed into a payout row).
+  final bool ok;
+
+  /// The created payout request id (present only when [ok]).
+  final String? requestId;
+
+  /// ₹ claimed into the request (present only when [ok]).
+  final int? amountInr;
+
+  /// Accruals claimed into the request (present only when [ok]).
+  final int? accrualCount;
+
+  /// The refusal CODE when NOT [ok] (`kyc_not_verified`|`below_threshold`|
+  /// `disabled`).
+  final String? blockedReason;
+
+  @override
+  List<Object?> get props =>
+      <Object?>[ok, requestId, amountInr, accrualCount, blockedReason];
+}
+
+/// One payout request in the agency's OWN history (`GET /payer/agency/payouts`
+/// rows). PII-free: ₹ + opaque id + status enum. `status='paid'` is INERT in
+/// alpha (no real disbursement — the §7 launch gate).
+class AgencyPayout extends Equatable {
+  const AgencyPayout({
+    required this.id,
+    required this.amountInr,
+    required this.accrualCount,
+    required this.status,
+    this.createdAt,
+  });
+
+  factory AgencyPayout.fromJson(Map<String, dynamic> row) => AgencyPayout(
+        id: row['id'] as String? ?? '',
+        amountInr: (row['amountInr'] as num?)?.toInt() ?? 0,
+        accrualCount: (row['accrualCount'] as num?)?.toInt() ?? 0,
+        status: row['status'] as String? ?? 'requested',
+        createdAt: row['createdAt'] as String?,
+      );
+
+  /// Opaque payout-request UUID.
+  final String id;
+
+  /// ₹ of the request.
+  final int amountInr;
+
+  /// Accruals claimed into the request.
+  final int accrualCount;
+
+  /// `requested` | `paid` | `rejected`.
+  final String status;
+
+  /// ISO-8601 created timestamp.
+  final String? createdAt;
+
+  @override
+  List<Object?> get props =>
+      <Object?>[id, amountInr, accrualCount, status, createdAt];
 }
 
 // --- Org / team members (ADR-0027) ----------------------------------------

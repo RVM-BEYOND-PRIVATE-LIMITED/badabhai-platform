@@ -734,8 +734,14 @@ class HttpPayerApiClient implements PayerApiClient {
   @override
   Future<AgencyJobView> pauseAgencyJob(String id) => _agencyLifecycle(id, 'pause');
 
-  /// Shared close/pause POST. A pause returns `status:'closed'` (Phase-1 has no
-  /// `paused` state) — the caller surfaces that honestly.
+  @override
+  Future<AgencyJobView> resumeAgencyJob(String id) =>
+      _agencyLifecycle(id, 'resume');
+
+  /// Shared close/pause/resume POST (`/payer/agency/jobs/:id/<action>`, #1202).
+  /// pause → `paused`, resume → `open`, close → `closed`; each returns the
+  /// updated [AgencyJobView]. A 404 (unknown/not-owned) / 400 (illegal
+  /// transition) surfaces as [PayerApiException].
   Future<AgencyJobView> _agencyLifecycle(String id, String action) async {
     final PayerResponse res =
         await _http.send(PayerMethod.post, '/payer/agency/jobs/$id/$action');
@@ -750,6 +756,86 @@ class HttpPayerApiClient implements PayerApiClient {
     // A non-2xx must not decode to a fabricated all-zero summary shown as real.
     if (!res.isSuccess) throw PayerApiException(res.statusCode);
     return ReferralsSummary.fromJson(res.body);
+  }
+
+  // --- Agency supply-money — KYC · earnings · payouts (AGENT-only, FLAG-GATED)-
+  // Every route is behind `AgencyPayoutsEnabledGuard` → a NEUTRAL 404 while the
+  // launch flag is OFF. We surface EVERY non-2xx (incl. that 404) as a typed
+  // [PayerApiException] so the cubit maps 404 → "not available yet" and 403 →
+  // "agent-only", never a fabricated empty/zero state shown as real.
+
+  @override
+  Future<AgencyKycView> submitAgencyKyc({
+    required String pan,
+    required String bankAccount,
+    required String ifsc,
+    required String accountHolderName,
+  }) async {
+    // snake_case body — the server uppercases + format-validates PAN/IFSC and
+    // encrypts at rest. NEVER a body payer_id (derived from the bearer).
+    final PayerResponse res = await _http.send(
+      PayerMethod.post,
+      '/payer/agency/kyc',
+      body: <String, dynamic>{
+        'pan': pan,
+        'bank_account': bankAccount,
+        'ifsc': ifsc,
+        'account_holder_name': accountHolderName,
+      },
+    );
+    // 400 bad format · 409 PAN already used · 404 flag off · 403 company → typed.
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    return AgencyKycView.fromJson(res.body);
+  }
+
+  @override
+  Future<AgencyKycView> fetchAgencyKyc() async {
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/agency/kyc');
+    // 404 flag off → typed (cubit shows "not available yet"), never a fake
+    // not_submitted decoded from an error body.
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    return AgencyKycView.fromJson(res.body);
+  }
+
+  @override
+  Future<AgencyEarnings> fetchAgencyEarnings() async {
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/agency/earnings');
+    // 404 flag off / 403 company / 5xx → typed, never a fabricated all-zero
+    // earnings view shown as real.
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    return AgencyEarnings.fromJson(res.body);
+  }
+
+  @override
+  Future<PayoutRequestResult> requestAgencyPayout() async {
+    // Empty body — the acting agency is the SESSION payer (bearer), and the
+    // request claims the currently-requestable accruals server-side. MONEY-OUT:
+    // there is NO gateway/card here. The route returns HTTP 200 for BOTH a pass
+    // (`ok:true`) and a gate refusal (`ok:false, blocked, reason`), so a 2xx is
+    // always parsed; only a real non-2xx (404 flag off / 403) is an exception.
+    final PayerResponse res =
+        await _http.send(PayerMethod.post, '/payer/agency/payouts');
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    return PayoutRequestResult.fromJson(res.body);
+  }
+
+  @override
+  Future<List<AgencyPayout>> fetchAgencyPayouts() async {
+    // The list route returns a BARE JSON array — PayerHttp._decode wraps it
+    // under `items`.
+    final PayerResponse res =
+        await _http.send(PayerMethod.get, '/payer/agency/payouts');
+    // 404 flag off / 403 company / 5xx → typed, never a fabricated empty history.
+    if (!res.isSuccess) throw PayerApiException(res.statusCode);
+    final List<dynamic> rows = res.body['items'] is List<dynamic>
+        ? res.body['items'] as List<dynamic>
+        : const <dynamic>[];
+    return rows
+        .whereType<Map<String, dynamic>>()
+        .map(AgencyPayout.fromJson)
+        .toList(growable: false);
   }
 
   // --- Org / team members (ADR-0027) — masked, owner-gated -------------------

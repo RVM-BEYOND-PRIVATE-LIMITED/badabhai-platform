@@ -12,8 +12,9 @@ import 'package:payer_app/core/data/models.dart';
 /// PASS P4a — AGENCY demand (agent-only): agency jobs create/list/lifecycle +
 /// the referral funnel summary, over `HttpPayerApiClient` driven by a mock
 /// `http.Client`. Verifies snake_case IN (trade_key/pay_min/...), camelCase OUT,
-/// the BARE-array list (wrapped under `items` by PayerHttp), the pause GOTCHA
-/// (returns status:'closed'), no body `payer_id`, and the k-anon summary parse.
+/// the BARE-array list (wrapped under `items` by PayerHttp), the REVERSIBLE
+/// pause/resume (#1202: pause → `paused`, resume → `open`), no body `payer_id`,
+/// and the k-anon summary parse.
 class _Router {
   _Router(this.routes);
   final Map<String, http.Response> routes;
@@ -218,17 +219,39 @@ void main() {
       expect(req.body, isEmpty);
     });
 
-    test('pauseAgencyJob GOTCHA — the returned status is "closed"', () async {
+    test('pauseAgencyJob 200 → status paused (#1202, reversible); POST path',
+        () async {
       final h = _harness(<String, http.Response>{
-        // Phase-1 has no `paused` literal: a pause returns status:'closed'.
+        // Since #1202 a pause is reversible: the row comes back status:'paused'.
         'POST /payer/agency/jobs/$_jobId/pause':
-            _json(_row(id: _jobId, status: 'closed')),
+            _json(_row(id: _jobId, status: 'paused')),
       });
 
       final AgencyJobView job = await h.api.pauseAgencyJob(_jobId);
-      expect(job.status, 'closed');
+      expect(job.status, 'paused');
+      expect(job.isPaused, isTrue);
       expect(job.isOpen, isFalse);
-      expect(h.router.seen.single.url.path, '/payer/agency/jobs/$_jobId/pause');
+      expect(job.isClosed, isFalse);
+      final http.Request req = h.router.seen.single;
+      expect(req.method, 'POST');
+      expect(req.url.path, '/payer/agency/jobs/$_jobId/pause');
+      expect(req.body, isEmpty);
+    });
+
+    test('resumeAgencyJob 200 → status open (#1202); POST path, no body',
+        () async {
+      final h = _harness(<String, http.Response>{
+        'POST /payer/agency/jobs/$_jobId/resume':
+            _json(_row(id: _jobId, status: 'open')),
+      });
+
+      final AgencyJobView job = await h.api.resumeAgencyJob(_jobId);
+      expect(job.status, 'open');
+      expect(job.isOpen, isTrue);
+      final http.Request req = h.router.seen.single;
+      expect(req.method, 'POST');
+      expect(req.url.path, '/payer/agency/jobs/$_jobId/resume');
+      expect(req.body, isEmpty);
     });
 
     test('updateAgencyJob sends a snake patch; empty patch throws', () async {

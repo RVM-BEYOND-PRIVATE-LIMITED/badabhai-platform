@@ -248,7 +248,8 @@ abstract class PayerApiClient {
   // --- Agency demand — jobs CRUD + lifecycle (PASS P4a) ---------------------
   // AGENT-only surface (`@PayerRoles('agent')` → 403 for a company session, so
   // these are called ONLY for an agency session). snake_case IN, camelCase OUT.
-  // A pause returns `status:'closed'` (Phase-1 has no `paused` literal).
+  // Status is `open | paused | closed` (#1202): a pause is REVERSIBLE via
+  // resume (`open -> paused -> open`); only a close is terminal.
 
   /// Create an agency job (`POST /payer/agency/jobs` → 201 [AgencyJobView],
   /// starts `open`). Only [tradeKey]/[title]/[city] are required; the rest are
@@ -293,14 +294,63 @@ abstract class PayerApiClient {
   /// unknown / 400 already-closed → [PayerApiException].
   Future<AgencyJobView> closeAgencyJob(String id);
 
-  /// Pause an owned agency job (`POST /payer/agency/jobs/:id/pause`). GOTCHA:
-  /// the returned row's status is `closed` (Phase-1 has no `paused` state — the
-  /// pause differs from close only in the emitted event). Surface honestly.
+  /// Pause an owned agency job (`POST /payer/agency/jobs/:id/pause`, #1202). The
+  /// returned row's status is `paused` — REVERSIBLE via [resumeAgencyJob]. 404
+  /// unknown / 400 not-open (already paused/closed) → [PayerApiException].
   Future<AgencyJobView> pauseAgencyJob(String id);
+
+  /// Resume an owned agency job (`POST /payer/agency/jobs/:id/resume`, #1202) —
+  /// `paused -> open`, the other half of a reversible pause. 404 unknown / 400
+  /// not-paused → [PayerApiException]. A `suspended` job is SYSTEM-owned and
+  /// cannot be resumed by its payer (it stays a 400).
+  Future<AgencyJobView> resumeAgencyJob(String id);
 
   /// The agency referral FUNNEL summary (`GET /payer/agency/referrals/summary`).
   /// AGGREGATE counts only (k-anon floor applied) — no per-worker rows.
   Future<ReferralsSummary> fetchReferralsSummary();
+
+  // --- Agency supply-money — KYC · earnings · payouts (ADR-0022 Amdt 2) ------
+  // AGENT-only AND FLAG-GATED: every route below sits behind
+  // `AgencyPayoutsEnabledGuard`, which returns a NEUTRAL 404 while the launch
+  // flag is OFF (the surface is inert by default). Callers MUST treat a 404 as
+  // an honest "not available yet" state, never a crash/generic error; a 403 is
+  // the agent-only gate (a company session). Money is MOCK server-side; a payout
+  // REQUEST is a plain authed POST — there is NO gateway/card/checkout (money-OUT
+  // withdrawal of earned commission, not money-IN). Reads are masked (last-4).
+
+  /// Submit/replace the agency's KYC
+  /// (`POST /payer/agency/kyc` → 201 masked [AgencyKycView], status `pending`).
+  /// [pan] / [ifsc] are uppercased + format-validated server-side; a 400 (bad
+  /// PAN/IFSC/account), 409 (a PAN already backing another agency), 404 (flag
+  /// off) surface as [PayerApiException]. The raw values are encrypted at rest
+  /// and NEVER echoed — the response only ever carries the last-4.
+  Future<AgencyKycView> submitAgencyKyc({
+    required String pan,
+    required String bankAccount,
+    required String ifsc,
+    required String accountHolderName,
+  });
+
+  /// The agency's OWN masked KYC status (`GET /payer/agency/kyc`). A 404 means
+  /// the surface is flag-gated off; other non-2xx surface as [PayerApiException].
+  Future<AgencyKycView> fetchAgencyKyc();
+
+  /// The agency's earnings + payout-gate state (`GET /payer/agency/earnings`).
+  /// A 404 means flag-gated off (show "not available yet"); other non-2xx
+  /// surface as [PayerApiException].
+  Future<AgencyEarnings> fetchAgencyEarnings();
+
+  /// Request a payout of the currently-requestable accruals
+  /// (`POST /payer/agency/payouts`, empty body → HTTP 200 EITHER way). A pass
+  /// returns `ok:true` + the created request; a gate refusal returns `ok:false`
+  /// + a [PayoutRequestResult.blockedReason] and changes nothing. A 404 (flag
+  /// off) / 403 (company) surface as [PayerApiException]. MONEY-OUT: no gateway.
+  Future<PayoutRequestResult> requestAgencyPayout();
+
+  /// The agency's OWN payout request history (`GET /payer/agency/payouts` — a
+  /// BARE array wrapped under `items` by the transport), newest-first. A 404
+  /// means flag-gated off; other non-2xx surface as [PayerApiException].
+  Future<List<AgencyPayout>> fetchAgencyPayouts();
 
   /// Current credit balance.
   Future<int> fetchCredits();

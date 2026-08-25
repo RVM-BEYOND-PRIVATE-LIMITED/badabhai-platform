@@ -16,9 +16,10 @@ import 'edit_agency_job_screen.dart';
 
 /// My jobs — AGENCY branch. Lists the agency session's own faceless postings
 /// (`GET /payer/agency/jobs`): trade label · title · city/area · pay & experience
-/// bands (if set) · applicants-received · a status pill (open/closed). An open
-/// row offers Pause/Close; a closed row is terminal. Agent-only — the shell only
-/// mounts this for an agency session (the routes 403 for a company).
+/// bands (if set) · applicants-received · a status pill (open/paused/closed). An
+/// open row offers Pause/Close, a PAUSED row offers Resume (#1202, reversible),
+/// and a closed row is terminal. Agent-only — the shell only mounts this for an
+/// agency session (the routes 403 for a company).
 class AgencyJobsView extends StatelessWidget {
   const AgencyJobsView({super.key, required this.onPost});
 
@@ -115,10 +116,13 @@ class _AgencyJobCard extends StatelessWidget {
   final AgencyJobView job;
 
   // Green is reserved for VERIFIED only (kit law); an open posting is an
-  // active/info state, not success green.
-  (String, BbBadgeTone) get _pill => job.isOpen
-      ? ('Open', BbBadgeTone.info)
-      : ('Closed', BbBadgeTone.neutral);
+  // active/info state, not success green. Paused mirrors the company card's
+  // warning tone; closed is neutral/terminal.
+  (String, BbBadgeTone) get _pill => switch (job.status) {
+        'open' => ('Open', BbBadgeTone.info),
+        'paused' => ('Paused', BbBadgeTone.warning),
+        _ => ('Closed', BbBadgeTone.neutral),
+      };
 
   Future<void> _run(
     BuildContext context,
@@ -197,8 +201,9 @@ class _AgencyJobCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.s3),
           ..._actions(context),
-          // Edit the posting — open jobs only (a closed job is terminal).
-          if (job.isOpen) ...<Widget>[
+          // Edit the posting — open OR paused (a closed job is terminal, and the
+          // server rejects a PATCH on a closed row).
+          if (!job.isClosed) ...<Widget>[
             const SizedBox(height: AppSpacing.s2),
             BbButton(
               label: 'Edit details',
@@ -229,6 +234,7 @@ class _AgencyJobCard extends StatelessWidget {
   }
 
   List<Widget> _actions(BuildContext context) {
+    final String id = job.id;
     if (job.isClosed) {
       return <Widget>[
         Text(
@@ -240,7 +246,23 @@ class _AgencyJobCard extends StatelessWidget {
         ),
       ];
     }
-    final String id = job.id;
+    // A PAUSED row offers a single loud Resume (#1202) — mirrors the company
+    // card's paused affordance (navy commitment, keeps the header 'Post' as the
+    // view's sole haldi).
+    if (job.isPaused) {
+      return <Widget>[
+        BbButton(
+          label: 'Resume',
+          variant: BbButtonVariant.navy,
+          size: BbButtonSize.md,
+          iconLeft: Icons.play_arrow,
+          block: true,
+          onPressed: () =>
+              _run(context, (AgencyJobsCubit c) => c.resumePosting(id)),
+        ),
+      ];
+    }
+    // Open — Pause (reversible) or Close (terminal).
     return <Widget>[
       Row(
         children: <Widget>[
