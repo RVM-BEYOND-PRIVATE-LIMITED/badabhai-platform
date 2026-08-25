@@ -228,7 +228,7 @@ total AI spend across all of them was zero.** Each is one PR, merged and verifie
 Nine tripwires now fail if a finding silently changes: the dry-run's absent write path, the
 inheritance invariants, the promotable-vs-bridge gap (96/96 outside `SKILL_CORPUS`), the
 coded-occupation protection, cross-domain alias collisions, the zero romanized-Hindi coverage,
-the 22 undelivered ratified aliases, the two widening crosswalks, and evidence provenance.
+the ratified-alias delivery path, the two widening crosswalks, and evidence provenance.
 
 ---
 
@@ -246,7 +246,7 @@ is blocked on one of the four things an agent must not decide for itself.
 | **Q1** | who owns the attribute→match mapping | **96 of 96** promotable skills are outside `SKILL_CORPUS`; promotion would make them active and reach nothing, **failing no test** | require a mapping or an explicit "not matched" per promotable skill |
 | **0.75 floor** | keep or move | Hindi and English paraphrase sit at the same distance from it; for single-word vernacular the correct answers **interleave with the negatives** (`chhilai` 0.5284 < `biryani banana` 0.5427) | **keep** — no threshold separates them; the fix is the corpus |
 | **`NO_REGRESSION`** | fixture-version semantics | rejects on version mismatch before comparing scores | unchanged — decision recorded separately |
-| **D6-0** | ship the 22 ratified vernacular aliases | ratified 2026-07-16, none struck, **none delivered**; nothing consumes `WEDGE_ALIASES`; measured ~0.55 UNRESOLVED → ≈1.0 exact | **highest value available** — the human judgement is already spent |
+| **D6-0** | ~~ship the 22 ratified vernacular aliases~~ **— already shipped 2026-07-16** | all 22 live in `skill_alias` and embedded (measured 2026-08-24). The earlier "none delivered" claim was wrong. | authorize the **re-sweep** (~INR 0.003) — the effect has never been measured |
 | **D-7 A** | should `skill_boring` inherit `mskill_cnc_turner` | bridge maps boring to `[]` deliberately; TD-03 routes it to turning | re-point, or accept explicitly. **Dormant** until a seed run |
 | **D-7 B** | should `skill_chassis_fitting` inherit `mskill_fitter` | same shape, **and live in production today** | rule before the next `db:retag:skills` |
 | **D-7 C** | seed the 4 corpus deprecations | 4 rows drift; the seeder warns `--preserve-existing-status` is mandatory | not until A and B are ruled on — seeding arms the dormant hazard |

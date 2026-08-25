@@ -27,9 +27,13 @@ Three findings dominate the decision surface:
 2. **One live crosswalk can invent a match claim.** `skill_chassis_fitting` is deprecated in
    production with a pointer to a skill that maps to `mskill_fitter`; the next
    `db:retag:skills` acts on it. (§6)
-3. **The cheapest available win is already approved and undelivered.** 22 vernacular aliases
-   ratified 2026-07-16, measured to convert ~0.55 UNRESOLVED into ≈1.0 exact, cost to ship
-   **≈₹0.002**. (§5)
+3. ~~**The cheapest available win is already approved and undelivered.**~~ **CORRECTED
+   2026-08-24 — the 22 vernacular aliases shipped on 2026-07-16 and are all embedded.**
+   Decision 1 is void as written (§5). Verifying that turned up something worse: **only 8 of
+   the 22 are reachable on the slug production actually queries, and two are assigned to the
+   WRONG skill above the 0.75 floor** — caused by another of the 22. The floor's recorded
+   calibration was measured before these aliases existed and no longer holds. Armed but not
+   firing: `skill_canonicalize_enabled` is `False`. (§5a)
 
 The programme is no longer blocked on knowing things. It is blocked on deciding them.
 
@@ -42,8 +46,9 @@ The programme is no longer blocked on knowing things. It is blocked on deciding 
 Stated as "prepared against" rather than "current" on purpose: `main` advances independently of
 this document — it already has, via #1204 — and a bare SHA labelled *current* becomes wrong
 without anyone editing it. Every measurement below carries its own date, and the artifacts
-carry `measured_at` (§14, tripwire 9). **No finding here depends on a commit later than
-`24ed3ea0`**, and none of the eight decisions is affected by unrelated work landing on `main`.
+carry `measured_at` (§14, tripwire 9). Most findings here are anchored to that commit. **Two are not:** the §5 correction and §5a rest
+on production measurements taken 2026-08-24 and on code landed after `24ed3ea0`. Both say so
+in place.
 
 ## 3. Current gate state — unchanged, and not to be touched
 
@@ -77,9 +82,49 @@ PROMOTION CANDIDATES    0
 
 ---
 
-## 5. DECISION 1 — D6-0: ship the 22 RVM-ratified vernacular aliases
+## 5. DECISION 1 — ~~D6-0: ship the 22 RVM-ratified vernacular aliases~~ → **VOID; measure them instead**
 
-### FACTS
+> ### This decision was built on a false premise. Corrected 2026-08-24.
+>
+> **MEASURED, read-only against production:** all 22 ratified aliases are present in
+> `skill_alias`, all 22 carry a `gemini-embedding-001` vector, every target skill is `active`,
+> and every row has a `domain_id` so the legacy retrieval path reaches them. 21 were created
+> **2026-07-16 — the ratification date**; `drawing padhna` on 2026-08-20 (the Q-B remap).
+>
+> **There is nothing to ship and nothing to spend.** The authorized production write and the
+> ₹0.002 embedding allowance are both unnecessary and were not used.
+>
+> **How the packet came to say otherwise.** Three compounding errors, recorded because the
+> failure was in reasoning, not transcription:
+> 1. I checked `SKILL_CORPUS` alias arrays and `data/taxonomy/skills.jsonl`, found the phrases
+>    in neither, and concluded "undelivered". **Neither is where a delivered alias lives.**
+>    `skill_alias` is, and I never queried it.
+> 2. I grepped for the identifier `WEDGE_ALIASES` to find a consumer. The seeder consumes the
+>    accessor `ratifiedWedgeAliases()` — the wire was fully connected and the grep missed it.
+> 3. `skill-vernacular-ratification-packet.md` marked seed and embed "PENDING the SR-1 staging
+>    env". That line was five weeks stale and corroborated the wrong answer. It is now fixed at
+>    source, with a dated status banner.
+>
+> **What genuinely remains — step 5, the re-sweep.** The only wedge scores on disk are
+> `scores_2026_07_14.json`, which *predates* the ratification. So the widely-quoted **0.350
+> recall is the pre-alias number and is not the shipped state.** Measuring it needs ~33 query
+> embeddings, **≈₹0.003 — not covered by the Task 16 allowance**, which was scoped to "these 22
+> aliases only". That is Task 22, and it needs its own authorization.
+>
+> **Everything below this banner — FACTS, MEASURED EVIDENCE, the delivery plan, RISK, OPTIONS
+> and RECOMMENDATION — is retained unedited as the record of what was believed, and NONE of it
+> should be quoted.** Known-false lines include: "nothing consumes `WEDGE_ALIASES`"; "Requires a
+> seeder that consumes `WEDGE_ALIASES` — none exists today"; "Expected AI cost ≈INR 0.002"
+> (already spent); "collision … Not yet measured" (measured — 8 pinned, 1 involving a wedge
+> alias); and the Q-B attribution (the 2026-07-16 ruling was `skill_cad_interpretation`;
+> `skill_drawing_reading` is the 2026-08-18 TD-01 repoint). The label **MEASURED EVIDENCE** on
+> that block is itself wrong — it was repository inspection, not a production measurement.
+>
+> **And delivery did not achieve D6-0's purpose.** Measured 2026-08-24: only **8 of 22** aliases
+> are reachable on the slug production queries, and **two are assigned to the wrong skill above
+> the floor**. See §5a.
+
+### FACTS (as originally written — premise now known false)
 Ratified by the RVM domain owner on **2026-07-16**, all 22, none struck, with two explicit
 rulings (Q-A `chhilai` → `skill_deburring`; Q-B `drawing padhna` → `skill_drawing_reading`).
 They live in `packages/taxonomy/src/wedge-aliases.ts` as `WEDGE_ALIASES`, every entry
@@ -125,6 +170,76 @@ existing `skill_alias` corpus should be part of the runner, failing closed.
 including two rulings — was spent five weeks ago. What remains costs about two-tenths of a
 paisa and is reversible by deleting rows. Waiting preserves a state where the corpus provably
 cannot hear the shop floor.
+
+### OWNER DECISION: PENDING
+
+---
+
+## 5a. NEW — the shipped aliases mostly do not retrieve, and two cause a false assignment
+
+**MEASURED 2026-08-24, read-only, zero AI spend.** Reproduce: `pnpm db:audit:anchor-path`.
+Artifact: [`d60-anchor-path-retrieval.json`](../registers/taxonomy-decisions/d60-anchor-path-retrieval.json).
+
+### FACTS
+`skill_alias` retrieval is **scoped by a legacy slug**, and both live call sites pass the same
+one until per-label domain resolution (TAX-6) lands:
+
+```
+apps/api/src/job-postings/job-postings.service.ts:46   LEGACY_ANCHOR_SKILL_DOMAIN   = "cnc-machining"
+apps/ai-service/app/config.py:389                      skill_canonicalize_default_domain = "cnc-machining"
+```
+
+The 22 ratified aliases are spread across **eight** slugs. Only those in `cnc-machining` are
+ever in the candidate pool.
+
+### MEASURED EVIDENCE
+Each alias scored using **its own stored vector** as the query — the most favourable input
+possible, so a miss here is definitive. Candidate pool 37 rows.
+
+```
+reachable on the queried scope   8 / 22
+wrong answers                   14
+…of which ABOVE the 0.75 floor   2      <- would be ASSIGNED, not left unresolved
+anchor-path negative ceiling     0.7760
+```
+
+| alias | resolves to | score | via |
+|---|---|---:|---|
+| `welding ka kaam` | **`skill_drilling`** (want `skill_welder_occupation`) | **0.7760** | `drilling ka kaam` |
+| `fitting ka kaam` | **`skill_drilling`** (want `skill_bench_fitting`) | **0.7621** | `drilling ka kaam` |
+
+**The alias causing both is `drilling ka kaam` — one of the 22 itself.** The shared Hinglish
+particle `ka kaam` dominates the vector, and D-6 established that the skill path applies no
+particle stripping. The 22 aliases interfere with each other.
+
+### RISK — the floor's recorded calibration no longer holds
+`config.py:380-383` states: *"ANCHOR-path negative ceiling 0.7263 — 0.75 clears all three
+(next TP 0.7815)"*, measured on `scores_2026_07_14.json`, **before these aliases existed**. The
+measured ceiling is now **0.7760**, above the floor. The same comment instructs *"Re-sweep on
+any corpus/model change"* — the corpus changed on 2026-07-16 and the sweep has never re-run.
+That is precisely why this went unnoticed.
+
+**Mitigation, and it is real:** `skill_canonicalize_enabled` defaults to **`False`**, so no
+production traffic reaches this path today. The defect is armed, not firing.
+
+**This is not an argument to move the floor**, and moving it would make things worse in both
+directions. It is evidence that the corpus changed underneath a calibration nobody re-ran.
+
+### OPTIONS
+- **A.** Re-domain the affected alias rows, or land TAX-6 per-label domain resolution, so each
+  alias is queried in its own slug. Measured: scoped to its own slug, reachability is **22/22**.
+- **B.** De-elect the interfering vector — null the embedding on `drilling ka kaam` — using the
+  D2 de-collision precedent. Narrow; removes both false assignments; costs one alias's reach.
+- **C.** Re-sweep first and decide with a full picture (~₹0.003).
+- **D.** Do nothing while `skill_canonicalize_enabled` stays false, and treat this as a
+  precondition on the flag flip rather than a defect to fix now.
+
+### RECOMMENDATION
+**C then A.** The measurement is cheap and the fix is structural; B is a workaround for a
+scoping problem. Whatever is chosen, **A or B must precede any flip of
+`skill_canonicalize_enabled`** — flipping it today assigns two wrong skills.
+
+**Every option is a production mutation or a paid run. None is actioned here.**
 
 ### OWNER DECISION: PENDING
 
@@ -612,7 +727,7 @@ application pooling. Every runner already uses `max: 1`.
 Ordering is load-bearing in two places — marked ⚠.
 
 ```
-1.  Decision 1  D6-0 ship 22 aliases          independent, ≈₹0.002, reversible
+1.  Decision 1  D6-0 — VOID, already shipped  nothing to do; re-sweep needs ≈INR 0.003 (Task 22)
 2.  Decision 2  D-7B chassis_fitting ruling   ⚠ before any db:retag:skills
 3.  Decision 3  D-7A boring ruling            ⚠ before any db:seed:skills
 4.  Decision 4  D-7C seed the four            only after 2 AND 3
@@ -639,7 +754,7 @@ would satisfy the gates and still deliver no matching value.
 
 ---
 
-## Tripwires — preserve all nine
+## Tripwires — preserve all ten
 
 Each fails if a finding silently changes. They are evidence architecture, not tests of code.
 
@@ -651,9 +766,10 @@ Each fails if a finding silently changes. They are evidence architecture, not te
 | 4 | `junk-label-classifier.test.ts` | a coded occupation can never be classified disposable |
 | 5 | `audit-junk-domain-labels` classifier | cross-domain alias collisions outrank good shape |
 | 6 | `vernacular-coverage.test.ts` | zero romanized-Hindi coverage in the gate-bearing fixture |
-| 7 | `wedge-alias-delivery.test.ts` | the 22 ratified aliases remain undelivered |
+| 7 | `wedge-alias-delivery.test.ts` | **the delivery path stays wired** — the seeder must keep consuming `ratifiedWedgeAliases()`, plus 8 pinned latent alias collisions *(rewritten 2026-08-24: it previously asserted the aliases were undelivered, which was false)* |
 | 8 | `crosswalk-integrity-corpus.test.ts` | exactly two widening crosswalks, pinned by name |
 | 9 | `evidence-provenance.test.ts` | every committed artifact says when it was true |
+| 10 | `anchor-path-retrieval.test.ts` | 8/22 reachable and the two above-floor mis-assignments *(added 2026-08-24)* |
 
 Several are pinned **two-way**: fixing the finding also fails the test, in the commit that
 earns the change. That is intentional — it makes a resolution deliberate rather than silent.

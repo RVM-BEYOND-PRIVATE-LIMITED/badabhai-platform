@@ -1,0 +1,215 @@
+{
+  "kind": "anchor-path-retrieval",
+  "measured_at": "2026-08-25T09:58:24.211Z",
+  "source": "pnpm db:audit:anchor-path",
+  "target": "SUPABASE (remote)",
+  "read_only": true,
+  "population_predicate": "ratifiedWedgeAliases() scored against skill_alias WHERE domain_id = 'cnc-machining'",
+  "scope": "cnc-machining",
+  "floor": 0.75,
+  "candidate_pool": 37,
+  "reachable": 8,
+  "total": 22,
+  "misassigned_above_floor": 2,
+  "anchor_path_negative_ceiling": 0.776,
+  "probes": [
+    {
+      "alias": "kharad",
+      "wanted": "skill_turning",
+      "got": "skill_turning",
+      "score": 1,
+      "via": "kharad",
+      "correct": true,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "kharad ka kaam",
+      "wanted": "skill_turning",
+      "got": "skill_turning",
+      "score": 1,
+      "via": "kharad ka kaam",
+      "correct": true,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "chhilai",
+      "wanted": "skill_deburring",
+      "got": "skill_tapping_threading",
+      "score": 0.63598127794043,
+      "via": "chudi katna",
+      "correct": false,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "chhed karna",
+      "wanted": "skill_drilling",
+      "got": "skill_drilling",
+      "score": 1,
+      "via": "chhed karna",
+      "correct": true,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "drilling ka kaam",
+      "wanted": "skill_drilling",
+      "got": "skill_drilling",
+      "score": 1,
+      "via": "drilling ka kaam",
+      "correct": true,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "chudi katna",
+      "wanted": "skill_tapping_threading",
+      "got": "skill_tapping_threading",
+      "score": 1,
+      "via": "chudi katna",
+      "correct": true,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "ghisai",
+      "wanted": "skill_grinding_ops",
+      "got": "skill_tapping_threading",
+      "score": 0.570522495570484,
+      "via": "chudi katna",
+      "correct": false,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "ghisai ka kaam",
+      "wanted": "skill_grinding_ops",
+      "got": "skill_turning",
+      "score": 0.728184320682757,
+      "via": "kharad ka kaam",
+      "correct": false,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "finishing ka kaam",
+      "wanted": "skill_deburring",
+      "got": "skill_drilling",
+      "score": 0.729805296344041,
+      "via": "drilling ka kaam",
+      "correct": false,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "job setting",
+      "wanted": "skill_fixture_setup",
+      "got": "skill_fixture_setup",
+      "score": 1,
+      "via": "job setting",
+      "correct": true,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "setting karna",
+      "wanted": "skill_fixture_setup",
+      "got": "skill_fixture_setup",
+      "score": 1,
+      "via": "setting karna",
+      "correct": true,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "program banana",
+      "wanted": "skill_cnc_programming",
+      "got": "skill_turning",
+      "score": 0.565994177221906,
+      "via": "turning",
+      "correct": false,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "program sudharna",
+      "wanted": "skill_program_editing",
+      "got": "skill_fixture_setup",
+      "score": 0.640851042219945,
+      "via": "setting karna",
+      "correct": false,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "drawing padhna",
+      "wanted": "skill_drawing_reading",
+      "got": "skill_drawing_reading",
+      "score": 1,
+      "via": "drawing padhna",
+      "correct": true,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "naap tol",
+      "wanted": "skill_measuring_instruments",
+      "got": "skill_turning",
+      "score": 0.607353687286377,
+      "via": "kharad",
+      "correct": false,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "micrometer se naapna",
+      "wanted": "skill_measuring_instruments",
+      "got": "skill_turning",
+      "score": 0.607600974130514,
+      "via": "kharad ka kaam",
+      "correct": false,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "quality check karna",
+      "wanted": "skill_quality_control",
+      "got": "skill_fixture_setup",
+      "score": 0.726121176578789,
+      "via": "setting karna",
+      "correct": false,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "welding ka kaam",
+      "wanted": "skill_welder_occupation",
+      "got": "skill_drilling",
+      "score": 0.77603404379094,
+      "via": "drilling ka kaam",
+      "correct": false,
+      "misassignedAboveFloor": true
+    },
+    {
+      "alias": "gas se katna",
+      "wanted": "skill_gas_cutting",
+      "got": "skill_tapping_threading",
+      "score": 0.737906857604198,
+      "via": "chudi katna",
+      "correct": false,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "chadar ka kaam",
+      "wanted": "skill_sheet_metal",
+      "got": "skill_turning",
+      "score": 0.726297752481834,
+      "via": "kharad ka kaam",
+      "correct": false,
+      "misassignedAboveFloor": false
+    },
+    {
+      "alias": "fitting ka kaam",
+      "wanted": "skill_bench_fitting",
+      "got": "skill_drilling",
+      "score": 0.762056276920813,
+      "via": "drilling ka kaam",
+      "correct": false,
+      "misassignedAboveFloor": true
+    },
+    {
+      "alias": "machine ki marammat",
+      "wanted": "skill_machine_maintenance",
+      "got": "skill_drilling",
+      "score": 0.695441979441526,
+      "via": "drilling ka kaam",
+      "correct": false,
+      "misassignedAboveFloor": false
+    }
+  ]
+}

@@ -127,7 +127,8 @@ clears all ceilings: labeled-negative 0.598, sibling-confusion 0.722, anchor-neg
 wedge aliases are REQUIRED and **RATIFIED 22/22 (2026-07-16, RATIFY-1)** — gate (d)
 CLOSED via the [ratification packet](../registers/skill-vernacular-ratification-packet.md)
 (Q-A chhilai → `skill_deburring`, Q-B drawing padhna → `skill_cad_interpretation`);
-seed/embed/re-sweep pend the SR-1 env, so the committed sweep recall stays 0.350 until
+seed/embed/re-sweep pend the SR-1 env, so the committed sweep recall stays 0.350 until  
+> **Status corrected 2026-08-24:** seed and embed RAN on 2026-07-16; only the **re-sweep** is outstanding, so the 0.350 figure is the pre-alias number. See `docs/registers/skill-vernacular-ratification-packet.md`. 
 then. Re-sweep on any corpus/model change (`embed_wedge.py` →
 `score-wedge.ts`); `pytest -k wedge` locks the conclusions offline. **Do NOT** seed
 non-launch trades (TAX-7/8) or touch ranking. Files: `packages/taxonomy/src/wedge-aliases.*`,

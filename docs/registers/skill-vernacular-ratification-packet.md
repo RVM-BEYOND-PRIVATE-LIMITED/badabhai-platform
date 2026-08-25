@@ -7,9 +7,27 @@ finishing; joins "finishing ka kaam" as a second alias on the same skill — exp
 reading CAD/digital models on their floors). Every entry now carries `ratified: true` in
 [`packages/taxonomy/src/wedge-aliases.ts`](../../packages/taxonomy/src/wedge-aliases.ts)
 and `wedge-aliases.test.ts` pins the exact ratified set (22/22 + both remaps) — the human
-decision is visible in that diff. **Seed / embed / re-sweep remain PENDING the SR-1
+decision is visible in that diff. ~~**Seed / embed / re-sweep remain PENDING the SR-1
 staging env (ADR-0030 gates (b)/(e))**: ratified aliases seed with NULL embeddings, so
-the committed sweep recall stays **0.350** until the real-embed + re-sweep run.
+the committed sweep recall stays **0.350** until the real-embed + re-sweep run.~~
+**← STRUCK 2026-08-24: false since 2026-07-16.** Seed and embed ran on the ratification
+date. **Only the re-sweep is pending**, so 0.350 is the pre-alias number and must not be
+quoted as the shipped state. This sentence was quoted as corroboration by two downstream
+documents and produced a wrong finding in both.
+
+> ### Status correction — 2026-08-24
+>
+> **Steps 3 and 4 below were marked PENDING and had in fact already run.** Measured read-only
+> against production on 2026-08-24: all 22 aliases exist in `skill_alias`, all 22 embedded,
+> 21 created `2026-07-16` (the ratification date) and `drawing padhna` on `2026-08-20`.
+>
+> Only **step 5, the re-sweep, is genuinely outstanding**. The historical body below is left
+> unedited apart from the three step lines; the measurement it records is still accurate for
+> 2026-07-14.
+>
+> This stale PENDING marker caused a downstream error: `d6-vernacular-gap-plan.md` §2B
+> concluded the aliases were "never shipped" and the owner-decision packet carried that as its
+> highest-value recommendation. Both are corrected.
 
 ## Why (measured, 2026-07-14, real vectors)
 
@@ -56,14 +74,17 @@ worker's `kharad` landing on their profile vs. sitting in the growth queue.
 2. **DONE 2026-07-16** (RATIFY-1) — all 22 entries flipped to `ratified: true` in
    `wedge-aliases.ts`; `wedge-aliases.test.ts` now pins the exact ratified set in the
    same diff.
-3. **PENDING (SR-1 env):** `pnpm build && NODE_ENV=staging pnpm db:seed:skills` — only
-   ratified rows insert.
-4. **PENDING (SR-1 env):** `pnpm db:embed:skills` — real vectors for the new rows (SG-4
-   env per the [SR-1 runbook](../ai/skill-embedding-staging-runbook.md)).
-5. **PENDING (SR-1 env):** re-run the sweep (`embed_wedge.py` → `score-wedge.ts`),
-   commit the new snapshot, and update
-   `test_vernacular_tier_is_below_floor_until_wedge_aliases_land` — the vernacular tier
-   should then ASSIGN at the floor. Until this runs, the committed recall stays 0.350.
+3. **DONE 2026-07-16** — `db:seed:skills`; all 22 ratified rows are in production
+   `skill_alias`. *(Status corrected 2026-08-24; this line read PENDING for five weeks
+   after the step had run.)*
+4. **DONE 2026-07-16** — `db:embed:skills`; all 22 carry a `gemini-embedding-001` vector.
+   *(Same correction. `drawing padhna` is dated 2026-08-20 — the Q-B remap.)*
+5. **STILL PENDING** — re-run the sweep (`embed_wedge.py` → `score-wedge.ts`), commit the
+   new snapshot, and update `test_vernacular_tier_is_below_floor_until_wedge_aliases_land`.
+   **This is the only step that genuinely has not run:** the sole scores file on disk is
+   `scores_2026_07_14.json`, which predates the ratification, **so the committed recall of
+   0.350 is still the pre-alias number and must not be quoted as the shipped state.**
+   Needs a paid embedding run for the wedge phrases (~₹0.003).
 
 **Rollback:** delete the alias rows (ids are deterministic) or flip `ratified` back —
 the immutable skill ids are untouched either way (SG-5).
