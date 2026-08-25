@@ -319,8 +319,10 @@ export async function topUp(input: {
   /**
    * Optional per-purchase idempotency key (#1046). The SAME key across a re-tap of ONE
    * purchase makes the backend charge once and replay the first result; a duplicate landing
-   * while the first is still in flight answers 409 → surfaced as {@link PurchaseConflictError}
-   * so the caller RE-READS the real balance instead of re-posting or guessing a number.
+   * while the first is still in flight answers 409 → surfaced as {@link PurchaseConflictError}.
+   * A 409 means the first attempt is STILL running (uncommitted, may still throw), NOT that it
+   * completed (#1185) — the caller treats it as pending and may re-read the CURRENT balance for
+   * display, but never re-posts, never guesses a number, and never claims the purchase is done.
    */
   idempotencyKey?: string;
 }): Promise<TopUpResult | null> {

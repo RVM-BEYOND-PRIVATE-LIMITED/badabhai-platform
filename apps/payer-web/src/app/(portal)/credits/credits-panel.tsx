@@ -86,15 +86,21 @@ export function CreditsPanel({ packs, real = false }: { packs: CreditPack[]; rea
       const res = await topUpAction({ packCode: pack.code, idempotencyKey });
       setPendingCode(null);
       if (res.ok) {
-        // The purchase is DONE — drop the key so a genuine next buy mints a fresh one.
+        // TERMINAL success — the purchase is DONE. Drop the key so a genuine next buy mints a fresh one.
         purchaseKeyRef.current = null;
-        if ("duplicate" in res) {
-          // A 409 replay: the first tap already added the credits. The balance is the REAL
-          // re-read figure (server-side GET), never a guessed delta — so show it, don't invent one.
-          setNotice(`Already added — your balance is now ${res.balance} credits.`);
-        } else {
-          setMessage(`Added ${res.creditsAdded} credits. New balance: ${res.balance}.`);
-        }
+        setMessage(`Added ${res.creditsAdded} credits. New balance: ${res.balance}.`);
+        router.refresh();
+      } else if ("pending" in res) {
+        // A 409 DUPLICATE-IN-FLIGHT (#1185): the FIRST attempt is still running and MAY STILL THROW —
+        // this is NOT a completed purchase, so it is NOT a success toast. Show a NEUTRAL processing
+        // notice (the balance, if re-read, is current-not-final). KEEP the key so a re-tap replays
+        // the SAME key and the backend dedupes it — clearing it here would mint a new key and could
+        // double-charge (the exact regression #1178 fixed).
+        setNotice(
+          typeof res.balance === "number"
+            ? `Purchase is still processing. Your balance shows ${res.balance} credits for now — check again in a moment.`
+            : "Purchase is still processing — check your balance in a moment.",
+        );
         router.refresh();
       } else {
         // KEEP the key: the next tap of this SAME pack replays it and the server dedupes.

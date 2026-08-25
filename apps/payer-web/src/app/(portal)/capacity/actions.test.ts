@@ -120,7 +120,7 @@ describe("upgradeCapacityAction — neutral failure (no fake success, no leaked 
     buyCapacity.mockResolvedValueOnce({ ok: false, error: "Capacity upgrade failed. Please retry." });
     const res = await upgradeCapacityAction({ tier: "growth" });
     expect(res.ok).toBe(false);
-    if (!res.ok) {
+    if (!res.ok && "error" in res) {
       // No-oracle / faceless: no role name, deny cause, or PII-looking key in the error.
       expect(res.error).not.toMatch(/payer_id|forbidden|employer|agent|consent|phone|email/i);
     }
@@ -129,12 +129,14 @@ describe("upgradeCapacityAction — neutral failure (no fake success, no leaked 
 });
 
 /**
- * IDEMPOTENCY + 409 RE-READ (#1165 / #1148). The action threads the client-minted per-purchase key
- * to the seam, and on the 409 a duplicate-in-flight capacity purchase gets it RE-READS the real
- * allowance (`getCapacity`) rather than re-posting (which would double-fire the payment/coupon
- * spine) or rendering a guessed figure.
+ * IDEMPOTENCY + 409 = PENDING, not done (#1185, correcting #1165/#1148). The action threads the
+ * client-minted per-purchase key to the seam. The backend 409s ONLY while the FIRST attempt is
+ * still in flight (uncommitted, may still throw) — so a 409 is "still processing, outcome UNKNOWN",
+ * NOT a completed purchase. The action RE-READS the CURRENT allowance for display but returns a
+ * NON-terminal `pending` result (never `ok:true`), and must never re-POST (that would double-fire
+ * the payment/coupon spine).
  */
-describe("upgradeCapacityAction — Idempotency-Key threading + 409 re-read (#1165)", () => {
+describe("upgradeCapacityAction — Idempotency-Key threading + 409 = pending (#1185)", () => {
   const KEY = "5f9d1c2e-1a2b-4c3d-8e4f-0a1b2c3d4e5f"; // a client crypto.randomUUID()
 
   it("forwards a well-formed idempotency key to the seam (alongside the tier CODE)", async () => {
@@ -161,31 +163,31 @@ describe("upgradeCapacityAction — Idempotency-Key threading + 409 re-read (#11
     expect(buyCapacity).toHaveBeenCalledWith({ tier: "growth", idempotencyKey: undefined });
   });
 
-  it("a 409 (PurchaseConflictError) RE-READS the real allowance and renders NO guessed number — no second POST", async () => {
+  it("a 409 is NON-terminal PENDING — never ok:true, re-reads the CURRENT allowance, no second POST", async () => {
     buyCapacity.mockRejectedValueOnce(new PurchaseConflictError());
-    getCapacity.mockResolvedValueOnce({ activeVacancyAllowance: 10 }); // the REAL post-grant allowance
+    getCapacity.mockResolvedValueOnce({ activeVacancyAllowance: 10 }); // the CURRENT (not-final) allowance
     const res = await upgradeCapacityAction({ tier: "growth", idempotencyKey: KEY });
 
-    // The real re-read allowance is surfaced, flagged duplicate, with NO fabricated resumedCount.
-    expect(res).toEqual({ ok: true, allowance: 10, duplicate: true });
-    if (res.ok) expect(res).not.toHaveProperty("resumedCount"); // never a guessed number
+    // A 409 = "still running, outcome unknown": NOT a completed purchase — never a terminal success.
+    expect(res).toEqual({ ok: false, pending: true, allowance: 10 });
+    expect(res.ok).toBe(false);
+    expect(res).not.toHaveProperty("duplicate"); // the old false-terminal-success shape is gone
+    expect(res).not.toHaveProperty("resumedCount"); // never a guessed number
 
     // Exactly ONE capacity POST (buyCapacity), then a GET re-read — never a re-POST.
     expect(buyCapacity).toHaveBeenCalledTimes(1);
     expect(getCapacity).toHaveBeenCalledTimes(1);
-    // The view is revalidated so the page reflects the (already-committed) real allowance.
+    // The view is revalidated so the page reflects the CURRENT allowance (still current-not-final).
     expect(revalidatePath).toHaveBeenCalledWith("/capacity");
   });
 
-  it("a 409 whose re-read ALSO blips returns a neutral 'processing' line — never a fabricated allowance", async () => {
+  it("a 409 whose re-read ALSO blips stays PENDING with no figure — never ok:true, never a fabricated allowance", async () => {
     buyCapacity.mockRejectedValueOnce(new PurchaseConflictError());
     getCapacity.mockRejectedValueOnce(new Error("boom"));
     const res = await upgradeCapacityAction({ tier: "growth", idempotencyKey: KEY });
+    expect(res).toEqual({ ok: false, pending: true });
     expect(res.ok).toBe(false);
-    if (!res.ok) {
-      expect(res.error).toMatch(/being processed|refresh/i);
-      expect(res.error).not.toMatch(/payer_id|forbidden|\d{2,}/i); // no leak, no invented number
-    }
+    expect(res).not.toHaveProperty("allowance"); // no invented number
     expect(buyCapacity).toHaveBeenCalledTimes(1); // no re-POST
   });
 });

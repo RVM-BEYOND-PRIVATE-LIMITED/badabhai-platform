@@ -18,11 +18,24 @@ import type { CapacityTier } from "./capacity-panel";
 
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
+// The setter for each useState slot from the LAST render, so a test can assert WHICH toast a
+// handler set. useState order in capacity-panel: 0 pendingCode, 1 pendingConfirm, 2 message,
+// 3 error, 4 notice.
+let stateSetters: ReturnType<typeof vi.fn>[] = [];
+const MESSAGE_IDX = 2;
+const ERROR_IDX = 3;
+const NOTICE_IDX = 4;
 const useState = vi.fn((initial: unknown) => {
   const i = stateCursor++;
   const seeded = i < stateQueue.length ? stateQueue[i] : initial;
-  return [seeded, vi.fn()] as [unknown, (v: unknown) => void];
+  const setter = vi.fn();
+  stateSetters[i] = setter;
+  return [seeded, setter] as [unknown, (v: unknown) => void];
 });
+/** The first argument of every call to a captured setter, in order. */
+function argsOf(setter: ReturnType<typeof vi.fn>): unknown[] {
+  return setter.mock.calls.map((c) => c[0]);
+}
 const useTransition = vi.fn((): [boolean, (cb: () => void) => void] => [false, (cb) => cb()]);
 let keyBox: { current: unknown };
 const useRef = vi.fn(() => keyBox);
@@ -97,6 +110,7 @@ beforeEach(() => {
   useState.mockClear();
   useTransition.mockClear();
   useRef.mockClear();
+  stateSetters = [];
   upgradeCapacityAction.mockReset();
   routerRefresh.mockReset();
   keyBox = { current: null };
@@ -142,5 +156,36 @@ describe("capacity panel — a genuinely NEW purchase (b) mints a FRESH key", ()
     expect(keys[0]).toBe("key-1");
     expect(keys[1]).toBe("key-2");
     expect(keys[0]).not.toBe(keys[1]);
+  });
+});
+
+/**
+ * A 409 = PENDING, not done (#1185). The action returns a NON-terminal `{ ok:false, pending:true }`
+ * for a duplicate-in-flight 409. The panel must render it as a NEUTRAL processing notice (never a
+ * success toast) and must KEEP the idempotency key so a re-tap replays it — clearing it here would
+ * mint a new key and could double-fire the payment/coupon spine (the regression #1178 fixed).
+ */
+describe("capacity panel — a 409 PENDING is honest + KEEPS the key (#1185)", () => {
+  it("does NOT clear the key on a pending 409 — a re-tap reuses the SAME key", async () => {
+    upgradeCapacityAction.mockResolvedValue({ ok: false, pending: true, allowance: 10 });
+    await confirmUpgrade(TIER_B); // key-1, pending (outcome unknown)
+    await confirmUpgrade(TIER_B); // re-tap of the SAME purchase → REUSES key-1 (backend dedupes)
+
+    const keys = sentKeys();
+    expect(keys[0]).toBe("key-1");
+    expect(keys[1]).toBe("key-1"); // pending is non-terminal → the key survives, no double-fire
+  });
+
+  it("renders a NEUTRAL processing notice, never a success or error toast", async () => {
+    upgradeCapacityAction.mockResolvedValue({ ok: false, pending: true, allowance: 10 });
+    await confirmUpgrade(TIER_B);
+
+    // The processing notice is set (the neutral toast)…
+    expect(argsOf(stateSetters[NOTICE_IDX]!)).toContainEqual(
+      expect.stringContaining("still processing"),
+    );
+    // …and NEITHER the success message NOR the error toast is ever set (only the reset-to-null).
+    expect(argsOf(stateSetters[MESSAGE_IDX]!)).toEqual([null]);
+    expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]);
   });
 });
