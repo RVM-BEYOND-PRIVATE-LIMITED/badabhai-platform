@@ -315,13 +315,16 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       // image but never blocks the text (see [_uploadAttachments]). The text is
       // the job; the photos are the "other option that makes it better".
       final List<String> paths = await _uploadAttachments();
-      await _sendFeedback(text, paths);
+      final FeedbackSubmitOutcome outcome = await _sendFeedback(text, paths);
       if (!mounted) return;
       _dictation.discard();
       // Honest when a photo did not make it: the feedback DID send, so this is a
-      // partial-success notice, not a failure. Only when the worker actually
-      // attached something and NONE of it uploaded.
-      final bool photosDropped = _images.isNotEmpty && paths.isEmpty;
+      // partial-success notice, not a failure. A photo is lost either at UPLOAD
+      // (the worker attached images and NONE uploaded) or at SUBMIT (they uploaded
+      // but the server could not store them, so the repo resent the text without
+      // them → [FeedbackSubmitOutcome.sentWithoutAttachments]).
+      final bool photosDropped = (_images.isNotEmpty && paths.isEmpty) ||
+          outcome == FeedbackSubmitOutcome.sentWithoutAttachments;
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
         ..showSnackBar(SnackBar(
@@ -378,7 +381,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   /// Posts the feedback. Passes `attachmentPaths` ONLY when something uploaded, so
   /// a no-image (or all-dropped) submission is byte-identical to a released build
   /// — the repository/API then omit the key entirely.
-  Future<void> _sendFeedback(String text, List<String> paths) {
+  Future<FeedbackSubmitOutcome> _sendFeedback(String text, List<String> paths) {
     return paths.isEmpty
         ? _repo.submit(
             message: text, category: _category, screen: widget.fromRoute)

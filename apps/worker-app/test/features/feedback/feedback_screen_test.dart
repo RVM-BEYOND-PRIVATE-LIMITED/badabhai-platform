@@ -56,7 +56,7 @@ void main() {
     when(() => repo.submit(
             message: any(named: 'message'),
             category: any(named: 'category')))
-        .thenAnswer((_) async {});
+        .thenAnswer((_) async => FeedbackSubmitOutcome.sent);
 
     final GoRouter router = await pump(tester);
 
@@ -81,7 +81,7 @@ void main() {
     when(() => repo.submit(
             message: any(named: 'message'),
             category: any(named: 'category')))
-        .thenAnswer((_) async {});
+        .thenAnswer((_) async => FeedbackSubmitOutcome.sent);
 
     await pump(tester);
     await tester.enterText(find.byType(TextField), 'seedha likha');
