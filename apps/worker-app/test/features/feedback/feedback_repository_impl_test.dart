@@ -12,6 +12,7 @@ import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/session/session_repository.dart';
 import 'package:badabhai_worker_app/features/feedback/data/feedback_repository_impl.dart';
 import 'package:badabhai_worker_app/features/feedback/domain/feedback_category.dart';
+import 'package:badabhai_worker_app/features/feedback/domain/feedback_repository.dart';
 
 class _MockApiClient extends Mock implements ApiClient {}
 
@@ -273,6 +274,177 @@ void main() {
             category: null,
             attachmentPaths: const <String>['feedback-attachments/w1/a.jpg'],
           )).called(1);
+    });
+  });
+
+  // The store cannot hold the attachments on this deploy (#1191 — the
+  // `attachment_paths` column is not migrated on prod, so the INSERT that names
+  // it 500s). Text-only feedback is unaffected. The images must degrade like the
+  // optional thing they are: drop them, re-send the text so the report ALWAYS
+  // lands, and tell the caller the photo did not attach.
+  //
+  // Double-store-safe: a 5xx means the failed INSERT and its `feedback.submitted`
+  // event rolled back atomically, so the first attempt stored nothing — the
+  // resend without attachments is the only record on the server.
+  group('a store that cannot hold the attachments (5xx degrade)', () {
+    test('a 5xx WITH attachments retries WITHOUT them → sentWithoutAttachments',
+        () async {
+      // First attempt (screen + paths) 500s on the missing column…
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+            attachmentPaths: any(named: 'attachmentPaths'),
+          )).thenThrow(ApiException(500, 'attachment_paths column missing'));
+      // …the retry that DROPS attachment_paths (keeps screen) lands.
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+          )).thenAnswer((_) async {});
+
+      final FeedbackSubmitOutcome outcome = await repo.submit(
+        message: 'meri baat',
+        screen: '/jobs',
+        attachmentPaths: const <String>['feedback-attachments/w1/a.jpg'],
+      );
+
+      expect(outcome, FeedbackSubmitOutcome.sentWithoutAttachments);
+      // Attempt 1 carried the paths…
+      verify(() => api.submitFeedback(
+            authToken: 'tok',
+            message: 'meri baat',
+            category: null,
+            screen: '/jobs',
+            attachmentPaths: const <String>['feedback-attachments/w1/a.jpg'],
+          )).called(1);
+      // …attempt 2 dropped them, keeping the message + screen.
+      verify(() => api.submitFeedback(
+            authToken: 'tok',
+            message: 'meri baat',
+            category: null,
+            screen: '/jobs',
+          )).called(1);
+    });
+
+    test('a 5xx where the retry ALSO 5xx surfaces the failure (real outage)',
+        () async {
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+            attachmentPaths: any(named: 'attachmentPaths'),
+          )).thenThrow(ApiException(500, 'attachment store down'));
+
+      await expectLater(
+        repo.submit(
+          message: 'meri baat',
+          screen: '/jobs',
+          attachmentPaths: const <String>['feedback-attachments/w1/a.jpg'],
+        ),
+        throwsA(isA<ServerFailure>()),
+      );
+      // Tried exactly twice — once with, once without the attachments — then gave
+      // the worker back their text rather than a false success.
+      verify(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+            attachmentPaths: any(named: 'attachmentPaths'),
+          )).called(2);
+    });
+
+    test('a 5xx with NO attachments is surfaced as-is — never a silent drop',
+        () async {
+      // Nothing to degrade: a text-only 5xx is a real outage, so it is thrown
+      // (and the screen preserves the worker\'s text for a manual retry). A blind
+      // second post here would double-file the report.
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+          )).thenThrow(ApiException(500, 'down'));
+
+      await expectLater(
+        repo.submit(message: 'x'),
+        throwsA(isA<ServerFailure>()),
+      );
+      verify(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+          )).called(1);
+    });
+
+    test('both degrades compose: a 400 drops `screen`, THEN a 5xx drops the paths',
+        () async {
+      // The real prod path. `.strict()` validation rejects the unknown `screen`
+      // BEFORE the insert, so attempt 1 is a 400; the screen-less retry then
+      // reaches the insert and 500s on the missing column; the paths finally drop
+      // and the text lands.
+      // Attempt 1: screen + paths → 400 unknown `screen`.
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            screen: any(named: 'screen'),
+            attachmentPaths: any(named: 'attachmentPaths'),
+          )).thenThrow(ApiException(400, "Unrecognized key(s): 'screen'"));
+      // Attempt 2: no screen, WITH paths → 500 missing column.
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+            attachmentPaths: any(named: 'attachmentPaths'),
+          )).thenThrow(ApiException(500, 'attachment_paths column missing'));
+      // Attempt 3: no screen, no paths → lands.
+      when(() => api.submitFeedback(
+            authToken: any(named: 'authToken'),
+            message: any(named: 'message'),
+            category: any(named: 'category'),
+          )).thenAnswer((_) async {});
+
+      final FeedbackSubmitOutcome outcome = await repo.submit(
+        message: 'meri baat',
+        screen: '/jobs',
+        attachmentPaths: const <String>['feedback-attachments/w1/a.jpg'],
+      );
+
+      expect(outcome, FeedbackSubmitOutcome.sentWithoutAttachments);
+      // 1 — screen + paths
+      verify(() => api.submitFeedback(
+            authToken: 'tok',
+            message: 'meri baat',
+            category: null,
+            screen: '/jobs',
+            attachmentPaths: const <String>['feedback-attachments/w1/a.jpg'],
+          )).called(1);
+      // 2 — no screen, paths kept
+      verify(() => api.submitFeedback(
+            authToken: 'tok',
+            message: 'meri baat',
+            category: null,
+            attachmentPaths: const <String>['feedback-attachments/w1/a.jpg'],
+          )).called(1);
+      // 3 — no screen, no paths
+      verify(() => api.submitFeedback(
+            authToken: 'tok',
+            message: 'meri baat',
+            category: null,
+          )).called(1);
+    });
+
+    test('a plain success returns sent', () async {
+      // The default setUp stub answers success; a no-attachment submit is `sent`.
+      final FeedbackSubmitOutcome outcome =
+          await repo.submit(message: 'seedha', screen: '/settings/notifications');
+      expect(outcome, FeedbackSubmitOutcome.sent);
     });
   });
 

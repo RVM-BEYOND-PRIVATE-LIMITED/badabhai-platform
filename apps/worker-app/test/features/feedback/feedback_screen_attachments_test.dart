@@ -10,6 +10,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_client.dart' show ApiException;
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/features/feedback/domain/feedback_attachment_uploader.dart';
 import 'package:badabhai_worker_app/features/feedback/domain/feedback_category.dart';
@@ -149,7 +150,7 @@ void main() {
           category: any(named: 'category'),
           screen: any(named: 'screen'),
           attachmentPaths: any(named: 'attachmentPaths'),
-        )).thenAnswer((_) async {});
+        )).thenAnswer((_) async => FeedbackSubmitOutcome.sent);
 
     final GoRouter router = await pump(tester);
     await tester.enterText(find.byType(TextField), 'kuch dikkat');
@@ -189,7 +190,7 @@ void main() {
           category: any(named: 'category'),
           screen: any(named: 'screen'),
           attachmentPaths: any(named: 'attachmentPaths'),
-        )).thenAnswer((_) async {});
+        )).thenAnswer((_) async => FeedbackSubmitOutcome.sent);
 
     final GoRouter router = await pump(tester);
     await tester.enterText(find.byType(TextField), 'kuch dikkat');
@@ -211,6 +212,76 @@ void main() {
     // And the worker is told, honestly, that the photo did not attach.
     expect(find.textContaining('Photo attach nahi ho payi'), findsOneWidget);
     expect(router.routerDelegate.currentConfiguration.uri.toString(), '/home');
+  });
+
+  testWidgets(
+      'images upload but the SERVER cannot store them → honest notice, text lands',
+      (WidgetTester tester) async {
+    // The upload SUCCEEDS (a path is minted) but the submit could not store the
+    // attachments, so the repository resent the text without them and reports
+    // [FeedbackSubmitOutcome.sentWithoutAttachments]. This is the #1191 prod bug:
+    // the report must still land and the worker must be told the photo did not.
+    final _FakeUploader uploader = _FakeUploader();
+    wire(picker: _FakePicker(bytes: sampleBytes), uploader: uploader);
+    when(() => repo.submit(
+          message: any(named: 'message'),
+          category: any(named: 'category'),
+          screen: any(named: 'screen'),
+          attachmentPaths: any(named: 'attachmentPaths'),
+        )).thenAnswer((_) async => FeedbackSubmitOutcome.sentWithoutAttachments);
+
+    final GoRouter router = await pump(tester);
+    await tester.enterText(find.byType(TextField), 'kuch dikkat');
+    await tester.pump();
+    await addOneImage(tester);
+
+    await tester.tap(find.text('Bhejein'));
+    await tester.pumpAndSettle();
+
+    // The image DID upload and the post carried its path…
+    expect(uploader.uploaded.length, 1);
+    verify(() => repo.submit(
+          message: 'kuch dikkat',
+          category: null,
+          screen: null,
+          attachmentPaths: const <String>['feedback-attachments/w1/img-0.jpg'],
+        )).called(1);
+    // …the worker is told honestly the photo did not attach, and the text still
+    // landed — the screen POPPED (no longer mounted). NOT the "Shukriya" copy.
+    expect(find.textContaining('Photo attach nahi ho payi'), findsOneWidget);
+    expect(find.textContaining('Shukriya'), findsNothing);
+    expect(find.byType(FeedbackScreen), findsNothing);
+    expect(router.routerDelegate.currentConfiguration.uri.toString(), '/home');
+  });
+
+  testWidgets(
+      'a submit that fails outright keeps the text + shows the error',
+      (WidgetTester tester) async {
+    // Both attempts failed (a real outage): the repository throws, so the worker
+    // stays on the screen with their paragraph intact for a manual retry.
+    final _FakeUploader uploader = _FakeUploader();
+    wire(picker: _FakePicker(bytes: sampleBytes), uploader: uploader);
+    when(() => repo.submit(
+          message: any(named: 'message'),
+          category: any(named: 'category'),
+          screen: any(named: 'screen'),
+          attachmentPaths: any(named: 'attachmentPaths'),
+        )).thenThrow(const ServerFailure(500));
+
+    await pump(tester);
+    await tester.enterText(find.byType(TextField), 'kuch dikkat');
+    await tester.pump();
+    await addOneImage(tester);
+
+    await tester.tap(find.text('Bhejein'));
+    await tester.pumpAndSettle();
+
+    // Did NOT pop (the screen is still mounted), the paragraph is preserved for a
+    // manual retry, and an error was surfaced — never a silent success.
+    expect(find.byType(FeedbackScreen), findsOneWidget);
+    expect(find.text('kuch dikkat'), findsOneWidget);
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(find.textContaining('Photo attach nahi ho payi'), findsNothing);
   });
 
   testWidgets('a cancelled pick attaches nothing', (WidgetTester tester) async {

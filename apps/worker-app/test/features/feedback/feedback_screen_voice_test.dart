@@ -80,7 +80,7 @@ void main() {
           message: any(named: 'message'),
           category: any(named: 'category'),
           screen: any(named: 'screen'),
-        )).thenAnswer((_) async {});
+        )).thenAnswer((_) async => FeedbackSubmitOutcome.sent);
   });
 
   tearDown(() => locator.reset());
@@ -705,7 +705,7 @@ void main() {
             message: any(named: 'message'),
             category: any(named: 'category'),
             screen: any(named: 'screen'),
-          )).thenAnswer((_) async {});
+          )).thenAnswer((_) async => FeedbackSubmitOutcome.sent);
       await tester.tap(find.text('Bhejein'));
       await tester.pumpAndSettle();
       expect(find.byType(FeedbackScreen), findsNothing);
