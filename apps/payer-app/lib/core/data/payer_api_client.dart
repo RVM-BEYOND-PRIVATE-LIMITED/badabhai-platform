@@ -204,13 +204,12 @@ abstract class PayerApiClient {
   /// The unlock ledger (most-recent first).
   Future<List<LedgerEntry>> fetchLedger();
 
-  // --- Credits — balance + ledger + purchase (PASS P3) ----------------------
-  // The purchase surface is RESTORED now that the two reasons it was removed are
-  // gone: the server owns a live pricing catalog (`GET /payer/pricing/catalog`,
-  // so prices are no longer hardcoded/invented) and a MOCK buy endpoint
-  // (`POST /payer/credits`) grants credits with no real money. Real Razorpay
-  // (`/credits/order` + `/verify`) is a SEPARATE, web-architected stream behind
-  // `PAYMENTS_ENABLE_REAL` and is not wired here.
+  // --- Credits — balance + ledger (READ-ONLY; no purchase surface) ----------
+  // The mobile app deliberately has NO credit-purchase method: selling a digital
+  // entitlement from inside a store-distributed app is exactly what App Store /
+  // Play Store IAP policy covers, and the mobile-payments rule bars it outright.
+  // Credit packs are bought on the payer WEB portal; the app only READS the
+  // balance and spend and points the payer to the web for the purchase.
 
   /// Current credit balance (`GET /payer/credits` → `{payer_id, balance}`).
   Future<int> fetchCreditBalance();
@@ -219,21 +218,6 @@ abstract class PayerApiClient {
   /// most-recent first. Rows carry `delta`/`reason` (pack_purchase, unlock_debit,
   /// refund, grant) — mapped to display [LedgerEntry]s.
   Future<List<LedgerEntry>> fetchCreditLedger({int limit = 20});
-
-  /// The buyable credit packs (`GET /payer/pricing/catalog`, `credit_pack`
-  /// products). Prices are the SERVER's — never client-invented.
-  Future<List<CreditPack>> fetchCreditPacks();
-
-  /// Buy a credit pack by [code] (`POST /payer/credits {pack_code}`, the MOCK
-  /// path — no real money). Returns the NEW balance. Throws on error (unknown
-  /// pack, or a 404 when real payments are live).
-  ///
-  /// [idempotencyKey], when supplied, is sent as the `Idempotency-Key` header so
-  /// a repeated tap of the SAME purchase intent (after a timeout / a safe retry)
-  /// REPLAYS the original balance server-side instead of granting twice. Callers
-  /// must reuse ONE key across retries of the same purchase and mint a fresh one
-  /// per new intent.
-  Future<int> buyCreditPack(String code, {String? idempotencyKey});
 
   // --- Agency · Supply ------------------------------------------------------
   // The referral LINK + funnel summary are the supply surfaces with a real
