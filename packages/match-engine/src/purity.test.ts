@@ -125,6 +125,8 @@ describe("match-engine purity lock", () => {
   it("the config surface carries thresholds only — nothing that re-orders the feed", () => {
     // `tierFloorMonths` is a THRESHOLD in months, not a multiplier: it moves a worker
     // between two tiers, it cannot make one column count "more" than another.
+    // `widenExpiryHours` (Policy 27 "Expiring") is the same class: it decides who is IN
+    // the reach set at all (the hard membership gate), never the order within it.
     expect(Object.keys(engine.DEFAULT_MATCH_CONFIG).sort()).toEqual([
       "applicantQuota",
       "boostSupplyFloor",
@@ -135,6 +137,7 @@ describe("match-engine purity lock", () => {
       "monthBucket",
       "relatedSkillsDefault",
       "tierFloorMonths",
+      "widenExpiryHours",
     ]);
   });
 });

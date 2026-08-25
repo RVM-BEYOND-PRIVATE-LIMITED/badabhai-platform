@@ -419,6 +419,34 @@ export const serverEnvSchema = z.object({
   // CAPACITY_ENFORCEMENT_ENABLED.
   AI_JOBS_RETENTION_DELETE_ENABLED: booleanFromString,
 
+  // ── Policy 27 third leg: the reach-widen EXPIRY sweep (TD127, migration 0090) ──
+  // Cadence (hours) of the sweep tick. The predicate over `job_reach_widen`
+  // (un-retracted + past expires_at) is authoritative — a missed/duplicated tick only
+  // delays a retraction until the next one. Fractional hours allowed for tests.
+  REACH_WIDEN_EXPIRY_SWEEP_INTERVAL_HOURS: z.coerce.number().positive().default(1),
+  // DRY-RUN gate (launch-gate pattern — INERT by default). While false every tick only
+  // LOGS the due-grant count and retracts NOTHING; flipping this to true is the
+  // explicit act that arms real retractions. booleanFromString so a falsey/unset string
+  // stays OFF — fail-safe to dry-run, exactly like AI_JOBS_RETENTION_DELETE_ENABLED.
+  REACH_WIDEN_EXPIRY_ENABLED: booleanFromString,
+  // Per-tick cap on postings processed — a backlog drains across ticks, never one
+  // unbounded run (same posture as RETENTION_BATCH_LIMIT).
+  REACH_WIDEN_EXPIRY_BATCH_LIMIT: z.coerce.number().int().positive().default(100),
+
+  // ── LEARN label producer (migration 0091): spine events → training labels ──
+  // Cadence (hours) of the sweep tick. The cursor + UNIQUE impression key in the store
+  // are authoritative — a missed/duplicated tick only delays labeling until the next
+  // one. Fractional hours allowed for tests.
+  LEARN_LABELS_SWEEP_INTERVAL_HOURS: z.coerce.number().positive().default(1),
+  // DRY-RUN gate (launch-gate pattern — INERT by default). While false every tick only
+  // LOGS the pending-event count and writes NOTHING; flipping this to true is the
+  // explicit act that arms label production. booleanFromString so a falsey/unset string
+  // stays OFF, consistent with the other launch gates.
+  LEARN_LABELS_ENABLED: booleanFromString,
+  // Per-tick cap on events processed — a backlog drains across ticks, never one
+  // unbounded run.
+  LEARN_LABELS_BATCH_LIMIT: z.coerce.number().int().positive().default(500),
+
   // OTP shape + lifecycle. The code is generated with crypto.randomInt per digit,
   // stored ONLY as a keyed HMAC, single-use, and rate-limited per phone + per IP.
   OTP_LENGTH: z.coerce.number().int().min(4).max(8).default(6),

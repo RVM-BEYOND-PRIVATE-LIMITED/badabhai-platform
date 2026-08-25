@@ -13,6 +13,7 @@ describe("MatchConfig", () => {
       tierFloorMonths: 36,
       freeUnlockCredits: 50,
       boostSupplyFloor: 25,
+      widenExpiryHours: 720, // Policy 27 "Expiring" — 30 days, then the sweep retracts
     });
   });
 

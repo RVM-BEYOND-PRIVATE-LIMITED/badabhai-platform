@@ -50,6 +50,13 @@ interface EmittedEvent {
 }
 
 type Counts = { total: number; tier1: number };
+/** One `job_reach_widen` due-grant row as the repository returns it. */
+interface DueGrantFixture {
+  id: string;
+  jobPostingId: string;
+  addedSkillIds: string[];
+  opsActorId: string;
+}
 type Existing = {
   matchSkillIds: string[];
   reachSkillIds: string[];
@@ -99,12 +106,34 @@ function setup(opts: {
     ),
     countWorkersReachedBy: vi.fn(async () => 0),
   };
-  const events = { emit: vi.fn(async (_p: EmittedEvent) => undefined) };
+  const events = {
+    emit: vi.fn(async (_p: EmittedEvent) => undefined),
+    emitOnce: vi.fn(async (_p: EmittedEvent & { idempotencyKey?: string }) => undefined),
+  };
+  // Provenance store (migration 0090). Default: every insert succeeds, nothing is due.
+  const widenRepo = {
+    insertGrant: vi.fn(async (_g: unknown) => undefined),
+    findDueBatch: vi.fn(async (_limit: number): Promise<DueGrantFixture[]> => []),
+    countDue: vi.fn(async () => 0),
+    activeIdsForPostings: vi.fn(
+      async (_p: readonly string[], _x: readonly string[]) => new Set<string>(),
+    ),
+    statusForPostings: vi.fn(
+      async (_ids: readonly string[]) => new Map<string, { status: string }>(),
+    ),
+    markRetracted: vi.fn(async (_ids: readonly string[]) => undefined),
+  };
 
   const skills = new MatchSkillsService(config as never, repo as never);
-  const svc = new PublishReachService(skills, repo as never, events as never);
+  const svc = new PublishReachService(
+    skills,
+    repo as never,
+    events as never,
+    widenRepo as never,
+    config as never,
+  );
 
-  return { svc, repo, events, cfg };
+  return { svc, repo, events, cfg, widenRepo };
 }
 
 function emittedNames(events: ReturnType<typeof setup>["events"]): string[] {
@@ -550,5 +579,181 @@ describe("opsWiden — append-only, audited, and never a promotion to tier 1 (Po
     });
     await widen(svc, [HMC]);
     expect(emittedNames(events)).toEqual(["job_posting.reach_widened"]);
+  });
+
+  it("writes a PROVENANCE grant whose expiry is now + widenExpiryHours (Policy 27 'expiring')", async () => {
+    const { svc, widenRepo } = setup({
+      existing: posting({ matchSkillIds: [VMC], reachSkillIds: [VMC] }),
+      config: { widenExpiryHours: 48 },
+    });
+    const beforeMs = Date.now();
+    await widen(svc, [HMC]);
+
+    expect(widenRepo.insertGrant).toHaveBeenCalledTimes(1);
+    const grant = widenRepo.insertGrant.mock.calls[0]?.[0] as {
+      jobPostingId: string;
+      addedSkillIds: string[];
+      expiresAt: Date;
+      opsActorId: string;
+    };
+    // Only the GENUINELY ADDED ids go into the grant — an id already in the set has no
+    // expiry to run out (it was there before any widen).
+    expect(grant.addedSkillIds).toEqual([HMC]);
+    expect(grant.jobPostingId).toBe(POSTING);
+    expect(grant.opsActorId).toBe(OPS);
+    const hours = (grant.expiresAt.getTime() - beforeMs) / 3_600_000;
+    expect(hours).toBeGreaterThanOrEqual(47.9);
+    expect(hours).toBeLessThanOrEqual(48.1);
+  });
+
+  it("a FAILED provenance write never undoes the widen (fail toward more reach)", async () => {
+    const { svc, repo } = setup({
+      existing: posting({ matchSkillIds: [VMC], reachSkillIds: [VMC] }),
+    });
+    // Provenance store down: the widen itself already committed. Retrying ops would
+    // re-widen; the pre-0090 posture ("never expires") is the safe degradation.
+    (svc as unknown as { widenRepo: { insertGrant: () => Promise<void> } }).widenRepo.insertGrant =
+      async () => {
+        throw new Error("provenance store down");
+      };
+    await expect(widen(svc, [HMC])).rejects.toThrow("provenance store down");
+    expect(repo.setPostingSkillSets).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("retractExpiredWidens — Policy 27's expiring leg, pure subtraction", () => {
+  const DUE = {
+    id: "aaaaaaaa-0000-4000-8000-000000000001",
+    jobPostingId: POSTING,
+    addedSkillIds: [HMC],
+    opsActorId: OPS,
+  };
+
+  function dueSetup(opts: {
+    existing: Existing;
+    due?: Array<{ id: string; addedSkillIds: string[]; jobPostingId?: string }>;
+    activeIds?: Set<string>;
+    statuses?: Map<string, { status: string }>;
+    counts?: Counts[];
+  }) {
+    const s = setup({ existing: opts.existing, counts: opts.counts });
+    const dueRows = (opts.due ?? [{ id: DUE.id, addedSkillIds: [HMC] }]).map((r) => ({
+      id: r.id,
+      jobPostingId: r.jobPostingId ?? POSTING,
+      addedSkillIds: r.addedSkillIds,
+      opsActorId: OPS,
+    }));
+    s.widenRepo.findDueBatch.mockResolvedValue(dueRows);
+    s.widenRepo.activeIdsForPostings.mockResolvedValue(opts.activeIds ?? new Set<string>());
+    s.widenRepo.statusForPostings.mockResolvedValue(
+      opts.statuses ?? new Map([[POSTING, { status: "open" }]]),
+    );
+    return { ...s, dueRows };
+  }
+
+  it("retracts exactly the expired id from the stored set and re-materializes", async () => {
+    const t = dueSetup({
+      existing: posting({ matchSkillIds: [VMC], reachSkillIds: [VMC, HMC].sort() }),
+      counts: [
+        { total: 7, tier1: 5 }, // before
+        { total: 5, tier1: 5 }, // after
+      ],
+    });
+    const summary = await t.svc.retractExpiredWidens(100);
+
+    expect(summary).toEqual({ grantsRetracted: 1, postingsShrunk: 1, postingsSkippedNotLive: 0 });
+    // The posted skill SURVIVES; only the widened one leaves.
+    expect(t.repo.setPostingSkillSets.mock.calls[0]?.slice(1, 3)).toEqual([
+      [VMC],
+      [VMC],
+    ]);
+    expect(t.widenRepo.markRetracted).toHaveBeenCalledWith([DUE.id]);
+  });
+
+  it("emits reach_widen_expired with actor system and stable keyed idempotency", async () => {
+    const t = dueSetup({
+      existing: posting({ matchSkillIds: [VMC], reachSkillIds: [VMC, HMC] }),
+    });
+    await t.svc.retractExpiredWidens(100);
+
+    const calls = t.events.emitOnce.mock.calls.map(([p]) => p);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.event_name).toBe("job_posting.reach_widen_expired");
+    expect(calls[0]?.actor).toEqual({ actor_type: "system", actor_id: null });
+    expect(calls[0]?.payload.expired_skill_ids).toEqual([HMC]);
+    expect(calls[0]?.payload.reach_before).toBe(10); // default count stub
+    expect(calls[0]?.payload.reach_after).toBe(10);
+    expect(String(calls[0]?.idempotencyKey)).toContain(DUE.id);
+  });
+
+  it("NEVER removes a posted skill even when a due grant names it", async () => {
+    const t = dueSetup({
+      existing: posting({ matchSkillIds: [VMC], reachSkillIds: [VMC, HMC] }),
+      due: [{ id: DUE.id, addedSkillIds: [HMC, VMC] }],
+    });
+    await t.svc.retractExpiredWidens(100);
+
+    const persistedReach = t.repo.setPostingSkillSets.mock.calls[0]?.[2];
+    expect(persistedReach).toEqual([VMC]);
+  });
+
+  it("an id held by a STILL-ACTIVE newer grant survives the older row's expiry", async () => {
+    const t = dueSetup({
+      existing: posting({ matchSkillIds: [VMC], reachSkillIds: [VMC, HMC] }),
+      activeIds: new Set([HMC]),
+    });
+    const summary = await t.svc.retractExpiredWidens(100);
+
+    // Nothing left to remove → no shrink, no event; the row is still stamped so the
+    // sweep stops seeing it.
+    expect(summary.postingsShrunk).toBe(0);
+    expect(summary.grantsRetracted).toBe(1);
+    expect(t.repo.setPostingSkillSets).not.toHaveBeenCalled();
+    expect(t.events.emitOnce).not.toHaveBeenCalled();
+  });
+
+  it("a non-live posting gets its provenance stamped WITHOUT touching its sets", async () => {
+    const t = dueSetup({
+      existing: posting({ matchSkillIds: [VMC], reachSkillIds: [VMC, HMC] }),
+      statuses: new Map([[POSTING, { status: "closed" }]]),
+    });
+    const summary = await t.svc.retractExpiredWidens(100);
+
+    expect(summary).toEqual({
+      grantsRetracted: 1,
+      postingsShrunk: 0,
+      postingsSkippedNotLive: 1,
+    });
+    expect(t.repo.setPostingSkillSets).not.toHaveBeenCalled();
+    expect(t.events.emitOnce).not.toHaveBeenCalled();
+  });
+
+  it("an id NOT in the current reach set is dropped silently (already re-materialized away)", async () => {
+    const t = dueSetup({
+      existing: posting({ matchSkillIds: [VMC], reachSkillIds: [VMC] }),
+    });
+    const summary = await t.svc.retractExpiredWidens(100);
+
+    // A publish/unpause between widen and expiry already rebuilt the set without HMC;
+    // subtracting nothing must not emit a lying "reach shrank" event.
+    expect(summary.postingsShrunk).toBe(0);
+    expect(t.events.emitOnce).not.toHaveBeenCalled();
+  });
+
+  it("re-checks the supply alert after shrinking (expiry can unmask an unsupplied trade)", async () => {
+    const t = dueSetup({
+      existing: posting({ matchSkillIds: [VMC], reachSkillIds: [VMC, HMC] }),
+      counts: [
+        { total: 6, tier1: 0 }, // before
+        { total: 0, tier1: 0 }, // after — the widen was masking zero base supply
+      ],
+    });
+    await t.svc.retractExpiredWidens(100);
+
+    const alerts = t.events.emit.mock.calls
+      .map(([p]) => p)
+      .filter((p) => p.event_name === "job_posting.reach_alert");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]?.payload.reason).toBe("zero_reach");
   });
 });

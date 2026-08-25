@@ -70,6 +70,7 @@ describe("MatchConfigService — the shipped V1 defaults", () => {
       tierFloorMonths: 36,
       freeUnlockCredits: 50,
       boostSupplyFloor: 25,
+      widenExpiryHours: 720,
     } satisfies MatchConfig);
   });
 });
