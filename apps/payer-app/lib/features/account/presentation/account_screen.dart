@@ -308,6 +308,9 @@ class _EditSheetState extends State<_EditSheet> {
             label: 'Company / org name',
             controller: _org,
             hint: 'Your organisation',
+            // Same as signup: don't let the keyboard resurface an org name typed
+            // in a different app over the real account value.
+            suppressSuggestions: true,
           ),
           const SizedBox(height: AppSpacing.s4),
           BbField(
