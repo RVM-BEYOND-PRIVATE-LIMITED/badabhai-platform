@@ -42,11 +42,24 @@ export class PayoutBelowThresholdError extends Error {
  * to `agency_invites` (the agency's attributed workers) within the 90-day window; accruals are
  * idempotent per unlock (UNIQUE source_unlock_id). Claiming into a payout request is a race-safe
  * transaction (the `payout_request_id IS NULL` UPDATE atomically claims; a concurrent request
- * gets the disjoint remainder).
+ * gets the disjoint remainder) — the caller (`AgencyPayoutService`, via {@link withTransaction})
+ * OWNS that transaction so the claim and its `agency_payout.requested` event commit together
+ * (#1129 item 3).
  */
 @Injectable()
 export class AgencyPayoutRepository {
   constructor(@Inject(DATABASE) private readonly db: Database) {}
+
+  /**
+   * Run `cb` inside one Drizzle transaction (#1129 item 3 — mirrors the H3 pattern in
+   * `AdminActionsRepository.withTransaction`). The `tx` handed to `cb` is a
+   * `Database`-shaped executor the write methods below + `EventsService.emit` accept, so a
+   * caller can commit a ledger write + its event atomically: an emit failure rolls the
+   * ledger write back, a success commits both.
+   */
+  withTransaction<T>(cb: (tx: Database) => Promise<T>): Promise<T> {
+    return this.db.transaction(cb as (tx: unknown) => Promise<T>);
+  }
 
   /**
    * The join off real unlock data: every GRANTED unlock on a worker THIS agency referred
@@ -84,6 +97,11 @@ export class AgencyPayoutRepository {
   /**
    * Insert accruals idempotently (ON CONFLICT (source_unlock_id) DO NOTHING). Returns ONLY the
    * rows actually inserted, so the caller emits `agency_payout.accrued` exactly once per accrual.
+   *
+   * `tx` (#1129 item 3): an optional transaction executor. When supplied the insert runs on
+   * THAT transaction, so the caller (`AgencyPayoutService.recomputeAccruals`) can commit this
+   * write + every `agency_payout.accrued` emit it produces atomically. Defaults to the plain
+   * `this.db` executor for any caller that does not need that guarantee.
    */
   async insertAccruals(
     rows: Array<{
@@ -95,9 +113,10 @@ export class AgencyPayoutRepository {
       unlockGrantedAt: Date;
       attributedAt: Date;
     }>,
+    tx: Database = this.db,
   ): Promise<AgencyPayoutAccrual[]> {
     if (rows.length === 0) return [];
-    return this.db
+    return tx
       .insert(agencyPayoutAccruals)
       .values(rows)
       .onConflictDoNothing({ target: agencyPayoutAccruals.sourceUnlockId })
@@ -158,53 +177,60 @@ export class AgencyPayoutRepository {
    * concurrent requests never double-count. If the claimed total is below `thresholdInr` (or
    * nothing is claimable), the whole tx ROLLS BACK via {@link PayoutBelowThresholdError} — no
    * request row and no claim survive. Returns the finalized request on success.
+   *
+   * `tx` (#1129 item 3, REQUIRED — not defaulted like {@link insertAccruals}): the caller
+   * (`AgencyPayoutService.requestPayout`, via {@link withTransaction}) owns the transaction so it
+   * can also emit `agency_payout.requested` on the SAME tx — the ledger claim and its audit event
+   * commit or roll back together. This method no longer opens its own transaction; running it
+   * outside one would silently drop the atomicity between the request row and the claim UPDATE.
    */
-  async createRequestClaiming(input: {
-    agencyId: string;
-    kycStatus: AgencyKycStatus;
-    thresholdInr: number;
-    idempotencyKey: string;
-  }): Promise<AgencyPayoutRequest> {
-    return this.db.transaction(async (tx) => {
-      const [request] = await tx
-        .insert(agencyPayoutRequests)
-        .values({
-          agencyPayerId: input.agencyId,
-          amountInr: 0,
-          accrualCount: 0,
-          status: "requested",
-          kycSnapshotStatus: input.kycStatus,
-          idempotencyKey: input.idempotencyKey,
-        })
-        .returning();
-      if (!request) throw new Error("failed to create payout request");
+  async createRequestClaiming(
+    input: {
+      agencyId: string;
+      kycStatus: AgencyKycStatus;
+      thresholdInr: number;
+      idempotencyKey: string;
+    },
+    tx: Database,
+  ): Promise<AgencyPayoutRequest> {
+    const [request] = await tx
+      .insert(agencyPayoutRequests)
+      .values({
+        agencyPayerId: input.agencyId,
+        amountInr: 0,
+        accrualCount: 0,
+        status: "requested",
+        kycSnapshotStatus: input.kycStatus,
+        idempotencyKey: input.idempotencyKey,
+      })
+      .returning();
+    if (!request) throw new Error("failed to create payout request");
 
-      const claimed = await tx
-        .update(agencyPayoutAccruals)
-        .set({ payoutRequestId: request.id })
-        .where(
-          and(
-            eq(agencyPayoutAccruals.agencyPayerId, input.agencyId),
-            isNull(agencyPayoutAccruals.payoutRequestId),
-          ),
-        )
-        .returning({ amountInr: agencyPayoutAccruals.amountInr });
+    const claimed = await tx
+      .update(agencyPayoutAccruals)
+      .set({ payoutRequestId: request.id })
+      .where(
+        and(
+          eq(agencyPayoutAccruals.agencyPayerId, input.agencyId),
+          isNull(agencyPayoutAccruals.payoutRequestId),
+        ),
+      )
+      .returning({ amountInr: agencyPayoutAccruals.amountInr });
 
-      const amountInr = claimed.reduce((s, r) => s + r.amountInr, 0);
-      const accrualCount = claimed.length;
-      if (accrualCount === 0 || amountInr < input.thresholdInr) {
-        // Below threshold (or a concurrent request already claimed everything) — roll back
-        // the request + the claim entirely by throwing out of the transaction.
-        throw new PayoutBelowThresholdError(amountInr);
-      }
+    const amountInr = claimed.reduce((s, r) => s + r.amountInr, 0);
+    const accrualCount = claimed.length;
+    if (accrualCount === 0 || amountInr < input.thresholdInr) {
+      // Below threshold (or a concurrent request already claimed everything) — roll back
+      // the request + the claim entirely by throwing out of the transaction.
+      throw new PayoutBelowThresholdError(amountInr);
+    }
 
-      const [finalized] = await tx
-        .update(agencyPayoutRequests)
-        .set({ amountInr, accrualCount, updatedAt: new Date() })
-        .where(eq(agencyPayoutRequests.id, request.id))
-        .returning();
-      if (!finalized) throw new Error("failed to finalize payout request");
-      return finalized;
-    });
+    const [finalized] = await tx
+      .update(agencyPayoutRequests)
+      .set({ amountInr, accrualCount, updatedAt: new Date() })
+      .where(eq(agencyPayoutRequests.id, request.id))
+      .returning();
+    if (!finalized) throw new Error("failed to finalize payout request");
+    return finalized;
   }
 }

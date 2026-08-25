@@ -2,7 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { ServerConfig } from "@badabhai/config";
 import type { PayloadInputOf } from "@badabhai/event-schema";
-import type { AgencyKycStatus, AgencyPayoutRequest } from "@badabhai/db";
+import type { AgencyKycStatus, AgencyPayoutRequest, Database } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
 import { EventsService } from "../events/events.service";
 import { AgencyKycService } from "./agency-kyc.service";
@@ -63,6 +63,14 @@ export class AgencyPayoutService {
    * Idempotently create accruals for every currently-qualifying granted unlock. Safe to call on
    * every earnings read / payout attempt — ON CONFLICT (source_unlock_id) DO NOTHING means an
    * already-accrued unlock is skipped, so events fire exactly once. Returns the count of NEW accruals.
+   *
+   * #1129 item 3 — the insert AND every `agency_payout.accrued` it produces commit on ONE
+   * transaction (must-fix H3 pattern). Before this, the insert committed and the events were
+   * emitted afterward, outside any transaction: a crash (or a validation throw inside `emit`)
+   * between the two left committed ledger rows with NO corresponding event, permanently — a
+   * retry would skip them (`ON CONFLICT DO NOTHING`) and never re-attempt the emit. Now either
+   * the whole batch (every new accrual row + every one of its events) commits, or none of it
+   * does, and a retry after a rollback re-inserts + re-emits the full batch cleanly.
    */
   async recomputeAccruals(agencyId: string): Promise<number> {
     const basisInr = this.config.AGENCY_PAYOUT_UNLOCK_BASIS_INR;
@@ -72,34 +80,40 @@ export class AgencyPayoutService {
       agencyId,
       this.config.AGENCY_PAYOUT_WINDOW_DAYS,
     );
-    const inserted = await this.repo.insertAccruals(
-      qualifying.map((q) => ({
-        agencyPayerId: agencyId,
-        sourceUnlockId: q.unlockId,
-        basisInr,
-        rateBps,
-        amountInr,
-        unlockGrantedAt: q.grantedAt,
-        attributedAt: q.attributedAt,
-      })),
-    );
-    for (const a of inserted) {
-      const payload: PayloadInputOf<"agency_payout.accrued"> = {
-        agency_payer_id: agencyId,
-        unlock_id: a.sourceUnlockId,
-        amount_inr: a.amountInr,
-        basis_inr: a.basisInr,
-        rate_bps: a.rateBps,
-      };
-      await this.events.emit({
-        event_name: "agency_payout.accrued",
-        actor: { actor_type: "system", actor_id: null },
-        subject: { subject_type: "unlock", subject_id: a.sourceUnlockId },
-        payload,
-        idempotencyKey: `agency_payout.accrued:${a.sourceUnlockId}`,
-      });
-    }
-    return inserted.length;
+    if (qualifying.length === 0) return 0; // nothing to insert — no transaction needed
+
+    return this.repo.withTransaction(async (tx) => {
+      const inserted = await this.repo.insertAccruals(
+        qualifying.map((q) => ({
+          agencyPayerId: agencyId,
+          sourceUnlockId: q.unlockId,
+          basisInr,
+          rateBps,
+          amountInr,
+          unlockGrantedAt: q.grantedAt,
+          attributedAt: q.attributedAt,
+        })),
+        tx,
+      );
+      for (const a of inserted) {
+        const payload: PayloadInputOf<"agency_payout.accrued"> = {
+          agency_payer_id: agencyId,
+          unlock_id: a.sourceUnlockId,
+          amount_inr: a.amountInr,
+          basis_inr: a.basisInr,
+          rate_bps: a.rateBps,
+        };
+        await this.events.emit({
+          event_name: "agency_payout.accrued",
+          actor: { actor_type: "system", actor_id: null },
+          subject: { subject_type: "unlock", subject_id: a.sourceUnlockId },
+          payload,
+          idempotencyKey: `agency_payout.accrued:${a.sourceUnlockId}`,
+          tx,
+        });
+      }
+      return inserted.length;
+    });
   }
 
   /** Earnings analytics off REAL accrual data + the current gate state. Recomputes first. */
@@ -132,6 +146,12 @@ export class AgencyPayoutService {
    * The payout GATE. KYC-verified + ≥ threshold are BOTH required; a failure emits
    * `agency_payout.blocked` and changes nothing (the KYC gate is provably unreachable-to-request
    * without a verified row). On pass, claims the unclaimed accruals into a MOCK `requested` row.
+   *
+   * #1129 item 3 — the claim (`createRequestClaiming`) and its `agency_payout.requested` emit run
+   * on ONE transaction (must-fix H3 pattern): before this, the claim committed and the emit ran
+   * afterward, so a crash (or an emit throw) between the two could leave a claimed, money-moving
+   * request row with no audit event. Now an emit failure rolls the claim back too — the request
+   * row and its claimed accruals revert to unclaimed, exactly as if the request never happened.
    */
   async requestPayout(agencyId: string): Promise<PayoutRequestOutcome> {
     // Defense-in-depth: the controller already 404s when the flag is OFF, but never proceed.
@@ -153,13 +173,14 @@ export class AgencyPayoutService {
     }
 
     try {
-      const request = await this.repo.createRequestClaiming({
-        agencyId,
-        kycStatus,
-        thresholdInr,
-        idempotencyKey: randomUUID(),
+      const request = await this.repo.withTransaction(async (tx) => {
+        const claimed = await this.repo.createRequestClaiming(
+          { agencyId, kycStatus, thresholdInr, idempotencyKey: randomUUID() },
+          tx,
+        );
+        await this.emitRequested(agencyId, claimed, tx);
+        return claimed;
       });
-      await this.emitRequested(agencyId, request);
       return {
         ok: true,
         requestId: request.id,
@@ -195,7 +216,12 @@ export class AgencyPayoutService {
     return { ok: false, blocked: true, reason };
   }
 
-  private async emitRequested(agencyId: string, request: AgencyPayoutRequest): Promise<void> {
+  /** `tx` (#1129 item 3): rides the SAME transaction as the claim — see {@link requestPayout}. */
+  private async emitRequested(
+    agencyId: string,
+    request: AgencyPayoutRequest,
+    tx: Database,
+  ): Promise<void> {
     const payload: PayloadInputOf<"agency_payout.requested"> = {
       agency_payer_id: agencyId,
       payout_request_id: request.id,
@@ -208,6 +234,7 @@ export class AgencyPayoutService {
       subject: { subject_type: "agency_payout_request", subject_id: request.id },
       payload,
       idempotencyKey: `agency_payout.requested:${request.id}`,
+      tx,
     });
   }
 
