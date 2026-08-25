@@ -269,16 +269,35 @@ describe.skipIf(!RUN)("Matching V1 job journey (e2e, ADR-0036 moments ③-⑥)",
     )[0]!;
     // published_at is FIRST-OPEN stamped; the reach set is posted ∪ related.
     expect(posting.publishedAt).not.toBeNull();
-    expect([...posting.reachSkillIds].sort()).toEqual([SKILL_RELATED, SKILL_POSTED].sort());
+    // SUPERSET check, deliberately not exact set-equality: `mskill_vmc_operator` today has
+    // THREE related skills in `MATCH_SKILL_RELATION_PAIRS` (@badabhai/taxonomy) — SETTER,
+    // TURNER, HMC — not one, so the reach set is wider than {posted, related}. Asserting
+    // exact equality here pins the CURRENT corpus size and breaks the next time the
+    // taxonomy grows a relation, which is not what this test is meant to guard.
+    const reachIds = new Set(posting.reachSkillIds as string[]);
+    expect(reachIds.has(SKILL_POSTED), "reach set must contain the posted skill").toBe(true);
+    expect(reachIds.has(SKILL_RELATED), "reach set must contain the curated related skill").toBe(
+      true,
+    );
   });
 
   it("WORKER FEED shows the posting to the tier-1 worker with V1 card fields + feed.shown_v2", async () => {
+    // Mint the worker who will actually LOG IN and read /feed FIRST — matching the
+    // pattern the suite's own APPLY test uses. WORKER_A (seeded earlier via direct SQL,
+    // with a synthetic `phone_e164: "enc:e2e-journey-a"`) has no real login path: the
+    // test-login seam always mints a BRAND NEW worker from a phone number, so a test that
+    // logs in via the seam and then checks WORKER_A's feed can never authenticate as
+    // WORKER_A — `card` was structurally guaranteed to be undefined. Seeding the SAME
+    // supply shape (posted skill, tier 1) for the minted identity instead makes the test
+    // self-consistent: the identity that gets seeded is the identity that logs in.
     const login = await req("POST", "/auth/test-login", {
       body: { phone: syntheticPhone() },
       testLogin: true,
     });
     expect(login.status).toBe(200);
     const token = login.json.access_token as string;
+    const workerId = login.json.worker_id as string;
+    mintedWorkerIds.push(workerId);
 
     // Consent is mandatory before any feed read (ConsentGuard).
     const c = await req("POST", "/consent/accept", {
@@ -287,18 +306,52 @@ describe.skipIf(!RUN)("Matching V1 job journey (e2e, ADR-0036 moments ③-⑥)",
     });
     expect(c.status).toBe(201);
 
+    // Attach supply + a materialized `job_reach` row directly, exactly like the APPLY
+    // test does for its applier: publish already happened before this worker existed, so
+    // publish-time materialization never saw him, and the async profile pipeline is out
+    // of scope for this suite.
+    await client.db
+      .insert(workerSkills)
+      .values({
+        workerId,
+        skillId: SKILL_POSTED,
+        industryId: INDUSTRY,
+        monthsBucketed: 60,
+        wants: true,
+        source: "derived_coarse",
+      })
+      .onConflictDoNothing();
+    await client.db
+      .insert(workerIndustryTenure)
+      .values({ workerId, industryId: INDUSTRY, calendarMonths: 60 })
+      .onConflictDoNothing();
+    await client.db
+      .insert(jobReach)
+      .values({
+        jobPostingId: postingId,
+        workerId,
+        matchTier: 1,
+        matchedSkillId: SKILL_POSTED,
+      })
+      .onConflictDoNothing();
+
     const feed = await req("GET", "/feed?limit=50", { token });
     expect(feed.status).toBe(200);
     const card = (feed.json.jobs as any[]).find((j) => j.job_id === postingId);
     expect(card, "the freshly published posting must appear in the worker's feed").toBeTruthy();
-    expect(card.match_tier).toBe(1);
-    expect(card.via_related).toBe(false);
+    // `MatchFeedItem` (match-feed.service.ts) never puts `match_tier` on the wire — it is
+    // deliberately a superset of the LEGACY card shape, and the tier is exposed to the
+    // client only through `via_related` (tier 2 == true). Asserting `card.match_tier`
+    // here was dead code from the day this suite was written: the structural bug above
+    // (an unauthenticatable worker) always threw on the PRECEDING `toBeTruthy()` before
+    // this line could ever run and prove the field does not exist.
+    expect(card.via_related, "tier 1 (posted skill) must not read as via_related").toBe(false);
     expect(card.matched_skill_label).toBeTruthy();
 
     const shown = await client.db.select().from(events).where(inArray(events.eventName, ["feed.shown_v2"]));
     const mine = shown.filter((e) => (e.payload as any)?.job_posting_id === postingId);
     expect(mine.length, "one feed.shown_v2 per served card").toBeGreaterThanOrEqual(1);
-    expect(mine.some((e) => (e.payload as any)?.worker_id === (login.json.worker_id as string))).toBe(true);
+    expect(mine.some((e) => (e.payload as any)?.worker_id === workerId)).toBe(true);
   });
 
   it("APPLY passes the reach gate, is idempotent, and emits application.submitted exactly once", async () => {
@@ -407,10 +460,19 @@ describe.skipIf(!RUN)("Matching V1 job journey (e2e, ADR-0036 moments ③-⑥)",
   });
 
   it("EVENT CHAIN — created -> updated -> reach_materialized -> shown_v2 -> submitted, PII-free", async () => {
+    // ORDER BY is load-bearing, not decoration: an unordered SELECT returns whatever
+    // physical/scan order Postgres happens to pick, which is NOT insertion order under
+    // concurrent connections — measured here, not assumed. `job_posting.updated` and
+    // `job_posting.reach_materialized` commit from the SAME publish PATCH microseconds
+    // apart, and this suite's earlier requests (worker mint, consent, feed) run on
+    // separate connections that can commit interleaved with them; without an explicit
+    // ORDER BY the returned row order does not reliably track `created_at` at all, which
+    // silently broke the very ordering assertions below.
     const rows = await client.db
       .select()
       .from(events)
-      .where(inArray(events.subjectId, [postingId]));
+      .where(inArray(events.subjectId, [postingId]))
+      .orderBy(events.createdAt, events.id);
     const names = rows.map((e) => e.eventName);
 
     const indexOf = (name: string) => names.indexOf(name);

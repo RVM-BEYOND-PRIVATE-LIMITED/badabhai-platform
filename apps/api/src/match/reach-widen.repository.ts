@@ -95,7 +95,10 @@ export class ReachWidenRepository {
     excludeRowIds: readonly string[],
   ): Promise<Set<string>> {
     if (jobPostingIds.length === 0) return new Set();
-    const conditions = [inArray(jobReachWiden.jobPostingId, [...jobPostingIds])];
+    const conditions = [
+      inArray(jobReachWiden.jobPostingId, [...jobPostingIds]),
+      isNull(jobReachWiden.retractedAt),
+    ];
     if (excludeRowIds.length > 0) {
       conditions.push(notInArray(jobReachWiden.id, [...excludeRowIds]));
     }
