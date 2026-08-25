@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq } from "drizzle-orm";
+import { and, inArray, desc, eq } from "drizzle-orm";
 import {
   type Database,
   jobs,
@@ -133,15 +133,65 @@ export class AgencyJobsRepository {
   }
 
   /**
-   * Close an OWNED job that is currently `open` (guarded transition). Payer + the expected
-   * `open` status are both in the WHERE, so a concurrent close (or a cross-tenant id)
-   * updates nothing and returns undefined — the service maps that to the right response.
+   * Close an OWNED job that is currently LIVE — `open` OR `paused` (#1202).
+   *
+   * The paused arm is not a nicety: before #1202 pause wrote `closed`, so "close" only ever
+   * had to accept `open`. Now that a pause is reversible, a job can sit in `paused`, and a
+   * close guarded on `open` alone would strand it there permanently — the owner could resume
+   * it but never close it.
+   *
+   * `suspended` is deliberately NOT closable through this path: it is SYSTEM-owned
+   * (ADR-0037) and only the reinstate cascade may move it.
+   *
+   * Payer + the expected from-states are both in the WHERE, so a concurrent transition (or a
+   * cross-tenant id) updates nothing and returns undefined — the service maps that to the
+   * right response without a second read.
    */
-  async closeOwnedIfOpen(jobId: string, payerId: string, now: Date): Promise<Job | undefined> {
+  async closeOwnedIfLive(jobId: string, payerId: string, now: Date): Promise<Job | undefined> {
     const [row] = await this.db
       .update(jobs)
       .set({ status: "closed", updatedAt: now })
+      .where(
+        and(
+          eq(jobs.id, jobId),
+          eq(jobs.payerId, payerId),
+          inArray(jobs.status, ["open", "paused"]),
+        ),
+      )
+      .returning();
+    return row;
+  }
+
+  /**
+   * PAUSE an OWNED job: `open -> paused` (#1202). Reversible, and the exact transition the
+   * Payer App's Pause button always claimed to make — before #1202 it wrote `closed`, which
+   * is terminal and unrecoverable from the app.
+   *
+   * Guarded on `open` so a double-tap, or a pause racing a close, updates nothing.
+   */
+  async pauseOwnedIfOpen(jobId: string, payerId: string, now: Date): Promise<Job | undefined> {
+    const [row] = await this.db
+      .update(jobs)
+      .set({ status: "paused", updatedAt: now })
       .where(and(eq(jobs.id, jobId), eq(jobs.payerId, payerId), eq(jobs.status, "open")))
+      .returning();
+    return row;
+  }
+
+  /**
+   * RESUME an OWNED job: `paused -> open` (#1202).
+   *
+   * Guarded on `paused` specifically, NOT on "not closed". That matters for one case: a
+   * `suspended` job must never be resumable by its payer, because `suspended` is
+   * SYSTEM-owned (ADR-0037) and only reinstatement may lift it. A suspended payer cannot
+   * reach this route anyway (PayerAuthGuard admits `active` only), but the guard belongs in
+   * the WHERE rather than resting on that.
+   */
+  async resumeOwnedIfPaused(jobId: string, payerId: string, now: Date): Promise<Job | undefined> {
+    const [row] = await this.db
+      .update(jobs)
+      .set({ status: "open", updatedAt: now })
+      .where(and(eq(jobs.id, jobId), eq(jobs.payerId, payerId), eq(jobs.status, "paused")))
       .returning();
     return row;
   }

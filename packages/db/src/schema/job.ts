@@ -339,12 +339,24 @@ export const jobPostings = pgTable(
  * table) and which a reinstatement must NOT reopen — closing is the payer's decision and
  * survives a suspension.
  *
- * Unlike `job_postings` this table carries NO `previous_status`: it has exactly ONE live
- * state, so a reinstatement restores `suspended -> open` deterministically and there is
- * nothing to remember. If a third live state is ever added here, that stops being true and
- * this table needs the column too.
+ * Unlike `job_postings` this table carries NO `previous_status`, and #1202 added a second
+ * live state (`paused`) WITHOUT needing one. The note that used to stand here predicted the
+ * opposite, so it is worth saying why it does not apply: it assumed the suspension cascade
+ * freezes every live state, which is what `job_postings` does
+ * (`inArray(status, ["open","paused"])`, hence its column). The cascade over THIS table
+ * suspends `status = 'open'` only, and reinstatement moves `suspended -> open` only — so a
+ * `paused` row is never touched by either leg and comes out of a suspension cycle still
+ * paused. There is nothing to remember because nothing is forgotten.
+ *
+ * That is also the correct behaviour rather than a happy accident: ADR-0037 Decision 1
+ * freezes a payer's LIVE inventory so it stops being served, and a paused job is already
+ * not served — every worker-facing read requires `status = 'open'` positively.
+ *
+ * `paused` is USER-owned and reversible; `suspended` is SYSTEM-owned (ADR-0037). They must
+ * never be conflated: overloading `suspended` for a user pause would make reinstatement
+ * silently reopen a job its owner deliberately took down.
  */
-export type JobStatus = "open" | "closed" | "suspended";
+export type JobStatus = "open" | "closed" | "suspended" | "paused";
 
 /**
  * When the job needs someone — the demand-side availability signal the Reach RANK

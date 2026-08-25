@@ -72,7 +72,7 @@ export class AgencyJobsController {
     return this.agency.updateJob(payer.id, params.jobId, dto, ctx);
   }
 
-  /** Close an OWN job (open -> closed, terminal). Emits job.closed. */
+  /** Close an OWN job (`open` or `paused` -> `closed`, terminal). Emits job.closed. */
   @Post(":jobId/close")
   @HttpCode(200)
   close(
@@ -84,9 +84,12 @@ export class AgencyJobsController {
   }
 
   /**
-   * Pause an OWN job. Phase-1: `JobStatus` is open|closed only, so pause == close (the
-   * Reach open-feed stops serving it). Emits job.updated (a serving-state toggle, distinct
-   * from the terminal close event). See {@link AgencyService.pauseJob}.
+   * Pause an OWN job — `open` -> `paused`, REVERSIBLE (#1202).
+   *
+   * Until #1202 this route wrote `closed`, because `JobStatus` had no third value. The
+   * button said Pause and the server heard Close, which is the bug this fixes. Emits
+   * job.updated (a serving-state toggle, deliberately distinct from the terminal close
+   * event). See {@link AgencyService.pauseJob}.
    */
   @Post(":jobId/pause")
   @HttpCode(200)
@@ -96,5 +99,21 @@ export class AgencyJobsController {
     @Ctx() ctx: RequestContext,
   ) {
     return this.agency.pauseJob(payer.id, params.jobId, ctx);
+  }
+
+  /**
+   * Resume an OWN job — `paused` -> `open` (#1202). The half that makes pause reversible.
+   *
+   * Only a `paused` job resumes: `suspended` is SYSTEM-owned (ADR-0037) and must be lifted
+   * by reinstatement, never by its payer. Emits job.updated, symmetric with pause.
+   */
+  @Post(":jobId/resume")
+  @HttpCode(200)
+  resume(
+    @Param(new ZodValidationPipe(AgencyJobIdParamSchema)) params: { jobId: string },
+    @CurrentPayer() payer: AuthenticatedPayer,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.agency.resumeJob(payer.id, params.jobId, ctx);
   }
 }
