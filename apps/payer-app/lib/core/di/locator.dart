@@ -21,6 +21,9 @@ import '../../features/job_posting_chat/presentation/cubit/chat_sessions_cubit.d
 import '../../features/referral/presentation/cubit/referral_cubit.dart';
 import '../../features/agency/presentation/cubit/agency_engagement_cubit.dart';
 import '../../features/agency/presentation/cubit/batch_invite_cubit.dart';
+import '../../features/agency/presentation/cubit/agency_earnings_cubit.dart';
+import '../../features/agency/presentation/cubit/agency_kyc_cubit.dart';
+import '../../features/agency/presentation/cubit/agency_payouts_cubit.dart';
 import '../../features/credits/presentation/cubit/credits_screen_cubit.dart';
 import '../../features/org/presentation/cubit/org_cubit.dart';
 import '../../features/capacity/presentation/cubit/capacity_cubit.dart';
@@ -167,9 +170,10 @@ void setupLocator({
   );
 
   // --- Agency-only demand (jobs) + supply (referral) ------------------------
-  // Referral (link + funnel summary) is the ONE agency-supply surface with a
-  // real backend (`POST /payer/agency/invites`, `GET .../referrals/summary`);
-  // the payout/KYC surfaces remain launch-gated and are not built.
+  // Referral (link + funnel summary) is one agency-supply surface; the
+  // supply-money surfaces (earnings / KYC / payouts) are FLAG-GATED server-side
+  // (`AgencyPayoutsEnabledGuard` → neutral 404 while off) and DEGRADE gracefully
+  // to a "not available yet" state, so they are safe to wire unconditionally.
   locator.registerFactory<AgencyJobsCubit>(
     () => AgencyJobsCubit(locator<PayerApiClient>()),
   );
@@ -184,6 +188,18 @@ void setupLocator({
   );
   locator.registerFactory<BatchInviteCubit>(
     () => BatchInviteCubit(locator<PayerApiClient>()),
+  );
+  // Agency supply-money (earnings · KYC · payouts) — AGENT-only + FLAG-GATED
+  // (`/payer/agency/{earnings,kyc,payouts}`), reached from the Refer-&-earn hub.
+  // Each cubit maps the neutral 404 to an honest "not available yet" state.
+  locator.registerFactory<AgencyEarningsCubit>(
+    () => AgencyEarningsCubit(locator<PayerApiClient>()),
+  );
+  locator.registerFactory<AgencyKycCubit>(
+    () => AgencyKycCubit(locator<PayerApiClient>()),
+  );
+  locator.registerFactory<AgencyPayoutsCubit>(
+    () => AgencyPayoutsCubit(locator<PayerApiClient>()),
   );
 
   // --- Org / team members (ADR-0027) + Hiring capacity (ADR-0016) -----------

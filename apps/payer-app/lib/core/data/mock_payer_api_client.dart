@@ -591,8 +591,9 @@ class MockPayerApiClient implements PayerApiClient {
 
   // --- Agency demand — jobs CRUD + lifecycle + referrals summary (canned) ----
   // An in-memory list so the agency My-jobs + Post-a-job flow is walkable in
-  // MOCK: create prepends a fresh `open` row; close/pause flip it to `closed`
-  // (Phase-1 has no `paused` state). PII-free — only coarse demand attributes.
+  // MOCK: create prepends a fresh `open` row; close → `closed` (terminal),
+  // pause → `paused` and resume → `open` (#1202, reversible). PII-free — only
+  // coarse demand attributes.
 
   int _agencySeq = 200;
 
@@ -615,6 +616,20 @@ class MockPayerApiClient implements PayerApiClient {
     ),
     const AgencyJobView(
       id: 'mock-agency-2',
+      status: 'paused',
+      tradeKey: 'quality_inspector',
+      title: 'Quality Inspector — Night shift',
+      city: 'Pune',
+      area: 'Ranjangaon',
+      payMin: 24000,
+      payMax: 30000,
+      minExperienceYears: 3,
+      applicantsReceived: 4,
+      createdAt: '2026-07-01T00:00:00Z',
+      updatedAt: '2026-07-05T00:00:00Z',
+    ),
+    const AgencyJobView(
+      id: 'mock-agency-3',
       status: 'closed',
       tradeKey: 'cnc_vmc_setter',
       title: 'CNC / VMC Setter',
@@ -717,17 +732,21 @@ class MockPayerApiClient implements PayerApiClient {
   }
 
   @override
-  Future<AgencyJobView> closeAgencyJob(String id) => _closeAgency(id);
+  Future<AgencyJobView> closeAgencyJob(String id) => _setAgencyStatus(id, 'closed');
 
   @override
-  // A pause returns `status:'closed'` on the wire — mirror that here.
-  Future<AgencyJobView> pauseAgencyJob(String id) => _closeAgency(id);
+  // A pause is reversible (#1202) — the row comes back `paused`, resumable.
+  Future<AgencyJobView> pauseAgencyJob(String id) => _setAgencyStatus(id, 'paused');
 
-  Future<AgencyJobView> _closeAgency(String id) => _mutate(
+  @override
+  // Resume flips a `paused` row back to `open` (#1202).
+  Future<AgencyJobView> resumeAgencyJob(String id) => _setAgencyStatus(id, 'open');
+
+  Future<AgencyJobView> _setAgencyStatus(String id, String status) => _mutate(
         id,
         (AgencyJobView j) => AgencyJobView(
           id: j.id,
-          status: 'closed',
+          status: status,
           tradeKey: j.tradeKey,
           title: j.title,
           city: j.city,
@@ -932,6 +951,127 @@ class MockPayerApiClient implements PayerApiClient {
 
   @override
   Future<CapacityView> fetchCapacity() async => _capacity;
+
+  // --- Agency supply-money — KYC · earnings · payouts (canned, walkable) ------
+  // A stateful in-memory mock so the whole earnings → request → history flow is
+  // walkable in MOCK mode. The launch flag is treated as ON here (a demo build);
+  // the real flag-OFF 404 degrade is exercised against the HTTP client, not this
+  // mock. Money is fake — a request just moves ₹ from requestable → in-request
+  // and prepends a history row. Masked by construction (last-4 only), PII-free.
+  // Config economics mirror the server defaults (25% × ₹40 / 90d / ₹500 min).
+  static const int _kPayoutThresholdInr = 500;
+  static const int _kPayoutBasisInr = 40;
+  static const int _kPayoutRateBps = 2500;
+  static const int _kPayoutWindowDays = 90;
+
+  // ₹ accrued per qualifying unlock (basis × rate) = 40 × 2500 / 10000 = ₹10.
+  int get _accrualAmountInr => (_kPayoutBasisInr * _kPayoutRateBps) ~/ 10000;
+
+  // Seeded VERIFIED so the request flow is immediately walkable in a demo.
+  AgencyKycView _kyc = const AgencyKycView(
+    status: 'verified',
+    panLast4: '234F',
+    bankLast4: '9012',
+    updatedAt: '2026-07-10T00:00:00Z',
+  );
+
+  int _requestableInr = 850; // 85 accruals available to request
+  int _inRequestInr = 0;
+  final int _paidInr = 500; // one prior settled payout (the history seed row)
+  final int _totalAccrualCount = 135; // 85 requestable + 50 already paid
+
+  int _payoutSeq = 1;
+  final List<AgencyPayout> _payouts = <AgencyPayout>[
+    const AgencyPayout(
+      id: 'mock-payout-1',
+      amountInr: 500,
+      accrualCount: 50,
+      status: 'paid',
+      createdAt: '2026-06-20T00:00:00Z',
+    ),
+  ];
+
+  @override
+  Future<AgencyKycView> submitAgencyKyc({
+    required String pan,
+    required String bankAccount,
+    required String ifsc,
+    required String accountHolderName,
+  }) async {
+    // A fresh submission is PENDING until an ops ack (the app has no verify path
+    // in mock) — the honest state. Only the last-4 ever leaves the boundary.
+    String last4(String v) => v.length <= 4 ? v : v.substring(v.length - 4);
+    _kyc = AgencyKycView(
+      status: 'pending',
+      panLast4: last4(pan),
+      bankLast4: last4(bankAccount),
+      updatedAt: '2026-07-12T00:00:00Z',
+    );
+    return _kyc;
+  }
+
+  @override
+  Future<AgencyKycView> fetchAgencyKyc() async => _kyc;
+
+  @override
+  Future<AgencyEarnings> fetchAgencyEarnings() async {
+    String? blocked;
+    if (!_kyc.isVerified) {
+      blocked = 'kyc_not_verified';
+    } else if (_requestableInr < _kPayoutThresholdInr) {
+      blocked = 'below_threshold';
+    }
+    return AgencyEarnings(
+      totalAccruedInr: _requestableInr + _inRequestInr + _paidInr,
+      requestableInr: _requestableInr,
+      inRequestInr: _inRequestInr,
+      paidInr: _paidInr,
+      accrualCount: _totalAccrualCount,
+      kycStatus: _kyc.status,
+      thresholdInr: _kPayoutThresholdInr,
+      basisInr: _kPayoutBasisInr,
+      rateBps: _kPayoutRateBps,
+      windowDays: _kPayoutWindowDays,
+      payoutsEnabled: true,
+      canRequest: blocked == null,
+      blockedReason: blocked,
+    );
+  }
+
+  @override
+  Future<PayoutRequestResult> requestAgencyPayout() async {
+    // Mirror the server gate: KYC verified AND ≥ threshold. A refusal changes
+    // nothing (HTTP 200 with ok:false server-side).
+    if (!_kyc.isVerified) {
+      return const PayoutRequestResult(ok: false, blockedReason: 'kyc_not_verified');
+    }
+    if (_requestableInr < _kPayoutThresholdInr) {
+      return const PayoutRequestResult(ok: false, blockedReason: 'below_threshold');
+    }
+    final int amount = _requestableInr;
+    final int count = amount ~/ _accrualAmountInr;
+    _payoutSeq += 1;
+    final AgencyPayout row = AgencyPayout(
+      id: 'mock-payout-$_payoutSeq',
+      amountInr: amount,
+      accrualCount: count,
+      status: 'requested',
+      createdAt: '2026-07-14T00:00:00Z',
+    );
+    _payouts.insert(0, row);
+    _inRequestInr += amount;
+    _requestableInr = 0;
+    return PayoutRequestResult(
+      ok: true,
+      requestId: row.id,
+      amountInr: amount,
+      accrualCount: count,
+    );
+  }
+
+  @override
+  Future<List<AgencyPayout>> fetchAgencyPayouts() async =>
+      List<AgencyPayout>.unmodifiable(_payouts);
 
   /// Faceless [Applicant] rows synthesized from the canned candidates — opaque
   /// UUID-style ids + coarse facets + a couple of soft reasons. No name/phone.

@@ -5,10 +5,10 @@ import '../../../../core/data/models.dart';
 import '../../../../core/data/payer_api_client.dart';
 
 /// Loads the AGENCY session's own job postings (`GET /payer/agency/jobs`) and
-/// drives the per-row lifecycle (close / pause). Agent-only — the screen only
-/// mounts this for an agency session (the routes 403 for a company). A pause
-/// returns `status:'closed'` (Phase-1 has no `paused` state), so its success
-/// copy says so honestly. Actions refetch the list so the pill/buttons update.
+/// drives the per-row lifecycle (close / pause / resume). Agent-only — the screen
+/// only mounts this for an agency session (the routes 403 for a company). A pause
+/// is REVERSIBLE (#1202): pause → `paused`, resume → `open`; only a close is
+/// terminal. Actions refetch the list so the pill/buttons update.
 class AgencyJobsCubit extends Cubit<AgencyJobsState> {
   AgencyJobsCubit(this._api) : super(const AgencyJobsState());
 
@@ -29,11 +29,18 @@ class AgencyJobsCubit extends Cubit<AgencyJobsState> {
         okMessage: 'Closed — no longer taking applicants.',
       );
 
-  /// A pause maps to `closed` server-side (Phase-1 has no separate paused
-  /// state) — surfaced honestly so the payer is not misled.
+  /// Pause is REVERSIBLE (#1202): the row comes back `paused` and can be
+  /// resumed, so the copy says so instead of implying a terminal close.
   Future<JobActionResult> pausePosting(String id) => _lifecycle(
         () => _api.pauseAgencyJob(id),
-        okMessage: 'Paused — the job is now closed (no separate paused state).',
+        okMessage: 'Paused — hidden from workers. Resume it anytime.',
+      );
+
+  /// Resume a paused posting (`paused -> open`, #1202) — the other half of a
+  /// reversible pause.
+  Future<JobActionResult> resumePosting(String id) => _lifecycle(
+        () => _api.resumeAgencyJob(id),
+        okMessage: 'Resumed — live again for applicants.',
       );
 
   /// Edit an agency posting (`PATCH /payer/agency/jobs/:id`). Every field the
