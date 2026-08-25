@@ -141,6 +141,7 @@ export * from "./delete-forensics";
 export * from "./ai-cost";
 export * from "./feedback";
 export * from "./ai-trace";
+export * from "./learn";
 
 // ---------------------------------------------------------------------------
 // Inferred row types (select / insert) for use across services.

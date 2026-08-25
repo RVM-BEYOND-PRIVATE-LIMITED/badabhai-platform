@@ -2,7 +2,7 @@
  * Job domain — ops-created job postings (ADR-0012), the faceless `jobs` feed rows,
  * and the apply/skip `applications` record.
  */
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import {
   pgTable,
   uuid,
@@ -15,6 +15,7 @@ import {
   index,
   uniqueIndex,
   check,
+  customType,
 } from "drizzle-orm/pg-core";
 import type {
   VacancyBand,
@@ -28,6 +29,19 @@ import { jobDomains } from "./occupation";
 
 // Re-export TradeKey for downstream consumers (seed files, etc.)
 export type { TradeKey, SkipReason, SourceSurface } from "@badabhai/taxonomy";
+
+/**
+ * Postgres `tsvector` — the full-text search vector on `job_postings` (migration 0089).
+ * Drizzle has no built-in tsvector; this custom type maps it 1:1 and is only ever READ
+ * (`search_vec @@ to_tsquery(...)` in JobsRepository.searchOpenPostings) — no API path
+ * writes it, because it is a GENERATED ALWAYS STORED column derived from `role_title`
+ * (weight A) and `skill_phrases` (weight B).
+ */
+export const tsvector = customType<{ data: string; driverData: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
 
 // ---------------------------------------------------------------------------
 // job_postings (ADR-0012) — ops-created, vacancy-banded, stored-only postings.
@@ -174,6 +188,33 @@ export const jobPostings = pgTable(
     // deliberately paused — publishing a job they took down, which is the one outcome a
     // suspension must not cause.
     previousStatus: text("previous_status").$type<JobPostingStatus>(),
+    // ── Full-text search vector (migration 0089) — `GET /jobs/search` (#822) ──
+    // GENERATED ALWAYS STORED from exactly the two NON-PII free-text columns the search
+    // already matched (`role_title` at weight A, `skill_phrases` at weight B), via the
+    // IMMUTABLE helper `job_postings_skill_phrases_text(jsonb)` the migration creates
+    // first (jsonb set-returning functions cannot appear in a generated column directly).
+    //
+    // Config is 'simple' — case-fold + split, NO stemming and no stopword list. The
+    // content is Hinglish Roman script ("Fanuc CNC machine operate karna"), which an
+    // 'english' stemmer would corrupt on the Hindi half; 'simple' + prefix queries
+    // (`to_tsquery('simple', $term || ':*')`) mirrors how the taxonomy ladder already
+    // treats Roman-script Hindi inflection.
+    //
+    // NEVER `location_label`, `org_label` or `description`: employer identity stays off
+    // every worker-visible structure (ADR-0024), and description was never searched.
+    // The GIN index below turns the old seq-scanning ILIKE membership predicate into an
+    // index probe while the deterministic relevance ladder (prefix < substring <
+    // skill-phrase-only) stays byte-for-byte the same SQL CASE it always was — §3:
+    // relevance is computed SQL, never a model score.
+    //
+    // Rollback (§10): DROP INDEX, then ALTER TABLE … DROP COLUMN "search_vec", then
+    // DROP FUNCTION job_postings_skill_phrases_text(jsonb). No reader changes behaviour
+    // until the repository predicate flips; dropping the column alone reverts search to
+    // its pre-0089 shape.
+    searchVec: tsvector("search_vec").generatedAlwaysAs(
+      (): SQL =>
+        sql`setweight(to_tsvector('simple', coalesce(${jobPostings.roleTitle}, '')), 'A') || setweight(to_tsvector('simple', job_postings_skill_phrases_text(${jobPostings.skillPhrases})), 'B')`,
+    ),
   },
   (t) => [
     // Backs the ops list endpoint: filter by `status`, order by `created_at desc`.
@@ -201,6 +242,11 @@ export const jobPostings = pgTable(
     // D4 idempotency: one posting per converted legacy job. NULLs are DISTINCT in
     // Postgres, so the thousands of natively-created postings never collide.
     uniqueIndex("job_postings_source_job_id_uq").on(t.sourceJobId),
+    // THE SEARCH PROBE (migration 0089): `search_vec @@ to_tsquery('simple', $q)` in
+    // JobsRepository.searchOpenPostings. GIN because the vector is large and the query
+    // is membership-only — we never need ts_rank (the ladder is a plain CASE), so a
+    // GiST would buy nothing.
+    index("job_postings_search_gin").using("gin", t.searchVec),
     // Pin the banded vacancy to the 5 allowed values (mirrors VACANCY_BANDS).
     check(
       "job_postings_vacancy_band_chk",

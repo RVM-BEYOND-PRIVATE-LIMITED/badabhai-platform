@@ -46,8 +46,11 @@ import {
 const NAME = "seed:match:vocabulary";
 
 /**
- * The V1 config values (ratified 2026-07-30). Written ONLY when no active `match_config`
+ * The V1 config values (ratified 2026-07-30; widen_expiry_hours added with the
+ * Policy 27 expiry sweep, migration 0090). Written ONLY when no active `match_config`
  * row exists — an existing row is an ops decision and is never overwritten by a re-run.
+ * A pre-0090 row simply omits the new key: `parseMatchConfig` fills absent fields from
+ * the typed defaults, so old rows keep working unchanged.
  */
 export const MATCH_CONFIG_V1 = {
   engine_version: "v1.0",
@@ -59,6 +62,7 @@ export const MATCH_CONFIG_V1 = {
   tier_floor_months: 36,
   free_unlock_credits: 50,
   boost_supply_floor: 25,
+  widen_expiry_hours: 720,
 } as const;
 
 /**

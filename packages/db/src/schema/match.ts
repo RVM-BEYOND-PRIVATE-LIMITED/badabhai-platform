@@ -175,6 +175,64 @@ export const jobReach = pgTable(
 ).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0055
 
 // ---------------------------------------------------------------------------
+// job_reach_widen (migration 0090) — Policy 27 third leg: the EXPIRY half.
+//
+// One row per OPS widen request (TD127): which `mskill_*` ids were appended to the
+// posting's reach set, by which opaque ops actor, and WHEN the grant ends
+// (`match_config.widen_expiry_hours` from the request time). The expiry sweep reads
+// this table as its authoritative work list, retracts exactly the expired ids nothing
+// else protects, re-materializes the posting from its base set, and marks the rows
+// `retracted_at`.
+//
+// WHY PROVENANCE IS A TABLE AND NOT A TTL COLUMN ON `job_reach`: a reach row is
+// qualified by the BEST skill across the whole set — there is no per-skill attribution
+// to expire, and one worker may be reachable through BOTH a base and a widened skill.
+// The system of record for "what is widened right now" must live beside the reach set
+// itself (`job_postings.reach_skill_ids`), or a retraction could not restore it.
+//
+// APPEND-ONLY IN SPIRIT, RETRACTED-IN-FACT: rows are never deleted; `retracted_at`
+// records that the sweep has processed them. A re-widened id gets a NEW row whose
+// active expiry protects it from an older row's sweep — the retract step excludes any
+// id still held by a non-retracted row or present in `match_skill_ids`.
+//
+// PII-FREE: ids, closed-vocabulary skill ids and timestamps only. `ops_actor_id` is
+// the same OPAQUE actor id the `job_posting.reach_widened` event carries. No FK to it
+// (mirrors `job_postings.created_by`).
+//
+// DPDP: no worker data at all — erasure needs no path here.
+// ---------------------------------------------------------------------------
+export const jobReachWiden = pgTable(
+  "job_reach_widen",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jobPostingId: uuid("job_posting_id")
+      .notNull()
+      .references(() => jobPostings.id, { onDelete: "cascade" }),
+    // The `mskill_*` ids THIS request appended (deduped, sorted at write). jsonb array of
+    // strings, same shape as `job_postings.match_skill_ids`.
+    addedSkillIds: jsonb("added_skill_ids").$type<string[]>().notNull(),
+    // When the grant ends. `expires_at <= now()` is the sweep's candidacy predicate.
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    // NULL = still in force. Set once the sweep has retracted these ids (or found the
+    // posting gone/closed — a terminal posting's sets rebuild on republish anyway).
+    retractedAt: timestamp("retracted_at", { withTimezone: true }),
+    // Opaque ops actor from the widen request envelope. No FK, never a name.
+    opsActorId: uuid("ops_actor_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // THE SWEEP PROBE: due, un-retracted grants. Partial so the steady-state table
+    // (everything retracted) holds one tiny index.
+    index("job_reach_widen_due_idx")
+      .on(t.expiresAt)
+      .where(sql`${t.retractedAt} IS NULL`),
+    // Per-posting audit walk ("what was ever widened here?") + the active-set check the
+    // retract step runs before removing an id.
+    index("job_reach_widen_posting_idx").on(t.jobPostingId),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0090
+
+// ---------------------------------------------------------------------------
 // match_config — Matching V1 (migration 0057). The knobs of the V1 rank rule, held as
 // ONE ACTIVE jsonb row. A DELIBERATE CLONE of the `pricing_catalog` shape (ADR-0013
 // Decision A): single active row + monotonic `revision` + partial unique on is_active +
