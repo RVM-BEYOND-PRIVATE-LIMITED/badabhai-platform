@@ -37,6 +37,14 @@ class MockApiClient extends ApiClient {
     await _delay();
   }
 
+  @override
+  Future<void> withdrawConsent({required String authToken}) async {
+    // Canned success — mirrors POST /consent/withdraw → 200 { ok: true }. The
+    // real endpoint revokes every session; the mock walkthrough leaves the
+    // hard-logout to the caller (AuthSessionManager) exactly as the live path.
+    await _delay();
+  }
+
   /// No `openingText`, deliberately. Returning one here would be a THIRD copy of
   /// the opener copy (after `question_bank.py` and the client const) with nothing
   /// keeping the three in step. Null makes the bloc render `kChatOpeningText`,

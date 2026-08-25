@@ -38,6 +38,23 @@ class ConsentRepositoryImpl implements ConsentRepository {
     unawaited(_attributePendingReferral());
   }
 
+  @override
+  Future<void> withdrawConsent() async {
+    // `POST /consent/withdraw` is WORKER-AUTHED and takes the subject from the
+    // session token, never a body — same rule as accept. So the BEARER is all
+    // this call needs. Fail closed rather than call unauthed.
+    final String? token = _session.sessionToken;
+    if (token == null || token.isEmpty) throw const UnauthorizedFailure();
+    try {
+      await _api.withdrawConsent(authToken: token);
+    } catch (error) {
+      throw mapError(error);
+    }
+    // On success the server has revoked EVERY session (consent.service.ts) — the
+    // hard-logout is the cubit's job (it flips AuthStatus → the router bounces to
+    // phone login), not the repository's.
+  }
+
   /// Consumes a pending referral code (captured from a deep link) exactly once
   /// and posts it to the consent-gated `/referrals/attribute` route. Best-effort:
   /// swallows any error so a failed side-signal never surfaces to the worker.

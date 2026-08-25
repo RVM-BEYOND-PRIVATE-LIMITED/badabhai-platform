@@ -571,6 +571,22 @@ class AuthSessionManager extends ChangeNotifier {
     await _wipeAndLogOut();
   }
 
+  /// "Log out of ALL devices" (the stolen/lost-handset panic button). Revokes
+  /// every session server-side (POST /auth/logout-all) — which INCLUDES this
+  /// device (session.service.ts:revokeAll) and every device's push token
+  /// (ADR-0034) — then wipes BOTH the secure store and the session bridge and
+  /// routes to phone login. Offline-safe like [logout]: a failed/queued revoke
+  /// must never block the local sign-out (the current session is already dead
+  /// server-side once this lands, so the app must not stay "logged in").
+  Future<void> logoutAll() async {
+    try {
+      await _authApi.logoutAll();
+    } catch (_) {
+      // A failed/offline revoke must not block local sign-out.
+    }
+    await _wipeAndLogOut();
+  }
+
   Future<List<AuthDevice>> listDevices() => _authApi.listDevices();
 
   Future<void> revokeDevice(String deviceId) => _authApi.revokeDevice(deviceId);

@@ -89,6 +89,14 @@ class DevicesCubit extends Cubit<DevicesState> {
     }
   }
 
+  /// "Sign out of ALL devices" (lost/stolen-handset panic button). Delegates to
+  /// [AuthSessionManager.logoutAll], which revokes every session server-side —
+  /// the CURRENT device included — then wipes locally and flips the app to
+  /// loggedOut, so the router tears this screen (and cubit) down. There is
+  /// deliberately no post-call emit: the manager is offline-safe (never throws)
+  /// and the screen no longer exists once it returns.
+  Future<void> logoutAll() => _manager.logoutAll();
+
   Future<void> revoke(String deviceId) async {
     // Flag this device as revoke-in-flight so the tile can show a spinner and
     // block duplicate taps. load() (called below) emits fresh states, which

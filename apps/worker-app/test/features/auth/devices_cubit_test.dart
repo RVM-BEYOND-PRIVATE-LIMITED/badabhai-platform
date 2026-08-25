@@ -214,6 +214,20 @@ void main() {
     verifyNever(() => manager.listDevices());
   });
 
+  // logout-all (panic button): the cubit delegates to the manager, which revokes
+  // every session server-side then hard-logs-out. The manager is offline-safe
+  // (never throws) and tears the screen down on success, so the cubit adds no
+  // state — the contract that matters is that the delegation happens exactly once.
+  test('logoutAll delegates to AuthSessionManager.logoutAll', () async {
+    when(() => manager.logoutAll()).thenAnswer((_) async {});
+    final DevicesCubit cubit = DevicesCubit(manager);
+
+    await cubit.logoutAll();
+
+    verify(() => manager.logoutAll()).called(1);
+    await cubit.close();
+  });
+
   // SECURITY (CLAUDE.md §2): device rows are opaque ids + platform metadata. No
   // phone number or worker name may ride along in what the cubit holds.
   test('device state carries only opaque ids and platform metadata', () async {

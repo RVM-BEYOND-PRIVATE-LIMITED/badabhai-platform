@@ -518,6 +518,25 @@ class AuthApi {
     _check(res, _AuthEndpoint.authed);
   }
 
+  /// POST /auth/logout-all (bearer) → 204. Revokes EVERY active session for the
+  /// current worker — the CURRENT device INCLUDED (session.service.ts:revokeAll
+  /// reads the worker's whole session set, and ADR-0034 also revokes every device
+  /// push token). No body; the revoked count rides the server's PII-free
+  /// `worker.logged_out_all` event, never the response. Because this device is
+  /// revoked too, the caller MUST hard-log-out locally after a success.
+  ///
+  /// Idempotent — a re-run after everything is already revoked is still a 204.
+  Future<void> logoutAll() async {
+    final AuthResponse res = await _client.send(
+      HttpMethod.post,
+      '/auth/logout-all',
+      body: <String, dynamic>{},
+      authed: true,
+      idempotent: true,
+    );
+    _check(res, _AuthEndpoint.authed);
+  }
+
   /// GET /auth/devices (bearer) → `{ devices: [...] }` — the CONFIRMED
   /// DeviceListResponse shape (apps/api/src/auth/devices.dto.ts; root key
   /// `devices`, items = DeviceListItem). A non-2xx throws via [_check] (401 →

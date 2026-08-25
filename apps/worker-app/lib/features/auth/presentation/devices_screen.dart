@@ -7,6 +7,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_blue_header.dart';
+import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_spinner.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import 'cubit/devices_cubit.dart';
@@ -43,6 +44,7 @@ class _DevicesView extends StatelessWidget {
           Expanded(
             child: SafeArea(
               top: false,
+              bottom: false,
               child: BlocBuilder<DevicesCubit, DevicesState>(
                 builder: (BuildContext context, DevicesState state) {
                   return switch (state.status) {
@@ -84,7 +86,78 @@ class _DevicesView extends StatelessWidget {
               ),
             ),
           ),
+          // The lost/stolen-handset panic button. OUTSIDE the list BlocBuilder so
+          // it stays reachable even if the list failed to load — a worker whose
+          // phone was stolen must be able to sign every device out regardless.
+          const _LogoutAllBar(),
         ],
+      ),
+    );
+  }
+}
+
+/// "Sign out of ALL devices" (ADR-0034 panic button). A non-dismissible confirm,
+/// then [DevicesCubit.logoutAll] → the server revokes every session (this device
+/// included) and the app hard-logs-out to phone login, so the router tears this
+/// screen down; the local busy flag only matters if no manager is wired.
+class _LogoutAllBar extends StatefulWidget {
+  const _LogoutAllBar();
+
+  @override
+  State<_LogoutAllBar> createState() => _LogoutAllBarState();
+}
+
+class _LogoutAllBarState extends State<_LogoutAllBar> {
+  bool _busy = false;
+
+  Future<void> _confirm() async {
+    final DevicesCubit cubit = context.read<DevicesCubit>();
+    final bool ok = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext d) => AlertDialog(
+            title: const Text('Sabhi devices se logout?'),
+            content: const Text(
+              'Aap sabhi phone aur devices se — yeh phone bhi — logout ho '
+              'jaayenge. Dobara use karne ke liye phir se login karna hoga.',
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(d).pop(false),
+                child: const Text('Rehne dein'),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+                onPressed: () => Navigator.of(d).pop(true),
+                child: const Text('Logout karein'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!ok || !mounted) return;
+    setState(() => _busy = true);
+    await cubit.logoutAll();
+    // Reached only when the sign-out did NOT tear the screen down (e.g. no auth
+    // manager wired in a test/plugin-free graph) — the router redirect handles
+    // the real app.
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.gutter),
+        child: BbButton(
+          label: 'Sabhi devices se logout',
+          variant: BbButtonVariant.danger,
+          block: true,
+          loading: _busy,
+          iconLeft: Icons.logout_rounded,
+          onPressed: _busy ? null : _confirm,
+        ),
       ),
     );
   }

@@ -13,10 +13,12 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/util/date_label.dart';
+import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_list_row.dart';
 import '../../../core/widgets/bb_scaffold.dart';
 import '../../../router.dart';
+import '../../consent/presentation/cubit/consent_withdraw_cubit.dart';
 import '../domain/notification_prefs_repository.dart';
 import 'cubit/account_delete_cubit.dart';
 
@@ -29,11 +31,19 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Screen-scoped cubit: seeds `scheduled` from the SessionRepository when a
-    // deletion is already pending (e.g. after a login during the grace), so
-    // the banner shows without any network call.
-    return BlocProvider<AccountDeleteCubit>(
-      create: (_) => locator<AccountDeleteCubit>(),
+    // Screen-scoped cubits. AccountDeleteCubit seeds `scheduled` from the
+    // SessionRepository when a deletion is already pending (e.g. after a login
+    // during the grace), so the banner shows without any network call.
+    // ConsentWithdrawCubit drives the DPDP "withdraw consent" row.
+    return MultiBlocProvider(
+      providers: <BlocProvider<dynamic>>[
+        BlocProvider<AccountDeleteCubit>(
+          create: (_) => locator<AccountDeleteCubit>(),
+        ),
+        BlocProvider<ConsentWithdrawCubit>(
+          create: (_) => locator<ConsentWithdrawCubit>(),
+        ),
+      ],
       child: const _SettingsView(),
     );
   }
@@ -171,6 +181,7 @@ class _SettingsView extends StatelessWidget {
               subtitle: 'Consent · download · delete',
               onTap: () => _comingSoon(context),
             ),
+            const _WithdrawConsentRow(),
           ]),
           // Account delete hidden for now; will return after the flow is redesigned.
           Visibility(
@@ -486,6 +497,102 @@ class _DeleteOtpDialogState extends State<_DeleteOtpDialog> {
           ],
         );
       },
+    );
+  }
+}
+
+/// Settings → Privacy: the DPDP "withdraw consent" row.
+///
+/// Withdrawal is a session-ending action on the server (`POST /consent/withdraw`
+/// revokes the consent record AND every session — this device included), so a
+/// success drives a hard-logout via [ConsentWithdrawCubit] and the router bounces
+/// to phone login; the honest confirm copy states exactly that. A failure is
+/// surfaced as the app's centred alert with the real reason (never a generic
+/// "kuch gadbad").
+class _WithdrawConsentRow extends StatelessWidget {
+  const _WithdrawConsentRow();
+
+  /// Non-dismissible confirm — a destructive, legally-meaningful action a
+  /// low-literacy worker must read, not tap past. States the real consequence
+  /// learned from the backend: all devices logged out + re-login + re-consent.
+  Future<void> _confirm(BuildContext context) async {
+    final ConsentWithdrawCubit cubit = context.read<ConsentWithdrawCubit>();
+    final bool proceed = await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext dialogContext) => AlertDialog(
+            title: const Text('Consent wapas lein?'),
+            content: const Text(
+              'Consent wapas lene par aapki profiling band ho jaayegi aur aap '
+              'sabhi devices se logout ho jaayenge. App dobara use karne ke liye '
+              'phir se login karke consent dena hoga.',
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Rehne dein'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+                child: const Text('Consent wapas lein'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!proceed) return;
+    await cubit.withdraw();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocConsumer<ConsentWithdrawCubit, ConsentWithdrawState>(
+      // Only the failure path needs a listener: on success the server has
+      // revoked every session and the cubit hard-logs-out, so the router tears
+      // this screen down — there is nothing to show here.
+      listenWhen: (ConsentWithdrawState prev, ConsentWithdrawState curr) =>
+          curr.status == ConsentWithdrawStatus.failure,
+      listener: (BuildContext context, ConsentWithdrawState state) {
+        showBbAlert(
+          context,
+          title: 'Consent wapas nahi liya ja saka',
+          message: failureReason(state.failure).reason,
+        );
+      },
+      builder: (BuildContext context, ConsentWithdrawState state) {
+        final Widget row = BbListRow.setting(
+          icon: Icons.gpp_maybe_outlined,
+          title: 'Consent wapas lein',
+          subtitle: 'Profiling band · sabhi devices se logout',
+          danger: true,
+          onTap: state.isSubmitting ? null : () => _confirm(context),
+        );
+        // Dim + block while the withdraw round trip is in flight, mirroring the
+        // account-delete row's in-flight treatment.
+        if (state.isSubmitting) {
+          return const IgnorePointer(
+            child: Opacity(opacity: 0.45, child: _SubmittingWithdrawRow()),
+          );
+        }
+        return row;
+      },
+    );
+  }
+}
+
+/// The dimmed placeholder shown while a consent withdrawal is in flight — same
+/// row, no tap, so the worker sees the action is working, not frozen.
+class _SubmittingWithdrawRow extends StatelessWidget {
+  const _SubmittingWithdrawRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return BbListRow.setting(
+      icon: Icons.gpp_maybe_outlined,
+      title: 'Consent wapas liya ja raha hai…',
+      subtitle: 'Profiling band · sabhi devices se logout',
+      danger: true,
     );
   }
 }
