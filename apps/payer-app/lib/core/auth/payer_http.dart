@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'payer_account_deleted_signal.dart';
 import 'payer_token_store.dart';
 
 /// Hard ceiling on any single HTTP request.
@@ -51,16 +52,26 @@ class PayerHttp {
     required PayerTokenStore tokenStore,
     http.Client? client,
     void Function()? onReauth,
+    void Function()? onAccountDeleted,
     Future<String?> Function()? refreshToken,
   })  : _tokenStore = tokenStore,
         _client = client ?? http.Client(),
         _onReauth = onReauth,
+        _onAccountDeleted = onAccountDeleted,
         _refreshToken = refreshToken;
 
   final String baseUrl;
   final PayerTokenStore _tokenStore;
   final http.Client _client;
   final void Function()? _onReauth;
+
+  /// Fired when ANY response comes back on the RESERVED account-deleted contract
+  /// — HTTP 410 `PAYER_ACCOUNT_DELETED` (see [isPayerAccountDeletedResponse]).
+  /// Additive and SEPARATE from [_onReauth]: this is the irrecoverable "your row
+  /// is gone" case, not the recoverable 401 refresh. Fired from [_decode] so it
+  /// covers every verb + path through this single authed client, and never
+  /// touches the 401 → refresh → retry dance below. The app root hard-logs-out.
+  final void Function()? _onAccountDeleted;
 
   /// Mints a fresh access token from the current bearer (`POST /payer/refresh`),
   /// or `null` if refresh failed. Injected (not called at construction) so the
@@ -302,6 +313,15 @@ class PayerHttp {
               return <String, dynamic>{};
             }
           }();
+    // RESERVED account-deletion contract: a call made with a VALID bearer whose
+    // payer row is gone server-side comes back 410 { code: PAYER_ACCOUNT_DELETED }.
+    // Fire the app-scoped signal here — the single decode choke point for every
+    // verb + path — so the app root shows ONE dialog and hard-logs-out. Kept out
+    // of the 401 path in `send`: a 410 returns straight to the caller (never
+    // refreshed), so this fires exactly once per response, never a refresh.
+    if (isPayerAccountDeletedResponse(res.statusCode, body)) {
+      _onAccountDeleted?.call();
+    }
     return PayerResponse(res.statusCode, body);
   }
 }
