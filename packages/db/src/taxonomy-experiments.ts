@@ -61,6 +61,13 @@ export const EXPERIMENTS = {
   "EXP-P8-BASELINE": "Phase 8 post-Gate-B baseline. Evaluator v2, fixture v2, complete 295-alias corpus.",
   "EXP-P8-CANONICAL-LABEL":
     "Phase 8 offline simulation: add each skill's own canonical label_en where absent from its aliases.",
+  // ── Phase 9 ────────────────────────────────────────────────────────────
+  // Filed separately from EXP-P8-BASELINE because the INSTRUMENT changed, not the corpus:
+  // fixture v3 adds 41 reviewed paraphrases to v2's 127 cases. Comparing a v3 number against
+  // a v2 number measures the fixture, not retrieval, and the whole point of keeping the two
+  // records apart is that nobody can accidentally read one as the other.
+  "EXP-P9-TRAINER-V3":
+    "Phase 9 Stage D. Evaluator v2, fixture v3 (127 v2 cases + 41 reviewed trainer paraphrases). Establishes whether the harder instrument still scores 1.0 before any baseline is re-pointed.",
 } as const;
 export type ExperimentId = keyof typeof EXPERIMENTS;
 

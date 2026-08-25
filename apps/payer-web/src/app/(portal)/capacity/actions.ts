@@ -1,9 +1,10 @@
 "use server";
 
+import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { requirePayer } from "../../../lib/auth";
 import { getLiveCatalog } from "../../../lib/live-catalog";
-import { buyCapacity } from "../../../lib/payer-api";
+import { buyCapacity, getCapacity, PurchaseConflictError } from "../../../lib/payer-api";
 import { hiringCapacityTiers } from "../../../lib/pricing-config";
 
 /**
@@ -24,10 +25,22 @@ import { hiringCapacityTiers } from "../../../lib/pricing-config";
  */
 export type UpgradeCapacityActionResult =
   | { ok: true; resumedCount: number; allowance: number }
+  // A 409 DUPLICATE (#1148): the first tap of THIS purchase already granted; `allowance` is the
+  // REAL re-read figure (never guessed), and `resumedCount` is absent (the 409 carries none).
+  | { ok: true; allowance: number; duplicate: true }
   | { ok: false; error: string };
+
+/**
+ * The per-purchase idempotency key (#1148) — a client-minted `crypto.randomUUID()`. Validated at
+ * this boundary (invariant #7): a well-formed UUID is threaded to the seam; anything else is
+ * DROPPED so the call degrades to the pre-fix no-key behaviour rather than forwarding junk.
+ * PII-free; no payer id (XB-A — the session is the identity).
+ */
+const idempotencyKeySchema = z.string().uuid();
 
 export async function upgradeCapacityAction(input: {
   tier: string;
+  idempotencyKey?: string;
 }): Promise<UpgradeCapacityActionResult> {
   // GATE FIRST — same session gate as the capacity page; any failure path stays neutral.
   await requirePayer();
@@ -42,11 +55,37 @@ export async function upgradeCapacityAction(input: {
     return { ok: false, error: "Choose a capacity tier to upgrade." };
   }
 
-  const res = await buyCapacity({ tier: input.tier });
-  if (!res.ok) {
-    return { ok: false, error: res.error };
+  const idempotencyKey =
+    input.idempotencyKey && idempotencyKeySchema.safeParse(input.idempotencyKey).success
+      ? input.idempotencyKey
+      : undefined;
+
+  try {
+    const res = await buyCapacity({ tier: input.tier, idempotencyKey });
+    if (!res.ok) {
+      return { ok: false, error: res.error };
+    }
+    // Refresh the capacity view (the allowance + at-capacity banner reflect the new grant).
+    revalidatePath("/capacity");
+    return { ok: true, resumedCount: res.resumedPlanIds.length, allowance: res.allowance };
+  } catch (e) {
+    // 409 DUPLICATE (#1148): a re-tap landed while the first was still in flight. The first
+    // granted ONCE (and `greatest()` means a second grants no extra allowance anyway); the 409
+    // carries no allowance, so RE-READ the REAL one and surface it — NEVER re-POST (a second
+    // purchase would double-fire the payment/coupon spine) and NEVER render a guessed number.
+    if (e instanceof PurchaseConflictError) {
+      try {
+        const cap = await getCapacity();
+        revalidatePath("/capacity");
+        return { ok: true, allowance: cap.activeVacancyAllowance, duplicate: true };
+      } catch {
+        return {
+          ok: false,
+          error: "Your capacity change is being processed. Refresh in a moment to see your allowance.",
+        };
+      }
+    }
+    // Any OTHER thrown transport error collapses to one retryable line (no leaked reason).
+    return { ok: false, error: "Capacity upgrade failed (service unavailable). Please retry." };
   }
-  // Refresh the capacity view (the allowance + at-capacity banner reflect the new grant).
-  revalidatePath("/capacity");
-  return { ok: true, resumedCount: res.resumedPlanIds.length, allowance: res.allowance };
 }

@@ -57,6 +57,18 @@ describe("Account-deletion wiring (ADR-0026 Phase 5 DI regression guard)", () =>
     expect(Reflect.getMetadata("__httpCode__", proto["accountDeleteCancel"] as object)).toBe(200);
   });
 
+  // ---- TD — QA-ONLY immediate hard-delete seam (POST /auth/account/delete/immediate) ----
+
+  it("immediate hard-delete is worker-guarded (so no/expired token → 401 before the handler runs) and 200", () => {
+    // The env gate lives INSIDE the handler; the guard runs FIRST, so an unauthenticated caller is
+    // rejected 401 regardless of the flag — this is the 401 arm of the seam's three-state contract
+    // (the flag-on/off 200-vs-404 arms are asserted at the handler level in auth.controller.test.ts).
+    const proto = AuthController.prototype as unknown as Record<string, unknown>;
+    const guards = getMeta("__guards__", proto["accountDeleteImmediate"]);
+    expect(guards).toEqual([WorkerAuthGuard]);
+    expect(Reflect.getMetadata("__httpCode__", proto["accountDeleteImmediate"] as object)).toBe(200);
+  });
+
   it("AuthModule provides AccountDeletionSweepProcessor (the grace-elapse sweep)", () => {
     const providers = getMeta("providers", AuthModule).map((p) =>
       typeof p === "function" ? p.name : p,

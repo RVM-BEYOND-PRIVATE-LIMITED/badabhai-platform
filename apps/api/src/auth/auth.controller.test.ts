@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  NotFoundException,
   UnauthorizedException,
 } from "@nestjs/common";
 import type { Request } from "express";
@@ -85,6 +86,9 @@ function make() {
         deletionScheduledAt: null,
       }),
     ),
+    // QA-ONLY immediate hard-delete seam — the transactional cascade delete the route reuses.
+    // DEFAULT-true (a row was deleted); idempotent, so an already-gone row would return false.
+    hardDelete: vi.fn(async () => true),
   };
   const ipRateLimit = {
     assertWithinHourlyIpCap: vi.fn(async () => undefined),
@@ -129,6 +133,8 @@ function make() {
     // this file's history. Equal numbers would let the next such swap pass unnoticed.
     OTP_MAX_SENDS_PER_IP_PER_HOUR: 1000,
     TEST_LOGIN_MAX_PER_DAY: 200,
+    // QA-ONLY immediate hard-delete seam — DEFAULT OFF, so the route 404s unless a case flips it.
+    TEST_IMMEDIATE_DELETE_ENABLED: false,
   } as ServerConfig;
   const controller = new AuthController(
     auth as unknown as AuthService,
@@ -853,6 +859,53 @@ describe("AuthController", () => {
     expect(otp.verify).not.toHaveBeenCalled();
     expect(accountDeletion.execute).not.toHaveBeenCalled();
     expect(accountDeletion.schedule).not.toHaveBeenCalled();
+  });
+
+  // ---- TD — QA-ONLY immediate hard-delete seam (POST /auth/account/delete/immediate) ----
+
+  it("accountDeleteImmediate: FLAG ON → hard-deletes the GUARD's worker and returns { ok: true }", async () => {
+    const { controller, workers, config } = make();
+    config.TEST_IMMEDIATE_DELETE_ENABLED = true;
+    const res = await controller.accountDeleteImmediate(WORKER);
+    // The delete targets the TOKEN's worker.id (never a body) — reusing the existing cascade delete.
+    expect(workers.hardDelete).toHaveBeenCalledWith(WORKER.id);
+    expect(res).toEqual({ ok: true });
+  });
+
+  it("accountDeleteImmediate: FLAG ON, idempotent — an already-gone row is STILL { ok: true }", async () => {
+    const { controller, workers, config } = make();
+    config.TEST_IMMEDIATE_DELETE_ENABLED = true;
+    (workers.hardDelete as ReturnType<typeof vi.fn>).mockResolvedValueOnce(false);
+    const res = await controller.accountDeleteImmediate(WORKER);
+    expect(res).toEqual({ ok: true });
+  });
+
+  it("accountDeleteImmediate: FLAG OFF (default) → 404 and NOTHING is deleted", async () => {
+    // The neutral 404 makes the seam invisible on a normal build; the delete must never run.
+    const { controller, workers } = make();
+    await expect(controller.accountDeleteImmediate(WORKER)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(workers.hardDelete).not.toHaveBeenCalled();
+  });
+
+  it("accountDeleteImmediate: does NOT route through the graceful AccountDeletionService (raw row delete only)", async () => {
+    // Faithful to the out-of-band `DELETE FROM workers`: no grace schedule, no execute, no OTP gate.
+    const { controller, accountDeletion, otp, config } = make();
+    config.TEST_IMMEDIATE_DELETE_ENABLED = true;
+    await controller.accountDeleteImmediate(WORKER);
+    expect(accountDeletion.schedule).not.toHaveBeenCalled();
+    expect(accountDeletion.execute).not.toHaveBeenCalled();
+    expect(otp.verify).not.toHaveBeenCalled();
+  });
+
+  it("accountDeleteImmediate: returns ONLY { ok: true } — no PII, no worker id echoed", async () => {
+    const { controller, config } = make();
+    config.TEST_IMMEDIATE_DELETE_ENABLED = true;
+    const res = await controller.accountDeleteImmediate(WORKER);
+    const json = JSON.stringify(res);
+    expect(json).toBe('{"ok":true}');
+    expect(json).not.toMatch(/phone|full_?name|1111/i);
   });
 });
 

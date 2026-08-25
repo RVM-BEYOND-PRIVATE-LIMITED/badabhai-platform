@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, HttpException, HttpStatus, Inject, Logger, Post, Req, UnauthorizedException, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, ForbiddenException, Get, HttpCode, HttpException, HttpStatus, Inject, Logger, NotFoundException, Post, Req, UnauthorizedException, UseGuards } from "@nestjs/common";
 import type { Request } from "express";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
@@ -33,6 +33,7 @@ import {
   type AccountDeleteRequestResponse,
   type AccountDeleteConfirmResponse,
   type AccountDeleteCancelResponse,
+  type AccountDeleteImmediateResponse,
   type LoginResponse,
   type MeResponse,
   type OtpRequestResponse,
@@ -507,6 +508,68 @@ export class AuthController {
   ): Promise<AccountDeleteCancelResponse> {
     await this.accountDeletion.cancel(worker.id, ctx);
     return { success: true };
+  }
+
+  /**
+   * QA-ONLY immediate hard-delete seam (TD — testing). Hard-deletes the CALLING worker's row
+   * RIGHT NOW — no step-up OTP, no 7-day grace — so QA can reproduce the out-of-band
+   * `DELETE FROM workers` scenario the app's 410 WORKER_ACCOUNT_DELETED path handles, WITHOUT a
+   * DBA. Identity is ALWAYS the guard's `worker.id`, never a body — a worker can only ever delete
+   * their OWN account (no body param exists to smuggle a victim id, no IDOR).
+   *
+   * GATED, DEFAULT OFF: while TEST_IMMEDIATE_DELETE_ENABLED is off this route answers a NEUTRAL
+   * 404 (behaves as if it does not exist), the same invisibility posture as the test-login seam.
+   * The env check runs INSIDE the handler (after WorkerAuthGuard), so an unauthenticated/expired
+   * token is still the guard's normal 401 — only an AUTHED caller on a DISABLED build sees the 404.
+   *
+   * DELIBERATELY NOT the DPDP AccountDeletionService.execute path (which revokes sessions FIRST,
+   * sweeps storage, and emits worker.account_deleted). This seam replicates a RAW row delete:
+   *   - It reuses WorkersRepository.hardDelete (one transactional DELETE; Postgres cascades the
+   *     worker_credentials / worker_devices / profiles / … PII children and SET-NULLs the billing
+   *     FKs — migration 0030). hardDelete is IDEMPOTENT, so an already-gone row is still { ok: true }.
+   *   - It leaves the Redis session INTACT ON PURPOSE — that is exactly what makes the worker's
+   *     NEXT authed call return the reserved 410 (a normal erasure would revoke sessions first and
+   *     the client would just 401). We add NO session revocation here.
+   *   - It emits NO event. A raw `DELETE FROM workers` emits nothing, and the ONLY established
+   *     deletion event (worker.account_deleted) carries counts that ASSERT a full graceful erasure
+   *     (sessions_revoked / storage_objects_deleted / had_pin) this seam deliberately never
+   *     performs — emitting it with zeroed counts would misrepresent an erasure that did not
+   *     happen. Faithfully reproducing the out-of-band scenario means emitting nothing. RULED
+   *     (#1187): no event. Emitting the graceful-erasure event with zeroed counts would assert an
+   *     erasure that never ran, and minting a new test-only event type is an event-contract change
+   *     needing Architect sign-off — neither is worth it for a seam that `assertAuthConfig` now
+   *     makes structurally unreachable in production. The PII-free warn log below is the audit
+   *     trail instead.
+   *
+   * BOOT-REFUSAL (#1187, ruled and implemented): `assertAuthConfig` refuses to boot when this flag
+   * is true and the RAW NODE_ENV is not explicitly development/test/staging — the same structural
+   * production block TEST_LOGIN_ENABLED carries. OFF-by-default was never sufficient on its own for
+   * an irreversible-destruction seam: it left one env var between production and permanent data loss.
+   */
+  @Post("account/delete/immediate")
+  @HttpCode(200)
+  @UseGuards(WorkerAuthGuard)
+  async accountDeleteImmediate(
+    @CurrentWorker() worker: AuthenticatedWorker,
+  ): Promise<AccountDeleteImmediateResponse> {
+    // Flag OFF (the default) → neutral 404: the seam is invisible on a normal build.
+    if (!this.config.TEST_IMMEDIATE_DELETE_ENABLED) throw new NotFoundException("Not found");
+
+    // Reuse the existing transactional cascade delete (never new SQL). Idempotent — a re-run on an
+    // already-deleted worker returns false and we STILL answer { ok: true } (the caller's account
+    // is gone either way, which is the QA outcome).
+    const deleted = await this.workers.hardDelete(worker.id);
+
+    // AUDIT: no EVENT is emitted (see the doc comment), but a destroyed worker must not be
+    // completely traceless on the box where this is armed. PII-FREE (CLAUDE.md §2): an 8-char id
+    // prefix only — never the phone, name, or full id — the same idiom AccountDeletionService uses.
+    // `warn`, not `log`: on any box where this line can appear, someone armed irreversible
+    // deletion, and that deserves to stand out in the QA box's logs.
+    this.logger.warn(
+      `QA immediate hard-delete worker=${worker.id.slice(0, 8)} (row ${deleted ? "deleted" : "already gone"}); no OTP, no grace, no storage sweep, session left intact`,
+    );
+
+    return { ok: true };
   }
 
   /**

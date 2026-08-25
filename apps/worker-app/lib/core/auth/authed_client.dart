@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
 import '../api/api_client.dart' show kRequestTimeout;
+import 'account_deleted_signal.dart';
 import 'auth_failure.dart';
 import 'device_id.dart';
 import 'locale_store.dart';
@@ -264,7 +265,7 @@ class AuthedClient {
     // hard-logout signal, then continue returning the AuthResponse exactly as
     // before — the caller still sees the 410 and fails cleanly. Predicate is BOTH
     // status AND code so no other 410 can trip a false destructive logout.
-    if (res.statusCode == 410 && body['code'] == 'WORKER_ACCOUNT_DELETED') {
+    if (isWorkerAccountDeletedResponse(res.statusCode, body)) {
       onAccountDeleted?.call();
     }
     return AuthResponse(res.statusCode, body);

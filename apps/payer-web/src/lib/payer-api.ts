@@ -314,18 +314,33 @@ export async function reveal(input: { unlockId: string }): Promise<RevealResult>
  * there is NO Razorpay anywhere in this app. An UNKNOWN pack is a real backend 404 (a
  * public catalog item, not a tenant oracle) → surfaced as a neutral `null` not-found.
  */
-export async function topUp(input: { packCode: string }): Promise<TopUpResult | null> {
+export async function topUp(input: {
+  packCode: string;
+  /**
+   * Optional per-purchase idempotency key (#1046). The SAME key across a re-tap of ONE
+   * purchase makes the backend charge once and replay the first result; a duplicate landing
+   * while the first is still in flight answers 409 → surfaced as {@link PurchaseConflictError}
+   * so the caller RE-READS the real balance instead of re-posting or guessing a number.
+   */
+  idempotencyKey?: string;
+}): Promise<TopUpResult | null> {
   let wire: ReturnType<typeof buyPackResultWireSchema.parse>;
   try {
     wire = await payerFetch("/payer/credits", {
       method: "POST",
       body: { pack_code: input.packCode }, // XB-A: pack CODE ONLY — no payer_id/price/credits.
+      idempotencyKey: input.idempotencyKey,
       schema: buyPackResultWireSchema,
     });
   } catch (e) {
     // An unknown pack returns a real 404 (catalog item, not a per-tenant resource) →
-    // a neutral not-found, NOT an error state. Anything else propagates.
+    // a neutral not-found, NOT an error state.
     if (e instanceof Error && /returned 404/.test(e.message)) return null;
+    // A 409 is a DUPLICATE of THIS purchase landing while the first is still in flight — the
+    // body carries NO renderable balance (asserted server-side), so this is NOT a failure to
+    // retry: the caller must RE-READ the real balance. Distinct typed error (never re-post).
+    if (e instanceof Error && /returned 409/.test(e.message)) throw new PurchaseConflictError();
+    // Anything else propagates.
     throw e;
   }
   // The purchase is recorded server-side on the authoritative credit_ledger (the same
@@ -508,11 +523,25 @@ export type BuyCapacityResult =
  * `assertNoAgencyPII` (capacity is an employer surface) — and it NEVER echoes an un-crossed
  * fetched object.
  */
-export async function buyCapacity({ tier }: { tier: string }): Promise<BuyCapacityResult> {
+export async function buyCapacity({
+  tier,
+  idempotencyKey,
+}: {
+  tier: string;
+  /**
+   * Optional per-purchase idempotency key (#1148). A duplicate capacity purchase is WORSE than a
+   * duplicate credit pack — `greatest()` grants NO extra allowance but re-fires the payment +
+   * capacity spine events (and burns a coupon redemption). The SAME key across a re-tap dedupes
+   * to a replay; a duplicate in flight answers 409 → {@link PurchaseConflictError} so the caller
+   * RE-READS the real allowance rather than re-posting or rendering a guessed figure.
+   */
+  idempotencyKey?: string;
+}): Promise<BuyCapacityResult> {
   try {
     const wire = await payerFetch("/payer/capacity", {
       method: "POST",
       body: { tier }, // XB-A: tier CODE ONLY — no payer_id; XT5: no price/amount/quota.
+      idempotencyKey,
       schema: buyCapacityWireSchema,
     });
     return {
@@ -522,9 +551,31 @@ export async function buyCapacity({ tier }: { tier: string }): Promise<BuyCapaci
       expiresAt: wire.expires_at,
       resumedPlanIds: wire.resumed_plan_ids,
     };
-  } catch {
+  } catch (e) {
+    // A 409 is a DUPLICATE of THIS purchase in flight (no renderable allowance in the body) —
+    // NOT a neutral failure. Surface it distinctly so the caller RE-READS the real allowance
+    // (never re-posts, never guesses). This must be checked BEFORE the neutral collapse below,
+    // or a double-charge-prevention 409 would masquerade as a generic "retry" (a re-tap = a
+    // second purchase attempt the server already deduped).
+    if (e instanceof Error && /returned 409/.test(e.message)) throw new PurchaseConflictError();
     // Neutral failure — no leaked deny reason / role state (no-oracle); never a fake success.
     return { ok: false, error: "Capacity upgrade failed (service unavailable). Please retry." };
+  }
+}
+
+/**
+ * A 409 from a PURCHASE (`POST /payer/credits` #1046, or `POST /payer/capacity` #1148): a
+ * DUPLICATE landed while the first request carrying the same `Idempotency-Key` was still in
+ * flight. The 409 body carries NO renderable balance/allowance by design (asserted server-side)
+ * — inventing a figure would be worse than the double-charge it prevents. The ONLY correct
+ * response is to RE-READ the real figure (`GET /payer/credits` / `GET /payer/capacity`): never
+ * re-POST, never render a guessed number. Thrown by {@link topUp} and {@link buyCapacity} so the
+ * action can distinguish this from every other failure.
+ */
+export class PurchaseConflictError extends Error {
+  constructor() {
+    super("duplicate purchase in flight");
+    this.name = "PurchaseConflictError";
   }
 }
 

@@ -5,6 +5,10 @@ import type { Queue } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
 import { PinService, type VerifyPinInput } from "./pin.service";
 import { PinHasher, CURRENT_PIN_PEPPER_VERSION } from "./pin-hasher.service";
+import {
+  WorkerAccountDeletedException,
+  WORKER_ACCOUNT_DELETED_CODE,
+} from "./worker-account-deleted.exception";
 
 /**
  * SERVICE behaviour for the device-bound unlock PIN (ADR-0026 Phase 3). Every collaborator is
@@ -194,6 +198,13 @@ interface BuildOpts {
   consent?: { revokedAt: Date | null };
   /** #994 — make the post-write session mint fail, to pin the fail-closed ordering. */
   mintThrows?: boolean;
+  /**
+   * #1164 cold-start gap — does the resolved worker ROW still exist? Default true (present).
+   * `false` models an out-of-band `DELETE FROM workers` whose Redis refresh token survived.
+   */
+  workerExists?: boolean;
+  /** Make the existence probe THROW (a DB blip) — must fail SAFE to the neutral path, no 410. */
+  existsByIdThrows?: boolean;
 }
 
 function build(opts: BuildOpts = {}) {
@@ -230,6 +241,13 @@ function build(opts: BuildOpts = {}) {
       fullName: "enc:worker-name",
       preferredLanguage: "hi",
     }),
+    // #1164 cold-start gap — the out-of-band-deletion existence probe verifyPin now takes
+    // straight off the resolved (Redis) identity, before the cascade-emptied device/credential
+    // gates. Default true (present); `workerExists:false` models a deleted row, and
+    // `existsByIdThrows` a DB blip that must fail SAFE (never a false 410).
+    existsById: opts.existsByIdThrows
+      ? vi.fn().mockRejectedValue(new Error("db down"))
+      : vi.fn().mockResolvedValue(opts.workerExists ?? true),
   };
 
   const otp = {
@@ -471,6 +489,82 @@ describe("PinService.verifyPin — untrusted / unknown device (neutral, scrypt N
     expect(emittedNames(emit)).not.toContain("worker.pin_verified");
     const ev = eventNamed(emit, "worker.pin_verify_failed")!;
     expect(ev.payload).toEqual({ worker_id: WORKER, device_id: DEVICE });
+  });
+});
+
+// ===========================================================================
+// CASE 4c — #1164 cold-start: an out-of-band DELETE FROM workers → the reserved 410
+//
+// The Enter-PIN screen is the ONE authed surface a cold-started app reaches with NO
+// WorkerAuthGuard. Identity resolves from the REDIS refresh token (which survives a raw
+// `DELETE FROM workers`), while worker_devices + worker_credentials FK-CASCADE away — so the
+// probe MUST sit ahead of those cascade-emptied gates or the deletion masks as a neutral 401.
+// ===========================================================================
+describe("PinService.verifyPin — cold-start out-of-band deletion (#1164)", () => {
+  /** Assert a thrown failure is the reserved 410 WORKER_ACCOUNT_DELETED (NOT the neutral 401). */
+  async function expect410(p: Promise<unknown>) {
+    await expect(p).rejects.toBeInstanceOf(WorkerAccountDeletedException);
+    await p.catch((e: WorkerAccountDeletedException) => {
+      expect(e.getStatus()).toBe(410);
+      expect(e.getResponse()).toMatchObject({ code: WORKER_ACCOUNT_DELETED_CODE });
+    });
+  }
+
+  it("(a) valid refresh token but the worker row is GONE → 410 WORKER_ACCOUNT_DELETED", async () => {
+    // The exact cold-start scenario: the Redis refresh token still resolves the workerId, but a
+    // raw DELETE FROM workers removed the row. device:null models the CASCADE-deleted
+    // worker_devices row — proving the 410 wins over the (b) untrusted-device neutral path.
+    const { svc, workers, devices, hasher } = build({ workerExists: false, device: null });
+    await expect410(svc.verifyPin(verifyInput({ pin: GOOD_PIN }), ctx));
+    expect(workers.existsById).toHaveBeenCalledWith(WORKER);
+    // The probe fires BEFORE the device gate + before scrypt — the deletion is not masked.
+    expect(devices.findActiveById).not.toHaveBeenCalled();
+    expect(hasher.verify).not.toHaveBeenCalled();
+  });
+
+  it("(a') the 410 fires even with a live device + a valid credential — a wrong PIN never masks it", async () => {
+    // worker row absent, but device + credential rows still present (a partial/racy delete):
+    // existence is the decisive signal, so it must still be the 410 and never reach scrypt.
+    const { svc, hasher } = build({ workerExists: false });
+    await expect410(svc.verifyPin(verifyInput({ pin: WRONG_PIN }), ctx));
+    expect(hasher.verify).not.toHaveBeenCalled();
+  });
+
+  it("(b) worker EXISTS + WRONG pin → the neutral 401 is UNCHANGED (existence probe returns true)", async () => {
+    const { svc, workers, hasher } = build(); // workerExists defaults to true
+    await expectNeutral401(svc.verifyPin(verifyInput({ pin: WRONG_PIN }), ctx));
+    expect(workers.existsById).toHaveBeenCalledWith(WORKER);
+    // The probe passed, so the flow reaches scrypt and fails there → the ordinary neutral 401.
+    expect(hasher.verify).toHaveBeenCalled();
+  });
+
+  it("(c) an unresolvable / dead token → neutral 401 and the probe is NEVER reached (no worker)", async () => {
+    const { svc, workers } = build({ resolved: null });
+    await expectNeutral401(svc.verifyPin(verifyInput({ pin: GOOD_PIN }), ctx));
+    // No identity resolved ⇒ existence is never probed and the 410 is impossible here.
+    expect(workers.existsById).not.toHaveBeenCalled();
+  });
+
+  it("(d) worker EXISTS + CORRECT pin → 200 login-shape session, UNCHANGED", async () => {
+    const { svc, workers } = build();
+    const res = await svc.verifyPin(verifyInput({ pin: GOOD_PIN }), ctx);
+    expect(res.worker_id).toBe(WORKER);
+    expect(res.access_token).toBe("jwt.token.value");
+    expect(workers.existsById).toHaveBeenCalledWith(WORKER);
+  });
+
+  it("(e) the existence probe THROWS (DB blip) → fail SAFE to the neutral path, NEVER a false 410", async () => {
+    // A DB error leaves existence UNKNOWN → treated as present, so the flow continues to its
+    // ordinary outcome (here: correct PIN → 200). It must not become a 410 storm.
+    const { svc, workers } = build({ existsByIdThrows: true });
+    const res = await svc.verifyPin(verifyInput({ pin: GOOD_PIN }), ctx);
+    expect(res.worker_id).toBe(WORKER);
+    expect(workers.existsById).toHaveBeenCalledWith(WORKER);
+  });
+
+  it("(e') a DB blip on the probe + a WRONG pin → the neutral 401 (fail-safe, still no 410)", async () => {
+    const { svc } = build({ existsByIdThrows: true });
+    await expectNeutral401(svc.verifyPin(verifyInput({ pin: WRONG_PIN }), ctx));
   });
 });
 

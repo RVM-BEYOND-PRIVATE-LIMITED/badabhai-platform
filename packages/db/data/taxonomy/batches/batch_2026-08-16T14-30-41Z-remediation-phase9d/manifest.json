@@ -1,0 +1,17 @@
+{
+  "kind": "derived-promotion-scope",
+  "derived_from": "data/taxonomy/batches/batch_2026-08-16T14-30-41Z-remediation",
+  "derived_at": "2026-08-21",
+  "why": "Promotion is fail-closed and all-or-nothing per batch, so a single ineligible row holds back the whole set. Two rows in the source batch were deprecated by D2's crosswalk AFTER the quality gate accepted them, and can never satisfy IS_PROVISIONAL. Excluding them is a SCOPE correction, not a waiver: no criterion is weakened and the source batch — the evidence of what the quality gate actually accepted — is left untouched.",
+  "excluded": [
+    {
+      "skill_id": "skill_chassis_fitting",
+      "reason": "deprecated by D2 crosswalk -> skill_mechanical_assembly"
+    },
+    {
+      "skill_id": "skill_go_no_go_gauge_checking",
+      "reason": "deprecated by D2 crosswalk -> skill_measuring_instruments"
+    }
+  ],
+  "accepted_count": 96
+}
