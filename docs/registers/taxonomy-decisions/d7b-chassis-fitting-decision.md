@@ -136,10 +136,11 @@ live and ungated (D-1), so a canonicalized `skill_mechanical_assembly` lands on 
 2026-08-24 and 2026-08-25. The "empty population" mitigation is eroding in real time.
 
 **MEASURED:** `unresolved_phrase` carries skill-scope misses timestamped **2026-08-24 07:59–08:14**
-(`plumber`, `electrician`, `cnc operator`, `carpenter`, `milling`). `record_unresolved` is
-reachable only from inside `canonicalize_skill`, and every caller is flag-gated — so
-**canonicalization is running in production**, contradicting the `False` default at
-`config.py:384`. That is a separate finding and is flagged below.
+(`plumber`, `electrician`, `cnc operator`, `carpenter`, `milling`). I first read that as proof
+canonicalization is running. **It is not** — those rows are written by a token-guarded API
+endpoint, not by the flag-gated Python path, and their shape (occupation nouns each paired with
+their own legacy slug, in two bursts) reads as a smoke probe. Retracted and investigated
+separately; see §5.
 
 **H — intentional or accidental? ACCIDENTAL, and the audit trail proves it.**
 
@@ -192,9 +193,15 @@ to the bridge.
 
 ### Separately, and not part of D-7B
 
-`SKILL_CANONICALIZE_ENABLED` appears to be **on** in the running ai-service while `config.py`
-defaults it `False` and the recorded owner posture says off. That governs whether §2's assignment
-actually fires. **Escalated, not investigated here.**
+~~`SKILL_CANONICALIZE_ENABLED` appears to be **on** in the running ai-service…~~
+**RETRACTED 2026-08-25 — the inference was unsound.** The `unresolved_phrase` rows are written by
+`POST /internal/skills/unresolved`, a token-guarded API endpoint, **not** by the Python
+`canonicalize_skill` path — so their existence says nothing about the flag. Investigated in
+[`task17b-canonicalize-flag-investigation.md`](./task17b-canonicalize-flag-investigation.md).
+
+The deployed value comes from a **GitHub Actions secret** and is **not determinable** from the
+repository or the database; the compose default is `false` and everything recorded says off.
+This does **not** change D-7B's classification, which never rested on the flag.
 
 ---
 
