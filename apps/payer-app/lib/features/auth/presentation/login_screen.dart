@@ -266,6 +266,9 @@ class _LoginScreenState extends State<LoginScreen> {
           fieldKey: const Key('org_field'),
           icon: Icons.apartment,
           keyboardType: TextInputType.text,
+          // The blank signup name field must never be pre-populated by the
+          // keyboard with an org name the user typed in a different app.
+          suppressSuggestions: true,
         ),
         const SizedBox(height: AppSpacing.s4),
         BbField(

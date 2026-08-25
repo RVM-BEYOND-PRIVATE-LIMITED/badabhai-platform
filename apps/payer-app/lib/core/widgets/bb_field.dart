@@ -33,6 +33,7 @@ class BbField extends StatelessWidget {
     this.autofillHints,
     this.prefixText,
     this.inputFormatters,
+    this.suppressSuggestions = false,
   });
 
   final String? label;
@@ -57,6 +58,15 @@ class BbField extends StatelessWidget {
   /// keyboard can surface the code). Null for ordinary fields.
   final List<String>? autofillHints;
 
+  /// Suppress the keyboard's autocorrect, suggestion strip, AND personalized
+  /// learning for this field. Use on IDENTITY free-text inputs — a company /
+  /// agency name — where the IME must NOT offer a value the user typed in some
+  /// OTHER app before (Gboard's personalized learning would otherwise resurface a
+  /// stale org name on a blank signup field). Autofill is already off on these
+  /// fields (no `autofillHints` → `AutofillConfiguration.disabled`); this closes
+  /// the IME-learning path too. Default false leaves ordinary fields untouched.
+  final bool suppressSuggestions;
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -80,6 +90,11 @@ class BbField extends StatelessWidget {
           keyboardType: keyboardType,
           autofillHints: autofillHints,
           inputFormatters: inputFormatters,
+          // Identity fields turn all three OFF so the keyboard cannot resurface a
+          // value the user typed in another app (e.g. an old company name).
+          autocorrect: !suppressSuggestions,
+          enableSuggestions: !suppressSuggestions,
+          enableIMEPersonalizedLearning: !suppressSuggestions,
           style: mono
               ? AppTypography.mono(size: AppTypography.sizeBase, weight: FontWeight.w600)
               : AppTypography.body(size: AppTypography.sizeBase),
