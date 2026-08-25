@@ -22,11 +22,24 @@ import type { CreditPack } from "../../../lib/contracts";
 
 let stateQueue: unknown[] = [];
 let stateCursor = 0;
+// The setter for each useState slot from the LAST render, so a test can assert WHICH toast a
+// handler set. useState order in credits-panel: 0 pendingCode, 1 pendingConfirm, 2 message,
+// 3 notice, 4 error.
+let stateSetters: ReturnType<typeof vi.fn>[] = [];
+const MESSAGE_IDX = 2;
+const NOTICE_IDX = 3;
+const ERROR_IDX = 4;
 const useState = vi.fn((initial: unknown) => {
   const i = stateCursor++;
   const seeded = i < stateQueue.length ? stateQueue[i] : initial;
-  return [seeded, vi.fn()] as [unknown, (v: unknown) => void];
+  const setter = vi.fn();
+  stateSetters[i] = setter;
+  return [seeded, setter] as [unknown, (v: unknown) => void];
 });
+/** The first argument of every call to a captured setter, in order. */
+function argsOf(setter: ReturnType<typeof vi.fn>): unknown[] {
+  return setter.mock.calls.map((c) => c[0]);
+}
 const useTransition = vi.fn((): [boolean, (cb: () => void) => void] => [false, (cb) => cb()]);
 // A STABLE ref box (created per test) — the useRef mock returns it on every render, so a mutation
 // to `.current` persists across renders, exactly like the browser's ref semantics.
@@ -108,6 +121,7 @@ beforeEach(() => {
   useState.mockClear();
   useTransition.mockClear();
   useRef.mockClear();
+  stateSetters = [];
   topUpAction.mockReset();
   routerRefresh.mockReset();
   keyBox = { current: null };
@@ -154,5 +168,36 @@ describe("credits panel — a genuinely NEW purchase (b) mints a FRESH key", () 
     expect(keys[0]).toBe("key-1");
     expect(keys[1]).toBe("key-2"); // NOT reused across a success — the payer wanted to buy again
     expect(keys[0]).not.toBe(keys[1]);
+  });
+});
+
+/**
+ * A 409 = PENDING, not done (#1185). The action now returns a NON-terminal `{ ok:false, pending:true }`
+ * for a duplicate-in-flight 409. The panel must render it as a NEUTRAL processing notice (never a
+ * success toast) and must KEEP the idempotency key so a re-tap replays it — clearing it here would
+ * mint a new key and could double-charge (the regression #1178 fixed).
+ */
+describe("credits panel — a 409 PENDING is honest + KEEPS the key (#1185)", () => {
+  it("does NOT clear the key on a pending 409 — a re-tap reuses the SAME key", async () => {
+    topUpAction.mockResolvedValue({ ok: false, pending: true, balance: 71 });
+    await confirmBuy(PACK_A); // key-1, pending (outcome unknown)
+    await confirmBuy(PACK_A); // re-tap of the SAME purchase → REUSES key-1 (backend dedupes)
+
+    const keys = sentKeys();
+    expect(keys[0]).toBe("key-1");
+    expect(keys[1]).toBe("key-1"); // pending is non-terminal → the key survives, no double-charge
+  });
+
+  it("renders a NEUTRAL processing notice, never a success or error toast", async () => {
+    topUpAction.mockResolvedValue({ ok: false, pending: true, balance: 71 });
+    await confirmBuy(PACK_A);
+
+    // The processing notice is set (the neutral toast)…
+    expect(argsOf(stateSetters[NOTICE_IDX]!)).toContainEqual(
+      expect.stringContaining("still processing"),
+    );
+    // …and NEITHER the success message NOR the error toast is ever set (only the reset-to-null).
+    expect(argsOf(stateSetters[MESSAGE_IDX]!)).toEqual([null]);
+    expect(argsOf(stateSetters[ERROR_IDX]!)).toEqual([null]);
   });
 });

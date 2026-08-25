@@ -25,9 +25,12 @@ import {
  */
 export type TopUpActionResult =
   | { ok: true; balance: number; creditsAdded: number }
-  // A 409 DUPLICATE (#1046): the first tap of THIS purchase charged once; `balance` is the REAL
-  // re-read figure (never a guessed delta), and `creditsAdded` is deliberately absent.
-  | { ok: true; balance: number; duplicate: true }
+  // A 409 DUPLICATE-IN-FLIGHT (#1185, correcting #1046's inverted reading): the backend's 409
+  // fires ONLY while the FIRST attempt's in-flight sentinel still stands — i.e. that attempt has
+  // NOT committed and MAY STILL THROW. So a 409 is "still processing, outcome UNKNOWN", NOT a
+  // completed purchase. This is a NON-terminal result: `balance` (when present) is the CURRENT
+  // figure, re-read for display only — never a final/confirmed balance, never a granted delta.
+  | { ok: false; pending: true; balance?: number }
   | { ok: false; error: string };
 
 const packCodeSchema = z.string().min(1).max(64);
@@ -75,20 +78,20 @@ export async function topUpAction(input: {
     if (!result) return { ok: false, error: "That pack is no longer available." };
     return { ok: true, balance: result.balance, creditsAdded: result.creditsAdded };
   } catch (e) {
-    // 409 DUPLICATE (#1046): a re-tap of THIS purchase landed while the first was still in flight.
-    // The first charged ONCE; the 409 carries no balance, so the correct answer is to RE-READ the
-    // REAL balance and surface it — NEVER re-POST (that would be a fresh purchase attempt) and
-    // NEVER render a guessed number. `getCredits` is a payer-authed GET (XB-A, session-scoped).
+    // 409 DUPLICATE-IN-FLIGHT (#1185): the backend 409s ONLY while the FIRST attempt's in-flight
+    // sentinel still stands — that attempt has NOT committed and may still throw. This is "still
+    // processing, outcome UNKNOWN", NOT "already done" (the earlier #1046 branch read this inverted
+    // and reported a false terminal success over the PRE-purchase balance). So return a NON-terminal
+    // `pending` result: NEVER re-POST (that would be a fresh purchase attempt), and NEVER claim the
+    // purchase completed. We MAY re-read the CURRENT balance to SHOW it — presented as
+    // current-not-final. `getCredits` is a payer-authed GET (XB-A, session-scoped).
     if (e instanceof PurchaseConflictError) {
       try {
         const { balance } = await getCredits();
-        return { ok: true, balance, duplicate: true };
+        return { ok: false, pending: true, balance };
       } catch {
-        // The re-read itself blipped — do NOT fabricate a balance. Point the payer at a refresh.
-        return {
-          ok: false,
-          error: "Your top-up is being processed. Refresh in a moment to see your balance.",
-        };
+        // The re-read itself blipped — still pending, just with no current figure to show.
+        return { ok: false, pending: true };
       }
     }
     // Every other failure collapses to ONE retryable line — the caller never learns whether the

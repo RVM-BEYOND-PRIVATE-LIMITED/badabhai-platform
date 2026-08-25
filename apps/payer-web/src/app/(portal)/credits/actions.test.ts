@@ -179,7 +179,7 @@ describe("topUpAction — Owner path unchanged (XT5/XB-A: pack CODE only)", () =
     topUp.mockRejectedValueOnce(new Error("payer_id 1234 unauthorized at 98765 43210"));
     const res = await topUpAction({ packCode: "pack_50" });
     expect(res.ok).toBe(false);
-    if (!res.ok) {
+    if (!res.ok && "error" in res) {
       expect(res.error).toBe("Top-up failed (service unavailable). Please retry.");
       expect(res.error).not.toMatch(/payer_id|forbidden|owner|recruiter|\d{4}/i);
     }
@@ -312,11 +312,13 @@ describe("verifyPaymentAction — gate FIRST, and NEVER a fabricated success", (
 });
 
 /**
- * IDEMPOTENCY + 409 RE-READ (#1165). `topUpAction` threads the client-minted per-purchase key to
- * the seam, and on the 409 a duplicate-in-flight purchase gets it RE-READS the real balance
- * (`getCredits`) rather than re-posting or rendering a guessed number.
+ * IDEMPOTENCY + 409 = PENDING, not done (#1185, correcting #1165/#1046). `topUpAction` threads the
+ * client-minted per-purchase key to the seam. The backend 409s ONLY while the FIRST attempt is
+ * still in flight (uncommitted, may still throw) — so a 409 is "still processing, outcome UNKNOWN",
+ * NOT a completed purchase. The action must RE-READ the CURRENT balance for display but return a
+ * NON-terminal `pending` result (never `ok:true`), and must never re-POST.
  */
-describe("topUpAction — Idempotency-Key threading + 409 re-read (#1165)", () => {
+describe("topUpAction — Idempotency-Key threading + 409 = pending (#1185)", () => {
   const KEY = "5f9d1c2e-1a2b-4c3d-8e4f-0a1b2c3d4e5f"; // a client crypto.randomUUID()
 
   it("forwards a well-formed idempotency key to the seam", async () => {
@@ -330,14 +332,16 @@ describe("topUpAction — Idempotency-Key threading + 409 re-read (#1165)", () =
     expect(topUp).toHaveBeenCalledWith({ packCode: "pack_50", idempotencyKey: undefined });
   });
 
-  it("a 409 (PurchaseConflictError) RE-READS the real balance and renders NO guessed number — no second POST", async () => {
+  it("a 409 is NON-terminal PENDING — never ok:true, re-reads the CURRENT balance, no second POST", async () => {
     topUp.mockRejectedValueOnce(new PurchaseConflictError());
-    getCredits.mockResolvedValueOnce({ payerId: "p1", balance: 71 }); // the REAL post-charge balance
+    getCredits.mockResolvedValueOnce({ payerId: "p1", balance: 71 }); // the CURRENT (not-final) balance
     const res = await topUpAction({ packCode: "pack_50", idempotencyKey: KEY });
 
-    // The real re-read balance is surfaced, flagged as a duplicate, with NO fabricated delta.
-    expect(res).toEqual({ ok: true, balance: 71, duplicate: true });
-    if (res.ok) expect(res).not.toHaveProperty("creditsAdded"); // never a guessed number
+    // A 409 = "still running, outcome unknown": NOT a completed purchase — never a terminal success.
+    expect(res).toEqual({ ok: false, pending: true, balance: 71 });
+    expect(res.ok).toBe(false);
+    expect(res).not.toHaveProperty("duplicate"); // the old false-terminal-success shape is gone
+    expect(res).not.toHaveProperty("creditsAdded"); // never a guessed grant
 
     // Exactly ONE purchase POST (topUp), then a GET re-read (getCredits) — never a re-POST.
     expect(topUp).toHaveBeenCalledTimes(1);
@@ -345,15 +349,13 @@ describe("topUpAction — Idempotency-Key threading + 409 re-read (#1165)", () =
     expect(calls).toEqual(["requireOwner", "topUp", "getCredits"]);
   });
 
-  it("a 409 whose re-read ALSO blips returns a neutral 'processing' line — never a fabricated balance", async () => {
+  it("a 409 whose re-read ALSO blips stays PENDING with no figure — never ok:true, never a fabricated balance", async () => {
     topUp.mockRejectedValueOnce(new PurchaseConflictError());
     getCredits.mockRejectedValueOnce(new Error("boom"));
     const res = await topUpAction({ packCode: "pack_50", idempotencyKey: KEY });
+    expect(res).toEqual({ ok: false, pending: true });
     expect(res.ok).toBe(false);
-    if (!res.ok) {
-      expect(res.error).toMatch(/being processed|refresh/i);
-      expect(res.error).not.toMatch(/payer_id|forbidden|\d{2,}/); // no leak, no invented number
-    }
+    expect(res).not.toHaveProperty("balance"); // no invented number
     // Still no re-POST on the failed-re-read path.
     expect(topUp).toHaveBeenCalledTimes(1);
   });
