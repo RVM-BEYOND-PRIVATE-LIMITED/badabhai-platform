@@ -9,6 +9,47 @@ export const booleanFromString = z
 /** Coerce a string/number into a positive integer port. */
 export const portSchema = z.coerce.number().int().min(1).max(65535);
 
+/**
+ * A positive-integer knob read from the environment, where an EMPTY VALUE MEANS ABSENT.
+ *
+ * ── THE OUTAGE THIS EXISTS FOR ──────────────────────────────────────────────────────────
+ * `z.coerce.number().int().positive().default(N)` looks like it has a safe default and does
+ * not: `.default()` fires only for `undefined`, and an empty string is PRESENT. So `""` is
+ * coerced — `Number("")` is `0` — and `.positive()` rejects it. The whole config parse throws
+ * and the API never boots.
+ *
+ * An empty string is not a hypothetical input, it is the ORDINARY one. Compose's own
+ * pass-through idiom, used on nearly every variable in docker-compose.staging.yml, is
+ * `${VAR:-}` — which expands to the empty string and passes `VAR=""` INTO the container. A
+ * `.env` line with nothing after the `=` does the same, and so does a CI secret that resolved
+ * to nothing. On 2026-08-25 that took the staging API down in a crash loop: two new numeric
+ * knobs were given the standard `${VAR:-}` pass-through, both had schema defaults, and the
+ * container refused to boot on `Number must be greater than 0` for values nobody had set.
+ *
+ * {@link booleanFromString} has accepted `""` since it was written — its `z.enum` lists the
+ * empty string explicitly. This is the same accommodation for the other kind of knob, and it
+ * belongs HERE rather than in each compose entry: a substitution default (`${VAR:-20}`) fixes
+ * one file while leaving `.env` and the secret bridge to produce the same empty string, and it
+ * puts a second copy of the number somewhere that cannot import the first.
+ *
+ * WHITESPACE COUNTS AS EMPTY for the same reason — `VAR=" "` from a hand-edited `.env` is a
+ * value nobody chose, and `Number(" ")` is also 0.
+ *
+ * ⚠ THIS IS FOR KNOBS WITH A DEFAULT, NOT FOR REQUIRED VALUES. It only makes an empty value
+ * behave the way an ABSENT one already does; a variable with no default still fails closed on
+ * both. Nothing here can turn a missing required setting into a silent zero.
+ */
+export const positiveIntFromString = (defaultValue: number) =>
+  z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    // ⚠ THE `.default()` GOES ON THE INNER SCHEMA, NOT ON THE `preprocess`. Written the other
+    // way round — `z.preprocess(fn, inner).default(d)` — the default sits OUTSIDE the effect and
+    // only fires for an input that was already `undefined`: an empty string reaches the effect,
+    // becomes `undefined`, and is then coerced by the inner schema to `NaN`. That reproduces the
+    // original crash with a different message, which is worse than not fixing it.
+    z.coerce.number().int().positive().default(defaultValue),
+  );
+
 export const NODE_ENVS = ["development", "test", "staging", "production"] as const;
 /**
  * FOOTGUN WARNING: this defaults to "development" when NODE_ENV is unset, so the
