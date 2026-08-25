@@ -33,11 +33,17 @@ Three findings dominate the decision surface:
 
 The programme is no longer blocked on knowing things. It is blocked on deciding them.
 
-## 2. Current main SHA
+## 2. Main SHA this packet was prepared against
 
 ```
 24ed3ea0   docs(architecture): refresh project-control — and date every count in it (#1196)
 ```
+
+Stated as "prepared against" rather than "current" on purpose: `main` advances independently of
+this document — it already has, via #1204 — and a bare SHA labelled *current* becomes wrong
+without anyone editing it. Every measurement below carries its own date, and the artifacts
+carry `measured_at` (§14, tripwire 9). **No finding here depends on a commit later than
+`24ed3ea0`**, and none of the eight decisions is affected by unrelated work landing on `main`.
 
 ## 3. Current gate state — unchanged, and not to be touched
 
