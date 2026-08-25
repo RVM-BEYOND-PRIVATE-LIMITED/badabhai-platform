@@ -1,6 +1,6 @@
 {
   "kind": "crosswalk-chain",
-  "measured_at": "2026-08-25T11:29:52.252Z",
+  "measured_at": "2026-08-25T11:58:55.782Z",
   "source": "pnpm db:audit:crosswalk-chain --skill=skill_chassis_fitting",
   "target": "SUPABASE (remote)",
   "read_only": true,
@@ -10,6 +10,9 @@
   "skill_id": "skill_chassis_fitting",
   "status": "deprecated",
   "replaced_by": "skill_mechanical_assembly",
+  "successor_id": "skill_mechanical_assembly",
+  "successor_source": "production",
+  "if_deprecated_above_floor": [],
   "successor_status": "active",
   "successor_in_skill_corpus": true,
   "subject_match_skills": null,
