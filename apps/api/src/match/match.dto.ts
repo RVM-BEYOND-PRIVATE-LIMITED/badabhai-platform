@@ -9,9 +9,7 @@ import { z } from "zod";
  */
 
 /** The `mskill_*` id shape. Membership of the closed set is checked in the service. */
-export const matchSkillIdSchema = z
-  .string()
-  .regex(/^mskill_[a-z0-9_]+$/, "not a match skill id");
+export const matchSkillIdSchema = z.string().regex(/^mskill_[a-z0-9_]+$/, "not a match skill id");
 
 /**
  * `POST /payer/match/reach-preview` — what the posting form asks while the payer types.
@@ -56,10 +54,10 @@ export const MatchPublishFieldsSchema = z
     shift: z.enum(["day", "night", "rotational"]).optional(),
     needed_by: z.enum(["immediate", "soon", "flexible"]).optional(),
   })
-  .refine(
-    (v) => v.pay_min === undefined || v.pay_max === undefined || v.pay_max >= v.pay_min,
-    { message: "pay_max must be >= pay_min", path: ["pay_max"] },
-  );
+  .refine((v) => v.pay_min === undefined || v.pay_max === undefined || v.pay_max >= v.pay_min, {
+    message: "pay_max must be >= pay_min",
+    path: ["pay_max"],
+  });
 export type MatchPublishFieldsDto = z.infer<typeof MatchPublishFieldsSchema>;
 
 /**
@@ -68,15 +66,16 @@ export type MatchPublishFieldsDto = z.infer<typeof MatchPublishFieldsSchema>;
  * APPEND ONLY BY CONSTRUCTION: the DTO can only carry ids to ADD. There is no
  * `removed_skill_ids` field, so "ops narrowed a reach set" is not expressible on this
  * route — which is the point ("Ops may widen a reach set, never narrow one").
+ *
+ * NO `ops_actor` FIELD, DELIBERATELY (closes #1213). The AUDITED half of Policy 27 —
+ * who widened the reach set — used to be a client-body-supplied uuid, which meant the
+ * "audited" guarantee on `job_reach_widen.ops_actor_id` (migration 0090) could be
+ * spoofed by anyone holding the internal-service secret. It is now derived server-side
+ * from the AUTHENTICATED admin session (`AdminAuthGuard` on the route, `@CurrentAdmin()`
+ * in the controller) — never trust a body-supplied id for an identity that lands in a
+ * stored audit record (see #1130 for the same class of bug).
  */
 export const ReachWidenSchema = z.object({
   add_skill_ids: z.array(matchSkillIdSchema).min(1).max(50),
-  /**
-   * The opaque ops actor performing the widen — the AUDITED half of Policy 27. There
-   * is no ops auth in alpha (the sibling ops routes take `created_by` on the body the
-   * same way), so the caller supplies it; the route is behind `InternalServiceGuard`,
-   * so "the caller" is a service principal holding the shared secret, not the public.
-   */
-  ops_actor: z.string().uuid(),
 });
 export type ReachWidenDto = z.infer<typeof ReachWidenSchema>;

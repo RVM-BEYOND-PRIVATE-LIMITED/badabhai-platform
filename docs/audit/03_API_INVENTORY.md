@@ -154,7 +154,8 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | GET | /jobs/:jobId/applicants, /workers/:workerId/applications | ISG | C | |
 | GET | /jobs/search | WAG,CG | A | #856; worker-facing title + city/state search. Declared BEFORE `/jobs/:jobId` — the parameterized route would otherwise swallow it. event: job.search_performed (query text never carried; length/result-count only) |
 | GET | /jobs/:jobId | WAG,CG | A | deliberately no event |
-| POST/GET/PATCH | /job-postings(/:id)(/close/verify/reject/reach/widen) | ISG | B/F | list/get/update/close called by apps/web; verify/reject no confirmed caller |
+| POST/GET/PATCH | /job-postings(/:id)(/close/verify/reject) | ISG | B/F | list/get/update/close called by apps/web; verify/reject no confirmed caller |
+| POST | /job-postings/:id/reach/widen | AdminAuthGuard,ISG | F | #1213: `ops_actor_id` now comes from the authenticated admin session (`@CurrentAdmin()`), never the request body; both guards required (AND). No confirmed caller yet |
 | GET/PATCH | /workers/me/notification-prefs, /notifications, /notifications/read | WAG,CG | B | |
 
 ### payer-portal auth/account/capacity, job-posting-chat, job-postings, pricing
