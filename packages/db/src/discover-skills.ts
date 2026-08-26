@@ -58,6 +58,7 @@ import {
   type HeadLexicon,
 } from "./skill-discovery-heads";
 import { buildExistingSkillIndex, type ExistingSkillRow } from "./skill-discovery-match";
+import { groupCandidates, groupingReduction } from "./skill-discovery-groups";
 import {
   buildDiscoveryPlan,
   prioritize,
@@ -257,6 +258,7 @@ async function main(): Promise<void> {
         (r) => r.text_norm,
       ),
     );
+    const groups = groupCandidates(plan.candidates);
     const embedding = estimateEmbeddingCost(
       plan.phrases.map((p) => p.normalized),
       embeddedNorms,
@@ -297,6 +299,10 @@ async function main(): Promise<void> {
       cost: { embedding, extraction, actual_spend_inr: 0 },
       review_workload: workload,
       review_tiers: tierCounts(plan.candidates),
+      // GROUPING, reported beside the candidate count rather than instead of it. A group is a
+      // BATCH, not a merge: every member keeps its own decision and its own audit row. The
+      // number that changes is how many times a reviewer forms a judgement.
+      grouping: groupingReduction(plan.candidates, groups),
       weak_collisions_sample: plan.weak_collisions.slice(0, 25),
     };
 
@@ -314,6 +320,7 @@ async function main(): Promise<void> {
         .join("\n")}\n`,
     );
     write(join(runDir, "phrases.jsonl"), `${plan.phrases.map((p) => JSON.stringify(p)).join("\n")}\n`);
+    write(join(runDir, "review-groups.jsonl"), `${groups.map((g) => JSON.stringify(g)).join("\n")}\n`);
 
     printReport(plan, report, runDir);
   } finally {
@@ -488,6 +495,19 @@ function printReport(plan: DiscoveryPlan, report: Record<string, unknown>, runDi
   console.log(`      by suggested action         ${JSON.stringify(c.candidates_by_action)}`);
   console.log(`      by confidence band          ${JSON.stringify(c.candidates_by_band)}`);
   console.log(`      by review tier              ${JSON.stringify(report["review_tiers"])}`);
+  const g = report["grouping"] as {
+    groups: number; singleton_groups: number; largest_group: number; batchable_candidates: number;
+    by_tier: Record<string, { groups: number; candidates: number }>;
+  };
+  console.log("");
+  console.log(`  BATCHED FOR REVIEW (groups are batches, never merges)`);
+  console.log(`    review screens                ${g.groups}   (vs ${c.candidates} candidates)`);
+  console.log(`    batchable candidates          ${g.batchable_candidates}`);
+  console.log(`    singleton groups              ${g.singleton_groups}`);
+  console.log(`    largest batch                 ${g.largest_group}`);
+  for (const [tier, row] of Object.entries(g.by_tier)) {
+    console.log(`      ${tier.padEnd(26)}${String(row.groups).padStart(5)} groups / ${row.candidates} candidates`);
+  }
   console.log(
     `    REDUCTION                     ${c.source_rows} source rows -> ${c.candidates} decisions ` +
       `(${pct(c.candidates, c.source_rows)})`,
@@ -505,15 +525,19 @@ function printReport(plan: DiscoveryPlan, report: Record<string, unknown>, runDi
   console.log(`    review workload               est. ${workload.estimated_hours} h`);
   console.log("");
   console.log(`  ARTIFACTS -> ${runDir}`);
-  console.log(`    report.json  candidates.jsonl  review-queue.jsonl  phrases.jsonl`);
+  console.log(`    report.json  candidates.jsonl  review-queue.jsonl  phrases.jsonl  review-groups.jsonl`);
   console.log("");
   console.log(`  NOTHING WAS WRITTEN TO THE DATABASE. This runner has no write path.`);
   console.log("");
 }
 
 if (require.main === module) {
-  main().catch((error: unknown) => {
-    console.error(`[${SCRIPT}]`, error instanceof Error ? error.message : error);
+  // The message is the FIRST and only argument, and it is not a template literal.
+  // `javascript.lang.security.audit.unsafe-formatstring` blocks a non-literal format string in
+  // a console call, because an attacker-controlled format specifier can forge a log line. The
+  // other 56 runners in this package all end exactly like this; matching them is the fix.
+  main().catch((e: unknown) => {
+    console.error(e instanceof Error ? e.message : e);
     process.exit(1);
   });
 }

@@ -145,6 +145,16 @@ const LOCKED_TABLES = [
   // ── LEARN label store (migration 0091) ──────────────────────────────────────
   "learn_labels", // 0091: per-impression training labels keyed by an opaque worker_id (rank/tier/outcome at show time) — same linkage class as job_reach; worker_id cascade is the DSAR coverage; RLS+FORCE+REVOKE in migration 0091
   "learn_labels_cursor", // 0091: single-row sweep watermark over events.created_at — no PII at all, locked because the posture here is table-DEFAULT; RLS+FORCE+REVOKE in migration 0091
+  // ── Skill discovery candidate layer (migration 0093) ────────────────────────
+  // The staging layer for skill discovery. Reference-adjacent rather than reference data:
+  // these hold SPECULATION about the taxonomy — machine-proposed candidates, similarity
+  // evidence, and the admin decisions taken on them. Two of the four also hold text that
+  // originated with a worker, which is why the posture matters more here than the "PII-free
+  // reference table" reading would suggest.
+  "skill_discovery_run", // 0093: one row per reproducible discovery run — input fingerprint, config, model/prompt attribution, counts. No PII; locked because the posture in this database is table-DEFAULT and because a readable run row publishes which model and prompt version author our taxonomy; RLS+FORCE+REVOKE in migration 0093
+  "skill_candidate", // 0093: one row per candidate CLUSTER — the proposal, the suggested action, the confidence band, and the admin decision (reviewer_admin_id, reviewed_at, review_reason). An authorization-adjacent audit trail: a readable default would publish who approved which taxonomy change and why, and a WRITABLE one would let a client forge an approval; RLS+FORCE+REVOKE in migration 0093
+  "skill_candidate_source", // 0093: every phrase that fed a candidate, kept whole. `original_text` is the one column on this layer that can carry WORKER FREE TEXT (source_type='worker_phrase'), pseudonymized upstream and stripped of digits/'@'/URLs by the classifier — but pseudonymized is not anonymous, so the table-default lock applies as it does to unresolved_phrase; RLS+FORCE+REVOKE in migration 0093
+  "skill_candidate_match", // 0093: the competing existing-canonical matches with their scores and strengths — the evidence a reviewer decides on. PII-free (two closed-vocabulary ids + a float), locked because a writable default would let a client inject the evidence that a human's decision is made against; RLS+FORCE+REVOKE in migration 0093
 ] as const;
 
 // The three network-reachable PostgREST roles Supabase ships.

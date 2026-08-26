@@ -234,6 +234,60 @@ export const EXTRA_ROLE_NOUNS: readonly string[] = [
   "helperji",
 ];
 
+/**
+ * DEVANAGARI OCCUPATION HEADS — measured from the live `lang='hi'` alias rows.
+ *
+ * ── WHY THIS LIST HAD TO EXIST, AND WHY IT IS SMALL ──
+ *
+ * The morphology above is Latin-script by construction: `-er`, `-or`, `-ist`, `-man` never
+ * match Devanagari, and every entry in {@link EXTRA_ROLE_NOUNS} is a transliteration. So before
+ * this list, EVERY Devanagari phrase had zero occupation heads and fell through to `AMBIGUOUS`.
+ * Measured in the 2026-08-26 dry run, that put `मैकेनिक` (7 candidates), `ड्राइवर` (4) and
+ * `वेल्डिंग` (4) in the ambiguous tier — a mechanic, a driver and a welding skill, all three
+ * decidable, all three queued as "shape gives no signal".
+ *
+ * The population is 142 rows: every Devanagari alias in `job_domain_alias` carries
+ * `lang='hi'` and `source='rvm'` (measured — there are no ISCO/NCO Devanagari titles, and all
+ * 4,071 `job_domain.label_hi` are NULL). That is small enough to enumerate honestly, and the
+ * counts below are the head-token frequencies over exactly those rows.
+ *
+ * ── WHAT IS DELIBERATELY NOT HERE ──
+ *
+ * No transliteration engine, and no attempt to fold `मिस्त्री` onto `mistri`. Both scripts stay
+ * separate alias rows by design (`skeletonKey`'s docblock states that explicitly), so folding
+ * them here would create a normalization the retrieval path does not perform — the drift that
+ * silently breaks L0. `मिस्त्री` earns its place in this list on its own evidence, beside
+ * `mistri` in the list above, and neither knows about the other.
+ */
+export const DEVANAGARI_ROLE_NOUNS: readonly string[] = [
+  "मैकेनिक", //    [7] mechanic
+  "मिस्त्री", //     [4] mistri — the mason/fitter role noun
+  "ड्राइवर", //     [4] driver
+  "ऑपरेटर", //     [3] operator
+  "हेल्पर", //      [3] helper
+  "फिटर", //       [3] fitter
+  "दर्जी", //       [2] tailor
+  "मेकर", //       [2] maker
+  "चौकीदार", //    [1] chowkidar — watchman
+  "किसान", //      [1] farmer
+  "गार्ड", //       [1] guard
+  "कर्मचारी", //    [1] employee/worker
+  "गेटमैन", //      [1] gateman
+  "जुलाहा", //      [1] weaver
+  "कुली", //       [1] porter
+  "माली", //       — gardener; attested in worker language, not in these 142 rows
+  "नाई", //        — barber
+  "धोबी", //       — launderer
+  "रसोइया", //     — cook
+  "बढ़ई", //        — carpenter
+  "लोहार", //      — blacksmith
+  "सुनार", //      — goldsmith
+  "कुम्हार", //     — potter
+  "मजदूर", //      — labourer
+  "ठेकेदार", //     — contractor
+  "मुनीम", //      — accountant/clerk
+];
+
 // ===========================================================================
 // Derivation
 // ===========================================================================
@@ -299,7 +353,10 @@ export function deriveOccupationHeads(texts: readonly string[]): HeadLexicon {
   }
 
   const excluded = new Set(HEAD_EXCLUSIONS);
-  const extra = new Set(EXTRA_ROLE_NOUNS.map((t) => depluralize(t)));
+  // Devanagari heads join the SAME reviewed set rather than getting their own branch: the rule
+  // ("this token names a role, and the morphology cannot see it") is identical, and a second
+  // code path would be a second place for the acceptance logic to drift.
+  const extra = new Set([...EXTRA_ROLE_NOUNS, ...DEVANAGARI_ROLE_NOUNS].map((t) => depluralize(t)));
 
   const heads = new Map<string, DerivedHead>();
   const rejected = new Map<string, number>();

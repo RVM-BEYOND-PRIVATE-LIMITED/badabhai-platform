@@ -134,6 +134,55 @@ export function isGerund(token: string): boolean {
 }
 
 /**
+ * Devanagari activity nominalizers, in the three shapes this corpus actually uses.
+ *
+ * ── WHY THE LATIN GERUND TEST IS NOT ENOUGH ──
+ *
+ * `isGerund` is `-ing`, which no Devanagari token carries. Measured over the 142 `lang='hi'`
+ * alias rows on 2026-08-26, that left every Devanagari activity word classified `AMBIGUOUS`:
+ * `वेल्डिंग` (welding), `सिलाई` (sewing), `चिनाई` (masonry), `पलस्तर` (plastering),
+ * `घिसाई` (grinding), `मिलिंग` (milling), `वायरिंग` (wiring), `कढ़ाई` (embroidery). Those are
+ * the highest-value rows in the entire population — a worker's own word for a real skill — and
+ * they were being queued as "shape gives no honest signal".
+ *
+ * THE THREE RULES:
+ *   `-िंग`   an English `-ing` loanword transliterated. Very reliable: वेल्डिंग, मिलिंग,
+ *            वायरिंग, ड्रिलिंग, ग्राइंडिंग.
+ *   `-ाई`    the native activity nominalizer: सिलाई, चिनाई, घिसाई, कढ़ाई, पिसाई.
+ *   `-ना`    the infinitive used as a noun: बनाना (making), चलाना (operating), खोदना (digging).
+ *
+ * `-ाई` IS THE RISKY ONE AND IT IS ACCEPTED ANYWAY. It also ends दवाई (medicine), मिठाई
+ * (sweet), कमाई (earnings), लड़ाई (fight) — none of which is an activity. The cost of a false
+ * positive here is bounded and cheap: the phrase enters the `direct` review tier and a human
+ * rejects it in seconds. The cost of a false NEGATIVE is that a genuine vernacular skill sits
+ * in a 580-row ambiguous pile nobody reaches. Over a 142-row population that trade is not
+ * close, and it is stated here so a later reviewer can revisit it with real rejection counts
+ * rather than re-deriving the argument.
+ */
+export const DEVANAGARI_ACTIVITY_SUFFIXES: readonly string[] = ["िंग", "ाई", "ना"];
+
+/** Minimum Devanagari characters that must survive the suffix. */
+export const MIN_DEVANAGARI_ACTIVITY_STEM = 2;
+
+const HAS_DEVANAGARI = /[\u0900-\u097F]/;
+
+/** True when the token is a Devanagari activity noun. See {@link DEVANAGARI_ACTIVITY_SUFFIXES}. */
+export function isDevanagariActivity(token: string): boolean {
+  if (!HAS_DEVANAGARI.test(token)) return false;
+  for (const suffix of DEVANAGARI_ACTIVITY_SUFFIXES) {
+    if (token.endsWith(suffix) && token.length - suffix.length >= MIN_DEVANAGARI_ACTIVITY_STEM) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Either nominalizer. The ONE question the classifier asks — see {@link classifyPhrase}. */
+export function namesAnActivity(token: string): boolean {
+  return isGerund(token) || isDevanagariActivity(token);
+}
+
+/**
  * Below this token count, the shared `isProse` rule is NOT applied.
  *
  * ── THE DEFECT THIS FIXES, AND WHY IT MATTERS MORE THAN IT LOOKS ──
@@ -292,7 +341,15 @@ export function classifyPhrase(original: string, lexicon: HeadLexicon): PhraseVe
     };
   }
 
-  if (tokens.length >= MIN_TOKENS_FOR_PROSE_TEST && isProse(original)) {
+  // DEVANAGARI IS EXEMPT FROM THE PROSE TEST ENTIRELY, not merely at short lengths.
+  //
+  // `isProse` decides "starts lowercase" via `first === first.toLowerCase()`. Devanagari is a
+  // UNICASE script: that comparison is TRUE for every Devanagari character, so the rule reports
+  // "prose" for 100% of Hindi input regardless of what it says. The token-count guard below
+  // hides that for one- and two-token phrases and would still have discarded every longer one —
+  // `छोटी मशीन का ऑपरेटर` reads as scrape residue to a rule that cannot see the script.
+  const devanagari = HAS_DEVANAGARI.test(original);
+  if (!devanagari && tokens.length >= MIN_TOKENS_FOR_PROSE_TEST && isProse(original)) {
     return {
       ...base,
       phraseClass: "REJECTED_NON_SKILL",
@@ -361,7 +418,7 @@ export function classifyPhrase(original: string, lexicon: HeadLexicon): PhraseVe
     };
   }
 
-  if (tokens.some(isGerund)) {
+  if (tokens.some(namesAnActivity)) {
     return {
       ...base,
       phraseClass: "ACTIVITY_PHRASE",
