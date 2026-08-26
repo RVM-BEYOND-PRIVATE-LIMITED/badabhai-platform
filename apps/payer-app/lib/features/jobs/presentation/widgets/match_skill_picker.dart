@@ -18,10 +18,11 @@ import '../../../../core/widgets/bb_chip.dart';
 /// Everything shown here is PII-free: coarse skill ids/labels and integer reach
 /// counts only — never a worker identity.
 ///
-/// This widget is presentational. The owning screen holds the selection state,
-/// debounces the reach preview, and enforces the E13 "no posting into a void"
-/// gate (empty pick or [ReachPreview.zeroReach] disables Post). The warning copy
-/// that explains a blocked Post lives here so it sits with the reach meter.
+/// This widget is presentational. The owning screen holds the selection state
+/// and debounces the reach preview. Post needs at least one skill picked (so the
+/// job can be matched at all); a ZERO reach preview does NOT block posting —
+/// reach is dynamic (the backend links workers who join later to an existing
+/// open posting), so the reach meter is informational, not a gate.
 class MatchSkillPicker extends StatelessWidget {
   const MatchSkillPicker({
     super.key,
@@ -155,8 +156,9 @@ class MatchSkillPicker extends StatelessWidget {
     if (r.zeroReach || r.reachTotal <= 0) {
       return _WarnCard(
         title: 'No workers match yet',
-        body: 'Widen the skills (or keep a related one ticked) so this reaches '
-            "someone. We won't take a posting no worker can see.",
+        body: "That's OK — you can still post. This job will reach workers as "
+            'they join and match these skills. Add more skills to reach people '
+            'sooner.',
         busy: reachLoading,
       );
     }
@@ -328,9 +330,9 @@ class MatchSkillPicker extends StatelessWidget {
   }
 }
 
-/// The E13 zero-reach warning — a haldi "attention, but fixable" card. Kept
-/// private to the picker: it is the only reason Post is blocked once a skill is
-/// picked, so its copy lives next to the reach meter.
+/// The zero-reach notice — a haldi "heads-up, but fine" card. Zero reach no
+/// longer blocks Post (reach is dynamic); this just tells the payer no one
+/// matches yet and nudges them to add skills to reach people sooner.
 class _WarnCard extends StatelessWidget {
   const _WarnCard({
     required this.title,
