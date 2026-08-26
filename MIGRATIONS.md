@@ -49,12 +49,12 @@ rather than this sentence when minting a number.
 | `0082`        | Prakash   | **APPLIED IN PRODUCTION 2026-08-20, AND NOW RECORDED** — R39: re-lock the seven public tables `db:audit:rls` reported open. Permissions only; no table, column, index or constraint moves. Minted as `0081` and renumbered after `#1036` took that slot. Rehearsed first (`db:verify:rls-lock`, 22/22 PASS), then applied **by hand rather than through `db:migrate`**, so its objects are live and `drizzle.__drizzle_migrations` has no row for it. Verified after the fact: `db:audit:rls` = **77/77 locked, 0 deviating**; `db:audit:schema-contract` = **READY**. Recorded by adoption on 2026-08-20 — not by `db:migrate`, which can no longer reach it; see the drift note below |
 | `0083`        | Prakash   | **APPLIED IN PRODUCTION 2026-08-20, RECORDED, AND NOW MERGED** — `ai_call_traces`: the prompt + completion of every AI call, AES-256-GCM at rest behind a shape CHECK that refuses prose, `worker_id NOT NULL ON DELETE cascade` (the DSAR erasure IS the cascade), RLS + FORCE + four REVOKEs. Additive: one new table, nothing existing moves. Applied by hand with `created_at = 1787230000000` hand-pinned ABOVE `0082`'s `1787220000000` — deliberately, because `db:generate` stamped it at `1787213473538`, i.e. BELOW, and it would otherwise have been skipped silently and forever. **This is the "orphan row" the section below describes; merging this PR is what resolves it.** |
 | `0084`        | Prakash   | **MERGED AND APPLIED 2026-08-20** — GAP-DB-21 modelled: the four payer-onboarding tables that existed on production and in no migration and no schema file. Owner ruling 2026-08-20: keep and model, do not drop. A **no-op on production** — every CREATE is `IF NOT EXISTS`, every constraint add is preceded by a `DROP ... IF EXISTS`, and FORCE/REVOKE are idempotent; the only statements that do anything are FK re-adds on tables holding 0 rows. On every OTHER database it is the migration that finally creates them. Verified read-only against production before merge: `adopt-migrations --only=0084` reports **clean=1 mismatched=0** across the full static parse plus 24 effect assertions, which is a proof the declaration matches the live catalog object for object. Minted as `0083`, renumbered after `#1130` took that slot — the fifth collision recorded here; `when` hand-raised to `1787240000000`, above `0083`'s `1787230000000`, or the migrator would have skipped it |
-| `0085`        | Prakash   | **APPLIED 2026-08-21, journal row not yet recorded** — #1110: takes `EXECUTE` away from `PUBLIC`/`anon`/`authenticated`/`service_role` on the three undeclared `SECURITY DEFINER` functions (`_log_delete`, `rls_auto_enable`, `is_active_payer_member`). **No schema change at all** — no CREATE, no ALTER, no DROP, no data touched; it only removes privileges, and grants nothing. Snapshot is a byte-copy of `0084`'s with a fresh `id`, the `0082` convention for a privilege-only migration. **A no-op on every fresh database**, deliberately: the three functions are undeclared, so a database built from this repository does not have them and `to_regprocedure` skips each one with a NOTICE — the roles are guarded against `pg_roles` for the same reason. Every REVOKE sits inside `format()` behind those guards, so the static parse reads **nothing** out of the file and an effect verifier checks all 12 grants from the catalog instead. Verified read-only against production: adoption **refuses it with 12 mismatches** (including `PUBLIC`, which `information_schema.routine_privileges` does not report at all) and `db:audit:undeclared-routines --strict` exits **1** naming all three. Both are the *before* reading — they are what proves the REVOKE took once it is applied. **Awaiting the owner decision in `docs/registers/gap-db-undeclared-routines.md`** |
-| `0086`        | Prakash   | **APPLIED 2026-08-21, journal row not yet recorded** — #1110, the other half of the owner ruling: DECLARE the deletion trail (it stays), NARROW it, and BOUND it. Creates `_delete_forensics` (fresh databases only — production already had it, out of band, since 2026-08-13), replaces `_log_delete` so it no longer writes `current_query()` or the client IP, **DROPs `query` and `client_addr`**, re-creates both triggers idempotently, adds `_delete_forensics_at_idx` for the retention sweep, and states ENABLE + FORCE + four REVOKEs explicitly. **ORDER IS LOAD-BEARING**: the function is replaced BEFORE the columns are dropped, or a DELETE on `workers` inside that window fires a function referencing columns that no longer exist. **The one irreversible migration in the #1110 set** — `ALTER TABLE ... ADD COLUMN` restores the shape and not the 147 values — which is why it is separate from `0085` and why the PII was measured first: **0 phone-shaped, 0 email-shaped, 0 bare mobiles**. Touches NOTHING belonging to the DPDP erasure proof (`audit_logs`, the Redis tombstone, the event), and a test asserts that against the statements with comments stripped. First migration to use `bigserial`, which adoption refused as an unmapped type until `normalizeType` learned the serial pseudo-types — the refusal was correct. Verified after the apply: 17 effect assertions clean |
+| `0085`        | Prakash   | **APPLIED 2026-08-21, journal row RECORDED (confirmed present 2026-08-26)** — #1110: takes `EXECUTE` away from `PUBLIC`/`anon`/`authenticated`/`service_role` on the three undeclared `SECURITY DEFINER` functions (`_log_delete`, `rls_auto_enable`, `is_active_payer_member`). **No schema change at all** — no CREATE, no ALTER, no DROP, no data touched; it only removes privileges, and grants nothing. Snapshot is a byte-copy of `0084`'s with a fresh `id`, the `0082` convention for a privilege-only migration. **A no-op on every fresh database**, deliberately: the three functions are undeclared, so a database built from this repository does not have them and `to_regprocedure` skips each one with a NOTICE — the roles are guarded against `pg_roles` for the same reason. Every REVOKE sits inside `format()` behind those guards, so the static parse reads **nothing** out of the file and an effect verifier checks all 12 grants from the catalog instead. Verified read-only against production: adoption **refuses it with 12 mismatches** (including `PUBLIC`, which `information_schema.routine_privileges` does not report at all) and `db:audit:undeclared-routines --strict` exits **1** naming all three. Both are the *before* reading — they are what proves the REVOKE took once it is applied. **Awaiting the owner decision in `docs/registers/gap-db-undeclared-routines.md`** |
+| `0086`        | Prakash   | **APPLIED 2026-08-21, journal row RECORDED (confirmed present 2026-08-26)** — #1110, the other half of the owner ruling: DECLARE the deletion trail (it stays), NARROW it, and BOUND it. Creates `_delete_forensics` (fresh databases only — production already had it, out of band, since 2026-08-13), replaces `_log_delete` so it no longer writes `current_query()` or the client IP, **DROPs `query` and `client_addr`**, re-creates both triggers idempotently, adds `_delete_forensics_at_idx` for the retention sweep, and states ENABLE + FORCE + four REVOKEs explicitly. **ORDER IS LOAD-BEARING**: the function is replaced BEFORE the columns are dropped, or a DELETE on `workers` inside that window fires a function referencing columns that no longer exist. **The one irreversible migration in the #1110 set** — `ALTER TABLE ... ADD COLUMN` restores the shape and not the 147 values — which is why it is separate from `0085` and why the PII was measured first: **0 phone-shaped, 0 email-shaped, 0 bare mobiles**. Touches NOTHING belonging to the DPDP erasure proof (`audit_logs`, the Redis tombstone, the event), and a test asserts that against the statements with comments stripped. First migration to use `bigserial`, which adoption refused as an unmapped type until `normalizeType` learned the serial pseudo-types — the refusal was correct. Verified after the apply: 17 effect assertions clean |
 | `0089`        | Prakash   | **APPLIED 2026-08-24** - #1202 job search FTS: `job_postings.search_vec` GENERATED tsvector (role_title weight 'A' + skill_phrases weight 'B', config `simple`) via IMMUTABLE helper `job_postings_skill_phrases_text(jsonb)`, GIN probe for `GET /jobs/search`. Generated by `db:generate`, then hand-edited (HAND-PREPENDED: the function CREATE must precede the column, plus `lock_timeout` and rollback notes) |
-| `0090`        | Prakash   | **APPLIED 2026-08-24, journal row not yet recorded** (verified 2026-08-26 — see the drift note below) - Policy 27 third leg / TD127: `job_reach_widen` provenance table (one row per ops widen request: ids + opaque actor + `expires_at`), partial due-index, RLS FORCE + four REVOKEs. Read by the `reach-widen-expiry` sweep |
-| `0091`        | Prakash   | **APPLIED 2026-08-24, journal row not yet recorded** (verified 2026-08-26 — see the drift note below) - LEARN label store: `learn_labels` (one row per feed.shown_v2 impression, resolved to applied/skipped by later application events; rank/tier/boosted/matched-skill context at show time) + `learn_labels_cursor` sweep watermark. UNIQUE impression key = ingest idempotency; worker FK CASCADEs for DPDP erasure. RLS FORCE + four REVOKEs on both tables |
-| `0092`        | Divyanshu | **APPLIED IN PRODUCTION 2026-08-26, journal row not yet recorded** (#1225). Verified object-by-object the same day: `information_schema.columns` reports `attachment_paths` / `jsonb` / `is_nullable=YES` / `column_default=null`, which is the whole of what this migration declares — one column, no constraint, no index, no default. `drizzle.__drizzle_migrations` has no row for it: the watermark sits at `0089`'s `1787574455774`, so this and `0090`/`0091` are the three owed rows described in the drift note below. #1191: `worker_feedback.attachment_paths` (jsonb, nullable, no default), the object keys of the up-to-three images a worker attaches to a feedback submission. Generated by `db:generate` and left as generated — ONE `ADD COLUMN`, catalog-only, no CHECK (deliberately; the header states why, and the control is the per-path ownership regex in `FeedbackService`, not a bound). **APPLY BEFORE DEPLOY for BOTH surfaces**: the insert names the model's whole column list, so every submission 500s without it — including the ones carrying no image — and `AdminFeedbackRepository` names it in its explicit SELECT. Inherits `0080`/`0081`'s ordering and their journal-drift problem. Recorded in `schema-contract.ts` as `0092-attachment-paths-column` |
+| `0090`        | Prakash   | **APPLIED 2026-08-24, journal row RECORDED 2026-08-26** (adopted clean alongside `0091`/`0092`; see the drift note below) - Policy 27 third leg / TD127: `job_reach_widen` provenance table (one row per ops widen request: ids + opaque actor + `expires_at`), partial due-index, RLS FORCE + four REVOKEs. Read by the `reach-widen-expiry` sweep |
+| `0091`        | Prakash   | **APPLIED 2026-08-24, journal row RECORDED 2026-08-26** (adopted clean alongside `0090`/`0092`; see the drift note below) - LEARN label store: `learn_labels` (one row per feed.shown_v2 impression, resolved to applied/skipped by later application events; rank/tier/boosted/matched-skill context at show time) + `learn_labels_cursor` sweep watermark. UNIQUE impression key = ingest idempotency; worker FK CASCADEs for DPDP erasure. RLS FORCE + four REVOKEs on both tables |
+| `0092`        | Divyanshu | **APPLIED IN PRODUCTION AND RECORDED 2026-08-26** (#1225). Verified object-by-object the same day: `information_schema.columns` reports `attachment_paths` / `jsonb` / `is_nullable=YES` / `column_default=null`, which is the whole of what this migration declares — one column, no constraint, no index, no default. Verifying it is what exposed the journal drift described below: the watermark still sat at `0089`'s `1787574455774`, so this and `0090`/`0091` were live and unrecorded. All three adopted the same day, `clean=3 mismatched=0`. #1191: `worker_feedback.attachment_paths` (jsonb, nullable, no default), the object keys of the up-to-three images a worker attaches to a feedback submission. Generated by `db:generate` and left as generated — ONE `ADD COLUMN`, catalog-only, no CHECK (deliberately; the header states why, and the control is the per-path ownership regex in `FeedbackService`, not a bound). **APPLY BEFORE DEPLOY for BOTH surfaces**: the insert names the model's whole column list, so every submission 500s without it — including the ones carrying no image — and `AdminFeedbackRepository` names it in its explicit SELECT. Inherits `0080`/`0081`'s ordering and their journal-drift problem. Recorded in `schema-contract.ts` as `0092-attachment-paths-column` |
 | `0093`+       | unclaimed | OIE's orchestrator/profiling/parse migration lands here; claim in a PR of its own. **Bumped from `0085`+ on 2026-08-20** (which #1110's REVOKE took) and again from `0092`+ on 2026-08-25 (which #1191 took) — the seventh slot collision this file records, and the reason the rule is to re-check the number immediately before pushing rather than when the branch is cut |
 
 ### The journal is five files behind, and what that actually costs — corrected 2026-08-20
@@ -88,44 +88,79 @@ worth remembering.
 > **2026-08-20:** the journal matches the database: `--doctor` reads 84/84, and `db:migrate` will
 > attempt no DDL.
 
-| | | |
-|---|---|---|
-| | **2026-08-21** | **2026-08-26** |
-| journal entries | 87 (`0000`–`0086`) | 93 (`0000`–`0092`) |
-| recorded, matching a journal entry | **85** | **90** |
-| unrecorded | **2** — `0085`, `0086` | **3** — `0090`, `0091`, `0092` |
-| recorded rows matching NO journal entry (orphans) | **0** | **0** — 93 − 90 = 3, and the three names are exactly the entries above the watermark, so the counts close with nothing unaccounted for |
+| | | | |
+|---|---|---|---|
+| | **2026-08-21** | **2026-08-26, before** | **2026-08-26, after** |
+| journal entries | 87 (`0000`–`0086`) | 93 (`0000`–`0092`) | 93 (`0000`–`0092`) |
+| recorded, matching a journal entry | **85** | **90** | **93** |
+| unrecorded | **2** — `0085`, `0086` | **3** — `0090`, `0091`, `0092` | **0** |
+| recorded rows matching NO journal entry (orphans) | **0** | **0** | **0** |
 
-`0085` and `0086` were adopted in the interval, along with `0087` and `0088`; the debt did not
-persist, it was re-incurred by three later files. Measured against production on 2026-08-26:
-`select count(*) from drizzle.__drizzle_migrations` = **90**, and the newest eight
-`created_at` values top out at **`1787574455774`** — `0089`'s. Everything at or below that is
-recorded; the three journal entries above it (`0090` `1787576001514`, `0091` `1787577906223`,
-`0092` `1787650702334`) are not.
-
-**Which direction the drift points, and why it is the recoverable one.** All three sit ABOVE the
-watermark, so `db:migrate` would REPLAY them rather than skip them — the loud direction, not the
-silent one this file's `0082` story is about. But the replay is **not** a no-op: `0090` and
-`0091` are bare `CREATE TABLE`s and `0092` is a bare `ADD COLUMN`, none of them `IF NOT EXISTS`,
-so all three would abort on `42P07`/`42701` against a database that already has the objects.
-`db:migrate` is therefore unusable until these are adopted — the same practical state as a
-below-watermark drift, reached from the opposite side. **Adoption is the route, and the `--only`
-set is these three:**
+**RE-INCURRED, THEN CLEARED — both on the same day, which is the part worth keeping.** `0085`
+and `0086` were adopted in the interval since 2026-08-21, along with `0087` and `0088`; the debt
+did not persist, it was **re-incurred** by three later files. Measured against production on
+2026-08-26 while verifying `0092` for #1225: `count(*)` = **90** against **93** journal entries,
+with the newest recorded `created_at` at **`1787574455774`** — `0089`'s. The three entries above
+that watermark (`0090` `1787576001514`, `0091` `1787577906223`, `0092` `1787650702334`) were live
+and unrecorded. Adopted the same day, `clean=3 mismatched=0`, and `--doctor` now reports **0
+orphans**:
 
 ```bash
 cd packages/db
 npx tsx adopt-migrations.ts --only 0090_chemical_sersi,0091_fluffy_tag,0092_flawless_glorian
 npx tsx adopt-migrations.ts --only 0090_chemical_sersi,0091_fluffy_tag,0092_flawless_glorian --apply --expect-host aws-1-ap-south-1.pooler.supabase.com
-npx tsx adopt-migrations.ts --doctor                   # expect 93/93 match, 0 orphan rows
 ```
+
+**Which direction that drift pointed, and why it was still blocking.** All three sat ABOVE the
+watermark, so `db:migrate` would have REPLAYED them rather than skipping them — the loud
+direction, not the silent one this file's `0082` story is about. But the replay would not have
+been a no-op: `0090` and `0091` are bare `CREATE TABLE`s and `0092` a bare `ADD COLUMN`, none of
+them `IF NOT EXISTS`, so all three would have aborted on `42P07`/`42701` against a database that
+already has the objects. Above-watermark is the recoverable direction and was still not a
+runnable one.
+
+### ⚠ `0089` — one hash mismatch remains, and it is a PROVENANCE signal, not a migrator hazard
+
+`--doctor` reads **92/93** on the hash check:
+
+```
+✗ 0089_exotic_thaddeus_ross: hash mismatch (stored 493ff00a87bb… vs file 78da85edb7f5…)
+```
+
+**What it means.** The `hash` recorded against `0089`'s row is the sha256 of a DIFFERENT
+byte-sequence than `migrations/0089_exotic_thaddeus_ross.sql` in this checkout. The cause is in
+this file's own record and in git: `0089` was **APPLIED 2026-08-24**, while the file first
+reached `main` on **2026-08-25** (`0eb37a65`, #1204) — and its entry notes it was
+`db:generate`d and then **hand-edited** (the function `CREATE` hand-prepended above the column,
+plus `lock_timeout` and rollback notes). It was applied and recorded from a pre-merge branch
+state; the file then changed before it merged. The file has exactly one commit, so nothing was
+edited after the fact.
+
+**What it does NOT mean, and this correction matters during an incident.**
+`adopt-migrations.ts`'s own comment claimed a hash mismatch "means drizzle would try to RE-APPLY
+a migration whose DDL is already live". **It does not** — read from the installed
+`drizzle-orm@0.45.2` (`pg-core/dialect.cjs`, the same source this file quotes above), the
+migrator's only predicate is `Number(lastDbMigration.created_at) < migration.folderMillis`. The
+`hash` column is selected and written and **never compared**. The comment has been corrected in
+place. With the watermark now at `0092`'s `1787650702334`, `db:migrate` skips every entry in the
+journal regardless of hash.
+
+**What is still worth checking, and by whom.** The mismatch says production ran a different
+byte-sequence than a fresh database built from this repo would run. If the difference is only the
+hand-prepended comments, nothing diverges; if it reaches the statements, production and a fresh
+build differ in a way no hash check can characterise. `db:audit:live-drift` is the tool that
+answers it, and `0089` is Prakash's (#1202/#1204) — raise it there rather than re-recording the
+row, because the stored hash is the honest record of what was applied and editing it to match the
+file would destroy the only evidence that they differ.
 
 **The lesson is about this FILE, not about the database.** Nothing broke: every object is live
 and correct, and the three entries were each recorded here as "APPLIED" on the day they ran. What
-did not happen is the metadata write that makes `db:migrate` usable by the next person — which is
-the step that is easy to skip precisely because skipping it changes nothing visible until
-somebody runs the migrator. The 2026-08-20 entry below closed the same debt and the file then
-declared the journal clean; it went stale within four days. Treat "the journal is clean" as a
-claim with a date on it, and re-measure with `--doctor` rather than reading it here.
+did not happen is the metadata write that makes `db:migrate` usable by the next person — the step
+that is easy to skip precisely because skipping it changes nothing visible until somebody runs
+the migrator. The 2026-08-20 entry below closed the same debt and the file then declared the
+journal clean; it went stale within four days, and this section is the second clearance in six.
+Treat "the journal is clean" as a claim with a date on it, and re-measure with `--doctor` rather
+than reading it here.
 
 **`0084` was reconciled on 2026-08-20.** The DDL was applied by hand, as every migration on this
 project is, and `adopt-migrations --only 0084_model_gap_db_21_payer_onboarding --apply
@@ -177,10 +212,11 @@ a discrepancy that is real but not actionable. Apply-before-merge remains correc
 whose absence breaks a deploy; it just needs the open PR named in this file at the time, so the
 next person reading a drift report can tell "in flight" from "nobody knows what this is".
 
-**What to run, and when.** ⚠ **Three rows ARE owed today** (`0090`, `0091`, `0092` — measured
-2026-08-26, see the table above), so the hygiene block at the bottom of this listing is live work
-rather than a keepsake. The commands below are the general procedure; the exact `--only` set for
-the current debt is in that table.
+**What to run, and when.** As of **2026-08-26** all 93 entries are recorded and there are no
+orphans, so nothing is owed — but that sentence has now been false twice within six days, so
+**measure rather than believe it**: `--doctor` is one read-only command and it is the only
+answer with a timestamp on it. One known deviation survives the clearance and is not a debt:
+`0089`'s hash mismatch, characterised in the section above.
 
 ```bash
 # STATE OF PLAY — run these three before believing anything about the journal.
