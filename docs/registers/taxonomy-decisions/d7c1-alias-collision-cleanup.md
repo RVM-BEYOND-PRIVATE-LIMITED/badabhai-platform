@@ -241,3 +241,72 @@ PROMOTION CANDIDATES      96, eligible 0    unchanged
 ```
 
 **PROMOTION BLOCKED · CANONICALIZATION BLOCKED.**
+
+
+---
+
+## OWNER RULING — 2026-08-26: **§D-7C-1a OPTION A · §D-7C-1b OPTION A**
+
+Both decisions ruled the same way, and the two readings agree: **the holder that survives keeps
+the text.**
+
+### §D-7C-1a — option A, applied
+
+The two exclusions were **re-pointed**, not added to. Before, they excluded
+`skill_drawing_reading`'s copies so that `skill_gdt_reading` kept `GD&T` and
+`geometric dimensioning and tolerancing` — and D-7C deprecates `skill_gdt_reading`, so applying
+both ratified decisions removed the two phrases from retrieval entirely, silently, with no gate
+detecting it.
+
+| | before | after |
+|---|---|---|
+| `GD&T` | exclude `60913ff3…` on `skill_drawing_reading` | exclude `ff0e1497…` on `skill_gdt_reading` |
+| `geometric dimensioning and tolerancing` | exclude `b6cf46a9…` on `skill_drawing_reading` | exclude `046812dd…` on `skill_gdt_reading` |
+| winner | `skill_gdt_reading` — a deprecation subject | `skill_drawing_reading` — survives the seed |
+
+**The competency judgement of 2026-08-21 is untouched.** GD&T is still a distinct, narrower
+competency; what changed is which *row* carries the text, because the other row is about to go
+dark. Each re-pointed entry records its own `repointed_2026_08_26` block naming the id it
+replaced and why, so the original decision stays legible.
+
+**Verified against live rows, dry run, ₹0:** `db:seed:deprecations --plan` now reports
+`cross-decision orphans: 0` (was 2) and its preconditions **PASS**. The precondition itself was
+not relaxed — it still reads live rows and still counts ratified-but-unapplied elections as
+applied.
+
+**The tripwire was inverted, not deleted.** `alias-cleanup-plan.test.ts` used to assert that a
+winner named in the ratified file *is* a D-7C subject, pinning the defect. It now asserts that
+**no** winner is one — for any subject, not just this one — so re-pointing either exclusion back,
+or adding a new election that hands a text to a doomed holder, fails the suite.
+
+### §D-7C-1b — option A, applied
+
+`CAD`, `drawing padhna`, `read engineering drawings` and `technical drawing` go to
+`skill_drawing_reading`, the successor the ratified crosswalk already names.
+
+The four rows were **moved** into `decollided-aliases.json` and `proposed-d7c1-cleanup.json` was
+**deleted**. That is what ratification means in this design: `parseCleanupProposal` refuses a
+file marked `RATIFIED` in place precisely so a second, unread source of truth cannot exist, and
+`loadCleanupProposal` degrades to `[]` when the file is absent.
+
+**The stated cost stands and was not re-litigated.** The `cnc-programming` slug loses those four
+phrases — `skill_drawing_reading`'s copies live in `cnc-machining` — until TAX-6 replaces
+slug-scoped retrieval. That is a cost of the election, not a defect in it.
+
+**`drawing padhna` is one of the 22 vernacular aliases ratified 2026-07-16**, so its surviving
+copy was verified before the file was written: `794cc831-ccf7-5f32-8fa4-dfb7ab2585b2`, lang `hi`,
+embedded, on `skill_drawing_reading`. The ratified vernacular term survives the election.
+
+### State after the ruling
+
+```
+decollided-aliases.json     8 exclusions   (2 from 08-21, 2 re-pointed, 4 moved)
+proposed-d7c1-cleanup.json  deleted
+cross-decision orphans      0              (was 2)
+seeder preconditions        PASS           (was REFUSED)
+ceilings                    unmoved        — the cleanup buys determinism, not floor safety
+```
+
+Both `D-7C-1a` and `D-7C-1b` are now **COMPLETE** in the programme graph. Neither write has been
+executed: applying the elections is activation step 3 and seeding is step 4, both production
+mutations behind the two ops-guard signals.

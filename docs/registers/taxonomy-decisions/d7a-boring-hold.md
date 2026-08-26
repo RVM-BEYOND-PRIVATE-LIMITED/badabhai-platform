@@ -104,3 +104,24 @@ RESOLVABLE_ABOVE_FLOOR    FAIL — 62/96      unchanged
 NO_REGRESSION             FAIL              unchanged
 PROMOTION CANDIDATES      0                 unchanged
 ```
+
+
+---
+
+## OWNER RULING — 2026-08-26: **KEEP THE HOLD**
+
+**Ruled:** hold. Do **not** activate a widening mapping for `skill_boring`. Do **not** invent an
+`mskill_*` target for it. Keep the current safe behaviour and re-evaluate later against real
+performance.
+
+**What this changes: nothing in the corpus.** `skill_boring` stays `active`, unmapped, unseeded
+and unretagged — exactly the state §4 of this document describes.
+
+**What it keeps load-bearing.** The three-vs-four split in D-7C. Seeding `skill_boring` alongside
+the three neutral subjects is *not* equivalent to seeding them: it introduces the 0.7556
+`drilling` misassignment. `seed-deprecations.ts` enforces this by **allow-list** —
+`skill_boring` cannot be named on `--only=` at all, and a test asserts the exclusion cannot be
+argued around rather than trusting the operator to remember.
+
+`D-7A` is now **COMPLETE** in the programme graph. It was one of the two items gating
+`D-7C-SEED`; both are now ruled.

@@ -167,3 +167,37 @@ PROMOTION CANDIDATES      96, eligible 0
 ```
 
 **PROMOTION BLOCKED · CANONICALIZATION BLOCKED · D-7C SEED BLOCKED ON D-7C-1a.**
+
+
+---
+
+## OWNER RULING — 2026-08-26: **USE THE SELECTIVE GUARDED MECHANISM**
+
+**Ruled:** proceed with the selective guarded seeder. Only the explicitly approved neutral
+deprecations may be seeded. **`skill_boring` remains excluded.**
+
+**Verified against live rows the same day, dry run, ₹0, nothing written:**
+
+```
+pnpm db:seed:deprecations --only=skill_gdt_reading,skill_cad_interpretation,skill_dimensional_inspection
+
+  approved set  = skill_gdt_reading, skill_cad_interpretation, skill_dimensional_inspection
+  excluded      = skill_boring   <- cannot be requested at all
+  vocabulary the seed retires (expected): 3 phrase(s)
+    dimensional inspection, inspection, quality check
+  cross-decision orphans (refuses):      0        <- was 2 before the D-7C-1a ruling
+  preconditions PASS. 3 row(s) would change.
+```
+
+**The `0` is the D-7C-1a ruling working.** Before it, the seeder refused: applying the
+2026-08-21 elections and this seed together removed `GD&T` and
+`geometric dimensioning and tolerancing` from retrieval entirely. Re-pointing the two exclusions
+at the deprecation subject means the surviving holder keeps both, and the refusal cleared
+without the precondition being relaxed — the check is unchanged and still reads live rows.
+
+**The 3 retired phrases are expected coverage loss, not a defect.** A deprecation retiring its
+*own* phrases is what a deprecation is. The cross-decision orphan count is the number that
+matters, and it is zero.
+
+**Still not executed.** This is a dry run. The apply is a production mutation and needs the two
+ops-guard signals; it sits at step 4 of the activation sequence.

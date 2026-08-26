@@ -6,8 +6,13 @@
  * the committed measurement, so the three claims that came out of it — the cleanup fixes no
  * ceiling, it relocates rather than resolves `dimensional inspection`, and combining it with the
  * D-7C seed orphans two phrases — cannot quietly stop being true.
+ *
+ * The third of those was RESOLVED on 2026-08-26 by owner ruling D-7C-1a option A: the two GD&T
+ * exclusions were re-pointed at the deprecation subject, so the surviving holder keeps the text.
+ * The tripwire is inverted rather than deleted — it now asserts the fix, and would fail again if
+ * anyone re-pointed them back.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -119,49 +124,76 @@ describe("the safety rules", () => {
   });
 });
 
-describe("the proposal is a proposal", () => {
-  const raw = readFileSync(join(DATA, "proposed-d7c1-cleanup.json"), "utf8");
+describe("the proposal was RATIFIED and MOVED, 2026-08-26", () => {
+  // The owner ruled D-7C-1a option A and D-7C-1b option A. Ratifying, in this design, means
+  // MOVING the rows into the file the runners actually read and DELETING the proposal — not
+  // flipping a flag in place, which `parseCleanupProposal` refuses precisely so that a second
+  // source of truth cannot exist. These tests pin the completed move.
+  const ratified = loadAliasExclusions(join(DATA, "decollided-aliases.json"));
 
-  it("parses, is PENDING, and names four rows", () => {
-    const doc = parseCleanupProposal(raw);
-    expect(doc.owner_decision).toBe("PENDING");
-    expect(doc.decision).toBe("D-7C-1");
-    expect(doc.proposals).toHaveLength(4);
+  it("the proposal file is gone, and the loader degrades to empty rather than throwing", () => {
+    expect(existsSync(join(DATA, "proposed-d7c1-cleanup.json"))).toBe(false);
+    expect(loadCleanupProposal(join(DATA, "proposed-d7c1-cleanup.json"))).toEqual([]);
   });
 
-  it("refuses to load if someone marks it RATIFIED in place", () => {
-    // Ratifying means MOVING the rows into the file the runners read. Flipping a flag here
-    // would create a second source of truth that no runner consults.
-    const flipped = raw.replace('"owner_decision": "PENDING"', '"owner_decision": "RATIFIED"');
+  it("the ratified file now holds 8 — 2 originals, 2 re-pointed, 4 moved", () => {
+    expect(ratified).toHaveLength(8);
+    expect(ratified.filter((x) => x.phase === "9 / D-7C-1b")).toHaveLength(4);
+    expect(ratified.filter((x) => x.phase === "9 / D-7C-1a")).toHaveLength(2);
+  });
+
+  it("D-7C-1a: the GD&T exclusions now de-elect the DEPRECATION SUBJECT, not the survivor", () => {
+    // The whole point of the ruling. Before: skill_drawing_reading's copies were excluded so
+    // skill_gdt_reading kept the text — and D-7C then deprecates skill_gdt_reading, so both
+    // phrases left retrieval. After: the surviving holder keeps them.
+    for (const text of ["GD&T", "geometric dimensioning and tolerancing"]) {
+      const row = ratified.find((x) => x.text === text)!;
+      expect(row.skill_id, text).toBe("skill_gdt_reading");
+      expect(row.winner_skill_id, text).toBe("skill_drawing_reading");
+    }
+  });
+
+  it("and the rows that USED to be excluded are no longer excluded by anything", () => {
+    // 60913ff3 / b6cf46a9 are skill_drawing_reading's copies. If either were still in the file
+    // the re-point would have added an exclusion instead of moving one, and the phrase would
+    // still be lost.
+    const ids = new Set(ratified.map((x) => x.alias_id));
+    expect(ids.has("60913ff3-3420-511e-8ec4-4605afe6d970")).toBe(false);
+    expect(ids.has("b6cf46a9-3cdb-560c-8b40-7a166b226d2d")).toBe(false);
+  });
+
+  it("no text is de-elected on BOTH holders — that is what losing a phrase looks like", () => {
+    // A cheap structural guard against the class of defect D-7C-1a was: the same text excluded
+    // twice, on two different skills, leaves nobody serving it.
+    const byText = new Map<string, number>();
+    for (const x of ratified) byText.set(x.text, (byText.get(x.text) ?? 0) + 1);
+    for (const [text, n] of byText) expect(n, text).toBe(1);
+  });
+
+  it("every ratified row still satisfies the file's own validation", () => {
+    expect(() =>
+      parseAliasExclusions(JSON.stringify({ kind: "alias-exclusions", exclusions: ratified })),
+    ).not.toThrow();
+  });
+
+  it("the parser still refuses a flag flip and a wrong kind", () => {
+    // The negative behaviour outlives the file: it is what stops the NEXT proposal being
+    // ratified in place.
+    const flipped = JSON.stringify({
+      kind: "alias-cleanup-proposal",
+      decision: "X",
+      owner_decision: "RATIFIED",
+      why: "w",
+      wired_into: "n",
+      proposals: [],
+    });
     expect(() => parseCleanupProposal(flipped)).toThrow(/decollided-aliases\.json/);
-  });
-
-  it("refuses a file that is not a proposal at all", () => {
     expect(() => parseCleanupProposal('{"kind":"alias-exclusions","proposals":[]}')).toThrow(
       /wrong kind/,
     );
   });
 
-  it("every proposed row satisfies the SAME validation the ratified file must", () => {
-    // The proposal has to be applicable as-is on ratification, so it is checked by the ratified
-    // file's own parser — including the rule that a row cannot lose a text to itself.
-    const asExclusions = JSON.stringify({
-      kind: "alias-exclusions",
-      exclusions: parseCleanupProposal(raw).proposals,
-    });
-    expect(() => parseAliasExclusions(asExclusions)).not.toThrow();
-  });
-
-  it("NO runner reads it: none of its ids are in the ratified file, which still holds 4", () => {
-    const ratified = loadAliasExclusions(join(DATA, "decollided-aliases.json"));
-    expect(ratified).toHaveLength(4);
-    const ratifiedIds = new Set(ratified.map((x) => x.alias_id));
-    for (const p of loadCleanupProposal(join(DATA, "proposed-d7c1-cleanup.json"))) {
-      expect(ratifiedIds.has(p.alias_id), p.text).toBe(false);
-    }
-  });
-
-  it("the proposal path is not referenced by any writing runner", () => {
+  it("the proposal path is still not referenced by any writing runner", () => {
     const runner = readFileSync(join(__dirname, "decollide-skill-aliases.ts"), "utf8");
     const embed = readFileSync(join(__dirname, "embed-skill-aliases.ts"), "utf8");
     expect(runner).not.toContain(PROPOSED_CLEANUP_PATH);
@@ -284,10 +316,12 @@ describe("what the cleanup was measured to do", () => {
   });
 });
 
-describe("the cross-decision conflict", () => {
-  it("two ratified decisions, each safe alone, orphan two phrases together", () => {
-    // The 2026-08-21 election hands GD&T to skill_gdt_reading; the D-7C seed deprecates
-    // skill_gdt_reading. Neither file mentions the other.
+describe("the cross-decision conflict — found 2026-08-26, RESOLVED the same day", () => {
+  it("the artifact still records the conflict as it was measured", () => {
+    // The 2026-08-21 election handed GD&T to skill_gdt_reading; the D-7C seed deprecates
+    // skill_gdt_reading. Neither file mentioned the other. The artifact is the DATED evidence
+    // that this was once true and is not edited — the fix lives in the exclusions file, and
+    // the next test asserts it there.
     expect(art.orphaned_if_d7c_also_seeds).toEqual([
       "gd&t",
       "geometric dimensioning and tolerancing",
@@ -296,11 +330,88 @@ describe("the cross-decision conflict", () => {
     expect(art.cross_decision_conflict).toMatch(/ORDERING IS NOT A FIX/);
   });
 
-  it("and the winners named in the ratified file are exactly the skills D-7C would deprecate", () => {
+  it("NO winner named in the ratified file is a skill D-7C deprecates — the inverted tripwire", () => {
+    // This assertion used to read `toEqual(["skill_gdt_reading"])`, pinning the defect. The
+    // owner ruled D-7C-1a option A, so it now pins the FIX: a de-election may not hand a text
+    // to a holder that is about to go dark. Re-pointing either exclusion back fails here, and
+    // so does adding a new election whose winner is any D-7C subject.
     const ratified = loadAliasExclusions(join(DATA, "decollided-aliases.json"));
     const winners = new Set(ratified.map((x) => x.winner_skill_id));
     const doomed = [...winners].filter((w) => w !== null && D7C_NEUTRAL_SUBJECTS.includes(w));
-    expect(doomed).toEqual(["skill_gdt_reading"]);
+    expect(doomed).toEqual([]);
+  });
+
+  it("and the rule generalises to any future subject, not just this one", () => {
+    // Stated as a property so a fourth deprecation subject is covered without editing a list.
+    const ratified = loadAliasExclusions(join(DATA, "decollided-aliases.json"));
+    for (const x of ratified) {
+      if (x.winner_skill_id === null) continue;
+      expect(D7C_NEUTRAL_SUBJECTS.includes(x.winner_skill_id), `${x.text} -> ${x.winner_skill_id}`).toBe(
+        false,
+      );
+    }
+  });
+});
+
+describe("the RE-MEASUREMENT after the ruling — a second artifact, not an edit of the first", () => {
+  // The pre-ruling artifact above is dated evidence and stays exactly as it was measured. This
+  // one is the same instrument run again against live rows AFTER the exclusions moved, so the
+  // pair reads as a before and an after rather than as a document that changed its mind.
+  const post = JSON.parse(
+    readFileSync(join(DOCS, "d7c1-alias-collision-cleanup-postruling-2026-08-26.json"), "utf8"),
+  ) as Artifact & {
+    orphaned_if_d7c_also_seeds: string[];
+    cross_decision_conflict: string | null;
+    scope_orphaned: string[];
+    ratified_election_count: number;
+    proposed_election_count: number;
+  };
+
+  it("carries its own provenance, cost nothing, and wrote nothing", () => {
+    expect(missingProvenance(post)).toEqual([]);
+    expect(post.ai_spend_inr).toBe(0);
+    expect(post.production_mutation_performed).toBe(false);
+  });
+
+  it("THE CONFLICT IS GONE, measured from live rows rather than asserted", () => {
+    expect(post.orphaned_if_d7c_also_seeds).toEqual([]);
+    expect(post.cross_decision_conflict).toBeNull();
+  });
+
+  it("all 8 elections are ratified and none is left proposed", () => {
+    expect(post.ratified_election_count).toBe(8);
+    expect(post.proposed_election_count).toBe(0);
+  });
+
+  it("the accepted cost of D-7C-1b is still visible and still exactly four phrases", () => {
+    // Not a regression — the ruling accepted it explicitly. Pinned so it cannot grow quietly,
+    // and so the day TAX-6 retires slug-scoped retrieval, this test says what it bought back.
+    expect(post.scope_orphaned).toEqual([
+      "cad @ cnc-programming",
+      "drawing padhna @ cnc-programming",
+      "read engineering drawings @ cnc-programming",
+      "technical drawing @ cnc-programming",
+    ]);
+  });
+
+  it("and the ceilings did NOT move — the cleanup buys determinism, not floor safety", () => {
+    // The §5a correction, re-confirmed after the ruling: an election preserves the winning
+    // text, so a score cannot move because of one. Anyone reading "cleanup" as "ceiling fix"
+    // is reading it wrong, before and after.
+    type Ceilings = { anchor_path_negative: number; sibling_confusion: number };
+    const ceil = (x: unknown): Ceilings => (x as { ceilings: Ceilings }).ceilings;
+    const before = new Map(art.scenarios.map((s) => [s.id, s]));
+    let compared = 0;
+    for (const s of post.scenarios) {
+      const b = before.get(s.id);
+      if (b === undefined) continue;
+      expect(ceil(s).anchor_path_negative, s.id).toBeCloseTo(ceil(b).anchor_path_negative, 4);
+      expect(ceil(s).sibling_confusion, s.id).toBeCloseTo(ceil(b).sibling_confusion, 4);
+      compared += 1;
+    }
+    // A silent zero here would make the assertion vacuous, which is how a comparison test
+    // passes while comparing nothing.
+    expect(compared).toBe(4);
   });
 });
 
