@@ -148,26 +148,30 @@ class _NotificationsView extends StatelessWidget {
   /// The alerts grouped into one white card; each row supplies its own hairline
   /// divider (kit grouped-list idiom, no shadows). Wrapped in a
   /// [RefreshIndicator] so a pull-down refetches.
+  ///
+  /// Rows build LAZILY via [SliverList.builder]; the single rounded card is
+  /// painted once behind them by [DecoratedSliver], so the grouped-card look is
+  /// preserved without constructing every off-screen row up front.
   Widget _list(BuildContext context, List<AppNotification> items) {
     return RefreshIndicator(
       onRefresh: () => _refresh(context),
-      child: ListView(
+      child: CustomScrollView(
         // Always overscrollable so a short list (1–2 alerts that don't fill the
         // screen) still accepts the pull-to-refresh gesture on Android.
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(AppSpacing.gutter),
-        children: <Widget>[
-          Container(
-            decoration: BoxDecoration(
-              color: AppColors.surfaceCard,
-              borderRadius: BorderRadius.circular(AppRadii.lg),
-              border: Border.all(color: AppColors.borderSubtle),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              children: <Widget>[
-                for (final AppNotification n in items) _row(n),
-              ],
+        slivers: <Widget>[
+          SliverPadding(
+            padding: const EdgeInsets.all(AppSpacing.gutter),
+            sliver: DecoratedSliver(
+              decoration: BoxDecoration(
+                color: AppColors.surfaceCard,
+                borderRadius: BorderRadius.circular(AppRadii.lg),
+                border: Border.all(color: AppColors.borderSubtle),
+              ),
+              sliver: SliverList.builder(
+                itemCount: items.length,
+                itemBuilder: (BuildContext context, int i) => _row(items[i]),
+              ),
             ),
           ),
         ],

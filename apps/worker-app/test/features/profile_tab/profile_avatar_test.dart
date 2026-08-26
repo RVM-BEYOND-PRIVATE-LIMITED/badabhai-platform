@@ -55,7 +55,13 @@ void main() {
     await pump(tester);
 
     final Image img = tester.widget<Image>(find.byType(Image));
-    expect((img.image as NetworkImage).url, 'https://signed.example/photo.jpg');
+    // The photo is decoded to the display size, so the provider is a
+    // ResizeImage wrapping the NetworkImage — unwrap it to read the url.
+    final ImageProvider<Object> provider = img.image;
+    final NetworkImage network = provider is ResizeImage
+        ? provider.imageProvider as NetworkImage
+        : provider as NetworkImage;
+    expect(network.url, 'https://signed.example/photo.jpg');
     // The placeholder is gone — the worker sees their own face.
     expect(find.byIcon(Icons.person_rounded), findsNothing);
   });

@@ -8,6 +8,7 @@ import '../../../core/theme/app_motion.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../core/widgets/bb_scroll_safe_body.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../router.dart';
 import 'cubit/resume_cubit.dart';
@@ -122,7 +123,9 @@ class _BuildingBody extends StatelessWidget {
     return ColoredBox(
       color: AppColors.blue,
       child: SafeArea(
-        child: Padding(
+        // Scroll instead of overflowing on a short handset at 1.3x text scale.
+        child: BbScrollSafeBody(
+          child: Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
             AppSpacing.s7,
@@ -183,6 +186,7 @@ class _BuildingBody extends StatelessWidget {
               ),
             ],
           ),
+        ),
         ),
       ),
     );

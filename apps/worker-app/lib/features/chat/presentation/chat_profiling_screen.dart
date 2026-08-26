@@ -19,6 +19,7 @@ import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_progress_bar.dart';
+import '../../../core/widgets/bb_status_view.dart';
 import '../../../router.dart';
 import '../../voice/domain/speech_reader.dart';
 import '../../voice/domain/voice_models.dart';
@@ -433,7 +434,8 @@ class _ChatViewState extends State<_ChatView> {
     return IconButton(
       onPressed: () => _toggleSpeak(index, text, ttsText),
       tooltip: 'Sunein',
-      visualDensity: VisualDensity.compact,
+      // No visualDensity.compact — it shrinks the constraints below and netted a
+      // ~44px target; the read-aloud button must honour the full 48px tap floor.
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints(
         minWidth: AppSpacing.tap,
@@ -709,7 +711,10 @@ class _ChatViewState extends State<_ChatView> {
         child: BlocBuilder<ChatBloc, ChatState>(
           builder: (BuildContext context, ChatState state) {
             if (state.initializing) {
-              return const Center(child: CircularProgressIndicator());
+              // Branded, captioned loader — the design system bans bare Material
+              // spinners, and a low-literacy worker gets a "loading…" cue.
+              return const BbStatusView.loading(
+                  caption: 'Bada Bhai taiyaar ho raha hai…');
             }
             return Stack(
               children: <Widget>[

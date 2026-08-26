@@ -49,6 +49,10 @@
 	<string>BadaBhai needs the microphone so you can record a short voice note about your work experience, which is used to build your profile and resume.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>BadaBhai uses speech recognition to turn what you say into text in the chat, so you can speak your answers instead of typing them.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>BadaBhai needs the camera so you can take a photo for your profile or attach a picture with your feedback.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>BadaBhai needs access to your photos so you can pick a picture for your profile or attach one with your feedback.</string>
 	<!-- Deep links (referral invites, `/i/<code>`) — the iOS twin of the Android
 	     manifest setup. FlutterDeepLinkingEnabled routes an incoming URL through
 	     the Flutter Router (go_router), whose root redirect captures the opaque

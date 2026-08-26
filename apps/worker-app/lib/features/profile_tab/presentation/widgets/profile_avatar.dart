@@ -130,7 +130,7 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
         child: Stack(
           clipBehavior: Clip.none,
           children: <Widget>[
-            _avatar(),
+            _avatar(context),
             if (widget.verified && widget.verifiedBadge != null)
               Positioned(right: -2, bottom: -2, child: widget.verifiedBadge!),
             Positioned(
@@ -144,8 +144,13 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
     );
   }
 
-  Widget _avatar() {
+  Widget _avatar(BuildContext context) {
     final String? url = _url;
+    // Decode the photo to the on-screen pixel size, not its full source
+    // resolution — a 2MB upload rendered into a 72px circle would otherwise
+    // decode to tens of MB of bitmap and churn memory on low-RAM devices.
+    final int cachePx =
+        (_kAvatarSize * MediaQuery.devicePixelRatioOf(context)).round();
     return Container(
       width: _kAvatarSize,
       height: _kAvatarSize,
@@ -162,6 +167,8 @@ class _ProfileAvatarState extends State<ProfileAvatar> {
               url,
               width: _kAvatarSize,
               height: _kAvatarSize,
+              cacheWidth: cachePx,
+              cacheHeight: cachePx,
               fit: BoxFit.cover,
               // Expired signed url / offline → fall back to the placeholder,
               // never an error box.

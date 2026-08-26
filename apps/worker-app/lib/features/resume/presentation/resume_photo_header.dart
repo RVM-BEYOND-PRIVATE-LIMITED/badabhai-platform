@@ -72,7 +72,11 @@ class _ResumePhotoHeaderState extends State<ResumePhotoHeader> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: <Widget>[
-          _avatar(showPhoto: showPhoto, hasPhoto: hasPhoto, url: url),
+          _avatar(
+              context: context,
+              showPhoto: showPhoto,
+              hasPhoto: hasPhoto,
+              url: url),
           const SizedBox(width: AppSpacing.s4),
           Expanded(
             child: Column(
@@ -117,11 +121,15 @@ class _ResumePhotoHeaderState extends State<ResumePhotoHeader> {
   }
 
   Widget _avatar({
+    required BuildContext context,
     required bool showPhoto,
     required bool hasPhoto,
     required String? url,
   }) {
     if (showPhoto && hasPhoto) {
+      // Decode to the on-screen size, not the photo's full resolution.
+      final int cachePx =
+          (60 * MediaQuery.devicePixelRatioOf(context)).round();
       return CircleAvatar(
         radius: 30,
         backgroundColor: AppColors.divider,
@@ -130,6 +138,8 @@ class _ResumePhotoHeaderState extends State<ResumePhotoHeader> {
             url!,
             width: 60,
             height: 60,
+            cacheWidth: cachePx,
+            cacheHeight: cachePx,
             fit: BoxFit.cover,
             errorBuilder: (_, __, ___) =>
                 const Icon(Icons.person, size: 30, color: AppColors.textMuted),

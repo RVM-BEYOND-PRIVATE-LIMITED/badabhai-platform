@@ -878,7 +878,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
         scrollDirection: Axis.horizontal,
         itemCount: _images.length,
         separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.s2),
-        itemBuilder: (BuildContext c, int i) => _thumbnail(i, side),
+        itemBuilder: (BuildContext c, int i) => _thumbnail(c, i, side),
       ),
     );
   }
@@ -886,7 +886,10 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
   /// One image tile ([Image.memory] — the bytes never touch disk here) with a
   /// remove (X) whose TAP area clears the 48dp floor even though the glyph is
   /// small, so a wrong pick is one tap to undo.
-  Widget _thumbnail(int index, double side) {
+  Widget _thumbnail(BuildContext context, int index, double side) {
+    // Decode each picked image to the tile's on-screen size — a multi-megapixel
+    // camera/gallery pick would otherwise decode at full resolution per tile.
+    final int cachePx = (side * MediaQuery.devicePixelRatioOf(context)).round();
     return SizedBox(
       width: side,
       height: side,
@@ -897,6 +900,8 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
               borderRadius: BorderRadius.circular(AppRadii.sm),
               child: Image.memory(
                 _images[index],
+                cacheWidth: cachePx,
+                cacheHeight: cachePx,
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
                 // A corrupt/undecodable pick must never paint a red error box on
