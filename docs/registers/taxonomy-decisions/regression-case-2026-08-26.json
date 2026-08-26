@@ -1,0 +1,105 @@
+{
+  "kind": "regression-case",
+  "measured_at": "2026-08-26T12:51:56.487Z",
+  "source": "pnpm db:audit:regression-case --fixture=data/taxonomy/eval/retrieval-v2.jsonl",
+  "target": "SUPABASE (remote)",
+  "read_only": true,
+  "role": "postgres",
+  "bypass_rls": true,
+  "population_predicate": "every scoreable case in data/taxonomy/eval/retrieval-v2.jsonl whose query vector is in the local embed cache, retrieved through the canonical Path A predicate at statuses active+provisional",
+  "ai_spend_inr": 0,
+  "production_mutation_performed": false,
+  "floor": 0.75,
+  "embedding_model": "gemini-embedding-001",
+  "checked": 113,
+  "unmeasured": [],
+  "misses": [
+    {
+      "case_id": "GP-04",
+      "category": "paraphrase_latin",
+      "job_domain_id": "jd_nco_7223_6002",
+      "query": "keeping the coolant level right on the turning machine",
+      "expected": [
+        "skill_coolant_management"
+      ],
+      "got_now": "skill_turning",
+      "score_now": 0.7031,
+      "got_after_pending": "skill_turning",
+      "score_after_pending": 0.7031,
+      "fixed_by_pending": false,
+      "any_candidate_above_floor": false,
+      "ranking": [
+        {
+          "skill_id": "skill_turning",
+          "score": 0.7031,
+          "via": "CNC turning",
+          "above_floor": false,
+          "expected": false
+        },
+        {
+          "skill_id": "skill_coolant_management",
+          "score": 0.663,
+          "via": "कूलेंट भरना",
+          "above_floor": false,
+          "expected": true
+        },
+        {
+          "skill_id": "skill_fixture_setup",
+          "score": 0.5967,
+          "via": "workholding",
+          "above_floor": false,
+          "expected": false
+        },
+        {
+          "skill_id": "skill_fanuc",
+          "score": 0.5768,
+          "via": "Fanuc controller",
+          "above_floor": false,
+          "expected": false
+        },
+        {
+          "skill_id": "skill_tool_offset_setting",
+          "score": 0.5696,
+          "via": "tool offset",
+          "above_floor": false,
+          "expected": false
+        },
+        {
+          "skill_id": "skill_drawing_reading",
+          "score": 0.5574,
+          "via": "GD&T",
+          "above_floor": false,
+          "expected": false
+        },
+        {
+          "skill_id": "skill_machine_maintenance",
+          "score": 0.5509,
+          "via": "machine ki marammat",
+          "above_floor": false,
+          "expected": false
+        },
+        {
+          "skill_id": "skill_siemens",
+          "score": 0.537,
+          "via": "Sinumerik",
+          "above_floor": false,
+          "expected": false
+        },
+        {
+          "skill_id": "skill_program_editing",
+          "score": 0.5129,
+          "via": "G-code editing",
+          "above_floor": false,
+          "expected": false
+        },
+        {
+          "skill_id": "skill_measuring_instruments",
+          "score": 0.5105,
+          "via": "vernier caliper",
+          "above_floor": false,
+          "expected": false
+        }
+      ]
+    }
+  ]
+}

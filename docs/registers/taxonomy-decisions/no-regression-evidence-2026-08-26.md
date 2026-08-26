@@ -207,3 +207,63 @@ PROMOTION CANDIDATES                                             96, eligible 0
 ```
 
 **PROMOTION BLOCKED · CANONICALIZATION BLOCKED · NOTHING ACTIVATED.**
+
+
+---
+
+## 7. ADDENDUM, same day — the regressing case, identified and characterised
+
+`pnpm db:audit:regression-case` (new, read-only, ₹0 — query vectors from the local cache only,
+there is no provider client in the file). Artifact:
+[`regression-case-2026-08-26.json`](./regression-case-2026-08-26.json) · Tests:
+`regression-case.test.ts` (10).
+
+**113 scoreable cases measured, 0 unmeasured, exactly 1 miss.**
+
+```
+GP-04  [paraphrase_latin]  jd_nco_7223_6002
+  query      "keeping the coolant level right on the turning machine"
+  expected   skill_coolant_management
+  got        skill_turning @ 0.7031
+
+  0.7031  below  skill_turning              via "CNC turning"
+  0.6630  below  skill_coolant_management   via "कूलेंट भरना"   <- EXPECTED
+  0.5967  below  skill_fixture_setup        via "workholding"
+  …
+```
+
+### Three findings, each of which changes the waiver decision
+
+1. **NOTHING in the candidate set clears the 0.75 floor.** Top-1 is 0.7031. So the served system
+   returns **`unresolved`** for this phrase whichever skill ranks first — the regression is real
+   in Recall@1 and **invisible to a worker**. Recall@1 ranks; the floor is applied downstream of
+   ranking, so the metric cannot tell a refused miss from a confident wrong answer. This one is
+   the refused kind.
+2. **The ratified-but-unapplied corpus work does not fix it.** Simulated exactly — a de-elected
+   row loses its vector, a deprecated skill's rows lose their parent's `active` status, and both
+   are omissions from the candidate set. Score after the pending de-elections and the D-7C seed:
+   **0.7031, unchanged.** Nobody should wait for activation step 4 expecting this to clear.
+3. **Lowering the floor would not rescue it either**, which pre-empts the tempting wrong fix.
+   The expected skill is not merely below the floor, it is **behind a wrong answer**: any floor
+   that admits 0.6630 admits 0.7031 first.
+
+### What it actually points at
+
+`skill_coolant_management` is reachable from this query only through the Devanagari alias
+**`कूलेंट भरना`**. There is no Latin-script alias covering "coolant level", so an English
+paraphrase has nothing close to match. **The remedy is one ratified alias, not a threshold** —
+and ratifying an alias is TAX-0 gate (d), an owner act. **No alias is proposed or invented
+here.**
+
+> **This makes the `NO_REGRESSION` choice concrete.** The owner is choosing between: (a) ratify
+> a Latin-script alias for `skill_coolant_management` and re-run the ₹0 evaluation, or (b)
+> record a waiver on the ground that no candidate clears the floor and served behaviour is
+> therefore unchanged. Both are defensible on this evidence; neither is an agent's to take.
+
+### One caveat on the fresh evidence, stated because it will matter
+
+The fingerprinted evaluation describes the corpus **as it stands today** — *before* the alias
+de-elections and the D-7C seed are applied. Those writes change the fingerprint, so this record
+goes stale the moment they land, exactly as the activation sequence anticipates by ordering
+`FRESH-EVIDENCE` after them. **The re-run will also be ₹0** for fixture v2; what this run
+established is the mechanism, the cost, and the identity of the single obstacle.
