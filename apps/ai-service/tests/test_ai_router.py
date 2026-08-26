@@ -103,41 +103,76 @@ def test_real_call_can_be_disabled_per_request():
     assert meta.real_call is False
 
 
-def test_routing_picks_capable_model_for_extraction_and_chat():
-    """Extraction AND the chat turn both resolve to the CAPABLE model.
+def test_routing_separates_the_chat_model_from_the_pinned_extraction_model():
+    """The chat turn resolves to the PRO model; extraction stays on CAPABLE (#1237).
 
-    The chat turn moved cheap -> capable with the generalized profiling flow. The
-    cheap tier was right when the model only had to REPHRASE a question a
-    deterministic engine had already chosen; it now conducts the interview, tracks
-    the Resume Field Set, and emits strict JSON in Hinglish.
+    The chat turn moved cheap -> capable with the generalized profiling flow (the cheap tier
+    was right when the model only had to REPHRASE a question a deterministic engine had already
+    chosen; it now conducts the interview, tracks the Resume Field Set, and emits strict JSON in
+    Hinglish), and capable -> pro when it became the one task with real calls armed.
 
-    Resume generation stays CHEAP — asserted here so a future tier edit cannot
-    quietly promote it and multiply resume cost, which is the collateral this
-    change was careful to avoid.
+    THE SPLIT IS THE POINT, and the third assertion is the one that would have been impossible
+    before. `profile_extraction` resolves through `default_capable_model`, which is PINNED to
+    `gemini-2.5-flash` by an open GO/NO-GO item (docs/ai/real-llm-flip-go-no-go.md Finding 4) and
+    by tests/test_extraction_model_pin.py. Raising chat by raising the capable tier would have
+    dragged extraction along with it onto a model its funded 56-case re-validation never covered.
+    A separate `pro` tier is what keeps the two independent — so this asserts not just where each
+    task lands but that they land in DIFFERENT places.
+
+    Resume generation stays CHEAP — asserted here so a future tier edit cannot quietly promote it
+    and multiply resume cost, which is the collateral both changes were careful to avoid.
     """
-    settings = Settings(default_cheap_model="cheap-x", default_capable_model="capable-y")
+    settings = Settings(
+        default_cheap_model="cheap-x",
+        default_capable_model="capable-y",
+        default_pro_model="pro-z",
+    )
+    assert resolve_model("profiling_chat_turn", settings) == "pro-z"
     assert resolve_model("profile_extraction", settings) == "capable-y"
-    assert resolve_model("profiling_chat_turn", settings) == "capable-y"
+    assert resolve_model("profile_parse", settings) == "capable-y"
     assert resolve_model("resume_generation", settings) == "cheap-x"
+    # The decoupling itself, stated as its own fact: a future edit that collapses `pro` back
+    # into `capable` would satisfy every line above except this one.
+    assert resolve_model("profiling_chat_turn", settings) != resolve_model(
+        "profile_extraction", settings
+    )
     assert get_route("profile_extraction").json_mode is True
 
 
 def test_chat_tier_is_env_tunable_and_falls_back_safely():
-    """AI_CHAT_MODEL_TIER moves the chat turn between tiers without a deploy, and
-    an unrecognised value falls back to CAPABLE rather than raising.
+    """AI_CHAT_MODEL_TIER moves the chat turn between all three tiers without a deploy, and an
+    unrecognised value falls back to the route's shape default rather than raising.
 
-    Failing soft matters here: this is read on the request path, so a typo in the
-    environment must not take chat down mid-interview — and falling back to the
-    better model is the safe direction to be wrong in."""
-    base = dict(default_cheap_model="cheap-x", default_capable_model="capable-y")
+    Failing soft matters here: this is read on the request path, so a typo in the environment
+    must not take chat down mid-interview.
+
+    `"pro"` IS ASSERTED EXPLICITLY because omitting it from `_chat_tier`'s allowlist is the only
+    way this function can fail, and it fails SILENTLY: an unlisted tier is not an error, it
+    becomes the shape default — so a `pro` the config asks for but the allowlist does not know
+    would keep serving the old model with nothing saying so.
+
+    THE FALLBACK IS `pro`, NOT `capable`, and that is deliberate rather than incidental — the
+    shape default and the settings default were moved together. If they disagreed, one typo in
+    AI_CHAT_MODEL_TIER would silently DOWNGRADE the only worker-facing task in production, which
+    is invisible: a working answer from a cheaper model looks exactly like a working answer.
+    Falling back to the pricier tier is bounded by the global daily INR ceiling; falling back to
+    a cheaper one is bounded by nothing and reads as success."""
+    base = dict(
+        default_cheap_model="cheap-x",
+        default_capable_model="capable-y",
+        default_pro_model="pro-z",
+    )
 
     def chat_model(tier: str) -> str:
         return resolve_model("profiling_chat_turn", Settings(ai_chat_model_tier=tier, **base))
 
     assert chat_model("cheap") == "cheap-x"
-    assert chat_model("CAPABLE") == "capable-y"  # case-insensitive
-    assert chat_model("  capable  ") == "capable-y"  # whitespace-tolerant
-    assert chat_model("nonsense") == "capable-y"  # unrecognised -> safe fallback
+    assert chat_model("capable") == "capable-y"  # the documented A/B lever back to flash
+    assert chat_model("pro") == "pro-z"
+    assert chat_model("PRO") == "pro-z"  # case-insensitive
+    assert chat_model("  pro  ") == "pro-z"  # whitespace-tolerant
+    assert chat_model("nonsense") == "pro-z"  # unrecognised -> shape default, never a downgrade
+    assert chat_model("") == "pro-z"  # an empty pass-through is just another unrecognised value
 
 
 def test_cost_alert_thresholds():

@@ -193,10 +193,23 @@ class Settings(BaseSettings):
     # model_config.py used to hardcode these. They are the levers that decide both
     # answer quality and per-turn cost, so they belong in env.
     #
-    # CHAT TIER moves cheap -> capable. The cheap tier was correct when the model
+    # CHAT TIER moved cheap -> capable. The cheap tier was correct when the model
     # only had to REPHRASE a question the engine had already chosen; it now has to
     # conduct the interview, track the RFS, and emit strict JSON in Hinglish.
-    ai_chat_model_tier: str = "capable"
+    #
+    # #1237 moves it capable -> PRO. This is the ONE task with real calls armed, so it is the
+    # only place a model choice reaches a worker, and it is now decoupled from the pinned
+    # extraction model (see `default_pro_model` above). Set `AI_CHAT_MODEL_TIER=capable` on the
+    # box to fall back to `gemini-2.5-flash` without a deploy — the intended A/B lever, and the
+    # reason this name is now a compose pass-through.
+    #
+    # BOUNDED BY THE GLOBAL DAILY CEILING, NOT BY THE PER-CALL ONE. Pro is ~4x Flash per turn
+    # (~Rs 0.37 vs ~Rs 0.09 on a 2k-in / 200-out turn), which is nowhere near
+    # `ai_max_call_cost_inr` (Rs 10) — the cap that actually binds is
+    # `ai_max_daily_cost_inr` (Rs 200, GLOBAL across the platform, not per worker): roughly 535
+    # chat turns/day at Pro against roughly 2,200 at Flash. Owner ruling 2026-08-26: hold Rs 200
+    # and let it bite visibly rather than pre-raising it — it is a box env change now, not a PR.
+    ai_chat_model_tier: str = "pro"
     # 48 was sized for the SHIPPED MOCK path (model_config.py's own note: "Raise the
     # cap then if it bites"). The new turn returns a JSON object carrying reply_text
     # + chips + missing_fields + captured values, so 48 would truncate every reply.
@@ -307,6 +320,24 @@ class Settings(BaseSettings):
     # exact model is the remaining (human-gated) gate before any flip.
     default_cheap_model: str = "gemini-2.5-flash-lite"
     default_capable_model: str = "gemini-2.5-flash"
+    # #1237 — the PRO tier, above capable. Added rather than raising `default_capable_model`
+    # because that field is PINNED: `profile_extraction` and `profile_parse` resolve through it,
+    # and both the open GO/NO-GO Finding 4 (docs/ai/real-llm-flip-go-no-go.md — validation-model
+    # must equal flip-model) and `tests/test_extraction_model_pin.py` require it to stay
+    # `gemini-2.5-flash` until the funded 56-case re-validation is re-run. Raising it to improve
+    # the CHAT turn would have silently moved two extraction paths onto a model that
+    # re-validation never covered.
+    #
+    # Only `profiling_chat_turn` points here (`ai_chat_model_tier`), and it is the only task with
+    # real calls armed — `AI_REAL_CALL_TASKS` defaults to that task alone, fail-closed when
+    # empty — so this is the model a worker actually meets and the only one this raise reaches.
+    #
+    # PRICED IN `model_config._MODEL_RATES_INR`, which is not optional bookkeeping: the spend
+    # guardrails are computed from that estimate, and an unpriced id falls back to a rate that
+    # UNDER-reads Pro ~2x on input and ~5.5x on output — so the ceilings would stop tripping and
+    # the failure would be silent overspend rather than a fall to mock. A guard test asserts
+    # every shipped tier default has a rate row.
+    default_pro_model: str = "gemini-2.5-pro"
     # Cross-provider FALLBACK model: tried by the router only AFTER the primary
     # (Gemini) candidate fails, and only when anthropic_api_key is set and this
     # model's provider differs from the primary's. Claude Haiku 4.5 (no date
