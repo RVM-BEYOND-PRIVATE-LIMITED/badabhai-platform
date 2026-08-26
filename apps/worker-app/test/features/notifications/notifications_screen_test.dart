@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -126,5 +128,54 @@ void main() {
   ) async {
     await _pump(tester, <AppNotification>[]);
     expect(find.text('Abhi koi alert nahi'), findsOneWidget);
+  });
+
+  testWidgets('pulling down the alert list refetches (pull-to-refresh)', (
+    WidgetTester tester,
+  ) async {
+    GoogleFonts.config.allowRuntimeFetching = false;
+    await locator.reset();
+    final MockNotificationsRepository repo = MockNotificationsRepository();
+    when(() => repo.list()).thenAnswer((_) async => <AppNotification>[
+          _n('e1', NotificationKind.resumeReady, 'Resume taiyaar hai',
+              'Aapka naya resume ban gaya.'),
+        ]);
+    when(() => repo.markAllRead()).thenAnswer((_) async {});
+    locator.registerFactory<NotificationsCubit>(() => NotificationsCubit(repo));
+    locator.registerLazySingleton<TabFocus>(() => TabFocus());
+
+    tester.view.physicalSize = const Size(900, 1900);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(theme: AppTheme.light(), home: const NotificationsScreen()),
+    );
+    await tester.pump(); // loading
+    await tester.pump(); // open load → ready
+
+    // The list is wrapped in a RefreshIndicator…
+    expect(find.byType(RefreshIndicator), findsOneWidget);
+    verify(() => repo.list()).called(1); // the on-open load
+
+    // …and triggering it fires a second fetch. Driving the indicator's
+    // onRefresh directly (via its state) tests the pull→refetch WIRING without
+    // gesture-physics flakiness in the widget-test env.
+    final RefreshIndicatorState indicator =
+        tester.state<RefreshIndicatorState>(find.byType(RefreshIndicator));
+    unawaited(indicator.show());
+    await tester.pump(); // let onRefresh run
+    await tester.pumpAndSettle(); // settle the spinner dismissal
+
+    verify(() => repo.list()).called(1); // exactly one MORE list() from the pull
+  });
+
+  testWidgets('the empty state is also pull-to-refreshable', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, <AppNotification>[]);
+    expect(find.text('Abhi koi alert nahi'), findsOneWidget);
+    expect(find.byType(RefreshIndicator), findsOneWidget);
   });
 }
