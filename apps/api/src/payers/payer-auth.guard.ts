@@ -11,6 +11,7 @@ import type { Request, Response } from "express";
 import type { ServerConfig } from "@badabhai/config";
 import type { PayerRole } from "@badabhai/db";
 import { SERVER_CONFIG } from "../config/config.module";
+import { PayerAccountDeletedException } from "./payer-account-deleted.exception";
 import { PayerSessionService } from "./payer-session.service";
 import { PayersRepository } from "./payers.repository";
 
@@ -74,8 +75,11 @@ declare global {
  * also retires the old pre-ADR-0022 session fallback. `PayerAuthGuard` still never rejects
  * on role; restricting BY role remains `PayerRoleGuard`'s job.
  *
- * FAIL-CLOSED on a missing row: a payer hard-deleted mid-session gets 401, not a
- * `role: null` request handed to the service to re-litigate.
+ * FAIL-CLOSED on a missing row, with a DISTINGUISHABLE signal: a payer hard-deleted
+ * mid-session gets the reserved 410 {@link PayerAccountDeletedException}, not a `role: null`
+ * request handed to the service to re-litigate and not a generic 401 the client would answer
+ * with a silent re-auth it can never complete. 410 + `PAYER_ACCOUNT_DELETED` is reserved
+ * EXCLUSIVELY for that case across every payer route — see the exception's own doc.
  *
  * ROLLING TOKEN: past the half-life a fresh JWT is returned in `x-session-token`.
  */
@@ -105,10 +109,18 @@ export class PayerAuthGuard implements CanActivate {
     // has to bite on the NEXT request, not whenever the payer happens to log in again.
     const facts = await this.payers.findAuthFacts(validated.payerId);
 
-    // Row gone (hard-deleted mid-session) → fail CLOSED. Previously this path resolved
-    // `role: null` and let the request through to the service, which decided; a missing
-    // principal is not something a route handler should have to re-litigate.
-    if (!facts) throw new UnauthorizedException("Invalid or expired payer session");
+    // Row gone (hard-deleted mid-session) → fail CLOSED, and say so in a way the client can
+    // ACT on. This was a generic 401, which is indistinguishable from an expired session: the
+    // payer app silently re-auths on a 401, so a payer whose row no longer exists would loop
+    // through a login it can never complete. The reserved 410 is the escape hatch — see
+    // {@link PayerAccountDeletedException} for the full contract and for why the worker side's
+    // `throwIfWorkerDeleted` fail-safe is deliberately NOT mirrored here.
+    //
+    // `undefined` here means "the query SUCCEEDED and matched zero rows", never "the database
+    // did not answer": `findAuthFacts` awaits a drizzle `select()`, so a driver failure rejects
+    // and propagates as a 5xx rather than reaching this branch. That is what makes a definitive
+    // absence the ONLY way to reach the 410, with no try/catch needed to guarantee it.
+    if (!facts) throw new PayerAccountDeletedException();
 
     // `active` is the ONLY status that may hold a live session. `pending` is included
     // deliberately: a never-verified account must not be able to act, and after ADR-0037

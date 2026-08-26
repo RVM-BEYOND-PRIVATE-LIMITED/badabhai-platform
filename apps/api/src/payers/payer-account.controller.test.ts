@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect, vi } from "vitest";
 import {
   BadRequestException,
+  HttpStatus,
   InternalServerErrorException,
   NotFoundException,
   UnauthorizedException,
@@ -11,6 +12,7 @@ import type { ServerConfig } from "@badabhai/config";
 import type { Payer } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
+import { PayerAccountDeletedException } from "./payer-account-deleted.exception";
 import { PayerAuthGuard, type AuthenticatedPayer } from "./payer-auth.guard";
 import type { PayerSessionService } from "./payer-session.service";
 import { PayerAccountController } from "./payer-account.controller";
@@ -177,17 +179,22 @@ describe("PayerAccountController — horizontal-authz / IDOR (ADR-0019 C / LC-1)
    * Before, a session whose payer row had been deleted sailed through the guard (role
    * resolved to `null`) and every handler had to re-litigate the missing principal; here
    * that surfaced as the service's neutral 404. Now the guard's lifecycle read returns
-   * `undefined` and it fails closed with 401 — the route never executes at all.
+   * `undefined` and it fails closed before the route executes at all.
    *
-   * 401 is also the more truthful answer: a session referencing a payer that no longer
-   * exists is not an authenticated session. No oracle is created, because the only caller
-   * that can reach this is the holder of that session reading their OWN account — there is
-   * no other actor to enumerate.
+   * #1231 CHANGED WHAT IT FAILS CLOSED *WITH*, and only that: 401 → the reserved 410
+   * {@link PayerAccountDeletedException}. The rejection is the same, at the same place, for
+   * the same reason — but a 401 is what the payer app answers with a SILENT RE-AUTH, so a
+   * payer whose row was deleted out of band looped through a login that could never succeed.
+   * 410 + `PAYER_ACCOUNT_DELETED` is the one signal the client hard-logs-out on. No oracle is
+   * created: the only caller who can reach this is the holder of that session reading their
+   * OWN account, so there is no other actor to enumerate.
    */
-  it("a valid session whose payer row is gone → 401 at the GUARD (route never executes)", async () => {
+  it("a valid session whose payer row is gone → 410 at the GUARD (route never executes)", async () => {
     const guard = guardFor("99999999-9999-4999-8999-999999999999");
     const { ctx } = makeGuardCtx("Bearer ghost.token");
-    await expect(guard.canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+    const err = await guard.canActivate(ctx).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PayerAccountDeletedException);
+    expect((err as PayerAccountDeletedException).getStatus()).toBe(HttpStatus.GONE);
   });
 
   /**
