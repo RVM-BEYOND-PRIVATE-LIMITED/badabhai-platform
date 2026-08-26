@@ -104,16 +104,13 @@ describe("the real graph", () => {
   });
 
   it("the total spend needed to clear every spend-blocked item is under one rupee", () => {
-    // Was ₹0.028128 — an evaluation and a floor sweep. The evaluation half turned out to cost
-    // NOTHING: every fixture-v2 query vector was already in the local embed cache, so it was
-    // re-measured with 127 hits and 0 provider calls. Only the sweep remains, and on fixture v3
-    // only its 41 added queries are uncached.
-    const total = PROGRAMME.filter((i) => i.status === "BLOCKED_ON_AI_SPEND").reduce(
-      (n, i) => n + (i.costInr ?? 0),
-      0,
-    );
-    expect(total).toBeCloseTo(0.0035, 6);
-    expect(total).toBeLessThan(0.028128);
+    // ₹0.028128 -> ₹0.0035 -> ₹0. Both halves are now bought: the evaluation cost nothing
+    // (127/127 cached) and the sweep was run for ₹0.0035 on 2026-08-26. Nothing on the graph is
+    // waiting for money any more, which is a different statement from "it was always cheap".
+    const spendBlocked = PROGRAMME.filter((i) => i.status === "BLOCKED_ON_AI_SPEND");
+    expect(spendBlocked).toEqual([]);
+    const total = spendBlocked.reduce((n, i) => n + (i.costInr ?? 0), 0);
+    expect(total).toBe(0);
     expect(total).toBeLessThan(1);
   });
 });
@@ -151,12 +148,11 @@ describe("what the graph says about the programme", () => {
     // corpus decisions ruled that day (D-7A, D-7C-1a, D-7C-1b, 5a-2) all sat on the
     // CANONICALIZATION branch. None of them ever gated PROMOTION, so ruling them moved the
     // promotion leaf not at all.
-    expect(blockersOf(PROGRAMME, "PROMOTION").map((i) => i.id)).toEqual([
-      "NO-REGRESSION-EVIDENCE",
-      "NO-REGRESSION-SEMANTICS",
-      "RESOLVABLE-28",
-      "RESOLVABLE-6",
-    ]);
+    // Down from four to ONE. The evidence questions are all answered — semantics ruled strict,
+    // both records fingerprinted and fresh, the sweep run, the 6 unmeasured resolved to 4. What
+    // is left is not about evidence at all: 62 of 96 pass every gate and the batch is
+    // all-or-nothing, so somebody must choose between waiving, re-scoping and corpus work.
+    expect(blockersOf(PROGRAMME, "PROMOTION").map((i) => i.id)).toEqual(["PROMOTION-SCOPE"]);
     const canon = blockersOf(PROGRAMME, "CANONICALIZATION").map((i) => i.id);
     expect(canon).toContain("PROMOTION");
     expect(canon).toContain("CANONICALIZE-FLAG-VALUE");
@@ -174,14 +170,15 @@ describe("what the graph says about the programme", () => {
     }
   });
 
-  it("D-7C's seed is no longer blocked by a decision — only by the authorization to write", () => {
+  it("D-7C's seed was blocked by BOTH owner decisions, then by an authorization, and is now applied", () => {
     // It used to be blocked by BOTH owner decisions that reach it: D-7A held boring, D-7C-1a
     // was the orphan conflict, and either alone stopped the seed. Both were ruled 2026-08-26,
     // so the graph now has nothing in the way — which is NOT the same as the seed being
     // allowed to run. Its own status is what still stops it, and that is a human signal, not
     // a dependency.
     expect(blockersOf(PROGRAMME, "D-7C-SEED").map((i) => i.id)).toEqual([]);
-    expect(PROGRAMME.find((i) => i.id === "D-7C-SEED")!.status).toBe("BLOCKED_ON_PRODUCTION_WRITE");
+    // …and it has since been APPLIED, under both ops-guard signals, 3 rows.
+    expect(PROGRAMME.find((i) => i.id === "D-7C-SEED")!.status).toBe("COMPLETE");
   });
 });
 

@@ -383,10 +383,15 @@ describe("the RE-MEASUREMENT after the ruling — a second artifact, not an edit
     expect(post.proposed_election_count).toBe(0);
   });
 
-  it("the accepted cost of D-7C-1b is still visible and still exactly four phrases", () => {
-    // Not a regression — the ruling accepted it explicitly. Pinned so it cannot grow quietly,
-    // and so the day TAX-6 retires slug-scoped retrieval, this test says what it bought back.
-    expect(post.scope_orphaned).toEqual([
+  it("the accepted cost of D-7C-1b was PAID, so the delta audit now reports none", () => {
+    // This audit measures what WOULD change if the elections were applied. They were applied on
+    // 2026-08-26, so the remaining delta is empty — and that is the fix landing, not the cost
+    // disappearing. The cost is real and was verified against production: all four phrases are
+    // gone from the cnc-programming slug (0 live rows each) and the slug fell from 28 Path B
+    // candidates to 10. The historical claim stays readable in the PRE-ruling artifact, which
+    // is not edited.
+    expect(post.scope_orphaned).toEqual([]);
+    expect((art as unknown as { scope_orphaned: string[] }).scope_orphaned).toEqual([
       "cad @ cnc-programming",
       "drawing padhna @ cnc-programming",
       "read engineering drawings @ cnc-programming",

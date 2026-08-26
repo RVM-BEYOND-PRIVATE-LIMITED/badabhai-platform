@@ -180,14 +180,18 @@ export const PROGRAMME: readonly ProgrammeItem[] = [
   },
   {
     id: "NO-REGRESSION-SEMANTICS",
-    title: "Does NO_REGRESSION keep strict v2-only semantics, or split regression from coverage?",
-    status: "BLOCKED_ON_OWNER",
+    title: "NO_REGRESSION keeps STRICT v2-only semantics — option A, ruled",
+    status: "COMPLETE",
     dependsOn: [],
-    decision:
-      "Options A-D in decision-no-regression-fixture-architecture.md. Two owner messages " +
-      "point different ways — 'regression-budget architecture' and 'do not weaken the gate' — " +
-      "so the gate is untouched pending an unambiguous ruling.",
-    evidence: "decision-no-regression-fixture-architecture.md · no-regression-v3-conflict.test.ts",
+    evidence:
+      "RULED 2026-08-26: use the strict existing semantics; do NOT weaken the gate; do not " +
+      "change the baseline to make the result pass. Not one line of gate code changed. The " +
+      "option-A objection in decision-no-regression-fixture-architecture.md — that it leaves " +
+      "promotion blocked indefinitely — turned out to be false for a reason nobody had checked: " +
+      "EVAL_COVERED reads the FIXTURE FILE and NO_REGRESSION reads the EVALUATION RECORD, and " +
+      "they are separate inputs. Supplying --fixture retrieval-v3 for coverage and a v2 " +
+      "evaluation for regression satisfies both under the unchanged rules. Verified: " +
+      "regression verdict PASS, R@1 1 / MRR 1 against the 1.0/1.0 reference.",
     unblocks: ["NO-REGRESSION-EVIDENCE"],
   },
   {
@@ -228,21 +232,26 @@ export const PROGRAMME: readonly ProgrammeItem[] = [
   },
   {
     id: "RESOLVABLE-28",
-    title: "28 promotable skills resolve CORRECTLY below the floor",
-    status: "BLOCKED_ON_OWNER",
+    title: "The below-floor skills — floor held at 0.75, all 34 recorded as corpus candidates",
+    status: "COMPLETE",
     dependsOn: [],
-    decision:
-      "The remedy is corpus — more or better aliases — and ratifying an alias is an owner act " +
-      "(TAX-0 gate d). Lowering the floor is prohibited and would admit the §5a misassignments.",
-    evidence: "gate-evidence.md · worst is skill_wiring_harness_routing at 0.5986",
-    unblocks: ["PROMOTION"],
+    evidence:
+      "RULED 2026-08-26: keep the 0.75 floor unchanged, correct-but-below-floor resolutions " +
+      "remain unresolved, record them as future corpus-improvement candidates. Recorded in " +
+      "corpus-improvement-candidates-2026-08-26.md — 30 correct-but-below-floor plus the 4 " +
+      "unmeasured, with their measured best-correct scores and the gap each must close. The " +
+      "measurement vindicates the ruling: at 0.75 the fresh sweep reports 100% precision and " +
+      "the highest-scoring WRONG answer in the whole sweep is 0.7211, which the floor refuses. " +
+      "THE GATE ITSELF STILL FAILS FOR THESE 34 — see PROMOTION-SCOPE, which is what that now " +
+      "means for a fail-closed batch.",
+    unblocks: ["PROMOTION-SCOPE"],
   },
 
   // ── needs spend ───────────────────────────────────────────────────────────
   {
     id: "NO-REGRESSION-EVIDENCE",
-    title: "A fingerprinted floor sweep — the evaluation half is done, at ₹0",
-    status: "BLOCKED_ON_AI_SPEND",
+    title: "Fingerprinted evaluation AND floor sweep on the post-write corpus — done",
+    status: "COMPLETE",
     // The RULING still decides which fixture the SWEEP runs on, so the remaining spend cannot
     // be commissioned before it.
     dependsOn: ["SWEEP-FINGERPRINT", "NO-REGRESSION-SEMANTICS"],
@@ -251,45 +260,51 @@ export const PROGRAMME: readonly ProgrammeItem[] = [
     // re-measured the whole fixture with 127 hits and 0 provider calls. What remains is the
     // sweep; on fixture v3 only its 41 added queries are uncached, which is why this is now
     // roughly an eighth of the original figure rather than half of it.
-    costInr: 0.0035,
     evidence:
-      "gate-evidence.md + EXP-P9-REGRESSION-FRESH (2026-08-26). The claim that neither record " +
-      "could be produced from stored vectors was WRONG for the evaluation and is corrected here. " +
-      "The fresh fingerprinted v2 run scored R@1 0.9912 / MRR 0.9956 against a 1.0/1.0 reference " +
-      "— one case of 123, in paraphrase_latin. Freshness is no longer the blocker; the score is.",
+      "EXP-P9-REGRESSION-FRESH, 2026-08-26, both records against the POST-WRITE corpus and both " +
+      "carrying a fingerprint equal to the live one. Evaluation: fixture v2, R@1 1 / MRR 1, " +
+      "127 cached / 0 paid, INR 0. Floor sweep: fixture v3, 164 decisions, 0 errors, 41 paid " +
+      "queries. `promote-skills` reports `evidence freshness = current` and `regression verdict " +
+      "= PASS`. Total spend for the whole cycle: INR 0.0116.",
     unblocks: ["PROMOTION", "RESOLVABLE-6"],
   },
   {
     id: "RESOLVABLE-6",
-    title: "6 promotable skills produced no correct case in the 2026-08-21 sweep",
-    status: "BLOCKED_ON_AI_SPEND",
+    title: "The unmeasured skills — asked and answered by the fresh sweep: 6 became 4",
+    status: "COMPLETE",
     dependsOn: ["NO-REGRESSION-EVIDENCE"],
-    costInr: 0,
     evidence:
-      "gate-evidence.md — they ARE in fixture v3, so this is a property of that run. The fresh " +
-      "sweep answers it at no additional cost; it is the same run.",
+      "RESOLVED 2026-08-26 by the fresh v3 sweep, as predicted at no additional cost. Two of the " +
+      "six produced a correct resolution and moved into CORRECT_BUT_BELOW_FLOOR (which is why " +
+      "that category went 28 -> 30); four still produce none and are recorded in " +
+      "corpus-improvement-candidates-2026-08-26.md §B. They are unmeasured, not known-bad.",
     unblocks: ["PROMOTION"],
   },
 
   // ── needs a production write nobody has authorised ────────────────────────
   {
     id: "ALIAS-CLEANUP-APPLY",
-    title: "Apply the ratified de-elections (4) and, if ratified, the proposed ones (4)",
-    status: "BLOCKED_ON_PRODUCTION_WRITE",
+    title: "The 8 ratified de-elections — APPLIED to production 2026-08-26",
+    status: "COMPLETE",
     dependsOn: ["D-7C-1b"],
     evidence:
-      "db:decollide:aliases exists with a two-signal ops guard and has never run. " +
-      "d7c1-alias-collision-cleanup.md simulates the outcome exactly.",
+      "APPLIED 2026-08-26 via db:decollide:aliases --run with both ops-guard signals. Dry run " +
+      "predicted 8 rows; 8 were written and read back. Verified: all 8 carry embedding NULL and " +
+      "all 8 KEEP their text — nothing was deleted (CLAUDE.md §10). All 8 affected phrases " +
+      "survive on skill_drawing_reading, active and embedded.",
     unblocks: ["CANONICALIZATION"],
   },
   {
     id: "D-7C-SEED",
-    title: "Seed the three approved corpus deprecations",
-    status: "BLOCKED_ON_PRODUCTION_WRITE",
+    title: "The three approved deprecations — APPLIED to production 2026-08-26",
+    status: "COMPLETE",
     dependsOn: ["D-7C-1a", "D-7A"],
     evidence:
-      "db:seed:deprecations exists, is tested, and currently REFUSES on D-7C-1a. It has never " +
-      "been invoked with --apply.",
+      "APPLIED 2026-08-26 via db:seed:deprecations --only=<the three> --apply with both " +
+      "ops-guard signals. Cross-decision orphans 0. skill_boring excluded by allow-list and " +
+      "unrequestable. 3 rows written and read back. The 3 phrases it retires — dimensional " +
+      "inspection, inspection, quality check — are its own, exactly as planned; a full orphan " +
+      "sweep finds no other dark text attributable to this run.",
     unblocks: ["CANONICALIZATION"],
   },
   {
@@ -402,12 +417,37 @@ export const PROGRAMME: readonly ProgrammeItem[] = [
 
   // ── the leaves ────────────────────────────────────────────────────────────
   {
-    id: "PROMOTION",
-    title: "Promote the 96",
+    id: "PROMOTION-SCOPE",
+    title: "62 of 96 pass every gate, and promote-skills is fail-closed for the whole batch",
     status: "BLOCKED_ON_OWNER",
-    dependsOn: ["Q1", "EVAL-COVERED", "RESOLVABLE-28", "RESOLVABLE-6", "NO-REGRESSION-EVIDENCE"],
-    decision: "Nothing to decide until its inputs land. Listed so the graph has a terminus.",
-    evidence: "audit-promotion-gates + promote-skills --plan: 96 candidates, 0 eligible",
+    dependsOn: ["RESOLVABLE-28"],
+    decision:
+      "`promote-skills` REFUSES unless every candidate clears every non-waived criterion — " +
+      "\"promoting the passing subset would leave the corpus half live, with no single " +
+      "description of what is retrievable\". So 34 below-floor skills block 62 that are ready. " +
+      "Three ways forward, and each is a product call: (A) --waive RESOLVABLE_ABOVE_FLOOR, which " +
+      "promotes all 96 and records the waiver — the 34 become active but stay unassignable, " +
+      "which is exactly the state the RESOLVABLE-28 ruling describes; (B) re-scope the batch to " +
+      "the 62 that pass, which changes what a batch means; (C) do the corpus work in " +
+      "corpus-improvement-candidates-2026-08-26.md first and promote all 96 cleanly. " +
+      "NOT TAKEN HERE: a waiver is a gate override, and the standing instruction is to promote " +
+      "only if every gate is green.",
+    evidence:
+      "promote-skills.ts fail-closed branch · corpus-improvement-candidates-2026-08-26.md · " +
+      "activation-readiness-2026-08-26.md",
+    unblocks: ["PROMOTION"],
+  },
+  {
+    id: "PROMOTION",
+    title: "Promote the 96 — 62 now pass every gate, and the batch is all-or-nothing",
+    status: "BLOCKED_ON_OWNER",
+    dependsOn: ["Q1", "EVAL-COVERED", "RESOLVABLE-28", "RESOLVABLE-6", "NO-REGRESSION-EVIDENCE", "PROMOTION-SCOPE"],
+    decision:
+      "Nothing left to decide about the EVIDENCE — see PROMOTION-SCOPE for the one question " +
+      "that remains, which is about the batch, not the gates.",
+    evidence:
+      "promote-skills --plan 2026-08-26 on fresh evidence: freshness current, regression PASS, " +
+      "96 candidates, ELIGIBLE 62, blocked 34, sole blocking criterion RESOLVABLE_ABOVE_FLOOR.",
     unblocks: ["CANONICALIZATION"],
   },
   {

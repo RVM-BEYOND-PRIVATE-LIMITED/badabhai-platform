@@ -82,6 +82,8 @@ interface RecordFile {
   readonly experiment: string;
   readonly record: {
     run_id?: string;
+    /** ISO-8601. Read so records can be ordered by WHEN, not by directory name. */
+    recorded_at?: string;
     evaluator_version?: number;
     fixture_version?: number;
     recall_at_1?: number | null;
@@ -146,7 +148,14 @@ async function main(): Promise<void> {
     const fpRows = (await db.execute(CORPUS_FINGERPRINT_SQL)) as unknown as Record<string, unknown>[];
     const liveFingerprint = fpRows[0] ? toFingerprint(fpRows[0]) : null;
 
-    const records = allRecords(EXPERIMENTS_DIR);
+    // SORTED BY WHEN THEY WERE RECORDED, not by where they happen to sit on disk.
+    // `allRecords` walks directories, so "the last one" was whichever experiment folder sorted
+    // last alphabetically — which silently kept reporting the 2026-08-21 sweep after a fresher
+    // one landed in a different folder. A freshness audit reading stale evidence is the one
+    // failure it exists to prevent.
+    const records = allRecords(EXPERIMENTS_DIR).sort((a, b) =>
+      String(a.record.recorded_at ?? "").localeCompare(String(b.record.recorded_at ?? "")),
+    );
     const evals = records.filter((r) => typeof r.record.recall_at_1 === "number");
     const sweeps = records.filter((r) => Array.isArray(r.record.detail?.per_case));
 

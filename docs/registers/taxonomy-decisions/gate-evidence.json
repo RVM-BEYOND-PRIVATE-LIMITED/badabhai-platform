@@ -1,6 +1,6 @@
 {
   "kind": "gate-evidence",
-  "measured_at": "2026-08-26T12:35:34.064Z",
+  "measured_at": "2026-08-26T13:40:59.839Z",
   "source": "pnpm db:audit:gate-evidence --batch (none) --fixture=C:\\Users\\kpdag\\OneDrive\\Desktop\\BB\\badabhai-platform\\packages\\db\\data\\taxonomy\\eval\\retrieval-v2.jsonl",
   "target": "SUPABASE (remote)",
   "read_only": true,
@@ -17,18 +17,18 @@
     "fixture_version": 2
   },
   "live_corpus_fingerprint": {
-    "skill_alias": "f7fbf2ec6404a29592af0840a0b00c3d",
-    "skill": "8022d4b309658c3ac18ae4720325b0ff",
+    "skill_alias": "685fa47cde6383953e0f30520bfa7da2",
+    "skill": "82a29ed53512ec57517231926a48a7dc",
     "job_domain_skill": "e68acaaaf7beb858735875f8932af80d",
     "job_domain": "b2dfcab48759113e7d118b547ea6a524",
     "job_domain_alias": "9b545f3db771d2bcf2a0cfe62414da53",
     "counts": {
-      "skill_alias_rows": 336,
-      "skill_alias_normalized": 197,
-      "skill_alias_searchable": 197,
-      "skill_alias_embedded": 336,
+      "skill_alias_rows": 337,
+      "skill_alias_normalized": 198,
+      "skill_alias_searchable": 198,
+      "skill_alias_embedded": 329,
       "skills_total": 165,
-      "skills_active": 52,
+      "skills_active": 49,
       "job_domain_skill_active_edges": 236,
       "job_domain_alias_rows": 9121,
       "job_domain_alias_searchable": 5086,
@@ -81,17 +81,6 @@
       "detail": "evaluation record carries no recall_at_1/mrr — nothing to compare"
     },
     {
-      "path": "EXP-P9-REGRESSION-FRESH\\eval-taxonomy-retrieval-v1-v2-e2-2026-08-26T12_22_35.109Z.json",
-      "fixture_version": 2,
-      "evaluator_version": 2,
-      "recall_at_1": 0.9912,
-      "mrr": 0.9956,
-      "has_fingerprint": true,
-      "passed": false,
-      "stale": false,
-      "detail": "REGRESSION vs the reference: R@1 0.9912 (-0.0088), MRR 0.9956 (-0.0044). Reported for review — promotion does not absorb this silently."
-    },
-    {
       "path": "EXP-P9-TRAINER-V3\\eval-taxonomy-retrieval-v1-v3-e2-2026-08-21T08_20_05.980Z.json",
       "fixture_version": 3,
       "evaluator_version": 2,
@@ -112,11 +101,31 @@
       "passed": false,
       "stale": false,
       "detail": "evaluation used fixture v3 but the reference is v2"
+    },
+    {
+      "path": "EXP-P9-REGRESSION-FRESH\\eval-taxonomy-retrieval-v1-v2-e2-2026-08-26T12_22_35.109Z.json",
+      "fixture_version": 2,
+      "evaluator_version": 2,
+      "recall_at_1": 0.9912,
+      "mrr": 0.9956,
+      "has_fingerprint": true,
+      "passed": false,
+      "stale": true,
+      "detail": "evaluation describes a DIFFERENT corpus — corpus moved in: skill_alias (alias text/normalization/searchability/vectors), skill (skill status). This evidence cannot clear the corpus it is being used against."
+    },
+    {
+      "path": "EXP-P9-REGRESSION-FRESH\\eval-taxonomy-retrieval-v1-v2-e2-2026-08-26T13_15_06.410Z.json",
+      "fixture_version": 2,
+      "evaluator_version": 2,
+      "recall_at_1": 1,
+      "mrr": 1,
+      "has_fingerprint": true,
+      "passed": true,
+      "stale": false,
+      "detail": "R@1 1 / MRR 1 meets the reference (1 / 1)"
     }
   ],
-  "no_regression_independent_blockers": [
-    "NO floor-sweep record carries a corpus_fingerprint, and promote-skills computes `no_regression = regression.passed && !sweepStale` — so this gate cannot pass even with a perfect evaluation (STRUCTURAL, and NOT WAIVABLE: `--waive NO_REGRESSION` is refused while evidence is stale)"
-  ],
+  "no_regression_independent_blockers": [],
   "floor_sweep_records": [
     {
       "path": "EXP-EVAL-CORRECTION\\floor-sweep-2026-08-17T10_01_40.291Z.json",
@@ -132,13 +141,23 @@
       "path": "EXP-P9-TRAINER-V3\\floor-sweep-2026-08-21T08_24_53.784Z.json",
       "has_fingerprint": false,
       "cases": 164
+    },
+    {
+      "path": "EXP-P9-REGRESSION-FRESH\\floor-sweep-2026-08-26T13_16_50.531Z.json",
+      "has_fingerprint": true,
+      "cases": 164
+    },
+    {
+      "path": "EXP-P9-REGRESSION-FRESH\\floor-sweep-2026-08-26T13_18_14.220Z.json",
+      "has_fingerprint": true,
+      "cases": 164
     }
   ],
   "resolvable_above_floor": {
     "by_cause": {
       "PASSES": 62,
-      "CORRECT_BUT_BELOW_FLOOR": 28,
-      "NO_CORRECT_CASE_IN_SWEEP": 6,
+      "CORRECT_BUT_BELOW_FLOOR": 30,
+      "NO_CORRECT_CASE_IN_SWEEP": 4,
       "ONLY_EVER_A_WRONG_ANSWER": 0
     },
     "correct_but_below_floor": [
@@ -215,6 +234,10 @@
         "best_correct": 0.6515
       },
       {
+        "skill_id": "skill_sheet_metal_marking_and_layout",
+        "best_correct": 0.6762
+      },
+      {
         "skill_id": "skill_refrigerant_leak_detection",
         "best_correct": 0.686
       },
@@ -253,15 +276,17 @@
       {
         "skill_id": "skill_distortion_control_in_weldments",
         "best_correct": 0.7302
+      },
+      {
+        "skill_id": "skill_welding_machine_consumable_changeover",
+        "best_correct": 0.6244
       }
     ],
     "no_correct_case_in_sweep": [
       "skill_battery_capacity_checking",
       "skill_switchgear_installation",
-      "skill_sheet_metal_marking_and_layout",
       "skill_indoor_unit_servicing_and_cleaning",
-      "skill_pump_and_valve_repair",
-      "skill_welding_machine_consumable_changeover"
+      "skill_pump_and_valve_repair"
     ],
     "only_ever_a_wrong_answer": []
   },
@@ -283,7 +308,7 @@
       "step": 1,
       "actor": "ENGINEERING",
       "what": "BOTH record kinds must actually CARRY a corpus_fingerprint into the experiment file, which is the only artifact judgeRegression ever reads",
-      "status": "EVALUATION DONE (2026-08-26). The evaluator computed the fingerprint all along and dropped it on the way into the experiment record — fixed. No SWEEP has been re-run since, so the sweep side is still unfingerprinted."
+      "status": "DONE — a fingerprinted record of each kind exists"
     },
     {
       "gate": "NO_REGRESSION",
@@ -303,14 +328,14 @@
       "gate": "RESOLVABLE_ABOVE_FLOOR",
       "step": 1,
       "actor": "ENGINEERING + OWNER",
-      "what": "28 skills resolve CORRECTLY below the floor",
+      "what": "30 skills resolve CORRECTLY below the floor",
       "status": "the skill is found and not confidently. Remedy is corpus (more or better aliases), not threshold; ratifying new aliases is an owner act. Lowering the floor is prohibited."
     },
     {
       "gate": "RESOLVABLE_ABOVE_FLOOR",
       "step": 2,
       "actor": "AI SPEND",
-      "what": "6 skills produced no correct case in the sweep at all",
+      "what": "4 skills produced no correct case in the sweep at all",
       "status": "they ARE present in fixture v3, so this is a property of the 2026-08-21 run rather than of coverage. A fresh sweep is needed before anything is concluded about them."
     },
     {

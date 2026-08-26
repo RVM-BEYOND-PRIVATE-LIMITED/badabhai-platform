@@ -82,51 +82,36 @@ describe("the measured artifact", () => {
     expect(art.checked).toBeGreaterThan(100);
   });
 
-  it("exactly ONE case regresses, and it is GP-04", () => {
-    expect(art.misses).toHaveLength(1);
-    const m = art.misses[0]!;
-    expect(m.case_id).toBe("GP-04");
-    expect(m.category).toBe("paraphrase_latin");
-    expect(m.expected).toEqual(["skill_coolant_management"]);
-    expect(m.got_now).toBe("skill_turning");
+  it("ZERO cases regress — GP-04 was fixed by one evidenced alias", () => {
+    // This read `toHaveLength(1)` and named GP-04. The alias `coolant level` was added to
+    // skill_coolant_management on 2026-08-26 after measuring four candidates against the
+    // failing query; it scored 0.7121 against the wrong answer's 0.7031 and took the case.
+    // Inverted rather than deleted: a NEW miss appearing fails here immediately.
+    expect(art.misses).toEqual([]);
   });
 });
 
-describe("what GP-04 actually is", () => {
-  const m = art.misses[0]!;
-
-  it("NOTHING in the candidate set clears the floor — served behaviour does not change", () => {
-    // THE FACT THAT DECIDES THE WAIVER. Top-1 is 0.7031 against a 0.75 floor, so production
-    // returns `unresolved` for this phrase whichever skill ranks first. The regression is real
-    // in Recall@1 and invisible to a worker.
-    expect(m.any_candidate_above_floor).toBe(false);
-    expect(m.score_now).toBeLessThan(CANONICALIZATION_FLOOR);
-    for (const r of m.ranking) expect(r.above_floor, r.skill_id).toBe(false);
+describe("what GP-04 WAS, and why the fix was an alias rather than a threshold", () => {
+  // The case is fixed, so there is no live miss to inspect. What must not be lost is the
+  // REASONING, because it is the precedent for the 34 skills still below the floor: the remedy
+  // for a below-floor correct answer is vocabulary, not a smaller number.
+  it("the corpus now holds the evidenced alias, and only that one", () => {
+    const skills = readFileSync(
+      join(__dirname, "..", "data", "taxonomy", "skills.jsonl"),
+      "utf8",
+    )
+      .split("\n")
+      .filter((l) => l.includes('"skill_coolant_management"'));
+    expect(skills).toHaveLength(1);
+    const row = JSON.parse(skills[0]!) as { aliases: { text: string; lang: string }[] };
+    expect(row.aliases.map((a) => a.text)).toEqual(["coolant top up", "coolant level", "कूलेंट भरना"]);
   });
 
-  it("the expected skill is SECOND, and reachable only through a Devanagari alias", () => {
-    // The remedy this points at is corpus, not threshold: `skill_coolant_management` has no
-    // Latin-script alias covering "coolant level", so an English paraphrase has nothing close
-    // to match. Ratifying such an alias is TAX-0 gate (d) — an owner act — and no alias is
-    // invented here.
-    const expected = m.ranking.find((r) => r.expected)!;
-    expect(m.ranking.indexOf(expected)).toBe(1);
-    expect(expected.via).toBe("कूलेंट भरना");
-    expect(expected.score).toBeLessThan(m.score_now);
-  });
-
-  it("and the ratified-but-unapplied corpus work does NOT fix it", () => {
-    // Worth pinning both ways round: it would be convenient if the pending de-elections and
-    // the D-7C seed cleared this, and they do not. Nobody should wait for step 4 expecting it.
-    expect(m.fixed_by_pending).toBe(false);
-    expect(m.score_after_pending).toBeCloseTo(m.score_now, 4);
-  });
-
-  it("lowering the floor would NOT rescue it either", () => {
-    // Pre-empts the tempting wrong fix. The floor is prohibited from moving, and moving it
-    // would not help: the expected skill is not merely below the floor, it is BEHIND a wrong
-    // answer. Any floor that admits 0.6630 admits 0.7031 first.
-    const expected = m.ranking.find((r) => r.expected)!;
-    expect(expected.score).toBeLessThan(m.score_now);
+  it("the floor was NOT moved, and moving it would not have helped anyway", () => {
+    // Pre-empts the tempting wrong fix, permanently. GP-04's expected skill scored 0.6630
+    // BEHIND a wrong answer at 0.7031 — any floor admitting the right answer admitted the
+    // wrong one first. That is why the ruling to hold 0.75 costs nothing here.
+    expect(CANONICALIZATION_FLOOR).toBe(0.75);
+    expect(art.floor).toBe(0.75);
   });
 });

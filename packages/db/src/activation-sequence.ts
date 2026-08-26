@@ -142,10 +142,16 @@ export const ACTIVATION_SEQUENCE: readonly ActivationStep[] = [
     order: 6,
     id: "CLEAR-FLOOR-GATE",
     what:
-      "Close RESOLVABLE_ABOVE_FLOOR: 28 skills resolve correctly below 0.75 and need corpus " +
-      "work, not a threshold change. The 6 unmeasured are answered by step 5 at no extra cost.",
+      "Decide what the STILL-FAILING RESOLVABLE_ABOVE_FLOOR means for a fail-closed batch. " +
+      "Measured 2026-08-26: 30 skills resolve correctly below 0.75 and 4 produced no correct " +
+      "case at all, so 34 of 96 block the 62 that pass. The owner ruled the floor stays at " +
+      "0.75 and those resolutions remain unresolved — which settles the THRESHOLD question and " +
+      "leaves the BATCH question: waive, re-scope, or do the corpus work first.",
     runner: "pnpm db:audit:gate-evidence --batch <dir>",
-    preconditions: ["RESOLVABLE-28", "RESOLVABLE-6"],
+    // PROMOTION-SCOPE, not RESOLVABLE-28/-6. Those two are COMPLETE because they are RULED, and
+    // a ruling to hold the floor is not the same as the gate passing — reading it that way made
+    // this step look ready while promote-skills was still refusing 96 candidates.
+    preconditions: ["PROMOTION-SCOPE"],
     after: ["FRESH-EVIDENCE"],
     authorisation: "OWNER",
     verification: "promote-skills --plan reports RESOLVABLE_ABOVE_FLOOR blocking 0.",

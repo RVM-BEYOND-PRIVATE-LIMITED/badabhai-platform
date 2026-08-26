@@ -92,27 +92,27 @@ describe("NO_REGRESSION — why it fails, all of it at once", () => {
     expect(perfect[0]!.detail).toMatch(/no corpus_fingerprint/);
   });
 
-  it("EXACTLY ONE SIDE now carries a corpus_fingerprint — the evaluation, as of 2026-08-26", () => {
-    // This assertion used to read "NOT ONE record of any kind carries one", which was the
-    // defect: the evaluator computed the fingerprint and dropped it on the way into the
-    // experiment record, the only artifact the gate reads. Fixed, and re-measured at ZERO
-    // cost because every fixture-v2 query vector was already in the local embed cache.
-    //
-    // Inverted rather than deleted. It now pins the halfway state honestly: one side done,
-    // one side outstanding — which is exactly what stops "the fingerprint work is finished"
-    // from being said before the sweep is re-run.
+  it("BOTH SIDES now carry a corpus_fingerprint", () => {
+    // Third position for this assertion in one day, and the arc is the record: "not one record
+    // of any kind" (the defect) -> "exactly one side" (evaluation fixed) -> both. The sweep was
+    // re-run on 2026-08-26 for INR 0.0035 and carries one too.
     expect(art.evaluation_records.some((e) => e.has_fingerprint)).toBe(true);
-    expect(art.floor_sweep_records.every((s) => !s.has_fingerprint)).toBe(true);
+    expect(art.floor_sweep_records.some((s) => s.has_fingerprint)).toBe(true);
   });
 
-  it("the STRUCTURAL blocker is named: a sweep could not carry one at all", () => {
-    const structural = art.no_regression_independent_blockers.find((b) => b.includes("STRUCTURAL"));
-    expect(structural).toBeDefined();
-    expect(structural).toMatch(/no_regression = regression\.passed && !sweepStale/);
+  it("NO independent blocker remains — the gate passes", () => {
+    // Every one of the four is gone: the fixture question was never real, the score is 1.0/1.0
+    // after the GP-04 alias, and both record kinds carry a live fingerprint. Pinned as an empty
+    // list rather than deleted, so a NEW blocker appearing fails loudly.
+    expect(art.no_regression_independent_blockers).toEqual([]);
   });
 
-  it("the freshness blocker is marked NOT WAIVABLE", () => {
-    expect(art.no_regression_independent_blockers.join(" ")).toMatch(/NOT WAIVABLE/);
+  it("and the unwaivable-staleness rule is still in the code, unrelaxed", () => {
+    // The blocker list is empty because the evidence is fresh, NOT because the rule was
+    // softened. `promote-skills` still refuses `--waive NO_REGRESSION` while evidence is stale.
+    const src = readFileSync(join(__dirname, "promote-skills.ts"), "utf8");
+    expect(src).toMatch(/STALE EVIDENCE IS NOT WAIVABLE/);
+    expect(src).toContain('!(criterion === "NO_REGRESSION" && facts.evidence_stale)');
   });
 
   it("and a real regression is on record — 0.9912 on v2, not a measurement artifact", () => {
@@ -122,11 +122,11 @@ describe("NO_REGRESSION — why it fails, all of it at once", () => {
 });
 
 describe("RESOLVABLE_ABOVE_FLOOR — 34 failures, two distinct causes", () => {
-  it("62 pass, 28 are below the floor while CORRECT, 6 were never asked about", () => {
+  it("62 pass, 30 are below the floor while CORRECT, 4 were never asked about", () => {
     expect(art.resolvable_above_floor.by_cause).toEqual({
       PASSES: 62,
-      CORRECT_BUT_BELOW_FLOOR: 28,
-      NO_CORRECT_CASE_IN_SWEEP: 6,
+      CORRECT_BUT_BELOW_FLOOR: 30,
+      NO_CORRECT_CASE_IN_SWEEP: 4,
       ONLY_EVER_A_WRONG_ANSWER: 0,
     });
   });
@@ -144,7 +144,7 @@ describe("RESOLVABLE_ABOVE_FLOOR — 34 failures, two distinct causes", () => {
 
   it("every below-floor skill is genuinely below it, and the worst is 0.5986", () => {
     const rows = art.resolvable_above_floor.correct_but_below_floor;
-    expect(rows).toHaveLength(28);
+    expect(rows).toHaveLength(30);
     for (const r of rows) expect(r.best_correct, r.skill_id).toBeLessThan(CANONICALIZATION_FLOOR);
     expect(Math.min(...rows.map((r) => r.best_correct))).toBeCloseTo(0.5986, 4);
   });

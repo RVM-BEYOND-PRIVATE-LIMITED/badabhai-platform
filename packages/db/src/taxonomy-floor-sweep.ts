@@ -338,6 +338,16 @@ async function main(): Promise<void> {
       });
     }
 
+    // PERSIST THE MISSES, or the cache is read-only and every run pays the same queries again.
+    // Learned the hard way: the first two sweeps after `--cache` landed each paid for the same
+    // 41 uncached v3 queries, because the vectors were memoised in memory and never written.
+    // A cache that only ever hits on what something ELSE put there is not a cache.
+    if (queryCache !== null) {
+      queryCache.flush();
+      const st = queryCache.stats();
+      console.log(`  query embeds             = ${st.hits} cached, ${st.misses} paid`);
+    }
+
     const decided = rows.filter((r) => r.score !== null);
     const tpScores = decided.filter((r) => r.correct).map((r) => r.score as number);
     const fpScores = decided.filter((r) => !r.correct).map((r) => r.score as number);

@@ -56,26 +56,31 @@ describe("defect 1 — the evaluation never carried the fingerprint the gate rea
     expect(Object.keys(r.corpus_fingerprint as object)).toContain("skill_alias");
   });
 
-  it("so judgeRegression gets PAST freshness and fails on the SCORE — one reason, not four", () => {
+  it("so judgeRegression gets PAST freshness — and now PASSES outright", () => {
+    // This assertion has moved twice in one day, and each move is the point. It first read
+    // `stale === true` (the defect). Then `stale === false, passed === false` (freshness fixed,
+    // GP-04 still regressing). Now the GP-04 alias has landed and the strict gate simply
+    // passes — against an UNCHANGED 1.0/1.0 baseline.
     const r = freshRecord();
-    // Judged against the record's own fingerprint: freshness is satisfied by construction, so
-    // whatever remains is the real objection.
     const v = judgeRegression(r, r.corpus_fingerprint as never);
     expect(v.stale, "freshness should no longer be the blocker").toBe(false);
     expect(v.drift).toEqual([]);
-    expect(v.passed).toBe(false);
-    expect(v.detail).toMatch(/REGRESSION vs the reference/);
+    expect(v.passed).toBe(true);
+    expect(v.detail).toMatch(/meets the reference/);
   });
 
-  it("the surviving objection is a real regression of one case, not a rounding artifact", () => {
+  it("it meets the bar exactly, on the same instrument, with the baseline untouched", () => {
     const r = freshRecord();
     expect(r.fixture_version).toBe(REGRESSION_BASELINE.fixture_version);
     expect(r.evaluator_version).toBe(REGRESSION_BASELINE.evaluator_version);
-    expect(r.recall_at_1).toBeCloseTo(0.9912, 4);
-    expect(r.mrr).toBeCloseTo(0.9956, 4);
-    // 123 scored, one miss. The baseline is 1.0/1.0 and is NOT re-pointed to fit.
+    expect(r.recall_at_1).toBe(1);
+    expect(r.mrr).toBe(1);
     expect(r.query_count).toBe(123);
+    // THE ASSERTION THAT MATTERS MOST. The gate passes because the CORPUS improved, not because
+    // the reference moved. If anyone ever "fixes" a future regression by editing this constant,
+    // this line is what fails.
     expect(REGRESSION_BASELINE.recall_at_1).toBe(1.0);
+    expect(REGRESSION_BASELINE.mrr).toBe(1.0);
   });
 
   it("a record with NO fingerprint is still refused — the fix did not relax the gate", () => {
