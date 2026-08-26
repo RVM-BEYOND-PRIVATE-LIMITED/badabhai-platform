@@ -133,13 +133,21 @@
         <meta-data
             android:name="google_analytics_adid_collection_enabled"
             android:value="false" />
-        <!-- Disable Impeller: its Vulkan backend renders corrupted output (blue
-             diagonal streaks) on some Android emulators/GPU drivers. Falls back to
-             the Skia (OpenGL) renderer. Flutter defaults Impeller ON for Android
-             since 3.27; re-evaluate when emulator Vulkan drivers stabilise. -->
+        <!-- Impeller ENABLED (Flutter 3.35's Android default). Precompiles shaders
+             at BUILD time, so the runtime shader-compilation jank Skia causes on
+             the FIRST paint of a gradient/blur/spinner (DevTools "Shader
+             Compilation" spikes) is gone. Auto-selects Vulkan on capable GPUs and
+             falls back to OpenGLES otherwise.
+             HISTORY: previously disabled because Impeller's Vulkan backend showed
+             blue diagonal streaks on some Android EMULATORS / buggy GPU drivers —
+             a dev-environment issue, not real hardware. Re-enabled on 3.35.7 where
+             Android Vulkan has stabilised (this is the "re-evaluate" point the old
+             note asked for). If a real TARGET device shows corruption, set this
+             back to "false" (Skia fallback); verify on the low-end fleet before a
+             production release. -->
         <meta-data
             android:name="io.flutter.embedding.android.EnableImpeller"
-            android:value="false" />
+            android:value="true" />
 
         <!-- Firebase Cloud Messaging: receives console test pushes; shows foreground
              notifications. Background/killed notification-messages are shown by the OS. -->
