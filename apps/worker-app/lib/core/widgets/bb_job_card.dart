@@ -325,17 +325,23 @@ class _ApplyAction extends StatelessWidget {
           key: const Key('jobCardApplyButton'),
           onTap: onApply,
           borderRadius: BorderRadius.circular(AppRadii.sm),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.s2,
-              vertical: AppSpacing.s1,
-            ),
-            child: Text(
-              'APPLY →',
-              style: AppTypography.display(
-                size: 13,
-                weight: FontWeight.w800,
-                color: AppColors.success,
+          // ≥48px (AppSpacing.tap) hit target — the primary conversion action
+          // must clear the worker tap floor, same as _TitleButton. Center keeps
+          // the label where it was while the hit area grows to 48px.
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: AppSpacing.tap),
+            child: Center(
+              widthFactor: 1,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s2),
+                child: Text(
+                  'APPLY →',
+                  style: AppTypography.display(
+                    size: 13,
+                    weight: FontWeight.w800,
+                    color: AppColors.success,
+                  ),
+                ),
               ),
             ),
           ),

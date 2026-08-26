@@ -71,13 +71,9 @@ class _NotificationsView extends StatelessWidget {
                               child: const Text('Try again'),
                             ),
                           ),
-                        NotificationsStatus.empty => const BbStatusView(
-                            icon: Icons.notifications_none_rounded,
-                            title: 'Abhi koi alert nahi',
-                            subtitle:
-                                'Resume, profile aur account updates yahin dikhenge.',
-                          ),
-                        NotificationsStatus.ready => _list(state.items),
+                        NotificationsStatus.empty => _empty(context),
+                        NotificationsStatus.ready =>
+                          _list(context, state.items),
                       },
                     ),
                   );
@@ -142,26 +138,69 @@ class _NotificationsView extends StatelessWidget {
     );
   }
 
+  /// Pull-to-refresh re-runs the same load the tab does on open: fetch fresh
+  /// rows and mark them read. Returns the cubit's Future so the spinner stays up
+  /// until the refetch settles. `loadAndMarkRead` keeps the current rows on
+  /// screen while it runs (no loading flash) and self-guards a double-pull.
+  Future<void> _refresh(BuildContext context) =>
+      context.read<NotificationsCubit>().loadAndMarkRead();
+
   /// The alerts grouped into one white card; each row supplies its own hairline
-  /// divider (kit grouped-list idiom, no shadows).
-  Widget _list(List<AppNotification> items) {
-    return ListView(
-      padding: const EdgeInsets.all(AppSpacing.gutter),
-      children: <Widget>[
-        Container(
-          decoration: BoxDecoration(
-            color: AppColors.surfaceCard,
-            borderRadius: BorderRadius.circular(AppRadii.lg),
-            border: Border.all(color: AppColors.borderSubtle),
+  /// divider (kit grouped-list idiom, no shadows). Wrapped in a
+  /// [RefreshIndicator] so a pull-down refetches.
+  ///
+  /// Rows build LAZILY via [SliverList.builder]; the single rounded card is
+  /// painted once behind them by [DecoratedSliver], so the grouped-card look is
+  /// preserved without constructing every off-screen row up front.
+  Widget _list(BuildContext context, List<AppNotification> items) {
+    return RefreshIndicator(
+      onRefresh: () => _refresh(context),
+      child: CustomScrollView(
+        // Always overscrollable so a short list (1–2 alerts that don't fill the
+        // screen) still accepts the pull-to-refresh gesture on Android.
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: <Widget>[
+          SliverPadding(
+            padding: const EdgeInsets.all(AppSpacing.gutter),
+            sliver: DecoratedSliver(
+              decoration: BoxDecoration(
+                color: AppColors.surfaceCard,
+                borderRadius: BorderRadius.circular(AppRadii.lg),
+                border: Border.all(color: AppColors.borderSubtle),
+              ),
+              sliver: SliverList.builder(
+                itemCount: items.length,
+                itemBuilder: (BuildContext context, int i) => _row(items[i]),
+              ),
+            ),
           ),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            children: <Widget>[
-              for (final AppNotification n in items) _row(n),
-            ],
-          ),
-        ),
-      ],
+        ],
+      ),
+    );
+  }
+
+  /// Empty state, made pull-refreshable: the status view sits in an
+  /// always-scrollable viewport-height box so a pull registers even with no
+  /// rows — a worker can pull to check for new alerts on an empty list.
+  Widget _empty(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: () => _refresh(context),
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          return SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: const BbStatusView(
+                icon: Icons.notifications_none_rounded,
+                title: 'Abhi koi alert nahi',
+                subtitle:
+                    'Resume, profile aur account updates yahin dikhenge.',
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 

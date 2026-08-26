@@ -27,6 +27,13 @@ next-env.d.ts
 *.pem
 *.key
 service-account*.json
+# Android release signing — the upload keystore + its plaintext passwords. The
+# build.gradle picks the release signingConfig only when key.properties exists;
+# these MUST never be committed (leaking the signing key means rotating it and
+# re-registering with Play App Signing). Ignored ahead of DevOps provisioning it.
+**/android/key.properties
+*.jks
+*.keystore
 
 # ---- Python (apps/ai-service) ----
 .venv/

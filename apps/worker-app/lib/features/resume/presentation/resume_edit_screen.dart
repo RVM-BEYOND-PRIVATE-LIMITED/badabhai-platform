@@ -340,7 +340,7 @@ class _PhotoField extends StatelessWidget {
             ),
           ),
           const SizedBox(width: AppSpacing.s3),
-          _thumb(),
+          _thumb(context),
           const SizedBox(width: AppSpacing.s3),
           if (busy)
             const SizedBox(
@@ -366,8 +366,10 @@ class _PhotoField extends StatelessWidget {
     );
   }
 
-  Widget _thumb() {
+  Widget _thumb(BuildContext context) {
     final String? url = photoUrl;
+    // Decode to the on-screen size, not the photo's full resolution.
+    final int cachePx = (44 * MediaQuery.devicePixelRatioOf(context)).round();
     return CircleAvatar(
       radius: 22,
       backgroundColor: AppColors.divider,
@@ -377,6 +379,8 @@ class _PhotoField extends StatelessWidget {
                 url,
                 width: 44,
                 height: 44,
+                cacheWidth: cachePx,
+                cacheHeight: cachePx,
                 fit: BoxFit.cover,
                 // Signed url expired / offline → placeholder, never an error.
                 errorBuilder: (_, __, ___) =>

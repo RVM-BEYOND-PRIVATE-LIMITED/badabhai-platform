@@ -65,14 +65,27 @@ class _AgencyJobsBody extends StatelessWidget {
           );
         }
 
-        return ListView(
+        return ListView.builder(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
             AppSpacing.s2,
             AppSpacing.gutter,
             AppSpacing.s6,
           ),
-          children: <Widget>[
+          // Lazy: header at index 0, then one job card per index — off-screen
+          // postings are not built up front.
+          itemCount: 1 + state.jobs.length,
+          itemBuilder: (BuildContext context, int index) {
+            if (index != 0) {
+              final AgencyJobView job = state.jobs[index - 1];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+                child: _AgencyJobCard(job: job),
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: <Widget>[
@@ -106,11 +119,9 @@ class _AgencyJobsBody extends StatelessWidget {
               ],
             ),
             const SizedBox(height: AppSpacing.s3),
-            for (final AgencyJobView job in state.jobs) ...<Widget>[
-              _AgencyJobCard(job: job),
-              const SizedBox(height: AppSpacing.s3),
-            ],
-          ],
+              ],
+            );
+          },
         );
       },
     );

@@ -95,9 +95,17 @@ class PayerTokenStore {
   /// signs in again with an email OTP — annoying, but recoverable.
   Future<void> load() async {
     try {
-      _accessToken = await _store.read(_kAccessToken);
-      _payerId = await _store.read(_kPayerId);
-      _role = await _store.read(_kRole);
+      // Read the three keys CONCURRENTLY (one round-trip of latency, not three
+      // sequential Keystore round-trips) — this runs before the first frame, so
+      // shortening it directly shortens cold start.
+      final List<String?> values = await Future.wait(<Future<String?>>[
+        _store.read(_kAccessToken),
+        _store.read(_kPayerId),
+        _store.read(_kRole),
+      ]);
+      _accessToken = values[0];
+      _payerId = values[1];
+      _role = values[2];
     } catch (_) {
       _accessToken = null;
       _payerId = null;

@@ -374,7 +374,10 @@ class _InviteSheetState extends State<_InviteSheet> {
         AppSpacing.gutter,
         AppSpacing.s5 + bottomInset,
       ),
-      child: Column(
+      // Scrollable so the keyboard (or a large text scale) on a small screen
+      // can't push the Send button off-screen into a RenderFlex overflow.
+      child: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -409,6 +412,7 @@ class _InviteSheetState extends State<_InviteSheet> {
             onPressed: _busy ? null : _send,
           ),
         ],
+      ),
       ),
     );
   }
@@ -454,7 +458,10 @@ class _AcceptSheetState extends State<_AcceptSheet> {
         AppSpacing.gutter,
         AppSpacing.s5 + bottomInset,
       ),
-      child: Column(
+      // Scrollable so the keyboard (or a large text scale) on a small screen
+      // can't push the Join button off-screen into a RenderFlex overflow.
+      child: SingleChildScrollView(
+        child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -480,6 +487,7 @@ class _AcceptSheetState extends State<_AcceptSheet> {
             onPressed: _busy ? null : _accept,
           ),
         ],
+      ),
       ),
     );
   }
