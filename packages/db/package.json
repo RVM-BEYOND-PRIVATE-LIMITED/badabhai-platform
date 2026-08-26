@@ -100,6 +100,7 @@
     "db:audit:vernacular-resweep": "tsx src/audit-vernacular-resweep.ts",
     "db:audit:alias-cleanup": "tsx src/audit-alias-collision-cleanup.ts",
     "db:audit:crosswalk-chain": "tsx src/audit-crosswalk-chain.ts",
+    "db:audit:crosswalk-invariants": "tsx src/audit-crosswalk-invariants.ts",
     "db:audit:deprecation-hop0": "tsx src/audit-deprecation-hop0.ts",
     "db:materialize:inheritance:dry-run": "tsx src/materialize-inheritance-dry-run.ts",
     "db:decollide:aliases": "tsx src/decollide-skill-aliases.ts",
