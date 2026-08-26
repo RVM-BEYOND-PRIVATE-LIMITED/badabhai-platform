@@ -42,6 +42,30 @@
 --                                         option to a reviewer — CLAUDE.md §3: an LLM must
 --                                         never author ranking vocabulary.
 --
+-- ===========================================================================
+-- THE REVIEWER NAMES THE TRADES, BECAUSE THE PIPELINE MAY NOT
+-- ===========================================================================
+-- `skill_candidate.approved_job_domain_ids` + `approved_requirement` exist because
+-- `validateTaxonomyCorpus` refuses a skill with zero `job_domain_skill` edges (SKILL_ORPHAN:
+-- *"it seeds, it embeds, and it is invisible"*). The first draft of the export path emitted no
+-- edges on the grounds that discovery must not INFER what a trade requires -- and every batch
+-- it produced was therefore permanently BLOCKED. The validator was right; the design was wrong.
+--
+-- The resolution is neither to infer the edge nor to weaken the gate: it is to ask the human
+-- who is already looking at the answer. The review screen shows the candidate's SOURCE
+-- OCCUPATIONS, and the reviewer accepts, trims, or replaces them. That is exactly the judgement
+-- `job_domain_skill.source = 'curated'` already represents, so no new enum value and no second
+-- migration is needed.
+--
+-- `skill_candidate_create_domain_chk` is the database half of that argument: an `approved_create`
+-- row must name at least one trade. Enforced here rather than only in the service, so a row
+-- written by a backfill, a fixture, or a future runner is subject to the same rule.
+--
+-- The array carries NO foreign key -- Postgres cannot key an array element -- so it is validated
+-- at both ends instead: the admin service resolves every id against `job_domain` before
+-- recording the decision, and `seed-domain-skills.ts` re-checks the corpus's domains against
+-- the live catalogue before writing anything.
+--
 -- WHAT IS DELIBERATELY ABSENT, because absence here is a decision:
 --   * NO threshold column, trigger or default that moves `status` toward approval because a
 --     similarity number crossed a line. This repository has already measured false semantic
@@ -127,6 +151,8 @@ CREATE TABLE "skill_candidate" (
 	"reviewer_admin_id" uuid,
 	"reviewed_at" timestamp with time zone,
 	"review_reason" text,
+	"approved_job_domain_ids" text[] DEFAULT '{}'::text[] NOT NULL,
+	"approved_requirement" text DEFAULT 'preferred' NOT NULL,
 	"resulting_skill_id" text,
 	"embedding_status" text DEFAULT 'not_required' NOT NULL,
 	"model" text,
@@ -146,6 +172,8 @@ CREATE TABLE "skill_candidate" (
 	CONSTRAINT "skill_candidate_machine_status_chk" CHECK ("skill_candidate"."status" NOT IN ('pending', 'needs_review') OR "skill_candidate"."reviewer_admin_id" IS NULL),
 	CONSTRAINT "skill_candidate_resolution_chk" CHECK ("skill_candidate"."status" NOT IN ('approved_map', 'approved_merge') OR "skill_candidate"."resulting_skill_id" IS NOT NULL),
 	CONSTRAINT "skill_candidate_create_label_chk" CHECK ("skill_candidate"."status" <> 'approved_create' OR "skill_candidate"."proposed_skill_name" IS NOT NULL),
+	CONSTRAINT "skill_candidate_create_domain_chk" CHECK ("skill_candidate"."status" <> 'approved_create' OR array_length("skill_candidate"."approved_job_domain_ids", 1) >= 1),
+	CONSTRAINT "skill_candidate_requirement_chk" CHECK ("skill_candidate"."approved_requirement" IN ('required', 'preferred')),
 	CONSTRAINT "skill_candidate_not_match_skill_chk" CHECK ("skill_candidate"."resulting_skill_id" IS NULL OR "skill_candidate"."resulting_skill_id" NOT LIKE 'mskill\_%')
 );
 --> statement-breakpoint

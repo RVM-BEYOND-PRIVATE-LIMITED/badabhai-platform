@@ -316,6 +316,54 @@ export const skillCandidates = pgTable(
      *  indistinguishable from a misclick six months later. */
     reviewReason: text("review_reason"),
     /**
+     * WHICH TRADES THE REVIEWER SAID THIS SKILL BELONGS TO.
+     *
+     * ── WHY THIS COLUMN EXISTS, AND IT IS NOT OPTIONAL POLISH ──
+     *
+     * `validateTaxonomyCorpus` refuses a skill with zero `job_domain_skill` edges —
+     * `SKILL_ORPHAN`, whose own message is the argument: *"Nothing reaches this skill: it is not
+     * on any trade's picker and no posting can be built from it. It seeds, it embeds, and it is
+     * invisible."* The first draft of the export path emitted no edges on the grounds that a
+     * discovery pipeline must not INFER what a trade requires, and every batch it produced was
+     * therefore permanently BLOCKED. The validator was right and the design was wrong.
+     *
+     * The resolution is not to infer the edge, and not to weaken the gate. It is to ask the
+     * human who is already looking at the answer. The review screen shows the candidate's
+     * SOURCE OCCUPATIONS — that is where the phrase was observed — and the reviewer either
+     * accepts them, trims them, or names others. That is a judgement, recorded here, and it is
+     * the same judgement `job_domain_skill.source = 'curated'` already exists to represent.
+     *
+     * ── NO FK, AND THAT IS A DELIBERATE COST ──
+     *
+     * A Postgres array element cannot carry a foreign key, so this column can hold a `jd_*` id
+     * that does not exist. It is validated TWICE instead, at both ends: the admin service
+     * resolves every id against `job_domain` before it will record the decision, and
+     * `seed-domain-skills.ts` re-checks the whole corpus's domains against the live catalogue
+     * before it writes anything (its existing `shippedDependencies` precondition). The
+     * alternative — a fifth child table with a real FK — buys the constraint and costs a join
+     * on the one read that has to be fast, for a column that is written once by a human.
+     *
+     * EMPTY for every status except `approved_create` and `approved_map`. A CHECK requires it to
+     * be non-empty on `approved_create`, because that is the status that mints a new skill and
+     * an orphan is what this column exists to prevent.
+     */
+    approvedJobDomainIds: text("approved_job_domain_ids")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    /**
+     * What the reviewer said the new skill IS for those trades — `required` or `preferred`.
+     *
+     * Defaults to `preferred`, matching `job_domain_skill.default_requirement`'s own default and
+     * for the same reason: `required` is a strong claim about hiring, and a newly discovered
+     * skill has no evidence behind it yet. A reviewer who knows better says so; the default
+     * never overstates.
+     */
+    approvedRequirement: text("approved_requirement")
+      .$type<"required" | "preferred">()
+      .notNull()
+      .default("preferred"),
+    /**
      * The canonical skill this candidate resolved TO.
      *
      * Set for `approved_map` and `approved_merge` at decision time. For `approved_create` it
@@ -409,6 +457,23 @@ export const skillCandidates = pgTable(
     check(
       "skill_candidate_create_label_chk",
       sql`${t.status} <> 'approved_create' OR ${t.proposedSkillName} IS NOT NULL`,
+    ),
+    /**
+     * A NEW SKILL MUST NAME AT LEAST ONE TRADE.
+     *
+     * The database half of the `SKILL_ORPHAN` argument on `approvedJobDomainIds`. Without an
+     * edge the skill is unreachable: not on any picker, not requestable by any posting, and
+     * unpromotable (`db:promote:skills` C3 ACTIVE_EDGE refuses it). Enforcing it here rather
+     * than only in the service means a row written by anything — a backfill, a fixture, a
+     * future runner — is subject to the same rule.
+     */
+    check(
+      "skill_candidate_create_domain_chk",
+      sql`${t.status} <> 'approved_create' OR array_length(${t.approvedJobDomainIds}, 1) >= 1`,
+    ),
+    check(
+      "skill_candidate_requirement_chk",
+      sql`${t.approvedRequirement} IN ('required', 'preferred')`,
     ),
     /**
      * THE MATCH-SKILL WALL, IN THE DATABASE (Phase 12).

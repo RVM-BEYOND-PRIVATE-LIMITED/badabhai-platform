@@ -1,5 +1,5 @@
 {
-  "id": "2c5cbaad-9a42-4aa9-8a5f-2726fc2ff42c",
+  "id": "32ae00fc-6657-4702-add6-47dbaa423a14",
   "prevId": "a9235464-b79e-4aa8-99ab-55caf080b213",
   "version": "7",
   "dialect": "postgresql",
@@ -2544,6 +2544,20 @@
           "primaryKey": false,
           "notNull": false
         },
+        "approved_job_domain_ids": {
+          "name": "approved_job_domain_ids",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::text[]"
+        },
+        "approved_requirement": {
+          "name": "approved_requirement",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'preferred'"
+        },
         "resulting_skill_id": {
           "name": "resulting_skill_id",
           "type": "text",
@@ -2790,6 +2804,14 @@
         "skill_candidate_create_label_chk": {
           "name": "skill_candidate_create_label_chk",
           "value": "\"skill_candidate\".\"status\" <> 'approved_create' OR \"skill_candidate\".\"proposed_skill_name\" IS NOT NULL"
+        },
+        "skill_candidate_create_domain_chk": {
+          "name": "skill_candidate_create_domain_chk",
+          "value": "\"skill_candidate\".\"status\" <> 'approved_create' OR array_length(\"skill_candidate\".\"approved_job_domain_ids\", 1) >= 1"
+        },
+        "skill_candidate_requirement_chk": {
+          "name": "skill_candidate_requirement_chk",
+          "value": "\"skill_candidate\".\"approved_requirement\" IN ('required', 'preferred')"
         },
         "skill_candidate_not_match_skill_chk": {
           "name": "skill_candidate_not_match_skill_chk",

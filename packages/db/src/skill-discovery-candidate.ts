@@ -215,6 +215,18 @@ export interface SkillCandidateRecord {
   readonly reviewed_at: string | null;
   readonly review_reason: string | null;
   readonly resulting_skill_id: string | null;
+  /**
+   * The trades the REVIEWER said this skill belongs to. Empty until they decide.
+   *
+   * A REVIEW FIELD, not provenance, and therefore outside {@link PROVENANCE_FIELDS}: it records
+   * a human's judgement taken at decision time, exactly like `review_reason`. The pipeline never
+   * fills it — it cannot, because a phrase observed under an occupation says nothing about what
+   * that trade requires. See the column docblock in `schema/skill-discovery.ts` for the
+   * `SKILL_ORPHAN` finding that made this field necessary.
+   */
+  readonly approved_job_domain_ids: readonly string[];
+  /** `required` or `preferred` for those trades. Defaults to the conservative `preferred`. */
+  readonly approved_requirement: "required" | "preferred";
 
   readonly embedding_status: SkillCandidateEmbeddingStatus;
   readonly model: string | null;

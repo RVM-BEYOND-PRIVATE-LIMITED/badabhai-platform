@@ -610,6 +610,12 @@ export function buildDiscoveryPlan(input: DiscoveryPlanInput): DiscoveryPlan {
         reviewed_at: null,
         review_reason: null,
         resulting_skill_id: null,
+        // EMPTY, and the pipeline can never fill it. Which trades a discovered skill belongs to
+        // is a judgement about what work a trade requires; all this run observed is where a
+        // phrase appeared. The reviewer names them on the review screen — see the
+        // `approvedJobDomainIds` docblock in `schema/skill-discovery.ts`.
+        approved_job_domain_ids: [],
+        approved_requirement: "preferred",
         // Every source phrase in this run comes from a table whose vectors are already paid
         // for; the CLI overrides this when a source without a stored vector is included.
         embedding_status: "not_required",
