@@ -1,0 +1,209 @@
+{
+  "kind": "vernacular-collision-resweep",
+  "measured_at": "2026-08-26T06:37:43.289Z",
+  "source": "pnpm db:audit:vernacular-resweep --anchor=cnc-machining",
+  "target": "SUPABASE (remote)",
+  "read_only": true,
+  "role": "postgres",
+  "bypass_rls": true,
+  "population_predicate": "every skill_alias row with a non-null embedding whose skill is active (106 probes), scored against the same population in three scopes: the cnc-machining anchor pool, each probe's own domain_id, and each probe's own domain_id excluding its own skill",
+  "embedding_model": "gemini-embedding-001",
+  "ai_spend_inr": 0,
+  "zero_spend_reason": "Every probe and candidate vector was already stored; no text was embedded.",
+  "measurement_caveat": "Query vectors are the aliases' own stored embeddings. That is the most favourable input for retrieving the alias's OWN skill, so a miss is definitive. It also means these negative ceilings are ceilings over the phrases the corpus contains — a worker paraphrase outside the corpus could score higher against a wrong skill. Each ceiling is therefore a LOWER BOUND on the true ceiling.",
+  "floor": 0.75,
+  "anchor_scope": "cnc-machining",
+  "probes": 106,
+  "recorded_2026_07_14": {
+    "labeled_domain_negative_ceiling": 0.598,
+    "sibling_confusion_ceiling": 0.722,
+    "anchor_path_negative_ceiling": 0.7263
+  },
+  "measured": {
+    "anchor_path_negative_ceiling": 0.77603404379094,
+    "labeled_domain_negative_ceiling": 0,
+    "sibling_confusion_ceiling": 0.840499714657639
+  },
+  "sibling_collisions_above_floor": [
+    {
+      "phrase": "GMAW",
+      "domain": "welding",
+      "own_skill": "skill_mig_welding",
+      "sibling_skill": "skill_arc_welding",
+      "via": "SMAW",
+      "score": 0.8405
+    },
+    {
+      "phrase": "SMAW",
+      "domain": "welding",
+      "own_skill": "skill_arc_welding",
+      "sibling_skill": "skill_mig_welding",
+      "via": "GMAW",
+      "score": 0.8405
+    },
+    {
+      "phrase": "GTAW",
+      "domain": "welding",
+      "own_skill": "skill_tig_welding",
+      "sibling_skill": "skill_mig_welding",
+      "via": "GMAW",
+      "score": 0.8355
+    },
+    {
+      "phrase": "quality check",
+      "domain": "metrology-quality",
+      "own_skill": "skill_dimensional_inspection",
+      "sibling_skill": "skill_quality_control",
+      "via": "quality check karna",
+      "score": 0.8219
+    },
+    {
+      "phrase": "quality check karna",
+      "domain": "metrology-quality",
+      "own_skill": "skill_quality_control",
+      "sibling_skill": "skill_dimensional_inspection",
+      "via": "quality check",
+      "score": 0.8219
+    },
+    {
+      "phrase": "quality control",
+      "domain": "metrology-quality",
+      "own_skill": "skill_quality_control",
+      "sibling_skill": "skill_dimensional_inspection",
+      "via": "quality check",
+      "score": 0.8083
+    },
+    {
+      "phrase": "TIG welding",
+      "domain": "welding",
+      "own_skill": "skill_tig_welding",
+      "sibling_skill": "skill_mig_welding",
+      "via": "MIG welding",
+      "score": 0.8002
+    },
+    {
+      "phrase": "MIG welding",
+      "domain": "welding",
+      "own_skill": "skill_mig_welding",
+      "sibling_skill": "skill_tig_welding",
+      "via": "TIG welding",
+      "score": 0.8002
+    },
+    {
+      "phrase": "drawing padhna",
+      "domain": "cnc-machining",
+      "own_skill": "skill_drawing_reading",
+      "sibling_skill": "skill_gdt_reading",
+      "via": "drawing reading",
+      "score": 0.7985
+    },
+    {
+      "phrase": "read engineering drawings",
+      "domain": "cnc-machining",
+      "own_skill": "skill_drawing_reading",
+      "sibling_skill": "skill_gdt_reading",
+      "via": "blueprint reading",
+      "score": 0.7985
+    },
+    {
+      "phrase": "arc welding",
+      "domain": "welding",
+      "own_skill": "skill_arc_welding",
+      "sibling_skill": "skill_tig_welding",
+      "via": "TIG welding",
+      "score": 0.7864
+    },
+    {
+      "phrase": "Fanuc controller",
+      "domain": "cnc-machining",
+      "own_skill": "skill_fanuc",
+      "sibling_skill": "skill_mitsubishi",
+      "via": "Mitsubishi controller",
+      "score": 0.765
+    },
+    {
+      "phrase": "Mitsubishi controller",
+      "domain": "cnc-machining",
+      "own_skill": "skill_mitsubishi",
+      "sibling_skill": "skill_fanuc",
+      "via": "Fanuc controller",
+      "score": 0.765
+    },
+    {
+      "phrase": "boring",
+      "domain": "cnc-machining",
+      "own_skill": "skill_boring",
+      "sibling_skill": "skill_drilling",
+      "via": "drilling",
+      "score": 0.7556
+    },
+    {
+      "phrase": "drilling",
+      "domain": "cnc-machining",
+      "own_skill": "skill_drilling",
+      "sibling_skill": "skill_boring",
+      "via": "boring",
+      "score": 0.7556
+    },
+    {
+      "phrase": "stick welding",
+      "domain": "welding",
+      "own_skill": "skill_arc_welding",
+      "sibling_skill": "skill_mig_welding",
+      "via": "MIG welding",
+      "score": 0.7501
+    }
+  ],
+  "sibling_note": "These are RUNNER-UPS, not current misassignments: each probe's own alias wins at 1.0. The figure measures margin. The 2026-07-14 calibration placed the floor above the worst sibling (0.722) so a sibling could never be assigned; that property is now gone, and it is not recoverable by fixing domain scoping because these collisions are already inside the correct domain.",
+  "labeled_domain_ceiling_is_vacuous": "0.0000 because a probe scoped to its OWN domain always matches its own alias at 1.0, so there is never a wrong top-1. The meaningful number for the correctly scoped case is the SIBLING ceiling, not this one.",
+  "duplicate_text_residue": {
+    "anchor_path": 9,
+    "labeled_domain": 2,
+    "sibling": 8,
+    "ceiling": 1,
+    "distinct_phrases": [
+      "CAD",
+      "GD&T",
+      "blueprint reading",
+      "drawing padhna",
+      "drawing reading",
+      "geometric dimensioning and tolerancing",
+      "read engineering drawings",
+      "technical drawing"
+    ]
+  },
+  "floor_clears_all_three": false,
+  "above_floor_counts": {
+    "anchor_path": 3,
+    "labeled_domain": 0,
+    "sibling": 16
+  },
+  "anchor_path_collisions_above_floor": [
+    {
+      "phrase": "welding ka kaam",
+      "home_domain": "welding",
+      "wanted": "skill_welder_occupation",
+      "got": "skill_drilling",
+      "via": "drilling ka kaam",
+      "score": 0.776
+    },
+    {
+      "phrase": "fitting ka kaam",
+      "home_domain": "fitting-assembly",
+      "wanted": "skill_bench_fitting",
+      "got": "skill_drilling",
+      "via": "drilling ka kaam",
+      "score": 0.7621
+    },
+    {
+      "phrase": "dimensional inspection",
+      "home_domain": "metrology-quality",
+      "wanted": "skill_dimensional_inspection",
+      "got": "skill_drawing_reading",
+      "via": "geometric dimensioning and tolerancing",
+      "score": 0.757
+    }
+  ],
+  "labeled_domain_collisions_above_floor": [],
+  "production_mutation_performed": false
+}
