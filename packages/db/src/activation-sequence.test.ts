@@ -153,42 +153,48 @@ describe("the real sequence", () => {
 });
 
 describe("where the sequence stops today", () => {
-  it("it stops at step 5 — the corpus rulings landed 2026-08-26, the evidence has not", () => {
-    // It used to stop at step 3, because every corpus ruling was outstanding. D-7A, D-7C-1a,
-    // D-7C-1b and 5a-2 were all ruled on 2026-08-26, which released steps 3 and 4. What stops
-    // it now is FRESH-EVIDENCE: it needs the NO_REGRESSION semantics ruling AND paid spend.
+  it("it stops at step 6 — everything up to and including the evidence is done", () => {
+    // Step 3 -> step 5 -> step 6 over one day. The corpus rulings released steps 3 and 4, the
+    // writes were applied, and the fingerprinted evidence was produced (the evaluation for
+    // nothing, the sweep for ₹0.0035). It stops at CLEAR-FLOOR-GATE, and NOT for want of
+    // evidence: 62 of 96 clear every gate, 34 do not, and the batch is all-or-nothing.
     const stop = stopsAt(ACTIVATION_SEQUENCE, PROGRAMME);
-    expect(stop?.id).toBe("FRESH-EVIDENCE");
-    expect(stop?.order).toBe(5);
+    expect(stop?.id).toBe("CLEAR-FLOOR-GATE");
+    expect(stop?.order).toBe(6);
   });
 
-  it("READY IS NOT PERMITTED — two of the ready steps still need a production authorization", () => {
-    // The distinction the whole plan turns on, and it became load-bearing the moment the
-    // rulings landed. `readyNow` answers "are this step's DECISIONS made"; it says nothing
-    // about whether anyone may run it. ALIAS-CLEANUP and D7C-SEED are ready in the graph's
-    // terms and are still gated on a human signal that no decision supplies.
+  it("READY IS NOT PERMITTED — the steps already performed stay in the list, and PROMOTE is not in it", () => {
+    // `readyNow` answers "are this step's DECISIONS made", not "may anyone run it" and not
+    // "has it been run". The first four remain ready because their preconditions are complete;
+    // three of them have in fact been performed. The one that matters is PROMOTE's ABSENCE.
     const ready = readyNow(ACTIVATION_SEQUENCE, PROGRAMME).map((s) => s.id);
-    expect(ready).toEqual(["READ-FLAG", "RULE-DECISIONS", "ALIAS-CLEANUP", "D7C-SEED", "OBSERVE"]);
+    expect(ready).toContain("ALIAS-CLEANUP");
+    expect(ready).toContain("D7C-SEED");
+    expect(ready).toContain("FRESH-EVIDENCE");
+    expect(ready).not.toContain("CLEAR-FLOOR-GATE");
+    expect(ready).not.toContain("PROMOTE");
+    expect(ready).not.toContain("ENABLE-CANONICALIZATION");
 
+    // Every ready step that writes still names both halves of a procedure and still runs
+    // behind the two-signal ops guard. Being ready never removed the signals.
     const readyWrites = ready
       .map((id) => ACTIVATION_SEQUENCE.find((x) => x.id === id)!)
       .filter((s) => s.authorisation === "PRODUCTION_WRITE");
     expect(readyWrites.map((s) => s.id)).toEqual(["ALIAS-CLEANUP", "D7C-SEED"]);
-    // Each still names both halves of a procedure, and each still runs behind the ops guard.
     for (const s of readyWrites) {
       expect(s.rollback, s.id).not.toBeNull();
       expect(s.runner, s.id).toMatch(/--i-am-authorised-to-write-to-production/);
     }
   });
 
-  it("and nothing on the promotion or activation path became ready", () => {
-    // The rulings released corpus steps only. PROMOTE and ENABLE-CANONICALIZATION are exactly
-    // as far away as they were.
+  it("and the ACTIVATION itself is still not ready — which is the whole point", () => {
+    // Six of nine steps are now reachable. The last two are not, and no amount of engineering
+    // moves them: CLEAR-FLOOR-GATE waits on the below-floor skills and ENABLE-CANONICALIZATION
+    // waits on a promotion that has not happened.
     const ready = new Set(readyNow(ACTIVATION_SEQUENCE, PROGRAMME).map((s) => s.id));
+    expect(ready.has("CLEAR-FLOOR-GATE")).toBe(false);
     expect(ready.has("PROMOTE")).toBe(false);
     expect(ready.has("ENABLE-CANONICALIZATION")).toBe(false);
-    expect(ready.has("FRESH-EVIDENCE")).toBe(false);
-    expect(ready.has("CLEAR-FLOOR-GATE")).toBe(false);
   });
 });
 
