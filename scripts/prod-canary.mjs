@@ -117,7 +117,8 @@ export const OPS_ROUTES = [
   ["POST", `/unlocks/${ABSENT_ID}/reveal`, {}],
   ["GET", `/payers/${ABSENT_ID}/credits`],
   ["POST", `/payers/${ABSENT_ID}/credits`, {}],
-  ["POST", `/payers/${ABSENT_ID}/capacity`, {}],
+  // #1166 (2026-08-26): `POST /payers/:payerId/capacity` was retired outright (no caller,
+  // duplicated the live payer-self `/payer/capacity` route) — do not re-add it here.
   ["GET", "/resume-disclosures?limit=1"],
   ["POST", "/resume-disclosures", {}],
 

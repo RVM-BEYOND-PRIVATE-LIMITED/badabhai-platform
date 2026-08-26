@@ -166,12 +166,11 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | POST | /payer/test-login | PayerTestLoginGuard | C | staging/e2e |
 | POST | /payer/refresh, /logout | PayerAuthGuard | A | |
 | GET/PATCH | /payer/me | PAG | A | |
-| GET/POST | /payer/capacity | PAG | A | mock payment |
+| GET/POST | /payer/capacity | PAG | A | mock payment; sole route onto capacity — the ops `POST /payers/:payerId/capacity` (ISG) was retired 2026-08-26, #1166, no caller |
 | GET/POST | /payer/resume-disclosures | PAG | A | Storage (masked PDF) |
 | POST/GET | /resume-disclosures | ISG | D | interim ops seam, superseded by payer path |
 | POST/GET | /payer/job-posting-chat/{session,message,sessions,sessions/:id/messages,sessions/:id/publish} | PAG | A | ai-service |
 | POST/GET/PATCH | /payer/job-postings(/:id)(/close/pause/resume/plan/boost/quota-topup) | PAG | A | mock payment on plan/boost/quota-topup |
-| POST | /payers/:payerId/capacity | ISG | D | superseded by /payer/capacity |
 | POST | /job-postings/:id/{plan,boost} | ISG | D | `@deprecated` in its own docstring |
 | GET/PUT | /pricing/catalog, GET /pricing/quote | ISG | B | called by apps/web; was R31 (closed 2026-08-01) |
 | GET | /payer/pricing/catalog | PAG | A | |

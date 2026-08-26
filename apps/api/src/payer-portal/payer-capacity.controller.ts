@@ -18,11 +18,15 @@ import { BuyCapacitySchema, type BuyCapacityDto } from "../posting-plans/posting
 
 /**
  * Payer-SELF hiring-capacity surface (ADR-0019 + ADR-0016). A payer may view and buy
- * THEIR OWN capacity allowance. DISTINCT from the ops {@link import("../posting-plans/capacity.controller").CapacityController}
- * (InternalServiceGuard, ADVISORY `:payerId` param): this group is behind
- * {@link PayerAuthGuard} and the `payer_id` is ALWAYS the verified session payer
- * (`req.payer.id`) — there is NO `:payerId` param and the body carries NO `payer_id`,
- * so a payer can never act under another payer's id (XB-A, the IDOR guarantee).
+ * THEIR OWN capacity allowance. This group is behind {@link PayerAuthGuard} and the
+ * `payer_id` is ALWAYS the verified session payer (`req.payer.id`) — there is NO
+ * `:payerId` param and the body carries NO `payer_id`, so a payer can never act under
+ * another payer's id (XB-A, the IDOR guarantee).
+ *
+ * #1166 (2026-08-26): this is now the ONLY route onto {@link PostingPlansService}'s
+ * capacity surface — the ops `CapacityController` (`InternalServiceGuard`, ADVISORY
+ * `:payerId` param) that used to sit alongside it was RETIRED (no caller anywhere in the
+ * repo; see the module docstring in `posting-plans.module.ts`).
  *
  * Thin HTTP only: validation via {@link ZodValidationPipe}; the price resolution, the
  * mock payment (PAYMENTS_ENABLE_REAL=false / real_call honest), the advisory-locked
