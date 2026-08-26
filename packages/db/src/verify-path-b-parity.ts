@@ -52,6 +52,11 @@ import { config } from "dotenv";
 import { createDbClient } from "./client";
 import { hostClass } from "./audit-embedding-provenance";
 
+// The repository-root file first, as the other db runners do. `pnpm db:*` runs with
+// cwd = packages/db, where a bare `config()` finds nothing, and this runner reads
+// DATABASE_URL straight from the environment. dotenv never overwrites an already-set
+// variable, so a real environment (CI, a container) still wins.
+config({ path: "../../.env" });
 config();
 
 const SCRIPT = "verify:path-b-parity";

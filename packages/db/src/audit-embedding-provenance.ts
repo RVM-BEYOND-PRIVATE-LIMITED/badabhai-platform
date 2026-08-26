@@ -53,6 +53,11 @@ import { createDbClient } from "./client";
 import { hostClass } from "./ops-guard";
 import { classifyEmbedding, corpusBlockReason, type ProvenanceReport } from "./taxonomy-retrieval-eval";
 
+// The repository-root file first, as the other db runners do. `pnpm db:*` runs with
+// cwd = packages/db, where a bare `config()` finds nothing, and this runner reads
+// DATABASE_URL straight from the environment. dotenv never overwrites an already-set
+// variable, so a real environment (CI, a container) still wins.
+config({ path: "../../.env" });
 config();
 
 const SCRIPT = "audit:embeddings";
