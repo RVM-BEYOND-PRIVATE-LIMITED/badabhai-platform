@@ -1,0 +1,309 @@
+{
+  "kind": "skill-lifecycle",
+  "measured_at": "2026-08-26T11:06:45.066Z",
+  "source": "pnpm db:audit:skill-lifecycle",
+  "target": "SUPABASE (remote)",
+  "read_only": true,
+  "role": "postgres",
+  "bypass_rls": true,
+  "population_predicate": "every table on the taxonomy spine (job_domain, job_domain_alias, job_domain_skill, skill, skill_alias, unresolved_phrase) plus the three consumption tables and the mining input, counted whole with no sampling",
+  "ai_spend_inr": 0,
+  "production_mutation_performed": false,
+  "growth_floor": 3,
+  "population": {
+    "jd_total": 4071,
+    "jd_selectable_active": 3885,
+    "jda_total": 9121,
+    "jda_searchable": 5086,
+    "jda_embedded": 9121,
+    "jds_edges": 236,
+    "jds_domains": 28,
+    "jds_skills": 130,
+    "jds_domains_with_active_skill": 19,
+    "skill_total": 165,
+    "skill_active_attr": 34,
+    "skill_provisional_attr": 111,
+    "skill_deprecated": 2,
+    "skill_match": 18,
+    "sa_total": 336,
+    "sa_normalized": 197,
+    "sa_embedded": 336,
+    "sa_slug": 139,
+    "sa_pathb": 106,
+    "sa_patha": 330,
+    "up_skill": 7,
+    "up_occupation": 40,
+    "up_at_floor": 0,
+    "chat_inbound": 232,
+    "chat_sessions": 14,
+    "worker_skill": 0,
+    "worker_profile_skill": 0,
+    "job_posting_skill": 0
+  },
+  "stages": [
+    {
+      "stage": "occupation catalogue",
+      "n": 3885,
+      "of": 4071,
+      "note": "selectable + active"
+    },
+    {
+      "stage": "occupation aliases",
+      "n": 5086,
+      "of": 9121,
+      "note": "is_searchable — the partial HNSW index"
+    },
+    {
+      "stage": "  ...embedded",
+      "n": 9121,
+      "of": 9121,
+      "note": "one model throughout"
+    },
+    {
+      "stage": "BRIDGE job_domain_skill",
+      "n": 28,
+      "of": 3885,
+      "note": "domains with ANY edge"
+    },
+    {
+      "stage": "  ...that can answer",
+      "n": 19,
+      "of": 3885,
+      "note": "edge active AND skill active AND alias embedded"
+    },
+    {
+      "stage": "skill catalogue",
+      "n": 34,
+      "of": 165,
+      "note": "active attribute; 111 provisional, 18 match_skill, 2 deprecated"
+    },
+    {
+      "stage": "skill aliases",
+      "n": 336,
+      "of": 336,
+      "note": "197 normalized, 336 embedded"
+    },
+    {
+      "stage": "  ...reachable via Path B",
+      "n": 106,
+      "of": 336,
+      "note": "legacy slug scope"
+    },
+    {
+      "stage": "  ...reachable via Path A",
+      "n": 330,
+      "of": 336,
+      "note": "job_domain_skill scope"
+    },
+    {
+      "stage": "miss queue (skill)",
+      "n": 7,
+      "of": 47,
+      "note": "written at runtime by the api"
+    },
+    {
+      "stage": "miss queue (occupation)",
+      "n": 40,
+      "of": 47,
+      "note": "written at runtime by the api"
+    },
+    {
+      "stage": "  ...at the growth floor",
+      "n": 0,
+      "of": 47,
+      "note": "count >= 3"
+    },
+    {
+      "stage": "mining input",
+      "n": 232,
+      "of": 232,
+      "note": "14 distinct sessions"
+    },
+    {
+      "stage": "CONSUMPTION worker_skill",
+      "n": 0,
+      "of": null,
+      "note": "what canonicalization is for"
+    },
+    {
+      "stage": "CONSUMPTION worker_profile_skill",
+      "n": 0,
+      "of": null,
+      "note": ""
+    },
+    {
+      "stage": "CONSUMPTION job_posting_skill",
+      "n": 0,
+      "of": null,
+      "note": "the demand side"
+    }
+  ],
+  "writers": {
+    "skill": [
+      "promote-skills.ts",
+      "s3d-rollback.ts",
+      "seed-deprecations.ts",
+      "seed-domain-skills.ts",
+      "seed-match-vocabulary.ts",
+      "seed-skills.ts"
+    ],
+    "skill_alias": [
+      "decollide-skill-aliases.ts",
+      "embed-skill-aliases.ts",
+      "normalize-skill-aliases.ts",
+      "retag-skills.ts",
+      "s3d-rollback.ts",
+      "seed-domain-skills.ts",
+      "seed-skills.ts",
+      "verify-embedding-provenance.ts"
+    ],
+    "job_domain": [
+      "seed-job-domains.ts"
+    ],
+    "job_domain_alias": [
+      "embed-job-domain-aliases.ts",
+      "normalize-job-domain-aliases.ts",
+      "seed-job-domains.ts"
+    ],
+    "job_domain_skill": [
+      "seed-domain-skills.ts"
+    ],
+    "unresolved_phrase": [
+      "growth-cluster.ts",
+      "growth-occupation.ts",
+      "verify-unresolved-write.ts"
+    ]
+  },
+  "writer_scan_scope": "packages/db/src only — the runtime unresolved_phrase writer lives in apps/api",
+  "cross_vocabulary_writers": [],
+  "paths": [
+    {
+      "id": "P1-CATALOGUE",
+      "title": "Hand-authored SKILL_CORPUS -> skill + skill_alias",
+      "origin": "HAND_AUTHORED",
+      "produces": "skill_alias",
+      "steps": 4,
+      "automatic_prefix": 0,
+      "human_gates": 2,
+      "reaches_product_automatically": false,
+      "ever_completed": "Yes. 234 of 336 live skill_alias rows carry source='rvm', and all 22 ratified wedge aliases are present and embedded (re-verified read-only 2026-08-26)."
+    },
+    {
+      "id": "P2-BATCH",
+      "title": "Model-drafted domain->skill batch -> skill + skill_alias + job_domain_skill",
+      "origin": "MODEL_DRAFT",
+      "produces": "job_domain_skill",
+      "steps": 6,
+      "automatic_prefix": 3,
+      "human_gates": 1,
+      "reaches_product_automatically": false,
+      "ever_completed": "Once. One batch directory (2026-08-16) plus two remediations produced 106 skills and 244 edges; 197 skill_alias rows landed 2026-08-20."
+    },
+    {
+      "id": "P3-SKILL-GROWTH",
+      "title": "Below-floor skill phrase -> clustered proposal -> ratified wedge alias",
+      "origin": "WORKER_UTTERANCE",
+      "produces": "skill_alias",
+      "steps": 5,
+      "automatic_prefix": 2,
+      "human_gates": 2,
+      "reaches_product_automatically": false,
+      "ever_completed": "No. The queue holds 7 skill-scope rows (2026-08-26); the runner has never been run against production and no proposal has ever been generated from it."
+    },
+    {
+      "id": "P4-OCCUPATION-GROWTH",
+      "title": "Unmatched occupation phrase -> ranked packet -> rvm alias",
+      "origin": "WORKER_UTTERANCE",
+      "produces": "job_domain_alias",
+      "steps": 4,
+      "automatic_prefix": 2,
+      "human_gates": 1,
+      "reaches_product_automatically": false,
+      "ever_completed": "No. 40 occupation-scope rows are queued (2026-08-26) and every one has count = 1, below the default promotion floor of 3, so the runner would emit zero proposals."
+    },
+    {
+      "id": "P5-MINING",
+      "title": "Inbound chat n-grams -> occupation alias candidates",
+      "origin": "WORKER_UTTERANCE",
+      "produces": "job_domain_alias",
+      "steps": 4,
+      "automatic_prefix": 2,
+      "human_gates": 1,
+      "reaches_product_automatically": false,
+      "ever_completed": "The generator now runs (232 inbound messages, 2026-08-26) but no candidate has ever been accepted into rvm-aliases.jsonl from it."
+    }
+  ],
+  "fully_automatic_paths": [],
+  "scopes_with_vocabulary": [
+    {
+      "domain_id": "cnc-machining",
+      "aliases": 37,
+      "embedded": 37
+    },
+    {
+      "domain_id": "cnc-programming",
+      "aliases": 28,
+      "embedded": 28
+    },
+    {
+      "domain_id": "fitting-assembly",
+      "aliases": 25,
+      "embedded": 25
+    },
+    {
+      "domain_id": "metrology-quality",
+      "aliases": 14,
+      "embedded": 14
+    },
+    {
+      "domain_id": "welding",
+      "aliases": 10,
+      "embedded": 10
+    },
+    {
+      "domain_id": "fabrication",
+      "aliases": 10,
+      "embedded": 10
+    },
+    {
+      "domain_id": "maintenance",
+      "aliases": 5,
+      "embedded": 5
+    },
+    {
+      "domain_id": "grinding",
+      "aliases": 5,
+      "embedded": 5
+    },
+    {
+      "domain_id": "vmc-machining",
+      "aliases": 3,
+      "embedded": 3
+    },
+    {
+      "domain_id": "general-machining",
+      "aliases": 2,
+      "embedded": 2
+    }
+  ],
+  "scopes_requested_with_no_vocabulary": [
+    {
+      "domain_id": "electrical",
+      "misses": 1,
+      "first_seen": "2026-08-24",
+      "last_seen": "2026-08-24"
+    },
+    {
+      "domain_id": "plumbing",
+      "misses": 1,
+      "first_seen": "2026-08-24",
+      "last_seen": "2026-08-24"
+    },
+    {
+      "domain_id": "carpentry",
+      "misses": 1,
+      "first_seen": "2026-08-24",
+      "last_seen": "2026-08-24"
+    }
+  ]
+}
