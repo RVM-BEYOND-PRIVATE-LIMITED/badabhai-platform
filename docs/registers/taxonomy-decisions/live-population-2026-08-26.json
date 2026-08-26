@@ -1,0 +1,236 @@
+{
+  "kind": "live-population",
+  "measured_at": "2026-08-26T09:42:24.377Z",
+  "source": "pnpm db:audit:live-population",
+  "target": "SUPABASE (remote)",
+  "read_only": true,
+  "role": "postgres",
+  "bypass_rls": true,
+  "population_predicate": "whole-table counts on the identity and relevance-chain tables, plus created_at histograms and every _delete_forensics row; no PII column is selected",
+  "ai_spend_inr": 0,
+  "counts": {
+    "workers": 37,
+    "worker_profiles": 22,
+    "worker_skill": 0,
+    "job_reach": 0,
+    "jobs": 19,
+    "open_jobs": 17,
+    "applications": 28,
+    "job_posting_skill": 0,
+    "voice_notes": 0,
+    "skills_total": 165,
+    "skills_active": 52,
+    "skills_provisional": 111,
+    "skills_deprecated": 2,
+    "match_skill_rows": 18
+  },
+  "recorded_previously": {
+    "2026-08-21 (d1-runtime-path-trace, PRE-deletion)": {
+      "workers": null,
+      "worker_profiles": 44,
+      "worker_skill": 8,
+      "job_reach": 6,
+      "jobs": null,
+      "applications": null,
+      "job_posting_skill": 0
+    },
+    "2026-08-24 (project-control)": {
+      "workers": 1,
+      "worker_profiles": null,
+      "worker_skill": 8,
+      "job_reach": 0,
+      "jobs": 25,
+      "applications": 92,
+      "job_posting_skill": 0
+    }
+  },
+  "arrivals_workers": [
+    {
+      "day": "2026-08-21",
+      "n": 7
+    },
+    {
+      "day": "2026-08-22",
+      "n": 17
+    },
+    {
+      "day": "2026-08-23",
+      "n": 7
+    },
+    {
+      "day": "2026-08-24",
+      "n": 3
+    },
+    {
+      "day": "2026-08-25",
+      "n": 3
+    }
+  ],
+  "arrivals_worker_profiles": [
+    {
+      "day": "2026-08-21",
+      "n": 6
+    },
+    {
+      "day": "2026-08-22",
+      "n": 8
+    },
+    {
+      "day": "2026-08-23",
+      "n": 2
+    },
+    {
+      "day": "2026-08-24",
+      "n": 3
+    },
+    {
+      "day": "2026-08-25",
+      "n": 3
+    }
+  ],
+  "departures": [
+    {
+      "table_name": "worker_profiles",
+      "day": "2026-08-21",
+      "app_name": "supabase/dashboard",
+      "db_user": "postgres",
+      "n": 45
+    },
+    {
+      "table_name": "workers",
+      "day": "2026-08-21",
+      "app_name": "supabase/dashboard",
+      "db_user": "postgres",
+      "n": 119
+    },
+    {
+      "table_name": "worker_profiles",
+      "day": "2026-08-19",
+      "app_name": "supabase/dashboard",
+      "db_user": "postgres",
+      "n": 25
+    },
+    {
+      "table_name": "workers",
+      "day": "2026-08-19",
+      "app_name": "supabase/dashboard",
+      "db_user": "postgres",
+      "n": 70
+    },
+    {
+      "table_name": "worker_profiles",
+      "day": "2026-08-18",
+      "app_name": "supabase/dashboard",
+      "db_user": "postgres",
+      "n": 4
+    },
+    {
+      "table_name": "workers",
+      "day": "2026-08-18",
+      "app_name": "supabase/dashboard",
+      "db_user": "postgres",
+      "n": 8
+    },
+    {
+      "table_name": "worker_profiles",
+      "day": "2026-08-17",
+      "app_name": "supabase/dashboard",
+      "db_user": "postgres",
+      "n": 4
+    },
+    {
+      "table_name": "workers",
+      "day": "2026-08-17",
+      "app_name": "supabase/dashboard",
+      "db_user": "postgres",
+      "n": 9
+    },
+    {
+      "table_name": "worker_profiles",
+      "day": "2026-08-14",
+      "app_name": "supabase/dashboard",
+      "db_user": "postgres",
+      "n": 5
+    },
+    {
+      "table_name": "workers",
+      "day": "2026-08-14",
+      "app_name": "supabase/dashboard",
+      "db_user": "postgres",
+      "n": 11
+    },
+    {
+      "table_name": "worker_profiles",
+      "day": "2026-08-13",
+      "app_name": "supabase/dashboard",
+      "db_user": "postgres",
+      "n": 5
+    },
+    {
+      "table_name": "workers",
+      "day": "2026-08-13",
+      "app_name": "supabase/dashboard",
+      "db_user": "postgres",
+      "n": 6
+    }
+  ],
+  "departures_total": 311,
+  "departures_via_dashboard": 311,
+  "forensics_covers_tables": [
+    "worker_profiles",
+    "workers"
+  ],
+  "forensics_coverage_caveat": "The delete-forensics trigger exists on workers and worker_profiles only. For any other table, an empty departure list is the absence of a TRIGGER and not evidence that nothing was deleted.",
+  "candidate_readings_of_recorded_figures": {
+    "workers_before_0824": 31,
+    "profiles_before_0824": 16,
+    "workers_with_application": 5,
+    "workers_with_profile": 20,
+    "profiles_with_job_domain": 10
+  },
+  "predicates_yielding_one_worker": [],
+  "jobs_by_created_at": [
+    {
+      "day": "2026-06-19",
+      "n": 17
+    },
+    {
+      "day": "2026-08-05",
+      "n": 2
+    }
+  ],
+  "worker_profile_job_domain_matches": [
+    {
+      "status": "matched_lexical",
+      "layer": "l0_exact",
+      "first_day": "2026-08-22",
+      "last_day": "2026-08-25",
+      "n": 5
+    },
+    {
+      "status": "matched_worker_confirmed",
+      "layer": null,
+      "first_day": "2026-08-22",
+      "last_day": "2026-08-25",
+      "n": 3
+    },
+    {
+      "status": "matched_lexical",
+      "layer": "l2_trigram",
+      "first_day": "2026-08-21",
+      "last_day": "2026-08-22",
+      "n": 2
+    }
+  ],
+  "worker_profiles_with_embedding": 0,
+  "ann_layer_matches": 0,
+  "domain_match_note": "job_domain_id is set on worker profiles by the domain resolver. Every recorded match is lexical (l0_exact / l2_trigram) or worker-confirmed; none is via an ANN layer, and no profile carries an embedding. Consistent with DOMAIN_MATCH_ENABLED being false, and not mentioned by the 'nothing is connected' summary.",
+  "reconciliation": {
+    "workers_recorded_2026_08_24": 1,
+    "workers_created_on_or_after_2026_08_24": 6,
+    "workers_now": 37,
+    "explained_by_arrivals": false
+  },
+  "historical_documents_edited": false,
+  "production_mutation_performed": false
+}
