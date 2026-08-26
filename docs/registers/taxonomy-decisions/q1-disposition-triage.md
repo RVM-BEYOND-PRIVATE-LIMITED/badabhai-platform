@@ -26,7 +26,7 @@ REVIEW                       16
 it is what the vocabulary supports.
 
 **8 of 13 trade families have no `mskill_*` at all**, covering **62 of the 96 skills**:
-electrical (11), warehouse (11), masonry (9), HVAC (10), automotive service (6), battery (6),
+electrical (11), warehouse (11), masonry (9), HVAC (10), automotive service (7), battery (6),
 assembly (4), sheet metal (4). There is no electrician, no mason, no warehouse operative, no
 AC technician and no auto mechanic in the match vocabulary. Those 62 are not a backlog of
 mappings waiting to be made; they are **a finding about the vocabulary's coverage**.
