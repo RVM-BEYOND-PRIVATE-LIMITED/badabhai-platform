@@ -1,5 +1,5 @@
 {
-  "id": "32ae00fc-6657-4702-add6-47dbaa423a14",
+  "id": "4926fc6b-eb91-4a6b-b2f5-944498ea9db3",
   "prevId": "a9235464-b79e-4aa8-99ab-55caf080b213",
   "version": "7",
   "dialect": "postgresql",
@@ -2711,6 +2711,42 @@
               "expression": "trade_family",
               "isExpression": false,
               "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "skill_candidate_admin_keyset_idx": {
+          "name": "skill_candidate_admin_keyset_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "first"
+            },
+            {
+              "expression": "candidate_id",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "first"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "skill_candidate_norm_prefix_idx": {
+          "name": "skill_candidate_norm_prefix_idx",
+          "columns": [
+            {
+              "expression": "\"normalized_phrase\" text_pattern_ops",
+              "asc": true,
+              "isExpression": true,
               "nulls": "last"
             }
           ],

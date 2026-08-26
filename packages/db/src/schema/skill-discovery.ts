@@ -408,6 +408,50 @@ export const skillCandidates = pgTable(
     index("skill_candidate_reviewer_idx").on(t.reviewerAdminId),
     /** The report's per-family breakdown. */
     index("skill_candidate_family_idx").on(t.tradeFamily),
+    /**
+     * THE ADMIN QUEUE'S KEYSET WALK — `(created_at DESC, candidate_id DESC)`.
+     *
+     * `skill_candidate_queue_idx` above serves the FILTER (`status`, `band`) and cannot serve the
+     * ORDER: the admin review page is `ORDER BY created_at DESC, candidate_id DESC LIMIT n+1`, so
+     * without this the default page is a full sort of the table — and the table is 6,673 rows on
+     * a single run, growing per run.
+     *
+     * `.nullsFirst()` IS LOAD-BEARING, and it is invisible in a diff and silent in production —
+     * the `chat_messages_session_created_idx` lesson (migration 0067), repeated at
+     * `worker_feedback_admin_keyset_idx` (schema/feedback.ts:90-104) and now a third time.
+     * Drizzle's bare `desc()` in the repository emits no NULLS clause, which Postgres reads as
+     * DESC NULLS FIRST; an index built by `.desc()` alone is DESC NULLS LAST and does NOT satisfy
+     * that ordering. The planner then keeps the index for the filter and inserts a Sort anyway,
+     * which is the entire cost this index exists to remove. Both columns are NOT NULL, so this
+     * changes no result — only the plan.
+     *
+     * THE TIE-BREAKER IS DOING MORE WORK HERE THAN ANYWHERE ELSE IN THE SCHEMA. A whole run's
+     * candidates are inserted in one statement and share ONE `created_at`, so at a page boundary
+     * the keyset predicate's equality branch is the only branch that can be true — the timestamp
+     * alone would page 6,673 identical values.
+     */
+    index("skill_candidate_admin_keyset_idx").on(
+      t.createdAt.desc().nullsFirst(),
+      t.candidateId.desc().nullsFirst(),
+    ),
+    /**
+     * THE REVIEWER'S `?phrase=` LOOKUP — an ANCHORED prefix on `normalized_phrase`.
+     *
+     * `text_pattern_ops` and not the default `text_ops`, and that is the whole point of the
+     * index: a btree built with the collation-aware default CANNOT serve `LIKE 'welding%'` unless
+     * the database was initialised with the C locale, which this one was not. The operator class
+     * compares byte by byte, which is exactly what an anchored `LIKE` needs.
+     *
+     * IT IS ALSO WHAT KEEPS THE ANCHOR HONEST RATHER THAN MERELY POLITE. The API refuses a
+     * leading wildcard (`prefixPattern` escapes `%` and `_` before appending its own `%`) because
+     * an unanchored substring search over a corpus containing worker-derived wording is a
+     * discovery tool no matter how the column is described. This index is the reason the anchored
+     * form is also the FAST form, so nobody has a performance argument for widening it later.
+     */
+    index("skill_candidate_norm_prefix_idx").using(
+      "btree",
+      sql`${t.normalizedPhrase} text_pattern_ops`,
+    ),
 
     check(
       "skill_candidate_status_chk",

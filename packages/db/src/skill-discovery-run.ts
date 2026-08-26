@@ -87,13 +87,13 @@ export function discoveryInputFingerprint(
     corpus.job_domain_skill,
     corpus.job_domain,
     corpus.job_domain_alias,
-  ].join("");
+  ].join("\u0001");
   const configPart = Object.keys(config)
     .sort()
     .map((k) => `${k}=${JSON.stringify(config[k])}`)
-    .join("");
+    .join("\u0001");
   return createHash("sha256")
-    .update([corpusPart, headLexiconFingerprint(lexicon), configPart].join(""))
+    .update([corpusPart, headLexiconFingerprint(lexicon), configPart].join("\u0002"))
     .digest("hex")
     .slice(0, 32);
 }

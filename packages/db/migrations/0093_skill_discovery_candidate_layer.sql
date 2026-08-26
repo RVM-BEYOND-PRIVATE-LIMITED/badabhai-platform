@@ -78,6 +78,34 @@
 --   * NO writer for `skill`, `skill_alias` or `job_domain_skill`. This layer proposes.
 --
 -- ===========================================================================
+-- TWO INDEXES EXIST FOR THE ADMIN REVIEW QUEUE AND NOT FOR THE PIPELINE
+-- ===========================================================================
+--   skill_candidate_admin_keyset_idx     (created_at DESC NULLS FIRST,
+--                                         candidate_id DESC NULLS FIRST)
+-- `skill_candidate_queue_idx` serves the queue's FILTER and cannot serve its ORDER, so without
+-- this the default admin page is a full sort of the table. NULLS FIRST is load-bearing and
+-- invisible in a diff: drizzle's bare `desc()` in the repository emits no NULLS clause, which
+-- Postgres reads as DESC NULLS FIRST, and an index built NULLS LAST does not satisfy that
+-- ordering — the planner keeps the index for the filter and adds a Sort anyway, which is the
+-- entire cost the index exists to remove (the 0067 lesson, repeated at 0086's
+-- worker_feedback_admin_keyset_idx). Both columns are NOT NULL, so this changes no result.
+--
+-- The tie-breaker does more work here than anywhere else in the schema: a whole run's
+-- candidates are inserted in ONE statement and share one `created_at`, so at a page boundary
+-- the keyset predicate's equality branch is the only branch that can be true.
+--
+--   skill_candidate_norm_prefix_idx      (normalized_phrase text_pattern_ops)
+-- `text_pattern_ops` and not the default: a btree built with the collation-aware operator class
+-- cannot serve `LIKE 'welding%'` unless the cluster was initialised in the C locale, which this
+-- one was not. It is also what keeps the API's anchored-prefix rule honest rather than merely
+-- polite — the anchored form is now the FAST form, so nobody has a performance argument for
+-- widening it into the leading-wildcard substring search this surface refuses.
+--
+-- Both are additive to a migration that has never been applied, which is the cheapest moment
+-- they will ever be: adding them later is two CREATE INDEX CONCURRENTLY statements against a
+-- table that by then holds a run's worth of rows.
+--
+-- ===========================================================================
 -- PRIVACY
 -- ===========================================================================
 -- `skill_candidate_source.original_text` is the one column that can carry worker free text,
@@ -216,6 +244,8 @@ CREATE INDEX "skill_candidate_run_id_idx" ON "skill_candidate" USING btree ("run
 CREATE INDEX "skill_candidate_resulting_skill_idx" ON "skill_candidate" USING btree ("resulting_skill_id");--> statement-breakpoint
 CREATE INDEX "skill_candidate_reviewer_idx" ON "skill_candidate" USING btree ("reviewer_admin_id");--> statement-breakpoint
 CREATE INDEX "skill_candidate_family_idx" ON "skill_candidate" USING btree ("trade_family");--> statement-breakpoint
+CREATE INDEX "skill_candidate_admin_keyset_idx" ON "skill_candidate" USING btree ("created_at" DESC NULLS FIRST,"candidate_id" DESC NULLS FIRST);--> statement-breakpoint
+CREATE INDEX "skill_candidate_norm_prefix_idx" ON "skill_candidate" USING btree ("normalized_phrase" text_pattern_ops);--> statement-breakpoint
 CREATE INDEX "skill_discovery_run_status_idx" ON "skill_discovery_run" USING btree ("status","started_at");--> statement-breakpoint
 CREATE INDEX "skill_discovery_run_fingerprint_idx" ON "skill_discovery_run" USING btree ("input_fingerprint");
 

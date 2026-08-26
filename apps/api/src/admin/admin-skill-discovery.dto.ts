@@ -737,19 +737,20 @@ const statusFilter = z
  * Migration 0093 ships `skill_candidate_queue_idx (status, confidence_band,
  * source_domain_count)`, `skill_candidate_run_id_idx`, `skill_candidate_family_idx
  * (trade_family)`, `skill_candidate_reviewer_idx`, `skill_candidate_resulting_skill_idx` and the
- * UNIQUE `skill_candidate_run_cluster_uq (run_id, cluster_key)`. It ships NO keyset index on
- * `(created_at, id)` and NO index on `normalized_phrase`. So:
- *
- *   * the default page order is currently a SORT over the table, not an index walk;
- *   * `phrase` is currently a scan.
- *
- * Two owed indexes, named here so the gap is a task rather than a surprise:
+ * UNIQUE `skill_candidate_run_cluster_uq (run_id, cluster_key)`, and — added while wiring this
+ * surface up, because the queue read is the only thing that needs them —
  * `skill_candidate_admin_keyset_idx (created_at DESC NULLS FIRST, candidate_id DESC NULLS FIRST)`
- * and a `text_pattern_ops` index on `normalized_phrase` for the anchored prefix. `.nullsFirst()`
- * is load-bearing on the first one — drizzle's bare `desc()` renders `DESC NULLS FIRST`, and an
- * index built `NULLS LAST` does not satisfy it, so the planner keeps the index for the filter and
- * adds a Sort anyway (packages/db/src/schema/feedback.ts:95-104). Both are additive to a
- * migration that is authored-but-unapplied, which is the cheapest moment they will ever be.
+ * for the page order and `skill_candidate_norm_prefix_idx (normalized_phrase text_pattern_ops)`
+ * for the anchored prefix.
+ *
+ * `.nullsFirst()` is load-bearing on the first and invisible in a diff: drizzle's bare `desc()`
+ * in the repository renders `DESC NULLS FIRST`, and an index built `NULLS LAST` does not satisfy
+ * it, so the planner keeps the index for the filter and adds a Sort anyway
+ * (packages/db/src/schema/feedback.ts:95-104). `text_pattern_ops` is load-bearing on the second:
+ * a btree on the collation-aware default cannot serve `LIKE 'welding%'` outside the C locale.
+ *
+ * Both went into 0093 itself rather than a follow-up, because it had never been applied — which
+ * is the cheapest moment either will ever be.
  */
 export const AdminSkillDiscoveryQuerySchema = z
   .object({
@@ -838,8 +839,10 @@ export const AdminSkillDiscoveryQuerySchema = z
      * WHY IT IS ANCHORED ANYWAY. A leading-wildcard substring search over a corpus that includes
      * worker-derived wording is a discovery tool no matter how the column is described, and an
      * anchored prefix demands that the caller already knows how the phrase starts. It is also the
-     * only shape an index can serve; an unanchored search would be a scan of every candidate on
-     * every keystroke, on a table with no index on this column at all today.
+     * only shape an index can serve, and `skill_candidate_norm_prefix_idx` now serves it — which
+     * is what makes the anchored rule honest rather than merely polite, since the anchored form
+     * is also the fast one and nobody has a performance argument for widening it. An unanchored
+     * search would be a scan of every candidate on every keystroke, indexes or not.
      *
      * `.trim().toLowerCase()` and nothing more. Full normalization (punctuation folding,
      * stoplisting) is the lexicon's job, and a half-normalizer here would silently fail to match

@@ -551,7 +551,7 @@ export function buildDiscoveryPlan(input: DiscoveryPlanInput): DiscoveryPlan {
     const seenSource = new Set<string>();
     for (const member of members) {
       for (const s of member.sources) {
-        const key = `${s.source_type}${s.source_id}`;
+        const key = `${s.source_type}\u0001${s.source_id}`;
         if (seenSource.has(key)) continue;
         seenSource.add(key);
         sources.push({

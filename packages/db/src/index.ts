@@ -45,6 +45,16 @@ export * from "./question-pack-corpus";
 //     switches on its own strings and the API and the pipeline drift on what "merge" means.
 //   * `assertProvenanceIntact` / `PROVENANCE_FIELDS` — the frozen-field list, in digest order.
 //     A decision path that cannot call it can only *promise* it did not move provenance.
+//   * `reviewTierFrom` — the tier rule over the TWO FACTS it reads, rather than over a whole
+//     candidate. The admin queue cannot hold a candidate: a page has no match rows on it (the
+//     strong-match fact is an `exists` subquery precisely so a join cannot multiply the page), and
+//     the metrics tile holds only per-`phrase_class` counts. Without this signature the queue had
+//     to force a fabricated object through `as unknown as SkillCandidateRecord` — right answer,
+//     wrong shape, and the compiler stopped being able to check the one call that mattered.
+//   * `candidateAliasTexts` — the alias set a `create` approval would mint, needed by the review
+//     screen BEFORE the decision exists. `approvedCandidateToCorpusSkill` refuses any status but
+//     `approved_create`, correctly, so the preview used to forge that status to get past its own
+//     gate. Both now call this; the preview and the mint cannot disagree.
 //
 // A NAMED BLOCK, NOT `export *`, for two measured reasons: `skill-discovery-candidate.ts:64`
 // re-exports five unions that `./schema` above already owns (a star would be TS2308), and

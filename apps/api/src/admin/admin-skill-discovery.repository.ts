@@ -518,15 +518,16 @@ export class AdminSkillDiscoveryRepository {
    * two undecided statuses") is an index scan. `run_id`, `trade_family` and `(run_id,
    * cluster_key)` have their own indexes.
    *
-   * TWO GAPS, NAMED SO THEY ARE A TASK AND NOT A SURPRISE: 0093 ships NO `(created_at, id)`
-   * keyset index and NO index on `normalized_phrase`, so the default page order is a SORT over
-   * the table and `phrase` is a scan. The owed pair is
-   * `skill_candidate_admin_keyset_idx (created_at DESC NULLS FIRST, candidate_id DESC NULLS FIRST)`
-   * and a `text_pattern_ops` index on `normalized_phrase`. `.nullsFirst()` is load-bearing on the
-   * first: drizzle's bare `desc()` renders `DESC NULLS FIRST`, and an index built `NULLS LAST`
-   * does not satisfy it, so the planner keeps the index for the filter and adds a Sort anyway
-   * (packages/db/src/schema/feedback.ts:95-104). Both are additive to a migration that is
-   * authored-but-unapplied, which is the cheapest moment they will ever be.
+   * THE OTHER TWO WERE ADDED WHILE WIRING THIS METHOD UP, because it is the only caller that
+   * needs them. `skill_candidate_admin_keyset_idx (created_at DESC NULLS FIRST, candidate_id DESC
+   * NULLS FIRST)` serves the page ORDER, which `skill_candidate_queue_idx` cannot — that one
+   * serves the FILTER — so without it the default page was a sort of the whole table.
+   * `.nullsFirst()` is load-bearing and invisible in a diff: the bare `desc()` below renders
+   * `DESC NULLS FIRST`, and an index built `NULLS LAST` does not satisfy it, so the planner keeps
+   * the index for the filter and adds a Sort anyway (packages/db/src/schema/feedback.ts:95-104).
+   * `skill_candidate_norm_prefix_idx (normalized_phrase text_pattern_ops)` serves `phrase`, and
+   * the operator class is not optional — a collation-aware btree cannot answer `LIKE 'welding%'`
+   * outside the C locale. Both went into 0093 itself, which had never been applied.
    *
    * The projection is an EXPLICIT column map. `confidence`, `review_reason`,
    * `proposed_description` and the provenance columns are deliberately absent — a queue row is an
@@ -917,8 +918,10 @@ export class AdminSkillDiscoveryRepository {
         .from(skillCandidates)
         .where(where)
         .groupBy(skillCandidates.phraseClass),
-      // `min(created_at)`, not an ORDER BY + LIMIT 1: the question is a single scalar and there
-      // is no index on `created_at` to walk (see {@link list}'s owed-index note).
+      // `min(created_at)`, not an ORDER BY + LIMIT 1. The question is a single scalar, and the
+      // filtered form (`status IN (...)`) leads with neither index's leading column, so the
+      // planner aggregates either way — spelling it as the aggregate says what is being asked
+      // instead of implying an ordered read that is not happening.
       this.db
         .select({ oldest: sql<Date | null>`min(${skillCandidates.createdAt})` })
         .from(skillCandidates)

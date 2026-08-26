@@ -464,5 +464,5 @@ export function agentStem(head: string): string {
  */
 export function headLexiconFingerprint(lexicon: HeadLexicon): string {
   const tokens = [...lexicon.heads.keys()].sort();
-  return createHash("sha256").update(tokens.join("")).digest("hex").slice(0, 32);
+  return createHash("sha256").update(tokens.join("\u0001")).digest("hex").slice(0, 32);
 }

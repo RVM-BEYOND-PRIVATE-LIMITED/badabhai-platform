@@ -295,7 +295,7 @@ export function candidateId(runId: string, clusterKey: string): string {
 export function provenanceDigest(
   candidate: Omit<SkillCandidateRecord, "provenance_digest">,
 ): string {
-  const payload = PROVENANCE_FIELDS.map((f) => JSON.stringify(candidate[f] ?? null)).join("");
+  const payload = PROVENANCE_FIELDS.map((f) => JSON.stringify(candidate[f] ?? null)).join("\u0001");
   return createHash("sha256").update(payload).digest("hex").slice(0, 32);
 }
 
