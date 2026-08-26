@@ -13,6 +13,8 @@
 
          This Theme is only used starting with V2 of Flutter's Android embedding. -->
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
+        <!-- Brand blue in dark mode too — the launch drawable is brand blue, so
+             a dark-mode cold start no longer flashes black before the splash. -->
+        <item name="android:windowBackground">@color/bb_launch_bg</item>
     </style>
 </resources>
