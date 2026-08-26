@@ -1,0 +1,1995 @@
+{
+  "kind": "q1-neighbour-evidence",
+  "measured_at": "2026-08-26T05:00:28.404Z",
+  "source": "pnpm db:audit:q1-neighbours --batch=data/taxonomy/batches/batch_2026-08-16T14-30-41Z-remediation-phase9d",
+  "target": "SUPABASE (remote)",
+  "read_only": true,
+  "role": "postgres",
+  "bypass_rls": true,
+  "population_predicate": "every embedded skill_alias of the 96 skills in data/taxonomy/batches/batch_2026-08-16T14-30-41Z-remediation-phase9d/accepted-skills.jsonl, scored against every embedded alias of the 49 SKILL_CORPUS skills; top 3 neighbours by max cosine",
+  "caveat": "SIMILARITY IS NOT A DISPOSITION. The two highest cross-family scores here (ducting_installation -> pipe_fitting -> mskill_plumber @ 0.827, and visual_defect_identification -> dimensional_inspection -> mskill_quality_inspector @ 0.803) are both WRONG. This evidence is recorded so the triage can be checked against it, not derived from it.",
+  "batch": "data/taxonomy/batches/batch_2026-08-16T14-30-41Z-remediation-phase9d",
+  "probed": 96,
+  "of": 96,
+  "nearest_neighbour_is_mapped": 61,
+  "neighbours": {
+    "skill_assembly_line_sequencing": [
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6244,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_woodworking",
+        "score": 0.6213,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      },
+      {
+        "skill_id": "skill_space_planning",
+        "score": 0.6155,
+        "bridge": [
+          "mskill_interior_designer"
+        ]
+      }
+    ],
+    "skill_barcode_scanning": [
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6531,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.6231,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6128,
+        "bridge": []
+      }
+    ],
+    "skill_battery_capacity_checking": [
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.7019,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6582,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6383,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_battery_cell_stacking": [
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6635,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.6253,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6224,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_battery_pack_leak_testing": [
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6718,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.6364,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.6096,
+        "bridge": []
+      }
+    ],
+    "skill_battery_terminal_crimping": [
+      {
+        "skill_id": "skill_tapping_threading",
+        "score": 0.6231,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_deburring",
+        "score": 0.6094,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_turning",
+        "score": 0.6068,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      }
+    ],
+    "skill_bearing_replacement": [
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.7366,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.7295,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_fitter_occupation",
+        "score": 0.666,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_belt_and_chain_drive_alignment": [
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6456,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_fitter_occupation",
+        "score": 0.6442,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6392,
+        "bridge": []
+      }
+    ],
+    "skill_bin_location_management": [
+      {
+        "skill_id": "skill_space_planning",
+        "score": 0.5937,
+        "bridge": [
+          "mskill_interior_designer"
+        ]
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.5895,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_mechanical_assembly",
+        "score": 0.5843,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_body_panel_alignment": [
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.7517,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_tool_offset_setting",
+        "score": 0.7081,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6555,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_brake_system_servicing": [
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.7225,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6483,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_deburring",
+        "score": 0.64,
+        "bridge": []
+      }
+    ],
+    "skill_brazing_of_copper_lines": [
+      {
+        "skill_id": "skill_tapping_threading",
+        "score": 0.6516,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_arc_welding",
+        "score": 0.6463,
+        "bridge": [
+          "mskill_arc_welder"
+        ]
+      },
+      {
+        "skill_id": "skill_welder_occupation",
+        "score": 0.64,
+        "bridge": [
+          "mskill_mig_welder"
+        ]
+      }
+    ],
+    "skill_brick_and_block_laying": [
+      {
+        "skill_id": "skill_woodworking",
+        "score": 0.6804,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      },
+      {
+        "skill_id": "skill_plumber_occupation",
+        "score": 0.6656,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_carpenter_occupation",
+        "score": 0.6551,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      }
+    ],
+    "skill_cable_termination_and_jointing": [
+      {
+        "skill_id": "skill_woodworking",
+        "score": 0.6771,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      },
+      {
+        "skill_id": "skill_deburring",
+        "score": 0.631,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_furniture_finishing",
+        "score": 0.5934,
+        "bridge": []
+      }
+    ],
+    "skill_chemical_handling_safety": [
+      {
+        "skill_id": "skill_cabinet_making",
+        "score": 0.5704,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      },
+      {
+        "skill_id": "skill_material_selection",
+        "score": 0.567,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_gas_cutting",
+        "score": 0.563,
+        "bridge": []
+      }
+    ],
+    "skill_clutch_and_gearbox_repair": [
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.665,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_carpenter_occupation",
+        "score": 0.6304,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.6114,
+        "bridge": []
+      }
+    ],
+    "skill_compressor_replacement": [
+      {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.7235,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.7197,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_fitter_occupation",
+        "score": 0.6593,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_concrete_curing": [
+      {
+        "skill_id": "skill_grinding_ops",
+        "score": 0.6812,
+        "bridge": [
+          "mskill_cnc_grinding_operator"
+        ]
+      },
+      {
+        "skill_id": "skill_woodworking",
+        "score": 0.6575,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      },
+      {
+        "skill_id": "skill_turning",
+        "score": 0.6546,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      }
+    ],
+    "skill_conduit_bending_and_laying": [
+      {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.6872,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.638,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_drainage_systems",
+        "score": 0.6291,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    ],
+    "skill_control_panel_wiring": [
+      {
+        "skill_id": "skill_woodworking",
+        "score": 0.6383,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6177,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_space_planning",
+        "score": 0.6098,
+        "bridge": [
+          "mskill_interior_designer"
+        ]
+      }
+    ],
+    "skill_coolant_management": [
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6066,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.5965,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.5902,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_customer_site_handover": [
+      {
+        "skill_id": "skill_deburring",
+        "score": 0.6139,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_furniture_finishing",
+        "score": 0.6139,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_grinding_ops",
+        "score": 0.5941,
+        "bridge": [
+          "mskill_cnc_grinding_operator"
+        ]
+      }
+    ],
+    "skill_cutting_tool_selection": [
+      {
+        "skill_id": "skill_material_selection",
+        "score": 0.6666,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_tool_offset_setting",
+        "score": 0.6328,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_mechanical_assembly",
+        "score": 0.6047,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_dispatch_documentation": [
+      {
+        "skill_id": "skill_gas_cutting",
+        "score": 0.6054,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.601,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_grinding_ops",
+        "score": 0.5989,
+        "bridge": [
+          "mskill_cnc_grinding_operator"
+        ]
+      }
+    ],
+    "skill_distortion_control_in_weldments": [
+      {
+        "skill_id": "skill_welder_occupation",
+        "score": 0.7036,
+        "bridge": [
+          "mskill_mig_welder"
+        ]
+      },
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6739,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_arc_welding",
+        "score": 0.6627,
+        "bridge": [
+          "mskill_arc_welder"
+        ]
+      }
+    ],
+    "skill_distribution_board_assembly": [
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6812,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.6703,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6491,
+        "bridge": []
+      }
+    ],
+    "skill_drain_cleaning_and_unclogging": [
+      {
+        "skill_id": "skill_drainage_systems",
+        "score": 0.6754,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_measuring_instruments",
+        "score": 0.645,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.6269,
+        "bridge": []
+      }
+    ],
+    "skill_ducting_installation": [
+      {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.8272,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.7464,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_fitter_occupation",
+        "score": 0.6836,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_earthing_and_bonding": [
+      {
+        "skill_id": "skill_plumber_occupation",
+        "score": 0.724,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_woodworking",
+        "score": 0.6735,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      },
+      {
+        "skill_id": "skill_interior_designer_occupation",
+        "score": 0.6656,
+        "bridge": [
+          "mskill_interior_designer"
+        ]
+      }
+    ],
+    "skill_electrical_fault_finding": [
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6904,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.6378,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.636,
+        "bridge": []
+      }
+    ],
+    "skill_electrical_safety_and_lockout": [
+      {
+        "skill_id": "skill_machinist_occupation",
+        "score": 0.6253,
+        "bridge": [
+          "mskill_cnc_operator_general"
+        ]
+      },
+      {
+        "skill_id": "skill_turning",
+        "score": 0.595,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      },
+      {
+        "skill_id": "skill_mig_welding",
+        "score": 0.581,
+        "bridge": [
+          "mskill_mig_welder"
+        ]
+      }
+    ],
+    "skill_electrode_selection": [
+      {
+        "skill_id": "skill_material_selection",
+        "score": 0.6775,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_arc_welding",
+        "score": 0.6121,
+        "bridge": [
+          "mskill_arc_welder"
+        ]
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.6072,
+        "bridge": []
+      }
+    ],
+    "skill_electrolyte_filling": [
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6315,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_deburring",
+        "score": 0.6037,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_furniture_finishing",
+        "score": 0.5985,
+        "bridge": []
+      }
+    ],
+    "skill_engine_overhauling": [
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6618,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.6128,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_deburring",
+        "score": 0.6045,
+        "bridge": []
+      }
+    ],
+    "skill_fastener_selection_and_tightening": [
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.6717,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6613,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_welder_occupation",
+        "score": 0.654,
+        "bridge": [
+          "mskill_mig_welder"
+        ]
+      }
+    ],
+    "skill_first_piece_approval": [
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.6973,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6732,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.6157,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    ],
+    "skill_forklift_operation": [
+      {
+        "skill_id": "skill_turning",
+        "score": 0.6092,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.6066,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_machinist_occupation",
+        "score": 0.5949,
+        "bridge": [
+          "mskill_cnc_operator_general"
+        ]
+      }
+    ],
+    "skill_gas_torch_flame_setting": [
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6778,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_tool_offset_setting",
+        "score": 0.6592,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_gas_cutting",
+        "score": 0.6482,
+        "bridge": []
+      }
+    ],
+    "skill_goods_receipt_verification": [
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.6943,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6836,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_measuring_instruments",
+        "score": 0.6016,
+        "bridge": []
+      }
+    ],
+    "skill_hardness_testing": [
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6534,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.631,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_grinding_ops",
+        "score": 0.6135,
+        "bridge": [
+          "mskill_cnc_grinding_operator"
+        ]
+      }
+    ],
+    "skill_house_wiring_installation": [
+      {
+        "skill_id": "skill_plumber_occupation",
+        "score": 0.61,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_carpenter_occupation",
+        "score": 0.5941,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      },
+      {
+        "skill_id": "skill_drainage_systems",
+        "score": 0.5924,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    ],
+    "skill_indoor_unit_servicing_and_cleaning": [
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.637,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.5935,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.5878,
+        "bridge": []
+      }
+    ],
+    "skill_inspection_report_recording": [
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.8007,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6091,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_measuring_instruments",
+        "score": 0.6056,
+        "bridge": []
+      }
+    ],
+    "skill_insulation_resistance_testing": [
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6282,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_measuring_instruments",
+        "score": 0.6091,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.601,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    ],
+    "skill_inventory_record_keeping": [
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.5705,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.5699,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_material_selection",
+        "score": 0.5556,
+        "bridge": []
+      }
+    ],
+    "skill_issue_and_requisition_control": [
+      {
+        "skill_id": "skill_material_selection",
+        "score": 0.7435,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.627,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6058,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    ],
+    "skill_lathe_chuck_mounting": [
+      {
+        "skill_id": "skill_tapping_threading",
+        "score": 0.665,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.663,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.6595,
+        "bridge": []
+      }
+    ],
+    "skill_leak_repair_in_water_lines": [
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6923,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6638,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.6509,
+        "bridge": []
+      }
+    ],
+    "skill_lubrication_schedule_execution": [
+      {
+        "skill_id": "skill_grinding_ops",
+        "score": 0.6812,
+        "bridge": [
+          "mskill_cnc_grinding_operator"
+        ]
+      },
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6552,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_furniture_finishing",
+        "score": 0.6084,
+        "bridge": []
+      }
+    ],
+    "skill_material_handling_equipment_operation": [
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.7005,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_milling",
+        "score": 0.6945,
+        "bridge": [
+          "mskill_vmc_operator"
+        ]
+      },
+      {
+        "skill_id": "skill_turning",
+        "score": 0.6629,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      }
+    ],
+    "skill_mortar_mixing": [
+      {
+        "skill_id": "skill_grinding_ops",
+        "score": 0.6465,
+        "bridge": [
+          "mskill_cnc_grinding_operator"
+        ]
+      },
+      {
+        "skill_id": "skill_gas_cutting",
+        "score": 0.624,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6216,
+        "bridge": []
+      }
+    ],
+    "skill_motor_connection_and_starter_wiring": [
+      {
+        "skill_id": "skill_fitter_occupation",
+        "score": 0.6172,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6122,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6064,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_non_destructive_testing_of_castings": [
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6878,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.6591,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6211,
+        "bridge": []
+      }
+    ],
+    "skill_order_picking_and_packing": [
+      {
+        "skill_id": "skill_space_planning",
+        "score": 0.6142,
+        "bridge": [
+          "mskill_interior_designer"
+        ]
+      },
+      {
+        "skill_id": "skill_deburring",
+        "score": 0.6121,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.5967,
+        "bridge": []
+      }
+    ],
+    "skill_oxy_acetylene_cylinder_handling": [
+      {
+        "skill_id": "skill_gas_cutting",
+        "score": 0.7016,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_grinding_ops",
+        "score": 0.6629,
+        "bridge": [
+          "mskill_cnc_grinding_operator"
+        ]
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6291,
+        "bridge": []
+      }
+    ],
+    "skill_pallet_stacking_and_loading": [
+      {
+        "skill_id": "skill_milling",
+        "score": 0.584,
+        "bridge": [
+          "mskill_vmc_operator"
+        ]
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.5786,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_fitter_occupation",
+        "score": 0.5686,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_pipe_bending": [
+      {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.7521,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.636,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_sheet_metal",
+        "score": 0.6274,
+        "bridge": []
+      }
+    ],
+    "skill_pipe_support_and_clamping": [
+      {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.7386,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6886,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6526,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_plastering": [
+      {
+        "skill_id": "skill_plumber_occupation",
+        "score": 0.7487,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_carpenter_occupation",
+        "score": 0.7397,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      },
+      {
+        "skill_id": "skill_interior_designer_occupation",
+        "score": 0.7094,
+        "bridge": [
+          "mskill_interior_designer"
+        ]
+      }
+    ],
+    "skill_press_brake_bending": [
+      {
+        "skill_id": "skill_turning",
+        "score": 0.7247,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      },
+      {
+        "skill_id": "skill_sheet_metal",
+        "score": 0.6609,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_machinist_occupation",
+        "score": 0.6387,
+        "bridge": [
+          "mskill_cnc_operator_general"
+        ]
+      }
+    ],
+    "skill_pressure_testing_of_pipelines": [
+      {
+        "skill_id": "skill_measuring_instruments",
+        "score": 0.6532,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.6407,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6367,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    ],
+    "skill_pump_and_valve_repair": [
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6844,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6625,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_plumber_occupation",
+        "score": 0.6509,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    ],
+    "skill_punching_machine_operation": [
+      {
+        "skill_id": "skill_turning",
+        "score": 0.7126,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      },
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6919,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.6793,
+        "bridge": []
+      }
+    ],
+    "skill_refrigerant_charging": [
+      {
+        "skill_id": "skill_gas_cutting",
+        "score": 0.6908,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6235,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6126,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_refrigerant_leak_detection": [
+      {
+        "skill_id": "skill_drainage_systems",
+        "score": 0.6229,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6136,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_tapping_threading",
+        "score": 0.6075,
+        "bridge": []
+      }
+    ],
+    "skill_rejection_tagging_and_segregation": [
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6588,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.6223,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6113,
+        "bridge": []
+      }
+    ],
+    "skill_sanitary_fixture_installation": [
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6904,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_plumber_occupation",
+        "score": 0.6869,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_water_supply",
+        "score": 0.6659,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    ],
+    "skill_scaffolding_erection": [
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.7429,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_mechanical_assembly",
+        "score": 0.61,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.6021,
+        "bridge": []
+      }
+    ],
+    "skill_shaft_and_coupling_alignment": [
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6592,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_turning",
+        "score": 0.6338,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      },
+      {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.627,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    ],
+    "skill_shearing_machine_operation": [
+      {
+        "skill_id": "skill_turning",
+        "score": 0.697,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      },
+      {
+        "skill_id": "skill_tapping_threading",
+        "score": 0.6784,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6725,
+        "bridge": []
+      }
+    ],
+    "skill_sheet_metal_marking_and_layout": [
+      {
+        "skill_id": "skill_measuring_instruments",
+        "score": 0.7579,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_space_planning",
+        "score": 0.6887,
+        "bridge": [
+          "mskill_interior_designer"
+        ]
+      },
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6613,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    ],
+    "skill_site_material_stacking": [
+      {
+        "skill_id": "skill_material_selection",
+        "score": 0.7056,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.617,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6131,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_solvent_cement_jointing": [
+      {
+        "skill_id": "skill_woodworking",
+        "score": 0.6966,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      },
+      {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.6838,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6181,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_split_unit_installation": [
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.7524,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.7062,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_fitter_occupation",
+        "score": 0.6727,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_stock_counting": [
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6481,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_measuring_instruments",
+        "score": 0.6044,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6015,
+        "bridge": []
+      }
+    ],
+    "skill_stone_dressing": [
+      {
+        "skill_id": "skill_turning",
+        "score": 0.6655,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      },
+      {
+        "skill_id": "skill_grinding_ops",
+        "score": 0.6583,
+        "bridge": [
+          "mskill_cnc_grinding_operator"
+        ]
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.6505,
+        "bridge": []
+      }
+    ],
+    "skill_stone_joint_pointing": [
+      {
+        "skill_id": "skill_plumber_occupation",
+        "score": 0.6724,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6628,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_woodworking",
+        "score": 0.6584,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      }
+    ],
+    "skill_structural_fit_up_and_tacking": [
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.7062,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_fitter_occupation",
+        "score": 0.6961,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_welder_occupation",
+        "score": 0.6921,
+        "bridge": [
+          "mskill_mig_welder"
+        ]
+      }
+    ],
+    "skill_sub_assembly_quality_checking": [
+      {
+        "skill_id": "skill_mechanical_assembly",
+        "score": 0.7108,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.6913,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6616,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    ],
+    "skill_surface_finish_inspection": [
+      {
+        "skill_id": "skill_deburring",
+        "score": 0.7457,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.7452,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_furniture_finishing",
+        "score": 0.7168,
+        "bridge": []
+      }
+    ],
+    "skill_suspension_and_steering_repair": [
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6779,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.63,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_carpenter_occupation",
+        "score": 0.6245,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      }
+    ],
+    "skill_switchgear_installation": [
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.7323,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.6908,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_fitter_occupation",
+        "score": 0.6658,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_thermostat_and_control_wiring": [
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6272,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6149,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_mitsubishi",
+        "score": 0.5941,
+        "bridge": []
+      }
+    ],
+    "skill_torque_wrench_operation": [
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.7044,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_tool_offset_setting",
+        "score": 0.6735,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_turning",
+        "score": 0.6324,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      }
+    ],
+    "skill_vacuum_pump_evacuation": [
+      {
+        "skill_id": "skill_deburring",
+        "score": 0.6068,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.5995,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.5995,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_vehicle_diagnostic_scanning": [
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6467,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.6426,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6086,
+        "bridge": []
+      }
+    ],
+    "skill_vibration_and_noise_fault_diagnosis": [
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6625,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6371,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.624,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    ],
+    "skill_visual_defect_identification": [
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.8027,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6939,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_rendering_visualization",
+        "score": 0.6433,
+        "bridge": []
+      }
+    ],
+    "skill_wall_plumb_and_level_checking": [
+      {
+        "skill_id": "skill_plumber_occupation",
+        "score": 0.6631,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      },
+      {
+        "skill_id": "skill_drawing_reading",
+        "score": 0.6355,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_cad_interpretation",
+        "score": 0.6355,
+        "bridge": []
+      }
+    ],
+    "skill_weld_bead_inspection": [
+      {
+        "skill_id": "skill_quality_control",
+        "score": 0.6936,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.6906,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      },
+      {
+        "skill_id": "skill_measuring_instruments",
+        "score": 0.6566,
+        "bridge": []
+      }
+    ],
+    "skill_weld_program_parameter_setting": [
+      {
+        "skill_id": "skill_tool_offset_setting",
+        "score": 0.7319,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.7094,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6681,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_weld_spatter_cleaning": [
+      {
+        "skill_id": "skill_deburring",
+        "score": 0.661,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_furniture_finishing",
+        "score": 0.6393,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_grinding_ops",
+        "score": 0.6371,
+        "bridge": [
+          "mskill_cnc_grinding_operator"
+        ]
+      }
+    ],
+    "skill_welding_joint_preparation": [
+      {
+        "skill_id": "skill_woodworking",
+        "score": 0.6693,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6497,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6383,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    ],
+    "skill_welding_machine_consumable_changeover": [
+      {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6409,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      },
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6282,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_welder_occupation",
+        "score": 0.6201,
+        "bridge": [
+          "mskill_mig_welder"
+        ]
+      }
+    ],
+    "skill_wheel_alignment_and_balancing": [
+      {
+        "skill_id": "skill_turning",
+        "score": 0.6469,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      },
+      {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6355,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6255,
+        "bridge": []
+      }
+    ],
+    "skill_wiring_harness_routing": [
+      {
+        "skill_id": "skill_space_planning",
+        "score": 0.642,
+        "bridge": [
+          "mskill_interior_designer"
+        ]
+      },
+      {
+        "skill_id": "skill_drilling",
+        "score": 0.6274,
+        "bridge": []
+      },
+      {
+        "skill_id": "skill_gas_cutting",
+        "score": 0.6106,
+        "bridge": []
+      }
+    ]
+  }
+}

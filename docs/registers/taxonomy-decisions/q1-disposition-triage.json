@@ -1,0 +1,1851 @@
+{
+  "kind": "q1-disposition-triage",
+  "binding": false,
+  "measured_at": "2026-08-26T05:09:07.799Z",
+  "source": "pnpm db:audit:q1-triage --batch=data/taxonomy/batches/batch_2026-08-16T14-30-41Z-remediation-phase9d",
+  "target": "repository-only (no database)",
+  "read_only": true,
+  "role": null,
+  "population_predicate": "every skill_id in data/taxonomy/batches/batch_2026-08-16T14-30-41Z-remediation-phase9d/accepted-skills.jsonl — the promotable batch, NOT SKILL_CORPUS",
+  "notice": "PROPOSALS ONLY. Nothing here is applied. ATTRIBUTE_TO_MATCH_SKILLS, MATCH_SKILLS and SKILL_CORPUS are unmodified, no mskill_* was invented, and no skill was promoted. Individual skill->mskill mappings remain subject to owner review.",
+  "batch": "data/taxonomy/batches/batch_2026-08-16T14-30-41Z-remediation-phase9d",
+  "match_vocabulary_size": 18,
+  "bridge_keys": 49,
+  "neighbour_evidence": {
+    "measured_at": "2026-08-26T05:00:28.404Z",
+    "probed": 96,
+    "nearest_neighbour_is_mapped": 61,
+    "note": "Similarity would propose this many mappings. The pack proposes 5. Recorded as a counter-example, not as support."
+  },
+  "summary": {
+    "total": 96,
+    "matched": 5,
+    "intentionally_unmatched": 75,
+    "review": 16,
+    "false_friends_named": 52,
+    "unrepresented_families": [
+      "assembly",
+      "battery",
+      "auto-service",
+      "masonry",
+      "electrical",
+      "sheet-metal",
+      "hvac",
+      "warehouse"
+    ],
+    "skills_in_unrepresented_families": 62
+  },
+  "by_family": {
+    "assembly": {
+      "label": "Assembly (automotive / general)",
+      "vocabulary_represents_this_family": false,
+      "skills": 4,
+      "matched": 0,
+      "review": 0,
+      "intentionally_unmatched": 4
+    },
+    "battery": {
+      "label": "Battery manufacturing",
+      "vocabulary_represents_this_family": false,
+      "skills": 6,
+      "matched": 0,
+      "review": 0,
+      "intentionally_unmatched": 6
+    },
+    "auto-service": {
+      "label": "Automotive service & repair",
+      "vocabulary_represents_this_family": false,
+      "skills": 7,
+      "matched": 0,
+      "review": 1,
+      "intentionally_unmatched": 6
+    },
+    "machining-support": {
+      "label": "Machining support (CNC wedge)",
+      "vocabulary_represents_this_family": true,
+      "skills": 4,
+      "matched": 0,
+      "review": 2,
+      "intentionally_unmatched": 2
+    },
+    "masonry": {
+      "label": "Masonry & civil construction",
+      "vocabulary_represents_this_family": false,
+      "skills": 9,
+      "matched": 0,
+      "review": 0,
+      "intentionally_unmatched": 9
+    },
+    "electrical": {
+      "label": "Electrical installation",
+      "vocabulary_represents_this_family": false,
+      "skills": 11,
+      "matched": 0,
+      "review": 0,
+      "intentionally_unmatched": 11
+    },
+    "sheet-metal": {
+      "label": "Sheet metal & fabrication",
+      "vocabulary_represents_this_family": false,
+      "skills": 4,
+      "matched": 0,
+      "review": 0,
+      "intentionally_unmatched": 4
+    },
+    "hvac": {
+      "label": "HVAC & refrigeration",
+      "vocabulary_represents_this_family": false,
+      "skills": 10,
+      "matched": 0,
+      "review": 0,
+      "intentionally_unmatched": 10
+    },
+    "mech-maintenance": {
+      "label": "Mechanical maintenance",
+      "vocabulary_represents_this_family": true,
+      "skills": 6,
+      "matched": 0,
+      "review": 3,
+      "intentionally_unmatched": 3
+    },
+    "plumbing": {
+      "label": "Plumbing & sanitary",
+      "vocabulary_represents_this_family": true,
+      "skills": 7,
+      "matched": 3,
+      "review": 4,
+      "intentionally_unmatched": 0
+    },
+    "quality": {
+      "label": "Quality & inspection",
+      "vocabulary_represents_this_family": true,
+      "skills": 7,
+      "matched": 2,
+      "review": 3,
+      "intentionally_unmatched": 2
+    },
+    "warehouse": {
+      "label": "Warehouse & stores",
+      "vocabulary_represents_this_family": false,
+      "skills": 11,
+      "matched": 0,
+      "review": 0,
+      "intentionally_unmatched": 11
+    },
+    "welding-support": {
+      "label": "Welding support skills",
+      "vocabulary_represents_this_family": true,
+      "skills": 10,
+      "matched": 0,
+      "review": 3,
+      "intentionally_unmatched": 7
+    }
+  },
+  "dispositions": [
+    {
+      "skill_id": "skill_torque_wrench_operation",
+      "label": "Torque wrench operation",
+      "family": "assembly",
+      "family_label": "Assembly (automotive / general)",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "Every assembler and fitter uses a torque wrench. Mapping it would reach every one of them for a specialist's vacancy — the attribute trap the bridge already guards against for micrometers and GD&T.",
+      "false_friend": "The micrometer pattern: owning and using a hand tool is not a trade.",
+      "nearest_neighbour": {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.7044,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_wiring_harness_routing",
+      "label": "Wiring harness routing",
+      "family": "assembly",
+      "family_label": "Assembly (automotive / general)",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents automotive line assembly. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "Reads as electrical work, but routing a pre-made harness on a line is assembly, not an electrician's trade — and there is no electrician match skill in any case.",
+      "nearest_neighbour": {
+        "skill_id": "skill_space_planning",
+        "score": 0.642,
+        "bridge": [
+          "mskill_interior_designer"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_assembly_line_sequencing",
+      "label": "Assembly line sequencing",
+      "family": "assembly",
+      "family_label": "Assembly (automotive / general)",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents production sequencing on an assembly line. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6244,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_fastener_selection_and_tightening",
+      "label": "Fastener selection and tightening",
+      "family": "assembly",
+      "family_label": "Assembly (automotive / general)",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "Selecting and tightening fasteners is universal across every mechanical trade. Mapping it would reach every one of them for a specialist's vacancy — the attribute trap the bridge already guards against for micrometers and GD&T.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_drilling",
+        "score": 0.6717,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_sub_assembly_quality_checking",
+      "label": "Sub-assembly quality checking",
+      "family": "quality",
+      "family_label": "Quality & inspection",
+      "candidates": [
+        "mskill_quality_inspector"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "low",
+      "rationale": "In-line checking by the assembler who built the sub-assembly, or a QC role? The label does not say, and the two readings have opposite consequences.",
+      "false_friend": "Nearest mapped neighbour is skill_mechanical_assembly -> mskill_fitter @ 0.711, which is a third answer again. Similarity cannot settle this one.",
+      "nearest_neighbour": {
+        "skill_id": "skill_mechanical_assembly",
+        "score": 0.7108,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_battery_cell_stacking",
+      "label": "Battery cell stacking",
+      "family": "battery",
+      "family_label": "Battery manufacturing",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents battery cell manufacturing. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6635,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_battery_terminal_crimping",
+      "label": "Battery terminal crimping",
+      "family": "battery",
+      "family_label": "Battery manufacturing",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents battery pack assembly. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_tapping_threading",
+        "score": 0.6231,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_electrolyte_filling",
+      "label": "Electrolyte filling",
+      "family": "battery",
+      "family_label": "Battery manufacturing",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents battery cell manufacturing. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6315,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_battery_pack_leak_testing",
+      "label": "Battery pack leak testing",
+      "family": "battery",
+      "family_label": "Battery manufacturing",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "medium",
+      "rationale": "A production test station operated by line staff, not a quality-inspection role. No match skill represents battery manufacturing. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "Nearest mapped neighbour is skill_quality_control -> mskill_quality_inspector @ 0.672. Performing a test is not holding an inspector's post.",
+      "nearest_neighbour": {
+        "skill_id": "skill_quality_control",
+        "score": 0.6718,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_battery_capacity_checking",
+      "label": "Battery capacity checking",
+      "family": "battery",
+      "family_label": "Battery manufacturing",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "medium",
+      "rationale": "An end-of-line measurement task. No match skill represents battery manufacturing. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_dimensional_inspection -> mskill_quality_inspector @ 0.702 is the nearest mapped neighbour; same objection as leak testing.",
+      "nearest_neighbour": {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.7019,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_chemical_handling_safety",
+      "label": "Chemical handling safety",
+      "family": "battery",
+      "family_label": "Battery manufacturing",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "A safety competency required alongside a trade, never a trade in itself. No match skill should ever be conferred by it.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_cabinet_making",
+        "score": 0.5704,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_engine_overhauling",
+      "label": "Engine overhauling",
+      "family": "auto-service",
+      "family_label": "Automotive service & repair",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents automotive mechanical repair. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "mskill_fitter is INDUSTRIAL fitting — machines, pumps, structures. An engine mechanic is a different trade with different employers, and the adjacency trap would send them to a factory fitter's vacancy.",
+      "nearest_neighbour": {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6618,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_brake_system_servicing",
+      "label": "Brake system servicing",
+      "family": "auto-service",
+      "family_label": "Automotive service & repair",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents automotive mechanical repair. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.7225,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_suspension_and_steering_repair",
+      "label": "Suspension and steering repair",
+      "family": "auto-service",
+      "family_label": "Automotive service & repair",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents automotive mechanical repair. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6779,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_clutch_and_gearbox_repair",
+      "label": "Clutch and gearbox repair",
+      "family": "auto-service",
+      "family_label": "Automotive service & repair",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents automotive mechanical repair. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.665,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_vehicle_diagnostic_scanning",
+      "label": "Vehicle diagnostic scanning",
+      "family": "auto-service",
+      "family_label": "Automotive service & repair",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents automotive diagnostics. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "Nearest mapped neighbour is skill_quality_control -> mskill_quality_inspector @ 0.647. Running a diagnostic scanner on a car has nothing to do with factory QC.",
+      "nearest_neighbour": {
+        "skill_id": "skill_quality_control",
+        "score": 0.6467,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_wheel_alignment_and_balancing",
+      "label": "Wheel alignment and balancing",
+      "family": "auto-service",
+      "family_label": "Automotive service & repair",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents automotive service. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "Nearest mapped neighbour is skill_turning -> mskill_cnc_turner @ 0.647 — a wheel alignment technician is not a lathe operator. Pure rotational-vocabulary collision.",
+      "nearest_neighbour": {
+        "skill_id": "skill_turning",
+        "score": 0.6469,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_body_panel_alignment",
+      "label": "Body panel alignment",
+      "family": "auto-service",
+      "family_label": "Automotive service & repair",
+      "candidates": [
+        "mskill_fitter"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "low",
+      "rationale": "THE D-7B ADJACENCY. The owner has ratified skill_chassis_fitting -> mskill_fitter, and body panel alignment is the neighbouring auto-body operation. Whether that ratification extends to it is a product call about how wide 'Fitter' reaches into vehicle work.",
+      "false_friend": "Ratifying one automotive route to Fitter could be read as ratifying the family. It was ratified for chassis fitting specifically.",
+      "nearest_neighbour": {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.7517,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_lathe_chuck_mounting",
+      "label": "Lathe chuck mounting",
+      "family": "machining-support",
+      "family_label": "Machining support (CNC wedge)",
+      "candidates": [
+        "mskill_cnc_setter_operator",
+        "mskill_cnc_turner"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "low",
+      "rationale": "THE HIGHEST-IMPACT QUESTION IN THIS PACK — the only promotable skill inside the launch wedge's own domain. Mounting a chuck is a setter's operation on a turning machine. skill_turning is already mapped to mskill_cnc_turner, so the precedent exists; but chuck mounting is a setup step, not the turning itself.",
+      "false_friend": "Its three nearest neighbours (tapping, fixture setup, drilling) are ALL deliberately unmapped attributes, which argues this is one too.",
+      "nearest_neighbour": {
+        "skill_id": "skill_tapping_threading",
+        "score": 0.665,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_cutting_tool_selection",
+      "label": "Cutting tool selection",
+      "family": "machining-support",
+      "family_label": "Machining support (CNC wedge)",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "Every machinist selects cutting tools. Mapping it would reach every one of them for a specialist's vacancy — the attribute trap the bridge already guards against for micrometers and GD&T.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_material_selection",
+        "score": 0.6666,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_coolant_management",
+      "label": "Coolant management",
+      "family": "machining-support",
+      "family_label": "Machining support (CNC wedge)",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "Every machine operator manages coolant. Mapping it would reach every one of them for a specialist's vacancy — the attribute trap the bridge already guards against for micrometers and GD&T.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6066,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_first_piece_approval",
+      "label": "First piece approval",
+      "family": "machining-support",
+      "family_label": "Machining support (CNC wedge)",
+      "candidates": [
+        "mskill_quality_inspector",
+        "mskill_cnc_setter_operator"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "low",
+      "rationale": "First-piece approval is the setter's job in some plants and QC's in others. The two candidates are both defensible and lead to different vacancies.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.6973,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_mortar_mixing",
+      "label": "Mortar mixing",
+      "family": "masonry",
+      "family_label": "Masonry & civil construction",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents masonry and civil construction. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "Nearest mapped neighbour is skill_grinding_ops -> mskill_cnc_grinding_operator @ 0.646. Absurd on its face, and it would have been an automatic mapping.",
+      "nearest_neighbour": {
+        "skill_id": "skill_grinding_ops",
+        "score": 0.6465,
+        "bridge": [
+          "mskill_cnc_grinding_operator"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_stone_dressing",
+      "label": "Stone dressing",
+      "family": "masonry",
+      "family_label": "Masonry & civil construction",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents stonemasonry. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_turning -> mskill_cnc_turner @ 0.665 is the nearest mapped neighbour. Dressing stone by hand is not CNC turning.",
+      "nearest_neighbour": {
+        "skill_id": "skill_turning",
+        "score": 0.6655,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_brick_and_block_laying",
+      "label": "Brick and block laying",
+      "family": "masonry",
+      "family_label": "Masonry & civil construction",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents bricklaying and masonry. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_woodworking -> mskill_carpenter @ 0.680. A mason is not a carpenter; they merely share a building site.",
+      "nearest_neighbour": {
+        "skill_id": "skill_woodworking",
+        "score": 0.6804,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_wall_plumb_and_level_checking",
+      "label": "Wall plumb and level checking",
+      "family": "masonry",
+      "family_label": "Masonry & civil construction",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents masonry. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "A PURE LEXICAL COLLISION, and the clearest one in the pack: 'plumb' the verb (vertical) against 'plumber' the trade (pipes). Nearest mapped neighbour is skill_plumber_occupation -> mskill_plumber @ 0.663. Checking a wall is vertical has nothing to do with plumbing.",
+      "nearest_neighbour": {
+        "skill_id": "skill_plumber_occupation",
+        "score": 0.6631,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_plastering",
+      "label": "Plastering",
+      "family": "masonry",
+      "family_label": "Masonry & civil construction",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents plastering. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_plumber_occupation -> mskill_plumber @ 0.749 — one of the highest scores in the whole set, and wrong. A plasterer is not a plumber.",
+      "nearest_neighbour": {
+        "skill_id": "skill_plumber_occupation",
+        "score": 0.7487,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_scaffolding_erection",
+      "label": "Scaffolding erection",
+      "family": "masonry",
+      "family_label": "Masonry & civil construction",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents scaffolding. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.7429,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_concrete_curing",
+      "label": "Concrete curing",
+      "family": "masonry",
+      "family_label": "Masonry & civil construction",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents concrete work. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_grinding_ops",
+        "score": 0.6812,
+        "bridge": [
+          "mskill_cnc_grinding_operator"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_stone_joint_pointing",
+      "label": "Stone joint pointing",
+      "family": "masonry",
+      "family_label": "Masonry & civil construction",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents stonemasonry. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_plumber_occupation",
+        "score": 0.6724,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_site_material_stacking",
+      "label": "Site material stacking",
+      "family": "masonry",
+      "family_label": "Masonry & civil construction",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "Unskilled site labour. No match skill represents construction site labour. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_material_selection",
+        "score": 0.7056,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_house_wiring_installation",
+      "label": "House wiring installation",
+      "family": "electrical",
+      "family_label": "Electrical installation",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents electrical installation. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "THE WHOLE ELECTRICAL FAMILY IS THE ADJACENCY TRAP. There is no electrician match skill, and eleven promotable skills sit here. Every one of them has a mapped neighbour that is a different trade.",
+      "nearest_neighbour": {
+        "skill_id": "skill_plumber_occupation",
+        "score": 0.61,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_conduit_bending_and_laying",
+      "label": "Conduit bending and laying",
+      "family": "electrical",
+      "family_label": "Electrical installation",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents electrical installation. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_pipe_fitting -> mskill_plumber @ 0.687. Conduit is bent for CABLES, not water. This is also why skill_pipe_bending in this same batch is only REVIEW, not MATCHED.",
+      "nearest_neighbour": {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.6872,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_earthing_and_bonding",
+      "label": "Earthing and bonding",
+      "family": "electrical",
+      "family_label": "Electrical installation",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents electrical installation. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_plumber_occupation -> mskill_plumber @ 0.724. Earthing is electrical safety.",
+      "nearest_neighbour": {
+        "skill_id": "skill_plumber_occupation",
+        "score": 0.724,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_cable_termination_and_jointing",
+      "label": "Cable termination and jointing",
+      "family": "electrical",
+      "family_label": "Electrical installation",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents electrical installation. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_woodworking -> mskill_carpenter @ 0.677, on the word 'jointing'.",
+      "nearest_neighbour": {
+        "skill_id": "skill_woodworking",
+        "score": 0.6771,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_electrical_fault_finding",
+      "label": "Electrical fault finding",
+      "family": "electrical",
+      "family_label": "Electrical installation",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents electrical diagnostics. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_quality_control -> mskill_quality_inspector @ 0.690, on 'finding faults'.",
+      "nearest_neighbour": {
+        "skill_id": "skill_quality_control",
+        "score": 0.6904,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_distribution_board_assembly",
+      "label": "Distribution board assembly",
+      "family": "electrical",
+      "family_label": "Electrical installation",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents electrical panel work. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_bench_fitting -> mskill_fitter @ 0.681, on 'assembly'.",
+      "nearest_neighbour": {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6812,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_insulation_resistance_testing",
+      "label": "Insulation resistance testing",
+      "family": "electrical",
+      "family_label": "Electrical installation",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents electrical testing. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_quality_control",
+        "score": 0.6282,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_motor_connection_and_starter_wiring",
+      "label": "Motor connection and starter wiring",
+      "family": "electrical",
+      "family_label": "Electrical installation",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents electrical installation. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_fitter_occupation -> mskill_fitter @ 0.617.",
+      "nearest_neighbour": {
+        "skill_id": "skill_fitter_occupation",
+        "score": 0.6172,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_electrical_safety_and_lockout",
+      "label": "Electrical safety and lockout",
+      "family": "electrical",
+      "family_label": "Electrical installation",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "A safety competency, not a trade — the same objection as chemical handling safety.",
+      "false_friend": "skill_machinist_occupation -> mskill_cnc_operator_general @ 0.625. A lockout procedure does not make someone a CNC operator.",
+      "nearest_neighbour": {
+        "skill_id": "skill_machinist_occupation",
+        "score": 0.6253,
+        "bridge": [
+          "mskill_cnc_operator_general"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_control_panel_wiring",
+      "label": "Control panel wiring",
+      "family": "electrical",
+      "family_label": "Electrical installation",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents electrical panel work. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_woodworking",
+        "score": 0.6383,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_switchgear_installation",
+      "label": "Switchgear installation",
+      "family": "electrical",
+      "family_label": "Electrical installation",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents electrical installation. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_bench_fitting -> mskill_fitter @ 0.732 — a high score, and still wrong.",
+      "nearest_neighbour": {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.7323,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_sheet_metal_marking_and_layout",
+      "label": "Sheet metal marking and layout",
+      "family": "sheet-metal",
+      "family_label": "Sheet metal & fabrication",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "Follows an existing decision: skill_sheet_metal is already deliberately unmapped in the bridge, on the recorded ground that sheet-metal work makes nobody a welder.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_measuring_instruments",
+        "score": 0.7579,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_shearing_machine_operation",
+      "label": "Shearing machine operation",
+      "family": "sheet-metal",
+      "family_label": "Sheet metal & fabrication",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents sheet-metal machine operation. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_turning -> mskill_cnc_turner @ 0.697. A shear is not a lathe.",
+      "nearest_neighbour": {
+        "skill_id": "skill_turning",
+        "score": 0.697,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_press_brake_bending",
+      "label": "Press brake bending",
+      "family": "sheet-metal",
+      "family_label": "Sheet metal & fabrication",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents press-brake operation. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_turning -> mskill_cnc_turner @ 0.725. Both are 'machines that shape metal', and that is the entire basis of the similarity.",
+      "nearest_neighbour": {
+        "skill_id": "skill_turning",
+        "score": 0.7247,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_punching_machine_operation",
+      "label": "Punching machine operation",
+      "family": "sheet-metal",
+      "family_label": "Sheet metal & fabrication",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents punching-machine operation. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_turning -> mskill_cnc_turner @ 0.713.",
+      "nearest_neighbour": {
+        "skill_id": "skill_turning",
+        "score": 0.7126,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_structural_fit_up_and_tacking",
+      "label": "Structural fit-up and tacking",
+      "family": "welding-support",
+      "family_label": "Welding support skills",
+      "candidates": [
+        "mskill_fitter",
+        "mskill_arc_welder"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "low",
+      "rationale": "The skill names TWO trades: fit-up is fitting, tacking is welding. Its neighbours split the same way (bench_fitting @ 0.706 -> Fitter, welder_occupation @ 0.692 -> MIG welder). Mapping to both would reach two different vacancy pools from one skill.",
+      "false_friend": "The welding half tacks — it does not lay a finished bead, so no specific process (MIG/TIG/arc) is actually evidenced.",
+      "nearest_neighbour": {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.7062,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_refrigerant_charging",
+      "label": "Refrigerant charging",
+      "family": "hvac",
+      "family_label": "HVAC & refrigeration",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents HVAC and refrigeration. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_gas_cutting",
+        "score": 0.6908,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_brazing_of_copper_lines",
+      "label": "Brazing of copper lines",
+      "family": "hvac",
+      "family_label": "HVAC & refrigeration",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "medium",
+      "rationale": "Brazing joins with a filler below the parent metal's melting point. The three welder match skills are MIG, TIG and arc — all fusion processes. Brazing evidences none of them.",
+      "false_friend": "skill_arc_welding -> mskill_arc_welder @ 0.646. 'Joining metal with heat' is the only thing they share, and an HVAC brazer sent to an arc-welding vacancy would fail it.",
+      "nearest_neighbour": {
+        "skill_id": "skill_tapping_threading",
+        "score": 0.6516,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_vacuum_pump_evacuation",
+      "label": "Vacuum pump evacuation",
+      "family": "hvac",
+      "family_label": "HVAC & refrigeration",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents HVAC service. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_deburring",
+        "score": 0.6068,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_compressor_replacement",
+      "label": "Compressor replacement",
+      "family": "hvac",
+      "family_label": "HVAC & refrigeration",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "medium",
+      "rationale": "No match skill represents HVAC service. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_pipe_fitting -> mskill_plumber @ 0.724 and skill_bench_fitting -> mskill_fitter @ 0.720 — two different wrong trades, nearly tied.",
+      "nearest_neighbour": {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.7235,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_refrigerant_leak_detection",
+      "label": "Refrigerant leak detection",
+      "family": "hvac",
+      "family_label": "HVAC & refrigeration",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents HVAC service. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_drainage_systems -> mskill_plumber @ 0.623, on the word 'leak'.",
+      "nearest_neighbour": {
+        "skill_id": "skill_drainage_systems",
+        "score": 0.6229,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_thermostat_and_control_wiring",
+      "label": "Thermostat and control wiring",
+      "family": "hvac",
+      "family_label": "HVAC & refrigeration",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents HVAC controls. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6272,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_ducting_installation",
+      "label": "Ducting installation",
+      "family": "hvac",
+      "family_label": "HVAC & refrigeration",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents HVAC ductwork. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "THE STRONGEST FALSE FRIEND IN THE ENTIRE PACK: skill_pipe_fitting -> mskill_plumber @ 0.827, the highest cross-family score of all 96. A duct carries air; a pipe carries water. Any similarity threshold low enough to be useful would fire on this first.",
+      "nearest_neighbour": {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.8272,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_split_unit_installation",
+      "label": "Split unit installation",
+      "family": "hvac",
+      "family_label": "HVAC & refrigeration",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents air-conditioning installation. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_bench_fitting -> mskill_fitter @ 0.752. An AC installer is not a fitter.",
+      "nearest_neighbour": {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.7524,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_indoor_unit_servicing_and_cleaning",
+      "label": "Indoor unit servicing and cleaning",
+      "family": "hvac",
+      "family_label": "HVAC & refrigeration",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents air-conditioning service. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.637,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_customer_site_handover",
+      "label": "Customer site handover",
+      "family": "hvac",
+      "family_label": "HVAC & refrigeration",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "A service-delivery behaviour shared by every field trade. Not a trade, and not evidence of one.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_deburring",
+        "score": 0.6139,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_bearing_replacement",
+      "label": "Bearing replacement",
+      "family": "mech-maintenance",
+      "family_label": "Mechanical maintenance",
+      "candidates": [
+        "mskill_fitter"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "medium",
+      "rationale": "The strongest genuine case in this family. Bearing replacement is core maintenance-fitter work, and 'Fitter' is an ITI trade in India that explicitly covers it.",
+      "false_friend": "Cuts against an existing decision: skill_machine_maintenance is deliberately unmapped in the bridge. Mapping this would make the narrower skill confer what the broader one withholds, which needs an explicit reason.",
+      "nearest_neighbour": {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.7366,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_belt_and_chain_drive_alignment",
+      "label": "Belt and chain drive alignment",
+      "family": "mech-maintenance",
+      "family_label": "Mechanical maintenance",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "medium",
+      "rationale": "Follows the skill_machine_maintenance precedent: routine plant upkeep is an attribute of many roles rather than evidence of the fitting trade.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6456,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_lubrication_schedule_execution",
+      "label": "Lubrication schedule execution",
+      "family": "mech-maintenance",
+      "family_label": "Mechanical maintenance",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "Greasing to a schedule is done by operators and helpers, not only fitters. Mapping it would reach every one of them for a specialist's vacancy — the attribute trap the bridge already guards against for micrometers and GD&T.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_grinding_ops",
+        "score": 0.6812,
+        "bridge": [
+          "mskill_cnc_grinding_operator"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_vibration_and_noise_fault_diagnosis",
+      "label": "Vibration and noise fault diagnosis",
+      "family": "mech-maintenance",
+      "family_label": "Mechanical maintenance",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "medium",
+      "rationale": "Condition monitoring is its own discipline with no match skill; the nearest represented trade is not it.",
+      "false_friend": "skill_quality_control -> mskill_quality_inspector @ 0.662, on 'diagnosis'.",
+      "nearest_neighbour": {
+        "skill_id": "skill_quality_control",
+        "score": 0.6625,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_pump_and_valve_repair",
+      "label": "Pump and valve repair",
+      "family": "mech-maintenance",
+      "family_label": "Mechanical maintenance",
+      "candidates": [
+        "mskill_fitter"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "medium",
+      "rationale": "Same question as bearing replacement, with an extra complication: pumps and valves are also plumbing hardware, so the wrong answer here reaches TWO wrong pools.",
+      "false_friend": "skill_plumber_occupation -> mskill_plumber @ 0.651 is its third neighbour. Industrial pump overhaul is not domestic plumbing.",
+      "nearest_neighbour": {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6844,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_shaft_and_coupling_alignment",
+      "label": "Shaft and coupling alignment",
+      "family": "mech-maintenance",
+      "family_label": "Mechanical maintenance",
+      "candidates": [
+        "mskill_fitter"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "medium",
+      "rationale": "The most fitter-defining skill in this family — precision alignment with dial gauges or laser is skilled fitting work, not general maintenance. If any of the three maintenance REVIEW cases becomes MATCHED, this is the strongest candidate.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6592,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_sanitary_fixture_installation",
+      "label": "Sanitary fixture installation",
+      "family": "plumbing",
+      "family_label": "Plumbing & sanitary",
+      "candidates": [
+        "mskill_plumber"
+      ],
+      "proposed_disposition": "MATCHED",
+      "confidence": "high",
+      "rationale": "THE CLEAREST MATCH IN THE PACK. Installing WCs, washbasins, taps and traps is the defining work of the plumbing trade — a worker who does it IS a plumber, and an employer posting for a plumber wants exactly this.",
+      "false_friend": "Worth noting the evidence disagrees: its NEAREST neighbour is skill_bench_fitting -> mskill_fitter @ 0.690, ahead of skill_plumber_occupation @ 0.687. The disposition comes from what the trade IS, not from the ranking.",
+      "nearest_neighbour": {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6904,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_leak_repair_in_water_lines",
+      "label": "Leak repair in water lines",
+      "family": "plumbing",
+      "family_label": "Plumbing & sanitary",
+      "candidates": [
+        "mskill_plumber"
+      ],
+      "proposed_disposition": "MATCHED",
+      "confidence": "medium",
+      "rationale": "'Water lines' is the qualifier that keeps this in the plumbing trade rather than in generic pipework. Repairing domestic and building water lines is plumber's work.",
+      "false_friend": "Process-piping and HVAC technicians also repair leaks. If the phrase in practice covers industrial process lines, this should fall back to REVIEW.",
+      "nearest_neighbour": {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.6923,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_solvent_cement_jointing",
+      "label": "Solvent cement jointing",
+      "family": "plumbing",
+      "family_label": "Plumbing & sanitary",
+      "candidates": [
+        "mskill_plumber"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "low",
+      "rationale": "PVC solvent jointing is everyday plumbing, but it is a TECHNIQUE rather than a trade, and the identical technique joins electrical conduit.",
+      "false_friend": "skill_conduit_bending_and_laying is in this same batch. A worker who solvent-joints conduit is an electrician's helper, not a plumber.",
+      "nearest_neighbour": {
+        "skill_id": "skill_woodworking",
+        "score": 0.6966,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_drain_cleaning_and_unclogging",
+      "label": "Drain cleaning and unclogging",
+      "family": "plumbing",
+      "family_label": "Plumbing & sanitary",
+      "candidates": [
+        "mskill_plumber"
+      ],
+      "proposed_disposition": "MATCHED",
+      "confidence": "medium",
+      "rationale": "Proposed on the strength of an EXISTING RATIFIED DECISION rather than independently: skill_drainage_systems -> mskill_plumber is already in the bridge, and this is the same work. Consistency argues for the same answer.",
+      "false_friend": "The owner named 'drainage systems -> plumber' as a false-friend pattern to watch. Facilities and housekeeping staff also unclog drains. If the existing mapping is itself reconsidered, this one must move with it.",
+      "nearest_neighbour": {
+        "skill_id": "skill_drainage_systems",
+        "score": 0.6754,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_pipe_bending",
+      "label": "Pipe bending",
+      "family": "plumbing",
+      "family_label": "Plumbing & sanitary",
+      "candidates": [
+        "mskill_plumber"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "low",
+      "rationale": "Plumbers bend pipe — and so do conduit electricians, HVAC technicians and fabricators. The skill names no medium and no trade.",
+      "false_friend": "skill_pipe_fitting -> mskill_plumber @ 0.752 would make this an automatic mapping, and skill_conduit_bending_and_laying sits in the same batch doing the same motion for cables.",
+      "nearest_neighbour": {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.7521,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_pressure_testing_of_pipelines",
+      "label": "Pressure testing of pipelines",
+      "family": "plumbing",
+      "family_label": "Plumbing & sanitary",
+      "candidates": [
+        "mskill_plumber"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "low",
+      "rationale": "Water, gas, process and HVAC lines are all pressure-tested, by four different trades.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_measuring_instruments",
+        "score": 0.6532,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_pipe_support_and_clamping",
+      "label": "Pipe support and clamping",
+      "family": "plumbing",
+      "family_label": "Plumbing & sanitary",
+      "candidates": [
+        "mskill_plumber"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "low",
+      "rationale": "Generic pipework support, shared with HVAC, sprinkler and mechanical trades. Closer to an attribute than a trade.",
+      "false_friend": "skill_pipe_fitting -> mskill_plumber @ 0.739 would map it automatically.",
+      "nearest_neighbour": {
+        "skill_id": "skill_pipe_fitting",
+        "score": 0.7386,
+        "bridge": [
+          "mskill_plumber"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_visual_defect_identification",
+      "label": "Visual defect identification",
+      "family": "quality",
+      "family_label": "Quality & inspection",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "Every operator on every line identifies visual defects; it is the first thing anyone is taught. Mapping it would reach every one of them for a specialist's vacancy — the attribute trap the bridge already guards against for micrometers and GD&T.",
+      "false_friend": "THE MICROMETER PATTERN AT ITS MOST DANGEROUS: skill_dimensional_inspection -> mskill_quality_inspector @ 0.803, the second-highest score in the whole set. Mapping it would reach the entire shop floor for every Quality Inspector vacancy.",
+      "nearest_neighbour": {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.8027,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_inspection_report_recording",
+      "label": "Inspection report recording",
+      "family": "quality",
+      "family_label": "Quality & inspection",
+      "candidates": [
+        "mskill_quality_inspector"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "low",
+      "rationale": "Recording results is clerical and shared with operators. Flagged for an explicit answer only because its score would otherwise carry it.",
+      "false_friend": "skill_dimensional_inspection @ 0.801 — third-highest in the set. Writing down a measurement is not making one.",
+      "nearest_neighbour": {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.8007,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_rejection_tagging_and_segregation",
+      "label": "Rejection tagging and segregation",
+      "family": "quality",
+      "family_label": "Quality & inspection",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "Tagging and moving rejects is line discipline every operator follows. Mapping it would reach every one of them for a specialist's vacancy — the attribute trap the bridge already guards against for micrometers and GD&T.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_quality_control",
+        "score": 0.6588,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_surface_finish_inspection",
+      "label": "Surface finish inspection",
+      "family": "quality",
+      "family_label": "Quality & inspection",
+      "candidates": [
+        "mskill_quality_inspector"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "low",
+      "rationale": "A genuine near-tie, and the evidence itself is ambivalent: its two nearest neighbours are skill_deburring (deliberately UNMAPPED, 0.746) and skill_dimensional_inspection (MAPPED to Quality Inspector, 0.745) — one point apart, pointing opposite ways.",
+      "false_friend": "A finisher checking their own surface is not an inspector; a metrology lab measuring Ra is. The label covers both.",
+      "nearest_neighbour": {
+        "skill_id": "skill_deburring",
+        "score": 0.7457,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_hardness_testing",
+      "label": "Hardness testing",
+      "family": "quality",
+      "family_label": "Quality & inspection",
+      "candidates": [
+        "mskill_quality_inspector"
+      ],
+      "proposed_disposition": "MATCHED",
+      "confidence": "medium",
+      "rationale": "Hardness testing is a laboratory/QC measurement performed on a dedicated instrument, consistent with the already-ratified skill_cmm -> mskill_quality_inspector.",
+      "false_friend": "Heat-treatment operators run hardness checks on their own output. The mapping assumes the QC reading of the phrase.",
+      "nearest_neighbour": {
+        "skill_id": "skill_quality_control",
+        "score": 0.6534,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_non_destructive_testing_of_castings",
+      "label": "Non-destructive testing of castings",
+      "family": "quality",
+      "family_label": "Quality & inspection",
+      "candidates": [
+        "mskill_quality_inspector"
+      ],
+      "proposed_disposition": "MATCHED",
+      "confidence": "high",
+      "rationale": "NDT is a certified inspection discipline — dye penetrant, ultrasonic, radiography. A worker who performs it holds inspection as their JOB, not as a side duty. The strongest quality-family match.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_quality_control",
+        "score": 0.6878,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_stock_counting",
+      "label": "Stock counting",
+      "family": "warehouse",
+      "family_label": "Warehouse & stores",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents warehousing and stores. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "ELEVEN promotable skills sit in this family and the vocabulary has nothing for any of them. mskill_delivery_rider is last-mile delivery, not warehouse work.",
+      "nearest_neighbour": {
+        "skill_id": "skill_quality_control",
+        "score": 0.6481,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_inventory_record_keeping",
+      "label": "Inventory record keeping",
+      "family": "warehouse",
+      "family_label": "Warehouse & stores",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents stores administration. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.5705,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_goods_receipt_verification",
+      "label": "Goods receipt verification",
+      "family": "warehouse",
+      "family_label": "Warehouse & stores",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents goods inward. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_dimensional_inspection -> mskill_quality_inspector @ 0.694. Checking a delivery note against cartons is not dimensional metrology.",
+      "nearest_neighbour": {
+        "skill_id": "skill_dimensional_inspection",
+        "score": 0.6943,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_bin_location_management",
+      "label": "Bin location management",
+      "family": "warehouse",
+      "family_label": "Warehouse & stores",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents warehouse layout and storage. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_space_planning",
+        "score": 0.5937,
+        "bridge": [
+          "mskill_interior_designer"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_dispatch_documentation",
+      "label": "Dispatch documentation",
+      "family": "warehouse",
+      "family_label": "Warehouse & stores",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents dispatch administration. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_gas_cutting",
+        "score": 0.6054,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_material_handling_equipment_operation",
+      "label": "Material handling equipment operation",
+      "family": "warehouse",
+      "family_label": "Warehouse & stores",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents material-handling equipment. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_milling -> mskill_vmc_operator @ 0.694. Operating a pallet truck is not operating a machining centre; only the word 'operation' is shared.",
+      "nearest_neighbour": {
+        "skill_id": "skill_machine_maintenance",
+        "score": 0.7005,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_pallet_stacking_and_loading",
+      "label": "Pallet stacking and loading",
+      "family": "warehouse",
+      "family_label": "Warehouse & stores",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents warehouse handling. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_milling",
+        "score": 0.584,
+        "bridge": [
+          "mskill_vmc_operator"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_issue_and_requisition_control",
+      "label": "Issue and requisition control",
+      "family": "warehouse",
+      "family_label": "Warehouse & stores",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents stores control. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_material_selection",
+        "score": 0.7435,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_order_picking_and_packing",
+      "label": "Order picking and packing",
+      "family": "warehouse",
+      "family_label": "Warehouse & stores",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "No match skill represents order fulfilment. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_space_planning",
+        "score": 0.6142,
+        "bridge": [
+          "mskill_interior_designer"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_forklift_operation",
+      "label": "Forklift operation",
+      "family": "warehouse",
+      "family_label": "Warehouse & stores",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "A licensed competency with real hiring value and NO match skill to carry it — the clearest single argument that the vocabulary is too narrow for this corpus. No match skill represents materials handling. The vocabulary's 18 concepts cover CNC machining, welding, fitting, plumbing, carpentry, quality inspection, design and delivery — none of them is this trade, and borrowing the nearest one would place the worker in a vacancy they are not qualified for.",
+      "false_friend": "skill_turning -> mskill_cnc_turner @ 0.609. Creating mskill_forklift_operator is out of scope here; the gap is recorded, not filled.",
+      "nearest_neighbour": {
+        "skill_id": "skill_turning",
+        "score": 0.6092,
+        "bridge": [
+          "mskill_cnc_turner"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_barcode_scanning",
+      "label": "Barcode scanning",
+      "family": "warehouse",
+      "family_label": "Warehouse & stores",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "Scanning a barcode is a task, performed across warehousing, retail and production. Mapping it would reach every one of them for a specialist's vacancy — the attribute trap the bridge already guards against for micrometers and GD&T.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_quality_control",
+        "score": 0.6531,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_gas_torch_flame_setting",
+      "label": "Gas torch flame setting",
+      "family": "welding-support",
+      "family_label": "Welding support skills",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "Oxy-fuel work. The three welder match skills are MIG, TIG and arc; none covers gas, and skill_gas_cutting is already deliberately unmapped for exactly this reason.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_fixture_setup",
+        "score": 0.6778,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_oxy_acetylene_cylinder_handling",
+      "label": "Oxy-acetylene cylinder handling",
+      "family": "welding-support",
+      "family_label": "Welding support skills",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "Gas-handling safety, not a welding process. Same reasoning as gas torch flame setting.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_gas_cutting",
+        "score": 0.7016,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_weld_bead_inspection",
+      "label": "Weld bead inspection",
+      "family": "welding-support",
+      "family_label": "Welding support skills",
+      "candidates": [
+        "mskill_quality_inspector"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "low",
+      "rationale": "Welders inspect their own beads as a matter of course; dedicated weld inspectors also exist as a role. Which reading the phrase carries decides whether this is an attribute of welding or a QC trade.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_quality_control",
+        "score": 0.6936,
+        "bridge": [
+          "mskill_quality_inspector"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_welding_joint_preparation",
+      "label": "Welding joint preparation",
+      "family": "welding-support",
+      "family_label": "Welding support skills",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "Edge preparation is shared by welders, fitters and fabricators, and names no process, so it evidences no specific welder match skill.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_woodworking",
+        "score": 0.6693,
+        "bridge": [
+          "mskill_carpenter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_distortion_control_in_weldments",
+      "label": "Distortion control in weldments",
+      "family": "welding-support",
+      "family_label": "Welding support skills",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "medium",
+      "rationale": "Genuine advanced welding knowledge, but process-agnostic — and the vocabulary has only process-specific welders. There is no 'welder, general' to carry it.",
+      "false_friend": "skill_welder_occupation -> mskill_mig_welder @ 0.704 would map it to MIG SPECIFICALLY, which the skill does not evidence at all.",
+      "nearest_neighbour": {
+        "skill_id": "skill_welder_occupation",
+        "score": 0.7036,
+        "bridge": [
+          "mskill_mig_welder"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_weld_spatter_cleaning",
+      "label": "Weld spatter cleaning",
+      "family": "welding-support",
+      "family_label": "Welding support skills",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "Cleaning spatter is post-weld tidying, often done by helpers rather than welders. Mapping it would reach every one of them for a specialist's vacancy — the attribute trap the bridge already guards against for micrometers and GD&T.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_deburring",
+        "score": 0.661,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_weld_program_parameter_setting",
+      "label": "Weld program parameter setting",
+      "family": "welding-support",
+      "family_label": "Welding support skills",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "medium",
+      "rationale": "Robotic or machine-welding setup. No automated-welding match skill exists, and the manual welder concepts do not describe this work.",
+      "false_friend": "skill_tool_offset_setting @ 0.732 is its nearest neighbour and is deliberately unmapped — the right precedent, reached for the right reason.",
+      "nearest_neighbour": {
+        "skill_id": "skill_tool_offset_setting",
+        "score": 0.7319,
+        "bridge": []
+      }
+    },
+    {
+      "skill_id": "skill_welding_machine_consumable_changeover",
+      "label": "Welding machine consumable changeover",
+      "family": "welding-support",
+      "family_label": "Welding support skills",
+      "candidates": [],
+      "proposed_disposition": "INTENTIONALLY_UNMATCHED",
+      "confidence": "high",
+      "rationale": "Changing wire, tips and nozzles is routine upkeep around a welding set. Mapping it would reach every one of them for a specialist's vacancy — the attribute trap the bridge already guards against for micrometers and GD&T.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_bench_fitting",
+        "score": 0.6409,
+        "bridge": [
+          "mskill_fitter"
+        ]
+      }
+    },
+    {
+      "skill_id": "skill_electrode_selection",
+      "label": "Electrode selection",
+      "family": "welding-support",
+      "family_label": "Welding support skills",
+      "candidates": [
+        "mskill_arc_welder"
+      ],
+      "proposed_disposition": "REVIEW",
+      "confidence": "low",
+      "rationale": "Unlike the rest of this family it DOES imply a process — electrodes are stick/arc consumables, so it is the one welding-support skill with a defensible specific target. Against that: selecting a consumable is still an attribute of doing the work.",
+      "false_friend": null,
+      "nearest_neighbour": {
+        "skill_id": "skill_material_selection",
+        "score": 0.6775,
+        "bridge": []
+      }
+    }
+  ],
+  "applied": 0,
+  "mskills_invented": 0
+}
