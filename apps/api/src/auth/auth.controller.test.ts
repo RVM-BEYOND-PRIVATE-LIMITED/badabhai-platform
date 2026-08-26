@@ -18,11 +18,15 @@ import type { AuthService } from "./auth.service";
 import type { SessionService } from "./session.service";
 import type { OtpService } from "./otp.service";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
-import type { AccountDeletionService } from "./account-deletion.service";
+import { AccountDeletionService } from "./account-deletion.service";
 import type { WorkersRepository } from "../workers/workers.repository";
 import { IpRateLimit } from "../common/rate-limit/ip-rate-limit.service";
 import type { ConsentRepository } from "../consent/consent.repository";
 import type { AuthenticatedWorker } from "./worker-auth.guard";
+import type { StorageService } from "../storage/storage.service";
+import type { EventsService } from "../events/events.service";
+import type { ErasureAuditRepository } from "./erasure-audit.repository";
+import type { Queue } from "bullmq";
 import {
   WorkerAccountDeletedException,
   WORKER_ACCOUNT_DELETED_CODE,
@@ -861,41 +865,52 @@ describe("AuthController", () => {
     expect(accountDeletion.schedule).not.toHaveBeenCalled();
   });
 
-  // ---- TD — QA-ONLY immediate hard-delete seam (POST /auth/account/delete/immediate) ----
+  // ---- TD — QA-ONLY immediate complete-erasure seam (POST /auth/account/delete/immediate) ----
+  // #1239: routes through AccountDeletionService.execute (the SAME method the graced DPDP flow
+  // uses) instead of a bare WorkersRepository.hardDelete, so a QA delete is a real, complete
+  // erasure (sessions revoked, storage swept, row removed) — not just the DB row.
 
-  it("accountDeleteImmediate: FLAG ON → hard-deletes the GUARD's worker and returns { ok: true }", async () => {
-    const { controller, workers, config } = make();
+  it("accountDeleteImmediate: FLAG ON → routes through AccountDeletionService.execute for the GUARD's worker and returns { ok: true }", async () => {
+    const { controller, accountDeletion, config } = make();
     config.TEST_IMMEDIATE_DELETE_ENABLED = true;
     const res = await controller.accountDeleteImmediate(WORKER);
-    // The delete targets the TOKEN's worker.id (never a body) — reusing the existing cascade delete.
-    expect(workers.hardDelete).toHaveBeenCalledWith(WORKER.id);
+    // The erasure targets the TOKEN's worker.id (never a body) — the same identity source as
+    // every other deletion route.
+    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id);
     expect(res).toEqual({ ok: true });
   });
 
-  it("accountDeleteImmediate: FLAG ON, idempotent — an already-gone row is STILL { ok: true }", async () => {
-    const { controller, workers, config } = make();
+  it("accountDeleteImmediate: FLAG ON, idempotent — a re-run on an already-gone worker is STILL { ok: true }", async () => {
+    // execute() is itself idempotent (a no-op on a missing worker row) and resolves void either
+    // way — the controller's job is just to call it and answer { ok: true }.
+    const { controller, accountDeletion, config } = make();
     config.TEST_IMMEDIATE_DELETE_ENABLED = true;
-    (workers.hardDelete as ReturnType<typeof vi.fn>).mockResolvedValueOnce(false);
     const res = await controller.accountDeleteImmediate(WORKER);
+    expect(accountDeletion.execute).toHaveBeenCalledTimes(1);
     expect(res).toEqual({ ok: true });
   });
 
-  it("accountDeleteImmediate: FLAG OFF (default) → 404 and NOTHING is deleted", async () => {
-    // The neutral 404 makes the seam invisible on a normal build; the delete must never run.
-    const { controller, workers } = make();
+  it("accountDeleteImmediate: FLAG OFF (default) → 404 and NOTHING is erased", async () => {
+    // The neutral 404 makes the seam invisible on a normal build; the erasure must never run.
+    const { controller, accountDeletion, workers } = make();
     await expect(controller.accountDeleteImmediate(WORKER)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+    expect(accountDeletion.execute).not.toHaveBeenCalled();
     expect(workers.hardDelete).not.toHaveBeenCalled();
   });
 
-  it("accountDeleteImmediate: does NOT route through the graceful AccountDeletionService (raw row delete only)", async () => {
-    // Faithful to the out-of-band `DELETE FROM workers`: no grace schedule, no execute, no OTP gate.
-    const { controller, accountDeletion, otp, config } = make();
+  it("accountDeleteImmediate: DOES route through the graceful AccountDeletionService — never calls WorkersRepository.hardDelete directly", async () => {
+    // #1239: the OLD design deliberately bypassed AccountDeletionService (raw row delete only).
+    // That gap is exactly what left a live Redis session + orphaned storage objects behind. The
+    // seam still skips the step-up OTP and the grace schedule — that is the immediacy contract,
+    // not the completeness one.
+    const { controller, accountDeletion, workers, otp, config } = make();
     config.TEST_IMMEDIATE_DELETE_ENABLED = true;
     await controller.accountDeleteImmediate(WORKER);
+    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id);
     expect(accountDeletion.schedule).not.toHaveBeenCalled();
-    expect(accountDeletion.execute).not.toHaveBeenCalled();
+    expect(workers.hardDelete).not.toHaveBeenCalled();
     expect(otp.verify).not.toHaveBeenCalled();
   });
 
@@ -906,6 +921,129 @@ describe("AuthController", () => {
     const json = JSON.stringify(res);
     expect(json).toBe('{"ok":true}');
     expect(json).not.toMatch(/phone|full_?name|1111/i);
+  });
+});
+
+/**
+ * #1239 — the immediate-delete seam wired to the REAL `AccountDeletionService` (not the
+ * pass-through double `make()` uses above), mirroring `account-deletion.service.test.ts`'s own
+ * "happy path" harness. This is the proof that routing through `execute` (rather than a bare
+ * `WorkersRepository.hardDelete`) actually widens what the QA seam erases: sessions revoked,
+ * every storage prefix swept, THEN the DB row removed — the same three things
+ * `account-deletion.service.test.ts` already verifies for the graced DPDP flow now also hold
+ * here, reached through `POST /auth/account/delete/immediate` instead of the sweep processor.
+ */
+describe("#1239 — accountDeleteImmediate with the REAL AccountDeletionService (complete erasure)", () => {
+  const IMMEDIATE_WORKER: AuthenticatedWorker = {
+    id: "22222222-2222-4222-8222-222222222222",
+    sid: "sid-2",
+  };
+  const PHONE_HASH = "ph_hash_immediate";
+
+  function makeWithRealAccountDeletion(
+    opts: { resumeKeys?: string[]; sessionsRevoked?: number } = {},
+  ) {
+    const workerRow = {
+      id: IMMEDIATE_WORKER.id,
+      phoneHash: PHONE_HASH,
+      status: "active",
+      deletionScheduledAt: null,
+    };
+    const workersDouble = {
+      findById: vi.fn(
+        async (): Promise<Record<string, unknown> | undefined> => workerRow,
+      ),
+      listResumeStorageKeys: vi.fn(async () => opts.resumeKeys ?? ["resume-key-1.pdf"]),
+      listVoiceStorageKeys: vi.fn(async () => []),
+      listChatSessionIds: vi.fn(async () => []),
+      hasCredentials: vi.fn(async () => false),
+      countDevices: vi.fn(async () => 0),
+      hardDelete: vi.fn(async () => true),
+      scheduleDeletion: vi.fn(async () => undefined),
+      cancelDeletion: vi.fn(async () => undefined),
+      // The seam still needs the (unrelated) findSelfView/existsById surface for module wiring —
+      // unused by this test's single call path.
+      findSelfView: vi.fn(async () => ({ status: "active", deletionScheduledAt: null })),
+      existsById: vi.fn(async () => true),
+    };
+    const sessionsDouble = { revokeAll: vi.fn(async () => opts.sessionsRevoked ?? 3) };
+    const storageDouble = {
+      deletePdf: vi.fn(async () => undefined),
+      deleteByPrefix: vi.fn(async () => 0),
+    };
+    const eventsDouble: { emit: ReturnType<typeof vi.fn> } = { emit: vi.fn(async () => undefined) };
+    const erasureAuditDouble = { record: vi.fn(async () => undefined) };
+    const queueDouble = {
+      client: Promise.resolve({
+        set: vi.fn(async () => "OK"),
+        del: vi.fn(async () => 0),
+      }),
+    };
+    const deletionConfig = {
+      RESUMES_BUCKET: "worker-resumes",
+      CONVERSATIONS_BUCKET: "worker-conversations",
+      VOICE_NOTES_BUCKET: "",
+      WORKER_PHOTOS_BUCKET: "",
+      WORKER_FEEDBACK_ATTACHMENTS_BUCKET: "",
+      ACCOUNT_DELETION_COOLDOWN_SECONDS: 604800,
+      ACCOUNT_DELETION_GRACE_DAYS: 7,
+      TEST_IMMEDIATE_DELETE_ENABLED: true,
+    } as unknown as ServerConfig;
+
+    const realAccountDeletion = new AccountDeletionService(
+      deletionConfig,
+      workersDouble as unknown as WorkersRepository,
+      sessionsDouble as unknown as SessionService,
+      storageDouble as unknown as StorageService,
+      eventsDouble as unknown as EventsService,
+      erasureAuditDouble as unknown as ErasureAuditRepository,
+      queueDouble as unknown as Queue,
+    );
+
+    const controller = new AuthController(
+      {} as unknown as AuthService,
+      {} as unknown as SessionService,
+      workersDouble as unknown as WorkersRepository,
+      {} as unknown as IpRateLimit,
+      {} as unknown as OtpService,
+      {} as unknown as PiiCryptoService,
+      realAccountDeletion,
+      {} as unknown as ConsentRepository,
+      {} as unknown as OtpRequestIdempotency,
+      deletionConfig,
+    );
+
+    return { controller, workersDouble, sessionsDouble, storageDouble, eventsDouble };
+  }
+
+  it("revokes ALL sessions, sweeps storage, and removes the DB row — through the immediate route", async () => {
+    const { controller, workersDouble, sessionsDouble, storageDouble } =
+      makeWithRealAccountDeletion({ resumeKeys: ["k1.pdf", "k2.pdf"], sessionsRevoked: 3 });
+
+    const res = await controller.accountDeleteImmediate(IMMEDIATE_WORKER);
+
+    // (1) Sessions + refresh families revoked.
+    expect(sessionsDouble.revokeAll).toHaveBeenCalledWith(IMMEDIATE_WORKER.id);
+    // (2) Storage prefixes swept — every captured resume key deleted, conversation prefix hit.
+    expect(storageDouble.deletePdf).toHaveBeenCalledTimes(2);
+    expect(storageDouble.deletePdf).toHaveBeenCalledWith("k1.pdf", "worker-resumes");
+    expect(storageDouble.deletePdf).toHaveBeenCalledWith("k2.pdf", "worker-resumes");
+    expect(storageDouble.deleteByPrefix).toHaveBeenCalledWith(
+      `${IMMEDIATE_WORKER.id}/`,
+      "worker-conversations",
+    );
+    // (3) The DB row is gone (the atomic hard-delete AccountDeletionService.execute performs).
+    expect(workersDouble.hardDelete).toHaveBeenCalledWith(IMMEDIATE_WORKER.id);
+
+    expect(res).toEqual({ ok: true });
+  });
+
+  it("emits the PII-free worker.account_deleted event (the same event the graced flow emits)", async () => {
+    const { controller, eventsDouble } = makeWithRealAccountDeletion();
+    await controller.accountDeleteImmediate(IMMEDIATE_WORKER);
+    expect(eventsDouble.emit).toHaveBeenCalledTimes(1);
+    const emitted = eventsDouble.emit.mock.calls[0]![0] as { event_name: string };
+    expect(emitted.event_name).toBe("worker.account_deleted");
   });
 });
 
