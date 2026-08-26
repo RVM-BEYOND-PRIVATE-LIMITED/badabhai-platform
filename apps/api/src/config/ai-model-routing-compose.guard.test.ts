@@ -75,11 +75,23 @@ const AI_SERVICE_CONFIG = join(__dirname, "../../../..", "apps/ai-service/app/co
  * refactor that changes that shape FAILS the test rather than silently matching nothing.
  */
 function pythonFieldDefault(source: string, field: string): string | null {
-  const m = new RegExp(`^\\s{4}${field}:\\s*(?:str|float|int)\\s*=\\s*(.+?)\\s*$`, "m").exec(
-    source,
-  );
-  if (!m) return null;
-  return m[1]!.replace(/^["']|["']$/g, "");
+  // A fixed prefix + a HARDCODED regex, rather than interpolating `field` into a `new RegExp`.
+  // The values are compile-time constants from the arrays above, so a dynamic pattern was never
+  // a real ReDoS risk — but semgrep's detect-non-literal-regexp blocks on the shape rather than
+  // the provenance, and a `nosemgrep` suppression would be a standing claim a later editor has
+  // to re-verify. Not building the regex at all is cheaper than justifying it.
+  //
+  // Exactly four spaces: `Settings` fields sit at one level of class indentation, so this cannot
+  // accidentally match a more deeply nested assignment that happens to share a name.
+  const prefix = `    ${field}:`;
+  for (const line of source.split(/\r?\n/)) {
+    if (!line.startsWith(prefix)) continue;
+    const m = /^(?:str|float|int)\s*=\s*(.+?)\s*$/.exec(line.slice(prefix.length).trim());
+    // A matched field whose SHAPE changed (a `Field(...)` wrapper, a new annotation) returns
+    // null rather than a wrong value, so a config.py refactor fails the guard loudly.
+    return m ? m[1]!.replace(/^["']|["']$/g, "") : null;
+  }
+  return null;
 }
 
 /** The literal a `${VAR:-default}` entry falls back to, or null if it is a bare pass-through. */

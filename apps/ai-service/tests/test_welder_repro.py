@@ -100,6 +100,12 @@ def _storm_settings(**overrides) -> Settings:
         anthropic_api_key="anth-key",
         default_cheap_model="gemini-2.5-flash-lite",
         default_capable_model="gemini-2.5-flash",
+        # Stated rather than inherited (#1237). Every test below except the chat-turn one
+        # drives `profile_extraction`, which resolves through the CAPABLE tier and is
+        # unaffected by the pro tier; the chat turn resolves here. Pinning both explicitly is
+        # what keeps this file's model literals readable as premises instead of as defaults
+        # that can move underneath it.
+        default_pro_model="gemini-2.5-pro",
         default_fallback_model="claude-haiku-4-5",
         ai_real_call_tasks="profiling_chat_turn,profile_extraction",
     )
@@ -179,7 +185,11 @@ def test_repro_storm_chat_turn_also_reconciles(monkeypatch):
     _content, meta = _run(
         router.run("profiling_chat_turn", messages=_MESSAGES, mock_response="MOCK")
     )
-    assert meta.candidates_tried == ["gemini-2.5-flash", "claude-haiku-4-5"]
+    # The PRO model, because this is the chat turn (#1237) — every other test in this file
+    # drives `profile_extraction`, which stays on the capable tier's flash. Worth having one
+    # chat case here rather than pinning the tier down: it shows the cross-provider fallback is
+    # chosen on PROVIDER, not on tier, so a pro-tier primary still reaches Haiku.
+    assert meta.candidates_tried == ["gemini-2.5-pro", "claude-haiku-4-5"]
     assert meta.attempt_count == len(seen) == 3  # 1 Gemini (429) + 2 Haiku
     assert meta.failure_reason == "no_text_content"
 
