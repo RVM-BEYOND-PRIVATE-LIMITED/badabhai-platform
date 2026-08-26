@@ -1,0 +1,43 @@
+{
+  "kind": "deployed-flag-facts",
+  "measured_at": "2026-08-26T09:51:53.283Z",
+  "source": "pnpm db:audit:deployed-flags",
+  "target": "repository-only (no database)",
+  "read_only": true,
+  "role": null,
+  "population_predicate": "GitHub Actions repository-secret METADATA (name, created_at, updated_at, existence) for the two capability flags, plus the CI bridge and the compose default for each. No secret VALUE is read, and the running service is not probed.",
+  "ai_spend_inr": 0,
+  "flags": [
+    {
+      "name": "DOMAIN_MATCH_ENABLED",
+      "exists": false,
+      "created_at": null,
+      "updated_at": null,
+      "changed_since_creation": null,
+      "deployed_value": null,
+      "determinable": true,
+      "reasoning": "The secret does not exist, so the CD bridges it as the empty string and compose's ${DOMAIN_MATCH_ENABLED:-false} substitutes — the ':-' form applies on empty as well as unset. The deployed value is FALSE, provably, without reading anything secret. Gates: the embedding-based ANN fallback in domain_match.match_domain. The lexical layers short-circuit before it, so production already resolves jd_* scopes with this false."
+    },
+    {
+      "name": "SKILL_CANONICALIZE_ENABLED",
+      "exists": true,
+      "created_at": "2026-07-16T11:51:11Z",
+      "updated_at": "2026-08-24T11:30:45Z",
+      "changed_since_creation": true,
+      "deployed_value": null,
+      "determinable": false,
+      "reasoning": "The secret EXISTS, so the CD passes its value and the compose default governs only if that value is empty. GitHub never exposes a secret's value, so the deployed setting is NOT DETERMINABLE from here. Its value was CHANGED at 2026-08-24T11:30:45Z, after creation at 2026-07-16T11:51:11Z — a deliberate act nobody recorded. Gates: /skills/canonicalize outright — the route returns `unresolved` before reaching either retrieval path. Turning it on IS the activation."
+    }
+  ],
+  "bridged_by_ci": {
+    "DOMAIN_MATCH_ENABLED": true,
+    "SKILL_CANONICALIZE_ENABLED": true
+  },
+  "compose_default": {
+    "DOMAIN_MATCH_ENABLED": "false",
+    "SKILL_CANONICALIZE_ENABLED": "false"
+  },
+  "deploy_runs_on_every_main_push": true,
+  "what_would_settle_it": "Someone with box access reads the effective environment of the running ai-service container (`docker compose exec ai-service env | grep SKILL_CANONICALIZE_ENABLED`), or re-sets the secret to a known value and notes it. Neither is repository work.",
+  "production_mutation_performed": false
+}

@@ -114,6 +114,7 @@
     "db:report:s3d-shadow": "tsx src/s3d-shadow-report.ts",
     "db:report:oie-canonicalize-coverage": "tsx src/oie-canonicalize-coverage.ts",
     "db:audit:live-drift": "tsx src/audit-live-drift.ts",
+    "db:audit:deployed-flags": "tsx src/audit-deployed-flags.ts",
     "db:audit:live-drift:ci": "tsx src/live-drift-ci.ts",
     "db:audit:undeclared-routines": "tsx src/audit-undeclared-routines.ts",
     "db:export:alias-vectors": "tsx src/export-alias-vectors.ts"
