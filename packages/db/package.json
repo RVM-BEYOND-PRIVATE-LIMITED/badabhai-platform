@@ -90,6 +90,7 @@
     "db:verify:path-b-parity": "tsx src/verify-path-b-parity.ts",
     "db:verify:stage-b": "tsx src/verify-stage-b-parity.ts",
     "db:audit:promotion-gates": "tsx src/audit-promotion-gates.ts",
+    "db:audit:programme-graph": "tsx src/audit-programme-graph.ts",
     "db:audit:gate-evidence": "tsx src/audit-gate-evidence.ts",
     "db:audit:floor-gate": "tsx src/audit-floor-gate.ts",
     "db:audit:bridge-coverage": "tsx src/audit-runtime-bridge-coverage.ts",
