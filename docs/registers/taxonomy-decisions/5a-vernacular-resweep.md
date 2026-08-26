@@ -135,6 +135,9 @@ The remediation order follows from the evidence rather than from preference:
 
 1. **D-7C alias cleanup** — removes the 8 duplicate-text pairs *and* the
    `dimensional inspection` collision, which shares a cause.
+   > **Superseded 2026-08-26 — see the addendum at the foot of this document.** The second half
+   > of that sentence was measured and is false: the cleanup relocates the collision at the
+   > identical score. The first half holds.
 2. **Per-label domain resolution (TAX-6)** — clears all 3 anchor-path collisions; the
    labeled-domain above-floor count is **0**.
 3. **Sibling margin** — 16 cases survive both of the above. **Unowned**, and the subject of the
@@ -208,3 +211,42 @@ PROMOTION CANDIDATES      96, eligible 0    unchanged
 ```
 
 **PROMOTION BLOCKED · CANONICALIZATION BLOCKED.**
+
+
+---
+
+## Addendum — 2026-08-26 (D-7C-1)
+
+*Added after this document was published; nothing above has been edited except to flag the one
+claim measured false. The original text is the record of what was believed on 2026-08-26 before
+the cleanup was simulated.*
+
+`pnpm db:audit:alias-cleanup` simulated the cleanup exactly — a de-election only NULLs an
+embedding, and every retrieval predicate filters `embedding IS NOT NULL`, so omitting the rows
+from the query reproduces the post-write corpus. Read-only, ₹0. Full report:
+[`d7c1-alias-collision-cleanup.md`](./d7c1-alias-collision-cleanup.md).
+
+**Three corrections to §D and §F above.**
+
+1. **§D.1 — the cleanup does NOT fix `dimensional inspection`.** It moves it from
+   `skill_drawing_reading` to `skill_gdt_reading` at **0.7570 either way**, via the same phrase
+   *"geometric dimensioning and tolerancing"*. An election preserves the winning phrase by
+   definition, so the score cannot change. The cause is semantic, not merge residue, and the
+   remedy is per-label resolution — which does reach it.
+
+2. **§D.3 — there are nine duplicate groups, not eight.** `finishing` is held by
+   `skill_deburring` and by `skill_furniture_finishing`, which is **provisional**. This sweep
+   filters `status = 'active'`, so it could not see the pair. Promotion arms it.
+
+3. **§F — the remediation order is right and its stated benefit is not.** Step 1 drives
+   nondeterminism from 19 duplicate rows to 0 and moves **no ceiling**: anchor stays 0.7760,
+   sibling stays 0.8405, above-floor anchor stays 3. It buys determinism, not floor safety.
+
+**One thing this document could not have known.** The 2026-08-21 elections hand `GD&T` and
+`geometric dimensioning and tolerancing` to `skill_gdt_reading`; the D-7C seed deprecates
+`skill_gdt_reading`. Applied together — both already ratified — **the two phrases leave retrieval
+entirely.** Recorded as **OWNER DECISION §D-7C-1a**.
+
+The 16 sibling collisions in §D.2 are now enumerated and attributed: 2 clear with the cleanup, 3
+with the D-7C seed, and **11 survive both**, in three lexical families (welding processes,
+controller brands, hole-making). That is §5a-2's exact population.

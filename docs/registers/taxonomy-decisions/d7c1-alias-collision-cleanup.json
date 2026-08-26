@@ -1,0 +1,1320 @@
+{
+  "kind": "alias-collision-cleanup",
+  "decision": "D-7C-1",
+  "measured_at": "2026-08-26T07:31:58.972Z",
+  "source": "pnpm db:audit:alias-cleanup --anchor=cnc-machining",
+  "target": "SUPABASE (remote)",
+  "read_only": true,
+  "role": "postgres",
+  "bypass_rls": true,
+  "population_predicate": "every skill_alias row whose lower(btrim(text)) is shared by more than one skill_id (18 rows in 9 groups); the counterfactual scores the same three surfaces as §5a with the elected ids absent from both probe and candidate pools",
+  "embedding_model": "gemini-embedding-001",
+  "ai_spend_inr": 0,
+  "zero_spend_reason": "The de-election write only NULLs embeddings, and every retrieval predicate filters embedding IS NOT NULL. Omitting the rows from the query reproduces the post-write corpus exactly, using vectors that already exist.",
+  "floor": 0.75,
+  "anchor_scope": "cnc-machining",
+  "ratified_election_count": 4,
+  "proposed_election_count": 4,
+  "owner_decision": "PENDING",
+  "groups": [
+    {
+      "norm": "blueprint reading",
+      "today": "UNDECIDED",
+      "after_ratified": "DECIDED_COMPLETE",
+      "after_all": "DECIDED_COMPLETE",
+      "members": [
+        {
+          "alias_id": "48ad48a4-867c-5890-80bf-95e8befab21b",
+          "skill_id": "skill_drawing_reading",
+          "text": "blueprint reading",
+          "domain_id": "cnc-machining",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": false
+        },
+        {
+          "alias_id": "d197cbbe-350d-5de3-8fee-f0a37aecfe58",
+          "skill_id": "skill_gdt_reading",
+          "text": "blueprint reading",
+          "domain_id": "cnc-machining",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": true
+        }
+      ]
+    },
+    {
+      "norm": "cad",
+      "today": "UNDECIDED",
+      "after_ratified": "UNDECIDED",
+      "after_all": "DECIDED_COMPLETE",
+      "members": [
+        {
+          "alias_id": "02776ee2-3322-5846-8538-c04d2a2b19ec",
+          "skill_id": "skill_cad_interpretation",
+          "text": "CAD",
+          "domain_id": "cnc-programming",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": true
+        },
+        {
+          "alias_id": "2ada1e65-b4d0-538a-8709-073f86501fec",
+          "skill_id": "skill_drawing_reading",
+          "text": "CAD",
+          "domain_id": "cnc-machining",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": false
+        }
+      ]
+    },
+    {
+      "norm": "drawing padhna",
+      "today": "UNDECIDED",
+      "after_ratified": "UNDECIDED",
+      "after_all": "DECIDED_COMPLETE",
+      "members": [
+        {
+          "alias_id": "4a0b0c77-c595-5503-8c62-2461253de70e",
+          "skill_id": "skill_cad_interpretation",
+          "text": "drawing padhna",
+          "domain_id": "cnc-programming",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": true
+        },
+        {
+          "alias_id": "794cc831-ccf7-5f32-8fa4-dfb7ab2585b2",
+          "skill_id": "skill_drawing_reading",
+          "text": "drawing padhna",
+          "domain_id": "cnc-machining",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": false
+        }
+      ]
+    },
+    {
+      "norm": "drawing reading",
+      "today": "UNDECIDED",
+      "after_ratified": "DECIDED_COMPLETE",
+      "after_all": "DECIDED_COMPLETE",
+      "members": [
+        {
+          "alias_id": "9f1ca66a-ee4b-55f1-87a9-a8bb2b88f955",
+          "skill_id": "skill_drawing_reading",
+          "text": "drawing reading",
+          "domain_id": "cnc-machining",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": false
+        },
+        {
+          "alias_id": "401212eb-e7f2-57ba-853a-7a4f7515fb24",
+          "skill_id": "skill_gdt_reading",
+          "text": "drawing reading",
+          "domain_id": "cnc-machining",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": true
+        }
+      ]
+    },
+    {
+      "norm": "finishing",
+      "today": "LATENT",
+      "after_ratified": "LATENT",
+      "after_all": "LATENT",
+      "members": [
+        {
+          "alias_id": "4b9511dc-cd94-5204-8b2f-3f0da0050874",
+          "skill_id": "skill_deburring",
+          "text": "finishing",
+          "domain_id": "fabrication",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": false
+        },
+        {
+          "alias_id": "be1851ac-ae8d-58af-8be0-7bd8a5290e85",
+          "skill_id": "skill_furniture_finishing",
+          "text": "finishing",
+          "domain_id": "fitting-assembly",
+          "embedded": true,
+          "skill_status": "provisional",
+          "live": false,
+          "elected_out": false
+        }
+      ]
+    },
+    {
+      "norm": "gd&t",
+      "today": "UNDECIDED",
+      "after_ratified": "DECIDED_COMPLETE",
+      "after_all": "DECIDED_COMPLETE",
+      "members": [
+        {
+          "alias_id": "60913ff3-3420-511e-8ec4-4605afe6d970",
+          "skill_id": "skill_drawing_reading",
+          "text": "GD&T",
+          "domain_id": "cnc-machining",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": true
+        },
+        {
+          "alias_id": "ff0e1497-e6ce-5737-88e2-e5954d9fb5ae",
+          "skill_id": "skill_gdt_reading",
+          "text": "GD&T",
+          "domain_id": "cnc-machining",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": false
+        }
+      ]
+    },
+    {
+      "norm": "geometric dimensioning and tolerancing",
+      "today": "UNDECIDED",
+      "after_ratified": "DECIDED_COMPLETE",
+      "after_all": "DECIDED_COMPLETE",
+      "members": [
+        {
+          "alias_id": "b6cf46a9-3cdb-560c-8b40-7a166b226d2d",
+          "skill_id": "skill_drawing_reading",
+          "text": "geometric dimensioning and tolerancing",
+          "domain_id": "cnc-machining",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": true
+        },
+        {
+          "alias_id": "046812dd-942d-5de5-80b1-54e23aab143b",
+          "skill_id": "skill_gdt_reading",
+          "text": "geometric dimensioning and tolerancing",
+          "domain_id": "cnc-machining",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": false
+        }
+      ]
+    },
+    {
+      "norm": "read engineering drawings",
+      "today": "UNDECIDED",
+      "after_ratified": "UNDECIDED",
+      "after_all": "DECIDED_COMPLETE",
+      "members": [
+        {
+          "alias_id": "580d7d5b-4d12-54ee-811c-ff954e880388",
+          "skill_id": "skill_cad_interpretation",
+          "text": "read engineering drawings",
+          "domain_id": "cnc-programming",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": true
+        },
+        {
+          "alias_id": "f2ac9923-c601-56d7-81c4-7649e3023093",
+          "skill_id": "skill_drawing_reading",
+          "text": "read engineering drawings",
+          "domain_id": "cnc-machining",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": false
+        }
+      ]
+    },
+    {
+      "norm": "technical drawing",
+      "today": "UNDECIDED",
+      "after_ratified": "UNDECIDED",
+      "after_all": "DECIDED_COMPLETE",
+      "members": [
+        {
+          "alias_id": "0c6caf0d-9d88-5030-8e47-c238a5620840",
+          "skill_id": "skill_cad_interpretation",
+          "text": "technical drawing",
+          "domain_id": "cnc-programming",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": true
+        },
+        {
+          "alias_id": "ddb60aa2-31b6-5501-8e30-60e41245d39d",
+          "skill_id": "skill_drawing_reading",
+          "text": "technical drawing",
+          "domain_id": "cnc-machining",
+          "embedded": true,
+          "skill_status": "active",
+          "live": true,
+          "elected_out": false
+        }
+      ]
+    }
+  ],
+  "orphaned_globally": [],
+  "scope_orphaned": [
+    "cad @ cnc-programming",
+    "drawing padhna @ cnc-programming",
+    "read engineering drawings @ cnc-programming",
+    "technical drawing @ cnc-programming"
+  ],
+  "d7c_subject_alias_ids": [
+    "046812dd-942d-5de5-80b1-54e23aab143b",
+    "0c6caf0d-9d88-5030-8e47-c238a5620840",
+    "0ce0f3e6-2ce5-5ebe-829e-a61abc228722",
+    "1561252c-300b-5aaf-8e21-86888a50dfb6",
+    "46d07419-9c58-5b11-8487-76b1b6aef906",
+    "4a0b0c77-c595-5503-8c62-2461253de70e",
+    "ff0e1497-e6ce-5737-88e2-e5954d9fb5ae",
+    "02776ee2-3322-5846-8538-c04d2a2b19ec",
+    "580d7d5b-4d12-54ee-811c-ff954e880388",
+    "401212eb-e7f2-57ba-853a-7a4f7515fb24",
+    "d197cbbe-350d-5de3-8fee-f0a37aecfe58"
+  ],
+  "orphaned_if_d7c_also_seeds": [
+    "gd&t",
+    "geometric dimensioning and tolerancing"
+  ],
+  "scope_orphaned_if_d7c_also_seeds": [
+    "cad @ cnc-programming",
+    "drawing padhna @ cnc-programming",
+    "gd&t @ cnc-machining",
+    "geometric dimensioning and tolerancing @ cnc-machining",
+    "read engineering drawings @ cnc-programming",
+    "technical drawing @ cnc-programming"
+  ],
+  "cross_decision_conflict": "The 2026-08-21 elections give these phrases to skills the D-7C seed would deprecate. Each decision is safe alone; applied together they remove the phrases from retrieval entirely. ORDERING IS NOT A FIX — the end state is the same either way. OWNER DECISION REQUIRED.",
+  "unresolved_after_all": [],
+  "scenarios": [
+    {
+      "id": "S0_TODAY",
+      "label": "production as it stands",
+      "excluded_alias_ids": [],
+      "probes": 106,
+      "ceilings": {
+        "anchor_path_negative": 0.77603404379094,
+        "labeled_domain_negative": 0,
+        "sibling_confusion": 0.840499714657639
+      },
+      "above_floor": {
+        "anchor_path": 3,
+        "labeled_domain": 0,
+        "sibling": 16
+      },
+      "duplicate_residue_rows": 19,
+      "duplicate_residue_phrases": [
+        "CAD",
+        "GD&T",
+        "blueprint reading",
+        "drawing padhna",
+        "drawing reading",
+        "geometric dimensioning and tolerancing",
+        "read engineering drawings",
+        "technical drawing"
+      ],
+      "anchor_above_floor": [
+        {
+          "phrase": "welding ka kaam",
+          "home": "welding",
+          "own_skill": "skill_welder_occupation",
+          "other_skill": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.776
+        },
+        {
+          "phrase": "fitting ka kaam",
+          "home": "fitting-assembly",
+          "own_skill": "skill_bench_fitting",
+          "other_skill": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.7621
+        },
+        {
+          "phrase": "dimensional inspection",
+          "home": "metrology-quality",
+          "own_skill": "skill_dimensional_inspection",
+          "other_skill": "skill_drawing_reading",
+          "via": "geometric dimensioning and tolerancing",
+          "score": 0.757
+        }
+      ],
+      "sibling_above_floor": [
+        {
+          "phrase": "GMAW",
+          "home": "welding",
+          "own_skill": "skill_mig_welding",
+          "other_skill": "skill_arc_welding",
+          "via": "SMAW",
+          "score": 0.8405
+        },
+        {
+          "phrase": "SMAW",
+          "home": "welding",
+          "own_skill": "skill_arc_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "GMAW",
+          "score": 0.8405
+        },
+        {
+          "phrase": "GTAW",
+          "home": "welding",
+          "own_skill": "skill_tig_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "GMAW",
+          "score": 0.8355
+        },
+        {
+          "phrase": "quality check",
+          "home": "metrology-quality",
+          "own_skill": "skill_dimensional_inspection",
+          "other_skill": "skill_quality_control",
+          "via": "quality check karna",
+          "score": 0.8219
+        },
+        {
+          "phrase": "quality check karna",
+          "home": "metrology-quality",
+          "own_skill": "skill_quality_control",
+          "other_skill": "skill_dimensional_inspection",
+          "via": "quality check",
+          "score": 0.8219
+        },
+        {
+          "phrase": "quality control",
+          "home": "metrology-quality",
+          "own_skill": "skill_quality_control",
+          "other_skill": "skill_dimensional_inspection",
+          "via": "quality check",
+          "score": 0.8083
+        },
+        {
+          "phrase": "TIG welding",
+          "home": "welding",
+          "own_skill": "skill_tig_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "MIG welding",
+          "score": 0.8002
+        },
+        {
+          "phrase": "MIG welding",
+          "home": "welding",
+          "own_skill": "skill_mig_welding",
+          "other_skill": "skill_tig_welding",
+          "via": "TIG welding",
+          "score": 0.8002
+        },
+        {
+          "phrase": "drawing padhna",
+          "home": "cnc-machining",
+          "own_skill": "skill_drawing_reading",
+          "other_skill": "skill_gdt_reading",
+          "via": "drawing reading",
+          "score": 0.7985
+        },
+        {
+          "phrase": "read engineering drawings",
+          "home": "cnc-machining",
+          "own_skill": "skill_drawing_reading",
+          "other_skill": "skill_gdt_reading",
+          "via": "blueprint reading",
+          "score": 0.7985
+        },
+        {
+          "phrase": "arc welding",
+          "home": "welding",
+          "own_skill": "skill_arc_welding",
+          "other_skill": "skill_tig_welding",
+          "via": "TIG welding",
+          "score": 0.7864
+        },
+        {
+          "phrase": "Fanuc controller",
+          "home": "cnc-machining",
+          "own_skill": "skill_fanuc",
+          "other_skill": "skill_mitsubishi",
+          "via": "Mitsubishi controller",
+          "score": 0.765
+        },
+        {
+          "phrase": "Mitsubishi controller",
+          "home": "cnc-machining",
+          "own_skill": "skill_mitsubishi",
+          "other_skill": "skill_fanuc",
+          "via": "Fanuc controller",
+          "score": 0.765
+        },
+        {
+          "phrase": "boring",
+          "home": "cnc-machining",
+          "own_skill": "skill_boring",
+          "other_skill": "skill_drilling",
+          "via": "drilling",
+          "score": 0.7556
+        },
+        {
+          "phrase": "drilling",
+          "home": "cnc-machining",
+          "own_skill": "skill_drilling",
+          "other_skill": "skill_boring",
+          "via": "boring",
+          "score": 0.7556
+        },
+        {
+          "phrase": "stick welding",
+          "home": "welding",
+          "own_skill": "skill_arc_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "MIG welding",
+          "score": 0.7501
+        }
+      ],
+      "traced": [
+        {
+          "phrase": "dimensional inspection",
+          "scope": "anchor:cnc-machining",
+          "got": "skill_drawing_reading",
+          "via": "geometric dimensioning and tolerancing",
+          "score": 0.757,
+          "verdict": "MISASSIGNED ABOVE FLOOR"
+        },
+        {
+          "phrase": "welding ka kaam",
+          "scope": "anchor:cnc-machining",
+          "got": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.776,
+          "verdict": "MISASSIGNED ABOVE FLOOR"
+        },
+        {
+          "phrase": "fitting ka kaam",
+          "scope": "anchor:cnc-machining",
+          "got": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.7621,
+          "verdict": "MISASSIGNED ABOVE FLOOR"
+        }
+      ]
+    },
+    {
+      "id": "S1_RATIFIED_APPLIED",
+      "label": "the 4 elections ratified 2026-08-21, applied",
+      "excluded_alias_ids": [
+        "d197cbbe-350d-5de3-8fee-f0a37aecfe58",
+        "401212eb-e7f2-57ba-853a-7a4f7515fb24",
+        "60913ff3-3420-511e-8ec4-4605afe6d970",
+        "b6cf46a9-3cdb-560c-8b40-7a166b226d2d"
+      ],
+      "probes": 102,
+      "ceilings": {
+        "anchor_path_negative": 0.77603404379094,
+        "labeled_domain_negative": 0,
+        "sibling_confusion": 0.840499714657639
+      },
+      "above_floor": {
+        "anchor_path": 3,
+        "labeled_domain": 0,
+        "sibling": 14
+      },
+      "duplicate_residue_rows": 4,
+      "duplicate_residue_phrases": [
+        "CAD",
+        "drawing padhna",
+        "read engineering drawings",
+        "technical drawing"
+      ],
+      "anchor_above_floor": [
+        {
+          "phrase": "welding ka kaam",
+          "home": "welding",
+          "own_skill": "skill_welder_occupation",
+          "other_skill": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.776
+        },
+        {
+          "phrase": "fitting ka kaam",
+          "home": "fitting-assembly",
+          "own_skill": "skill_bench_fitting",
+          "other_skill": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.7621
+        },
+        {
+          "phrase": "dimensional inspection",
+          "home": "metrology-quality",
+          "own_skill": "skill_dimensional_inspection",
+          "other_skill": "skill_gdt_reading",
+          "via": "geometric dimensioning and tolerancing",
+          "score": 0.757
+        }
+      ],
+      "sibling_above_floor": [
+        {
+          "phrase": "GMAW",
+          "home": "welding",
+          "own_skill": "skill_mig_welding",
+          "other_skill": "skill_arc_welding",
+          "via": "SMAW",
+          "score": 0.8405
+        },
+        {
+          "phrase": "SMAW",
+          "home": "welding",
+          "own_skill": "skill_arc_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "GMAW",
+          "score": 0.8405
+        },
+        {
+          "phrase": "GTAW",
+          "home": "welding",
+          "own_skill": "skill_tig_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "GMAW",
+          "score": 0.8355
+        },
+        {
+          "phrase": "quality check",
+          "home": "metrology-quality",
+          "own_skill": "skill_dimensional_inspection",
+          "other_skill": "skill_quality_control",
+          "via": "quality check karna",
+          "score": 0.8219
+        },
+        {
+          "phrase": "quality check karna",
+          "home": "metrology-quality",
+          "own_skill": "skill_quality_control",
+          "other_skill": "skill_dimensional_inspection",
+          "via": "quality check",
+          "score": 0.8219
+        },
+        {
+          "phrase": "quality control",
+          "home": "metrology-quality",
+          "own_skill": "skill_quality_control",
+          "other_skill": "skill_dimensional_inspection",
+          "via": "quality check",
+          "score": 0.8083
+        },
+        {
+          "phrase": "TIG welding",
+          "home": "welding",
+          "own_skill": "skill_tig_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "MIG welding",
+          "score": 0.8002
+        },
+        {
+          "phrase": "MIG welding",
+          "home": "welding",
+          "own_skill": "skill_mig_welding",
+          "other_skill": "skill_tig_welding",
+          "via": "TIG welding",
+          "score": 0.8002
+        },
+        {
+          "phrase": "arc welding",
+          "home": "welding",
+          "own_skill": "skill_arc_welding",
+          "other_skill": "skill_tig_welding",
+          "via": "TIG welding",
+          "score": 0.7864
+        },
+        {
+          "phrase": "Fanuc controller",
+          "home": "cnc-machining",
+          "own_skill": "skill_fanuc",
+          "other_skill": "skill_mitsubishi",
+          "via": "Mitsubishi controller",
+          "score": 0.765
+        },
+        {
+          "phrase": "Mitsubishi controller",
+          "home": "cnc-machining",
+          "own_skill": "skill_mitsubishi",
+          "other_skill": "skill_fanuc",
+          "via": "Fanuc controller",
+          "score": 0.765
+        },
+        {
+          "phrase": "boring",
+          "home": "cnc-machining",
+          "own_skill": "skill_boring",
+          "other_skill": "skill_drilling",
+          "via": "drilling",
+          "score": 0.7556
+        },
+        {
+          "phrase": "drilling",
+          "home": "cnc-machining",
+          "own_skill": "skill_drilling",
+          "other_skill": "skill_boring",
+          "via": "boring",
+          "score": 0.7556
+        },
+        {
+          "phrase": "stick welding",
+          "home": "welding",
+          "own_skill": "skill_arc_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "MIG welding",
+          "score": 0.7501
+        }
+      ],
+      "traced": [
+        {
+          "phrase": "dimensional inspection",
+          "scope": "anchor:cnc-machining",
+          "got": "skill_gdt_reading",
+          "via": "geometric dimensioning and tolerancing",
+          "score": 0.757,
+          "verdict": "MISASSIGNED ABOVE FLOOR"
+        },
+        {
+          "phrase": "welding ka kaam",
+          "scope": "anchor:cnc-machining",
+          "got": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.776,
+          "verdict": "MISASSIGNED ABOVE FLOOR"
+        },
+        {
+          "phrase": "fitting ka kaam",
+          "scope": "anchor:cnc-machining",
+          "got": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.7621,
+          "verdict": "MISASSIGNED ABOVE FLOOR"
+        }
+      ]
+    },
+    {
+      "id": "S2_RATIFIED_PLUS_PROPOSED",
+      "label": "those 4 plus the 4 proposed D-7C-1 elections",
+      "excluded_alias_ids": [
+        "d197cbbe-350d-5de3-8fee-f0a37aecfe58",
+        "401212eb-e7f2-57ba-853a-7a4f7515fb24",
+        "60913ff3-3420-511e-8ec4-4605afe6d970",
+        "b6cf46a9-3cdb-560c-8b40-7a166b226d2d",
+        "02776ee2-3322-5846-8538-c04d2a2b19ec",
+        "4a0b0c77-c595-5503-8c62-2461253de70e",
+        "580d7d5b-4d12-54ee-811c-ff954e880388",
+        "0c6caf0d-9d88-5030-8e47-c238a5620840"
+      ],
+      "probes": 98,
+      "ceilings": {
+        "anchor_path_negative": 0.77603404379094,
+        "labeled_domain_negative": 0,
+        "sibling_confusion": 0.840499714657639
+      },
+      "above_floor": {
+        "anchor_path": 3,
+        "labeled_domain": 0,
+        "sibling": 14
+      },
+      "duplicate_residue_rows": 0,
+      "duplicate_residue_phrases": [],
+      "anchor_above_floor": [
+        {
+          "phrase": "welding ka kaam",
+          "home": "welding",
+          "own_skill": "skill_welder_occupation",
+          "other_skill": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.776
+        },
+        {
+          "phrase": "fitting ka kaam",
+          "home": "fitting-assembly",
+          "own_skill": "skill_bench_fitting",
+          "other_skill": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.7621
+        },
+        {
+          "phrase": "dimensional inspection",
+          "home": "metrology-quality",
+          "own_skill": "skill_dimensional_inspection",
+          "other_skill": "skill_gdt_reading",
+          "via": "geometric dimensioning and tolerancing",
+          "score": 0.757
+        }
+      ],
+      "sibling_above_floor": [
+        {
+          "phrase": "GMAW",
+          "home": "welding",
+          "own_skill": "skill_mig_welding",
+          "other_skill": "skill_arc_welding",
+          "via": "SMAW",
+          "score": 0.8405
+        },
+        {
+          "phrase": "SMAW",
+          "home": "welding",
+          "own_skill": "skill_arc_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "GMAW",
+          "score": 0.8405
+        },
+        {
+          "phrase": "GTAW",
+          "home": "welding",
+          "own_skill": "skill_tig_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "GMAW",
+          "score": 0.8355
+        },
+        {
+          "phrase": "quality check",
+          "home": "metrology-quality",
+          "own_skill": "skill_dimensional_inspection",
+          "other_skill": "skill_quality_control",
+          "via": "quality check karna",
+          "score": 0.8219
+        },
+        {
+          "phrase": "quality check karna",
+          "home": "metrology-quality",
+          "own_skill": "skill_quality_control",
+          "other_skill": "skill_dimensional_inspection",
+          "via": "quality check",
+          "score": 0.8219
+        },
+        {
+          "phrase": "quality control",
+          "home": "metrology-quality",
+          "own_skill": "skill_quality_control",
+          "other_skill": "skill_dimensional_inspection",
+          "via": "quality check",
+          "score": 0.8083
+        },
+        {
+          "phrase": "TIG welding",
+          "home": "welding",
+          "own_skill": "skill_tig_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "MIG welding",
+          "score": 0.8002
+        },
+        {
+          "phrase": "MIG welding",
+          "home": "welding",
+          "own_skill": "skill_mig_welding",
+          "other_skill": "skill_tig_welding",
+          "via": "TIG welding",
+          "score": 0.8002
+        },
+        {
+          "phrase": "arc welding",
+          "home": "welding",
+          "own_skill": "skill_arc_welding",
+          "other_skill": "skill_tig_welding",
+          "via": "TIG welding",
+          "score": 0.7864
+        },
+        {
+          "phrase": "Fanuc controller",
+          "home": "cnc-machining",
+          "own_skill": "skill_fanuc",
+          "other_skill": "skill_mitsubishi",
+          "via": "Mitsubishi controller",
+          "score": 0.765
+        },
+        {
+          "phrase": "Mitsubishi controller",
+          "home": "cnc-machining",
+          "own_skill": "skill_mitsubishi",
+          "other_skill": "skill_fanuc",
+          "via": "Fanuc controller",
+          "score": 0.765
+        },
+        {
+          "phrase": "boring",
+          "home": "cnc-machining",
+          "own_skill": "skill_boring",
+          "other_skill": "skill_drilling",
+          "via": "drilling",
+          "score": 0.7556
+        },
+        {
+          "phrase": "drilling",
+          "home": "cnc-machining",
+          "own_skill": "skill_drilling",
+          "other_skill": "skill_boring",
+          "via": "boring",
+          "score": 0.7556
+        },
+        {
+          "phrase": "stick welding",
+          "home": "welding",
+          "own_skill": "skill_arc_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "MIG welding",
+          "score": 0.7501
+        }
+      ],
+      "traced": [
+        {
+          "phrase": "dimensional inspection",
+          "scope": "anchor:cnc-machining",
+          "got": "skill_gdt_reading",
+          "via": "geometric dimensioning and tolerancing",
+          "score": 0.757,
+          "verdict": "MISASSIGNED ABOVE FLOOR"
+        },
+        {
+          "phrase": "welding ka kaam",
+          "scope": "anchor:cnc-machining",
+          "got": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.776,
+          "verdict": "MISASSIGNED ABOVE FLOOR"
+        },
+        {
+          "phrase": "fitting ka kaam",
+          "scope": "anchor:cnc-machining",
+          "got": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.7621,
+          "verdict": "MISASSIGNED ABOVE FLOOR"
+        }
+      ]
+    },
+    {
+      "id": "S3_PLUS_D7C_DEPRECATION",
+      "label": "all elections AND the D-7C seed (11 subject aliases go dark)",
+      "excluded_alias_ids": [
+        "d197cbbe-350d-5de3-8fee-f0a37aecfe58",
+        "401212eb-e7f2-57ba-853a-7a4f7515fb24",
+        "60913ff3-3420-511e-8ec4-4605afe6d970",
+        "b6cf46a9-3cdb-560c-8b40-7a166b226d2d",
+        "02776ee2-3322-5846-8538-c04d2a2b19ec",
+        "4a0b0c77-c595-5503-8c62-2461253de70e",
+        "580d7d5b-4d12-54ee-811c-ff954e880388",
+        "0c6caf0d-9d88-5030-8e47-c238a5620840",
+        "046812dd-942d-5de5-80b1-54e23aab143b",
+        "0ce0f3e6-2ce5-5ebe-829e-a61abc228722",
+        "1561252c-300b-5aaf-8e21-86888a50dfb6",
+        "46d07419-9c58-5b11-8487-76b1b6aef906",
+        "ff0e1497-e6ce-5737-88e2-e5954d9fb5ae"
+      ],
+      "probes": 93,
+      "ceilings": {
+        "anchor_path_negative": 0.77603404379094,
+        "labeled_domain_negative": 0,
+        "sibling_confusion": 0.840499714657639
+      },
+      "above_floor": {
+        "anchor_path": 2,
+        "labeled_domain": 0,
+        "sibling": 11
+      },
+      "duplicate_residue_rows": 0,
+      "duplicate_residue_phrases": [],
+      "anchor_above_floor": [
+        {
+          "phrase": "welding ka kaam",
+          "home": "welding",
+          "own_skill": "skill_welder_occupation",
+          "other_skill": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.776
+        },
+        {
+          "phrase": "fitting ka kaam",
+          "home": "fitting-assembly",
+          "own_skill": "skill_bench_fitting",
+          "other_skill": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.7621
+        }
+      ],
+      "sibling_above_floor": [
+        {
+          "phrase": "GMAW",
+          "home": "welding",
+          "own_skill": "skill_mig_welding",
+          "other_skill": "skill_arc_welding",
+          "via": "SMAW",
+          "score": 0.8405
+        },
+        {
+          "phrase": "SMAW",
+          "home": "welding",
+          "own_skill": "skill_arc_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "GMAW",
+          "score": 0.8405
+        },
+        {
+          "phrase": "GTAW",
+          "home": "welding",
+          "own_skill": "skill_tig_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "GMAW",
+          "score": 0.8355
+        },
+        {
+          "phrase": "TIG welding",
+          "home": "welding",
+          "own_skill": "skill_tig_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "MIG welding",
+          "score": 0.8002
+        },
+        {
+          "phrase": "MIG welding",
+          "home": "welding",
+          "own_skill": "skill_mig_welding",
+          "other_skill": "skill_tig_welding",
+          "via": "TIG welding",
+          "score": 0.8002
+        },
+        {
+          "phrase": "arc welding",
+          "home": "welding",
+          "own_skill": "skill_arc_welding",
+          "other_skill": "skill_tig_welding",
+          "via": "TIG welding",
+          "score": 0.7864
+        },
+        {
+          "phrase": "Fanuc controller",
+          "home": "cnc-machining",
+          "own_skill": "skill_fanuc",
+          "other_skill": "skill_mitsubishi",
+          "via": "Mitsubishi controller",
+          "score": 0.765
+        },
+        {
+          "phrase": "Mitsubishi controller",
+          "home": "cnc-machining",
+          "own_skill": "skill_mitsubishi",
+          "other_skill": "skill_fanuc",
+          "via": "Fanuc controller",
+          "score": 0.765
+        },
+        {
+          "phrase": "boring",
+          "home": "cnc-machining",
+          "own_skill": "skill_boring",
+          "other_skill": "skill_drilling",
+          "via": "drilling",
+          "score": 0.7556
+        },
+        {
+          "phrase": "drilling",
+          "home": "cnc-machining",
+          "own_skill": "skill_drilling",
+          "other_skill": "skill_boring",
+          "via": "boring",
+          "score": 0.7556
+        },
+        {
+          "phrase": "stick welding",
+          "home": "welding",
+          "own_skill": "skill_arc_welding",
+          "other_skill": "skill_mig_welding",
+          "via": "MIG welding",
+          "score": 0.7501
+        }
+      ],
+      "traced": [
+        {
+          "phrase": "welding ka kaam",
+          "scope": "anchor:cnc-machining",
+          "got": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.776,
+          "verdict": "MISASSIGNED ABOVE FLOOR"
+        },
+        {
+          "phrase": "fitting ka kaam",
+          "scope": "anchor:cnc-machining",
+          "got": "skill_drilling",
+          "via": "drilling ka kaam",
+          "score": 0.7621,
+          "verdict": "MISASSIGNED ABOVE FLOOR"
+        }
+      ]
+    }
+  ],
+  "sibling_collisions_cleared_by_cleanup": [
+    {
+      "phrase": "drawing padhna",
+      "home": "cnc-machining",
+      "own_skill": "skill_drawing_reading",
+      "other_skill": "skill_gdt_reading",
+      "via": "drawing reading",
+      "score": 0.7985
+    },
+    {
+      "phrase": "read engineering drawings",
+      "home": "cnc-machining",
+      "own_skill": "skill_drawing_reading",
+      "other_skill": "skill_gdt_reading",
+      "via": "blueprint reading",
+      "score": 0.7985
+    }
+  ],
+  "sibling_collisions_cleared_by_d7c_seed": [
+    {
+      "phrase": "quality check",
+      "home": "metrology-quality",
+      "own_skill": "skill_dimensional_inspection",
+      "other_skill": "skill_quality_control",
+      "via": "quality check karna",
+      "score": 0.8219
+    },
+    {
+      "phrase": "quality check karna",
+      "home": "metrology-quality",
+      "own_skill": "skill_quality_control",
+      "other_skill": "skill_dimensional_inspection",
+      "via": "quality check",
+      "score": 0.8219
+    },
+    {
+      "phrase": "quality control",
+      "home": "metrology-quality",
+      "own_skill": "skill_quality_control",
+      "other_skill": "skill_dimensional_inspection",
+      "via": "quality check",
+      "score": 0.8083
+    }
+  ],
+  "sibling_collisions_introduced": [],
+  "sibling_collisions_surviving_cleanup": [
+    {
+      "phrase": "GMAW",
+      "home": "welding",
+      "own_skill": "skill_mig_welding",
+      "other_skill": "skill_arc_welding",
+      "via": "SMAW",
+      "score": 0.8405
+    },
+    {
+      "phrase": "SMAW",
+      "home": "welding",
+      "own_skill": "skill_arc_welding",
+      "other_skill": "skill_mig_welding",
+      "via": "GMAW",
+      "score": 0.8405
+    },
+    {
+      "phrase": "GTAW",
+      "home": "welding",
+      "own_skill": "skill_tig_welding",
+      "other_skill": "skill_mig_welding",
+      "via": "GMAW",
+      "score": 0.8355
+    },
+    {
+      "phrase": "quality check",
+      "home": "metrology-quality",
+      "own_skill": "skill_dimensional_inspection",
+      "other_skill": "skill_quality_control",
+      "via": "quality check karna",
+      "score": 0.8219
+    },
+    {
+      "phrase": "quality check karna",
+      "home": "metrology-quality",
+      "own_skill": "skill_quality_control",
+      "other_skill": "skill_dimensional_inspection",
+      "via": "quality check",
+      "score": 0.8219
+    },
+    {
+      "phrase": "quality control",
+      "home": "metrology-quality",
+      "own_skill": "skill_quality_control",
+      "other_skill": "skill_dimensional_inspection",
+      "via": "quality check",
+      "score": 0.8083
+    },
+    {
+      "phrase": "TIG welding",
+      "home": "welding",
+      "own_skill": "skill_tig_welding",
+      "other_skill": "skill_mig_welding",
+      "via": "MIG welding",
+      "score": 0.8002
+    },
+    {
+      "phrase": "MIG welding",
+      "home": "welding",
+      "own_skill": "skill_mig_welding",
+      "other_skill": "skill_tig_welding",
+      "via": "TIG welding",
+      "score": 0.8002
+    },
+    {
+      "phrase": "arc welding",
+      "home": "welding",
+      "own_skill": "skill_arc_welding",
+      "other_skill": "skill_tig_welding",
+      "via": "TIG welding",
+      "score": 0.7864
+    },
+    {
+      "phrase": "Fanuc controller",
+      "home": "cnc-machining",
+      "own_skill": "skill_fanuc",
+      "other_skill": "skill_mitsubishi",
+      "via": "Mitsubishi controller",
+      "score": 0.765
+    },
+    {
+      "phrase": "Mitsubishi controller",
+      "home": "cnc-machining",
+      "own_skill": "skill_mitsubishi",
+      "other_skill": "skill_fanuc",
+      "via": "Fanuc controller",
+      "score": 0.765
+    },
+    {
+      "phrase": "boring",
+      "home": "cnc-machining",
+      "own_skill": "skill_boring",
+      "other_skill": "skill_drilling",
+      "via": "drilling",
+      "score": 0.7556
+    },
+    {
+      "phrase": "drilling",
+      "home": "cnc-machining",
+      "own_skill": "skill_drilling",
+      "other_skill": "skill_boring",
+      "via": "boring",
+      "score": 0.7556
+    },
+    {
+      "phrase": "stick welding",
+      "home": "welding",
+      "own_skill": "skill_arc_welding",
+      "other_skill": "skill_mig_welding",
+      "via": "MIG welding",
+      "score": 0.7501
+    }
+  ],
+  "sibling_collisions_surviving_cleanup_and_d7c": [
+    {
+      "phrase": "GMAW",
+      "home": "welding",
+      "own_skill": "skill_mig_welding",
+      "other_skill": "skill_arc_welding",
+      "via": "SMAW",
+      "score": 0.8405
+    },
+    {
+      "phrase": "SMAW",
+      "home": "welding",
+      "own_skill": "skill_arc_welding",
+      "other_skill": "skill_mig_welding",
+      "via": "GMAW",
+      "score": 0.8405
+    },
+    {
+      "phrase": "GTAW",
+      "home": "welding",
+      "own_skill": "skill_tig_welding",
+      "other_skill": "skill_mig_welding",
+      "via": "GMAW",
+      "score": 0.8355
+    },
+    {
+      "phrase": "TIG welding",
+      "home": "welding",
+      "own_skill": "skill_tig_welding",
+      "other_skill": "skill_mig_welding",
+      "via": "MIG welding",
+      "score": 0.8002
+    },
+    {
+      "phrase": "MIG welding",
+      "home": "welding",
+      "own_skill": "skill_mig_welding",
+      "other_skill": "skill_tig_welding",
+      "via": "TIG welding",
+      "score": 0.8002
+    },
+    {
+      "phrase": "arc welding",
+      "home": "welding",
+      "own_skill": "skill_arc_welding",
+      "other_skill": "skill_tig_welding",
+      "via": "TIG welding",
+      "score": 0.7864
+    },
+    {
+      "phrase": "Fanuc controller",
+      "home": "cnc-machining",
+      "own_skill": "skill_fanuc",
+      "other_skill": "skill_mitsubishi",
+      "via": "Mitsubishi controller",
+      "score": 0.765
+    },
+    {
+      "phrase": "Mitsubishi controller",
+      "home": "cnc-machining",
+      "own_skill": "skill_mitsubishi",
+      "other_skill": "skill_fanuc",
+      "via": "Fanuc controller",
+      "score": 0.765
+    },
+    {
+      "phrase": "boring",
+      "home": "cnc-machining",
+      "own_skill": "skill_boring",
+      "other_skill": "skill_drilling",
+      "via": "drilling",
+      "score": 0.7556
+    },
+    {
+      "phrase": "drilling",
+      "home": "cnc-machining",
+      "own_skill": "skill_drilling",
+      "other_skill": "skill_boring",
+      "via": "boring",
+      "score": 0.7556
+    },
+    {
+      "phrase": "stick welding",
+      "home": "welding",
+      "own_skill": "skill_arc_welding",
+      "other_skill": "skill_mig_welding",
+      "via": "MIG welding",
+      "score": 0.7501
+    }
+  ],
+  "delta_today_to_full_cleanup": {
+    "anchor_path_negative": 0,
+    "sibling_confusion": 0,
+    "above_floor_anchor": 0,
+    "above_floor_sibling": -2,
+    "duplicate_residue_rows": -19
+  },
+  "production_mutation_performed": false
+}
