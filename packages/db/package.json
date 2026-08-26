@@ -32,6 +32,7 @@
     "db:seed:jobs": "tsx src/seed-jobs.ts",
     "db:seed:demand": "tsx src/seed-demand.ts",
     "db:seed:skills": "tsx src/seed-skills.ts",
+    "db:seed:deprecations": "tsx src/seed-deprecations.ts",
     "db:embed:skills": "tsx src/embed-skill-aliases.ts",
     "db:seed:domains": "tsx src/seed-job-domains.ts",
     "db:embed:domains": "tsx src/embed-job-domain-aliases.ts",
