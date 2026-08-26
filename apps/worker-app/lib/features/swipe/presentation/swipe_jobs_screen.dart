@@ -331,7 +331,37 @@ class _FeedViewState extends State<_FeedView> {
               const BbAlertsAction(color: AppColors.onBlue),
               IconButton(
                 tooltip: 'Filter jobs',
-                icon: const Icon(Icons.tune, color: AppColors.onBlue),
+                icon: Stack(
+                  clipBehavior: Clip.none,
+                  children: <Widget>[
+                    const Icon(Icons.tune, color: AppColors.onBlue),
+                    // Green "filter active" dot. Visible whenever ANY filter is
+                    // set — from the CNC/VMC chip row OR the Filters sheet, since
+                    // both write the single [_filters] source of truth — and gone
+                    // the moment every filter is cleared (`_filters.isEmpty`).
+                    Positioned(
+                      top: -1,
+                      right: -1,
+                      child: Visibility(
+                        visible: !_filters.isEmpty,
+                        child: Container(
+                          key: const Key('jobs_filter_active_dot'),
+                          width: 9,
+                          height: 9,
+                          decoration: BoxDecoration(
+                            color: AppColors.green500,
+                            shape: BoxShape.circle,
+                            // White ring so the dot reads on the blue header.
+                            border: Border.all(
+                              color: AppColors.onBlue,
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
                 onPressed: () => _openFilters(context),
               ),
             ],
