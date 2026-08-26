@@ -108,7 +108,12 @@ to mint a synthetic `"agent"` session through it today.
 > The suite rewrites are complete for the tables above. `payer-capacity.e2e.test.ts` never
 > needed either seam: `payer_capacity`/`posting_plans` are a deliberately FK-less "opaque
 > rail" keyed on a bare `payer_id` (see `packages/db/src/schema/payer.ts`), so its cases
-> drive the ops (`InternalServiceGuard`) routes directly with a `randomUUID()` payer id.
+> drive the ops `POST /job-postings/:id/plan` route (`InternalServiceGuard`) directly with a
+> `randomUUID()` payer id. **(2026-08-26, #1166):** the ops `POST /payers/:payerId/capacity`
+> route this suite used to also drive was RETIRED (no caller anywhere in the repo) — the
+> auto-resume / `capacity.purchased`+`payment.*` / fail-closed-auth cases that asserted
+> against it directly were removed rather than ported (`PostingPlansService.buyCapacity`
+> stays unit-tested).
 
 > **Capacity enforcement posture (ADR-0016 D5).** The API defaults to
 > `CAPACITY_ENFORCEMENT_ENABLED=false` (shadow: over-cap plans stay active). Run
@@ -116,6 +121,6 @@ to mint a synthetic `"agent"` session through it today.
 > - **Shadow (default):** start the API normally → `RUN_E2E=1 … test` runs the shadow case
 >   (over-cap → active, `wouldPause=true`, no pause event); enforcement cases skip.
 > - **Enforced:** start the API with `CAPACITY_ENFORCEMENT_ENABLED=true` →
->   `RUN_E2E=1 E2E_CAPACITY_ENFORCED=1 … test` runs the atomicity / pause-at-limit /
->   auto-resume cases (real pauses); the shadow case skips.
-> The faceless/no-PII + `capacity.purchased`/`payment.*` cases run in both.
+>   `RUN_E2E=1 E2E_CAPACITY_ENFORCED=1 … test` runs the atomicity / pause-at-limit cases
+>   (real pauses); the shadow case skips.
+> The faceless/no-PII case runs in both.
