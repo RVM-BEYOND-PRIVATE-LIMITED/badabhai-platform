@@ -83,7 +83,8 @@ class _Badge extends StatelessWidget {
         style: AppTypography.body(
           size: AppTypography.size2xs,
           weight: FontWeight.w700,
-          color: AppColors.textOnBrand,
+          // White on the crimson badge — deep-blue textOnBrand read as dark.
+          color: AppColors.onBlue,
         ),
       ),
     );
