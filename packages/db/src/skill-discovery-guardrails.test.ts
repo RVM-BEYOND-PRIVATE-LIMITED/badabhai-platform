@@ -204,6 +204,30 @@ describe("no domain alias becomes a production skill", () => {
     }
   });
 
+  it("the PERSIST runner writes only to the four staging tables", () => {
+    // This is the one runner in the workstream with an `--apply`, so "it only touches staging"
+    // has to be checked rather than promised. Every INSERT/UPDATE target in the file is
+    // extracted and compared against the allow-set; a future edit that adds `INSERT INTO skill`
+    // fails here rather than in production.
+    const src = readFileSync(join(__dirname, "persist-discovery-run.ts"), "utf8");
+    const ALLOWED = new Set([
+      "skill_discovery_run",
+      "skill_candidate",
+      "skill_candidate_source",
+      "skill_candidate_match",
+    ]);
+    const targets = [...src.matchAll(/INSERT\s+INTO\s+([a-z_]+)/gi)].map((m) => (m[1] ?? "").toLowerCase());
+    expect(targets.length).toBeGreaterThan(0);
+    for (const t of targets) expect(ALLOWED.has(t), `INSERT INTO ${t}`).toBe(true);
+
+    // And no bare UPDATE/DELETE of a production taxonomy table by any route. The upserts use
+    // ON CONFLICT DO UPDATE, which names no table of its own.
+    const body = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    for (const forbidden of ["UPDATE skill ", "UPDATE skill_alias", "DELETE FROM skill", "INSERT INTO job_domain_skill", "TRUNCATE"]) {
+      expect(body.toUpperCase()).not.toContain(forbidden.toUpperCase());
+    }
+  });
+
   it("the discovery runner contains no mutation verb", () => {
     // The claim in `discover-skills.ts`'s header — checked, not believed. A future edit that
     // adds an INSERT to the dry-run runner fails here rather than in production.
