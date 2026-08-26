@@ -155,9 +155,14 @@ export const ACTIVATION_SEQUENCE: readonly ActivationStep[] = [
     order: 7,
     id: "PROMOTE",
     what: "Promote the 96. Fail-closed: nothing is promoted unless every candidate clears every gate.",
+    // `--fixture` IS NOT OPTIONAL HERE, and leaving it off was a live defect in this plan.
+    // `promote-skills` imports its default from `taxonomy-retrieval-eval.ts`, and that default
+    // is retrieval-v2 — under which EVAL_COVERED blocks 41 of the 96. The programme's "0 of 96
+    // uncovered" is a v3 number. Naming the fixture is what makes the documented command match
+    // the documented gate state.
     runner:
-      "pnpm db:promote:skills --batch <dir> --sweep <fresh> --eval <fresh> --apply " +
-      "--i-am-authorised-to-write-to-production",
+      "pnpm db:promote:skills --batch <dir> --fixture data/taxonomy/eval/retrieval-v3.jsonl " +
+      "--sweep <fresh> --eval <fresh> --apply --i-am-authorised-to-write-to-production",
     preconditions: ["PROMOTION"],
     after: ["CLEAR-FLOOR-GATE"],
     authorisation: "PRODUCTION_WRITE",

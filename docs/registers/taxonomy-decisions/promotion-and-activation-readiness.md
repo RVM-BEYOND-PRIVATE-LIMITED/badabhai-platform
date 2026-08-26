@@ -166,3 +166,27 @@ PROMOTION CANDIDATES                                             96, eligible 0
 ```
 
 **PROMOTION BLOCKED · CANONICALIZATION BLOCKED · NOTHING ACTIVATED.**
+
+
+---
+
+## ADDENDUM — 2026-08-26: two of these numbers moved, and one was wrong
+
+Full evidence: [`no-regression-evidence-2026-08-26.md`](./no-regression-evidence-2026-08-26.md).
+Nothing below edits a sentence above; this records what a later measurement changed.
+
+1. **`NO_REGRESSION` blocker 3 (freshness) is CLOSED on the evaluation side.** The evaluator
+   computed `corpus_fingerprint` all along and dropped it on the way into the experiment record
+   — the only artifact `judgeRegression` reads. Fixed. The first fingerprinted evaluation in the
+   programme's history is `EXP-P9-REGRESSION-FRESH`, 2026-08-26.
+2. **The spend figure fell from ₹0.028128 to ₹0.0035.** Every fixture-v2 query vector was already
+   in the local embed cache, so the evaluation half cost **nothing** (127 cached, 0 paid). The
+   statement that neither record could be produced from stored vectors was wrong for the
+   evaluation. Only the floor sweep remains.
+3. **The regression is now MEASURED, not predicted:** R@1 0.9912 / MRR 0.9956 against a 1.0/1.0
+   reference — one case of 123, in `paraphrase_latin`. It reproduces on the current corpus.
+4. **`EVAL_COVERED` is NOT green by default.** `audit-gate-evidence.ts` declared its own
+   `DEFAULT_FIXTURE = retrieval-v3` while the gate imports the real one, which is **v2**. Under
+   the runner's default, `EVAL_COVERED` blocks **41 of the 96**. The published "0 of 96
+   uncovered" is a v3 number and requires `--fixture` to be passed explicitly. The documented
+   `PROMOTE` command has been corrected to name it.

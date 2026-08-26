@@ -69,6 +69,13 @@ export const EXPERIMENTS = {
   // records apart is that nobody can accidentally read one as the other.
   "EXP-P9-TRAINER-V3":
     "Phase 9 Stage D. Evaluator v2, fixture v3 (127 v2 cases + 41 reviewed trainer paraphrases). Establishes whether the harder instrument still scores 1.0 before any baseline is re-pointed.",
+  // Filed separately from EXP-P8-BASELINE because the CORPUS changed, not the instrument —
+  // the mirror image of the EXP-P9-TRAINER-V3 note above. Same evaluator v2, same fixture v2,
+  // re-run so that NO_REGRESSION has evidence carrying a corpus_fingerprint equal to the live
+  // one. Every earlier v2 record predates fingerprinting and therefore cannot clear that gate,
+  // and backfilling a fingerprint would fabricate the proof the field exists to provide.
+  "EXP-P9-REGRESSION-FRESH":
+    "Phase 9 promotion gate. Evaluator v2, fixture v2, re-run against the CURRENT corpus so the NO_REGRESSION comparison has fresh, fingerprinted evidence on the immutable baseline instrument.",
 } as const;
 export type ExperimentId = keyof typeof EXPERIMENTS;
 

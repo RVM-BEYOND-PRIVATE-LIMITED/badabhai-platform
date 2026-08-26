@@ -92,6 +92,7 @@ import {
   type RetrievalSemantics,
 } from "./corpus-fingerprint";
 import { parseEmbedResponse } from "./embed-response";
+import { createEmbedCache, type EmbedCache } from "./taxonomy-embed-cache";
 import {
   fixtureDistribution,
   isScoreable,
@@ -350,6 +351,21 @@ export interface EvalRunRecord {
    * freshness gate, which is the correct failure direction.
    */
   corpus_fingerprint: CorpusFingerprint | null;
+  /**
+   * HOW MANY QUERY VECTORS CAME FROM THE LOCAL CACHE RATHER THAN THE PROVIDER.
+   *
+   * Declared on the record because the cache's own contract says to: *"keeping the cache out
+   * of the repository also keeps a reviewer from mistaking cached vectors for a
+   * measurement."* A run that paid for nothing and a run that paid for everything are both
+   * valid, and they are not the same run — a reader must be able to tell which one produced
+   * the number they are about to promote on.
+   *
+   * SOUND, not a shortcut: the embedder is deterministic for a given model, so a cached
+   * vector IS the current answer rather than a stale approximation, and the model id is part
+   * of the cache key so a model change MISSES instead of silently mixing two vector spaces.
+   * `null` when the cache was not used at all.
+   */
+  query_embed_cache: { hits: number; misses: number } | null;
   /**
    * WHICH PREDICATES PRODUCTION APPLIED at run time, so a number measured before the
    * retrieval predicate landed is never silently compared with one measured after.
@@ -632,6 +648,42 @@ async function main(): Promise<void> {
     const headers: Record<string, string> = { "content-type": "application/json" };
     if (process.env.AI_INTERNAL_TOKEN) headers["x-ai-internal-token"] = process.env.AI_INTERNAL_TOKEN;
 
+    // -- THE QUERY-EMBED CACHE, and why an evaluation is allowed to use one ---------------
+    //
+    // This runner embeds one fixture query per PROVIDER REQUEST -- 127 of them for v2, 168
+    // for v3 -- and that is the entire cost of a re-run. The corpus side is already free:
+    // alias vectors are read from the table.
+    //
+    // Caching is sound here for the reason `taxonomy-embed-cache.ts` states: the embedder is
+    // deterministic for a given model, so a cached vector IS the current answer rather than a
+    // stale approximation of it. What it must not do is let a free run pass for a paid one,
+    // so three things hold:
+    //
+    //   1. THE KEY'S MODEL COMES FROM THE CORPUS, not from a constant. Every embedded alias
+    //      carries one `embedding_model` and `corpusBlockReason` has already refused the run
+    //      if they disagree, so keying on that value guarantees the query vectors and the
+    //      alias vectors live in the SAME space. A model change misses instead of mixing two
+    //      geometries -- the failure that looks entirely normal and makes every cosine
+    //      meaningless.
+    //   2. A MISS STILL GOES THROUGH THE PROVIDER PATH, mock guard, budget guard and cost
+    //      accounting included. The cache is a memo in front of the request, never a second
+    //      way to obtain a vector.
+    //   3. THE HIT/MISS SPLIT IS RECORDED on the experiment record and printed. The cache's
+    //      own header warns against "mistaking cached vectors for a measurement"; declaring
+    //      the split is what keeps that impossible.
+    //
+    // OPT-IN. Every existing invocation is byte-for-byte unchanged, CI included.
+    const useCache = argv.includes("--cache");
+    const cacheModel = provenance.models[0] ?? null;
+    if (useCache && cacheModel === null) {
+      console.error(
+        `[${SCRIPT}] --cache needs the corpus embedding model to key on, and no embedded alias ` +
+          `carries one. Re-run without --cache, or stamp the corpus first.`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
     // The fixture gate validated ground truth against the corpus FILES. Retrieval runs
     // against job_domain_skill. If the DB was seeded from an older batch, every case is
     // "VALID" on disk and unpassable in the database — and the shortfall reads as a model
@@ -690,20 +742,22 @@ async function main(): Promise<void> {
     const { scored, coverageOnly } = partitionCases(fixture);
     const coverage: { case_id: string; expected_skill_id: string | null; retrieved: boolean }[] = [];
 
-    /** One query -> its ranked skills, or null when the embed failed. */
-    const retrieve = async (c: EvalCase): Promise<RetrievedRow[] | null> => {
-      attempted += 1;
+    /**
+     * One query -> one vector from the PROVIDER, or null on any failure.
+     *
+     * Split out of `retrieve` so the cache can sit in front of it without duplicating a
+     * single guard: the mock check, the budget check and the cost accounting all live here
+     * and therefore apply to a cache MISS exactly as they always did.
+     */
+    const embedViaProvider = async (text: string): Promise<number[] | null> => {
       // Query embeds are NOT persisted. The alias_id is a synthetic per-case handle the
       // endpoint echoes back; nothing is written to any table.
       const resp = await fetch(`${aiBase}/embeddings/skill-alias`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ items: [{ alias_id: EVAL_QUERY_UUID, text: c.query }] }),
+        body: JSON.stringify({ items: [{ alias_id: EVAL_QUERY_UUID, text }] }),
       });
-      if (!resp.ok) {
-        errors += 1;
-        return null;
-      }
+      if (!resp.ok) return null;
       const data = parseEmbedResponse(await resp.json(), new Set([EVAL_QUERY_UUID]));
       model = data.model;
       estimatedCostInr += data.estimated_cost_inr;
@@ -712,10 +766,47 @@ async function main(): Promise<void> {
         // HTTP 200 with an empty result set. Scoring this as an ordinary miss would report
         // a retrieval failure for what is actually an exhausted spend ledger.
         budgetStopped = true;
-        errors += 1;
         return null;
       }
-      const vec = data.results[0]?.vector ?? null;
+      return data.results[0]?.vector ?? null;
+    };
+
+    const queryCache: EmbedCache | null =
+      useCache && cacheModel !== null
+        ? createEmbedCache({
+            model: cacheModel,
+            fetchVector: async (text: string) => {
+              const v = await embedViaProvider(text);
+              // The cache stores only what it is given, so a failed miss must THROW rather
+              // than return a placeholder — a null written under a key would be served as a
+              // vector forever after.
+              if (v === null) throw new Error(`[${SCRIPT}] provider returned no vector`);
+              return v;
+            },
+          })
+        : null;
+
+    /** One query -> its ranked skills, or null when the embed failed. */
+    const retrieve = async (c: EvalCase): Promise<RetrievedRow[] | null> => {
+      attempted += 1;
+      let vec: number[] | null;
+      if (queryCache === null) {
+        vec = await embedViaProvider(c.query);
+      } else {
+        try {
+          vec = await queryCache.embed(c.query);
+          // A HIT STILL HAS A MODEL, and the record must say which. The cache key IS the
+          // model, and `corpusBlockReason` has already refused a corpus that mixes models, so
+          // this is the measured value rather than an assumption — without it a fully cached
+          // run records `embedding_model: null` and reads like a run with no provenance.
+          model ??= cacheModel;
+        } catch (e) {
+          // A MockQueryEmbedding must still abort the whole run rather than count as one
+          // failed query — it means the vector space is wrong, not that one case is hard.
+          if (e instanceof MockQueryEmbedding) throw e;
+          vec = null;
+        }
+      }
       if (vec === null) {
         errors += 1;
         return null;
@@ -771,6 +862,14 @@ async function main(): Promise<void> {
       console.log(`[${SCRIPT}] WARN could not read the corpus fingerprint: ${String(e)}`);
     }
 
+    if (queryCache !== null) {
+      queryCache.flush();
+      const st = queryCache.stats();
+      console.log(
+        `  query embeds             = ${st.hits} cached, ${st.misses} paid (model ${String(cacheModel)})`,
+      );
+    }
+
     const executed = scoredCases.length;
     const record0ExactShare =
       scored.length === 0 ? 0 : scored.filter(isExactAliasQuery).length / scored.length;
@@ -786,6 +885,7 @@ async function main(): Promise<void> {
       fixture_path: fixturePath,
       corpus_batch: fixture.manifest.corpus_batch,
       corpus_fingerprint: corpusFingerprint,
+      query_embed_cache: queryCache === null ? null : queryCache.stats(),
       retrieval_semantics: PRODUCTION_RETRIEVAL_SEMANTICS,
       embedding_model: model,
       embedding_provenance: provenance,
@@ -884,6 +984,21 @@ async function main(): Promise<void> {
         fixture_id: record.fixture_id,
         fixture_version: record.fixture_version,
         corpus_batch: record.corpus_batch,
+        // THE FIELD `judgeRegression` ACTUALLY READS, and it was never written here.
+        //
+        // `ExperimentRecord.corpus_fingerprint` was added when the floor sweep started
+        // stamping one, and `promote-skills` computes `no_regression = regression.passed &&
+        // !sweepStale` against it. The EVALUATION side computed the fingerprint (it is on the
+        // run record above and has been printed for weeks) and then dropped it on the way into
+        // the experiment record — the only artifact the gate ever sees. So every evaluation
+        // ever recorded reached the gate with `corpus_fingerprint === undefined`, which
+        // `judgeRegression` correctly treats as unprovable freshness and refuses. NO_REGRESSION
+        // was therefore unsatisfiable by construction on the evaluation side too, not only the
+        // sweep side, and the gate's own message ("re-run db:eval:taxonomy") pointed at a
+        // re-run that could not have helped.
+        //
+        // Copied, never fabricated: null stays null, which cannot clear the gate.
+        corpus_fingerprint: record.corpus_fingerprint,
         model: record.embedding_model,
         embedding_model: record.embedding_model,
         query_count: record.query_count,
@@ -918,6 +1033,8 @@ async function main(): Promise<void> {
           skill_statuses: record.skill_statuses,
           includes_provisional: record.includes_provisional,
           coverage_probe: record.coverage_probe,
+          // So a free run and a paid run are never mistaken for each other.
+          query_embed_cache: record.query_embed_cache,
         },
         notes: record.notes,
       };

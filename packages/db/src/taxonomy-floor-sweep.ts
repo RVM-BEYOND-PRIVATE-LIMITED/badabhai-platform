@@ -58,6 +58,7 @@ import { sql as dsql } from "drizzle-orm";
 import { createDbClient } from "./client";
 import { CORPUS_FINGERPRINT_SQL, toFingerprint, type CorpusFingerprint } from "./corpus-fingerprint";
 import { parseEmbedResponse } from "./embed-response";
+import { createEmbedCache, type EmbedCache } from "./taxonomy-embed-cache";
 import { loadEvalFixture, type EvalCase } from "./taxonomy-eval-fixture";
 import {
   ALIAS_OVERFETCH,
@@ -222,10 +223,15 @@ async function main(): Promise<void> {
     const corpus = (await db.execute(
       dsql`SELECT count(*)::int AS embedded,
                   count(DISTINCT skill_id)::int AS skills,
-                  count(DISTINCT embedding_model)::int AS models
+                  count(DISTINCT embedding_model)::int AS models,
+                  min(embedding_model) AS model
            FROM skill_alias WHERE embedding IS NOT NULL`,
-    )) as unknown as { embedded: number; skills: number; models: number }[];
-    const c = corpus[0] as { embedded: number; skills: number; models: number };
+    )) as unknown as { embedded: number; skills: number; models: number; model: string | null }[];
+    const c = corpus[0] as { embedded: number; skills: number; models: number; model: string | null };
+    // The corpus's OWN model, read rather than assumed. Used as the query-cache key so cached
+    // query vectors and stored alias vectors are guaranteed to share a space; `null` when the
+    // corpus mixes models or stamps none, which disables the cache rather than guessing.
+    const sweepEmbeddingModel = c.models === 1 ? c.model : null;
 
     console.log(`[${SCRIPT}] canonicalization-floor sweep (query -> alias)`);
     console.log(`  fixture                  = ${fixturePath} (${fixture.cases.length} cases)`);
@@ -251,20 +257,52 @@ async function main(): Promise<void> {
     // deliberately-unreachable case contributes a null decision, not a threshold data point.
     const cases = fixture.cases.filter((x) => x.category !== "unembedded_shipped");
 
-    for (const cse of cases as EvalCase[]) {
+    // -- THE QUERY-EMBED CACHE, same contract as the evaluator's ------------------------
+    //
+    // The sweep embeds exactly the same fixture queries the evaluator does, one provider
+    // request each, so it has exactly the same cost and exactly the same reason to memoise:
+    // the embedder is deterministic for a given model, and the model is part of the key so a
+    // model change misses rather than mixing two vector spaces.
+    //
+    // A MISS STILL GOES THROUGH `embedViaProvider`, so the mock guard and the cost accounting
+    // apply to it unchanged. OPT-IN via `--cache`; without the flag this runner behaves
+    // exactly as it always has.
+    const embedViaProvider = async (text: string): Promise<number[] | null> => {
       const resp = await fetch(`${aiBase}/embeddings/skill-alias`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ items: [{ alias_id: EVAL_QUERY_UUID, text: cse.query }] }),
+        body: JSON.stringify({ items: [{ alias_id: EVAL_QUERY_UUID, text }] }),
       });
-      if (!resp.ok) {
-        errors += 1;
-        continue;
-      }
+      if (!resp.ok) return null;
       const data = parseEmbedResponse(await resp.json(), new Set([EVAL_QUERY_UUID]));
       estCost += data.estimated_cost_inr;
       if (data.is_mock) throw new Error(`[${SCRIPT}] the ai-service returned a MOCK vector — refusing to sweep.`);
-      const vec = data.results[0]?.vector ?? null;
+      return data.results[0]?.vector ?? null;
+    };
+
+    const queryCache: EmbedCache | null =
+      argv.includes("--cache") && sweepEmbeddingModel !== null
+        ? createEmbedCache({
+            model: sweepEmbeddingModel,
+            fetchVector: async (text: string) => {
+              const v = await embedViaProvider(text);
+              if (v === null) throw new Error(`[${SCRIPT}] provider returned no vector`);
+              return v;
+            },
+          })
+        : null;
+
+    for (const cse of cases as EvalCase[]) {
+      let vec: number[] | null;
+      if (queryCache === null) {
+        vec = await embedViaProvider(cse.query);
+      } else {
+        try {
+          vec = await queryCache.embed(cse.query);
+        } catch {
+          vec = null;
+        }
+      }
       if (vec === null) {
         errors += 1;
         continue;
@@ -371,7 +409,10 @@ async function main(): Promise<void> {
         fixture_version: fixture.manifest.version,
         corpus_batch: fixture.manifest.corpus_batch,
         model: null,
-        embedding_model: "gemini-embedding-001",
+        // MEASURED, not typed. The literal that stood here would have kept saying
+        // "gemini-embedding-001" through a model migration, on a record whose entire purpose
+        // is to say which corpus and which geometry produced the numbers.
+        embedding_model: sweepEmbeddingModel,
         corpus_fingerprint: corpusFingerprint,
         query_count: decided.length,
         failure_count: errors,

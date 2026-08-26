@@ -92,9 +92,16 @@ describe("NO_REGRESSION — why it fails, all of it at once", () => {
     expect(perfect[0]!.detail).toMatch(/no corpus_fingerprint/);
   });
 
-  it("NOT ONE record of any kind carries a corpus_fingerprint", () => {
-    // Which is why the gate's first reported reason has never been the actionable one.
-    expect(art.evaluation_records.every((e) => !e.has_fingerprint)).toBe(true);
+  it("EXACTLY ONE SIDE now carries a corpus_fingerprint — the evaluation, as of 2026-08-26", () => {
+    // This assertion used to read "NOT ONE record of any kind carries one", which was the
+    // defect: the evaluator computed the fingerprint and dropped it on the way into the
+    // experiment record, the only artifact the gate reads. Fixed, and re-measured at ZERO
+    // cost because every fixture-v2 query vector was already in the local embed cache.
+    //
+    // Inverted rather than deleted. It now pins the halfway state honestly: one side done,
+    // one side outstanding — which is exactly what stops "the fingerprint work is finished"
+    // from being said before the sweep is re-run.
+    expect(art.evaluation_records.some((e) => e.has_fingerprint)).toBe(true);
     expect(art.floor_sweep_records.every((s) => !s.has_fingerprint)).toBe(true);
   });
 
