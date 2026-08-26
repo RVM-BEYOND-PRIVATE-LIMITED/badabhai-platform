@@ -11,6 +11,8 @@ library;
 
 import 'package:equatable/equatable.dart';
 
+import 'occupation_label.dart';
+
 /// Thrown when the API returns a non-2xx response.
 class ApiException implements Exception {
   ApiException(this.statusCode, this.message, {this.body});
@@ -765,10 +767,14 @@ class ChatReply extends Equatable {
         questionKind: ChatQuestionKind.parse(json['question_kind']),
         // Absent / unknown -> text (composer stays; never trap the worker).
         inputMode: ChatInputMode.parse(json['input_mode']),
-        // Absent / null / non-string -> null (not yet pinned).
-        occupationLabel: json['occupation_label'] is String
-            ? json['occupation_label'] as String
-            : null,
+        // Absent / null / non-string -> null (not yet pinned). ALSO null for the
+        // universal-fallback family label ("सामान्य" / "General"): it is not a
+        // real trade, so the trust pill must not show it (see occupation_label.dart).
+        occupationLabel: displayableOccupationLabel(
+          json['occupation_label'] is String
+              ? json['occupation_label'] as String
+              : null,
+        ),
         // #896 — the Devanagari read-aloud string. Absent / null / non-string /
         // BLANK -> null (an older API build), and read-aloud then speaks the
         // romanized `reply` unchanged. Never thrown (#371): a bad value must not
