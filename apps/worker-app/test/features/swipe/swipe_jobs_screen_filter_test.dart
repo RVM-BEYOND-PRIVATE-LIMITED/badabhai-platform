@@ -133,6 +133,44 @@ void main() {
   });
 
   testWidgets(
+    'the filter icon shows a green dot when ANY filter is active and hides it '
+    'when all filters are cleared',
+    (WidgetTester tester) async {
+      _tallSurface(tester);
+
+      final _MockSwipeRepository repo = _MockSwipeRepository();
+      when(() => repo.getFeed(tradeKey: any(named: 'tradeKey'), city: any(named: 'city'), shift: any(named: 'shift'), payMin: any(named: 'payMin'))).thenAnswer((_) async => <FeedItem>[
+            _job('cnc1', 'cnc_operator', 'CNC Operator'),
+            _job('vmc1', 'vmc_setter', 'VMC Setter'),
+          ]);
+
+      final SwipeBloc bloc = SwipeBloc(repo);
+      await tester.pumpWidget(MaterialApp(
+        theme: AppTheme.light(),
+        home: SwipeJobsScreen(bloc: bloc),
+      ));
+      await tester.pumpAndSettle();
+
+      final Finder dot = find.byKey(const Key('jobs_filter_active_dot'));
+
+      // No filter yet -> Visibility hides the child -> no dot.
+      expect(bloc.state.filters.isEmpty, isTrue);
+      expect(dot, findsNothing);
+
+      // Apply a filter from the top chip row -> the dot appears.
+      await tester.tap(_topChip('VMC'));
+      await tester.pumpAndSettle();
+      expect(dot, findsOneWidget);
+
+      // Clear every filter -> the dot disappears again.
+      await tester.tap(_topChip('VMC'));
+      await tester.pumpAndSettle();
+      expect(bloc.state.filters.isEmpty, isTrue);
+      expect(dot, findsNothing);
+    },
+  );
+
+  testWidgets(
     'the top chip row and the sheet share ONE filter state (a sheet selection '
     'paints the chip)',
     (WidgetTester tester) async {
