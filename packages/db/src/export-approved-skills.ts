@@ -63,6 +63,8 @@ import {
 import { analyzeTaxonomyQuality, taxonomyQualityVerdict } from "./taxonomy-quality-gate";
 import { validateTaxonomyCorpus } from "./taxonomy-corpus";
 import type { SkillCandidateRecord } from "./skill-discovery-candidate";
+import type { TaxonomyDomainSkillRecord } from "./taxonomy-corpus";
+import type { JobDomainSkillSource, SkillRequirement } from "./schema/taxonomy";
 
 config({ path: "../../.env" });
 config();
@@ -111,6 +113,78 @@ const CANDIDATES_SQL = (runId: string) => dsql`
     FROM skill_candidate c
    WHERE c.run_id = ${runId}
      AND c.status IN ('approved_create', 'approved_map', 'approved_merge', 'rejected', 'deferred')`;
+
+/**
+ * The two FACTS the gates need, read from the live catalogue.
+ *
+ * Both are supplied rather than assumed, and both exist because a gate asked a correct question
+ * that the corpus fragment alone could not answer:
+ *
+ *   `domainLabels`   `SKILL_LABEL_IS_DOMAIN_NAME` compares an approved label against DOMAIN
+ *                    LABELS. Passing ids as labels would make that check pass vacuously — a
+ *                    silently disabled gate, which is worse than a missing one.
+ *   `existingEdges`  `SKILL_ORPHAN` refuses a corpus skill with zero edges. A `reuses_existing`
+ *                    record has none by design, so an alias-only batch blocked every time until
+ *                    the skill's REAL edges were passed through. See `ExportOptions.existingEdges`.
+ *
+ * READ-ONLY, and it runs in `--from-file` mode too. A file supplies the candidates; it cannot
+ * supply the state of the catalogue, and validating against a guess about that state is how a
+ * batch passes here and fails at seed time. When `DATABASE_URL` is absent the caller gets empty
+ * maps and the manifest records the limitation rather than the run pretending.
+ */
+interface CorpusFacts {
+  readonly domainLabels: ReadonlyMap<string, string>;
+  readonly existingEdges: readonly TaxonomyDomainSkillRecord[];
+  readonly available: boolean;
+}
+
+async function readCorpusFacts(reusedSkillIds: readonly string[]): Promise<CorpusFacts> {
+  const url = process.env.DATABASE_URL;
+  if (url === undefined || url.trim() === "") {
+    return { domainLabels: new Map(), existingEdges: [], available: false };
+  }
+  const { db, sql } = createDbClient(url, { max: 2 });
+  try {
+    const domains = (await db.execute(dsql`
+      SELECT job_domain_id, label_en FROM job_domain WHERE selectable AND status = 'active'`)) as unknown as {
+      job_domain_id: string;
+      label_en: string;
+    }[];
+
+    // Passed through with their ACTUAL values, which is what makes a re-seed a provable no-op:
+    // the seeder's upsert fires only when something differs, and nothing differs.
+    const edges =
+      reusedSkillIds.length === 0
+        ? []
+        : ((await db.execute(dsql`
+            SELECT job_domain_id, skill_id, default_requirement, relevance, confidence, source
+              FROM job_domain_skill
+             WHERE skill_id = ANY(${reusedSkillIds}) AND status = 'active'`)) as unknown as {
+            job_domain_id: string;
+            skill_id: string;
+            default_requirement: SkillRequirement;
+            relevance: number;
+            confidence: number | null;
+            source: JobDomainSkillSource;
+          }[]);
+
+    return {
+      domainLabels: new Map(domains.map((d) => [d.job_domain_id, d.label_en])),
+      existingEdges: edges.map((e) => ({
+        kind: "domain_skill" as const,
+        job_domain_id: e.job_domain_id,
+        skill_id: e.skill_id,
+        default_requirement: e.default_requirement,
+        relevance: e.relevance,
+        confidence: e.confidence,
+        source: e.source,
+      })),
+      available: true,
+    };
+  } finally {
+    await sql.end();
+  }
+}
 
 function readFromFile(path: string): SkillCandidateRecord[] {
   return readFileSync(path, "utf8")
@@ -165,8 +239,23 @@ async function main(): Promise<void> {
     }
   }
 
-  const batch = exportApprovedCandidates(candidates);
-  const corpus = toCorpus(batch);
+  // The targets an `approved_map` points at. Their EXISTING edges are what stop SKILL_ORPHAN
+  // firing on an alias-only batch — see `ExportOptions.existingEdges`.
+  const reusedSkillIds = [
+    ...new Set(
+      candidates
+        .filter((c) => c.status === "approved_map" || c.status === "approved_merge")
+        .map((c) => c.resulting_skill_id)
+        .filter((id): id is string => id !== null),
+    ),
+  ];
+  const facts = await readCorpusFacts(reusedSkillIds);
+
+  const batch = exportApprovedCandidates(candidates, {
+    domainLabels: facts.domainLabels,
+    existingEdges: facts.existingEdges,
+  });
+  const corpus = toCorpus(batch, facts.domainLabels);
 
   // GATE 1 — STRUCTURAL. `existingSkillIds` is left at its default (`SKILL_CORPUS`), so an
   // approval whose minted id collides with a shipped one is refused HERE rather than at seed
@@ -219,6 +308,12 @@ async function main(): Promise<void> {
     from_file: fromFile ?? null,
     verdict: blocked ? "BLOCK" : "PASS",
     counts: batch.counts,
+    // Stated, so a green run cannot imply the gates saw a catalogue they never got.
+    catalogue_available: facts.available,
+    catalogue_limitation: facts.available
+      ? null
+      : "DATABASE_URL was absent, so SKILL_LABEL_IS_DOMAIN_NAME had no domain labels to compare " +
+        "against and no pre-existing edges were carried. Re-run with a connection before trusting a PASS.",
     structural_problems: structural,
     quality_verdict: verdict,
     // The narrowing, stated. A convergence group whose trades are not in this batch cannot be
@@ -266,6 +361,8 @@ function print(
   console.log(`  CORPUS RECORDS PRODUCED`);
   console.log(`    new canonical skills          ${c.exported_skills}`);
   console.log(`    alias records                 ${c.exported_aliases}`);
+  console.log(`    edges authored by a reviewer  ${c.exported_edges}`);
+  console.log(`    edges carried (pre-existing)  ${c.carried_edges}   (no-ops at seed time)`);
   console.log(`    refused before the gates      ${c.refused}`);
   for (const r of batch.refusals.slice(0, 10)) {
     console.log(`      ${r.cluster_key}: ${r.code}`);

@@ -31,3 +31,55 @@ export * from "./occupation-retrieval-eval";
 // speak — from the real packs rather than from a fixture, and a manifest built from a fixture
 // would pre-render audio for questions no worker is ever asked.
 export * from "./question-pack-corpus";
+
+// ── The skill-discovery review layer (migration 0093) ──────────────────────────────────────
+//
+// Exported because `apps/api`'s admin review surface is the ENFORCEMENT POINT for three rules
+// that live only in TypeScript and nowhere in the database:
+//
+//   * `canTransition` — TERMINAL MEANS TERMINAL. No CHECK in 0093 stops an `approved_map` row
+//     being UPDATEd back to `needs_review`; this table is the only thing that does. A service
+//     that cannot import it has to restate the ladder, and a second copy of a transition table
+//     is how "re-deciding" quietly starts re-scoping a decision to a corpus the human never saw.
+//   * `statusForDecision` — the ONE place decision → status lives. Unexported, every caller
+//     switches on its own strings and the API and the pipeline drift on what "merge" means.
+//   * `assertProvenanceIntact` / `PROVENANCE_FIELDS` — the frozen-field list, in digest order.
+//     A decision path that cannot call it can only *promise* it did not move provenance.
+//
+// A NAMED BLOCK, NOT `export *`, for two measured reasons: `skill-discovery-candidate.ts:64`
+// re-exports five unions that `./schema` above already owns (a star would be TS2308), and
+// `skill-discovery-plan.ts:805` re-exports `PhraseClass`/`ClassifierRule` from the classify
+// module (a second star would collide with itself). Symbols are added here as consumers need
+// them; nothing below is on a request path except the decision guards.
+export {
+  CANDIDATE_ACTIONS,
+  CANDIDATE_SOURCE_TYPES,
+  CANDIDATE_STATUSES,
+  HUMAN_DECIDED_STATUSES,
+  MACHINE_WRITABLE_STATUSES,
+  PROVENANCE_FIELDS,
+  TERMINAL_STATUSES,
+  approvedCandidateToCorpusSkill,
+  assertDryRunSafe,
+  assertProvenanceIntact,
+  canTransition,
+  candidateId,
+  provenanceDigest,
+  sealCandidate,
+  statusForDecision,
+  validateCandidate,
+} from "./skill-discovery-candidate";
+export type {
+  CandidateMatch,
+  CandidateProblem,
+  CandidateProblemCode,
+  CandidateSource,
+  ProvenanceField,
+  SkillCandidateRecord,
+} from "./skill-discovery-candidate";
+export { prioritize, reviewPriority, reviewTier, tierCounts } from "./skill-discovery-plan";
+export type { ReviewTier } from "./skill-discovery-plan";
+export { STRONG_MATCH_RELATIONS, isStrongRelation } from "./skill-discovery-match";
+export type { MatchRelation } from "./skill-discovery-match";
+export { CLASSIFIER_RULES } from "./skill-discovery-classify";
+export type { ClassifierRule, PhraseClass } from "./skill-discovery-classify";

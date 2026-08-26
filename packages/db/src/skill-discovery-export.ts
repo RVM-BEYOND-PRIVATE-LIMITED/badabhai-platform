@@ -131,6 +131,14 @@ export interface ExportedBatch {
    * measurement.
    */
   readonly edges: readonly TaxonomyDomainSkillRecord[];
+  /**
+   * Edges the reused skills ALREADY have, passed through untouched.
+   *
+   * Kept SEPARATE from `edges` so the manifest can say "1 edge authored, 4 pre-existing" rather
+   * than reporting five as though a reviewer had decided all of them. They land in the corpus
+   * (see `toCorpus`) and are a no-op at seed time.
+   */
+  readonly carriedEdges: readonly TaxonomyDomainSkillRecord[];
   /** Candidate ids that produced each skill record, in the same order. The audit link. */
   readonly provenance: readonly { readonly skill_id: string; readonly candidate_ids: readonly string[] }[];
   readonly refusals: readonly ExportRefusal[];
@@ -143,6 +151,8 @@ export interface ExportedBatch {
     readonly exported_skills: number;
     readonly exported_aliases: number;
     readonly exported_edges: number;
+    /** Pre-existing edges carried for gate completeness. Not authored by this batch. */
+    readonly carried_edges: number;
     readonly refused: number;
   };
 }
@@ -217,6 +227,32 @@ function decisionIsComplete(c: SkillCandidateRecord): boolean {
  */
 export interface ExportOptions {
   /**
+   * `job_domain_skill` rows THAT ALREADY EXIST for the skills an `approved_map` targets.
+   *
+   * ── WHY A CORPUS MUST BE TOLD ABOUT EDGES IT IS NOT ADDING ──
+   *
+   * `validateTaxonomyCorpus` refuses any skill in the corpus with zero edges (`SKILL_ORPHAN`).
+   * A `reuses_existing` record carries no edges by design — it exists only to hang aliases on a
+   * skill that already shipped — so an alias-only batch blocked every time. Measured in the
+   * Phase-5 dry run: `skill[skill_arc_welding]: SKILL_ORPHAN` on a batch whose only fault was
+   * that it was adding a Hindi alias to a live skill.
+   *
+   * The gate is not wrong and is not weakened. It is asking a correct question —
+   * *"is anything going to reach this skill?"* — with incomplete facts, because the corpus in
+   * front of it is a fragment rather than a complete authoring unit. The fix is to supply the
+   * missing fact: the edges the skill ALREADY HAS, read from `job_domain_skill`.
+   *
+   * NOTHING IS INVENTED. These are existing rows passed through with their actual `source`,
+   * `default_requirement`, `relevance` and `confidence`, which is what makes re-seeding them a
+   * provable no-op: `seed-domain-skills.ts` upserts on `(job_domain_id, skill_id)` with a WHERE
+   * that fires only when something differs, and nothing differs.
+   *
+   * AND THE PROPERTY THIS PRESERVES IS THE VALUABLE ONE: if a targeted skill genuinely has no
+   * edges, `SKILL_ORPHAN` still fires — correctly. Adding an alias to a skill nothing can reach
+   * is worth blocking on, and this option cannot hide that because there is no row to supply.
+   */
+  readonly existingEdges?: readonly TaxonomyDomainSkillRecord[];
+  /**
    * `jd_* -> label_en` for every trade a reviewer may name.
    *
    * REQUIRED IN PRACTICE and typed optional only so a caller with no catalogue can still get
@@ -236,6 +272,7 @@ export function exportApprovedCandidates(
   options: ExportOptions = {},
 ): ExportedBatch {
   const domainLabels = options.domainLabels ?? new Map<string, string>();
+  const existingEdges = options.existingEdges ?? [];
   const knownDomains: ReadonlySet<string> =
     domainLabels.size > 0
       ? new Set(domainLabels.keys())
@@ -258,6 +295,7 @@ export function exportApprovedCandidates(
     exported_skills: 0,
     exported_aliases: 0,
     exported_edges: 0,
+    carried_edges: 0,
     refused: 0,
   };
 
@@ -406,8 +444,18 @@ export function exportApprovedCandidates(
     counts.exported_edges += namedDomains.length;
   }
 
+  // Only the edges belonging to skills this batch actually EXPORTED. A carried edge for a skill
+  // that was refused would put a domain in the corpus with nothing to justify it, which the
+  // validator would then report as DOMAIN_ORPHAN — trading one blocking finding for another.
+  const exportedIds = new Set(skills.map((sk) => sk.skill_id));
+  const authored = new Set(edges.map((e) => `${e.job_domain_id}|${e.skill_id}`));
+  const carriedEdges = existingEdges.filter(
+    (e) => exportedIds.has(e.skill_id) && !authored.has(`${e.job_domain_id}|${e.skill_id}`),
+  );
+  counts.carried_edges = carriedEdges.length;
+
   counts.refused = refusals.length;
-  return { skills, edges, provenance, refusals, counts };
+  return { skills, edges, carriedEdges, provenance, refusals, counts };
 }
 
 /**
@@ -464,7 +512,10 @@ export function toCorpus(
   domainLabels: ReadonlyMap<string, string> = new Map(),
   tradeGroups: ReadonlyMap<string, string> = new Map(),
 ): TaxonomyCorpus {
-  const referenced = [...new Set(batch.edges.map((e) => e.job_domain_id))].sort();
+  // BOTH edge sets, because the validator needs a domain record for every domain any edge
+  // names — an edge pointing at a domain the corpus does not declare is EDGE_UNKNOWN_DOMAIN.
+  const allEdges = [...batch.edges, ...batch.carriedEdges];
+  const referenced = [...new Set(allEdges.map((e) => e.job_domain_id))].sort();
   const domains: TaxonomyDomainRecord[] = referenced.map((id) => ({
     kind: "domain",
     job_domain_id: id,
@@ -473,5 +524,5 @@ export function toCorpus(
     label_en: domainLabels.get(id) ?? id,
     trade_group: tradeGroups.get(id) ?? "discovered",
   }));
-  return { domains, skills: [...batch.skills], edges: [...batch.edges] };
+  return { domains, skills: [...batch.skills], edges: allEdges };
 }
