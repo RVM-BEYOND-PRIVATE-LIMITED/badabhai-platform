@@ -36,6 +36,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { CorpusFingerprint } from "./corpus-fingerprint";
 import { TAXONOMY_DATA_DIR } from "./taxonomy-corpus";
 
 /** Where records live. One directory per experiment, one file per run. */
@@ -120,6 +121,21 @@ export interface ExperimentRecord {
 
   // ── ANN configuration in effect ─────────────────────────────────────────
   ann: AnnConfig;
+
+  /**
+   * WHICH CORPUS this run measured — the freshness proof `promote-skills` reads.
+   *
+   * Optional because records written before fingerprinting exist and must stay readable. They
+   * simply cannot clear a freshness check, which is correct: absence is not currency, and
+   * backfilling one would fabricate the proof the field exists to provide.
+   *
+   * It was missing from this interface while `promote-skills` already read
+   * `sweepRecord.corpus_fingerprint`, so `RESOLVABLE_ABOVE_FLOOR` evidence was **stale by
+   * construction** — the only producer of sweep records had nowhere to put the value. Adding
+   * the field does not relax the check; a stale sweep still fails. It makes a satisfiable
+   * check out of an unsatisfiable one.
+   */
+  corpus_fingerprint?: CorpusFingerprint | null;
 
   /** Anything experiment-specific. Kept as an open bag so a new experiment kind does not
    *  require a schema change to the shared record. */

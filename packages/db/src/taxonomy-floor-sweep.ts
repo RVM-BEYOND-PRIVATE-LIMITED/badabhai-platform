@@ -56,6 +56,7 @@ import { config } from "dotenv";
 import { sql as dsql } from "drizzle-orm";
 
 import { createDbClient } from "./client";
+import { CORPUS_FINGERPRINT_SQL, toFingerprint, type CorpusFingerprint } from "./corpus-fingerprint";
 import { parseEmbedResponse } from "./embed-response";
 import { loadEvalFixture, type EvalCase } from "./taxonomy-eval-fixture";
 import {
@@ -343,6 +344,22 @@ async function main(): Promise<void> {
     }
 
     if (experiment !== null) {
+      // WHICH CORPUS this swept. Read AFTER the queries, so it describes the corpus the run
+      // actually saw rather than one it might have raced. A failure is recorded as null and
+      // never fabricated: `promote-skills` treats a missing fingerprint as STALE, which is the
+      // correct reading of "cannot prove currency".
+      //
+      // This was absent until 2026-08-26, and `promote-skills` has read
+      // `sweepRecord.corpus_fingerprint` for longer than that — so every sweep record ever
+      // written was stale on arrival and `RESOLVABLE_ABOVE_FLOOR` evidence could not be made
+      // fresh by any re-run. Stamping it does not relax the check.
+      let corpusFingerprint: CorpusFingerprint | null = null;
+      try {
+        const fpRows = (await db.execute(CORPUS_FINGERPRINT_SQL)) as unknown as Record<string, unknown>[];
+        corpusFingerprint = fpRows[0] ? toFingerprint(fpRows[0]) : null;
+      } catch (e) {
+        console.log(`[${SCRIPT}] WARN could not read the corpus fingerprint: ${String(e)}`);
+      }
       const stamp = new Date().toISOString();
       const record: ExperimentRecord = {
         experiment,
@@ -355,6 +372,7 @@ async function main(): Promise<void> {
         corpus_batch: fixture.manifest.corpus_batch,
         model: null,
         embedding_model: "gemini-embedding-001",
+        corpus_fingerprint: corpusFingerprint,
         query_count: decided.length,
         failure_count: errors,
         latency_ms: Date.now() - started,

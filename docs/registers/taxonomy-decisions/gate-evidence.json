@@ -1,0 +1,313 @@
+{
+  "kind": "gate-evidence",
+  "measured_at": "2026-08-26T08:51:25.807Z",
+  "source": "pnpm db:audit:gate-evidence --batch data/taxonomy/batches/batch_2026-08-16T14-30-41Z-remediation-phase9d --fixture=data/taxonomy/eval/retrieval-v3.jsonl",
+  "target": "SUPABASE (remote)",
+  "read_only": true,
+  "role": "postgres",
+  "bypass_rls": true,
+  "population_predicate": "every experiment record under C:\\Users\\kpdag\\OneDrive\\Desktop\\BB\\badabhai-platform\\packages\\db\\data\\taxonomy\\eval\\experiments judged by the runner's own judgeRegression/bestCorrectScores against the live corpus fingerprint; the 96 PROMOTABLE_SKILL_IDS categorised against the newest floor sweep",
+  "ai_spend_inr": 0,
+  "floor": 0.75,
+  "regression_baseline": {
+    "recall_at_1": 1,
+    "mrr": 1,
+    "source": "EXP-EVAL-CORRECTION eval-taxonomy-retrieval-v1-v2-e2-2026-08-17T06:33:38.652Z",
+    "evaluator_version": 2,
+    "fixture_version": 2
+  },
+  "live_corpus_fingerprint": {
+    "skill_alias": "f7fbf2ec6404a29592af0840a0b00c3d",
+    "skill": "8022d4b309658c3ac18ae4720325b0ff",
+    "job_domain_skill": "e68acaaaf7beb858735875f8932af80d",
+    "job_domain": "b2dfcab48759113e7d118b547ea6a524",
+    "job_domain_alias": "9b545f3db771d2bcf2a0cfe62414da53",
+    "counts": {
+      "skill_alias_rows": 336,
+      "skill_alias_normalized": 197,
+      "skill_alias_searchable": 197,
+      "skill_alias_embedded": 336,
+      "skills_total": 165,
+      "skills_active": 52,
+      "job_domain_skill_active_edges": 236,
+      "job_domain_alias_rows": 9121,
+      "job_domain_alias_searchable": 5086,
+      "job_domain_alias_embedded": 9121
+    }
+  },
+  "evaluation_records": [
+    {
+      "path": "EXP-BASELINE\\eval-taxonomy-retrieval-v1-v1-2026-08-17T05_41_39.559Z.json",
+      "fixture_version": 1,
+      "evaluator_version": 1,
+      "recall_at_1": 0.9912,
+      "mrr": 0.9956,
+      "has_fingerprint": false,
+      "passed": false,
+      "stale": false,
+      "detail": "evaluation used evaluator v1 but the reference is v2; the numbers answer different questions"
+    },
+    {
+      "path": "EXP-EVAL-CORRECTION\\eval-taxonomy-retrieval-v1-v2-e2-2026-08-17T06_33_38.652Z.json",
+      "fixture_version": 2,
+      "evaluator_version": 2,
+      "recall_at_1": 1,
+      "mrr": 1,
+      "has_fingerprint": false,
+      "passed": false,
+      "stale": true,
+      "detail": "evaluation record carries no corpus_fingerprint, so it cannot prove which corpus it measured. Records predating fingerprinting (EXP-P8-BASELINE and earlier) can never clear this gate; re-run db:eval:taxonomy --run --experiment against the current corpus."
+    },
+    {
+      "path": "EXP-P8-BASELINE\\eval-taxonomy-retrieval-v1-v2-e2-2026-08-17T11_32_00.059Z.json",
+      "fixture_version": 2,
+      "evaluator_version": 2,
+      "recall_at_1": 0.9912,
+      "mrr": 0.9956,
+      "has_fingerprint": false,
+      "passed": false,
+      "stale": true,
+      "detail": "evaluation record carries no corpus_fingerprint, so it cannot prove which corpus it measured. Records predating fingerprinting (EXP-P8-BASELINE and earlier) can never clear this gate; re-run db:eval:taxonomy --run --experiment against the current corpus."
+    },
+    {
+      "path": "EXP-P8-CANONICAL-LABEL\\alias-sim-taxonomy-retrieval-v1-v2-2026-08-17T11_44_04.266Z.json",
+      "fixture_version": 2,
+      "evaluator_version": 2,
+      "recall_at_1": 1,
+      "mrr": null,
+      "has_fingerprint": false,
+      "passed": false,
+      "stale": false,
+      "detail": "evaluation record carries no recall_at_1/mrr — nothing to compare"
+    },
+    {
+      "path": "EXP-P9-TRAINER-V3\\eval-taxonomy-retrieval-v1-v3-e2-2026-08-21T08_20_05.980Z.json",
+      "fixture_version": 3,
+      "evaluator_version": 2,
+      "recall_at_1": 0.9545,
+      "mrr": 0.9751,
+      "has_fingerprint": false,
+      "passed": false,
+      "stale": false,
+      "detail": "evaluation used fixture v3 but the reference is v2"
+    },
+    {
+      "path": "EXP-P9-TRAINER-V3\\eval-taxonomy-retrieval-v1-v3-e2-2026-08-21T08_39_29.783Z.json",
+      "fixture_version": 3,
+      "evaluator_version": 2,
+      "recall_at_1": 0.9675,
+      "mrr": 0.9816,
+      "has_fingerprint": false,
+      "passed": false,
+      "stale": false,
+      "detail": "evaluation used fixture v3 but the reference is v2"
+    }
+  ],
+  "no_regression_independent_blockers": [
+    "NO evaluation carries a corpus_fingerprint, so none can prove currency (NOT WAIVABLE)",
+    "NO floor-sweep record carries a corpus_fingerprint, and promote-skills computes `no_regression = regression.passed && !sweepStale` — so this gate cannot pass even with a perfect evaluation (STRUCTURAL)"
+  ],
+  "floor_sweep_records": [
+    {
+      "path": "EXP-EVAL-CORRECTION\\floor-sweep-2026-08-17T10_01_40.291Z.json",
+      "has_fingerprint": false,
+      "cases": 123
+    },
+    {
+      "path": "EXP-P8-CANONICAL-LABEL\\alias-sim-taxonomy-retrieval-v1-v2-2026-08-17T11_44_04.266Z.json",
+      "has_fingerprint": false,
+      "cases": 113
+    },
+    {
+      "path": "EXP-P9-TRAINER-V3\\floor-sweep-2026-08-21T08_24_53.784Z.json",
+      "has_fingerprint": false,
+      "cases": 164
+    }
+  ],
+  "resolvable_above_floor": {
+    "by_cause": {
+      "PASSES": 62,
+      "CORRECT_BUT_BELOW_FLOOR": 28,
+      "NO_CORRECT_CASE_IN_SWEEP": 6,
+      "ONLY_EVER_A_WRONG_ANSWER": 0
+    },
+    "correct_but_below_floor": [
+      {
+        "skill_id": "skill_wiring_harness_routing",
+        "best_correct": 0.5986
+      },
+      {
+        "skill_id": "skill_assembly_line_sequencing",
+        "best_correct": 0.7043
+      },
+      {
+        "skill_id": "skill_sub_assembly_quality_checking",
+        "best_correct": 0.7443
+      },
+      {
+        "skill_id": "skill_battery_cell_stacking",
+        "best_correct": 0.6874
+      },
+      {
+        "skill_id": "skill_battery_terminal_crimping",
+        "best_correct": 0.6797
+      },
+      {
+        "skill_id": "skill_clutch_and_gearbox_repair",
+        "best_correct": 0.6951
+      },
+      {
+        "skill_id": "skill_vehicle_diagnostic_scanning",
+        "best_correct": 0.7181
+      },
+      {
+        "skill_id": "skill_body_panel_alignment",
+        "best_correct": 0.6827
+      },
+      {
+        "skill_id": "skill_cutting_tool_selection",
+        "best_correct": 0.7148
+      },
+      {
+        "skill_id": "skill_first_piece_approval",
+        "best_correct": 0.6933
+      },
+      {
+        "skill_id": "skill_wall_plumb_and_level_checking",
+        "best_correct": 0.7051
+      },
+      {
+        "skill_id": "skill_concrete_curing",
+        "best_correct": 0.6399
+      },
+      {
+        "skill_id": "skill_site_material_stacking",
+        "best_correct": 0.7186
+      },
+      {
+        "skill_id": "skill_house_wiring_installation",
+        "best_correct": 0.6836
+      },
+      {
+        "skill_id": "skill_electrical_fault_finding",
+        "best_correct": 0.6419
+      },
+      {
+        "skill_id": "skill_insulation_resistance_testing",
+        "best_correct": 0.6395
+      },
+      {
+        "skill_id": "skill_motor_connection_and_starter_wiring",
+        "best_correct": 0.7379
+      },
+      {
+        "skill_id": "skill_electrical_safety_and_lockout",
+        "best_correct": 0.6515
+      },
+      {
+        "skill_id": "skill_refrigerant_leak_detection",
+        "best_correct": 0.686
+      },
+      {
+        "skill_id": "skill_thermostat_and_control_wiring",
+        "best_correct": 0.7466
+      },
+      {
+        "skill_id": "skill_split_unit_installation",
+        "best_correct": 0.725
+      },
+      {
+        "skill_id": "skill_customer_site_handover",
+        "best_correct": 0.7245
+      },
+      {
+        "skill_id": "skill_belt_and_chain_drive_alignment",
+        "best_correct": 0.6666
+      },
+      {
+        "skill_id": "skill_vibration_and_noise_fault_diagnosis",
+        "best_correct": 0.7202
+      },
+      {
+        "skill_id": "skill_sanitary_fixture_installation",
+        "best_correct": 0.7184
+      },
+      {
+        "skill_id": "skill_non_destructive_testing_of_castings",
+        "best_correct": 0.6639
+      },
+      {
+        "skill_id": "skill_issue_and_requisition_control",
+        "best_correct": 0.7356
+      },
+      {
+        "skill_id": "skill_distortion_control_in_weldments",
+        "best_correct": 0.7302
+      }
+    ],
+    "no_correct_case_in_sweep": [
+      "skill_battery_capacity_checking",
+      "skill_switchgear_installation",
+      "skill_sheet_metal_marking_and_layout",
+      "skill_indoor_unit_servicing_and_cleaning",
+      "skill_pump_and_valve_repair",
+      "skill_welding_machine_consumable_changeover"
+    ],
+    "only_ever_a_wrong_answer": []
+  },
+  "eval_covered_by_fixture": {
+    "data/taxonomy/eval/retrieval-v2.jsonl": {
+      "cases": 127,
+      "missing": 41
+    },
+    "data/taxonomy/eval/retrieval-v3.jsonl": {
+      "cases": 168,
+      "missing": 0
+    }
+  },
+  "green_path": [
+    {
+      "gate": "NO_REGRESSION",
+      "step": 1,
+      "actor": "ENGINEERING",
+      "what": "the floor-sweep record must be ABLE to carry a corpus_fingerprint",
+      "status": "the ExperimentRecord field exists as of this change; no sweep has been RE-RUN since, so every record on disk is still unfingerprinted"
+    },
+    {
+      "gate": "NO_REGRESSION",
+      "step": 2,
+      "actor": "AI SPEND",
+      "what": "re-run db:sweep:floor --run --experiment AND db:eval:taxonomy --run --experiment on fixture v2, so both records carry a fingerprint matching the live corpus",
+      "status": "NOT DONE — requires a provider call; neither can be produced from stored vectors"
+    },
+    {
+      "gate": "NO_REGRESSION",
+      "step": 3,
+      "actor": "OWNER or CORPUS FIX",
+      "what": "the fresh evaluation must reach R@1 >= 1 and MRR >= 1",
+      "status": "the last v2 run scored R@1 0.9912 — a real regression, causally attributed to case GP-04. A fresh run is expected to reproduce it, so this needs either a corpus fix or a recorded waiver. A WAIVER CANNOT CLEAR STEP 2: staleness is not waivable."
+    },
+    {
+      "gate": "RESOLVABLE_ABOVE_FLOOR",
+      "step": 1,
+      "actor": "ENGINEERING + OWNER",
+      "what": "28 skills resolve CORRECTLY below the floor",
+      "status": "the skill is found and not confidently. Remedy is corpus (more or better aliases), not threshold; ratifying new aliases is an owner act. Lowering the floor is prohibited."
+    },
+    {
+      "gate": "RESOLVABLE_ABOVE_FLOOR",
+      "step": 2,
+      "actor": "AI SPEND",
+      "what": "6 skills produced no correct case in the sweep at all",
+      "status": "they ARE present in fixture v3, so this is a property of the 2026-08-21 run rather than of coverage. A fresh sweep is needed before anything is concluded about them."
+    },
+    {
+      "gate": "EVAL_COVERED",
+      "step": 1,
+      "actor": "NONE",
+      "what": "already green under the fixture in use",
+      "status": "retrieval-v3 leaves 0 promotable skills uncovered; retrieval-v2 leaves 41"
+    }
+  ],
+  "production_mutation_performed": false
+}
