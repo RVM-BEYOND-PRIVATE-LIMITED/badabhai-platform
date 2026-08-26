@@ -1,0 +1,50 @@
+{
+  "kind": "alias-cleanup-proposal",
+  "decision": "D-7C-1",
+  "owner_decision": "PENDING",
+  "why": "TD-01 copied four alias texts from skill_cad_interpretation onto skill_drawing_reading without removing the originals. Both holders are active and embedded, both score exactly 1.0000 against the phrase, and the winner is decided by index order — a nondeterministic assignment no floor can arbitrate. The corpus already names skill_drawing_reading as skill_cad_interpretation's successor, so electing the successor is the reading consistent with the ratified crosswalk rather than a new taxonomy judgement. It is still an ELECTION, and elections have a reviewer: nothing reads this file.",
+  "wired_into": "nothing. db:embed:skills and db:decollide:aliases read data/taxonomy/decollided-aliases.json only. Ratifying means MOVING these rows into that file in a reviewed PR; parseCleanupProposal refuses to load this one if it is marked RATIFIED in place.",
+  "measured_cost": "De-electing these four removes the only holders of CAD, drawing padhna, read engineering drawings and technical drawing from the cnc-programming legacy slug — skill_drawing_reading's copies live in cnc-machining. Scope-level coverage loss, quantified in 5b-alias-collision-cleanup.json under scope_orphaned. It is a cost of the election, not a defect in it, and it disappears once per-label resolution (TAX-6) replaces slug-scoped retrieval.",
+  "proposals": [
+    {
+      "alias_id": "02776ee2-3322-5846-8538-c04d2a2b19ec",
+      "skill_id": "skill_cad_interpretation",
+      "text": "CAD",
+      "domain_id": "cnc-programming",
+      "winner_skill_id": "skill_drawing_reading",
+      "reason": "TD-01 merge residue: byte-identical text on the corpus-deprecated source and on its named successor. The successor keeps it.",
+      "decided_by": "PROPOSED by agent 2026-08-26 — OWNER DECISION PENDING, not ratified",
+      "phase": "9 / D-7C-1"
+    },
+    {
+      "alias_id": "4a0b0c77-c595-5503-8c62-2461253de70e",
+      "skill_id": "skill_cad_interpretation",
+      "text": "drawing padhna",
+      "domain_id": "cnc-programming",
+      "winner_skill_id": "skill_drawing_reading",
+      "reason": "TD-01 merge residue: byte-identical text on the corpus-deprecated source and on its named successor. The successor keeps it. This one is also one of the 22 ratified vernacular aliases, so the surviving copy must be verified to exist before any write.",
+      "decided_by": "PROPOSED by agent 2026-08-26 — OWNER DECISION PENDING, not ratified",
+      "phase": "9 / D-7C-1"
+    },
+    {
+      "alias_id": "580d7d5b-4d12-54ee-811c-ff954e880388",
+      "skill_id": "skill_cad_interpretation",
+      "text": "read engineering drawings",
+      "domain_id": "cnc-programming",
+      "winner_skill_id": "skill_drawing_reading",
+      "reason": "TD-01 merge residue: byte-identical text on the corpus-deprecated source and on its named successor. The successor keeps it.",
+      "decided_by": "PROPOSED by agent 2026-08-26 — OWNER DECISION PENDING, not ratified",
+      "phase": "9 / D-7C-1"
+    },
+    {
+      "alias_id": "0c6caf0d-9d88-5030-8e47-c238a5620840",
+      "skill_id": "skill_cad_interpretation",
+      "text": "technical drawing",
+      "domain_id": "cnc-programming",
+      "winner_skill_id": "skill_drawing_reading",
+      "reason": "TD-01 merge residue: byte-identical text on the corpus-deprecated source and on its named successor. The successor keeps it.",
+      "decided_by": "PROPOSED by agent 2026-08-26 — OWNER DECISION PENDING, not ratified",
+      "phase": "9 / D-7C-1"
+    }
+  ]
+}
