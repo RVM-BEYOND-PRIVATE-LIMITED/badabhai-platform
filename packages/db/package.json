@@ -97,6 +97,7 @@
     "db:audit:junk-labels": "tsx src/audit-junk-domain-labels.ts",
     "db:audit:vernacular": "tsx src/audit-vernacular-coverage.ts",
     "db:audit:anchor-path": "tsx src/audit-anchor-path-retrieval.ts",
+    "db:audit:vernacular-resweep": "tsx src/audit-vernacular-resweep.ts",
     "db:audit:crosswalk-chain": "tsx src/audit-crosswalk-chain.ts",
     "db:audit:deprecation-hop0": "tsx src/audit-deprecation-hop0.ts",
     "db:materialize:inheritance:dry-run": "tsx src/materialize-inheritance-dry-run.ts",
