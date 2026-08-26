@@ -222,6 +222,7 @@ export * from "./skill-corpus";
 
 // Matching V1 — the `mskill_*` posting-level vocabulary, the curated symmetric
 // relation, and the three deterministic bridges from today's data into it.
+export * from "./promotable-skills";
 export * from "./match-skills";
 export * from "./crosswalk-integrity";
 

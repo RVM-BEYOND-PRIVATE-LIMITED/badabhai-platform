@@ -1,15 +1,20 @@
 # Q1 — disposition triage for the 96 promotable skills
 
-**Prepared against main `fe0bd566` · 2026-08-26 · repository-only, plus one zero-spend read**
-**Production mutation: NONE · AI spend: ₹0 · nothing applied, no `mskill_*` invented**
+**Prepared against main `fe0bd566` · triaged 2026-08-26 · RATIFIED AND APPLIED 2026-08-26**
+**Production mutation: NONE · AI spend: ₹0 · 96 dispositions applied, no `mskill_*` invented**
 
 Artifacts: [`q1-disposition-triage.json`](./q1-disposition-triage.json) ·
 [`q1-neighbour-evidence.json`](./q1-neighbour-evidence.json)
 Reproduce: `pnpm db:audit:q1-triage` (repository-only) · `pnpm db:audit:q1-neighbours` (read-only DB)
 
-> **NON-BINDING.** Every row is a proposal. `ATTRIBUTE_TO_MATCH_SKILLS`, `MATCH_SKILLS` and
-> `SKILL_CORPUS` are byte-identical, nothing was promoted, and the Q1 tripwire still fails
-> 96/96 — asserted by test. Individual skill→`mskill_*` mappings remain yours to review.
+> **RATIFIED AND APPLIED 2026-08-26.** The owner ratified all 5 proposed MATCHED dispositions
+> and ruled every one of the 16 REVIEW cases closed as INTENTIONALLY_UNMATCHED. All 96 now
+> carry exactly one disposition in `ATTRIBUTE_TO_MATCH_SKILLS` — **the Q1 coverage tripwire
+> PASSES.**
+>
+> `MATCH_SKILLS` is unchanged at 18 and `SKILL_CORPUS` at 49: no concept was invented to make
+> the batch fit. **Nothing was promoted** — a passing coverage gate is one of five, and the
+> other three still block all 96.
 
 ---
 
@@ -17,9 +22,9 @@ Reproduce: `pnpm db:audit:q1-triage` (repository-only) · `pnpm db:audit:q1-neig
 
 ```
 promotable skills            96
-MATCHED (proposed)            5
-INTENTIONALLY_UNMATCHED      75
-REVIEW                       16
+MATCHED (ratified)            5
+INTENTIONALLY_UNMATCHED      91
+REVIEW                        0   (all 16 closed by the owner)
 ```
 
 **Only 5 of 96 are genuine mapping candidates.** That is not conservatism for its own sake —
@@ -116,9 +121,18 @@ handling safety, electrical safety/lockout, customer site handover.
 
 ---
 
-## 6. Group 3 — REVIEW (16)
+## 6. Group 3 — the 16 REVIEW cases, ALL CLOSED AS UNMATCHED
 
-Grouped by the question each one actually asks.
+**Owner ruling, 2026-08-26: conservative disposition throughout.** Two of the groups below
+carried an escape hatch and neither was used — the setter-vs-QC group allowed a mapping
+*"unless there is independently strong evidence for an existing mskill"*, and the pipework
+group *"unless the competency is clearly plumbing-specific"*. Every one of those nine was
+raised **because** the evidence was ambiguous, so none qualified.
+
+What was considered and declined is preserved per skill in `rejectedCandidates`, and the
+reason in `OWNER_RULING_2026_08_26` — so the questions read as *answered*, not as *unasked*.
+
+Grouped by the question each one asked.
 
 **Is it the setter/operator, or QC?** — `first_piece_approval`,
 `sub_assembly_quality_checking`, `surface_finish_inspection`, `inspection_report_recording`,
@@ -158,10 +172,15 @@ an attribute.
 
 ---
 
-## 7. What was not done
+## 7. What was applied, and what was not
 
-- No mapping applied · no `mskill_*` invented · `MATCH_SKILLS` still 18 · bridge still 49 keys
-- No skill promoted; `eligible = 0`; Q1 tripwire still **FAIL 96/96**
+**Applied:** 96 dispositions — 5 mappings and 91 explicit empty entries. The bridge grew from
+49 keys to **145**, and its exhaustiveness contract in `@badabhai/taxonomy` was widened from
+`SKILL_CORPUS` alone to `SKILL_CORPUS` ∪ the promotable batch. That widening is the durable
+part: a 97th promotable skill added tomorrow now fails a test until someone triages it.
+
+**Not done:** no `mskill_*` invented · `MATCH_SKILLS` still 18 · `SKILL_CORPUS` still 49
+- No skill promoted; `eligible = 0`; **PROMOTION STILL BLOCKED**
 - Floor unchanged at **0.75** · `NO_REGRESSION` unchanged · `SKILL_CANONICALIZE_ENABLED`
   untouched (false) · D-7A `skill_boring` still held · D-7B ratification not extended ·
   D-7C unchanged · §5a untouched
@@ -173,7 +192,7 @@ an attribute.
 RESOLVABLE_ABOVE_FLOOR    FAIL — 62/96      unchanged
 NO_REGRESSION             FAIL — 96/96      unchanged
 EVAL_COVERED              FAIL — 41/96      unchanged
-MATCH_VOCABULARY          FAIL — 96/96      unchanged (this pack proposes; it does not apply)
+MATCH_VOCABULARY          PASS — 0/96       <- CHANGED: 5 matched, 91 intentionally unmatched
 PROMOTION CANDIDATES      96, eligible 0    unchanged
 ```
 

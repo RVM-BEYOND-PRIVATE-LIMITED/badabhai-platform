@@ -1,15 +1,21 @@
 /**
- * Q1 — the proposed disposition for each of the 96 promotable skills. **NON-BINDING.**
+ * Q1 — the disposition of each of the 96 promotable skills. **RATIFIED 2026-08-26.**
  *
  * ===========================================================================
  * WHAT THIS IS
  * ===========================================================================
  * The Q1 tripwire (`match-vocabulary-coverage.ts`) refuses to promote a skill that has neither
- * a mapping nor an explicit "stays an attribute". 96 of 96 currently have neither. This file
- * is the TRIAGE PACK for that backlog: one proposed disposition per skill, with the reason.
+ * a mapping nor an explicit "stays an attribute". All 96 lacked one. This file is the reasoning
+ * behind the disposition each of them was given — one row per skill, with the argument.
  *
- * It changes nothing. `ATTRIBUTE_TO_MATCH_SKILLS` is untouched, no `mskill_*` is invented, and
- * a test asserts both. The owner ratifies; a later task applies exactly what is ratified.
+ * THE DISPOSITIONS ARE NOW APPLIED. `ATTRIBUTE_TO_MATCH_SKILLS` carries all 96 keys: 5 mapped,
+ * 91 explicitly empty. **This file is the WHY; the bridge is the WHAT.** They are asserted
+ * equal by test, so neither can drift from the other.
+ *
+ * The owner ruled conservatively on the 16 cases this pack raised as REVIEW: every one closed
+ * as INTENTIONALLY_UNMATCHED. What was proposed and declined is preserved per row in
+ * `rejectedCandidates`, and the reason in `OWNER_RULING_2026_08_26` — deleting either would
+ * erase the fact that the question was asked and answered, and the next reader would reopen it.
  *
  * ===========================================================================
  * WHY SIMILARITY DID NOT AUTHOR THIS
@@ -43,9 +49,9 @@
  *                       nearest family that has one. **A missing vocabulary entry is not a
  *                       reason to borrow someone else's.**
  *
- * 8 of the 13 trade families here have no corresponding `mskill_*` at all, covering 63 of the
- * 96 skills. That is a finding
- * about the vocabulary, not a backlog of mappings waiting to be made.
+ * 8 of the 13 trade families here have no corresponding `mskill_*` at all, covering 62 of the
+ * 96 skills. That is a finding about the VOCABULARY, not a backlog of mappings waiting to be
+ * made — and the owner ruled that creating concepts for those trades is a separate decision.
  */
 import type { MatchSkillId } from "@badabhai/taxonomy";
 
@@ -77,6 +83,15 @@ export interface TriageRow {
   readonly family: FamilyKey;
   /** Best candidate(s) from the EXISTING 18. Empty for INTENTIONALLY_UNMATCHED. */
   readonly candidates: readonly MatchSkillId[];
+  /**
+   * What was proposed for this skill and the owner DECLINED, kept separate from `candidates`.
+   *
+   * Deleting it would erase the fact that a question was asked and answered, and the next
+   * reader would re-open it. Keeping it in `candidates` would be worse: a live-looking mapping
+   * on an unmatched row is one careless edit from being applied, which `validateTriage`
+   * rejects outright.
+   */
+  readonly rejectedCandidates?: readonly MatchSkillId[];
   readonly disposition: Disposition;
   readonly confidence: Confidence;
   readonly rationale: string;
@@ -146,8 +161,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_sub_assembly_quality_checking",
     label: "Sub-assembly quality checking",
     family: "quality",
-    candidates: ["mskill_quality_inspector"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_quality_inspector"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "low",
     rationale:
       "In-line checking by the assembler who built the sub-assembly, or a QC role? The label " +
@@ -292,8 +308,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_body_panel_alignment",
     label: "Body panel alignment",
     family: "auto-service",
-    candidates: ["mskill_fitter"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_fitter"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "low",
     rationale:
       "THE D-7B ADJACENCY. The owner has ratified skill_chassis_fitting -> mskill_fitter, and " +
@@ -309,8 +326,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_lathe_chuck_mounting",
     label: "Lathe chuck mounting",
     family: "machining-support",
-    candidates: ["mskill_cnc_setter_operator", "mskill_cnc_turner"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_cnc_setter_operator", "mskill_cnc_turner"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "low",
     rationale:
       "THE HIGHEST-IMPACT QUESTION IN THIS PACK — the only promotable skill inside the launch " +
@@ -343,8 +361,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_first_piece_approval",
     label: "First piece approval",
     family: "machining-support",
-    candidates: ["mskill_quality_inspector", "mskill_cnc_setter_operator"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_quality_inspector", "mskill_cnc_setter_operator"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "low",
     rationale:
       "First-piece approval is the setter's job in some plants and QC's in others. The two " +
@@ -616,8 +635,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_structural_fit_up_and_tacking",
     label: "Structural fit-up and tacking",
     family: "welding-support",
-    candidates: ["mskill_fitter", "mskill_arc_welder"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_fitter", "mskill_arc_welder"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "low",
     rationale:
       "The skill names TWO trades: fit-up is fitting, tacking is welding. Its neighbours split " +
@@ -741,8 +761,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_bearing_replacement",
     label: "Bearing replacement",
     family: "mech-maintenance",
-    candidates: ["mskill_fitter"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_fitter"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "medium",
     rationale:
       "The strongest genuine case in this family. Bearing replacement is core maintenance-fitter " +
@@ -788,8 +809,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_pump_and_valve_repair",
     label: "Pump and valve repair",
     family: "mech-maintenance",
-    candidates: ["mskill_fitter"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_fitter"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "medium",
     rationale:
       "Same question as bearing replacement, with an extra complication: pumps and valves are " +
@@ -802,8 +824,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_shaft_and_coupling_alignment",
     label: "Shaft and coupling alignment",
     family: "mech-maintenance",
-    candidates: ["mskill_fitter"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_fitter"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "medium",
     rationale:
       "The most fitter-defining skill in this family — precision alignment with dial gauges or " +
@@ -846,8 +869,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_solvent_cement_jointing",
     label: "Solvent cement jointing",
     family: "plumbing",
-    candidates: ["mskill_plumber"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_plumber"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "low",
     rationale:
       "PVC solvent jointing is everyday plumbing, but it is a TECHNIQUE rather than a trade, " +
@@ -876,8 +900,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_pipe_bending",
     label: "Pipe bending",
     family: "plumbing",
-    candidates: ["mskill_plumber"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_plumber"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "low",
     rationale:
       "Plumbers bend pipe — and so do conduit electricians, HVAC technicians and fabricators. " +
@@ -890,8 +915,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_pressure_testing_of_pipelines",
     label: "Pressure testing of pipelines",
     family: "plumbing",
-    candidates: ["mskill_plumber"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_plumber"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "low",
     rationale:
       "Water, gas, process and HVAC lines are all pressure-tested, by four different trades.",
@@ -900,8 +926,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_pipe_support_and_clamping",
     label: "Pipe support and clamping",
     family: "plumbing",
-    candidates: ["mskill_plumber"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_plumber"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "low",
     rationale:
       "Generic pipework support, shared with HVAC, sprinkler and mechanical trades. Closer to " +
@@ -927,8 +954,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_inspection_report_recording",
     label: "Inspection report recording",
     family: "quality",
-    candidates: ["mskill_quality_inspector"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_quality_inspector"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "low",
     rationale:
       "Recording results is clerical and shared with operators. Flagged for an explicit answer " +
@@ -950,8 +978,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_surface_finish_inspection",
     label: "Surface finish inspection",
     family: "quality",
-    candidates: ["mskill_quality_inspector"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_quality_inspector"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "low",
     rationale:
       "A genuine near-tie, and the evidence itself is ambivalent: its two nearest neighbours are " +
@@ -1129,8 +1158,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_weld_bead_inspection",
     label: "Weld bead inspection",
     family: "welding-support",
-    candidates: ["mskill_quality_inspector"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_quality_inspector"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "low",
     rationale:
       "Welders inspect their own beads as a matter of course; dedicated weld inspectors also " +
@@ -1198,8 +1228,9 @@ export const Q1_TRIAGE: readonly TriageRow[] = [
     skillId: "skill_electrode_selection",
     label: "Electrode selection",
     family: "welding-support",
-    candidates: ["mskill_arc_welder"],
-    disposition: "REVIEW",
+    candidates: [],
+    rejectedCandidates: ["mskill_arc_welder"],
+    disposition: "INTENTIONALLY_UNMATCHED",
     confidence: "low",
     rationale:
       "Unlike the rest of this family it DOES imply a process — electrodes are stick/arc " +
@@ -1293,4 +1324,83 @@ export function summarizeTriage(rows: readonly TriageRow[]): TriageSummary {
     skillsInUnrepresentedFamilies: rows.filter((r) => !FAMILIES[r.family].represented).length,
     falseFriendsNamed: rows.filter((r) => r.falseFriend !== undefined).length,
   };
+}
+
+// ---------------------------------------------------------------------------
+// The owner's ruling on the 16 cases this pack raised.
+// ---------------------------------------------------------------------------
+
+/**
+ * OWNER RULING, 2026-08-26 — every REVIEW case closed as INTENTIONALLY_UNMATCHED.
+ *
+ * Recorded per skill rather than as one blanket sentence, because these were sixteen separate
+ * questions and a future reader deserves to know which argument was rejected for which skill.
+ * `rejectedCandidates` on each row records WHAT was declined; this records WHY.
+ *
+ * The instruction was "use conservative disposition… do not invent mappings simply to improve
+ * coverage". Two of the groups had an escape hatch and neither was used: the setter-vs-QC group
+ * allowed a mapping "unless there is independently strong evidence for an existing mskill", and
+ * the pipework group "unless the competency is clearly plumbing-specific". Every one of those
+ * nine was raised precisely BECAUSE the evidence was ambiguous, so none qualified.
+ */
+export const OWNER_RULING_2026_08_26: Readonly<Record<string, string>> = {
+  // Setter/operator vs QC — UNMATCHED unless independently strong evidence. None qualified.
+  skill_first_piece_approval: "Setter-vs-QC: ambiguous by construction, so no strong evidence.",
+  skill_sub_assembly_quality_checking: "Setter-vs-QC: in-line checking is not a QC post.",
+  skill_surface_finish_inspection:
+    "Setter-vs-QC: its neighbours are an unmapped attribute and a mapped trade one point apart — the definition of not-strong evidence.",
+  skill_inspection_report_recording: "Setter-vs-QC: recording a measurement is not making one.",
+  skill_weld_bead_inspection: "Setter-vs-QC: welders inspect their own beads.",
+
+  // Maintenance vs fitting — UNMATCHED, no exception offered.
+  skill_bearing_replacement: "Maintenance is not fitting; skill_machine_maintenance stays unmapped and this follows it.",
+  skill_pump_and_valve_repair: "Maintenance is not fitting.",
+  skill_shaft_and_coupling_alignment: "Maintenance is not fitting, despite being the strongest of the three.",
+
+  // Plumbing vs generic pipework — UNMATCHED unless clearly plumbing-specific. None were.
+  skill_pipe_bending: "Generic pipework: conduit electricians and HVAC bend pipe too.",
+  skill_pipe_support_and_clamping: "Generic pipework, shared with HVAC and sprinkler trades.",
+  skill_pressure_testing_of_pipelines: "Generic pipework: water, gas, process and HVAC lines are all tested.",
+  skill_solvent_cement_jointing: "Generic technique: the same jointing method is used on electrical conduit.",
+
+  // Named individually by the owner.
+  skill_lathe_chuck_mounting:
+    "Held. Not to be forced into an unrelated existing mskill, even though it sits in the launch wedge's own domain.",
+  skill_body_panel_alignment:
+    "Held, and explicitly: THE D-7B RATIFICATION MUST NOT BE GENERALISED TO AUTOMOTIVE-BODY COMPETENCIES. Chassis fitting was ratified; the family was not.",
+
+  // Not separately categorised by the owner; closed under "do not invent mappings simply to
+  // improve coverage" and "no legitimate existing mskill".
+  skill_structural_fit_up_and_tacking:
+    "Names two trades and evidences neither: fit-up is fitting, tacking evidences no welding process.",
+  skill_electrode_selection: "Selecting a consumable is an attribute of doing the work, not the trade.",
+};
+
+/**
+ * Does the pack agree with the bridge that is actually shipped?
+ *
+ * This is the check that keeps the WHY and the WHAT together. The pack could say a skill is
+ * MATCHED while the bridge leaves it empty, or the bridge could grow a mapping the pack never
+ * argued for — and either would be invisible without comparing them directly.
+ */
+export function triageBridgeMismatches(
+  rows: readonly TriageRow[],
+  bridge: Readonly<Record<string, readonly string[]>>,
+): string[] {
+  const out: string[] = [];
+  for (const r of rows) {
+    const actual = bridge[r.skillId];
+    if (actual === undefined) {
+      out.push(`${r.skillId}: dispositioned ${r.disposition} but absent from the bridge`);
+      continue;
+    }
+    const expected = r.disposition === "MATCHED" ? [...r.candidates] : [];
+    if (JSON.stringify([...actual].sort()) !== JSON.stringify(expected.sort())) {
+      out.push(
+        `${r.skillId}: pack says ${r.disposition} ${JSON.stringify(expected)}, ` +
+          `bridge says ${JSON.stringify(actual)}`,
+      );
+    }
+  }
+  return out;
 }

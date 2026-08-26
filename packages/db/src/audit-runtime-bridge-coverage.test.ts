@@ -79,8 +79,24 @@ describe("the measurement it produced, pinned", () => {
     expect(c.counts.MAPPED).toBe(0);
   });
 
-  it("the bridge's universe is SKILL_CORPUS, which is why the gap is invisible to it", () => {
+  it("the gap this audit found has since been CLOSED by Q1 — the universe was widened", () => {
+    // This test used to assert the bridge's universe was SKILL_CORPUS alone, which was the
+    // whole reason the 96 were invisible to it. Q1 (owner-ratified 2026-08-26) widened the
+    // bridge to cover the promotable batch too, so that is no longer true and the assertion
+    // is inverted rather than deleted: the finding was real, and it was acted on.
     const corpusIds = new Set(SKILL_CORPUS.map((s) => s.skillId));
-    expect(Object.keys(ATTRIBUTE_TO_MATCH_SKILLS).every((k) => corpusIds.has(k))).toBe(true);
+    const keys = Object.keys(ATTRIBUTE_TO_MATCH_SKILLS);
+    expect(keys.every((k) => corpusIds.has(k))).toBe(false);
+    expect(keys.filter((k) => !corpusIds.has(k))).toHaveLength(96);
+
+    // The audit's own OUTSIDE_CORPUS bucket is unchanged and still meaningful: those 96 are
+    // still not corpus skills. What changed is that being outside the corpus no longer means
+    // being outside the question.
+    const c = classifyBridgeCoverage(
+      readAcceptedSkillIds("data/taxonomy/batches/batch_2026-08-16T14-30-41Z-remediation-phase9d"),
+      corpusIds,
+      ATTRIBUTE_TO_MATCH_SKILLS as Readonly<Record<string, readonly string[]>>,
+    );
+    expect(c.counts.OUTSIDE_CORPUS).toBe(96);
   });
 });

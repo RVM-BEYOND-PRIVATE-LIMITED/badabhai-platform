@@ -148,7 +148,12 @@ describe("the universe is the promotable batch, NOT SKILL_CORPUS", () => {
     expect(artifact.promotable_also_in_skill_corpus).toBe(0);
   });
 
-  it("running the tripwire over SKILL_CORPUS instead would look CLEAN — the exact trap", () => {
+  it("the SKILL_CORPUS universe never ASKS about the 96 — the trap, stated durably", () => {
+    // Both universes pass now that the dispositions are applied, so pass/fail no longer
+    // distinguishes them. The durable statement of the trap is about COVERAGE, not verdict:
+    // running over the corpus examines 49 skills and says nothing whatsoever about the 96.
+    // That silence is what let them be promotable-and-unreachable in the first place, and it
+    // would be just as silent about a 97th skill added tomorrow.
     const valid = new Set(MATCH_SKILLS.map((m) => m.skillId));
     const wrongUniverse = vocabularyCoverage(
       SKILL_CORPUS.map((s) => s.skillId),
@@ -156,8 +161,16 @@ describe("the universe is the promotable batch, NOT SKILL_CORPUS", () => {
       valid,
     );
     const rightUniverse = vocabularyCoverage(batchScopeSkillIds(BATCH), ATTRIBUTE_TO_MATCH_SKILLS, valid);
-    expect(wrongUniverse.passed).toBe(true); // <- a green tick that means nothing
-    expect(rightUniverse.passed).toBe(false); // <- the truth
+
+    expect(wrongUniverse.total).toBe(49);
+    expect(rightUniverse.total).toBe(96);
+    const examined = new Set([
+      ...wrongUniverse.byDecision.MATCHED,
+      ...wrongUniverse.byDecision.INTENTIONALLY_UNMATCHED,
+      ...wrongUniverse.byDecision.MISSING_DECISION,
+      ...wrongUniverse.byDecision.INVALID_TARGET,
+    ]);
+    for (const id of batchScopeSkillIds(BATCH)) expect(examined.has(id), id).toBe(false);
   });
 });
 
@@ -169,13 +182,22 @@ describe("current coverage, as committed", () => {
     expect(missingProvenance(artifact)).toEqual([]);
   });
 
-  it("96 of 96 promotable skills have NO match-vocabulary decision", () => {
-    expect(artifact.counts["MISSING_DECISION"]).toBe(96);
-    expect(artifact.counts["MATCHED"]).toBe(0);
-    expect(artifact.counts["INTENTIONALLY_UNMATCHED"]).toBe(0);
+  it("all 96 now carry a decision — the tripwire PASSES (owner-ratified 2026-08-26)", () => {
+    // This test previously asserted the opposite: 96/96 MISSING and a failing tripwire. It was
+    // updated deliberately, in the commit that applied the ratified dispositions, which is the
+    // only way it should ever change.
+    expect(artifact.counts["MATCHED"]).toBe(5);
+    expect(artifact.counts["INTENTIONALLY_UNMATCHED"]).toBe(91);
+    expect(artifact.counts["MISSING_DECISION"]).toBe(0);
     expect(artifact.counts["INVALID_TARGET"]).toBe(0);
-    expect(artifact.tripwire_passed).toBe(false);
-    expect(artifact.blocking).toHaveLength(96);
+    expect(artifact.tripwire_passed).toBe(true);
+    expect(artifact.blocking).toEqual([]);
+  });
+
+  it("passing means DECIDED, not mapped — 91 of the 96 still reach nothing", () => {
+    // The gate's whole point is that these two are different. A PASS here must never be read
+    // as "the 96 are matched"; it means somebody answered the question for each of them.
+    expect(artifact.counts["INTENTIONALLY_UNMATCHED"]).toBeGreaterThan((artifact.counts["MATCHED"] ?? 0) * 15);
   });
 
   it("the tripwire reproduces from source — the artifact is not a stale hand-edit", () => {
@@ -214,23 +236,23 @@ describe("the tripwire is a batch precondition, not a per-skill criterion", () =
 // ---------------------------------------------------------------------------
 // WHAT TASK 20 MUST NOT HAVE DONE.
 // ---------------------------------------------------------------------------
-describe("the tripwire decided nothing", () => {
-  it("no mapping was generated and no decision was invented", () => {
+describe("the tripwire itself still decides nothing", () => {
+  it("it generated no mapping — every decision came from the owner", () => {
     expect(artifact.decisions_generated).toBe(0);
     expect(artifact.mappings_proposed).toBe(0);
   });
 
-  it("the bridge is untouched — still exactly its SKILL_CORPUS keys", () => {
-    // 49 keys for 49 corpus skills. If a future change adds any of the 96 here, it is making
-    // a product decision, and it should be reviewed as one rather than arriving with a gate.
-    expect(Object.keys(ATTRIBUTE_TO_MATCH_SKILLS)).toHaveLength(49);
-    expect(artifact.bridge_keys).toBe(49);
-    for (const id of artifact.blocking) {
-      expect(Object.prototype.hasOwnProperty.call(ATTRIBUTE_TO_MATCH_SKILLS, id), id).toBe(false);
-    }
+  it("the bridge now covers BOTH universes: 49 corpus + 96 promotable", () => {
+    // Widened by the ratified Q1 decision. Before it, a promotable skill could go live
+    // reaching nothing with no test failing, because the exhaustiveness question was only
+    // ever asked of the corpus.
+    expect(Object.keys(ATTRIBUTE_TO_MATCH_SKILLS)).toHaveLength(145);
+    expect(artifact.bridge_keys).toBe(145);
   });
 
-  it("MATCH_SKILLS was not expanded", () => {
+  it("MATCH_SKILLS was NOT expanded to make the batch fit", () => {
+    // 62 of the 96 are in trades the vocabulary does not represent. The owner ruled they stay
+    // unmatched rather than earning new concepts; vocabulary expansion is a separate decision.
     expect(MATCH_SKILLS).toHaveLength(18);
     expect(artifact.match_vocabulary_size).toBe(18);
   });

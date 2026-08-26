@@ -19,6 +19,7 @@ import {
   relatedMatchSkills,
   type MatchSkillId,
 } from "./match-skills";
+import { PROMOTABLE_SKILL_IDS } from "./promotable-skills";
 import { SKILL_CORPUS, SKILL_DOMAINS } from "./skill-corpus";
 import { TRADE_KEYS } from "./enums";
 
@@ -262,18 +263,87 @@ describe("bridge — ROLE_TO_MATCH_SKILL", () => {
 });
 
 describe("bridge — ATTRIBUTE_TO_MATCH_SKILLS", () => {
-  it("is EXHAUSTIVE over SKILL_CORPUS (a new corpus skill must be triaged)", () => {
-    expect(Object.keys(ATTRIBUTE_TO_MATCH_SKILLS).sort()).toEqual(
-      SKILL_CORPUS.map((s) => s.skillId).sort(),
-    );
+  // Q1 (owner-ratified 2026-08-26) WIDENED this contract. It used to be exhaustive over
+  // SKILL_CORPUS alone, which sounded like full protection and was not: a promotable skill
+  // that never entered the corpus was not "unmapped and failing", it was outside the question
+  // being asked — 96 of them, able to go live reaching nothing with no test failing. The
+  // universe is now the corpus PLUS the promotable batch.
+  const COVERED = [...SKILL_CORPUS.map((s) => s.skillId), ...PROMOTABLE_SKILL_IDS];
+
+  it("is EXHAUSTIVE over SKILL_CORPUS + the promotable batch (a new skill must be triaged)", () => {
+    expect(Object.keys(ATTRIBUTE_TO_MATCH_SKILLS).sort()).toEqual([...COVERED].sort());
   });
 
-  it("every key is a corpus skill and every value is a valid MatchSkillId", () => {
+  it("covers BOTH universes, and they are disjoint — neither alone is sufficient", () => {
+    // Stated explicitly because asserting only over the corpus is the exact regression this
+    // widening exists to prevent, and it would still pass 49 of the keys.
     const corpusIds = new Set(SKILL_CORPUS.map((s) => s.skillId));
+    expect(corpusIds.size).toBe(49);
+    expect(PROMOTABLE_SKILL_IDS).toHaveLength(96);
+    expect(PROMOTABLE_SKILL_IDS.filter((id) => corpusIds.has(id))).toEqual([]);
+    expect(Object.keys(ATTRIBUTE_TO_MATCH_SKILLS)).toHaveLength(145);
+  });
+
+  it("every key is in one of those universes and every value is a valid MatchSkillId", () => {
+    const covered = new Set(COVERED);
     for (const [skillId, mapped] of Object.entries(ATTRIBUTE_TO_MATCH_SKILLS)) {
-      expect(corpusIds.has(skillId), skillId).toBe(true);
+      expect(covered.has(skillId), skillId).toBe(true);
       expect(new Set(mapped).size).toBe(mapped.length);
       for (const m of mapped) expect(MATCH_SKILL_IDS.has(m), `${skillId} -> ${m}`).toBe(true);
+    }
+  });
+
+  it("the promotable batch got exactly the FIVE owner-ratified mappings", () => {
+    // Ratified 2026-08-26. Everything else in the batch is an explicit "stays an attribute".
+    // A sixth mapping appearing here is a product decision and must arrive with one.
+    const mapped = PROMOTABLE_SKILL_IDS.filter(
+      (id) => (ATTRIBUTE_TO_MATCH_SKILLS[id] ?? []).length > 0,
+    );
+    expect(mapped.sort()).toEqual([
+      "skill_drain_cleaning_and_unclogging",
+      "skill_hardness_testing",
+      "skill_leak_repair_in_water_lines",
+      "skill_non_destructive_testing_of_castings",
+      "skill_sanitary_fixture_installation",
+    ]);
+    expect(ATTRIBUTE_TO_MATCH_SKILLS["skill_sanitary_fixture_installation"]).toEqual(["mskill_plumber"]);
+    expect(ATTRIBUTE_TO_MATCH_SKILLS["skill_leak_repair_in_water_lines"]).toEqual(["mskill_plumber"]);
+    expect(ATTRIBUTE_TO_MATCH_SKILLS["skill_drain_cleaning_and_unclogging"]).toEqual(["mskill_plumber"]);
+    expect(ATTRIBUTE_TO_MATCH_SKILLS["skill_hardness_testing"]).toEqual(["mskill_quality_inspector"]);
+    expect(ATTRIBUTE_TO_MATCH_SKILLS["skill_non_destructive_testing_of_castings"]).toEqual([
+      "mskill_quality_inspector",
+    ]);
+  });
+
+  it("the vocabulary was NOT expanded to make the batch fit", () => {
+    // The owner ruled that skills with no legitimate existing mskill stay unmatched rather
+    // than earning a new concept. 62 of the 96 are in families with no mskill at all.
+    expect(MATCH_SKILLS).toHaveLength(18);
+  });
+
+  it("the REVIEW cases were all closed as INTENTIONALLY_UNMATCHED, not quietly mapped", () => {
+    // Owner ruling 2026-08-26: conservative disposition. Each of these was a live question
+    // in the triage pack; each was answered "no". Pinned so a later edit cannot reopen one
+    // by accident.
+    for (const id of [
+      "skill_lathe_chuck_mounting",
+      "skill_body_panel_alignment",
+      "skill_bearing_replacement",
+      "skill_pump_and_valve_repair",
+      "skill_shaft_and_coupling_alignment",
+      "skill_pipe_bending",
+      "skill_pipe_support_and_clamping",
+      "skill_pressure_testing_of_pipelines",
+      "skill_solvent_cement_jointing",
+      "skill_first_piece_approval",
+      "skill_sub_assembly_quality_checking",
+      "skill_surface_finish_inspection",
+      "skill_inspection_report_recording",
+      "skill_weld_bead_inspection",
+      "skill_structural_fit_up_and_tacking",
+      "skill_electrode_selection",
+    ]) {
+      expect(ATTRIBUTE_TO_MATCH_SKILLS[id], id).toEqual([]);
     }
   });
 

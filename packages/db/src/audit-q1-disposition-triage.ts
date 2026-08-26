@@ -1,5 +1,5 @@
 /**
- * Q1 triage pack — the machine-readable disposition artifact. **NON-BINDING.**
+ * Q1 dispositions — the machine-readable artifact. **RATIFIED and APPLIED 2026-08-26.**
  *
  * Repository-only: no database, no provider, no credentials. The measured neighbour evidence
  * is read from the committed snapshot produced by `db:audit:q1-neighbours`, so this reproduces
@@ -20,8 +20,10 @@ import { batchScopeSkillIds } from "./embed-skill-aliases";
 import { provenance, REPOSITORY_ONLY } from "./evidence-provenance";
 import {
   FAMILIES,
+  OWNER_RULING_2026_08_26,
   Q1_TRIAGE,
   summarizeTriage,
+  triageBridgeMismatches,
   validateTriage,
   type FamilyKey,
 } from "./q1-disposition-triage";
@@ -58,14 +60,25 @@ function main(): void {
     );
   }
 
+  // The dispositions are APPLIED now, so the pack and the shipped bridge must agree. A drift
+  // here means the reasoning and the behaviour have come apart, and the artifact would be
+  // describing a bridge that no longer exists.
+  const drift = triageBridgeMismatches(Q1_TRIAGE, ATTRIBUTE_TO_MATCH_SKILLS);
+  if (drift.length > 0) {
+    throw new Error(
+      `[${SCRIPT}] the pack and ATTRIBUTE_TO_MATCH_SKILLS disagree:\n` +
+        drift.map((d) => `  ${d}`).join("\n"),
+    );
+  }
+
   const evidence = JSON.parse(readFileSync(EVIDENCE, "utf8")) as NeighbourEvidence;
   const s = summarizeTriage(Q1_TRIAGE);
 
-  console.log(`[${SCRIPT}] REPOSITORY-ONLY. No database, no provider. NON-BINDING.`);
+  console.log(`[${SCRIPT}] REPOSITORY-ONLY. No database, no provider. RATIFIED 2026-08-26.`);
   console.log(`  batch                       = ${batchDir}`);
   console.log(`  promotable skills           = ${s.total}`);
   console.log(`  match vocabulary            = ${validMatchSkills.size}\n`);
-  console.log(`  MATCHED (proposed)          ${String(s.matched).padStart(5)}`);
+  console.log(`  MATCHED                     ${String(s.matched).padStart(5)}`);
   console.log(`  INTENTIONALLY_UNMATCHED     ${String(s.intentionallyUnmatched).padStart(5)}`);
   console.log(`  REVIEW                      ${String(s.review).padStart(5)}`);
   console.log(`  false friends named         ${String(s.falseFriendsNamed).padStart(5)}`);
@@ -80,7 +93,7 @@ function main(): void {
       `mappings; this pack proposes ${s.matched}.`,
   );
 
-  console.log(`\n  === PROPOSED MATCHED (${s.matched}) — each needs the owner's ratification ===`);
+  console.log(`\n  === MATCHED (${s.matched}) — owner-ratified 2026-08-26 ===`);
   for (const r of Q1_TRIAGE.filter((x) => x.disposition === "MATCHED")) {
     console.log(`    ${r.skillId.padEnd(44)} -> ${r.candidates.join("+").padEnd(26)} ${r.confidence}`);
   }
@@ -113,7 +126,8 @@ function main(): void {
       `${JSON.stringify(
         {
           kind: "q1-disposition-triage",
-          binding: false,
+          binding: true,
+          ratified_on: "2026-08-26",
           ...provenance({
             source: `pnpm db:audit:q1-triage --batch=${batchDir}`,
             target: REPOSITORY_ONLY,
@@ -124,9 +138,10 @@ function main(): void {
               `NOT SKILL_CORPUS`,
           }),
           notice:
-            "PROPOSALS ONLY. Nothing here is applied. ATTRIBUTE_TO_MATCH_SKILLS, MATCH_SKILLS " +
-            "and SKILL_CORPUS are unmodified, no mskill_* was invented, and no skill was " +
-            "promoted. Individual skill->mskill mappings remain subject to owner review.",
+            "APPLIED. The 5 MATCHED dispositions are live in ATTRIBUTE_TO_MATCH_SKILLS and the " +
+            "other 91 are explicit empty entries. No mskill_* was invented, MATCH_SKILLS is " +
+            "unchanged at 18, and NO SKILL WAS PROMOTED — promotion remains blocked on the " +
+            "other gates.",
           batch: batchDir,
           match_vocabulary_size: validMatchSkills.size,
           bridge_keys: Object.keys(ATTRIBUTE_TO_MATCH_SKILLS).length,
@@ -154,13 +169,15 @@ function main(): void {
             family: r.family,
             family_label: FAMILIES[r.family].label,
             candidates: r.candidates,
-            proposed_disposition: r.disposition,
+            disposition: r.disposition,
+            rejected_candidates: r.rejectedCandidates ?? [],
+            owner_ruling: OWNER_RULING_2026_08_26[r.skillId] ?? null,
             confidence: r.confidence,
             rationale: r.rationale,
             false_friend: r.falseFriend ?? null,
             nearest_neighbour: evidence.neighbours[r.skillId]?.[0] ?? null,
           })),
-          applied: 0,
+          applied: s.matched + s.intentionallyUnmatched,
           mskills_invented: 0,
         },
         null,
