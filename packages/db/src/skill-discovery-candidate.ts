@@ -563,24 +563,49 @@ export function approvedCandidateToCorpusSkill(c: SkillCandidateRecord): Taxonom
     throw new Error(`approvedCandidateToCorpusSkill: candidate ${c.candidate_id} has no proposed label`);
   }
 
-  // Aliases are the cluster's OTHER surface forms — the phrases that made this one concept.
-  // Deduped on normalized text and never including the canonical label itself, which is what
-  // `ALIAS_DUPLICATE_WITHIN_SKILL` would otherwise reject downstream.
-  const seen = new Set<string>([label.toLowerCase()]);
-  const aliases: { text: string; lang: "en" | "hi" }[] = [];
-  for (const source of c.sources) {
-    const text = source.original_text.trim();
-    const key = text.toLowerCase();
-    if (text === "" || seen.has(key)) continue;
-    seen.add(key);
-    aliases.push({ text, lang: "en" });
-  }
-
   return {
     kind: "skill",
     skill_id: taxonomySkillIdFor(label),
     label_en: label,
     label_hi: null,
-    aliases,
+    aliases: candidateAliasTexts(label, c.sources).map((text) => ({ text, lang: "en" as const })),
   };
+}
+
+/**
+ * THE ALIAS SET A `create` APPROVAL WOULD MINT — the cluster's OTHER surface forms, in order.
+ *
+ * Trimmed, deduped case-insensitively, and EXCLUDING the canonical label itself, which is not
+ * cosmetic: including it produces `ALIAS_DUPLICATE_WITHIN_SKILL` downstream, and that surfaces as
+ * a corpus validation failure long after the decision, with nobody left to ask.
+ *
+ * ── WHY IT IS ITS OWN EXPORTED FUNCTION AND NOT INLINE ABOVE ────────────────────────────
+ * Because a SECOND caller needs the same answer BEFORE the decision exists.
+ * `approvedCandidateToCorpusSkill` refuses any status but `approved_create` — correctly; it is
+ * the corpus gate — but the admin review screen has to show a reviewer the aliases their
+ * approval would create while the candidate is still `needs_review`. Computing that preview with
+ * a copy of this loop is how a reviewer ends up approving an alias set they were never shown:
+ * the copy drifts, the preview and the mint disagree, and the disagreement is invisible because
+ * each side is individually correct-looking.
+ *
+ * `label` MAY BE NULL, for the preview case where the run proposed no label and the reviewer has
+ * not typed one yet. Nothing is excluded then — which is the honest answer ("every source phrase
+ * is currently an alias"), and the moment a label arrives the matching phrase drops out of the
+ * list on screen.
+ */
+export function candidateAliasTexts(
+  label: string | null,
+  sources: readonly CandidateSource[],
+): string[] {
+  const trimmedLabel = (label ?? "").trim();
+  const seen = new Set<string>(trimmedLabel === "" ? [] : [trimmedLabel.toLowerCase()]);
+  const aliases: string[] = [];
+  for (const source of sources) {
+    const text = source.original_text.trim();
+    const key = text.toLowerCase();
+    if (text === "" || seen.has(key)) continue;
+    seen.add(key);
+    aliases.push(text);
+  }
+  return aliases;
 }

@@ -63,6 +63,7 @@ export {
   assertDryRunSafe,
   assertProvenanceIntact,
   canTransition,
+  candidateAliasTexts,
   candidateId,
   provenanceDigest,
   sealCandidate,
@@ -77,7 +78,13 @@ export type {
   ProvenanceField,
   SkillCandidateRecord,
 } from "./skill-discovery-candidate";
-export { prioritize, reviewPriority, reviewTier, tierCounts } from "./skill-discovery-plan";
+export {
+  prioritize,
+  reviewPriority,
+  reviewTier,
+  reviewTierFrom,
+  tierCounts,
+} from "./skill-discovery-plan";
 export type { ReviewTier } from "./skill-discovery-plan";
 export { STRONG_MATCH_RELATIONS, isStrongRelation } from "./skill-discovery-match";
 export type { MatchRelation } from "./skill-discovery-match";

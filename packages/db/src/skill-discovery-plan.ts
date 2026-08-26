@@ -761,11 +761,52 @@ export function resolveFamily(
  */
 export type ReviewTier = "direct" | "derived" | "ambiguous";
 
-export function reviewTier(c: SkillCandidateRecord): ReviewTier {
-  if (c.phrase_class === "ACTIVITY_PHRASE") return "direct";
-  if (c.matches.some((m) => m.strength === "strong")) return "direct";
-  if (c.phrase_class === "AMBIGUOUS") return "ambiguous";
+/**
+ * THE TIER RULE ITSELF, over the TWO FACTS it actually reads — and the only copy of it.
+ *
+ * WHY THIS EXISTS SEPARATELY FROM {@link reviewTier}, which is the obvious question. Because the
+ * rule has two callers with two different shapes of the same information, and the alternative to
+ * naming the rule once was to restate it:
+ *
+ *   * the PIPELINE holds a whole `SkillCandidateRecord`, matches and all, and asks
+ *     {@link reviewTier};
+ *   * the ADMIN REVIEW QUEUE holds a page of stored columns plus one aggregated boolean per row
+ *     (`exists (... strength = 'strong')`, computed in SQL because a join would multiply the page
+ *     by each candidate's match count), and the metrics tile holds nothing but
+ *     `(phrase_class, with_strong_match, without_strong_match)` counts.
+ *
+ * The second caller CANNOT construct a record — there are no match rows on a queue page, by
+ * design — so without this signature it would have had to write `if (phrase_class === ...)` a
+ * second time, in SQL and in TypeScript, three call sites deep. That is how two "tiers" start
+ * disagreeing: not by anyone changing the rule, but by someone changing it in one of the copies.
+ *
+ * ⚠ THE BRANCH ORDER IS THE SUBTLE PART AND IT IS LOAD-BEARING. `hasStrongMatch` is tested
+ * BEFORE `AMBIGUOUS`, so an AMBIGUOUS candidate WITH a strong match is `direct`, not `ambiguous`
+ * — the taxonomy already has an opinion about the phrase, which is exactly the "highest yield per
+ * minute" case the `direct` tier is for. A `phrase_class IN (...)` shortcut that dropped the
+ * strong-match term would put one candidate under two different tier filters and nothing would
+ * say so.
+ *
+ * `phraseClass` is typed `string`, not the union: `skill_candidate.phrase_class` is `text` with
+ * NO CHECK, so an unrecognised value is representable in the database — and it lands in
+ * `derived` here, via the same final fallthrough, rather than throwing on a read path.
+ */
+export function reviewTierFrom(phraseClass: string, hasStrongMatch: boolean): ReviewTier {
+  if (phraseClass === "ACTIVITY_PHRASE") return "direct";
+  if (hasStrongMatch) return "direct";
+  if (phraseClass === "AMBIGUOUS") return "ambiguous";
   return "derived";
+}
+
+/**
+ * The tier of one whole candidate. Delegates to {@link reviewTierFrom} — a DELEGATION, not a
+ * second implementation, so the pipeline and the admin queue cannot answer differently.
+ */
+export function reviewTier(c: SkillCandidateRecord): ReviewTier {
+  return reviewTierFrom(
+    c.phrase_class,
+    c.matches.some((m) => m.strength === "strong"),
+  );
 }
 
 /**

@@ -54,6 +54,9 @@ import { AdminAiTracesRepository } from "./admin-ai-traces.repository";
 import { AdminAiTraceCapService } from "./admin-ai-trace-cap.service";
 import { AdminAiTracesService } from "./admin-ai-traces.service";
 import { AdminAiTracesController } from "./admin-ai-traces.controller";
+import { AdminSkillDiscoveryRepository } from "./admin-skill-discovery.repository";
+import { AdminSkillDiscoveryService } from "./admin-skill-discovery.service";
+import { AdminSkillDiscoveryController } from "./admin-skill-discovery.controller";
 
 /**
  * Admin Ops Portal — AUTH + RBAC + MFA foundation (ADR-0025 ADMIN-1). The 4th, highly-
@@ -111,6 +114,28 @@ import { AdminAiTracesController } from "./admin-ai-traces.controller";
  * free text is a PII discovery tool). Identity egress remains `reveal-contact` and only that.
  * ADR-0025 Amendment 1 adds `admin.feedback_viewed` to that read and an optional `workerId`
  * LOOKUP filter — an id the admin already holds, never a search over what anyone wrote.
+ *
+ * Migration 0093 adds the SKILL-CANDIDATE REVIEW QUEUE (`AdminSkillDiscoveryController`/
+ * `AdminSkillDiscoveryService`/`AdminSkillDiscoveryRepository`) — the FIRST surface in this module
+ * to mint a new capability. Three reads sit on the `read_entities` floor; the decision write sits
+ * behind `review_skill_candidates` (super_admin/ops_admin), because taxonomy AUTHORSHIP is a
+ * different data class from entity moderation, money, a worker's standing or admin identity, and
+ * folding it into `flag_worker` would grant vocabulary authorship as a side effect of a
+ * moderation grant. It is the one capability row with no ADR-0025 §3.1 cell behind it yet — the
+ * owner ruling is owed, and `admin-roles.guard.test.ts` says so rather than implying otherwise.
+ *
+ * The write is a RECORD, never a corpus write: no request-path code in this module may create a
+ * `skill`, `skill_alias` or `job_domain_skill` row. Its audit reuses the already-registered
+ * `admin.action_performed` — no new event name, no version bump — with the decision carried as
+ * one of five `skill_candidate_*` ACTION CODES, because on a value-free spine the direction of a
+ * decision is the one thing that cannot be a payload field. `skill_candidate` is a registered
+ * `SUBJECT_TYPES` member as of 0093.
+ *
+ * NOT WIRED YET: the decision route itself is not mounted on `AdminSkillDiscoveryController`,
+ * which today declares only the three reads. So `review_skill_candidates` exists and nothing
+ * enforces it — the state `admin-skill-discovery.authz.test.ts`'s tripwire is deliberately red
+ * about. That test is the handoff, not a bug: it fails until the write route lands with its own
+ * per-role allow/deny cases.
  */
 @Module({
   imports: [
@@ -149,6 +174,7 @@ import { AdminAiTracesController } from "./admin-ai-traces.controller";
     AdminWorkerJourneyController,
     AdminFeedbackController,
     AdminAiTracesController,
+    AdminSkillDiscoveryController,
   ],
   providers: [
     AdminRepository,
@@ -257,6 +283,33 @@ import { AdminAiTracesController } from "./admin-ai-traces.controller";
     AdminAiTracesRepository,
     AdminAiTraceCapService,
     AdminAiTracesService,
+    // Migration 0093: the SKILL-CANDIDATE REVIEW QUEUE — three reads on the `read_entities`
+    // floor (queue list, candidate detail, queue metrics) plus ONE write behind the new
+    // `review_skill_candidates` capability (super_admin/ops_admin). The write RECORDS a decision
+    // on a `skill_candidate` row — reviewer_admin_id + reviewed_at + review_reason together, in
+    // one guarded UPDATE, with the status the reviewer saw as the optimistic-concurrency token —
+    // and emits ONE value-free `admin.action_performed` on the same transaction.
+    //
+    // WHAT THIS MODULE MAY NOT DO, and the reason it is a separate surface rather than a sixth
+    // method on AdminActionsService: NO request-path code here may create a `skill`, a
+    // `skill_alias` or a `job_domain_skill` row. An approval is a RECOMMENDATION; minting the
+    // corpus stays in the offline guarded chain (validateTaxonomyCorpus → taxonomyQualityVerdict
+    // → a human commit → db:seed:domain-skills → db:promote:skills C1..C5), which has its own
+    // human gate. `resulting_skill_id` therefore stays NULL on an `approved_create` until that
+    // chain actually ships the skill, which is what makes the column the honest answer to "did
+    // this approval ever land?".
+    //
+    // The `mskill_*` match vocabulary (18 closed members) is refused at the wire, by prefix AND
+    // by set membership, so no route can accept, return or resolve onto one — the same wall the
+    // two 0093 CHECK constraints hold at the database end.
+    //
+    // Its repository is SELECT-plus-one-guarded-UPDATE and is NOT a writer of `skill_candidate`
+    // provenance: the 19 PROVENANCE_FIELDS are frozen, and a decision may touch only the review
+    // columns. It reads the four 0093 tables through the owner connection — they are FORCE RLS
+    // with zero policies and REVOKE ALL from anon/authenticated/service_role, so a Supabase-role
+    // client would return an empty page with no error, and that zero is not evidence.
+    AdminSkillDiscoveryRepository,
+    AdminSkillDiscoveryService,
   ],
   exports: [AdminAuthGuard, AdminRolesGuard, AdminSessionService, AdminRepository],
 })

@@ -261,6 +261,21 @@ export const SUBJECT_TYPES = [
   // that sits in front of both and can also be a campaign or QR link owned by nobody.
   // Collapsing them would make a campaign click indistinguishable from a worker referral.
   "referral_link",
+  // One DISCOVERED SKILL CANDIDATE awaiting (or carrying) a human review decision — migration
+  // 0093. The subject_id is the opaque `skill_candidate.candidate_id`, deterministic in
+  // (run_id, cluster_key). Carries NO PII: the only column on that table's family that can hold
+  // worker-derived wording is `skill_candidate_source.original_text`, and it never enters a
+  // payload (`admin.action_performed` is value-free — the decision, the reason and the proposed
+  // label live on the SoR row alone).
+  //
+  // DELIBERATELY NOT `skill_phrase`: that subject is a phrase in the SHIPPED taxonomy, while a
+  // candidate is a PROPOSAL about one — with its own lifecycle, its own reviewer, and its own
+  // corpus fingerprint. Collapsing them would make "an admin approved a new skill" indistinguishable
+  // from "the taxonomy already had one", which is the one distinction the whole review layer exists
+  // to keep. And not `admin_session` either: pivoting the spine on the reviewer's session answers
+  // "what did this admin do" but not "what happened to this candidate", and the second question is
+  // the one a taxonomy decision has to survive being asked years later.
+  "skill_candidate",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;

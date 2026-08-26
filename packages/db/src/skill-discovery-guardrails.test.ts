@@ -20,6 +20,7 @@ import {
   approvedCandidateToCorpusSkill,
   assertDryRunSafe,
   assertProvenanceIntact,
+  candidateAliasTexts,
   canTransition,
   candidateId,
   CANDIDATE_STATUSES,
@@ -53,6 +54,7 @@ import {
   discoveryKey,
   proposeAction,
   reviewTier,
+  reviewTierFrom,
   type DiscoverySourceRow,
 } from "./skill-discovery-plan";
 import { discoveryInputFingerprint, runIsFresh } from "./skill-discovery-run";
@@ -781,5 +783,125 @@ describe("review tiering", () => {
     const before = { ...c };
     reviewTier(c);
     expect(c).toEqual(before);
+  });
+
+  // ── ONE RULE, TWO ENTRY POINTS ─────────────────────────────────────────────────────────
+  //
+  // The admin review queue cannot call `reviewTier`: a queue page has no match rows on it (the
+  // strong-match fact is an `exists` subquery precisely so a join cannot multiply the page by
+  // each candidate's match count), and the metrics tile has nothing but per-`phrase_class`
+  // counts split by that same boolean. So the rule is exposed over the two facts it reads, and
+  // `reviewTier` delegates to it.
+  //
+  // These assertions exist because a delegation is exactly the kind of thing that gets
+  // "optimized" back into two copies — and two copies of a tier rule do not fail loudly, they
+  // just start disagreeing, and one candidate quietly appears under two different tier filters.
+
+  it("reviewTierFrom and reviewTier agree on EVERY combination of the two facts", () => {
+    // Exhaustive over the classes that matter plus an out-of-vocabulary one, times both
+    // strong-match values. If the delegation is ever replaced by a second implementation, the
+    // first divergent branch fails here rather than in production.
+    const classes = [
+      "ACTIVITY_PHRASE",
+      "AMBIGUOUS",
+      "OCCUPATION_WITH_SKILL_EVIDENCE",
+      "OCCUPATION_ONLY",
+      "REJECTED_NON_SKILL",
+      "SOMETHING_NOBODY_HAS_DEFINED_YET",
+    ];
+    for (const phraseClass of classes) {
+      for (const strong of [true, false]) {
+        const c = candidate({
+          phrase_class: phraseClass,
+          matches: strong
+            ? [
+                {
+                  skill_id: "skill_arc_welding",
+                  relation: "exact_surface",
+                  score: 1,
+                  strength: "strong",
+                  rank: 1,
+                  evidence_detail: null,
+                },
+              ]
+            : [],
+        } as Partial<SkillCandidateRecord>);
+        expect(reviewTierFrom(phraseClass, strong)).toBe(reviewTier(c));
+      }
+    }
+  });
+
+  it("the branch ORDER holds: AMBIGUOUS plus a strong match is direct, not ambiguous", () => {
+    // The one branch a `phrase_class IN (...)` shortcut gets wrong. The strong-match test fires
+    // BEFORE the AMBIGUOUS test, because the taxonomy already having an opinion about the phrase
+    // is the highest-yield thing a reviewer can be handed — regardless of how the shape read.
+    expect(reviewTierFrom("AMBIGUOUS", true)).toBe("direct");
+    expect(reviewTierFrom("AMBIGUOUS", false)).toBe("ambiguous");
+  });
+
+  it("an unrecognised phrase_class falls through to derived rather than throwing", () => {
+    // `skill_candidate.phrase_class` is `text` with NO CHECK, so a value no member matches is
+    // representable in the database. A read path must not throw on one.
+    expect(reviewTierFrom("NOT_A_REAL_CLASS", false)).toBe("derived");
+    expect(reviewTierFrom("", false)).toBe("derived");
+  });
+});
+
+describe("the alias set a create approval would mint has ONE implementation", () => {
+  // The admin review screen must show a reviewer the aliases their approval would create while
+  // the candidate is still `needs_review` — but `approvedCandidateToCorpusSkill` refuses any
+  // status but `approved_create`, correctly, because it is the corpus gate. Rather than let the
+  // preview re-implement the rule (or forge a status to get past the gate), both go through
+  // `candidateAliasTexts`. These assertions are what keep that true.
+
+  const sourcesOf = (...texts: string[]): SkillCandidateRecord["sources"] =>
+    texts.map((t, i) => ({
+      source_type: "job_domain_alias" as const,
+      source_id: `jda_${i}`,
+      original_text: t,
+      normalized_text: t.trim().toLowerCase(),
+      job_domain_id: "jd_welder",
+    }));
+
+  it("excludes the canonical label, case-insensitively", () => {
+    // Not cosmetic: including it produces ALIAS_DUPLICATE_WITHIN_SKILL downstream, which surfaces
+    // as a corpus validation failure long after the decision with nobody left to ask.
+    expect(candidateAliasTexts("Arc Welding", sourcesOf("arc welding", "stick welding"))).toEqual([
+      "stick welding",
+    ]);
+    expect(candidateAliasTexts("ARC WELDING", sourcesOf("Arc Welding"))).toEqual([]);
+  });
+
+  it("trims, dedupes case-insensitively, and drops empties — keeping the FIRST spelling seen", () => {
+    expect(
+      candidateAliasTexts("Welding", sourcesOf("  Stick Welding  ", "stick welding", "   ", "MIG")),
+    ).toEqual(["Stick Welding", "MIG"]);
+  });
+
+  it("with NO label, excludes nothing — every source phrase is still an alias", () => {
+    // The honest answer for the preview case where the run proposed no label and the reviewer has
+    // not typed one. The earlier version fell back to the normalized phrase and therefore DROPPED
+    // it from the preview — the screen hid an alias the approval would really have created.
+    expect(candidateAliasTexts(null, sourcesOf("arc welding", "stick welding"))).toEqual([
+      "arc welding",
+      "stick welding",
+    ]);
+    expect(candidateAliasTexts("   ", sourcesOf("arc welding"))).toEqual(["arc welding"]);
+  });
+
+  it("is the SAME list approvedCandidateToCorpusSkill mints — not merely a similar one", () => {
+    // The assertion that makes the other four load-bearing. If the converter ever grows its own
+    // copy of the loop, this fails on the first behavioural difference between them.
+    const approved = candidate({
+      status: "approved_create",
+      proposed_skill_name: "Arc Welding",
+      reviewer_admin_id: "00000000-0000-0000-0000-0000000000ad",
+      reviewed_at: "2026-08-26T13:00:00.000Z",
+      review_reason: "names a competency, not an occupation",
+      sources: sourcesOf("arc welding", "  Stick Welding ", "stick welding", "बिजली वेल्डिंग"),
+    } as Partial<SkillCandidateRecord>);
+    expect(approvedCandidateToCorpusSkill(approved).aliases.map((a) => a.text)).toEqual(
+      candidateAliasTexts(approved.proposed_skill_name, approved.sources),
+    );
   });
 });
