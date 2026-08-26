@@ -157,6 +157,110 @@ objects stay put and stay private) and/or re-run `storage-buckets.sql` to re-ass
 not in the **local** `supabase start` stack. Add a `[storage.buckets.worker-voice-notes]` block
 with `public = false` to keep the two source-of-truth artifacts in sync.
 
+## Enable feedback image attachments (#1191 / #1225) — ordered runbook
+
+Both halves of this feature are built and shipped — the picker + resize + signed-PUT client in
+`apps/worker-app/lib/features/feedback/`, `POST /workers/me/feedback/attachment/upload-url` and
+the IDOR-checked `POST /workers/me/feedback` in `apps/api/src/feedback/`, and the
+signed-thumbnail read on the admin `/feedback` screen. It is **DORMANT** purely because
+`WORKER_FEEDBACK_ATTACHMENTS_BUCKET` defaults to `""`
+([`packages/config/src/server.ts`](../../packages/config/src/server.ts)) and
+`feedback.service.ts` **503s fail-closed** while it is unset.
+
+**THIS BUCKET HAS A SCHEMA PRECONDITION AND THE OTHER TWO DO NOT. Do step 1 first.** Migration
+`0092` adds `worker_feedback.attachment_paths`, and `FeedbackRepository.insert` names the
+drizzle model's **whole column list** — so against a database without it **every** feedback
+submission 500s, including the ones carrying no image at all, and `AdminFeedbackRepository.list`
+names it in an explicit SELECT so `GET /admin/feedback` 500s too. Neither is behind the bucket
+flag: the dormant-bucket 503 gates only the MINT route and protects nothing here. Arming the
+bucket first would additionally mean workers upload real images that no row can reference —
+orphans keyed by an opaque uuid, erasable only by the DSAR prefix sweep.
+
+1. **Apply migration `0092` and confirm it.** Manual, per the locked convention in
+   [`docs/ops/production-release-runbook.md`](../../docs/ops/production-release-runbook.md).
+   `ADD COLUMN … jsonb` with no default is catalog-only; run under `SET lock_timeout = '3s';`
+   and retry on `55P03`. Then record the journal row and prove the database is ready:
+   ```bash
+   npx tsx adopt-migrations.ts --only 0092_flawless_glorian --apply --expect-host <pooler host>
+   pnpm --filter @badabhai/db db:audit:schema-contract       # expect READY
+   ```
+   **Smoke before continuing:** text-only feedback returns 201 and admin `/feedback` renders.
+   If either still 500s, stop — the rest of this runbook cannot fix it.
+
+2. **Provision + verify the private bucket:** run `storage-buckets.sql` (above), then the two
+   checks under "Verify it is PRIVATE" against `worker-feedback-attachments` — `public = f`, and
+   the public object route returns 400/403. **Do not create this one through the dashboard's
+   "New bucket" button.** `allowed_mime_types = {image/jpeg}` is a **security control** here, not
+   hygiene: the submit path deliberately performs no per-object `getObjectInfo` (it would sit
+   inside the transaction carrying the worker's typed message), so the bucket is the only thing
+   refusing worker-supplied `text/html` that an admin's click would render on the storage origin.
+   `file_size_limit` is likewise the **only** enforcement of the 5 MiB ceiling —
+   `FEEDBACK_ATTACHMENT_MAX_BYTES` exists so that number has one name in the repo and is not read
+   on the submit path. A hand-made bucket silently drops both.
+
+3. **⚠ Check `supabase` credentials BEFORE you set the bucket name.**
+   ```bash
+   curl -s https://<host>/health | jq '.checks.storage_config'
+   ```
+   `armed_without_credentials` is one of the few things that **gates** `/health`
+   ([`health.controller.ts`](../../apps/api/src/health/health.controller.ts)) — it returns
+   **503**. A bucket name set while `supabase` reads `not_configured` therefore takes the API's
+   health red, and `wait_healthy`'s `curl -sf` in
+   [`scripts/deploy/staging-deploy.sh`](../../scripts/deploy/staging-deploy.sh) then **fails
+   every subsequent deploy**. Set `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` in the same edit,
+   or confirm they are already there.
+
+4. **Set the env var — and note WHERE, because it is not where the other secrets live:**
+   ```
+   WORKER_FEEDBACK_ATTACHMENTS_BUCKET=worker-feedback-attachments
+   ```
+   `docker-compose.staging.yml` declares the `${VAR:-}` pass-through (asserted by
+   `feedback-attachments-compose.guard.test.ts`), but this name — like `WORKER_PHOTOS_BUCKET`,
+   `VOICE_NOTES_BUCKET` and the `SUPABASE_*` pair — is **NOT in the `deploy-lightsail` secrets
+   bridge** in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml). The ssh action
+   forwards only the names its `envs:` list enumerates, so **adding a GitHub Actions secret puts
+   the value nowhere the container can read it.** It must live in the environment file in the
+   deploy directory (`~/deployments/badabhai-platform`), which is where the deploy script `cd`s
+   before invoking compose and which the per-deploy `git pull` leaves alone.
+
+   Use this **exact** bucket name. It is what `storage-buckets.sql` provisions and, more
+   importantly, what `AccountDeletionService` sweeps `feedback-attachments/{workerId}/` against
+   on erasure — arming the var is what takes that leg from `skipped` to real, so there is no
+   window where attachments exist and erasure is dormant.
+
+5. **Recreate the container** (editing the file changes nothing already running), matching what
+   the deploy script does:
+   ```bash
+   cd ~/deployments/badabhai-platform
+   docker compose -f docker-compose.yml -f docker-compose.staging.yml --profile api \
+     up -d --no-deps --force-recreate api
+   ```
+   `--no-deps` is not optional: the `api` service `depends_on` the compose-internal `postgres`,
+   which is a local throwaway and not the database this box uses. Run it from **that directory
+   only** — compose derives the project name from it, and from anywhere else you get a new
+   project with a new empty Redis volume, force-logging-out every worker (the deploy script has a
+   pre-flight guard for exactly this; a bare `docker compose` has none).
+
+6. **Verify armed:** `/health` → `storage_config.buckets.feedback_attachments: true`. Then the
+   real proof: attach an image on a handset → `POST /workers/me/feedback` returns 201 → the
+   thumbnail renders on the admin `/feedback` screen.
+
+**Why the dormant state is worth being explicit about:** the shipped worker client degrades
+honestly on the mint's 503 — it drops the image and still submits the text — so a box where this
+was never armed looks *exactly* like a working one from the outside. Text feedback arrives,
+images silently never do, and nothing is on fire. `/health`'s `feedback_attachments` flag exists
+because it is the only external signal that tells the two apart.
+
+**Rollback:** unset `WORKER_FEEDBACK_ATTACHMENTS_BUCKET` and recreate the container (the mint
+503s again, the client drops images and still sends text; already-stored objects stay put and
+stay private), and/or re-run `storage-buckets.sql` to re-assert `public = false`. Reverting the
+migration is a separate, ordered act — revert the api first, since **both** surfaces name the
+column; see `0092`'s own header.
+
+**Known gap, same as the voice bucket:** `supabase/config.toml` declares only `worker-resumes` /
+`interview-kits`, so `worker-feedback-attachments` exists in the **remote** apply and not in the
+local `supabase start` stack.
+
 ## Drift / re-assert
 
 `storage-buckets.sql` is idempotent and its `on conflict … do update set public = false`

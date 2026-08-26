@@ -132,9 +132,25 @@ async function main(): Promise<void> {
       console.log(`\n[doctor] tables with RLS enabled but NOT forced (${own.length}):`);
       for (const r of own) console.log(`   ${r.relname.padEnd(26)} owner=${r.owner}`);
 
-      // Will `drizzle-kit migrate` skip everything? It matches a recorded row by created_at AND
-      // the sha256 of the migration file. A hash mismatch means drizzle would try to RE-APPLY a
-      // migration whose DDL is already live — the exact "already exists" failure we just cleared.
+      // Will `drizzle-kit migrate` skip everything?
+      //
+      // ⚠ CORRECTED 2026-08-26. This comment used to say a hash mismatch "means drizzle would try
+      // to RE-APPLY a migration whose DDL is already live". IT DOES NOT, and believing it during
+      // an incident sends an operator to re-run a migrator over live objects for no reason. Read
+      // from the installed `drizzle-orm@0.45.2` (`pg-core/dialect.cjs`), the migrator's ONLY
+      // predicate is the watermark:
+      //
+      //   select id, hash, created_at from drizzle.__drizzle_migrations
+      //     order by created_at desc limit 1
+      //   for (const m of migrations)
+      //     if (!last || Number(last.created_at) < m.folderMillis) { …apply…; …insert… }
+      //
+      // `hash` is SELECTed and INSERTed and never compared. So what this check reports is
+      // PROVENANCE, not a replay hazard: a mismatch means the row was recorded against a
+      // different byte-sequence than the file in this checkout — a migration applied from a
+      // pre-merge branch state, or a file edited after it was applied. That is worth knowing
+      // (production and a fresh build may not run the same statements) and `db:audit:live-drift`
+      // is what characterises it, but it changes nothing about what `db:migrate` will do.
       const rows = await sql<{ hash: string; created_at: string }[]>`
         SELECT hash, created_at FROM drizzle.__drizzle_migrations`;
       const byWhen = new Map(rows.map((r) => [String(r.created_at), r.hash]));
