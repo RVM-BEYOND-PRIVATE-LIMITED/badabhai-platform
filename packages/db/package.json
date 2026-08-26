@@ -99,6 +99,7 @@
     "db:audit:vernacular": "tsx src/audit-vernacular-coverage.ts",
     "db:audit:anchor-path": "tsx src/audit-anchor-path-retrieval.ts",
     "db:audit:vernacular-resweep": "tsx src/audit-vernacular-resweep.ts",
+    "db:audit:sibling-margin": "tsx src/audit-sibling-margin.ts",
     "db:audit:alias-cleanup": "tsx src/audit-alias-collision-cleanup.ts",
     "db:audit:crosswalk-chain": "tsx src/audit-crosswalk-chain.ts",
     "db:audit:crosswalk-invariants": "tsx src/audit-crosswalk-invariants.ts",
