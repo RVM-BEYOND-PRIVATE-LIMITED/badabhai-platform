@@ -182,3 +182,31 @@ PROMOTION CANDIDATES      96, eligible 0
 ```
 
 **PROMOTION BLOCKED · CANONICALIZATION BLOCKED.**
+
+
+---
+
+## OWNER RULING — 2026-08-26: **OPTION A, accept the margin**
+
+**Ruled:** accept the margin as measured. **Do not lower the 0.75 floor. Do not weaken the
+existing safety gate. Preserve the measured evidence and the tripwires.**
+
+**What this changes in the repository: nothing, and that is the ruling.** No minimum-separation
+rule, no disambiguation group, no `separation` value anywhere a runner can read. The test that
+greps the runtime config for `separation|min_margin|margin_floor` and asserts it finds nothing
+**stays**, and its meaning changes: it used to guard the absence of a decision, and now guards
+the decision itself.
+
+**Why the evidence supported it.** Option B costs **26 of 43 right answers** at δ=0.15, its first
+working value — about four right answers surrendered per wrong one rejected. Option C's simple
+form misses the worst pair, GMAW/SMAW at 0.8405, and its workable form is a maintained list.
+Neither buys enough to pay for itself at this corpus size.
+
+**The residual risk, stated rather than closed.** Four welding-acronym pairs at 0.80–0.84 sit
+inside the correct domain after the approved cleanup and seed: `GMAW`/`SMAW`, `GTAW`,
+`TIG welding`/`MIG welding`, `arc welding`/`stick welding`. A wrong weld-process assignment is
+a real cost to a worker and this ruling accepts it **while canonicalization is off**. Activation
+step 8 (`OBSERVE`) re-measures the three ceilings against the promoted corpus before the flag
+moves, and a ceiling that rises above its pre-promotion value is a reason to stop.
+
+`5a-2` is now **COMPLETE** in the programme graph.

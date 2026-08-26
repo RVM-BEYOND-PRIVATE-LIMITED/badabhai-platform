@@ -138,9 +138,14 @@ describe("what the graph says about the programme", () => {
     expect(counts.BLOCKED_ON_OWNER).toBeGreaterThan(others / 2);
   });
 
-  it("promotion's unfinished ancestors are four, and one of them is an owner ruling", () => {
+  it("promotion's unfinished ancestors are four, and two of them are an owner ruling", () => {
     // Q1 and EVAL_COVERED are direct dependencies and are COMPLETE, so they do not appear —
     // blockersOf reports what is still in the way, not the whole ancestry.
+    //
+    // UNCHANGED BY THE 2026-08-26 RULINGS, and that is the point worth pinning: the four
+    // corpus decisions ruled that day (D-7A, D-7C-1a, D-7C-1b, 5a-2) all sat on the
+    // CANONICALIZATION branch. None of them ever gated PROMOTION, so ruling them moved the
+    // promotion leaf not at all.
     expect(blockersOf(PROGRAMME, "PROMOTION").map((i) => i.id)).toEqual([
       "NO-REGRESSION-EVIDENCE",
       "NO-REGRESSION-SEMANTICS",
@@ -149,9 +154,11 @@ describe("what the graph says about the programme", () => {
     ]);
     const canon = blockersOf(PROGRAMME, "CANONICALIZATION").map((i) => i.id);
     expect(canon).toContain("PROMOTION");
-    expect(canon).toContain("D-7C-1a");
     expect(canon).toContain("CANONICALIZE-FLAG-VALUE");
-    expect(canon).toContain("5a-2");
+    // …and the four ruled items are gone from it.
+    for (const ruled of ["D-7A", "D-7C-1a", "D-7C-1b", "5a-2"]) {
+      expect(canon, ruled).not.toContain(ruled);
+    }
   });
 
   it("no path to promotion or canonicalization is engineering-only", () => {
@@ -162,9 +169,14 @@ describe("what the graph says about the programme", () => {
     }
   });
 
-  it("D-7C's seed is blocked by BOTH owner decisions that reach it", () => {
-    // D-7A holds boring; D-7C-1a is the orphan conflict. Either alone stops the seed.
-    expect(blockersOf(PROGRAMME, "D-7C-SEED").map((i) => i.id)).toEqual(["D-7A", "D-7C-1a"]);
+  it("D-7C's seed is no longer blocked by a decision — only by the authorization to write", () => {
+    // It used to be blocked by BOTH owner decisions that reach it: D-7A held boring, D-7C-1a
+    // was the orphan conflict, and either alone stopped the seed. Both were ruled 2026-08-26,
+    // so the graph now has nothing in the way — which is NOT the same as the seed being
+    // allowed to run. Its own status is what still stops it, and that is a human signal, not
+    // a dependency.
+    expect(blockersOf(PROGRAMME, "D-7C-SEED").map((i) => i.id)).toEqual([]);
+    expect(PROGRAMME.find((i) => i.id === "D-7C-SEED")!.status).toBe("BLOCKED_ON_PRODUCTION_WRITE");
   });
 });
 

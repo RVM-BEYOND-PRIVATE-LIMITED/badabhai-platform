@@ -153,21 +153,42 @@ describe("the real sequence", () => {
 });
 
 describe("where the sequence stops today", () => {
-  it("it stops at step 2 — every ruling is still outstanding", () => {
+  it("it stops at step 5 — the corpus rulings landed 2026-08-26, the evidence has not", () => {
+    // It used to stop at step 3, because every corpus ruling was outstanding. D-7A, D-7C-1a,
+    // D-7C-1b and 5a-2 were all ruled on 2026-08-26, which released steps 3 and 4. What stops
+    // it now is FRESH-EVIDENCE: it needs the NO_REGRESSION semantics ruling AND paid spend.
     const stop = stopsAt(ACTIVATION_SEQUENCE, PROGRAMME);
-    // Step 1 has no preconditions, so it is 'ready' in the graph's terms — reading the flag
-    // needs a person, not a decision.
-    expect(stop?.id).toBe("ALIAS-CLEANUP");
-    expect(stop?.order).toBe(3);
+    expect(stop?.id).toBe("FRESH-EVIDENCE");
+    expect(stop?.order).toBe(5);
   });
 
-  it("only the steps that decide or observe are ready; nothing that writes is", () => {
+  it("READY IS NOT PERMITTED — two of the ready steps still need a production authorization", () => {
+    // The distinction the whole plan turns on, and it became load-bearing the moment the
+    // rulings landed. `readyNow` answers "are this step's DECISIONS made"; it says nothing
+    // about whether anyone may run it. ALIAS-CLEANUP and D7C-SEED are ready in the graph's
+    // terms and are still gated on a human signal that no decision supplies.
     const ready = readyNow(ACTIVATION_SEQUENCE, PROGRAMME).map((s) => s.id);
-    expect(ready).toEqual(["READ-FLAG", "RULE-DECISIONS", "OBSERVE"]);
-    for (const id of ready) {
-      const s = ACTIVATION_SEQUENCE.find((x) => x.id === id)!;
-      expect(s.authorisation, id).not.toBe("PRODUCTION_WRITE");
+    expect(ready).toEqual(["READ-FLAG", "RULE-DECISIONS", "ALIAS-CLEANUP", "D7C-SEED", "OBSERVE"]);
+
+    const readyWrites = ready
+      .map((id) => ACTIVATION_SEQUENCE.find((x) => x.id === id)!)
+      .filter((s) => s.authorisation === "PRODUCTION_WRITE");
+    expect(readyWrites.map((s) => s.id)).toEqual(["ALIAS-CLEANUP", "D7C-SEED"]);
+    // Each still names both halves of a procedure, and each still runs behind the ops guard.
+    for (const s of readyWrites) {
+      expect(s.rollback, s.id).not.toBeNull();
+      expect(s.runner, s.id).toMatch(/--i-am-authorised-to-write-to-production/);
     }
+  });
+
+  it("and nothing on the promotion or activation path became ready", () => {
+    // The rulings released corpus steps only. PROMOTE and ENABLE-CANONICALIZATION are exactly
+    // as far away as they were.
+    const ready = new Set(readyNow(ACTIVATION_SEQUENCE, PROGRAMME).map((s) => s.id));
+    expect(ready.has("PROMOTE")).toBe(false);
+    expect(ready.has("ENABLE-CANONICALIZATION")).toBe(false);
+    expect(ready.has("FRESH-EVIDENCE")).toBe(false);
+    expect(ready.has("CLEAR-FLOOR-GATE")).toBe(false);
   });
 });
 

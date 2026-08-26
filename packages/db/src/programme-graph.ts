@@ -121,45 +121,61 @@ export const PROGRAMME: readonly ProgrammeItem[] = [
   // ── owner decisions ───────────────────────────────────────────────────────
   {
     id: "D-7A",
-    title: "skill_boring would widen to mskill_cnc_turner, and lands on skill_drilling at 0.7556",
-    status: "BLOCKED_ON_OWNER",
+    title: "skill_boring stays on hold — unmapped, unseeded, unretagged",
+    status: "COMPLETE",
     dependsOn: [],
-    decision: "Re-point the crosswalk, accept the widening explicitly, or keep the hold.",
-    evidence: "d7a-boring-hold.md · reproduced by three independent instruments",
+    evidence:
+      "RULED 2026-08-26: KEEP THE HOLD. No widening mapping for boring, no invented mskill " +
+      "target, re-evaluate later against real performance. This is the option d7a-boring-hold.md " +
+      "describes as the current safe behaviour, so nothing changed in the corpus — which is the " +
+      "point. It also keeps the three-vs-four split in D-7C load-bearing: skill_boring must stay " +
+      "out of the seed set, and seed-deprecations.ts refuses it by allow-list.",
     unblocks: ["D-7C-SEED"],
   },
   {
     id: "D-7C-1a",
-    title: "The 2026-08-21 elections and the D-7C seed together orphan GD&T",
-    status: "BLOCKED_ON_OWNER",
+    title: "GD&T survives the seed — the two exclusions were re-pointed at the deprecation subject",
+    status: "COMPLETE",
     dependsOn: [],
-    decision:
-      "Re-point the two exclusions to skill_drawing_reading, drop skill_gdt_reading from the " +
-      "seed set, or accept losing both phrases from retrieval.",
-    evidence: "d7c1-alias-collision-cleanup.md · the seeder refuses on it and names the decision",
+    evidence:
+      "RULED 2026-08-26: OPTION A, applied. decollided-aliases.json now excludes " +
+      "skill_gdt_reading's copies of `GD&T` and `geometric dimensioning and tolerancing` so the " +
+      "surviving holder keeps both. VERIFIED against live rows: db:seed:deprecations --plan " +
+      "reports cross-decision orphans 0, down from 2, and its preconditions now PASS. The " +
+      "tripwire in alias-cleanup-plan.test.ts was INVERTED rather than deleted — it now " +
+      "asserts that no de-election hands a text to a D-7C subject, for any subject.",
     unblocks: ["D-7C-SEED"],
   },
   {
     id: "D-7C-1b",
-    title: "Which skill keeps CAD, drawing padhna, read engineering drawings, technical drawing",
-    status: "BLOCKED_ON_OWNER",
+    title: "skill_drawing_reading keeps CAD, drawing padhna, read engineering drawings, technical drawing",
+    status: "COMPLETE",
     dependsOn: [],
-    decision:
-      "Ratify the successor (skill_drawing_reading), elect the source, or leave the tie until " +
-      "per-label resolution makes the slug question moot.",
-    evidence: "proposed-d7c1-cleanup.json — a proposal no runner reads",
+    evidence:
+      "RULED 2026-08-26: OPTION A — the successor keeps the text, the reading the ratified " +
+      "crosswalk already names. The four rows were MOVED into decollided-aliases.json and the " +
+      "proposal file was DELETED (see d7c1-alias-collision-cleanup.md), because ratifying in " +
+      "place would leave a second source of truth no runner reads. The stated cost stands and " +
+      "was not re-litigated: the " +
+      "cnc-programming slug loses those four phrases until TAX-6 replaces slug-scoped retrieval. " +
+      "`drawing padhna` is one of the 22 ratified vernacular aliases and its surviving copy was " +
+      "verified present and embedded before the file was written.",
     unblocks: ["ALIAS-CLEANUP-APPLY"],
   },
   {
     id: "5a-2",
-    title: "The sibling margin — 7 above-floor pairs now, 4 after the approved decisions",
-    status: "BLOCKED_ON_OWNER",
+    title: "The sibling margin — accepted as measured; no separation rule, floor unmoved",
+    status: "COMPLETE",
     dependsOn: [],
-    decision:
-      "Accept the margin, require a minimum separation, or maintain a disambiguation group. " +
-      "Measured: separation costs 26 of 43 right answers at its first working value; a " +
-      "shared-token rule misses GMAW/SMAW at 0.8405.",
-    evidence: "5a2-sibling-margin.md",
+    evidence:
+      "RULED 2026-08-26: OPTION A — accept the margin. No minimum-separation rule and no " +
+      "disambiguation group; the 0.75 floor is unmoved and the existing gate is untouched. The " +
+      "evidence supported this: option B costs 26 of 43 right answers at δ=0.15, its first " +
+      "working value, and option C's simple form misses GMAW/SMAW at 0.8405. NOTHING WAS " +
+      "IMPLEMENTED, which is the ruling: the tripwire asserting that no runtime config mentions " +
+      "separation|min_margin|margin_floor stays in place and now guards the decision rather " +
+      "than the absence of one. Residual risk accepted: four welding-acronym pairs at " +
+      "0.80-0.84 inside the correct domain, re-measurable at activation step 8 (OBSERVE).",
     unblocks: ["CANONICALIZATION"],
   },
   {
