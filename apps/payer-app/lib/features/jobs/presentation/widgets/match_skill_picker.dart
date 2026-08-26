@@ -30,6 +30,8 @@ class MatchSkillPicker extends StatelessWidget {
     required this.untickedRelatedIds,
     required this.reach,
     required this.reachLoading,
+    required this.reachFailed,
+    required this.onRetryReach,
     required this.maxSkills,
     required this.onToggleSkill,
     required this.onToggleRelated,
@@ -49,6 +51,14 @@ class MatchSkillPicker extends StatelessWidget {
 
   /// True while a debounced reach preview is in flight.
   final bool reachLoading;
+
+  /// True when the last reach fetch FAILED (network/5xx). With a pick present
+  /// and no preview, this switches the meter from a forever "Counting workers…"
+  /// spinner to an honest error + retry, so Post is never silently stuck.
+  final bool reachFailed;
+
+  /// Re-run the reach preview for the current pick (the meter's Retry action).
+  final VoidCallback onRetryReach;
 
   /// Server cap on how many skills one posting may carry.
   final int maxSkills;
@@ -126,6 +136,15 @@ class MatchSkillPicker extends StatelessWidget {
 
     final ReachPreview? r = reach;
     if (r == null) {
+      // Fetch failed and nothing is in flight → an honest error + Retry, so the
+      // payer is not stranded on a spinner with Post disabled.
+      if (reachFailed && !reachLoading) {
+        return _hint(
+          icon: Icons.error_outline,
+          text: "Couldn't count workers — check your connection.",
+          onRetry: onRetryReach,
+        );
+      }
       return _hint(
         icon: Icons.groups_outlined,
         text: 'Counting workers…',
@@ -256,6 +275,7 @@ class MatchSkillPicker extends StatelessWidget {
     required IconData icon,
     required String text,
     bool busy = false,
+    VoidCallback? onRetry,
   }) {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.s3),
@@ -288,6 +308,20 @@ class MatchSkillPicker extends StatelessWidget {
               ),
             ),
           ),
+          if (onRetry != null) ...<Widget>[
+            const SizedBox(width: AppSpacing.s2),
+            TextButton(
+              onPressed: onRetry,
+              child: Text(
+                'Retry',
+                style: AppTypography.body(
+                  size: AppTypography.sizeSm,
+                  weight: FontWeight.w700,
+                  color: AppColors.blue,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

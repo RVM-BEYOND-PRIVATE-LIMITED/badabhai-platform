@@ -120,6 +120,11 @@ class _PostJobScreenState extends State<PostJobScreen> {
   final Set<String> _untickedRelatedIds = <String>{};
   ReachPreview? _reach;
   bool _reachLoading = false;
+  // True when the LAST reach preview fetch FAILED (network/5xx). Distinct from
+  // "no preview yet": without it a failed fetch left `_reach == null` and the
+  // meter span "Counting workers…" forever with Post stuck disabled and no
+  // retry. Reset when a fetch starts / succeeds / the pick is cleared.
+  bool _reachFailed = false;
   int _maxSkillsPerPosting = _matchSkillCapFallback;
   int _reachSeq = 0;
   Timer? _reachDebounce;
@@ -232,12 +237,16 @@ class _PostJobScreenState extends State<PostJobScreen> {
         setState(() {
           _reach = null;
           _reachLoading = false;
+          _reachFailed = false;
         });
       }
       return;
     }
     final int seq = ++_reachSeq;
-    setState(() => _reachLoading = true);
+    setState(() {
+      _reachLoading = true;
+      _reachFailed = false;
+    });
     try {
       final ReachPreview preview =
           await locator<PayerApiClient>().reachPreview(
@@ -254,7 +263,12 @@ class _PostJobScreenState extends State<PostJobScreen> {
       });
     } catch (_) {
       if (!mounted || seq != _reachSeq) return;
-      setState(() => _reachLoading = false);
+      // Surface the failure (and offer a retry) instead of leaving the meter on
+      // a forever "Counting workers…" spinner with Post stuck disabled.
+      setState(() {
+        _reachLoading = false;
+        _reachFailed = true;
+      });
     }
   }
 
@@ -865,6 +879,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
             untickedRelatedIds: _untickedRelatedIds,
             reach: _reach,
             reachLoading: _reachLoading,
+            reachFailed: _reachFailed,
+            onRetryReach: _loadReach,
             maxSkills: _maxSkillsPerPosting,
             onToggleSkill: _onToggleSkill,
             onToggleRelated: _onToggleRelated,
