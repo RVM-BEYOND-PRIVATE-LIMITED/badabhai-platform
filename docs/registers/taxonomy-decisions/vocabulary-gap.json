@@ -1,0 +1,358 @@
+{
+  "kind": "vocabulary-gap",
+  "measured_at": "2026-08-26T09:02:07.489Z",
+  "source": "pnpm db:audit:vocabulary-gap",
+  "target": "SUPABASE (remote)",
+  "read_only": true,
+  "role": "postgres",
+  "bypass_rls": true,
+  "population_predicate": "the 96 promotable skills grouped by their Q1 triage family, crossed with ATTRIBUTE_TO_MATCH_SKILLS, TRADE_KEYS (closed union of 15), TRADE_TO_MATCH_SKILL and every row of the live jobs table",
+  "ai_spend_inr": 0,
+  "trade_key_attribution_is_analytical": "TRADE_KEYS_BY_FAMILY is an analytical placement by the audit author, not a ratified mapping. It affects which families are reported as having postable demand and nothing else; no runtime path reads it.",
+  "trade_keys": 15,
+  "match_skills_defined": 18,
+  "match_skills_reachable_by_any_job": [
+    "mskill_cnc_operator_general",
+    "mskill_cnc_programmer",
+    "mskill_cnc_setter_operator",
+    "mskill_designer",
+    "mskill_fitter",
+    "mskill_quality_inspector",
+    "mskill_vmc_operator"
+  ],
+  "match_skills_unreachable": [
+    "mskill_arc_welder",
+    "mskill_cam_programmer",
+    "mskill_carpenter",
+    "mskill_cnc_grinding_operator",
+    "mskill_cnc_turner",
+    "mskill_delivery_rider",
+    "mskill_hmc_operator",
+    "mskill_interior_designer",
+    "mskill_mig_welder",
+    "mskill_plumber",
+    "mskill_tig_welder"
+  ],
+  "families": [
+    {
+      "family": "electrical",
+      "label": "Electrical installation",
+      "promotableSkills": 11,
+      "matched": 0,
+      "intentionallyUnmatched": 11,
+      "attributeSideMatchSkills": [],
+      "tradeKeys": [],
+      "demandSideMatchSkills": [],
+      "newVocabularyWouldBeReachable": false
+    },
+    {
+      "family": "warehouse",
+      "label": "Warehouse & stores",
+      "promotableSkills": 11,
+      "matched": 0,
+      "intentionallyUnmatched": 11,
+      "attributeSideMatchSkills": [],
+      "tradeKeys": [],
+      "demandSideMatchSkills": [],
+      "newVocabularyWouldBeReachable": false
+    },
+    {
+      "family": "hvac",
+      "label": "HVAC & refrigeration",
+      "promotableSkills": 10,
+      "matched": 0,
+      "intentionallyUnmatched": 10,
+      "attributeSideMatchSkills": [],
+      "tradeKeys": [],
+      "demandSideMatchSkills": [],
+      "newVocabularyWouldBeReachable": false
+    },
+    {
+      "family": "welding-support",
+      "label": "Welding support skills",
+      "promotableSkills": 10,
+      "matched": 0,
+      "intentionallyUnmatched": 10,
+      "attributeSideMatchSkills": [],
+      "tradeKeys": [],
+      "demandSideMatchSkills": [],
+      "newVocabularyWouldBeReachable": false
+    },
+    {
+      "family": "masonry",
+      "label": "Masonry & civil construction",
+      "promotableSkills": 9,
+      "matched": 0,
+      "intentionallyUnmatched": 9,
+      "attributeSideMatchSkills": [],
+      "tradeKeys": [],
+      "demandSideMatchSkills": [],
+      "newVocabularyWouldBeReachable": false
+    },
+    {
+      "family": "auto-service",
+      "label": "Automotive service & repair",
+      "promotableSkills": 7,
+      "matched": 0,
+      "intentionallyUnmatched": 7,
+      "attributeSideMatchSkills": [],
+      "tradeKeys": [],
+      "demandSideMatchSkills": [],
+      "newVocabularyWouldBeReachable": false
+    },
+    {
+      "family": "plumbing",
+      "label": "Plumbing & sanitary",
+      "promotableSkills": 7,
+      "matched": 3,
+      "intentionallyUnmatched": 4,
+      "attributeSideMatchSkills": [
+        "mskill_plumber"
+      ],
+      "tradeKeys": [],
+      "demandSideMatchSkills": [],
+      "newVocabularyWouldBeReachable": false
+    },
+    {
+      "family": "quality",
+      "label": "Quality & inspection",
+      "promotableSkills": 7,
+      "matched": 2,
+      "intentionallyUnmatched": 5,
+      "attributeSideMatchSkills": [
+        "mskill_quality_inspector"
+      ],
+      "tradeKeys": [
+        "quality_inspector"
+      ],
+      "demandSideMatchSkills": [
+        "mskill_quality_inspector"
+      ],
+      "newVocabularyWouldBeReachable": true
+    },
+    {
+      "family": "battery",
+      "label": "Battery manufacturing",
+      "promotableSkills": 6,
+      "matched": 0,
+      "intentionallyUnmatched": 6,
+      "attributeSideMatchSkills": [],
+      "tradeKeys": [],
+      "demandSideMatchSkills": [],
+      "newVocabularyWouldBeReachable": false
+    },
+    {
+      "family": "mech-maintenance",
+      "label": "Mechanical maintenance",
+      "promotableSkills": 6,
+      "matched": 0,
+      "intentionallyUnmatched": 6,
+      "attributeSideMatchSkills": [],
+      "tradeKeys": [
+        "fitter",
+        "maintenance_technician"
+      ],
+      "demandSideMatchSkills": [
+        "mskill_fitter"
+      ],
+      "newVocabularyWouldBeReachable": true
+    },
+    {
+      "family": "assembly",
+      "label": "Assembly (automotive / general)",
+      "promotableSkills": 4,
+      "matched": 0,
+      "intentionallyUnmatched": 4,
+      "attributeSideMatchSkills": [],
+      "tradeKeys": [
+        "assembly_technician"
+      ],
+      "demandSideMatchSkills": [
+        "mskill_fitter"
+      ],
+      "newVocabularyWouldBeReachable": true
+    },
+    {
+      "family": "machining-support",
+      "label": "Machining support (CNC wedge)",
+      "promotableSkills": 4,
+      "matched": 0,
+      "intentionallyUnmatched": 4,
+      "attributeSideMatchSkills": [],
+      "tradeKeys": [
+        "autocad_draftsman",
+        "cad_designer",
+        "cnc_operator",
+        "cnc_programmer",
+        "cnc_vmc_setter",
+        "machine_operator",
+        "production_engineer",
+        "solidworks_designer",
+        "tool_room_technician",
+        "vmc_operator",
+        "vmc_programmer"
+      ],
+      "demandSideMatchSkills": [
+        "mskill_cnc_operator_general",
+        "mskill_cnc_programmer",
+        "mskill_cnc_setter_operator",
+        "mskill_designer",
+        "mskill_vmc_operator"
+      ],
+      "newVocabularyWouldBeReachable": true
+    },
+    {
+      "family": "sheet-metal",
+      "label": "Sheet metal & fabrication",
+      "promotableSkills": 4,
+      "matched": 0,
+      "intentionallyUnmatched": 4,
+      "attributeSideMatchSkills": [],
+      "tradeKeys": [],
+      "demandSideMatchSkills": [],
+      "newVocabularyWouldBeReachable": false
+    }
+  ],
+  "families_without_postable_demand": [
+    "electrical",
+    "warehouse",
+    "hvac",
+    "welding-support",
+    "masonry",
+    "auto-service",
+    "plumbing",
+    "battery",
+    "sheet-metal"
+  ],
+  "skills_in_families_without_postable_demand": 75,
+  "new_vocabulary_required": [],
+  "live_jobs_by_trade": [
+    {
+      "trade_key": "assembly_technician",
+      "status": "open",
+      "jobs": 1,
+      "applications": 2,
+      "match_skill": "mskill_fitter"
+    },
+    {
+      "trade_key": "autocad_draftsman",
+      "status": "open",
+      "jobs": 1,
+      "applications": 3,
+      "match_skill": "mskill_designer"
+    },
+    {
+      "trade_key": "cad_designer",
+      "status": "open",
+      "jobs": 1,
+      "applications": 1,
+      "match_skill": "mskill_designer"
+    },
+    {
+      "trade_key": "cnc_operator",
+      "status": "open",
+      "jobs": 2,
+      "applications": 4,
+      "match_skill": "mskill_cnc_operator_general"
+    },
+    {
+      "trade_key": "cnc_programmer",
+      "status": "open",
+      "jobs": 1,
+      "applications": 1,
+      "match_skill": "mskill_cnc_programmer"
+    },
+    {
+      "trade_key": "cnc_vmc_setter",
+      "status": "open",
+      "jobs": 1,
+      "applications": 2,
+      "match_skill": "mskill_cnc_setter_operator"
+    },
+    {
+      "trade_key": "fitter",
+      "status": "open",
+      "jobs": 1,
+      "applications": 1,
+      "match_skill": "mskill_fitter"
+    },
+    {
+      "trade_key": "machine_operator",
+      "status": "open",
+      "jobs": 1,
+      "applications": 1,
+      "match_skill": "mskill_cnc_operator_general"
+    },
+    {
+      "trade_key": "maintenance_technician",
+      "status": "open",
+      "jobs": 1,
+      "applications": 1,
+      "match_skill": "mskill_fitter"
+    },
+    {
+      "trade_key": "production_engineer",
+      "status": "open",
+      "jobs": 1,
+      "applications": 2,
+      "match_skill": "mskill_cnc_operator_general"
+    },
+    {
+      "trade_key": "quality_inspector",
+      "status": "open",
+      "jobs": 1,
+      "applications": 1,
+      "match_skill": "mskill_quality_inspector"
+    },
+    {
+      "trade_key": "solidworks_designer",
+      "status": "open",
+      "jobs": 1,
+      "applications": 2,
+      "match_skill": "mskill_designer"
+    },
+    {
+      "trade_key": "tool_room_technician",
+      "status": "open",
+      "jobs": 1,
+      "applications": 2,
+      "match_skill": "mskill_cnc_operator_general"
+    },
+    {
+      "trade_key": "vmc_operator",
+      "status": "closed",
+      "jobs": 1,
+      "applications": 3,
+      "match_skill": "mskill_vmc_operator"
+    },
+    {
+      "trade_key": "vmc_operator",
+      "status": "open",
+      "jobs": 2,
+      "applications": 3,
+      "match_skill": "mskill_vmc_operator"
+    },
+    {
+      "trade_key": "vmc_programmer",
+      "status": "closed",
+      "jobs": 1,
+      "applications": 2,
+      "match_skill": "mskill_cnc_programmer"
+    },
+    {
+      "trade_key": "vmc_programmer",
+      "status": "open",
+      "jobs": 1,
+      "applications": 2,
+      "match_skill": "mskill_cnc_programmer"
+    }
+  ],
+  "live_trade_keys_without_match_skill": [],
+  "relevance_chain": {
+    "job_posting_skill": 0,
+    "worker_skill": 0,
+    "job_reach": 0,
+    "match_skill_rows": 18
+  },
+  "production_mutation_performed": false
+}
