@@ -24,7 +24,9 @@ import { missingProvenance } from "./evidence-provenance";
 import {
   FAMILIES,
   Q1_TRIAGE,
+  OWNER_RULING_2026_08_26,
   summarizeTriage,
+  triageBridgeMismatches,
   validateTriage,
   type TriageRow,
 } from "./q1-disposition-triage";
@@ -43,6 +45,7 @@ const artifact = JSON.parse(
   ),
 ) as {
   binding: boolean;
+  ratified_on: string;
   batch: string;
   applied: number;
   mskills_invented: number;
@@ -99,13 +102,17 @@ describe("the pack is structurally sound", () => {
     expect(wrong.filter((p) => p.kind === "MISSING_SKILL")).toHaveLength(49);
   });
 
-  it("the 96/96 coverage boundary is still explicit — none of the 96 is in the bridge", () => {
+  it("the 96/96 coverage boundary is explicit — every one of the 96 is now IN the bridge", () => {
+    // Inverted deliberately when the ratified dispositions were applied. Before, none of the
+    // 96 had a key and the tripwire failed 96/96; now each has exactly one, and the pack and
+    // the bridge are asserted to agree entry for entry below.
     for (const r of Q1_TRIAGE) {
       expect(
         Object.prototype.hasOwnProperty.call(ATTRIBUTE_TO_MATCH_SKILLS, r.skillId),
         r.skillId,
-      ).toBe(false);
+      ).toBe(true);
     }
+    expect(triageBridgeMismatches(Q1_TRIAGE, ATTRIBUTE_TO_MATCH_SKILLS)).toEqual([]);
   });
 });
 
@@ -155,10 +162,10 @@ describe("validateTriage catches the ways a pack rots", () => {
 // The artifact, and the conservatism the owner asked for.
 // ---------------------------------------------------------------------------
 describe("the artifact", () => {
-  it("carries provenance and declares itself non-binding", () => {
+  it("carries provenance and records that the dispositions are applied", () => {
     expect(missingProvenance(artifact)).toEqual([]);
-    expect(artifact.binding).toBe(false);
-    expect(artifact.applied).toBe(0);
+    expect(artifact.binding).toBe(true);
+    expect(artifact.applied).toBe(96);
     expect(artifact.mskills_invented).toBe(0);
   });
 
@@ -202,21 +209,24 @@ describe("conservatism — the owner asked for it, so it is asserted", () => {
     for (const r of unrepresented) expect(r.disposition, r.skillId).not.toBe("MATCHED");
   });
 
-  it("exactly ONE unrepresented-family skill is even asked about, and D-7B is why", () => {
+  it("exactly ONE unrepresented-family skill was ever asked about, and D-7B is why", () => {
     // The single exception is deliberate and traceable: the owner ratified
     // skill_chassis_fitting -> mskill_fitter, which is an automotive route into a represented
     // trade. Body panel alignment is its neighbour, so whether the ratification reaches it is
     // a real question rather than an adjacency slip. Everything else in those 8 families is
     // closed as INTENTIONALLY_UNMATCHED with no candidate at all.
+    // The question was CLOSED as unmatched, so it is now identified by the candidate that was
+    // considered and declined rather than by a live disposition.
     const asked = Q1_TRIAGE.filter(
-      (r) => !FAMILIES[r.family].represented && r.disposition !== "INTENTIONALLY_UNMATCHED",
+      (r) => !FAMILIES[r.family].represented && (r.rejectedCandidates ?? []).length > 0,
     );
     expect(asked.map((r) => r.skillId)).toEqual(["skill_body_panel_alignment"]);
     expect(asked[0]?.rationale).toMatch(/D-7B/);
+    expect(asked[0]?.disposition).toBe("INTENTIONALLY_UNMATCHED");
+    // The owner's words: the D-7B ratification must NOT be generalised to automotive-body work.
+    expect(OWNER_RULING_2026_08_26["skill_body_panel_alignment"]).toMatch(/NOT BE GENERALISED/);
 
-    for (const r of Q1_TRIAGE.filter(
-      (x) => !FAMILIES[x.family].represented && x.skillId !== "skill_body_panel_alignment",
-    )) {
+    for (const r of Q1_TRIAGE.filter((x) => !FAMILIES[x.family].represented)) {
       expect(r.disposition, r.skillId).toBe("INTENTIONALLY_UNMATCHED");
       expect(r.candidates, r.skillId).toEqual([]);
     }
@@ -233,34 +243,55 @@ describe("conservatism — the owner asked for it, so it is asserted", () => {
     // A pure lexical collision: "plumb" the verb vs "plumber" the trade.
     expect(byId.get("skill_wall_plumb_and_level_checking")?.disposition).toBe("INTENTIONALLY_UNMATCHED");
     expect(byId.get("skill_plastering")?.disposition).toBe("INTENTIONALLY_UNMATCHED");
-    // The D-7B adjacency is surfaced, not silently extended.
-    expect(byId.get("skill_body_panel_alignment")?.disposition).toBe("REVIEW");
+    // The D-7B adjacency was surfaced and then explicitly declined — never silently extended.
+    expect(byId.get("skill_body_panel_alignment")?.disposition).toBe("INTENTIONALLY_UNMATCHED");
+    expect(byId.get("skill_body_panel_alignment")?.rejectedCandidates).toEqual(["mskill_fitter"]);
   });
 });
 
 // ---------------------------------------------------------------------------
 // What TASK 21 must not have done.
 // ---------------------------------------------------------------------------
-describe("nothing was applied", () => {
-  it("the bridge, the vocabulary and the corpus are untouched", () => {
-    expect(Object.keys(ATTRIBUTE_TO_MATCH_SKILLS)).toHaveLength(49);
+describe("what was applied, and what was not", () => {
+  it("the bridge grew by exactly the 96; the vocabulary and the corpus did not move", () => {
+    expect(Object.keys(ATTRIBUTE_TO_MATCH_SKILLS)).toHaveLength(145);
     expect(MATCH_SKILLS).toHaveLength(18);
     expect(SKILL_CORPUS).toHaveLength(49);
   });
 
-  it("the Q1 tripwire still fails 96/96 — the pack is a proposal, not a fix", () => {
-    // If a future change applies the pack, THIS is the test that should be updated
-    // deliberately, in the same commit that records the ratification.
+  it("the Q1 tripwire now PASSES — every promotable skill has a decision", () => {
+    // The inverse of what this file asserted before ratification. Updated in the same commit
+    // that applied the dispositions, which is the only circumstance in which it may change.
     const undecided = PROMOTABLE.filter(
       (id) => !Object.prototype.hasOwnProperty.call(ATTRIBUTE_TO_MATCH_SKILLS, id),
     );
-    expect(undecided).toHaveLength(96);
+    expect(undecided).toEqual([]);
   });
 
-  it("the D-7 holds are still held", () => {
+  it("every ruling the owner made is recorded, and only those 16", () => {
+    expect(Object.keys(OWNER_RULING_2026_08_26)).toHaveLength(16);
+    for (const id of Object.keys(OWNER_RULING_2026_08_26)) {
+      const row = Q1_TRIAGE.find((r) => r.skillId === id);
+      expect(row?.disposition, id).toBe("INTENTIONALLY_UNMATCHED");
+      expect((row?.rejectedCandidates ?? []).length, id).toBeGreaterThan(0);
+    }
+    // And every row that had something declined carries the reason it was declined.
+    for (const r of Q1_TRIAGE.filter((x) => (x.rejectedCandidates ?? []).length > 0)) {
+      expect(OWNER_RULING_2026_08_26[r.skillId], r.skillId).toBeDefined();
+    }
+  });
+
+  it("the D-7 holds are still held — Q1 did not touch them", () => {
     expect(ATTRIBUTE_TO_MATCH_SKILLS["skill_boring"]).toEqual([]);
     expect(
       Object.prototype.hasOwnProperty.call(ATTRIBUTE_TO_MATCH_SKILLS, "skill_chassis_fitting"),
     ).toBe(false);
+  });
+
+  it("NOTHING WAS PROMOTED — a passing coverage gate is not a promotion", () => {
+    // The gate that just went green is one of five. Promotion is still blocked by
+    // NO_REGRESSION, RESOLVABLE_ABOVE_FLOOR and EVAL_COVERED, and by owner authorization.
+    expect(artifact.applied).toBe(96);
+    expect(artifact.mskills_invented).toBe(0);
   });
 });
