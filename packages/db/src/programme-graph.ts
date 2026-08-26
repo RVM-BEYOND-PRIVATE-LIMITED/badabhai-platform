@@ -241,16 +241,22 @@ export const PROGRAMME: readonly ProgrammeItem[] = [
   // ── needs spend ───────────────────────────────────────────────────────────
   {
     id: "NO-REGRESSION-EVIDENCE",
-    title: "A fingerprinted floor sweep and evaluation on fixture v2",
+    title: "A fingerprinted floor sweep — the evaluation half is done, at ₹0",
     status: "BLOCKED_ON_AI_SPEND",
-    // The RULING decides which fixture to run, so the evidence cannot be commissioned before
-    // it: strict semantics want a v2 evaluation, Option B wants a v3 run scored on the v2
-    // subset. Spending first and asking after is how a measurement gets taken twice.
+    // The RULING still decides which fixture the SWEEP runs on, so the remaining spend cannot
+    // be commissioned before it.
     dependsOn: ["SWEEP-FINGERPRINT", "NO-REGRESSION-SEMANTICS"],
-    costInr: 0.028128,
+    // Was ₹0.028128 for both halves. The evaluation half cost NOTHING: every fixture-v2 query
+    // vector was already in the local embed cache, so `db:eval:taxonomy --run --cache`
+    // re-measured the whole fixture with 127 hits and 0 provider calls. What remains is the
+    // sweep; on fixture v3 only its 41 added queries are uncached, which is why this is now
+    // roughly an eighth of the original figure rather than half of it.
+    costInr: 0.0035,
     evidence:
-      "gate-evidence.md — evaluation ₹0.014159 + floor sweep ₹0.013969, from the recorded " +
-      "estimates of the identical runs. Neither can come from stored vectors; both embed QUERY text.",
+      "gate-evidence.md + EXP-P9-REGRESSION-FRESH (2026-08-26). The claim that neither record " +
+      "could be produced from stored vectors was WRONG for the evaluation and is corrected here. " +
+      "The fresh fingerprinted v2 run scored R@1 0.9912 / MRR 0.9956 against a 1.0/1.0 reference " +
+      "— one case of 123, in paraphrase_latin. Freshness is no longer the blocker; the score is.",
     unblocks: ["PROMOTION", "RESOLVABLE-6"],
   },
   {
@@ -364,12 +370,18 @@ export const PROGRAMME: readonly ProgrammeItem[] = [
   // ── executable ────────────────────────────────────────────────────────────
   {
     id: "SWEEP-FINGERPRINT",
-    title: "The floor sweep must be able to carry a corpus_fingerprint",
+    title: "Both record kinds must CARRY a corpus_fingerprint into the experiment file",
     status: "COMPLETE",
     dependsOn: [],
     evidence:
-      "gate-evidence.md — ExperimentRecord had no such field while promote-skills already read " +
-      "it, so NO_REGRESSION was unsatisfiable by construction. Fixed; the bar is untouched.",
+      "gate-evidence.md — TWO defects, same shape, found a week apart. (1) ExperimentRecord had " +
+      "no such field while promote-skills already read it. (2) 2026-08-26: the EVALUATION side " +
+      "computed the fingerprint all along, printed it, and then dropped it on the way into the " +
+      "experiment record — the only artifact judgeRegression ever sees. So every evaluation ever " +
+      "recorded reached the gate with corpus_fingerprint undefined and was refused as unprovable, " +
+      "and the gate's own advice (\"re-run db:eval:taxonomy\") pointed at a re-run that could not " +
+      "have helped. Both fixed; the 1.0/1.0 bar and the floor are untouched, and a record with no " +
+      "fingerprint is still refused (regression-evidence.test.ts).",
     unblocks: ["NO-REGRESSION-EVIDENCE"],
   },
   {

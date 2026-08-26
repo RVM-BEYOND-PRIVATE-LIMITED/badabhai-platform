@@ -1,6 +1,6 @@
 {
   "kind": "programme-graph",
-  "measured_at": "2026-08-26T12:07:06.255Z",
+  "measured_at": "2026-08-26T12:37:35.956Z",
   "source": "pnpm db:audit:programme-graph",
   "target": "repository-only (no database)",
   "read_only": true,
@@ -16,7 +16,7 @@
     "BLOCKED_ON_DATA": 2,
     "BLOCKED_ON_INFRA": 4
   },
-  "total_spend_to_clear_spend_blocked_inr": 0.028128,
+  "total_spend_to_clear_spend_blocked_inr": 0.0035,
   "items": [
     {
       "id": "Q1",
@@ -170,14 +170,14 @@
     },
     {
       "id": "NO-REGRESSION-EVIDENCE",
-      "title": "A fingerprinted floor sweep and evaluation on fixture v2",
+      "title": "A fingerprinted floor sweep — the evaluation half is done, at ₹0",
       "status": "BLOCKED_ON_AI_SPEND",
       "dependsOn": [
         "SWEEP-FINGERPRINT",
         "NO-REGRESSION-SEMANTICS"
       ],
-      "costInr": 0.028128,
-      "evidence": "gate-evidence.md — evaluation ₹0.014159 + floor sweep ₹0.013969, from the recorded estimates of the identical runs. Neither can come from stored vectors; both embed QUERY text.",
+      "costInr": 0.0035,
+      "evidence": "gate-evidence.md + EXP-P9-REGRESSION-FRESH (2026-08-26). The claim that neither record could be produced from stored vectors was WRONG for the evaluation and is corrected here. The fresh fingerprinted v2 run scored R@1 0.9912 / MRR 0.9956 against a 1.0/1.0 reference — one case of 123, in paraphrase_latin. Freshness is no longer the blocker; the score is.",
       "unblocks": [
         "PROMOTION",
         "RESOLVABLE-6"
@@ -281,10 +281,10 @@
     },
     {
       "id": "SWEEP-FINGERPRINT",
-      "title": "The floor sweep must be able to carry a corpus_fingerprint",
+      "title": "Both record kinds must CARRY a corpus_fingerprint into the experiment file",
       "status": "COMPLETE",
       "dependsOn": [],
-      "evidence": "gate-evidence.md — ExperimentRecord had no such field while promote-skills already read it, so NO_REGRESSION was unsatisfiable by construction. Fixed; the bar is untouched.",
+      "evidence": "gate-evidence.md — TWO defects, same shape, found a week apart. (1) ExperimentRecord had no such field while promote-skills already read it. (2) 2026-08-26: the EVALUATION side computed the fingerprint all along, printed it, and then dropped it on the way into the experiment record — the only artifact judgeRegression ever sees. So every evaluation ever recorded reached the gate with corpus_fingerprint undefined and was refused as unprovable, and the gate's own advice (\"re-run db:eval:taxonomy\") pointed at a re-run that could not have helped. Both fixed; the 1.0/1.0 bar and the floor are untouched, and a record with no fingerprint is still refused (regression-evidence.test.ts).",
       "unblocks": [
         "NO-REGRESSION-EVIDENCE"
       ]

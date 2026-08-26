@@ -1,7 +1,7 @@
 {
   "kind": "gate-evidence",
-  "measured_at": "2026-08-26T08:51:25.807Z",
-  "source": "pnpm db:audit:gate-evidence --batch data/taxonomy/batches/batch_2026-08-16T14-30-41Z-remediation-phase9d --fixture=data/taxonomy/eval/retrieval-v3.jsonl",
+  "measured_at": "2026-08-26T12:35:34.064Z",
+  "source": "pnpm db:audit:gate-evidence --batch (none) --fixture=C:\\Users\\kpdag\\OneDrive\\Desktop\\BB\\badabhai-platform\\packages\\db\\data\\taxonomy\\eval\\retrieval-v2.jsonl",
   "target": "SUPABASE (remote)",
   "read_only": true,
   "role": "postgres",
@@ -81,6 +81,17 @@
       "detail": "evaluation record carries no recall_at_1/mrr — nothing to compare"
     },
     {
+      "path": "EXP-P9-REGRESSION-FRESH\\eval-taxonomy-retrieval-v1-v2-e2-2026-08-26T12_22_35.109Z.json",
+      "fixture_version": 2,
+      "evaluator_version": 2,
+      "recall_at_1": 0.9912,
+      "mrr": 0.9956,
+      "has_fingerprint": true,
+      "passed": false,
+      "stale": false,
+      "detail": "REGRESSION vs the reference: R@1 0.9912 (-0.0088), MRR 0.9956 (-0.0044). Reported for review — promotion does not absorb this silently."
+    },
+    {
       "path": "EXP-P9-TRAINER-V3\\eval-taxonomy-retrieval-v1-v3-e2-2026-08-21T08_20_05.980Z.json",
       "fixture_version": 3,
       "evaluator_version": 2,
@@ -104,8 +115,7 @@
     }
   ],
   "no_regression_independent_blockers": [
-    "NO evaluation carries a corpus_fingerprint, so none can prove currency (NOT WAIVABLE)",
-    "NO floor-sweep record carries a corpus_fingerprint, and promote-skills computes `no_regression = regression.passed && !sweepStale` — so this gate cannot pass even with a perfect evaluation (STRUCTURAL)"
+    "NO floor-sweep record carries a corpus_fingerprint, and promote-skills computes `no_regression = regression.passed && !sweepStale` — so this gate cannot pass even with a perfect evaluation (STRUCTURAL, and NOT WAIVABLE: `--waive NO_REGRESSION` is refused while evidence is stale)"
   ],
   "floor_sweep_records": [
     {
@@ -258,11 +268,13 @@
   "eval_covered_by_fixture": {
     "data/taxonomy/eval/retrieval-v2.jsonl": {
       "cases": 127,
-      "missing": 41
+      "missing": 41,
+      "is_default": true
     },
     "data/taxonomy/eval/retrieval-v3.jsonl": {
       "cases": 168,
-      "missing": 0
+      "missing": 0,
+      "is_default": false
     }
   },
   "green_path": [
@@ -270,22 +282,22 @@
       "gate": "NO_REGRESSION",
       "step": 1,
       "actor": "ENGINEERING",
-      "what": "the floor-sweep record must be ABLE to carry a corpus_fingerprint",
-      "status": "the ExperimentRecord field exists as of this change; no sweep has been RE-RUN since, so every record on disk is still unfingerprinted"
+      "what": "BOTH record kinds must actually CARRY a corpus_fingerprint into the experiment file, which is the only artifact judgeRegression ever reads",
+      "status": "EVALUATION DONE (2026-08-26). The evaluator computed the fingerprint all along and dropped it on the way into the experiment record — fixed. No SWEEP has been re-run since, so the sweep side is still unfingerprinted."
     },
     {
       "gate": "NO_REGRESSION",
       "step": 2,
       "actor": "AI SPEND",
-      "what": "re-run db:sweep:floor --run --experiment AND db:eval:taxonomy --run --experiment on fixture v2, so both records carry a fingerprint matching the live corpus",
-      "status": "NOT DONE — requires a provider call; neither can be produced from stored vectors"
+      "what": "re-run db:sweep:floor --run --experiment so the SWEEP record carries a fingerprint matching the live corpus (the evaluation half is already done, at zero cost)",
+      "status": "EVALUATION DONE AT ZERO COST — every fixture-v2 query vector was already in the local embed cache, so `db:eval:taxonomy --run --cache` re-measured the whole fixture without a provider call (127 cached, 0 paid). The claim that neither record could be produced from stored vectors was wrong for the evaluation. The SWEEP still needs a run; on fixture v3 only its 41 added queries are uncached."
     },
     {
       "gate": "NO_REGRESSION",
       "step": 3,
       "actor": "OWNER or CORPUS FIX",
       "what": "the fresh evaluation must reach R@1 >= 1 and MRR >= 1",
-      "status": "the last v2 run scored R@1 0.9912 — a real regression, causally attributed to case GP-04. A fresh run is expected to reproduce it, so this needs either a corpus fix or a recorded waiver. A WAIVER CANNOT CLEAR STEP 2: staleness is not waivable."
+      "status": "MEASURED, no longer predicted: the fingerprinted v2 run scored R@1 0.9912 against a 1 reference — ONE case of 123, in paraphrase_latin (causally attributed to GP-04). It REPRODUCES on the current corpus, so this needs a corpus fix or a recorded waiver. A WAIVER CANNOT CLEAR STEP 2: staleness is not waivable, and the baseline is NOT re-pointed to fit the measurement."
     },
     {
       "gate": "RESOLVABLE_ABOVE_FLOOR",
@@ -305,8 +317,8 @@
       "gate": "EVAL_COVERED",
       "step": 1,
       "actor": "NONE",
-      "what": "already green under the fixture in use",
-      "status": "retrieval-v3 leaves 0 promotable skills uncovered; retrieval-v2 leaves 41"
+      "what": "green under retrieval-v3 — but NOT under the fixture the gate defaults to",
+      "status": "retrieval-v3 leaves 0 promotable skills uncovered; retrieval-v2 leaves 41 — and v2 is what promote-skills uses when no --fixture is given. The promotion command MUST name --fixture data/taxonomy/eval/retrieval-v3.jsonl; relying on the default silently blocks 41 of the 96."
     }
   ],
   "production_mutation_performed": false

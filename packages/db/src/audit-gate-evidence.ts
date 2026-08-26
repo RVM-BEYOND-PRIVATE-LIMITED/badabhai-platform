@@ -46,12 +46,28 @@ import {
 } from "./promote-skills";
 import { EXPERIMENTS_DIR } from "./taxonomy-experiments";
 import { countsAsEvalCoverage, loadEvalFixture } from "./taxonomy-eval-fixture";
+import { DEFAULT_FIXTURE } from "./taxonomy-retrieval-eval";
 
 config({ path: "../../.env" });
 config();
 
 const SCRIPT = "audit:gate-evidence";
-const DEFAULT_FIXTURE = "data/taxonomy/eval/retrieval-v3.jsonl";
+
+/**
+ * THE FIXTURE THE GATE ACTUALLY DEFAULTS TO — imported, not restated.
+ *
+ * This file used to declare its own `DEFAULT_FIXTURE = "…retrieval-v3.jsonl"` while
+ * `promote-skills.ts` imports `DEFAULT_FIXTURE` from `taxonomy-retrieval-eval.ts`, which is
+ * **v2**. Two constants, one name, and the audit reported the gate's answer under a fixture
+ * the gate does not use by default. That produced the published claim *"EVAL_COVERED PASS, 0
+ * of 96 uncovered"*, when `db:promote:skills` with no `--fixture` blocks **41**.
+ *
+ * The audit still reports BOTH fixtures — that comparison is the useful part and is why the
+ * local constant existed. What it may not do is decide which one is the default. One
+ * definition, imported; `gate-evidence.test.ts` asserts this file declares no fixture path of
+ * its own.
+ */
+const ALTERNATIVE_FIXTURE = "data/taxonomy/eval/retrieval-v3.jsonl";
 
 function arg(n: string): string | undefined {
   return process.argv.find((x) => x.startsWith(`--${n}=`))?.slice(n.length + 3);
@@ -192,7 +208,8 @@ async function main(): Promise<void> {
       sweepFingerprinted.length === 0
         ? "NO floor-sweep record carries a corpus_fingerprint, and promote-skills computes " +
           "`no_regression = regression.passed && !sweepStale` — so this gate cannot pass even " +
-          "with a perfect evaluation (STRUCTURAL)"
+          "with a perfect evaluation (STRUCTURAL, and NOT WAIVABLE: `--waive NO_REGRESSION` is " +
+          "refused while evidence is stale)"
         : null,
     ].filter((x): x is string => x !== null);
 
@@ -254,20 +271,37 @@ async function main(): Promise<void> {
         missing: PROMOTABLE_SKILL_IDS.filter((id) => !ids.has(id)),
       };
     };
-    const fixtures = ["data/taxonomy/eval/retrieval-v2.jsonl", "data/taxonomy/eval/retrieval-v3.jsonl"];
-    const coverage: Record<string, { cases: number; missing: number }> = {};
+    // The default is RESOLVED, not restated, and it is printed as a path a reader can compare
+    // against the one `db:promote:skills` prints in its own header.
+    const defaultRel = DEFAULT_FIXTURE.replace(/\\/g, "/").replace(/^.*?(data\/taxonomy\/.*)$/, "$1");
+    const fixtures = [defaultRel, ALTERNATIVE_FIXTURE].filter((f, i, a) => a.indexOf(f) === i);
+    const coverage: Record<string, { cases: number; missing: number; is_default: boolean }> = {};
     for (const f of fixtures) {
       if (!existsSync(f)) continue;
       const c = covered(f);
-      coverage[f] = { cases: c.total, missing: c.missing.length };
+      const isDefault = f === defaultRel;
+      coverage[f] = { cases: c.total, missing: c.missing.length, is_default: isDefault };
       console.log(
-        `    ${f.padEnd(44)} cases ${String(c.total).padStart(4)}   promotable NOT covered ${String(c.missing.length).padStart(3)}`,
+        `    ${f.padEnd(44)} cases ${String(c.total).padStart(4)}   promotable NOT covered ` +
+          `${String(c.missing.length).padStart(3)}${isDefault ? "   <- THE DEFAULT" : ""}`,
       );
     }
+    // THE CORRECTION THIS AUDIT OWES ITS OWN EARLIER OUTPUT. It used to name v3 as the
+    // default, from a constant it declared itself, and concluded EVAL_COVERED was green. The
+    // gate imports its default from `taxonomy-retrieval-eval.ts` and that default is v2.
+    const defaultMissing = coverage[defaultRel]?.missing ?? null;
     console.log(
-      `    the gate is judged against --fixture, default ${DEFAULT_FIXTURE}. A doc quoting ` +
-        `"41/96" is quoting v2.`,
+      `    the gate is judged against --fixture, whose default is ${defaultRel}` +
+        (defaultMissing === null
+          ? "."
+          : ` — so with NO --fixture argument EVAL_COVERED BLOCKS ${defaultMissing}.`),
     );
+    if (defaultMissing !== null && defaultMissing > 0) {
+      console.log(
+        `    => promotion MUST be invoked with an explicit --fixture ${ALTERNATIVE_FIXTURE} for ` +
+          `EVAL_COVERED to be green. Relying on the default silently blocks ${defaultMissing} candidates.`,
+      );
+    }
 
     // ── THE GREEN PATH — derived from the facts above, not typed from memory ──
     //
@@ -289,22 +323,37 @@ async function main(): Promise<void> {
         gate: "NO_REGRESSION",
         step: 1,
         actor: "ENGINEERING",
-        what: "the floor-sweep record must be ABLE to carry a corpus_fingerprint",
+        what:
+          "BOTH record kinds must actually CARRY a corpus_fingerprint into the experiment file, " +
+          "which is the only artifact judgeRegression ever reads",
         status:
-          sweepFingerprinted.length > 0
-            ? "DONE — at least one sweep record carries one"
-            : "the ExperimentRecord field exists as of this change; no sweep has been RE-RUN " +
-              "since, so every record on disk is still unfingerprinted",
+          anyFingerprinted.length > 0 && sweepFingerprinted.length > 0
+            ? "DONE — a fingerprinted record of each kind exists"
+            : anyFingerprinted.length > 0
+              ? "EVALUATION DONE (2026-08-26). The evaluator computed the fingerprint all along " +
+                "and dropped it on the way into the experiment record — fixed. No SWEEP has been " +
+                "re-run since, so the sweep side is still unfingerprinted."
+              : "the ExperimentRecord field exists; neither runner has produced a record with one",
       },
       {
         gate: "NO_REGRESSION",
         step: 2,
         actor: "AI SPEND",
         what:
-          "re-run db:sweep:floor --run --experiment AND db:eval:taxonomy --run --experiment on " +
-          `fixture v${REGRESSION_BASELINE.fixture_version}, so both records carry a fingerprint ` +
-          "matching the live corpus",
-        status: "NOT DONE — requires a provider call; neither can be produced from stored vectors",
+          anyFingerprinted.length > 0
+            ? "re-run db:sweep:floor --run --experiment so the SWEEP record carries a fingerprint " +
+              "matching the live corpus (the evaluation half is already done, at zero cost)"
+            : "re-run db:sweep:floor --run --experiment AND db:eval:taxonomy --run --experiment " +
+              "so both records carry a fingerprint matching the live corpus",
+        status:
+          anyFingerprinted.length > 0
+            ? "EVALUATION DONE AT ZERO COST — every fixture-v" +
+              `${REGRESSION_BASELINE.fixture_version} query vector was already in the local embed ` +
+              "cache, so `db:eval:taxonomy --run --cache` re-measured the whole fixture without a " +
+              "provider call (127 cached, 0 paid). The claim that neither record could be produced " +
+              "from stored vectors was wrong for the evaluation. The SWEEP still needs a run; on " +
+              "fixture v3 only its 41 added queries are uncached."
+            : "NOT DONE — requires a provider call",
       },
       {
         gate: "NO_REGRESSION",
@@ -316,11 +365,12 @@ async function main(): Promise<void> {
         status:
           freshV2WouldLikelyScore === undefined
             ? "no sub-baseline v2 evidence exists"
-            : `the last v${REGRESSION_BASELINE.fixture_version} run scored ` +
-              `R@1 ${freshV2WouldLikelyScore.record.recall_at_1} — a real regression, causally ` +
-              "attributed to case GP-04. A fresh run is expected to reproduce it, so this needs " +
-              "either a corpus fix or a recorded waiver. A WAIVER CANNOT CLEAR STEP 2: " +
-              "staleness is not waivable.",
+            : `MEASURED, no longer predicted: the fingerprinted v${REGRESSION_BASELINE.fixture_version} ` +
+              `run scored R@1 ${freshV2WouldLikelyScore.record.recall_at_1} against a ` +
+              `${REGRESSION_BASELINE.recall_at_1} reference — ONE case of 123, in paraphrase_latin ` +
+              "(causally attributed to GP-04). It REPRODUCES on the current corpus, so this needs " +
+              "a corpus fix or a recorded waiver. A WAIVER CANNOT CLEAR STEP 2: staleness is not " +
+              "waivable, and the baseline is NOT re-pointed to fit the measurement.",
       },
       {
         gate: "RESOLVABLE_ABOVE_FLOOR",
@@ -344,8 +394,12 @@ async function main(): Promise<void> {
         gate: "EVAL_COVERED",
         step: 1,
         actor: "NONE",
-        what: "already green under the fixture in use",
-        status: `retrieval-v3 leaves 0 promotable skills uncovered; retrieval-v2 leaves 41`,
+        what: "green under retrieval-v3 — but NOT under the fixture the gate defaults to",
+        status:
+          "retrieval-v3 leaves 0 promotable skills uncovered; retrieval-v2 leaves 41 — and v2 " +
+          "is what promote-skills uses when no --fixture is given. The promotion command MUST " +
+          "name --fixture data/taxonomy/eval/retrieval-v3.jsonl; relying on the default " +
+          "silently blocks 41 of the 96.",
       },
     ];
 

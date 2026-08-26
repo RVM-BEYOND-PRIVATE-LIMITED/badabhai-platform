@@ -104,11 +104,16 @@ describe("the real graph", () => {
   });
 
   it("the total spend needed to clear every spend-blocked item is under one rupee", () => {
+    // Was ₹0.028128 — an evaluation and a floor sweep. The evaluation half turned out to cost
+    // NOTHING: every fixture-v2 query vector was already in the local embed cache, so it was
+    // re-measured with 127 hits and 0 provider calls. Only the sweep remains, and on fixture v3
+    // only its 41 added queries are uncached.
     const total = PROGRAMME.filter((i) => i.status === "BLOCKED_ON_AI_SPEND").reduce(
       (n, i) => n + (i.costInr ?? 0),
       0,
     );
-    expect(total).toBeCloseTo(0.028128, 6);
+    expect(total).toBeCloseTo(0.0035, 6);
+    expect(total).toBeLessThan(0.028128);
     expect(total).toBeLessThan(1);
   });
 });
