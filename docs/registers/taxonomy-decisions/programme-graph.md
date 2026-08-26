@@ -17,13 +17,13 @@ Source of truth: `packages/db/src/programme-graph.ts` · Artifact:
 ## The shape of it
 
 ```
-EXECUTABLE                     1     OPS-GUARD-COVERAGE
+EXECUTABLE                     0
 BLOCKED_ON_OWNER              11
 BLOCKED_ON_AI_SPEND            2     ₹0.028128 total
 BLOCKED_ON_PRODUCTION_WRITE    3     mechanisms built, tested, never invoked
 BLOCKED_ON_DATA                2
 BLOCKED_ON_INFRA               4
-COMPLETE                       7
+COMPLETE                       8
 ```
 
 The classification is about **who is blocking**, never about difficulty — because the six
@@ -36,20 +36,34 @@ sense; it is a rounding error, and it is still unauthorised, which is the point.
 
 ---
 
-## What can start today
+## What can start today: nothing — and a retraction
 
-| id | what | why it is executable |
-|---|---|---|
-| `OPS-GUARD-COVERAGE` | six write runners on the activation path carry **no ops guard at all** | no decision, no spend, no production write |
+**Zero executable items.** So `project-control.md` §H is *true today*: no independently
+executable engineering task remains. It was **false** while the nine tasks that have since
+landed were available, and the point of holding it as data is that it fails when it stops being
+true rather than being right by luck.
 
-Measured 2026-08-26: `materialize-job-reach`, `normalize-skill-aliases`, `seed-domain-skills`,
-`normalize-job-domain-aliases`, `backfill-worker-skills`, `grant-free-tier` carry neither
-`enforceOpsGuard` nor the older `NODE_ENV` check. All are dry-run-by-default, so `--apply` is the
-only exposure — and `seed-domain-skills` is D2 step 2, a large irreversible write.
-**project-control says "four".** A test asserts each named runner really is unguarded, so the
-item cannot go stale in the reassuring direction.
+### The retraction
 
----
+The first version of this graph claimed **one** executable item: six write runners on the
+activation path with no ops guard — `materialize-job-reach`, `normalize-skill-aliases`,
+`seed-domain-skills`, `normalize-job-domain-aliases`, `backfill-worker-skills`,
+`grant-free-tier`. It came from grepping each file for the literal string `enforceOpsGuard`.
+
+**That method cannot see indirection, and all six reach the guard through it.** Each calls
+`parseCommonCli` (`match-v1-cli.ts`), which calls `enforceOpsGuard` with `mutating: apply` and
+also owns the missing-`DATABASE_URL` refusal. They are guarded, and better than the six-copies
+alternative: the guard lives in **one** place.
+
+The item is kept as `COMPLETE` with the retraction in its own evidence field rather than deleted,
+and the test now checks the property by the method that can see it — if someone detaches one of
+these from `parseCommonCli` without adding `enforceOpsGuard` directly, an `--apply` against
+production stops needing two signals and the suite fails.
+
+> **project-control's "4 unguarded write runners" is left as it stands.** This audit disproved
+> its own count of six; it did not establish four, and replacing one unverified number with
+> another is how the first mistake happened. A rigorous count needs call-graph analysis, not a
+> grep.
 
 ## The eleven owner decisions
 

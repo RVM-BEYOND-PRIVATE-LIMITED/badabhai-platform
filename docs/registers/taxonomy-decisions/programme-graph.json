@@ -1,6 +1,6 @@
 {
   "kind": "programme-graph",
-  "measured_at": "2026-08-26T10:06:42.122Z",
+  "measured_at": "2026-08-26T10:16:05.541Z",
   "source": "pnpm db:audit:programme-graph",
   "target": "repository-only (no database)",
   "read_only": true,
@@ -8,8 +8,8 @@
   "population_predicate": "every remaining item of the Phase 9 programme as enumerated in programme-graph.ts, classified by WHO is blocking rather than by difficulty",
   "ai_spend_inr": 0,
   "counts": {
-    "COMPLETE": 7,
-    "EXECUTABLE": 1,
+    "COMPLETE": 8,
+    "EXECUTABLE": 0,
     "BLOCKED_ON_OWNER": 12,
     "BLOCKED_ON_PRODUCTION_WRITE": 3,
     "BLOCKED_ON_AI_SPEND": 2,
@@ -295,10 +295,10 @@
     },
     {
       "id": "OPS-GUARD-COVERAGE",
-      "title": "Write runners on the activation path with no ops guard",
-      "status": "EXECUTABLE",
+      "title": "Ops-guard coverage on the activation-path write runners",
+      "status": "COMPLETE",
       "dependsOn": [],
-      "evidence": "Measured 2026-08-26: six write runners carry neither enforceOpsGuard nor the older NODE_ENV check — materialize-job-reach, normalize-skill-aliases, seed-domain-skills, normalize-job-domain-aliases, backfill-worker-skills, grant-free-tier. All are dry-run-by-default, so --apply is the only exposure; project-control says 'four'.",
+      "evidence": "RETRACTED AND RE-MEASURED 2026-08-26. A first pass grepped each runner for the literal `enforceOpsGuard` and reported six as unguarded — materialize-job-reach, normalize-skill-aliases, seed-domain-skills, normalize-job-domain-aliases, backfill-worker-skills, grant-free-tier. That method cannot see indirection. All six call parseCommonCli (match-v1-cli.ts), which calls enforceOpsGuard with `mutating: apply` and also owns the missing-DATABASE_URL refusal. They are guarded, and the guard is in ONE place rather than six. See programme-graph.md for the correction.",
       "unblocks": []
     },
     {
@@ -404,8 +404,6 @@
       }
     ]
   },
-  "executable_today": [
-    "OPS-GUARD-COVERAGE"
-  ],
+  "executable_today": [],
   "production_mutation_performed": false
 }

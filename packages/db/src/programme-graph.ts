@@ -358,14 +358,17 @@ export const PROGRAMME: readonly ProgrammeItem[] = [
   },
   {
     id: "OPS-GUARD-COVERAGE",
-    title: "Write runners on the activation path with no ops guard",
-    status: "EXECUTABLE",
+    title: "Ops-guard coverage on the activation-path write runners",
+    status: "COMPLETE",
     dependsOn: [],
     evidence:
-      "Measured 2026-08-26: six write runners carry neither enforceOpsGuard nor the older " +
-      "NODE_ENV check — materialize-job-reach, normalize-skill-aliases, seed-domain-skills, " +
-      "normalize-job-domain-aliases, backfill-worker-skills, grant-free-tier. All are " +
-      "dry-run-by-default, so --apply is the only exposure; project-control says 'four'.",
+      "RETRACTED AND RE-MEASURED 2026-08-26. A first pass grepped each runner for the literal " +
+      "`enforceOpsGuard` and reported six as unguarded — materialize-job-reach, " +
+      "normalize-skill-aliases, seed-domain-skills, normalize-job-domain-aliases, " +
+      "backfill-worker-skills, grant-free-tier. That method cannot see indirection. All six " +
+      "call parseCommonCli (match-v1-cli.ts), which calls enforceOpsGuard with " +
+      "`mutating: apply` and also owns the missing-DATABASE_URL refusal. They are guarded, and " +
+      "the guard is in ONE place rather than six. See programme-graph.md for the correction.",
     unblocks: [],
   },
 

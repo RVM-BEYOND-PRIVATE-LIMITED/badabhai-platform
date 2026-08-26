@@ -41,7 +41,7 @@ COMPLETE  all of the above AND acceptance criteria met
 | **BLOCKED** | `RESOLVABLE_ABOVE_FLOOR` **34 of 96 fail** (62 pass — the two documents used opposite conventions) and `NO_REGRESSION` **96 of 96**. `EVAL_COVERED` is **green** under the fixture in use; the "41/96" quoted elsewhere is the superseded `retrieval-v2`. Promotion candidates **0**. |
 | **NEXT 3 ACTIONS** | 1. **Owner: `D-7C-1a`** — two ratified decisions together orphan `GD&T`; the seeder refuses on it. 2. **Owner: `NO_REGRESSION` semantics** — two prior instructions point different ways, and the gate is untouched until one is unambiguous. 3. **Infra: the value of `SKILL_CANONICALIZE_ENABLED`** — the secret was changed 2026-08-24 and every deploy since carries it. |
 | **PRODUCTION-CRITICAL** | **None.** No taxonomy component is on a production request path. |
-| **OPTIONAL / HARDENING** | **6** write runners with no ops guard at all (measured 08-26, not 4) · `AI_SPEND_REDIS_URL` IPv6 · pooler saturation · no delete-forensics on `jobs`/`applications` |
+| **OPTIONAL / HARDENING** | 4 unguarded write runners *(unverified — a 08-26 attempt to re-count said six and was itself wrong; the six named all reach the guard via `parseCommonCli`)* · `AI_SPEND_REDIS_URL` IPv6 · pooler saturation · no delete-forensics on `jobs`/`applications` |
 | **REMAINING EFFORT (Track A)** | ~4–6 sessions to Phase 10 complete |
 | **REMAINING EFFORT (Track B)** | Large — see §D. Not a Phase 9 blocker. |
 
@@ -245,24 +245,24 @@ the ratified-alias delivery path, the two widening crosswalks, and evidence prov
 > decisions in FACTS / MEASURED EVIDENCE / RISK / OPTIONS / RECOMMENDATION form, plus the
 > mutation plans, rollbacks, sequencing and the pooler note. The table below is the index.
 
-> **CORRECTED 2026-08-26.** The sentence that stood here — *"No independently executable
-> engineering task remains in this programme"* — was true when written and stopped being true
-> the same week. **Nine more engineering tasks have landed since, and one remains executable
-> today.** The decision surface is now held as typed data with a validator
+> **RE-STATED 2026-08-26.** The sentence that stood here — *"No independently executable
+> engineering task remains in this programme"* — was **false** while the nine tasks that have
+> since landed were available, and is **true again today**: the graph finds zero executable
+> items. The decision surface is now held as typed data with a validator
 > (`programme-graph.ts`), rendered to
 > [`programme-graph.md`](../registers/taxonomy-decisions/programme-graph.md), precisely so a
 > claim like that cannot sit in prose being quietly wrong again.
 
-**The programme is blocked on people, not on engineering — but not entirely.**
+**The programme is blocked on people, not on engineering.**
 
 ```
-EXECUTABLE                     1   OPS-GUARD-COVERAGE
+EXECUTABLE                     0
 BLOCKED_ON_OWNER              11
 BLOCKED_ON_AI_SPEND            2   INR 0.028128 total
 BLOCKED_ON_PRODUCTION_WRITE    3   mechanisms built, tested, never invoked
 BLOCKED_ON_DATA                2
 BLOCKED_ON_INFRA               4
-COMPLETE                       7
+COMPLETE                       8
 ```
 
 Promotion is blocked by **4** items, canonicalization by **12**. The table below is the older

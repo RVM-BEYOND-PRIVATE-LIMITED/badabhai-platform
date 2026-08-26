@@ -116,11 +116,17 @@ describe("the real graph", () => {
 describe("what the graph says about the programme", () => {
   const counts = statusCounts(PROGRAMME);
 
-  it("engineering-only work still exists — project-control §H is out of date", () => {
-    // The sentence that motivated this file: "No independently executable engineering task
-    // remains in this programme."
-    expect(counts.EXECUTABLE).toBeGreaterThan(0);
-    expect(executable(PROGRAMME).map((i) => i.id)).toEqual(["OPS-GUARD-COVERAGE"]);
+  it("nothing is executable today — and that is a measurement, not an assumption", () => {
+    // project-control §H said "No independently executable engineering task remains in this
+    // programme". It was WRONG while nine tasks were available and is TRUE again now they have
+    // landed. The value of holding it as data is that it fails when it stops being true,
+    // instead of being right by luck.
+    //
+    // This assertion is also a correction. A first pass claimed one executable item — six write
+    // runners with no ops guard — from a grep for the literal `enforceOpsGuard`. All six reach
+    // it through parseCommonCli. The item is retracted, not quietly deleted.
+    expect(counts.EXECUTABLE).toBe(0);
+    expect(executable(PROGRAMME)).toEqual([]);
   });
 
   it("the owner is the largest single blocker", () => {
@@ -194,11 +200,12 @@ describe("the graph agrees with the repository", () => {
     }
   });
 
-  it("OPS-GUARD-COVERAGE names runners that really do lack a guard", () => {
-    // The item's whole claim is a measurement; if someone guards one of these the item is
-    // stale, and a stale "executable" item is worse than a missing one.
+  it("the six runners once reported as unguarded all reach the guard via parseCommonCli", () => {
+    // The measurement that was wrong, redone by the method that can see indirection. If someone
+    // detaches one of these from parseCommonCli without adding enforceOpsGuard directly, an
+    // --apply against production stops needing two signals and this fails.
     const src = join(root, "packages", "db", "src");
-    const unguarded = [
+    const runners = [
       "materialize-job-reach",
       "normalize-skill-aliases",
       "seed-domain-skills",
@@ -206,11 +213,20 @@ describe("the graph agrees with the repository", () => {
       "backfill-worker-skills",
       "grant-free-tier",
     ];
-    const item = PROGRAMME.find((i) => i.id === "OPS-GUARD-COVERAGE")!;
-    for (const r of unguarded) {
-      expect(item.evidence, r).toContain(r);
+    const helper = readFileSync(join(src, "match-v1-cli.ts"), "utf8");
+    expect(helper).toContain("enforceOpsGuard({");
+    expect(helper).toContain("mutating: apply");
+    for (const r of runners) {
       const code = readFileSync(join(src, `${r}.ts`), "utf8");
-      expect(code.includes("enforceOpsGuard"), `${r} is now guarded — update the item`).toBe(false);
+      const guarded = code.includes("enforceOpsGuard") || code.includes("parseCommonCli");
+      expect(guarded, `${r} reaches no ops guard by either route`).toBe(true);
     }
+  });
+
+  it("and the retraction stays visible in the item itself", () => {
+    const item = PROGRAMME.find((i) => i.id === "OPS-GUARD-COVERAGE")!;
+    expect(item.status).toBe("COMPLETE");
+    expect(item.evidence).toMatch(/RETRACTED AND RE-MEASURED/);
+    expect(item.evidence).toMatch(/cannot see indirection/);
   });
 });
