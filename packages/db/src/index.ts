@@ -31,3 +31,122 @@ export * from "./occupation-retrieval-eval";
 // speak — from the real packs rather than from a fixture, and a manifest built from a fixture
 // would pre-render audio for questions no worker is ever asked.
 export * from "./question-pack-corpus";
+
+// ── The skill-discovery review layer (migration 0093) ──────────────────────────────────────
+//
+// Exported because `apps/api`'s admin review surface is the ENFORCEMENT POINT for three rules
+// that live only in TypeScript and nowhere in the database:
+//
+//   * `canTransition` — TERMINAL MEANS TERMINAL. No CHECK in 0093 stops an `approved_map` row
+//     being UPDATEd back to `needs_review`; this table is the only thing that does. A service
+//     that cannot import it has to restate the ladder, and a second copy of a transition table
+//     is how "re-deciding" quietly starts re-scoping a decision to a corpus the human never saw.
+//   * `statusForDecision` — the ONE place decision → status lives. Unexported, every caller
+//     switches on its own strings and the API and the pipeline drift on what "merge" means.
+//   * `assertProvenanceIntact` / `PROVENANCE_FIELDS` — the frozen-field list, in digest order.
+//     A decision path that cannot call it can only *promise* it did not move provenance.
+//   * `reviewTierFrom` — the tier rule over the TWO FACTS it reads, rather than over a whole
+//     candidate. The admin queue cannot hold a candidate: a page has no match rows on it (the
+//     strong-match fact is an `exists` subquery precisely so a join cannot multiply the page), and
+//     the metrics tile holds only per-`phrase_class` counts. Without this signature the queue had
+//     to force a fabricated object through `as unknown as SkillCandidateRecord` — right answer,
+//     wrong shape, and the compiler stopped being able to check the one call that mattered.
+//   * `candidateAliasTexts` — the alias set a `create` approval would mint, needed by the review
+//     screen BEFORE the decision exists. `approvedCandidateToCorpusSkill` refuses any status but
+//     `approved_create`, correctly, so the preview used to forge that status to get past its own
+//     gate. Both now call this; the preview and the mint cannot disagree.
+//
+// A NAMED BLOCK, NOT `export *`, for two measured reasons: `skill-discovery-candidate.ts:64`
+// re-exports five unions that `./schema` above already owns (a star would be TS2308), and
+// `skill-discovery-plan.ts:805` re-exports `PhraseClass`/`ClassifierRule` from the classify
+// module (a second star would collide with itself). Symbols are added here as consumers need
+// them; nothing below is on a request path except the decision guards.
+export {
+  CANDIDATE_ACTIONS,
+  CANDIDATE_SOURCE_TYPES,
+  CANDIDATE_STATUSES,
+  HUMAN_DECIDED_STATUSES,
+  MACHINE_WRITABLE_STATUSES,
+  PROVENANCE_FIELDS,
+  TERMINAL_STATUSES,
+  approvedCandidateToCorpusSkill,
+  assertDryRunSafe,
+  assertProvenanceIntact,
+  canTransition,
+  candidateAliasTexts,
+  candidateId,
+  provenanceDigest,
+  sealCandidate,
+  statusForDecision,
+  validateCandidate,
+} from "./skill-discovery-candidate";
+export type {
+  CandidateMatch,
+  CandidateProblem,
+  CandidateProblemCode,
+  CandidateSource,
+  ProvenanceField,
+  SkillCandidateRecord,
+} from "./skill-discovery-candidate";
+export {
+  prioritize,
+  reviewPriority,
+  reviewTier,
+  reviewTierFrom,
+  tierCounts,
+} from "./skill-discovery-plan";
+export type { ReviewTier } from "./skill-discovery-plan";
+export { STRONG_MATCH_RELATIONS, isStrongRelation } from "./skill-discovery-match";
+export type { MatchRelation } from "./skill-discovery-match";
+export { CLASSIFIER_RULES } from "./skill-discovery-classify";
+
+// ── The review-queue BATCHING rule ─────────────────────────────────────────────────────────
+//
+// `groupFacts` exists beside `groupCandidates` for the same reason `reviewTierFrom` exists beside
+// `reviewTier`: the admin queue cannot build whole records. A `SkillCandidateRecord` carries its
+// `sources` and `matches`, and materialising 6,673 of them to compute a handful of counts would
+// mean reading every source row and every match row in the table.
+//
+// Until this was exposed, the console had two options and picked the honest one — it DEGRADED to
+// grouping by `trade_family` alone, within a single server page, and said so in its own header:
+// "reimplementing that algorithm client-side is 'server authority' CLAUDE.md invariant #9
+// forbids". It was right, and these are what let a server endpoint replace that.
+export {
+  anchorFor,
+  groupCandidates,
+  groupFacts,
+  groupingReduction,
+} from "./skill-discovery-groups";
+export type { GroupingFacts, ReviewGroup } from "./skill-discovery-groups";
+
+// ── The taxonomy WRITE-SURFACE audit (repo-wide) ────────────────────────────────────────────
+//
+// Exported because the property it measures is not a `packages/db` property. "No request path can
+// author the matching vocabulary" is a claim about `apps/api`, and `apps/api` is where it has to
+// be assertable — `taxonomy-write-surface.test.ts` consumes exactly these three symbols.
+//
+// IT IS HERE RATHER THAN BEHIND A `./lifecycle-writer-scan` SUBPATH because `apps/api` compiles
+// with a `moduleResolution` that does not read the `exports` map (TS2307 on the subpath, with the
+// compiler itself pointing at the `.d.ts` it could see but not resolve). A subpath that only some
+// consumers can import is worse than a barrel entry every consumer can.
+//
+// AND THE ALTERNATIVE WAS A SECOND SCANNER, which is what was there first and what makes this
+// worth the barrel space. Two detectors disagreed within a day and in the direction that matters:
+// the shared one matched only the `dsql` tag that `packages/db` uses, so pointed at `apps/api` —
+// which imports drizzle's `sql` under its own name — it read 437 files and reported ZERO writers.
+// A clean bill of health from a scanner that could not read the syntax in front of it.
+//
+// These are filesystem readers, safe to import from a test and never called on a request path.
+export {
+  SPINE_TABLES,
+  SPINE_WRITER_ROOTS,
+  crossVocabularyWriters,
+  scanWriters,
+  scanWritersAcross,
+  sourceFiles,
+  spineSourceFiles,
+  stripComments,
+  workspacesDependingOnDb,
+} from "./lifecycle-writer-scan";
+export type { SpineTable, SpineWriterRoot, WriterScan } from "./lifecycle-writer-scan";
+export type { ClassifierRule, PhraseClass } from "./skill-discovery-classify";

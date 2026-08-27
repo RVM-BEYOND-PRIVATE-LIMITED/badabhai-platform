@@ -33,8 +33,8 @@
  *
  * NO DATABASE. Filesystem reads only, so this is safe to import from a test.
  */
-import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join, relative, sep } from "node:path";
 
 /** The Drizzle table identifiers this repository uses for the taxonomy spine. */
 export const SPINE_TABLES = {
@@ -143,6 +143,230 @@ export function crossVocabularyWriters(srcDir: string): string[] {
     const writesSkillVocab =
       code.includes(".insert(skillAliases)") || code.includes(".insert(skills)");
     if (readsDomainAliases && writesSkillVocab) out.push(file);
+  }
+  return out;
+}
+
+// ===========================================================================
+// THE REPO-WIDE SCAN
+// ===========================================================================
+
+/**
+ * ONE WORKSPACE THAT CAN REACH THE DATABASE, named by the directory its code lives in.
+ *
+ * ── WHY THIS EXISTS, AND WHAT WAS WRONG BEFORE IT ─────────────────────────────────────
+ * {@link scanWriters} reads ONE directory — `packages/db/src` — and every claim built on it was
+ * therefore a claim about that directory. But the claims themselves are repo-wide: this file's
+ * own header says the property that matters is *"these files, and no others, can create a
+ * `skill_alias` row"*, and `skill-lifecycle.test.ts` asserts things like "exactly one writer for
+ * `job_domain_skill`". Read literally those are statements about the whole codebase, and they
+ * were being measured over a fraction of it.
+ *
+ * The gap was not hypothetical in shape, only in luck: `apps/api` imports `@badabhai/db` in 198
+ * files and holds every HTTP request path in the product. A `.insert(skills)` added there — in
+ * good faith, by somebody implementing "approve and create it" on the skill-review surface —
+ * would have satisfied every assertion in this module, because this module could not see the
+ * file it was in.
+ *
+ * ── WHY EXACTLY THESE TWO, AND HOW THAT STAYS TRUE ────────────────────────────────────
+ * A writer needs the Drizzle models or a connection, and both arrive through `@badabhai/db`.
+ * Exactly two workspaces declare that dependency (measured 2026-08-27: `apps/api` and
+ * `packages/db`; the four Next apps and every other package declare none and import it in zero
+ * files). So this list is complete TODAY — and because "today" is the part that rots,
+ * `skill-lifecycle.test.ts` re-derives the dependent set from the workspace manifests and fails
+ * if a third one appears. A new consumer is then a decision about this list rather than a silent
+ * hole in it.
+ */
+export interface SpineWriterRoot {
+  /** Repo-relative directory, POSIX-separated. Also the prefix of every key it contributes. */
+  readonly dir: string;
+  /** Why this directory can write, so a reader can judge whether the list is still right. */
+  readonly reason: string;
+}
+
+export const SPINE_WRITER_ROOTS: readonly SpineWriterRoot[] = [
+  {
+    dir: "packages/db/src",
+    reason: "owns the schema, the migrations and every seeding/maintenance runner",
+  },
+  {
+    dir: "apps/api/src",
+    reason: "the only application workspace that imports @badabhai/db — every request path",
+  },
+];
+
+/** Every workspace manifest, so the root list can be checked against what actually depends on db. */
+export function workspacesDependingOnDb(repoRoot: string): string[] {
+  const out: string[] = [];
+  for (const group of ["apps", "packages"]) {
+    const groupDir = join(repoRoot, group);
+    if (!existsSync(groupDir)) continue;
+    for (const entry of readdirSync(groupDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const manifest = join(groupDir, entry.name, "package.json");
+      if (!existsSync(manifest)) continue;
+      const pkg = JSON.parse(readFileSync(manifest, "utf8")) as {
+        name?: string;
+        dependencies?: Record<string, string>;
+        devDependencies?: Record<string, string>;
+      };
+      const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+      // `packages/db` depends on itself in no manifest, so it is added explicitly by the caller;
+      // this function answers "who ELSE reaches for it".
+      if (deps["@badabhai/db"] !== undefined) out.push(`${group}/${entry.name}`);
+    }
+  }
+  return out.sort();
+}
+
+/**
+ * Every implementation file under one root, RECURSIVELY, keyed repo-relative.
+ *
+ * Recursive where {@link sourceFiles} is flat, because `packages/db/src` is flat and
+ * `apps/api/src` is 40-odd nested modules — a non-recursive walk over the second would return
+ * almost nothing and report a clean scan, which is the worst possible failure for an audit.
+ *
+ * Keys are repo-relative paths (`apps/api/src/skills/skills.repository.ts`), not basenames.
+ * Basenames were fine while one directory was in scope and are not now: `index.ts` alone would
+ * collide a dozen ways, and a collision here silently merges two files' capabilities into one
+ * entry.
+ */
+export function spineSourceFiles(repoRoot: string, root: SpineWriterRoot): string[] {
+  const base = join(repoRoot, ...root.dir.split("/"));
+  if (!existsSync(base)) return [];
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        // `node_modules` and build output are not this repo's source, and `dist` in particular
+        // holds a COMPILED COPY of every writer — counting it would double-report every one.
+        if (entry.name === "node_modules" || entry.name === "dist" || entry.name === ".next") {
+          continue;
+        }
+        walk(full);
+        continue;
+      }
+      if (!entry.name.endsWith(".ts") && !entry.name.endsWith(".tsx")) continue;
+      if (entry.name.endsWith(".test.ts") || entry.name.endsWith(".test.tsx")) continue;
+      if (entry.name.endsWith(".d.ts")) continue;
+      if (META_FILES.has(entry.name)) continue;
+      out.push(relative(repoRoot, full).split(sep).join("/"));
+    }
+  };
+  walk(base);
+  return out.sort();
+}
+
+/**
+ * The text inside every SQL tagged template, under EITHER tag name.
+ *
+ * ── WHY THIS IS NOT {@link taggedSql}, WHICH IS THE SAME FUNCTION ONE CHARACTER SHORTER ──
+ * That one matches ``dsql`...` `` only, because `packages/db` imports drizzle's `sql` AS `dsql`
+ * by convention throughout. `apps/api` does not: it imports it as `sql`, which is drizzle's own
+ * export name. So the `dsql`-only matcher, pointed at `apps/api`, reads 437 files and finds no
+ * raw SQL in any of them.
+ *
+ * THAT IS EXACTLY WHAT HAPPENED ON THE FIRST RUN OF THIS SCAN, and it is worth recording rather
+ * than quietly fixing: the repo-wide scan reported ZERO writers in `apps/api` — a clean bill of
+ * health for the workspace it had just been extended to cover — while
+ * `apps/api/src/skills/skills.repository.ts` was, and is, writing `unresolved_phrase` through
+ * ``sql`INSERT INTO unresolved_phrase ...` ``. An audit that returns "nothing found" because it
+ * cannot read the syntax in front of it is worse than no audit, because the empty result gets
+ * quoted.
+ *
+ * `\bd?sql` accepts both tags and still refuses `mysql`/`pgsql`: the word boundary cannot sit
+ * between two word characters, so there is no position in `mysql` where the match can start.
+ */
+function taggedSqlAny(code: string): string {
+  return [...code.matchAll(/\bd?sql`([\s\S]*?)`/g)].map((m) => m[1] ?? "").join("\n");
+}
+
+/**
+ * THE REPO-WIDE WRITER SET. Same detection rules as {@link scanWriters} — a Drizzle builder call
+ * or raw SQL inside a tagged template, comments stripped first — over every root instead of one.
+ *
+ * `.delete(...)` is detected here and not in {@link scanWriters}, deliberately: that function's
+ * result feeds the LIFECYCLE MODEL, which is about how vocabulary is CREATED, and adding deletes
+ * to it would make `validateLifecycle` report maintenance runners as undeclared growth paths.
+ * This function answers a different question — "what can change these tables at all" — and a
+ * delete is squarely inside it.
+ *
+ * DIRECTION OF ERROR IS UNCHANGED AND STILL MATTERS: a writer that assembles its statement
+ * dynamically is missed, so a hit is proof and a miss is not. The scan can under-report a writer,
+ * never invent one.
+ */
+export function scanWritersAcross(
+  repoRoot: string,
+  roots: readonly SpineWriterRoot[] = SPINE_WRITER_ROOTS,
+): WriterScan {
+  const byFile = new Map<string, Set<SpineTable>>();
+  const byTable = new Map<SpineTable, Set<string>>();
+  for (const t of Object.keys(SPINE_TABLES) as SpineTable[]) byTable.set(t, new Set());
+
+  for (const root of roots) {
+    for (const rel of spineSourceFiles(repoRoot, root)) {
+      const code = stripComments(readFileSync(join(repoRoot, ...rel.split("/")), "utf8"));
+      // Both detectors run ONCE per file, not once per table: the raw one captures whatever table
+      // each write statement names, and the loop below asks the resulting set by equality.
+      const written = tablesWrittenIn(taggedSqlAny(code));
+      for (const t of Object.keys(SPINE_TABLES) as SpineTable[]) {
+        const id = SPINE_TABLES[t];
+        const builderHit =
+          code.includes(`.insert(${id})`) ||
+          code.includes(`.update(${id})`) ||
+          code.includes(`.delete(${id})`);
+        const rawHit = written.has(t);
+        if (!builderHit && !rawHit) continue;
+        const set = byFile.get(rel) ?? new Set<SpineTable>();
+        set.add(t);
+        byFile.set(rel, set);
+        byTable.get(t)!.add(rel);
+      }
+    }
+  }
+
+  return { byFile, byTable, writers: new Set(byFile.keys()) };
+}
+
+/**
+ * WHICH TABLES A BLOCK OF SQL WRITES — one LITERAL regex, then string equality in JS.
+ *
+ * ── WHY NOT A PATTERN PER TABLE, WHICH IS THE OBVIOUS SHAPE ────────────────────────────
+ * Because the obvious shape is ``new RegExp(`INSERT\\s+INTO\\s+"?${table}"?…`)``, and that is a
+ * ReDoS shape that `semgrep detect-non-literal-regexp` blocks — a gate this repository has now
+ * been bitten by three times: once in `migration-adoption.ts` (fixed by comparing offsets), once
+ * in `audit-undeclared-routines.ts` (fixed with two literals), and once here, by me, writing the
+ * constructed form the second of those files explicitly documents as the thing NOT to write.
+ *
+ * The precedent's fix is literal patterns, and with two protected columns two literals cost
+ * nothing. Here it would be six tables times four verbs, which is twenty-four literals to keep in
+ * step with a table list — so this inverts it instead: ONE literal matches any write statement and
+ * CAPTURES the table it names, and the caller compares that capture against the table set by
+ * ordinary string equality.
+ *
+ * ── AND THE INVERSION IS STRICTLY BETTER, NOT MERELY SMALLER ──────────────────────────
+ * Equality is a sharper instrument than the `(?![a-z_])` boundary the per-table patterns needed.
+ * The 0093 staging tables are named AFTER the corpus tables they stage for — `skill_candidate`,
+ * `skill_candidate_source` — so a scan that treats `skill` as a prefix flags the review layer's
+ * own guarded write as a corpus write, and the audit then has to be switched off to ship
+ * anything. With a capture, `"skill_candidate" === "skill"` is simply false; there is no boundary
+ * to get wrong.
+ *
+ * It is also one pass over the SQL instead of twenty-four.
+ *
+ * ⚠ The `g` flag makes this regex STATEFUL (`lastIndex`), so it must be used with `matchAll`,
+ * which resets it, and never with `.test()` in a loop.
+ */
+const WRITE_STATEMENT =
+  /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s+"?([a-z_][a-z0-9_]*)"?/gi;
+
+/** Every table named as the target of a write statement in `sql`, lower-cased. */
+export function tablesWrittenIn(sql: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of sql.matchAll(WRITE_STATEMENT)) {
+    const table = (m[1] ?? "").toLowerCase();
+    if (table !== "") out.add(table);
   }
   return out;
 }
