@@ -77,6 +77,16 @@ function makeRedis() {
       if (exists) ttls.set(key, sec);
       return exists ? 1 : 0;
     },
+    async incr(key: string) {
+      calls.push(["incr", key]);
+      // Real INCR treats a missing key as 0 and returns the value AFTER incrementing, so the
+      // first call returns 1. The production code keys its "arm the TTL now" decision off
+      // exactly that, so a double that returned the PRE-increment value would let a broken
+      // TTL pass here.
+      const next = Number(store.get(key) ?? "0") + 1;
+      store.set(key, String(next));
+      return next;
+    },
     async sadd(key: string, ...members: string[]) {
       calls.push(["sadd", key, ...members]);
       const s = sets.get(key) ?? new Set<string>();
@@ -510,6 +520,123 @@ describe("#999 — reuse detection still fails CLOSED, but says which kind it lo
     expect(line).not.toContain(created.refresh.token);
     expect(line).not.toContain(first.minted.refresh.token);
     expect(line).not.toContain("+91");
+  });
+});
+
+describe("#1134 — the reuse SHAPE is counted durably, because the log line is not durable", () => {
+  /**
+   * Drive a lineage into the reuse branch. Same shape as the #999 helper above, but returns
+   * the redis double so the COUNTER (not the log line) can be asserted.
+   */
+  async function reuse(consumeSuccessor: boolean, mutate?: (r: ReturnType<typeof makeRedis>) => void) {
+    const { svc, redis, emit } = setup();
+    const created = await svc.create("worker-1");
+    const first = await svc.refreshByToken(created.refresh.token, "idem-1");
+    if (!first.ok) throw new Error("setup rotation failed");
+    if (consumeSuccessor) {
+      const second = await svc.refreshByToken(first.minted.refresh.token, "idem-2");
+      expect(second.ok).toBe(true);
+    }
+    // Applied AFTER setup so a deliberately-broken redis cannot break the arrangement itself.
+    mutate?.(redis);
+    const replay = await svc.refreshByToken(created.refresh.token, "idem-replay");
+    return { replay, redis, emit, created, svc };
+  }
+
+  /** The one counter key written during a run, or undefined when none was. */
+  function shapeKey(redis: ReturnType<typeof makeRedis>): string | undefined {
+    return [...redis.store.keys()].find((k) => k.startsWith("refresh_reuse_shape:"));
+  }
+
+  it("an honest-retry reuse increments the successor_unused counter", async () => {
+    const { redis } = await reuse(false);
+    const key = shapeKey(redis);
+    expect(key, "no reuse-shape counter was written").toBeDefined();
+    expect(key).toContain(":successor_unused");
+    expect(redis.store.get(key!)).toBe("1");
+  });
+
+  it("a theft-shaped reuse increments a DIFFERENT counter", async () => {
+    const { redis } = await reuse(true);
+    const key = shapeKey(redis);
+    expect(key).toContain(":successor_consumed");
+    // The whole point of the counter is that these two are separable; if one key served both
+    // shapes the number #1134 turns on could never be read back out of it.
+    expect(key).not.toContain(":successor_unused");
+  });
+
+  it("the TTL is armed once, on creation, and outlasts the 30-day window #1134 queries", async () => {
+    const { redis } = await reuse(false);
+    const key = shapeKey(redis)!;
+    const ttl = Reflect.get(SessionService, "REUSE_SHAPE_TTL_SECONDS") as number;
+    expect(redis.ttls.get(key)).toBe(ttl);
+    // Tie the constant to the gate it exists to satisfy: a counter that expired inside the
+    // query window would read as "the rate fell", the one wrong conclusion available here.
+    expect(ttl).toBeGreaterThan(30 * 86400);
+  });
+
+  it("a second reuse on the same day increments without RE-ARMING the TTL", async () => {
+    const { svc, redis, created } = await (async () => {
+      const s = setup();
+      const c = await s.svc.create("worker-1");
+      const f = await s.svc.refreshByToken(c.refresh.token, "idem-1");
+      if (!f.ok) throw new Error("setup rotation failed");
+      await s.svc.refreshByToken(c.refresh.token, "replay-1");
+      return { svc: s.svc, redis: s.redis, created: c };
+    })();
+    // The family is revoked by the first replay, so a second replay of the SAME token now
+    // reads a deleted record and never reaches the counter. Use a second lineage instead.
+    const c2 = await svc.create("worker-2");
+    const f2 = await svc.refreshByToken(c2.refresh.token, "idem-2");
+    expect(f2.ok).toBe(true);
+    await svc.refreshByToken(c2.refresh.token, "replay-2");
+
+    const key = shapeKey(redis)!;
+    expect(redis.store.get(key), "both reuses should land on one daily key").toBe("2");
+    const expiresOnThisKey = redis.calls.filter((c) => c[0] === "expire" && c[1] === key);
+    expect(expiresOnThisKey, "TTL must be armed on creation only, not slid forward").toHaveLength(1);
+    expect(created.refresh.token).toBeTruthy();
+  });
+
+  it("the counter key is PII-free — no worker id, family id, or token material", async () => {
+    const { redis, created, emit } = await reuse(false);
+    const key = shapeKey(redis)!;
+    const evt = emit.mock.calls
+      .map((c) => c[0] as { event_name: string; payload: { worker_id: string; family_id: string } })
+      .find((e) => e.event_name === "worker.refresh_reuse_detected")!;
+    expect(key).not.toContain(evt.payload.worker_id);
+    expect(key).not.toContain(evt.payload.family_id);
+    expect(key).not.toContain(created.refresh.token);
+    expect(key).not.toContain(sha256Hex(created.refresh.token));
+    // A date and one of five compile-time literals, and nothing else.
+    expect(key).toMatch(
+      /^refresh_reuse_shape:\d{4}-\d{2}-\d{2}:(successor_unused|successor_consumed|successor_gone|no_successor|unknown)$/,
+    );
+  });
+
+  it("bucketing is UTC, so the counters join to the events table's UTC day", () => {
+    const keyFor = Reflect.get(SessionService, "reuseShapeKey") as (s: string, at: Date) => string;
+    // 19:00Z is already the NEXT day in IST (00:30), which is the box's timezone. A local-time
+    // bucket would file this under the 16th and quietly desync from the #1134 query, which
+    // truncates `occurred_at` in UTC. Two series disagreeing about where a day starts is
+    // invisible in the numbers themselves — hence a deterministic assertion, not a live clock.
+    expect(keyFor("successor_unused", new Date("2026-03-15T19:00:00Z"))).toBe(
+      "refresh_reuse_shape:2026-03-15:successor_unused",
+    );
+  });
+
+  it("a Redis failure in the counter NEVER stops the family being revoked", async () => {
+    const { replay, redis, emit } = await reuse(false, (r) => {
+      r.client.incr = async () => {
+        throw new Error("redis down");
+      };
+    });
+    // This is the invariant that matters most: telemetry is best-effort, revocation is not.
+    expect(replay).toEqual({ ok: false, reason: "reuse_detected" });
+    expect(
+      emit.mock.calls.map((c) => (c[0] as { event_name: string }).event_name),
+    ).toContain("worker.refresh_reuse_detected");
+    expect(shapeKey(redis), "a failed counter must write nothing").toBeUndefined();
   });
 });
 

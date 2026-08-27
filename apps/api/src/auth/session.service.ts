@@ -25,10 +25,31 @@ interface RedisSessionClient {
   get(key: string): Promise<string | null>;
   del(...keys: string[]): Promise<number>;
   expire(key: string, seconds: number): Promise<number>;
+  /** `INCR key` — returns the value AFTER the increment, so `1` means "created by this call". */
+  incr(key: string): Promise<number>;
   sadd(key: string, ...members: string[]): Promise<number>;
   srem(key: string, ...members: string[]): Promise<number>;
   smembers(key: string): Promise<string[]>;
 }
+
+/**
+ * What a replayed already-used refresh token LOOKS like, derived from the state of the
+ * successor it was rotated into. A CLOSED set on purpose: these literals are interpolated
+ * into a Redis key (`reuseShapeKey`), and a closed union is what keeps that key space
+ * bounded and provably free of anything caller-controlled. Never widen this to `string`.
+ *
+ * - `successor_unused`   nobody consumed the new pair -> signature of an honest lost-response retry
+ * - `successor_consumed` two parties are using one lineage -> signature of theft
+ * - `successor_gone`     the successor record expired before the replay arrived
+ * - `no_successor`       the used record carries no `superseded_by` (pre-#999 record, or a bug)
+ * - `unknown`            the lookup itself failed; never a conclusion, always an absence
+ */
+type ReuseShape =
+  | "successor_unused"
+  | "successor_consumed"
+  | "successor_gone"
+  | "no_successor"
+  | "unknown";
 
 /** JWT claims we sign. `sub` = worker id, `sid` = server-side session id. */
 interface WorkerJwtClaims {
@@ -172,6 +193,21 @@ export class SessionService {
   private static readonly IDEM_GRACE_SECONDS = 180;
 
   /**
+   * #1134 — how long a daily reuse-shape counter is kept (35 days).
+   *
+   * WHY THIS NUMBER. The decision gate #1134 sets for itself is "pull the `successor_unused`
+   * rate over 30 days"; the query in that issue spans `now() - interval '30 days'`. 35 gives
+   * that window five days of slack so a reading taken a little late does not silently come
+   * back short — a truncated window here reads as "the rate fell", which is the one wrong
+   * conclusion this counter exists to prevent.
+   *
+   * WHY A TTL AT ALL, rather than keeping them forever: these are diagnostics for one
+   * bounded decision, not a permanent metric, and an unbounded key space in the session
+   * Redis is how a "temporary" counter becomes a memory leak nobody owns.
+   */
+  private static readonly REUSE_SHAPE_TTL_SECONDS = 35 * 86400;
+
+  /**
    * Rotation-lock TTL (seconds) — the `refresh_lock:<tokenHash>` mutex that stops two
    * concurrent rotations of the SAME token both proceeding.
    *
@@ -230,6 +266,64 @@ export class SessionService {
   }
   private static idemKey(sid: string, idempotencyKey: string): string {
     return `refresh_idem:${sid}:${idempotencyKey}`;
+  }
+
+  /**
+   * #1134 — `refresh_reuse_shape:<YYYY-MM-DD>:<shape>`, bucketed by UTC day.
+   *
+   * UTC, NOT LOCAL TIME. The box runs IST; bucketing on local time would put the day
+   * boundary at 18:30 UTC and make these counters unjoinable with the `events` table, whose
+   * `occurred_at` the #1134 query truncates in UTC. Two series that disagree about where a
+   * day starts are worse than one series, because the disagreement is invisible in the
+   * numbers themselves.
+   *
+   * PII-FREE BY CONSTRUCTION: a date and one of five compile-time literals. No worker id,
+   * no family id, no session id, no token material — nothing that identifies whose family
+   * was revoked, only how many looked like each shape.
+   */
+  private static reuseShapeKey(shape: ReuseShape, at: Date): string {
+    return `refresh_reuse_shape:${at.toISOString().slice(0, 10)}:${shape}`;
+  }
+
+  /**
+   * #1134 — persist the reuse shape as a daily counter, because the log line that carries it
+   * does not survive long enough to be read.
+   *
+   * THE PROBLEM THIS SOLVES. `worker.refresh_reuse_detected` is durable but its payload is
+   * `{worker_id, family_id}` — it can tell you how many families were revoked, never how many
+   * of those were honest retries. That split (`successor_unused` vs `successor_consumed`) is
+   * the ONLY number that decides #1134, and until now it existed solely in the `logger.warn`
+   * below. Container logs do not survive a deploy: the api container is recreated on every
+   * merge to main (an immutable `sha-` image tag + `compose up -d`), and with the default
+   * json-file driver its log dies with it — so the "grep 30 days of logs on the box" fallback
+   * the issue assumes never had 30 days to grep. This makes the number durable instead.
+   *
+   * WHY A COUNTER AND NOT AN EVENT FIELD. Putting `shape` on the event payload is a §3
+   * schema change (a new event version), which is deliberately out of scope for a diagnostic
+   * — see the reuse branch below. This adds no event, changes no payload, and needs no
+   * migration.
+   *
+   * BEST-EFFORT, ALWAYS. Telemetry must never be able to fail a security path: a Redis
+   * hiccup here must not stop the family being revoked. Every error is swallowed, exactly as
+   * the shape lookup itself already degrades to `unknown` rather than throwing.
+   *
+   * TO READ IT (on the box, no new endpoint — reading is deliberately not a new authz
+   * surface): `docker compose exec redis redis-cli --scan --pattern 'refresh_reuse_shape:*'`
+   * then `MGET` the keys, or `GET refresh_reuse_shape:<YYYY-MM-DD>:successor_unused`.
+   */
+  private async countReuseShape(redis: RedisSessionClient, shape: ReuseShape): Promise<void> {
+    try {
+      const key = SessionService.reuseShapeKey(shape, new Date());
+      // Arm the TTL only on the call that CREATED the key (INCR returns the post-increment
+      // value, so 1 == created). Re-arming on every increment would slide the expiry forward
+      // from the last hit instead of the day itself, quietly keeping a busy day's counter
+      // alive well past the retention this constant is documented to give it.
+      if ((await redis.incr(key)) === 1) {
+        await redis.expire(key, SessionService.REUSE_SHAPE_TTL_SECONDS);
+      }
+    } catch {
+      // Diagnostics are never worth failing a revocation over.
+    }
   }
 
   /**
@@ -565,7 +659,7 @@ export class SessionService {
         //
         // Best-effort and PII-free: opaque ids only, and a failed lookup degrades to
         // "unknown" rather than throwing out of a security path.
-        let shape = "unknown";
+        let shape: ReuseShape = "unknown";
         try {
           if (rec.superseded_by) {
             const successor = await redis.get(SessionService.refreshKey(rec.superseded_by));
@@ -585,6 +679,9 @@ export class SessionService {
           `refresh reuse detected worker=${rec.worker_id} family=${rec.family_id} shape=${shape} ` +
             `(successor_unused = probably an honest lost-response retry, not theft — see #999)`,
         );
+        // #1134 — and keep the shape somewhere that outlives the container this log line
+        // dies with. Best-effort: cannot throw, cannot change what happens next.
+        await this.countReuseShape(redis, shape);
 
         await this.revokeFamily(redis, rec.family_id, rec.sid, rec.worker_id);
         await this.events.emit({
