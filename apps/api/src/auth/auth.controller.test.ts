@@ -139,6 +139,11 @@ function make() {
     TEST_LOGIN_MAX_PER_DAY: 200,
     // QA-ONLY immediate hard-delete seam — DEFAULT OFF, so the route 404s unless a case flips it.
     TEST_IMMEDIATE_DELETE_ENABLED: false,
+    // #1264 — EMPTY by default, which the handler reads as unrestricted. That keeps every case
+    // written before the allowlist describing the same server it always did; the cases that
+    // exercise the allowlist populate it explicitly. Note this is only reachable in a non-prod
+    // environment: `assertAuthConfig` refuses to boot on an empty list anywhere else.
+    TEST_IMMEDIATE_DELETE_WORKER_IDS: [] as readonly string[],
   } as ServerConfig;
   const controller = new AuthController(
     auth as unknown as AuthService,
@@ -922,6 +927,87 @@ describe("AuthController", () => {
     expect(json).toBe('{"ok":true}');
     expect(json).not.toMatch(/phone|full_?name|1111/i);
   });
+
+  // ── #1264 — the allowlist half ────────────────────────────────────────────────────────────
+  //
+  // Hiding the button in the release APK hides the AFFORDANCE, not the ROUTE: this endpoint is
+  // ordinary HTTP and the flag is server-wide, so on a production backend the boolean alone would
+  // arm OTP-less irreversible self-deletion for every authenticated worker, reachable by curl
+  // with any valid token. The allowlist is what makes the blast radius enumerable.
+
+  const OTHER_WORKER = { ...WORKER, id: "99999999-9999-4999-8999-999999999999" };
+
+  it("accountDeleteImmediate: FLAG ON + caller ON the allowlist → the erasure runs", async () => {
+    const { controller, accountDeletion, config } = make();
+    config.TEST_IMMEDIATE_DELETE_ENABLED = true;
+    config.TEST_IMMEDIATE_DELETE_WORKER_IDS = [WORKER.id, OTHER_WORKER.id];
+    const res = await controller.accountDeleteImmediate(WORKER);
+    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id);
+    expect(res).toEqual({ ok: true });
+  });
+
+  it("accountDeleteImmediate: FLAG ON + caller NOT on the allowlist → 404 and NOTHING is erased", async () => {
+    // This is the case the whole change exists for: on the production backend a real worker's
+    // token must not be able to destroy their account through this seam, button or no button.
+    const { controller, accountDeletion, workers, config } = make();
+    config.TEST_IMMEDIATE_DELETE_ENABLED = true;
+    config.TEST_IMMEDIATE_DELETE_WORKER_IDS = [OTHER_WORKER.id];
+    await expect(controller.accountDeleteImmediate(WORKER)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(accountDeletion.execute).not.toHaveBeenCalled();
+    expect(workers.hardDelete).not.toHaveBeenCalled();
+  });
+
+  it("accountDeleteImmediate: a rejected caller gets the SAME neutral 404 as a disabled seam", async () => {
+    // No oracle. If "configured but you are not permitted" were distinguishable from "no such
+    // route", the endpoint would tell an attacker which accounts ARE the developer accounts —
+    // the one fact that makes targeting the allowlist worth doing.
+    const { controller, config } = make();
+    config.TEST_IMMEDIATE_DELETE_ENABLED = true;
+    config.TEST_IMMEDIATE_DELETE_WORKER_IDS = [OTHER_WORKER.id];
+    const rejected = await controller.accountDeleteImmediate(WORKER).catch((e: unknown) => e);
+
+    const off = make();
+    const disabled = await off.controller.accountDeleteImmediate(WORKER).catch((e: unknown) => e);
+
+    expect(rejected).toBeInstanceOf(NotFoundException);
+    expect((rejected as NotFoundException).message).toBe((disabled as NotFoundException).message);
+    expect((rejected as NotFoundException).getStatus()).toBe(
+      (disabled as NotFoundException).getStatus(),
+    );
+  });
+
+  it("accountDeleteImmediate: the allowlist is matched on the TOKEN's id, never a body", async () => {
+    // Same identity source as every other deletion route. An allowlist checked against anything
+    // caller-supplied would be decoration.
+    const { controller, accountDeletion, config } = make();
+    config.TEST_IMMEDIATE_DELETE_ENABLED = true;
+    config.TEST_IMMEDIATE_DELETE_WORKER_IDS = [WORKER.id];
+    await controller.accountDeleteImmediate({ ...WORKER, id: WORKER.id });
+    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id);
+  });
+
+  it("accountDeleteImmediate: an EMPTY allowlist stays unrestricted — today's QA box is unchanged", async () => {
+    // Not a fail-open: `assertAuthConfig` refuses to boot with an empty list outside
+    // development/test/staging, so this branch is unreachable in production by construction.
+    const { controller, accountDeletion, config } = make();
+    config.TEST_IMMEDIATE_DELETE_ENABLED = true;
+    config.TEST_IMMEDIATE_DELETE_WORKER_IDS = [];
+    await expect(controller.accountDeleteImmediate(WORKER)).resolves.toEqual({ ok: true });
+    expect(accountDeletion.execute).toHaveBeenCalledWith(WORKER.id);
+  });
+
+  it("accountDeleteImmediate: the allowlist NEVER overrides the flag — off is off", async () => {
+    // Both names, or nothing. A populated list must not become a second way to arm the seam.
+    const { controller, accountDeletion, config } = make();
+    config.TEST_IMMEDIATE_DELETE_ENABLED = false;
+    config.TEST_IMMEDIATE_DELETE_WORKER_IDS = [WORKER.id];
+    await expect(controller.accountDeleteImmediate(WORKER)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(accountDeletion.execute).not.toHaveBeenCalled();
+  });
 });
 
 /**
@@ -988,6 +1074,11 @@ describe("#1239 — accountDeleteImmediate with the REAL AccountDeletionService 
       ACCOUNT_DELETION_COOLDOWN_SECONDS: 604800,
       ACCOUNT_DELETION_GRACE_DAYS: 7,
       TEST_IMMEDIATE_DELETE_ENABLED: true,
+      // #1264 — EMPTY, i.e. unrestricted, because this block is about the COMPLETENESS of the
+      // erasure and not about who may trigger it. The schema always produces an array (its
+      // default is `[]`), so omitting it here would only make this double lie about the type —
+      // which is exactly what it did, and the handler crashed on `undefined.length`.
+      TEST_IMMEDIATE_DELETE_WORKER_IDS: [] as readonly string[],
     } as unknown as ServerConfig;
 
     const realAccountDeletion = new AccountDeletionService(
