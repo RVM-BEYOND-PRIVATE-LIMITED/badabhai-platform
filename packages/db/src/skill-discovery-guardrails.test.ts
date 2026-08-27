@@ -16,6 +16,8 @@ import { join } from "node:path";
 
 import { MATCH_SKILLS, SKILL_CORPUS } from "@badabhai/taxonomy";
 
+import { taxonomySkillIdFor } from "./taxonomy-corpus";
+
 import {
   approvedCandidateToCorpusSkill,
   assertDryRunSafe,
@@ -227,6 +229,85 @@ describe("no domain alias becomes a production skill", () => {
     const body = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
     for (const forbidden of ["UPDATE skill ", "UPDATE skill_alias", "DELETE FROM skill", "INSERT INTO job_domain_skill", "TRUNCATE"]) {
       expect(body.toUpperCase()).not.toContain(forbidden.toUpperCase());
+    }
+  });
+
+  it("the BACKFILL runner touches one column on one table, and derives its target", () => {
+    // The runner that closes the audit loop: after the offline chain mints a skill, it stamps
+    // `resulting_skill_id` on the approval that asked for it. It is the ONLY writer of that
+    // column, which makes it the one place a false "this approval shipped" could be recorded.
+    const src = readFileSync(join(__dirname, "backfill-resulting-skill.ts"), "utf8");
+    const body = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+    // ONE table. `skill_candidate` and nothing else — not the corpus it is reading ABOUT.
+    const updated = [...body.matchAll(/UPDATE\s+([a-z_]+)/gi)].map((m) => (m[1] ?? "").toLowerCase());
+    expect(updated).toEqual(["skill_candidate"]);
+    for (const verb of ["INSERT INTO", "DELETE FROM", "TRUNCATE", "ALTER TABLE", "DROP "]) {
+      expect(body.toUpperCase()).not.toContain(verb);
+    }
+
+    // ONE column, plus the timestamp. The SET clause is EXTRACTED and read as a list of assigned
+    // columns rather than pattern-matched inside the whole statement: `status` and
+    // `resulting_skill_id` both legitimately appear in the guarded WHERE two lines below, so any
+    // assertion that spans the statement either passes vacuously or fails on the guard it is
+    // supposed to be protecting. (The first version of this did exactly that, in both directions.)
+    const setClauses = [...body.matchAll(/\bSET\s+([\s\S]*?)\s+WHERE\b/g)].map((m) => m[1] ?? "");
+    expect(setClauses).toHaveLength(1);
+    const assigned = (setClauses[0] ?? "")
+      .split(",")
+      .map((part) => (part.trim().split(/\s*=/)[0] ?? "").trim())
+      .filter((c) => c !== "");
+    // Not `status` (the decision was already made), not the reviewer triple (a backfill is not a
+    // review), and none of the 19 frozen provenance fields.
+    expect(assigned).toEqual(["resulting_skill_id", "updated_at"]);
+    for (const field of PROVENANCE_FIELDS) {
+      expect(assigned).not.toContain(field);
+    }
+    for (const field of ["status", "reviewer_admin_id", "reviewed_at", "review_reason"]) {
+      expect(assigned).not.toContain(field);
+    }
+
+    // The guarded WHERE re-states every precondition, because the plan is a read and a read does
+    // not hold. Without the NULL term this would OVERWRITE a resolution somebody else recorded.
+    expect(body).toContain("AND status = 'approved_create'");
+    expect(body).toContain("AND resulting_skill_id IS NULL");
+
+    // NO `--skill-id` FLAG, AND THERE MUST NEVER BE ONE. An operator who can name the target can
+    // point any approval at any skill in the corpus, which is `approved_map` without the review,
+    // the reason or the reviewer. The id is derived from the reviewer's own approved label.
+    expect(body).not.toContain('arg("skill-id")');
+    expect(body).not.toContain('arg("skill")');
+    expect(body).toContain("taxonomySkillIdFor(label)");
+
+    // The match-skill wall at the last point before a write, by prefix AND by membership.
+    expect(body).toContain("MATCH_SKILL_IDS.has");
+    expect(body).toContain("MATCH_SKILL_PREFIX");
+  });
+
+  it("the backfill looks for exactly the id the export path would have minted", () => {
+    // THE CORRECTNESS PROPERTY, and it is testable purely. The runner searches `skill` for
+    // `taxonomySkillIdFor(proposed_skill_name)`; the export path mints
+    // `approvedCandidateToCorpusSkill(...).skill_id` from the same label. If those two ever
+    // disagreed, the backfill would look for a skill the chain never created and every approval
+    // would sit in `not_shipped_yet` forever — a silent stall, since that bucket is the ORDINARY
+    // state of an approval waiting on the offline chain and is only counted, never named.
+    for (const label of [
+      "Shuttering Erection",
+      "Arc Welding",
+      "CNC Setup & Operation",
+      "  Sanitary Fixture Installation  ",
+      "Rebar Bending (Manual)",
+    ]) {
+      const approved = candidate({
+        status: "approved_create",
+        proposed_skill_name: label,
+        reviewer_admin_id: "00000000-0000-0000-0000-0000000000ad",
+        reviewed_at: "2026-08-26T13:00:00.000Z",
+        review_reason: "names a competency, not an occupation",
+      } as Partial<SkillCandidateRecord>);
+      expect(taxonomySkillIdFor(label.trim())).toBe(
+        approvedCandidateToCorpusSkill(approved).skill_id,
+      );
     }
   });
 

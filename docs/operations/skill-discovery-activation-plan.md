@@ -240,14 +240,27 @@ approved label by a pure function rather than supplied by anyone.
 
 | # | item | owner | status |
 |---|---|---|---|
-| 1 | `db:persist:discovery-run` — write a plan's candidates into `skill_candidate*` | backend | **not built** |
-| 2 | Admin APIs — queue / detail / decide / metrics | backend | in progress |
-| 3 | Approval → `resulting_skill_id` backfill after Step 7 | backend | **not built** |
-| 4 | Admin review UI | frontend (`apps/admin-web`) | **issue to be raised** |
+| 1 | `db:persist:discovery-run` — write a plan's candidates into `skill_candidate*` | backend | **built** |
+| 2 | Admin APIs — queue / detail / decide / metrics | backend | **built** |
+| 3 | Approval → `resulting_skill_id` backfill after Step 7 | backend | **built** — `db:backfill:resulting-skill` |
+| 4 | Admin review UI | frontend (`apps/admin-web`) | issue [#1260](https://github.com/RVM-BEYOND-PRIVATE-LIMITED/badabhai-platform/issues/1260) raised |
 
-Items 1 and 3 are small and unblocked. Item 3 is what closes the audit loop: after Step 7 mints
-the skill, the `approved_create` candidate's `resulting_skill_id` is backfilled, which is also
-the honest answer to *"did this approval ever ship?"*
+**The backend is complete.** Item 3 closes the audit loop: after Step 7 mints the skill, the
+`approved_create` candidate's `resulting_skill_id` is stamped, which is also the honest answer to
+*"did this approval ever ship?"*.
+
+Two things about item 3 are worth knowing before running it. It DERIVES its target —
+`taxonomySkillIdFor(proposed_skill_name)`, the same pure function the export path mints with — and
+there is no `--skill-id` flag, because an operator who can name the target can point any approval
+at any skill in the corpus, which is `approved_map` without the review, the reason or the reviewer.
+And it therefore reports a label/skill mismatch as `not_shipped_yet` rather than guessing: the run
+prints the derived id so a human can see exactly what was looked for.
+
+It is PLAN by default, and `--apply` against production additionally needs
+`--i-am-authorised-to-write-to-production` and `OPS_ALLOW_PRODUCTION=backfill:resulting-skill`.
+It writes one column on one table, and the guarded `WHERE` requires
+`status = 'approved_create' AND resulting_skill_id IS NULL`, so it can never overwrite a
+resolution somebody else recorded.
 
 ---
 
