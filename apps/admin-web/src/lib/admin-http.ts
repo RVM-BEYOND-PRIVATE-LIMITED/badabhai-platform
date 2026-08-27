@@ -45,10 +45,20 @@ export class AdminForbiddenError extends Error {
 /** Anything else: 4xx we don't special-case, 5xx, network, or a schema mismatch. */
 export class AdminRequestError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  /**
+   * The raw `error` object from `AllExceptionsFilter`'s envelope, when the body parsed as one.
+   * Every existing caller reads only `.message`/`.status`; this is additive for the one route
+   * whose 4xx body carries more than a message — the skill-discovery decision conflict, which
+   * needs `conflict` / `current_status` / `expected_status` to render the right recovery copy
+   * rather than a generic refusal. `undefined` on every degraded body (HTML, empty, non-object),
+   * so a caller can never mistake "no body parsed" for "an empty object was returned".
+   */
+  readonly body?: Record<string, unknown>;
+  constructor(status: number, message: string, body?: Record<string, unknown>) {
     super(message);
     this.name = "AdminRequestError";
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -108,25 +118,34 @@ function capErrorMessage(message: string): string {
  * operator. It now falls through to the status-only text: an intermediary's error page is
  * never the server explaining a refusal, so there is nothing there worth showing.
  */
-async function describeErrorBody(res: Response): Promise<string> {
+interface ErrorEnvelope {
+  message: string;
+  /** The `error` object itself, when the body parsed as one — see `AdminRequestError.body`. */
+  body: Record<string, unknown> | undefined;
+}
+
+async function describeErrorBody(res: Response): Promise<ErrorEnvelope> {
   const fallback = `The admin API returned ${res.status}.`;
   try {
     // A non-JSON body (an HTML 404 from a proxy, an empty body) rejects here → fallback.
     const body: unknown = await res.json();
-    if (typeof body !== "object" || body === null || !("error" in body)) return fallback;
-    const inner = (body as { error: unknown }).error;
-    if (
-      typeof inner === "object" &&
-      inner !== null &&
-      "message" in inner &&
-      typeof (inner as { message: unknown }).message === "string" &&
-      (inner as { message: string }).message.length > 0
-    ) {
-      return capErrorMessage((inner as { message: string }).message);
+    if (typeof body !== "object" || body === null || !("error" in body)) {
+      return { message: fallback, body: undefined };
     }
-    return fallback;
+    const inner = (body as { error: unknown }).error;
+    if (typeof inner !== "object" || inner === null) {
+      return { message: fallback, body: undefined };
+    }
+    const record = inner as Record<string, unknown>;
+    const message =
+      "message" in record &&
+      typeof record.message === "string" &&
+      record.message.length > 0
+        ? capErrorMessage(record.message)
+        : fallback;
+    return { message, body: record };
   } catch {
-    return fallback;
+    return { message: fallback, body: undefined };
   }
 }
 
@@ -185,7 +204,8 @@ export async function adminFetch<T>(path: string, opts: RequestOptions<T> = {}):
   if (res.status === 403) throw new AdminForbiddenError();
 
   if (!res.ok) {
-    throw new AdminRequestError(res.status, await describeErrorBody(res));
+    const { message, body } = await describeErrorBody(res);
+    throw new AdminRequestError(res.status, message, body);
   }
 
   if (!opts.schema) return undefined as T;
