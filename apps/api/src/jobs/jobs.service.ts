@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import type { JobNeededBy, JobShift, TradeKey } from "@badabhai/db";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
+import { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import { JobsRepository } from "./jobs.repository";
 import type { JobSearchQueryDto } from "./jobs.dto";
 
@@ -81,6 +82,10 @@ export class JobsService {
     // #822 only — the detail read above still emits nothing (ADR-0024 §"Event ruling"). Search
     // is a new worker ACTION, not a re-read of already-served content, so it gets its own event.
     private readonly events: EventsService,
+    // #1240 — the worker's own skill ids, for the empty-box profile fallback. No import edge
+    // is needed for this: MatchModule is `@Global` precisely so leaf consumers like this one
+    // do not each wire an edge to it (see its header).
+    private readonly workerSkills: WorkerSkillsRepository,
   ) {}
 
   /**
@@ -159,9 +164,24 @@ export class JobsService {
     ctx: RequestContext,
   ): Promise<JobSearchResponse> {
     const offset = (query.page - 1) * query.limit;
+
+    // #1240 — an empty role/skill box means "jobs like MINE", not "every open job". The
+    // worker's own wanted skill ids become the membership filter in that case.
+    //
+    // LOADED ONLY WHEN IT WILL BE USED. A typed `q` overrides the profile entirely, so
+    // fetching the ids on that path would be a round trip whose result is discarded on every
+    // keystroke-driven search — the common case. `query.q` is already trimmed-then-undefined
+    // by JobSearchQuerySchema, so "absent" and "blank" are the same state here and this needs
+    // no second emptiness rule of its own.
+    const profileSkillIds = query.q === undefined ? await this.workerSkills.listWantedSkillIds(workerId) : [];
+    // Distinct from `profileSkillIds.length > 0`: this says the fallback was ENGAGED, which is
+    // false both when the worker typed a term and when they have no profile to fall back on.
+    const usedProfileFallback = query.q === undefined && profileSkillIds.length > 0;
+
     const { rows, hasMore } = await this.repo.searchOpenPostings({
       workerId,
       q: query.q ?? null,
+      profileSkillIds,
       city: query.city ?? null,
       state: query.state ?? null,
       limit: query.limit,
@@ -182,6 +202,12 @@ export class JobsService {
           result_count: rows.length,
           page: query.page,
           limit: query.limit,
+          // #1240 — how often the empty box actually resolves to a profile. PII-FREE: a
+          // boolean, never which skills. Without it "has_query=false" conflates the two
+          // populations this change creates — profiled workers who got a narrowed list, and
+          // unprofiled ones who still got everything — and those are the two numbers anyone
+          // measuring this feature needs told apart.
+          used_profile_fallback: usedProfileFallback,
         },
         // A search is NOT idempotent — two identical searches are two real events — so the key
         // is the REQUEST, not the query. Same request replayed (a client retry on a dropped
