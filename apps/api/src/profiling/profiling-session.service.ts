@@ -166,6 +166,9 @@ export class ProfilingSessionService {
       text,
       ctx,
       dto.submission_id ?? null,
+      // TYPED OR TAPPED, never spoken — this is the text/chip branch. The spoken branch is
+      // `spokenAnswer`, which passes the real clip id.
+      null,
     );
     return { step: this.stepOfOutcome(outcome) };
   }
@@ -248,6 +251,11 @@ export class ProfilingSessionService {
       transcribed.text,
       ctx,
       dto.submission_id ?? null,
+      // THE CLIP THAT PRODUCED THESE WORDS (#1244). This is the one call site in the system
+      // that has a real id to pass, and passing it is what finally makes a spoken answer
+      // distinguishable from a typed one in `chat_messages` — and traceable back to the audio
+      // it came from, for as long as that audio exists.
+      voiceNoteId,
     );
     return { step: this.stepOfOutcome(outcome) };
   }
@@ -552,7 +560,16 @@ export class ProfilingSessionService {
     // worker submission behind this call. `FINALIZE_MARKER` is server-synthesised, and attaching
     // an id "for consistency" would make it a stampable turn carrying a client's id for something
     // the client never sent.
-    const outcome = await this.chatService.runTurn(workerId, sessionId, FINALIZE_MARKER, ctx, null);
+    // The trailing `null` is the clip id, absent here for exactly the reason the submission id
+    // is: `FINALIZE_MARKER` is server-synthesised and no worker spoke it.
+    const outcome = await this.chatService.runTurn(
+      workerId,
+      sessionId,
+      FINALIZE_MARKER,
+      ctx,
+      null,
+      null,
+    );
     const committed =
       outcome.kind === "reflushed" ? outcome.flushed : outcome.kind === "session_over";
     if (!committed) {

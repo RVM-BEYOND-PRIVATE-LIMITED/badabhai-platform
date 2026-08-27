@@ -287,6 +287,19 @@ export interface TurnInput {
    */
   readonly submissionId: string | null;
   /**
+   * The `voice_notes` row these words were SPOKEN into, or `null` when the worker typed them.
+   *
+   * REQUIRED AND NULLABLE for the same reason {@link submissionId} is, and it is the same class
+   * of defect: the caller that knows a clip produced this turn is `ProfilingSessionService`,
+   * and if it can silently omit the id then a spoken answer is recorded as typed with nothing
+   * anywhere saying so. Required makes the omission a BUILD failure; every caller with no clip
+   * behind it — a typed turn, `openTurn`, the finalize re-drive — passes `null` in as many words.
+   *
+   * Threaded through the buffer rather than written at the turn, because `chat_messages` is
+   * written ONCE at flush and this is the only way the fact survives that far.
+   */
+  readonly voiceNoteId: string | null;
+  /**
    * Correlation for the two occupation events this turn may emit. Threaded through rather than
    * synthesised so a placement can be traced back to the HTTP request that produced it.
    */
@@ -763,7 +776,12 @@ export class ProfilingOrchestrator {
       const at = input.now.toISOString();
       const opened: TranscriptBuffer = {
         ...buffer,
-        messages: [...buffer.messages, { role: "assistant" as const, text: reply, at }],
+        // The opening line is the platform's, so it carries no clip — see the worker/assistant
+        // split in `takeTurn`'s append.
+        messages: [
+          ...buffer.messages,
+          { role: "assistant" as const, text: reply, at, voiceNoteId: null },
+        ],
         profiling: next,
       };
 
@@ -777,6 +795,8 @@ export class ProfilingOrchestrator {
           // without a worker having sent anything, so there is no client id to carry and
           // inventing one would stamp a submission that never happened.
           submissionId: null,
+          // And no clip either, for the same reason: nothing was spoken to open the screen.
+          voiceNoteId: null,
           ctx: input.ctx,
         });
         return {
@@ -2014,8 +2034,11 @@ export class ProfilingOrchestrator {
           // BOTH SIDES, VERBATIM — including an abusive turn. `excludeFromParse` keeps it away
           // from the model; it must still reach the audit, or the record of what a worker was
           // asked and answered has a hole in it exactly where a dispute would look.
-          { role: "worker" as const, text: input.text, at },
-          { role: "assistant" as const, text: result.reply, at },
+          // THE PROVENANCE LANDS ON THE WORKER LINE ONLY. `input.voiceNoteId` describes the
+          // clip the worker spoke; the reply below it is the platform's own text and can never
+          // have one, so it is `null` structurally rather than by omission.
+          { role: "worker" as const, text: input.text, at, voiceNoteId: input.voiceNoteId },
+          { role: "assistant" as const, text: result.reply, at, voiceNoteId: null },
         ],
         profiling: stamped,
         ...(result.complete ? { completedAt: at } : {}),

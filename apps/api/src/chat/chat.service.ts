@@ -304,6 +304,10 @@ export class ChatService {
       dto.text,
       ctx,
       dto.submission_id ?? null,
+      // TYPED, ALWAYS. This is `POST /chat/message`, whose DTO has no clip slot — a voice note
+      // reaches chat only after the worker has confirmed its transcript, and it arrives here as
+      // ordinary text. If that route ever grows a clip id, this is the line that must change.
+      null,
     );
     switch (outcome.kind) {
       case "session_over":
@@ -415,6 +419,16 @@ export class ChatService {
      * honest to pass has to say so in as many words.
      */
     submissionId: string | null,
+    /**
+     * The `voice_notes` row this turn's words were SPOKEN into, or `null` when typed (#1244).
+     *
+     * REQUIRED RATHER THAN OPTIONAL, matching `submissionId` directly above and for the same
+     * reason: the only caller that knows a clip produced this turn is `ProfilingSessionService`,
+     * and an optional parameter would let it forget — recording a spoken answer as typed, which
+     * is the exact defect this closes. Threaded to the buffer, not written here: `chat_messages`
+     * is written once at flush, and this is how the fact survives to it.
+     */
+    voiceNoteId: string | null,
   ): Promise<ChatTurnOutcome> {
     const dto = { session_id: sessionId, text };
     const session = await this.chat.findSession(dto.session_id);
@@ -504,6 +518,7 @@ export class ChatService {
       text: dto.text,
       now,
       submissionId,
+      voiceNoteId,
       ctx,
     });
 
@@ -807,8 +822,12 @@ export class ChatService {
               session_id: sessionId,
               worker_id: workerId,
               message_id: row.id,
-              message_type: "text",
-              ...(inbound ? { has_voice_note: false } : {}),
+              // READ OFF THE STORED ROW, never re-asserted here (#1244). Both of these were
+              // hardcoded — `"text"` and `false` — so a spoken turn emitted an audit event
+              // actively DENYING it was spoken. Deriving them from `row` makes the event and
+              // the row it describes structurally incapable of disagreeing.
+              message_type: row.messageType,
+              ...(inbound ? { has_voice_note: row.voiceNoteId !== null } : {}),
             },
             idempotencyKey: `${inbound ? "chat.message_received" : "chat.message_sent"}:${row.id}`,
             correlationId: ctx.correlationId,
@@ -1017,8 +1036,10 @@ export class ChatService {
             session_id: sessionId,
             worker_id: workerId,
             message_id: row.id,
-            message_type: "text",
-            ...(inbound ? { has_voice_note: false } : {}),
+            // Same derivation as the completion flush above — the abandonment sweep writes
+            // real `chat_messages` rows, so its events must describe them just as honestly.
+            message_type: row.messageType,
+            ...(inbound ? { has_voice_note: row.voiceNoteId !== null } : {}),
           },
           idempotencyKey: `${inbound ? "chat.message_received" : "chat.message_sent"}:${row.id}`,
           correlationId: ctx.correlationId,
@@ -1142,7 +1163,15 @@ export class ChatService {
       sessionId,
       workerId,
       direction: m.role === "worker" ? ("inbound" as const) : ("outbound" as const),
-      messageType: "text" as const,
+      // PROVENANCE, from the line itself (#1244). This used to be a hardcoded `"text"`, which
+      // did not merely omit the fact that an answer was spoken — it asserted the opposite, on
+      // the row that IS the audit spine. `voice_note_id` and the `"voice"` message type both
+      // already existed in the schema and were dead; this is what writes them.
+      messageType: m.voiceNoteId === null ? ("text" as const) : ("voice" as const),
+      // The FK is SET NULL, so a clip erased by a DSAR leaves the line and drops the pointer —
+      // the words a worker said survive their audio being destroyed, which is the correct
+      // asymmetry for an audit trail.
+      voiceNoteId: m.voiceNoteId,
       // Verbatim. An assistant line still carries the literal `{{worker_name}}`
       // placeholder here — the real name is interpolated ONLY into the live reply.
       bodyText: m.text,

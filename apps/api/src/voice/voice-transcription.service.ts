@@ -121,7 +121,9 @@ export class VoiceTranscriptionService {
         // worker ref, so every one of those calls today is spend nothing records. Set only for
         // THIS surface; `GET /voice/:id` still returns `transcript_english` for chat notes,
         // because flipping the default would change a shipped response.
-        { terminal: true, translateToEnglish: false },
+        // `rejectMock` because THIS is the answer-of-record surface: what comes back becomes a
+        // `worker_attributes` value and a `chat_messages` line. See the guard in `transcribe`.
+        { terminal: true, translateToEnglish: false, rejectMock: true },
       );
     } catch (err) {
       // `transcribe` has already written the terminal record and the one failed event. All that
@@ -154,7 +156,11 @@ export class VoiceTranscriptionService {
    */
   async transcribe(
     job: VoiceTranscriptionJobData,
-    { terminal, translateToEnglish }: { terminal: boolean; translateToEnglish?: boolean },
+    {
+      terminal,
+      translateToEnglish,
+      rejectMock,
+    }: { terminal: boolean; translateToEnglish?: boolean; rejectMock?: boolean },
   ): Promise<{ voice_note_id: string }> {
     const { voiceNoteId, workerId, languageCode, aiJobId, correlationId, requestId } = job;
 
@@ -315,6 +321,26 @@ export class VoiceTranscriptionService {
       // record is identical.
       if (result.error_code) {
         throw new Error(`transcription degraded: ${result.error_code}`);
+      }
+
+      // A MOCK TRANSCRIPT IS NOT AN ANSWER, AND IT DOES NOT LOOK LIKE A FAILURE (#1246).
+      //
+      // On the mock path the adapter returns a canned, plausible Hinglish sentence — "main vmc
+      // operator hoon, char saal ka experience…" — with `is_mock: true` and NO `error_code`. The
+      // check above therefore passes it, and it is stored as the worker's words, copied into
+      // `chat_messages` at flush, and fed to extraction. Mock is the DEFAULT posture
+      // (`AI_ENABLE_REAL_CALLS=false`), so on any surface that takes an answer of record this
+      // would give every worker the same fabricated trade and the same four years of experience.
+      //
+      // OPT-IN PER CALLER rather than a blanket refusal, because the mock path is legitimately
+      // how the voice pipeline is exercised end-to-end without a provider — that is the
+      // documented staging handset check, and it runs on the chat voice-note route. Only the
+      // surfaces where a transcript BECOMES a durable answer pass `rejectMock`.
+      //
+      // Routed through the same `transcription degraded:` shape as a real failure so it lands in
+      // the one place that already knows how to tell a worker their words did not arrive.
+      if (rejectMock && result.is_mock) {
+        throw new Error(`transcription degraded: stt_mock_transcript`);
       }
 
       // Persist the transcript + English translation ONLY on the voice_notes row

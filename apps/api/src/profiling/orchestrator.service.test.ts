@@ -257,12 +257,19 @@ const CTX = { correlationId: "11111111-1111-4111-8111-111111111111", requestId: 
  * inbound with NO id and therefore takes the hash + window path unchanged — which is what makes
  * "the legacy behaviour is byte-identical" a property of the code rather than a claim in a PR.
  */
-const say = (text: string, at: Date = T0, submissionId: string | null = null) => ({
+const say = (
+  text: string,
+  at: Date = T0,
+  submissionId: string | null = null,
+  voiceNoteId: string | null = null,
+) => ({
   sessionId: SESSION,
   workerId: WORKER,
   text,
   now: at,
   submissionId,
+  // Defaults to TYPED, which is what all but the spoken-provenance tests mean.
+  voiceNoteId,
   ctx: CTX as never,
 });
 
@@ -282,8 +289,25 @@ describe("the first turn", () => {
     const { orchestrator, store } = makeWorld();
     await orchestrator.takeTurn(say("shuru karein"));
     expect(store.get(SESSION)?.messages).toEqual([
-      { role: "worker", text: "shuru karein", at: T0.toISOString() },
-      { role: "assistant", text: CITY.prompt_text, at: T0.toISOString() },
+      // `voiceNoteId: null` on BOTH lines — this turn was typed. The spoken case is pinned
+      // just below; the two together are what make provenance a property of the buffer.
+      { role: "worker", text: "shuru karein", at: T0.toISOString(), voiceNoteId: null },
+      { role: "assistant", text: CITY.prompt_text, at: T0.toISOString(), voiceNoteId: null },
+    ]);
+  });
+
+  it("stamps the CLIP on the worker line when the turn was spoken, never on the reply", async () => {
+    // THE PROVENANCE SPINE (#1244). `toMessageRow` reads this field to decide `message_type`
+    // and `voice_note_id` on the `chat_messages` row, and the buffer is the only thing that
+    // survives from the turn to the flush — so if it is dropped here, a spoken answer is
+    // recorded as typed with nothing anywhere saying so.
+    const CLIP = "55555555-5555-4555-8555-555555555555";
+    const { orchestrator, store } = makeWorld();
+    await orchestrator.takeTurn(say("shuru karein", T0, null, CLIP));
+    expect(store.get(SESSION)?.messages).toEqual([
+      { role: "worker", text: "shuru karein", at: T0.toISOString(), voiceNoteId: CLIP },
+      // The platform does not speak into `voice_notes`; its own line can never carry a clip.
+      { role: "assistant", text: CITY.prompt_text, at: T0.toISOString(), voiceNoteId: null },
     ]);
   });
 
@@ -1931,7 +1955,7 @@ describe("openTurn — putting the first question on screen", () => {
     // The whole reason this method exists rather than `takeTurn("")`: an empty inbound line here
     // is read by the end-of-interview parse call as the worker having said nothing at all.
     expect(saved?.messages).toEqual([
-      { role: "assistant", text: CITY.prompt_text, at: T0.toISOString() },
+      { role: "assistant", text: CITY.prompt_text, at: T0.toISOString(), voiceNoteId: null },
     ]);
     expect(saved?.turnCount).toBe(0);
   });
@@ -2047,7 +2071,9 @@ describe("openTurn — putting the first question on screen", () => {
           turnCount: 0,
           captured: {},
           roleFamily: "",
-          messages: [{ role: "assistant", text: CITY.prompt_text, at: T0.toISOString() }],
+          messages: [
+            { role: "assistant", text: CITY.prompt_text, at: T0.toISOString(), voiceNoteId: null },
+          ],
           startedAt: T0.toISOString(),
           profiling: {
             ...emptyProfilingEnvelope(),
