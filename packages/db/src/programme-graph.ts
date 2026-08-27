@@ -358,7 +358,11 @@ export const PROGRAMME: readonly ProgrammeItem[] = [
       "an IDENTICAL body whether disabled or unresolved (by design), Langfuse — the one route " +
       "that would observe the branch the process actually took — returns 401 with the " +
       "credentials available, and no SSH key or AWS CLI is present on the operator workstation. " +
-      "This is BLOCKED_ON_INFRA in the strict sense: not unknowable, just not knowable from here.",
+      "This is BLOCKED_ON_INFRA in the strict sense: not unknowable, just not knowable from here. " +
+      "activation-procedure-2026-08-27.md carries the full 16-step procedure, its five measured " +
+      "smoke cases and the rollback; every step before the flag is DONE and verified. Note that " +
+      "an ai-service DOES answer on localhost:8000 and is NOT the deployed one — its /health " +
+      "reports build=unknown, while the pipeline bakes and asserts a 7-char sha into every image.",
     unblocks: ["CANONICALIZATION"],
   },
   {
@@ -445,7 +449,12 @@ export const PROGRAMME: readonly ProgrammeItem[] = [
       "plan run, pinned id-for-id against it by test) · promotion-holds.ts, whose three " +
       "properties stop the register becoming a silencer: a hold authorises exactly one " +
       "criterion, a hold must still be true (RELEASABLE refuses on apply), and omission is " +
-      "self-correcting · promotion-holds.test.ts, 21 tests.",
+      "self-correcting · promotion-holds.test.ts, 21 tests. " +
+      "RE-VALIDATED 2026-08-27 on COMPLETE evidence: the owner authorised INR 0.00563 to buy the " +
+      "41 query vectors the sweep had never measured, and the fuller sweep (164 of 164 decided, " +
+      "0 unmeasured) changed NOTHING — 0 of the 34 clear 0.75, 0 of the 30 scored ones moved by " +
+      "more than 0.0001, the same 4 remain unmeasured, and all 62 promoted still clear the floor. " +
+      "A ruling made on partial evidence, confirmed by complete evidence.",
     unblocks: ["PROMOTION"],
   },
   {
