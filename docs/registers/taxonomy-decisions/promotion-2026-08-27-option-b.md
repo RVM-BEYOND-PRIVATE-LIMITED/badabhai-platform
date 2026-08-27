@@ -168,9 +168,17 @@ threshold   TP    FP    FN    TN   precision   recall   assigned
 disk. `--offline` declined to buy them again and the runner now names every one. Every figure
 above is over the 123 decided cases only.
 
-> **Priced, and needing authorisation: ₹0.0035** — 41 query embeds at the same rate the
-> 2026-08-26 sweep paid. That is the whole cost of closing this gap, and it is the only
-> outstanding spend in the programme.
+> **GAP CLOSED, 2026-08-27**, on owner authorisation. The 41 vectors were bought for **₹0.00563**
+> — not the ₹0.0035 estimated here, which came from a stale figure in the programme graph; the
+> measured rate is ₹0.000137 per query. The sweep now decides **164 of 164, 0 unmeasured, 0
+> errors**, and the numbers moved as more evidence was added: at 0.75 the production-equivalent
+> sweep reads **TP 109, FP 0, FN 11, TN 44 — precision still 100 %**, with the highest wrong
+> answer anywhere at **0.7245**.
+>
+> **The fuller evidence changed nothing about the 62/34 split.** 0 of the 34 held skills clear
+> the floor; 0 of the 30 scored ones moved by more than 0.0001; the same 4 remain unmeasured;
+> all 62 promoted still clear it. See
+> [`activation-procedure-2026-08-27.md`](./activation-procedure-2026-08-27.md) §3.
 
 ### 5.3 What the held 34 cost, made visible
 
