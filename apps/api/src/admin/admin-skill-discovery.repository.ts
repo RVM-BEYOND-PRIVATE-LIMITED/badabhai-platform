@@ -1151,8 +1151,10 @@ export class AdminSkillDiscoveryRepository {
    * index's own shape.
    *
    * THE PAYLOAD IS VALUE-FREE BY CONSTRUCTION, so there is nothing here to redact: the WHAT is an
-   * `action_code`, and `FORBIDDEN_VALUE_FRAGMENTS` scans every payload leaf except that key. The
-   * reason and the proposed label live on the candidate row, where the detail read serves them.
+   * `action_code`, and `AdminActionPerformedPayload` is `.strict()` over exactly `admin_id`,
+   * `action_code`, `target_type` and `target_id` — there is no leaf a value could occupy, and an
+   * extra key fails validation rather than being stripped. The reason and the proposed label live
+   * on the candidate row, where the detail read serves them.
    *
    * ORDERED ASCENDING — an audit trail reads forwards — with the event id as a total tie-break,
    * because a decision and its row write share a transaction and can share a timestamp.

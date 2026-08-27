@@ -23,11 +23,13 @@ import type {
   AdminSkillCandidateMatchRow,
   AdminSkillCandidateSource,
   AdminSkillDecisionDto,
+  AdminSkillDiscoveryDetail,
+  AdminSkillDiscoveryListItem,
 } from "./admin-skill-discovery.dto";
 import { AdminSkillDiscoveryService } from "./admin-skill-discovery.service";
 
 /**
- * The decision path's SAFETY BRANCHES, each with the failure it prevents — plus the three reads,
+ * The decision path's SAFETY BRANCHES, each with the failure it prevents — plus the reads,
  * because two of the invariants (the similarity score never reaching the wire, the alias preview
  * being the corpus converter's own answer) live on the read side.
  *
@@ -1185,6 +1187,61 @@ describe("the SoR write and the audit event commit together", () => {
 // The reads
 // ═════════════════════════════════════════════════════════════════════════════════════════
 
+/**
+ * THE WIRE CONTRACT, WRITTEN OUT, so a response can be compared against it as a SET.
+ *
+ * Both lists are `satisfies readonly (keyof T)[]`, so a typo is a compile error, and each is
+ * followed by an exhaustiveness line that fails to compile when the interface gains a field this
+ * list does not. That pairing is what makes them maintainable: adding a field to the contract
+ * forces exactly one edit here, and forgetting is caught by `tsc`, not by a reviewer.
+ */
+const LIST_CONTRACT_KEYS = [
+  "id",
+  "run_id",
+  "cluster_key",
+  "normalized_phrase",
+  "proposed_skill_name",
+  "phrase_class",
+  "trade_family",
+  "source_alias_count",
+  "source_domain_count",
+  "proposed_action",
+  "confidence_band",
+  "status",
+  "review_tier",
+  "has_strong_match",
+  "related_skill_count",
+  "reviewer_admin_id",
+  "reviewed_at",
+  "resulting_skill_id",
+  "created_at",
+  "updated_at",
+] as const satisfies readonly (keyof AdminSkillDiscoveryListItem)[];
+
+const DETAIL_CONTRACT_KEYS = [
+  ...LIST_CONTRACT_KEYS,
+  "phrase_class_label",
+  "proposed_description",
+  "rationale",
+  "sources",
+  "source_type_counts",
+  "related_skills",
+  "suggested_aliases",
+  "review_reason",
+  "approved_job_domain_ids",
+  "approved_requirement",
+  "provenance",
+] as const satisfies readonly (keyof AdminSkillDiscoveryDetail)[];
+
+// Compile-time exhaustiveness. If the interface gains a field, `Exclude<...>` stops being `never`
+// and the annotation stops accepting `true`.
+type UnlistedListKey = Exclude<keyof AdminSkillDiscoveryListItem, (typeof LIST_CONTRACT_KEYS)[number]>;
+type UnlistedDetailKey = Exclude<keyof AdminSkillDiscoveryDetail, (typeof DETAIL_CONTRACT_KEYS)[number]>;
+const _listKeysAreExhaustive: [UnlistedListKey] extends [never] ? true : never = true;
+const _detailKeysAreExhaustive: [UnlistedDetailKey] extends [never] ? true : never = true;
+void _listKeysAreExhaustive;
+void _detailKeysAreExhaustive;
+
 describe("the reads", () => {
   it("emit nothing — a read is not a state change, and there is no subject to name", async () => {
     m.repo.findCandidate.mockResolvedValueOnce(detailRow());
@@ -1208,6 +1265,48 @@ describe("the reads", () => {
     expect(JSON.stringify(detail)).not.toContain("0.87");
     // `rank` survives, because an ORDER is not a measurement.
     expect(detail.related_skills[0]!.rank).toBe(1);
+  });
+
+  /**
+   * The CANDIDATE's own score, which is a different number from the match score above and was
+   * reaching the wire.
+   *
+   * `detailOf` builds on `listItem`, `listItem` spread its row, and the detail read calls it with
+   * an `AdminSkillCandidateDetailRow` — a SUBTYPE carrying the columns the service needs only to
+   * assemble a `SkillCandidateRecord`. A subtype is structurally assignable and TypeScript does
+   * not excess-property-check a spread, so `confidence` (raw `real`, CHECKed 0..1) and
+   * `created_at_iso` landed on the response under keys no DTO declares.
+   *
+   * THE TEST ABOVE COULD NOT SEE IT, and the reason is worth keeping: it asserts
+   * `not.toContain("0.87")`, which is the MATCH score, and the fixture leaves the candidate's own
+   * `confidence` null — so the key was on the wire rendering as `"confidence":null` and every
+   * assertion passed. `contract-parity` missed it too: it looks for `score`, `cosine`,
+   * `embedding_model` and `vector`, and this key is called none of those.
+   *
+   * So this pins the KEY SET rather than probing for names nobody has thought of yet. A field
+   * added to the contract must be added here, which is the point — the list is the contract.
+   */
+  it("serves EXACTLY the declared detail contract, so no repository-only column can ride a spread", async () => {
+    // A value, not the fixture's null: a leak should be a number a reviewer could sort by.
+    m.repo.findCandidate.mockResolvedValueOnce({ ...detailRow(), confidence: 0.9312 });
+    const detail = await m.service.detail(CANDIDATE_ID);
+
+    expect(Object.keys(detail).sort()).toEqual([...DETAIL_CONTRACT_KEYS].sort());
+    expect(detail).not.toHaveProperty("confidence");
+    expect(detail).not.toHaveProperty("created_at_iso");
+    expect(JSON.stringify(detail)).not.toContain("0.9312");
+  });
+
+  it("serves EXACTLY the declared queue contract", async () => {
+    // Seeded with a DETAIL row, as every other list test here is — which is the interesting case:
+    // it carries the repository-only columns, so the projection is what has to drop them.
+    m.repo.list.mockResolvedValueOnce([
+      { row: { ...detailRow(), confidence: 0.9312 }, sortKey: "2026-08-26T12:00:00.000600Z" },
+    ]);
+    const page = await m.service.list({ limit: 50, sort: "newest" } as never);
+    expect(page.items).toHaveLength(1);
+    expect(Object.keys(page.items[0]!).sort()).toEqual([...LIST_CONTRACT_KEYS].sort());
+    expect(JSON.stringify(page)).not.toContain("0.9312");
   });
 
   it("translates the relation and never leaves the evidence blank", async () => {

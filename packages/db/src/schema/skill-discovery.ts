@@ -510,10 +510,27 @@ export const skillCandidates = pgTable(
      * unpromotable (`db:promote:skills` C3 ACTIVE_EDGE refuses it). Enforcing it here rather
      * than only in the service means a row written by anything — a backfill, a fixture, a
      * future runner — is subject to the same rule.
+     *
+     * ── `cardinality`, NOT `array_length`, AND THE DIFFERENCE IS THE WHOLE CONSTRAINT ──────
+     * `array_length('{}', 1)` is NULL, not 0 — an empty array has no dimension 1 to measure. So
+     * `array_length(...) >= 1` is NULL for the empty case, `false OR NULL` is NULL, and a CHECK
+     * is SATISFIED by NULL. Written with `array_length` this constraint accepted exactly the row
+     * it exists to refuse, and `'{}'` is the column DEFAULT, so that is the state every row
+     * starts in. Measured on the server rather than argued from the manual:
+     *
+     *   array_length('{}'::text[], 1)                  -> NULL
+     *   cardinality('{}'::text[])                      -> 0
+     *   'approved_create' <> 'approved_create'
+     *     OR array_length('{}'::text[], 1) >= 1        -> NULL   (row ACCEPTED)
+     *     OR cardinality('{}'::text[])   >= 1          -> false  (row REFUSED)
+     *
+     * The HTTP path never depended on it — `AdminSkillCreateDecision` requires a non-empty array
+     * and `assertLiveJobDomains` resolves every id — but this is the wall that survives a
+     * hand-written UPDATE, which is the only reason it exists.
      */
     check(
       "skill_candidate_create_domain_chk",
-      sql`${t.status} <> 'approved_create' OR array_length(${t.approvedJobDomainIds}, 1) >= 1`,
+      sql`${t.status} <> 'approved_create' OR cardinality(${t.approvedJobDomainIds}) >= 1`,
     ),
     check(
       "skill_candidate_requirement_chk",

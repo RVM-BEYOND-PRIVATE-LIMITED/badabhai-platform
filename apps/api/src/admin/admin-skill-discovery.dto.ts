@@ -136,8 +136,9 @@ import type { AdminPage } from "./admin-entities.dto";
  *   3. FIVE NEW `ADMIN_ACTION_CODES` and ONE NEW SUBJECT TYPE. The event is already registered —
  *      `admin.action_performed` v1 — and must be REUSED (`EVENT_NAMES` is pinned at 168 in
  *      event-schema.test.ts:3045, so a new event name is a test edit for nothing). Because the
- *      payload is VALUE-FREE and `FORBIDDEN_VALUE_FRAGMENTS` scans every leaf except
- *      `action_code`, the decision must be readable from the CODE alone: one code per decision
+ *      payload is VALUE-FREE — `AdminActionPerformedPayload` is `.strict()` over exactly four
+ *      keys, so there is no leaf a value could occupy — the decision must be readable from the
+ *      CODE alone: one code per decision
  *      kind, five kinds. `"skill_candidate"` must be appended to `SUBJECT_TYPES`
  *      (packages/event-schema/src/enums.ts) or the emit fails at `stage:"envelope"` before any
  *      insert; that is additive, needs no version bump and needs no migration (`subject_type` is
@@ -1232,8 +1233,12 @@ export interface AdminSkillRelatedSkill {
  * WHAT STAYS REFUSED: a substring or full-text SEARCH over this column. `phrase` searches
  * `normalized_phrase` on the candidate and is anchored; nothing on this surface searches
  * `original_text`, in any form, ever. And it must never be echoed into a log, an event payload or
- * an audit record — `admin.action_performed` is value-free by construction and
- * `FORBIDDEN_VALUE_FRAGMENTS` scans every payload leaf except `action_code`.
+ * an audit record — `admin.action_performed` is value-free by construction:
+ * `AdminActionPerformedPayload` is `.strict()` over `admin_id`, `action_code`, `target_type` and
+ * `target_id` (payloads.ts:2292-2299), so a phrase has nowhere to go and an extra key is a
+ * validation error rather than a silently stripped field. `FORBIDDEN_VALUE_FRAGMENTS` in
+ * `admin-skill-discovery.service.test.ts` re-checks the emitted payload against a fixture list;
+ * it is a second opinion in the tests, NOT a runtime scanner.
  */
 export interface AdminSkillCandidateSource {
   /** CHECK-backed. `worker_phrase` is the one member that carries worker-derived wording. */
@@ -1737,9 +1742,10 @@ export const SKILL_GROUPS_ARE_DERIVED = "groups_are_derived_not_stored" as const
  *
  * ── WHY IT CARRIES NO VALUES ───────────────────────────────────────────────────────────
  * Because the spine carries none. `admin.action_performed` is value-free by construction: the
- * WHAT is an `action_code`, never the old/new values, and `FORBIDDEN_VALUE_FRAGMENTS` scans every
- * payload leaf. So this response says WHO did WHAT and WHEN, and the reason and the label live on
- * the candidate row where the detail read already serves them.
+ * WHAT is an `action_code`, never the old/new values, and `AdminActionPerformedPayload` is
+ * `.strict()` over four keys, so there is no leaf a value could occupy. So an entry says WHO did
+ * WHAT and WHEN, and the reason and the label live on the candidate row where the detail read
+ * already serves them.
  *
  * That split is deliberate rather than awkward. The reason is admin-authored prose that can be
  * long; the spine is a fixed-shape audit trail meant to survive being queried in bulk years
@@ -1772,7 +1778,12 @@ export interface AdminSkillCandidateAudit {
   candidate_id: string;
   /** Oldest first — an audit trail reads forwards. */
   entries: AdminSkillCandidateAuditEntry[];
-  /** The decision as the SoR holds it right now. Null on an undecided candidate. */
+  /**
+   * The decision as the SoR holds it right now. ALWAYS PRESENT — an undecided candidate has
+   * a `current` whose fields are null (`status` is `pending`, nobody's id, no reason), not
+   * an absent `current`. A nullable block would make "nothing has happened yet" and "the
+   * row is gone" the same response, and the second is a 404.
+   */
   current: {
     status: SkillCandidateStatus;
     reviewer_admin_id: string | null;

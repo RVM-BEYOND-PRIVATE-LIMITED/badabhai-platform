@@ -183,7 +183,24 @@ describe("an approval cannot be incomplete", () => {
     // this catches it when the pipe is not in the path.
     expect(FLAT).toContain('CONSTRAINT "skill_candidate_create_domain_chk"');
     expect(FLAT).toMatch(/skill_candidate_create_domain_chk" CHECK[^;]*approved_job_domain_ids/i);
-    expect(FLAT).toMatch(/skill_candidate_create_domain_chk" CHECK[^;]*array_length/i);
+  });
+
+  it("counts the trades with cardinality, because array_length does not constrain an empty array", () => {
+    // THIS ASSERTION USED TO REQUIRE `array_length`, AND THAT IS THE POINT. `array_length('{}', 1)`
+    // is NULL — an empty array has no dimension 1 — so `... >= 1` is NULL, `false OR NULL` is
+    // NULL, and a CHECK is SATISFIED by NULL. The constraint accepted exactly the row it exists to
+    // refuse, and `'{}'` is the column DEFAULT, so that is the state every row starts in.
+    //
+    // Measured on the server rather than argued from the manual:
+    //   array_length('{}'::text[], 1)  -> NULL      cardinality('{}'::text[])  -> 0
+    //   'approved_create' <> 'approved_create' OR array_length('{}'::text[], 1) >= 1  -> NULL
+    //   'approved_create' <> 'approved_create' OR cardinality('{}'::text[])   >= 1    -> false
+    //
+    // Caught before 0093 was applied, so the fix cost one token instead of a migration.
+    const chk = FLAT.match(/"skill_candidate_create_domain_chk" CHECK \(([^;]*?)\)\s*,/)?.[1] ?? "";
+    expect(chk).not.toBe("");
+    expect(chk).toContain("cardinality(");
+    expect(chk).not.toContain("array_length");
   });
 
   it("approved_map / approved_merge must name a resulting skill", () => {

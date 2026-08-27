@@ -117,7 +117,7 @@ import { AdminSkillDiscoveryController } from "./admin-skill-discovery.controlle
  *
  * Migration 0093 adds the SKILL-CANDIDATE REVIEW QUEUE (`AdminSkillDiscoveryController`/
  * `AdminSkillDiscoveryService`/`AdminSkillDiscoveryRepository`) — the FIRST surface in this module
- * to mint a new capability. Three reads sit on the `read_entities` floor; the decision write sits
+ * to mint a new capability. Six reads sit on the `read_entities` floor; the decision write sits
  * behind `review_skill_candidates` (super_admin/ops_admin), because taxonomy AUTHORSHIP is a
  * different data class from entity moderation, money, a worker's standing or admin identity, and
  * folding it into `flag_worker` would grant vocabulary authorship as a side effect of a
@@ -131,11 +131,13 @@ import { AdminSkillDiscoveryController } from "./admin-skill-discovery.controlle
  * decision is the one thing that cannot be a payload field. `skill_candidate` is a registered
  * `SUBJECT_TYPES` member as of 0093.
  *
- * NOT WIRED YET: the decision route itself is not mounted on `AdminSkillDiscoveryController`,
- * which today declares only the three reads. So `review_skill_candidates` exists and nothing
- * enforces it — the state `admin-skill-discovery.authz.test.ts`'s tripwire is deliberately red
- * about. That test is the handoff, not a bug: it fails until the write route lands with its own
- * per-role allow/deny cases.
+ * THE WRITE ROUTE IS MOUNTED. `@Post("skill-discovery/:id/decision")` carries
+ * `review_skill_candidates` on its own line, and `admin-skill-discovery.authz.test.ts` now holds
+ * the per-role allow/deny cases for it — the tripwire that was deliberately red while the
+ * capability existed with nothing enforcing it is green. The CLASS declares no capability, and
+ * that absence is itself asserted: a class-level `@RequireAdminRole` would be INHERITED by the
+ * write and would gate taxonomy authorship on the read floor, with nothing wrong on the
+ * write's own line to see.
  */
 @Module({
   imports: [
@@ -283,8 +285,9 @@ import { AdminSkillDiscoveryController } from "./admin-skill-discovery.controlle
     AdminAiTracesRepository,
     AdminAiTraceCapService,
     AdminAiTracesService,
-    // Migration 0093: the SKILL-CANDIDATE REVIEW QUEUE — three reads on the `read_entities`
-    // floor (queue list, candidate detail, queue metrics) plus ONE write behind the new
+    // Migration 0093: the SKILL-CANDIDATE REVIEW QUEUE — six reads on the `read_entities`
+    // floor (queue list, candidate detail, queue metrics, review batches, canonical-skill
+    // search, one candidate's audit trail) plus ONE write behind the new
     // `review_skill_candidates` capability (super_admin/ops_admin). The write RECORDS a decision
     // on a `skill_candidate` row — reviewer_admin_id + reviewed_at + review_reason together, in
     // one guarded UPDATE, with the status the reviewer saw as the optimistic-concurrency token —

@@ -1266,6 +1266,27 @@ export class AdminSkillDiscoveryService {
    *
    * An ABSENT fact row means "this candidate has no matches", which is the common case — not
    * missing data.
+   *
+   * ── EVERY FIELD IS NAMED, AND THAT IS NOT STYLE ───────────────────────────────────────
+   * This was `{ ...row, ... }`, which is correct for the QUEUE — `AdminSkillDiscoveryRow` is
+   * literally `Omit<AdminSkillDiscoveryListItem, the three derived>` (dto.ts:1493), so a list row
+   * has nothing else to spread. It is wrong for the DETAIL read, which calls this with an
+   * `AdminSkillCandidateDetailRow`: that type EXTENDS the queue row with the columns the service
+   * needs only to assemble a `SkillCandidateRecord` (repository.ts:185-216), and a subtype is
+   * structurally assignable, so the spread copied all of them onto the response and compiled.
+   *
+   * `confidence` is the one that mattered. It is the raw `real` score, CHECKed to 0..1
+   * (0093:470-472), and the whole contract refuses to serve it: the wire carries
+   * `confidence_band` and the query cannot filter on the number, because "a band, never a
+   * threshold" is what stops a reviewer deciding on a similarity figure (dto.ts:244-249). It
+   * reached the detail response anyway, under a key no DTO declares, past a contract-parity test
+   * that looks for `score`/`cosine`/`embedding_model`/`vector` and not for this name.
+   *
+   * The docblock on {@link detailOf} two methods down already warns that TypeScript does NOT
+   * excess-property-check a spread, and projects `matches` explicitly for exactly this reason.
+   * The same discipline simply had not been applied to the row itself. Naming every field makes
+   * the return type enforce the contract in BOTH directions — a missing field is a compile error,
+   * and an extra one has nowhere to go.
    */
   private static listItem(
     row: AdminSkillDiscoveryRow,
@@ -1273,7 +1294,18 @@ export class AdminSkillDiscoveryService {
   ): AdminSkillDiscoveryListItem {
     const hasStrongMatch = facts?.has_strong_match ?? false;
     return {
-      ...row,
+      id: row.id,
+      run_id: row.run_id,
+      cluster_key: row.cluster_key,
+      normalized_phrase: row.normalized_phrase,
+      proposed_skill_name: row.proposed_skill_name,
+      phrase_class: row.phrase_class,
+      trade_family: row.trade_family,
+      source_alias_count: row.source_alias_count,
+      source_domain_count: row.source_domain_count,
+      proposed_action: row.proposed_action,
+      confidence_band: row.confidence_band,
+      status: row.status,
       review_tier: AdminSkillDiscoveryService.tierFor({
         candidate_id: row.id,
         phrase_class: row.phrase_class,
@@ -1281,6 +1313,11 @@ export class AdminSkillDiscoveryService {
       }),
       has_strong_match: hasStrongMatch,
       related_skill_count: facts?.related_skill_count ?? 0,
+      reviewer_admin_id: row.reviewer_admin_id,
+      reviewed_at: row.reviewed_at,
+      resulting_skill_id: row.resulting_skill_id,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
     };
   }
 

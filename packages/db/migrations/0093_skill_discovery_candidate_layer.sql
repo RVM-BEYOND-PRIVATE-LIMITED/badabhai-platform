@@ -200,7 +200,7 @@ CREATE TABLE "skill_candidate" (
 	CONSTRAINT "skill_candidate_machine_status_chk" CHECK ("skill_candidate"."status" NOT IN ('pending', 'needs_review') OR "skill_candidate"."reviewer_admin_id" IS NULL),
 	CONSTRAINT "skill_candidate_resolution_chk" CHECK ("skill_candidate"."status" NOT IN ('approved_map', 'approved_merge') OR "skill_candidate"."resulting_skill_id" IS NOT NULL),
 	CONSTRAINT "skill_candidate_create_label_chk" CHECK ("skill_candidate"."status" <> 'approved_create' OR "skill_candidate"."proposed_skill_name" IS NOT NULL),
-	CONSTRAINT "skill_candidate_create_domain_chk" CHECK ("skill_candidate"."status" <> 'approved_create' OR array_length("skill_candidate"."approved_job_domain_ids", 1) >= 1),
+	CONSTRAINT "skill_candidate_create_domain_chk" CHECK ("skill_candidate"."status" <> 'approved_create' OR cardinality("skill_candidate"."approved_job_domain_ids") >= 1),
 	CONSTRAINT "skill_candidate_requirement_chk" CHECK ("skill_candidate"."approved_requirement" IN ('required', 'preferred')),
 	CONSTRAINT "skill_candidate_not_match_skill_chk" CHECK ("skill_candidate"."resulting_skill_id" IS NULL OR "skill_candidate"."resulting_skill_id" NOT LIKE 'mskill\_%')
 );

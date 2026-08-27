@@ -271,10 +271,11 @@ export function groupCandidates(candidates: readonly SkillCandidateRecord[]): Re
  * silently deciding derived candidates while the direct queue was still open.
  *
  * DETERMINISTIC, and it has to be: `anchorToken` breaks count ties alphabetically, the buckets
- * are keyed by a string derived from the members, and the sort has a total tie-break. Two calls
- * over the same input produce byte-identical output, so a reviewer returning to "the wood batch"
- * finds the same batch. There is no id in any table and nothing is persisted — a group is a LENS,
- * recomputed on every read.
+ * are keyed by a string derived from the members, and the sort's tie-break is a CODE-UNIT
+ * comparison — total, and independent of the host's ICU locale, which `localeCompare` is neither
+ * (see the sort itself). Two calls over the same input produce byte-identical output, so a
+ * reviewer returning to "the wood batch" finds the same batch. There is no id in any table and
+ * nothing is persisted — a group is a LENS, recomputed on every read.
  *
  * ⚠ THE ANCHOR IS GLOBAL TO THE INPUT SET, which is what makes this an endpoint rather than a
  * page transform. `evidenceTokenCounts` counts across everything passed in, so grouping one page
@@ -338,7 +339,27 @@ export function groupFacts(facts: readonly GroupingFacts[]): ReviewGroup[] {
   // Biggest batches first — a group of 35 saves 35 decisions, and that is the whole ordering
   // criterion. Tier is NOT re-applied here: it is already in the key, and the caller filters by
   // tier before rendering (the direct-then-derived sequencing).
-  groups.sort((a, b) => b.candidates - a.candidates || a.key.localeCompare(b.key));
+  //
+  // THE TIE-BREAK IS A CODE-UNIT COMPARISON, not `localeCompare`, and the difference is the
+  // determinism this module promises. `localeCompare` fails both halves of that promise, measured
+  // rather than assumed:
+  //
+  //   "direct|craft|weld".localeCompare("direct|craft|बढ़ई")  ->  -1 under en-US/en-IN/de/sv
+  //                                                          ->  +1 under hi/hi-IN
+  //   "direct|Craft|co\u200Bop".localeCompare("direct|Craft|coop")  ->  0   (U+200B, shown escaped
+  //                                                                    because it is invisible)
+  //
+  // The first makes group order depend on the HOST's ICU default locale, and Devanagari anchors
+  // are a supported case with a test of their own. The second is worse: a 0 for two distinct keys
+  // means the comparator has abstained, and `Array.prototype.sort` is stable, so the order falls
+  // back to arrival order — which is the grouping query's row order, and that query deliberately
+  // has no ORDER BY. Exactly the reshuffle-between-identical-requests bug the `candidate_ids`
+  // line above was already fixed for; the same defect survived one line further down, where the
+  // default comparator was replaced by a locale-sensitive one.
+  //
+  // `<`/`>` on strings is UTF-16 code-unit order: total, host-independent, and the same
+  // comparator `candidate_ids` uses.
+  groups.sort((a, b) => b.candidates - a.candidates || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   return groups;
 }
 

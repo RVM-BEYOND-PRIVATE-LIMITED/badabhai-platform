@@ -199,10 +199,13 @@ UI: GitHub issue **#1260** (`apps/admin-web`, Frontend Platform).
 |---|---|---|
 | `GET` | `/admin/skill-discovery` | `read_entities` |
 | `GET` | `/admin/skill-discovery/metrics` | `read_entities` |
+| `GET` | `/admin/skill-discovery/groups` | `read_entities` |
+| `GET` | `/admin/skills` | `read_entities` |
 | `GET` | `/admin/skill-discovery/:id` | `read_entities` |
+| `GET` | `/admin/skill-discovery/:id/audit` | `read_entities` |
 | `POST` | `/admin/skill-discovery/:id/decision` | **`review_skill_candidates`** |
 
-The three reads sit on the ADR-0025 read floor: they serve normalized phrases, enums, counts and a
+The six reads sit on the ADR-0025 read floor: they serve normalized phrases, enums, counts and a
 backlog age — the operational question. The write is on a **newly minted** capability
 (`super_admin` + `ops_admin`), because taxonomy **authorship** is a different data class from
 entity moderation, money, a worker's standing or admin identity. Folding it into `flag_worker`
@@ -355,6 +358,14 @@ inverse of a corpus write: the row that says a worker used a phrase the taxonomy
 **Zero** files anywhere write `skill`, `skill_alias`, `job_domain`, `job_domain_alias` or
 `job_domain_skill` from a request path.
 
+**The guarded set is the taxonomy spine, and that is a choice.** `SPINE_TABLES` is the six tables
+above. `worker_skill`, `worker_profile_skill` and `job_posting_skill` are deliberately outside it:
+they are not vocabulary, they have legitimate owners elsewhere in the product
+(`apps/api/src/match/worker-skills.repository.ts` writes `worker_skill` — the worker's own
+MATCH_SKILLS picker), and putting them on a forbidden list would fail on a writer that is supposed
+to exist. So the scanner proves the discovery surface writes no VOCABULARY; that it also writes no
+worker- or posting-owned skill row is true and was verified by hand, not by this guard.
+
 Three things make that claim hold up rather than merely sound good:
 
 - **The root list is derived, not remembered.** A writer needs the Drizzle models or a connection,
@@ -374,6 +385,32 @@ Three things make that claim hold up rather than merely sound good:
 > read 437 files and reported **zero** writers. An audit that returns "nothing found" because it
 > cannot read the syntax in front of it is worse than no audit, because the empty result gets
 > quoted.
+
+## Row-level security on the four new tables
+
+`0093` gives all four the house posture: `ENABLE` + `FORCE ROW LEVEL SECURITY`, **zero policies**,
+and `REVOKE ALL` from `PUBLIC`, `anon`, `authenticated` and `service_role` — 16 REVOKEs, four per
+table. Identical to what `0052` did for `skill_related`, `0066` for the job-domain tables and
+`0076` for the canonical taxonomy tables.
+
+**What that means for a client, and why the failure is quiet.** `anon` and `authenticated` have
+`rolbypassrls = false`, so RLS denies them whatever the grants say. `service_role` has
+`rolbypassrls = TRUE`, so for that role the REVOKE is the only control — which is exactly why the
+pattern revokes rather than trusting RLS alone. A Data-API client hitting these tables gets an
+**empty result, not an error**. Nothing logs, nothing 500s, and a zero row count from that path is
+never evidence about the data.
+
+The backend reaches the tables through the owner connection, which is what the rest of the spine
+already relies on; `FORCE` is what governs the owner, and revoking its grant would take the
+application down.
+
+**Measured, not assumed (`pnpm db:audit:rls`, 2026-08-27):** 81 live public tables, **81 fully
+locked**, zero deviations. 0093 makes it 85 of 85 — the posture is the established default here,
+not a new risk this feature introduces. `0088`'s `rls_auto_enable` event trigger applies the same
+three conditions on every `CREATE TABLE` in `public`, so the statements are expected to be
+idempotent no-ops where that trigger is live; they are written out anyway, because the trigger
+exists in one environment's catalogue and a migration that depended on it would silently ship
+unlocked tables everywhere else.
 
 ## What has NOT been decided, and by whom
 

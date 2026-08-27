@@ -468,6 +468,36 @@ describe("grouping is deterministic, and the anchor is global to the input", () 
     expect(groupFacts([...facts].reverse())).toEqual(groupFacts(facts));
   });
 
+  it("breaks a SIZE TIE by code units, so the order does not depend on arrival or on the host locale", () => {
+    // The test above never reaches the tie-break: its groups have different sizes (wood 3, metal
+    // 1), so `b.candidates - a.candidates` decides and the comparator's second half is dead code.
+    // This is that second half.
+    //
+    // The tie-break used to be `a.key.localeCompare(b.key)`, which fails two ways. It returns 0
+    // for DISTINCT keys differing only by a collation-ignorable code point — measured:
+    // `"co\u200Bop".localeCompare("coop") === 0` — and a 0 means the comparator abstained, so the
+    // stable sort falls back to arrival order, which is the grouping query's unordered row order.
+    // It is also locale-sensitive: Latin vs Devanagari flips sign between `en-*` and `hi`, and
+    // Devanagari anchors are a supported case with a test of their own above.
+    //
+    // `trade_family` is the reachable route to such a key: unlike the anchor it is never
+    // normalized — it is `job_domain.major_label` copied through into a `text` column with no
+    // CHECK — so it can carry anything the taxonomy holds.
+    const zwsp = "\u200B";
+    const twoFamilies = [
+      { ...base("a", ["weld"]), trade_family: `co${zwsp}op` },
+      { ...base("b", ["weld"]), trade_family: "coop" },
+    ];
+    const forward = groupFacts(twoFamilies);
+    const reversed = groupFacts([...twoFamilies].reverse());
+
+    expect(forward).toHaveLength(2);
+    expect(forward.map((g) => g.candidates)).toEqual([1, 1]); // the sizes really do tie
+    expect(reversed).toEqual(forward); // ...and the order still does not move
+    // Code-unit order, stated positively: U+200B > "o", so plain "coop" sorts first.
+    expect(forward.map((g) => g.trade_family)).toEqual(["coop", `co${zwsp}op`]);
+  });
+
   it("⚠ the anchor depends on the WHOLE input set, which is why this cannot run per page", () => {
     // `evidenceTokenCounts` counts across everything passed in, so the top token within 50 rows is
     // rarely the top token within 6,673. Grouping a PAGE gives a different anchor for the same

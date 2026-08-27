@@ -27,15 +27,21 @@ import {
 } from "./admin-skill-discovery.dto";
 
 /**
- * HTTP surface for the admin SKILL-CANDIDATE REVIEW screen — three reads and the ONE write by
+ * HTTP surface for the admin SKILL-CANDIDATE REVIEW screen — six reads and the ONE write by
  * which a named human decides what a discovery run found (migration 0093 + the pure modules in
  * `packages/db/src/skill-discovery-*.ts`). The whole contract is `admin-skill-discovery.dto.ts`;
  * this file validates, delegates and returns, and does nothing else (CLAUDE.md §4).
  *
  *   GET  /admin/skill-discovery                the review QUEUE (keyset page + filters)
  *   GET  /admin/skill-discovery/metrics        the queue tiles
+ *   GET  /admin/skill-discovery/groups         the review BATCHES for one filtered set
+ *   GET  /admin/skills                         canonical skills a MAP could resolve onto
  *   GET  /admin/skill-discovery/:id            one candidate, in full, in plain language
+ *   GET  /admin/skill-discovery/:id/audit      the event spine plus the row's own state
  *   POST /admin/skill-discovery/:id/decision   the recorded human decision
+ *
+ * Listed in DECLARATION order, which is the order Nest matches in — `groups` and `skills`
+ * precede `:id` deliberately, and moving either below it would make them unreachable.
  *
  * ── THE WRITE RECORDS A DECISION; IT DOES NOT WRITE THE TAXONOMY ────────────────────────
  * There is no request path on this controller — none, by construction — that creates a canonical
@@ -68,7 +74,7 @@ import {
  * four roles hold, with nothing wrong on the write's own line — the decorator would simply be
  * missing. `admin-skill-discovery.authz.test.ts` asserts the class declares none.
  *
- * THE THREE READS ARE ON `read_entities`, the ADR-0025 read floor every admin read surface
+ * ALL SIX READS ARE ON `read_entities`, the ADR-0025 read floor every admin read surface
  * declares. They disclose no identity, no money and no plaintext, and the standing decision is to
  * reuse the floor unless a human has ruled otherwise (admin-feedback.authz.test.ts:63-69,
  * CLAUDE.md §16). Narrowing a read later is one line each.
@@ -192,7 +198,7 @@ export class AdminSkillDiscoveryController {
    * and a page cannot promise that. An over-broad filter is refused with a 400 naming the count
    * rather than silently truncated, because a truncated grouping still CLAIMS to be exhaustive.
    *
-   * `read_entities` — the same floor as the other three reads. A batch is counts, enums and
+   * `read_entities` — the same floor as every other read here. A batch is counts, enums and
    * candidate ids; it discloses nothing the queue does not.
    */
   @Get("skill-discovery/groups")
@@ -271,10 +277,12 @@ export class AdminSkillDiscoveryController {
    * a fact nobody has asked to know. The sibling that DOES emit on read
    * (`admin.feedback_viewed`) does so because it serves a worker's prose tied to their id.
    *
-   * NO VALUES, because the spine carries none: `admin.action_performed` is value-free by
-   * construction, so this says WHO did WHAT and WHEN. The reason and the proposed label live on
-   * the candidate row, which the detail read already serves — one copy of each fact, not two that
-   * could disagree.
+   * THE ENTRIES CARRY NO VALUES, because the spine carries none: `admin.action_performed` is
+   * value-free by construction, so each entry says WHO did WHAT and WHEN and nothing else.
+   * `current` is the other half and DOES carry the reviewer's reason — it is the row's own
+   * state, not a transcript of it, which is why that is one copy of the fact rather than a
+   * second one that could disagree with the row. The distinction matters for a reader
+   * deciding what this response may be used to prove: the immutable half is `entries`.
    *
    * `read_entities`, like the other reads.
    */

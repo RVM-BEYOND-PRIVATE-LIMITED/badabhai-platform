@@ -22,7 +22,7 @@ import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
  * is the FIRST in `AdminModule` to put a read and a governed WRITE on the same controller with
  * DIFFERENT capabilities, and the write authors platform vocabulary. Four properties:
  *
- *   1. THE SPLIT HOLDS. The three reads sit on the floor; the decision write sits on
+ *   1. THE SPLIT HOLDS. The six reads sit on the floor; the decision write sits on
  *      `review_skill_candidates`. `support` and `analyst` may read the whole queue and may NOT
  *      decide. If the write ever slid onto `read_entities`, the review queue would become
  *      writable by every authenticated admin — and the diff that did it could be a single deleted
@@ -186,6 +186,47 @@ describe("0093 review surface — the route inventory, pinned as an equality", (
       (m) => verbOf(AdminSkillDiscoveryController, m) !== GET,
     );
     expect(writes).toEqual([WRITE_ROUTE]);
+  });
+
+  /**
+   * DECLARATION ORDER IS LOAD-BEARING, and until now only a comment said so.
+   *
+   * Nest matches in declaration order, so `skill-discovery/:id` declared above
+   * `skill-discovery/metrics` or `skill-discovery/groups` swallows them — and the failure is not
+   * even a 404 but a 400 from the uuid param schema complaining that "groups" is not a uuid,
+   * which is a confusing way to learn about route ordering. The controller's docblock explains
+   * this; nothing enforced it, so reordering two decorators broke nothing in CI.
+   *
+   * `Object.getOwnPropertyNames` returns a class's methods in declaration order, which is exactly
+   * the order Nest reads them in.
+   *
+   * The second assertion is the one that matters over time: it is generic, so a literal added
+   * BELOW `:id` in six months fails here rather than 400ing in the console.
+   */
+  it("declares the literal routes ABOVE the parameterised one, because Nest matches in order", () => {
+    const order = routeMethods(AdminSkillDiscoveryController);
+    const pathOf = (method: string): string =>
+      Reflect.getMetadata(
+        "path",
+        (AdminSkillDiscoveryController.prototype as unknown as Record<string, object>)[method]!,
+      ) as string;
+    const paths = order.map(pathOf);
+
+    const idIndex = paths.indexOf("skill-discovery/:id");
+    expect(idIndex).toBeGreaterThanOrEqual(0);
+    for (const literal of ["skill-discovery/metrics", "skill-discovery/groups"]) {
+      expect(paths, `${literal} must be declared`).toContain(literal);
+      expect(paths.indexOf(literal), `${literal} must precede skill-discovery/:id`).toBeLessThan(
+        idIndex,
+      );
+    }
+
+    // Anything matching `skill-discovery/<one literal segment>` is shadowed by `:id` once it sits
+    // below it. Nothing may.
+    const shadowed = paths.filter(
+      (p, i) => i > idIndex && /^skill-discovery\/[a-z0-9-]+$/.test(p),
+    );
+    expect(shadowed).toEqual([]);
   });
 });
 

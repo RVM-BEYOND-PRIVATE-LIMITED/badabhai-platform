@@ -109,8 +109,9 @@ export const ADMIN_CAPABILITIES = [
    * row says is worse than no capability at all: it is an authorization table people still trust.
    *
    * ── AND WHY IT IS NOT `read_entities`, WHICH IS WHERE THE QUEUE READS SIT ───────────────
-   * The three reads beside it (queue list, candidate detail, queue metrics) ARE on the read
-   * floor: they serve normalized phrases, enums, counts, provenance and a backlog age — the
+   * The six reads beside it (queue list, candidate detail, queue metrics, review batches, the
+   * canonical-skill search and one candidate's audit trail) ARE on the read floor: they serve
+   * normalized phrases, enums, counts, provenance and a backlog age — the
    * operational question ("what is waiting, how old is the oldest thing nobody has opened").
    * This capability gates only the step that turns a queue row into a RECORDED DECISION.
    * Splitting them is what lets an `analyst` measure the review backlog without being entitled
