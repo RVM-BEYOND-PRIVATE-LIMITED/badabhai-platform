@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Schemes redis-py's ``from_url`` accepts. It validates these EAGERLY at client
@@ -63,6 +64,10 @@ class ConfigError(Exception):
 # wrong file is silent: you get a stall, not an error. parents[1] == apps/ai-service/
 # (parents[0] == app/), so this resolves identically from ANY working directory.
 _AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
+
+# Hostnames that can only mean "this machine". Used by the canonicalization boot guard
+# below; deliberately a closed set rather than a pattern, so widening it is a visible edit.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"})
 
 
 class Settings(BaseSettings):
@@ -983,6 +988,75 @@ class Settings(BaseSettings):
     def langfuse_enabled(self) -> bool:
         """Langfuse tracing is enabled only when BOTH keys are present."""
         return bool(self.langfuse_public_key and self.langfuse_secret_key)
+
+    # THE ENV VAR THAT ACKNOWLEDGES THE COMBINATION BELOW. Same shape as
+    # `OPS_ALLOW_PRODUCTION` in packages/db/src/ops-guard.ts: a second, deliberate signal
+    # that cannot be inherited by accident, carrying the operator's REASON.
+    canonicalize_allow_local: str | None = None
+
+    @model_validator(mode="after")
+    def _refuse_local_canonicalization_against_a_shared_api(self) -> Settings:
+        """Refuse to BOOT when canonicalization is armed against a LOOPBACK api.
+
+        =======================================================================
+        THE HAZARD, STATED EXACTLY
+        =======================================================================
+        Canonicalization is a CHAIN, not a flag: it writes only when
+        ``skill_canonicalize_enabled`` is true AND the FORK-B-1 seam is wired
+        (``backend_api_url`` + ``skills_internal_token``). Either alone is inert.
+
+        The dangerous arrangement is a developer laptop where the flag was already true
+        from some earlier experiment, and someone then wires the seam — the obvious reason
+        anyone sets those two variables — at a LOCAL api. In this repository that api reads
+        its `DATABASE_URL` from the root env file, which points at PRODUCTION. Canonicalization
+        would arm itself at the moment the seam went in, silently, and start assigning skills
+        and recording unresolved phrases against production data outside every promotion gate.
+
+        Nothing would fail. The writes would simply succeed.
+
+        =======================================================================
+        WHY LOOPBACK IS THE RIGHT DISCRIMINATOR
+        =======================================================================
+        This must NEVER fire on the deployed service, or it would turn activation into an
+        outage. Production reaches the api over the compose network by SERVICE NAME
+        (``http://api:3000``); a loopback ``backend_api_url`` is not a production topology
+        and never has been. So the check keys on the one signal that means "a human's
+        machine" and cannot mean anything else.
+
+        It is also why this is not simply "refuse whenever both halves are set" — that
+        combination IS the intended production state, and refusing it would be a gate that
+        blocks the thing it was built to protect.
+
+        Set ``CANONICALIZE_ALLOW_LOCAL=<reason>`` to proceed anyway — deliberate, visible in
+        shell history, impossible to inherit, and it makes the operator write down why.
+
+        §2: names the variables and the remedy; NEVER echoes a token or a URL. Raises
+        ``ConfigError``, not ValueError, so pydantic cannot wrap the input into a
+        ``ValidationError`` that would record ``backend_api_url`` verbatim.
+        """
+        if not self.skill_canonicalize_enabled:
+            return self
+        if not (self.backend_api_url and self.skills_internal_token):
+            return self
+        host = urlparse(self.backend_api_url).hostname or ""
+        if host not in _LOOPBACK_HOSTS:
+            return self
+        if (self.canonicalize_allow_local or "").strip():
+            return self
+        raise ConfigError(
+            "REFUSING TO BOOT: skill canonicalization is ENABLED and the skill-store seam "
+            "is wired at a LOOPBACK api. Both halves of the TD65 chain are armed, and a "
+            "local api in this repository reads DATABASE_URL from the root env file, which "
+            "points at PRODUCTION — so canonicalization would begin assigning skills and "
+            "recording unresolved phrases against production data, outside every promotion "
+            "gate, with nothing failing. "
+            "Fix ONE of: set SKILL_CANONICALIZE_ENABLED=false (the usual answer on a "
+            "developer machine); unset BACKEND_API_URL / SKILLS_INTERNAL_TOKEN; or point the "
+            "local api at a local database. To proceed deliberately, set "
+            "CANONICALIZE_ALLOW_LOCAL=<reason>. "
+            "This check cannot fire on the deployed service: production reaches the api by "
+            "compose service name, never over loopback."
+        )
 
 
 _settings: Settings | None = None
