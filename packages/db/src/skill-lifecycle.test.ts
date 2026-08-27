@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  SPINE_TABLES,
   SPINE_WRITER_ROOTS,
   crossVocabularyWriters,
   scanWriters,
@@ -22,6 +23,7 @@ import {
   sourceFiles,
   spineSourceFiles,
   stripComments,
+  tablesWrittenIn,
   workspacesDependingOnDb,
 } from "./lifecycle-writer-scan";
 import {
@@ -367,6 +369,53 @@ describe("the writer scan, over EVERY workspace that can reach the database", ()
     expect(repoScan.byTable.get("unresolved_phrase")).toContain(
       "apps/api/src/skills/skills.repository.ts",
     );
+  });
+
+  it("the raw-SQL detector reads every write verb, and reads the TABLE not a prefix", () => {
+    // ONE LITERAL regex that captures the table each write statement names, rather than a pattern
+    // built per table. The constructed form — `new RegExp(`INSERT INTO "?${table}"?…`)` — is a
+    // ReDoS shape `semgrep detect-non-literal-regexp` blocks, and this repository has now been
+    // bitten by it three times; `audit-undeclared-routines.ts` documents the previous two.
+    //
+    // The inversion is also SHARPER than what it replaced. Equality beats the `(?![a-z_])`
+    // boundary the per-table patterns needed, and the 0093 staging tables are named after the
+    // corpus tables they stage for — so a scan that treats `skill` as a prefix flags the review
+    // layer's own guarded write as a corpus write, and the audit has to be switched off to ship.
+    expect([...tablesWrittenIn("INSERT INTO skill (a) VALUES (1)")]).toEqual(["skill"]);
+    expect([...tablesWrittenIn('UPDATE "skill_alias" SET x = 1')]).toEqual(["skill_alias"]);
+    expect([...tablesWrittenIn("DELETE FROM job_domain_skill WHERE x")]).toEqual([
+      "job_domain_skill",
+    ]);
+    expect([...tablesWrittenIn("TRUNCATE TABLE skill")]).toEqual(["skill"]);
+    expect([...tablesWrittenIn("truncate skill")]).toEqual(["skill"]);
+  });
+
+  it("the detector reports the staging table AS ITSELF, never as the corpus table", () => {
+    // The assertion that makes the equality worth having. Under a prefix rule every one of these
+    // would read as a write to `skill` or `job_domain`.
+    for (const [sql, table] of [
+      ["INSERT INTO skill_candidate (a) VALUES (1)", "skill_candidate"],
+      ["INSERT INTO skill_candidate_source (a) VALUES (1)", "skill_candidate_source"],
+      ["UPDATE skill_candidate_match SET x = 1", "skill_candidate_match"],
+      ["UPDATE skill_discovery_run SET x = 1", "skill_discovery_run"],
+    ] as const) {
+      expect([...tablesWrittenIn(sql)], sql).toEqual([table]);
+    }
+    // And none of them is a spine table, which is what keeps them out of the scan entirely.
+    for (const t of ["skill_candidate", "skill_candidate_source", "skill_candidate_match"]) {
+      expect(Object.keys(SPINE_TABLES)).not.toContain(t);
+    }
+  });
+
+  it("the detector finds SEVERAL writes in one block, and is not left stateful by the g flag", () => {
+    // `WRITE_STATEMENT` carries `g`, so it has a `lastIndex`. `matchAll` resets it; a `.test()`
+    // loop would not, and every second call would start mid-string and miss the first statement.
+    // Calling twice with the same input is the cheapest way to catch that.
+    const sql = "INSERT INTO skill (a) VALUES (1); UPDATE skill_alias SET x = 1; DELETE FROM job_domain WHERE y";
+    const first = [...tablesWrittenIn(sql)].sort();
+    const second = [...tablesWrittenIn(sql)].sort();
+    expect(first).toEqual(["job_domain", "skill", "skill_alias"]);
+    expect(second).toEqual(first);
   });
 
   it("does not confuse the 0093 staging tables for the corpus tables they are named after", () => {

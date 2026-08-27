@@ -307,19 +307,16 @@ export function scanWritersAcross(
   for (const root of roots) {
     for (const rel of spineSourceFiles(repoRoot, root)) {
       const code = stripComments(readFileSync(join(repoRoot, ...rel.split("/")), "utf8"));
-      const sql = taggedSqlAny(code);
+      // Both detectors run ONCE per file, not once per table: the raw one captures whatever table
+      // each write statement names, and the loop below asks the resulting set by equality.
+      const written = tablesWrittenIn(taggedSqlAny(code));
       for (const t of Object.keys(SPINE_TABLES) as SpineTable[]) {
         const id = SPINE_TABLES[t];
         const builderHit =
           code.includes(`.insert(${id})`) ||
           code.includes(`.update(${id})`) ||
           code.includes(`.delete(${id})`);
-        // Anchored on a word boundary at the table name, so `skill_candidate` never matches
-        // `skill` and `job_domain_skill` never matches `job_domain`. The 0093 staging tables are
-        // named AFTER the corpus tables they stage for, and a scan that could not tell them apart
-        // would flag the review layer's own guarded write as a corpus write — at which point the
-        // audit has to be switched off to ship anything.
-        const rawHit = RAW_SQL_ANCHORED[t].some((re) => re.test(sql));
+        const rawHit = written.has(t);
         if (!builderHit && !rawHit) continue;
         const set = byFile.get(rel) ?? new Set<SpineTable>();
         set.add(t);
@@ -333,29 +330,43 @@ export function scanWritersAcross(
 }
 
 /**
- * The raw-SQL patterns, with a trailing boundary the originals lack.
+ * WHICH TABLES A BLOCK OF SQL WRITES — one LITERAL regex, then string equality in JS.
  *
- * `RAW_SQL` matches `INSERT INTO "?skill"?\s*\(`, which cannot match `skill_candidate` because
- * of the required `(`. That happens to hold for the two-writer set it was built for and is not a
- * property worth relying on repo-wide, where `INSERT INTO skill_candidate_source (...)` is a real
- * statement in a real file. `(?![a-z_])` states the intent instead of inheriting it.
+ * ── WHY NOT A PATTERN PER TABLE, WHICH IS THE OBVIOUS SHAPE ────────────────────────────
+ * Because the obvious shape is ``new RegExp(`INSERT\\s+INTO\\s+"?${table}"?…`)``, and that is a
+ * ReDoS shape that `semgrep detect-non-literal-regexp` blocks — a gate this repository has now
+ * been bitten by three times: once in `migration-adoption.ts` (fixed by comparing offsets), once
+ * in `audit-undeclared-routines.ts` (fixed with two literals), and once here, by me, writing the
+ * constructed form the second of those files explicitly documents as the thing NOT to write.
+ *
+ * The precedent's fix is literal patterns, and with two protected columns two literals cost
+ * nothing. Here it would be six tables times four verbs, which is twenty-four literals to keep in
+ * step with a table list — so this inverts it instead: ONE literal matches any write statement and
+ * CAPTURES the table it names, and the caller compares that capture against the table set by
+ * ordinary string equality.
+ *
+ * ── AND THE INVERSION IS STRICTLY BETTER, NOT MERELY SMALLER ──────────────────────────
+ * Equality is a sharper instrument than the `(?![a-z_])` boundary the per-table patterns needed.
+ * The 0093 staging tables are named AFTER the corpus tables they stage for — `skill_candidate`,
+ * `skill_candidate_source` — so a scan that treats `skill` as a prefix flags the review layer's
+ * own guarded write as a corpus write, and the audit then has to be switched off to ship
+ * anything. With a capture, `"skill_candidate" === "skill"` is simply false; there is no boundary
+ * to get wrong.
+ *
+ * It is also one pass over the SQL instead of twenty-four.
+ *
+ * ⚠ The `g` flag makes this regex STATEFUL (`lastIndex`), so it must be used with `matchAll`,
+ * which resets it, and never with `.test()` in a loop.
  */
-/** The four statement verbs, built per table so the boundary is stated once. */
-function anchoredWritePatterns(table: SpineTable): readonly RegExp[] {
-  const t = table;
-  return [
-    new RegExp(`INSERT\\s+INTO\\s+"?${t}"?(?![a-z_])`, "i"),
-    new RegExp(`UPDATE\\s+"?${t}"?(?![a-z_])\\s+SET`, "i"),
-    new RegExp(`DELETE\\s+FROM\\s+"?${t}"?(?![a-z_])`, "i"),
-    new RegExp(`TRUNCATE\\s+(TABLE\\s+)?"?${t}"?(?![a-z_])`, "i"),
-  ];
-}
+const WRITE_STATEMENT =
+  /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|TRUNCATE(?:\s+TABLE)?)\s+"?([a-z_][a-z0-9_]*)"?/gi;
 
-const RAW_SQL_ANCHORED: Readonly<Record<SpineTable, readonly RegExp[]>> = {
-  skill: anchoredWritePatterns("skill"),
-  skill_alias: anchoredWritePatterns("skill_alias"),
-  job_domain: anchoredWritePatterns("job_domain"),
-  job_domain_alias: anchoredWritePatterns("job_domain_alias"),
-  job_domain_skill: anchoredWritePatterns("job_domain_skill"),
-  unresolved_phrase: anchoredWritePatterns("unresolved_phrase"),
-};
+/** Every table named as the target of a write statement in `sql`, lower-cased. */
+export function tablesWrittenIn(sql: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of sql.matchAll(WRITE_STATEMENT)) {
+    const table = (m[1] ?? "").toLowerCase();
+    if (table !== "") out.add(table);
+  }
+  return out;
+}
