@@ -112,6 +112,16 @@ export interface ExperimentRecord {
   // ── what ran ────────────────────────────────────────────────────────────
   query_count: number;
   failure_count: number;
+  /**
+   * Cases a run DECLINED to measure, by case id — distinct from `failure_count`, which counts
+   * things that went wrong.
+   *
+   * A run under `--offline` will not buy a query vector it has not already cached. That is a
+   * deliberate, priced gap, and it must not be filed alongside provider errors: pooled, the
+   * two turn a partial measurement into a complete-looking one, and every rate in the record
+   * silently becomes a rate over an unstated subset.
+   */
+  unmeasured_offline?: string[];
   /** Wall clock for the whole run. NOT per-query latency; see the field note in callers. */
   latency_ms: number | null;
 

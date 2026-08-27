@@ -3,6 +3,11 @@
  *
  *   pnpm db:sweep:floor --run [--include-provisional] [--experiment EXP-...]
  *
+ *   --cache --offline        cached query vectors ONLY. A miss THROWS instead of calling the
+ *                            provider, so the run either costs exactly ZERO or fails loudly.
+ *                            The way to re-measure under a standing "no unauthorised spend"
+ *                            instruction without having to trust an estimate afterwards.
+ *
  * ===========================================================================
  * WHAT DECISION THIS INFORMS
  * ===========================================================================
@@ -251,6 +256,8 @@ async function main(): Promise<void> {
     const started = Date.now();
     const rows: Top1[] = [];
     let errors = 0;
+    /** Cases skipped because `--offline` refused to buy a vector. NOT errors — see the loop. */
+    const unmeasuredOffline: string[] = [];
     let estCost = 0;
 
     // Coverage-probe cases are excluded: they exist to ask "is this reachable at all", and a
@@ -284,6 +291,10 @@ async function main(): Promise<void> {
       argv.includes("--cache") && sweepEmbeddingModel !== null
         ? createEmbedCache({
             model: sweepEmbeddingModel,
+            // `--offline` turns a miss into a THROW. An estimate printed after the fact cannot
+            // un-spend anything; this is the only form of "this run will not cost money" that
+            // is checkable BEFORE the provider is called.
+            offline: argv.includes("--offline"),
             fetchVector: async (text: string) => {
               const v = await embedViaProvider(text);
               if (v === null) throw new Error(`[${SCRIPT}] provider returned no vector`);
@@ -299,8 +310,17 @@ async function main(): Promise<void> {
       } else {
         try {
           vec = await queryCache.embed(cse.query);
-        } catch {
-          vec = null;
+        } catch (e) {
+          // AN OFFLINE REFUSAL IS NOT A PROVIDER FAILURE, and collapsing the two is how a
+          // partial sweep gets reported as a complete one. `--offline` declines to BUY a
+          // vector: a deliberate, recoverable, priced gap in coverage, and the run has to name
+          // the cases it therefore did not measure. Everything else is a real error.
+          if (String((e as Error).message).includes("[embed-cache] OFFLINE")) {
+            unmeasuredOffline.push(cse.case_id);
+          } else {
+            errors += 1;
+          }
+          continue;
         }
       }
       if (vec === null) {
@@ -356,7 +376,17 @@ async function main(): Promise<void> {
     const band = safeBand(tpScores, fpScores);
     const points = sweep(rows, THRESHOLDS);
 
-    console.log(`\n[${SCRIPT}] RESULTS  (${decided.length} decisions, ${errors} errors, ${Math.round((Date.now() - started) / 1000)}s)`);
+    console.log(`\n[${SCRIPT}] RESULTS  (${decided.length} of ${cases.length} decided, ${errors} errors, ${unmeasuredOffline.length} UNMEASURED, ${Math.round((Date.now() - started) / 1000)}s)`);
+    if (unmeasuredOffline.length > 0) {
+      // NO SILENT CAPS. Every figure below describes the DECIDED subset, and a reader who is
+      // not told the size of the gap will read "100% precision" as a claim about the whole
+      // fixture. The remedy is priced: one provider embed per named case.
+      console.log(
+        `  UNMEASURED (--offline, no cached vector) = ${unmeasuredOffline.length} of ${cases.length}. ` +
+          `EVERY figure below is over the ${decided.length} decided cases ONLY.`,
+      );
+      console.log(`    ${unmeasuredOffline.slice(0, 12).join(", ")}${unmeasuredOffline.length > 12 ? ", ..." : ""}`);
+    }
     console.log(`  TRUE-POSITIVE  top-1 scores (correct answer won):`);
     console.log(`    n=${tp.n}  min=${tp.min}  p05=${tp.p05}  p50=${tp.p50}  p95=${tp.p95}  max=${tp.max}`);
     console.log(`  FALSE-POSITIVE top-1 scores (wrong answer won):`);
@@ -426,6 +456,8 @@ async function main(): Promise<void> {
         corpus_fingerprint: corpusFingerprint,
         query_count: decided.length,
         failure_count: errors,
+        // Separate from `failure_count` on purpose — see the offline branch in the loop.
+        unmeasured_offline: unmeasuredOffline,
         latency_ms: Date.now() - started,
         // Deliberately null: a floor sweep measures the ASSIGNMENT decision, not ranking.
         recall_at_1: null,

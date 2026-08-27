@@ -103,6 +103,30 @@ solely as somebody else's wrong answer.
   alternatives, and applied as the smallest change that cleared a measured regression.
 - **Not an argument for moving the floor.** The floor stays at 0.75; the ruling and the
   measurement agree.
-- **Not a promotion blocker list in perpetuity.** It is the blocker list *today*: 34 of 96
-  candidates fail `RESOLVABLE_ABOVE_FLOOR`, and `db:promote:skills` is fail-closed per batch, so
-  the 62 that pass cannot be promoted while these 34 do not.
+- **Not a promotion blocker list in perpetuity.** It was the blocker list on 2026-08-26: 34 of
+  96 candidates fail `RESOLVABLE_ABOVE_FLOOR`, and `db:promote:skills` is fail-closed per batch,
+  so the 62 that pass could not be promoted while these 34 did not.
+
+---
+
+## UPDATE, 2026-08-27 — this list is now a LIVE QUEUE with a mechanism behind it
+
+The owner ruled **option B**: the batch was re-scoped to the 62, which were promoted, and these
+34 were **held, not waived**. They are recorded machine-readably in
+[`held-skills.json`](../../../packages/db/data/taxonomy/held-skills.json), one entry per skill,
+each naming the criterion it fails and the score measured here.
+
+**What that changes for this document: it is now actionable rather than archival.**
+
+1. Choose a skill from §A — the top seven are within 0.03 of the floor.
+2. Ratify one phrase a worker would actually say (TAX-0 gate (d), an owner act). No alias is
+   proposed here, and none should be invented to clear a number.
+3. Add it, embed it, and re-measure.
+4. **Delete that skill's entry from `held-skills.json`.** It re-enters the batch automatically.
+
+Nothing else has to be remembered, and nothing can be released by accident: a skill removed from
+the register that still fails is caught by the unchanged fail-closed rule, and a skill left in
+the register that now passes is reported as `RELEASABLE` and refuses the apply.
+
+The 34 remain `provisional` and therefore genuinely unretrievable — verified by id against
+production after the promotion. §B's four are still unmeasured rather than known-bad.

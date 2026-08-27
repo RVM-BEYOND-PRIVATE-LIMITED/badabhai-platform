@@ -146,7 +146,9 @@ export const ACTIVATION_SEQUENCE: readonly ActivationStep[] = [
       "Measured 2026-08-26: 30 skills resolve correctly below 0.75 and 4 produced no correct " +
       "case at all, so 34 of 96 block the 62 that pass. The owner ruled the floor stays at " +
       "0.75 and those resolutions remain unresolved — which settles the THRESHOLD question and " +
-      "leaves the BATCH question: waive, re-scope, or do the corpus work first.",
+      "leaves the BATCH question: waive, re-scope, or do the corpus work first. " +
+      "RULED 2026-08-27, option B: re-scope. The 34 are held in held-skills.json with their " +
+      "measured reasons; nothing is waived and the floor does not move.",
     runner: "pnpm db:audit:gate-evidence --batch <dir>",
     // PROMOTION-SCOPE, not RESOLVABLE-28/-6. Those two are COMPLETE because they are RULED, and
     // a ruling to hold the floor is not the same as the gate passing — reading it that way made
@@ -154,13 +156,21 @@ export const ACTIVATION_SEQUENCE: readonly ActivationStep[] = [
     preconditions: ["PROMOTION-SCOPE"],
     after: ["FRESH-EVIDENCE"],
     authorisation: "OWNER",
-    verification: "promote-skills --plan reports RESOLVABLE_ABOVE_FLOOR blocking 0.",
+    // "Blocking 0" is now a statement about the SELECTED set, and that is the honest reading:
+    // the 34 still fail the criterion, which is precisely why they are not selected. A run
+    // where they were selected and passing would be a different, and false, claim.
+    verification:
+      "promote-skills --plan reports 96 candidates, 34 held, 62 selected, and " +
+      "RESOLVABLE_ABOVE_FLOOR blocking 0 of the selected set.",
     rollback: null,
   },
   {
     order: 7,
     id: "PROMOTE",
-    what: "Promote the 96. Fail-closed: nothing is promoted unless every candidate clears every gate.",
+    what:
+      "Promote the 62 SELECTED of the batch's 96. Fail-closed: nothing is promoted unless every " +
+      "SELECTED candidate clears every gate. The other 34 are held by held-skills.json under the " +
+      "option-B ruling and stay provisional — held, not waived.",
     // `--fixture` IS NOT OPTIONAL HERE, and leaving it off was a live defect in this plan.
     // `promote-skills` imports its default from `taxonomy-retrieval-eval.ts`, and that default
     // is retrieval-v2 — under which EVAL_COVERED blocks 41 of the 96. The programme's "0 of 96
@@ -174,10 +184,10 @@ export const ACTIVATION_SEQUENCE: readonly ActivationStep[] = [
     authorisation: "PRODUCTION_WRITE",
     verification:
       "The runner writes an audit report to docs/registers/skill-promotions/; skill.status " +
-      "reads 96 fewer provisional and 96 more active.",
+      "reads 62 fewer provisional and 62 more active, and all 34 held ids are STILL provisional.",
     rollback:
-      "UPDATE skill SET status='provisional' for the batch's 96 ids. Additive and reversible; " +
-      "no id changes and no row is deleted.",
+      "`db:promote:skills --revert <report> --apply`, which sets exactly the promoted ids back " +
+      "to provisional. Additive and reversible; no id changes and no row is deleted.",
   },
   {
     order: 8,

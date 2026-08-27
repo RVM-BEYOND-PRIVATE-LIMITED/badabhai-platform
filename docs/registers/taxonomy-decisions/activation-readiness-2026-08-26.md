@@ -1,5 +1,11 @@
 # Activation readiness — the twelve-point checklist, after the corpus writes
 
+> **SUPERSEDED IN PART, 2026-08-27.** §3 asked the owner to choose between three routes; they
+> chose **option B**, and the promotion has since happened — 62 promoted, 34 held, nothing
+> waived. See [`promotion-2026-08-27-option-b.md`](./promotion-2026-08-27-option-b.md) for the
+> current state. **This file is left as it stood on 2026-08-26** because it is the record of
+> what was true before the ruling; only the two clearly-marked notes below were added.
+>
 > **2026-08-26 UTC. Four production writes performed under explicit owner authorisation, all
 > through existing two-signal ops guards. 13 rows. AI spend ₹0.0116.**
 > **NOTHING PROMOTED. NOTHING ACTIVATED. `SKILL_CANONICALIZE_ENABLED` NOT READ, NOT CHANGED,
@@ -170,6 +176,11 @@ the 34 are enumerated with their gaps in
 The standing instruction is *"if and only if every promotion gate is GREEN, execute
 `db:promote:skills`"*. `RESOLVABLE_ABOVE_FLOOR` is not green, so promotion was not executed.
 
+> **RESOLVED 2026-08-27 — OPTION B.** The owner re-scoped the batch to the 62. The 34 are held
+> in `packages/db/data/taxonomy/held-skills.json` with their measured reasons; the floor did not
+> move and no criterion was waived. `RESOLVABLE_ABOVE_FLOOR` still fails for all 34 — that is
+> precisely why they are not in the batch. 62 promoted, verified against production.
+
 ---
 
 ## 4. Activation prerequisites — where each stands
@@ -180,10 +191,11 @@ The standing instruction is *"if and only if every promotion gate is GREEN, exec
 | 2 | fresh fingerprinted evidence | **DONE** — both records, ₹0 evaluation |
 | 3 | `NO_REGRESSION` green | **DONE** |
 | 4 | `EVAL_COVERED` green | **DONE** with the explicit fixture |
-| 5 | `RESOLVABLE_ABOVE_FLOOR` green | **NO** — 34 blocked, floor held by ruling |
-| 6 | promotion executed | **NO** — blocked by 5 via the fail-closed batch rule |
-| 7 | post-promotion observation | not reached |
+| 5 | `RESOLVABLE_ABOVE_FLOOR` green | **for the 62 — yes. For the held 34 it still FAILS**, by ruling (2026-08-27) |
+| 6 | promotion executed | **DONE 2026-08-27** — 62 rows, guarded, verified |
+| 7 | post-promotion observation | **DONE** — R@1 1/MRR 1 and a production-equivalent floor sweep, both ₹0 |
 | 8 | effective flag value read on the box | **NOT DONE** — needs shell access to the running container |
 | 9 | flag enabled | **NO, and correctly so** |
 
 **Activation remains impossible, and no gate was weakened to make it look otherwise.**
+Rows 5–7 were updated on 2026-08-27; everything above them is as it stood on 2026-08-26.

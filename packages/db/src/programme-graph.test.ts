@@ -140,7 +140,7 @@ describe("what the graph says about the programme", () => {
     expect(counts.BLOCKED_ON_OWNER).toBeGreaterThan(others / 2);
   });
 
-  it("promotion's unfinished ancestors are four, and two of them are an owner ruling", () => {
+  it("promotion has NO unfinished ancestors left, and canonicalization has exactly one", () => {
     // Q1 and EVAL_COVERED are direct dependencies and are COMPLETE, so they do not appear —
     // blockersOf reports what is still in the way, not the whole ancestry.
     //
@@ -148,26 +148,37 @@ describe("what the graph says about the programme", () => {
     // corpus decisions ruled that day (D-7A, D-7C-1a, D-7C-1b, 5a-2) all sat on the
     // CANONICALIZATION branch. None of them ever gated PROMOTION, so ruling them moved the
     // promotion leaf not at all.
-    // Down from four to ONE. The evidence questions are all answered — semantics ruled strict,
-    // both records fingerprinted and fresh, the sweep run, the 6 unmeasured resolved to 4. What
-    // is left is not about evidence at all: 62 of 96 pass every gate and the batch is
-    // all-or-nothing, so somebody must choose between waiving, re-scoping and corpus work.
-    expect(blockersOf(PROGRAMME, "PROMOTION").map((i) => i.id)).toEqual(["PROMOTION-SCOPE"]);
+    // Four -> one -> NONE, and the last step was a ruling rather than a build. PROMOTION-SCOPE
+    // was ruled option B on 2026-08-27 and the promotion ran the same day: 62 promoted, 34 held.
+    // Pinned as an empty list rather than deleted — a NEW blocker appearing on the promotion
+    // leaf after it has already happened would mean the graph has lost track of what is done.
+    expect(blockersOf(PROGRAMME, "PROMOTION").map((i) => i.id)).toEqual([]);
+    expect(PROGRAMME.find((i) => i.id === "PROMOTION")!.status).toBe("COMPLETE");
+    // And with PROMOTION done, the activation leaf is down to ONE blocker — not a decision and
+    // not a build, but a FACT nobody in this repository can read: what the running container
+    // actually has SKILL_CANONICALIZE_ENABLED set to. Everything the graph could answer, it has.
     const canon = blockersOf(PROGRAMME, "CANONICALIZATION").map((i) => i.id);
-    expect(canon).toContain("PROMOTION");
-    expect(canon).toContain("CANONICALIZE-FLAG-VALUE");
+    expect(canon).toEqual(["CANONICALIZE-FLAG-VALUE"]);
     // …and the four ruled items are gone from it.
     for (const ruled of ["D-7A", "D-7C-1a", "D-7C-1b", "5a-2"]) {
       expect(canon, ruled).not.toContain(ruled);
     }
   });
 
-  it("no path to promotion or canonicalization is engineering-only", () => {
-    for (const leaf of ["PROMOTION", "CANONICALIZATION"]) {
-      const b = blockersOf(PROGRAMME, leaf);
-      expect(b.length, leaf).toBeGreaterThan(0);
-      expect(b.every((i) => i.status !== "EXECUTABLE"), leaf).toBe(true);
-    }
+  it("no path to CANONICALIZATION is engineering-only", () => {
+    // PROMOTION has dropped out of this test because it HAPPENED, not because the rule was
+    // relaxed: it reached zero blockers by way of an owner ruling and then ran. The invariant
+    // itself is unchanged and still guards the one leaf that is left — nothing between here and
+    // activation is something an engineer may simply do.
+    const b = blockersOf(PROGRAMME, "CANONICALIZATION");
+    expect(b.length).toBeGreaterThan(0);
+    expect(b.every((i) => i.status !== "EXECUTABLE")).toBe(true);
+    // And the way PROMOTION cleared is recorded, so "it has no blockers" can never be read as
+    // "it was never gated".
+    const scope = PROGRAMME.find((i) => i.id === "PROMOTION-SCOPE")!;
+    expect(scope.status).toBe("COMPLETE");
+    expect(scope.decision).toMatch(/OWNER RULING 2026-08-27, OPTION B/);
+    expect(scope.decision).toMatch(/No criterion was waived, the 0\.75 floor did not move/);
   });
 
   it("D-7C's seed was blocked by BOTH owner decisions, then by an authorization, and is now applied", () => {

@@ -418,36 +418,42 @@ export const PROGRAMME: readonly ProgrammeItem[] = [
   // ── the leaves ────────────────────────────────────────────────────────────
   {
     id: "PROMOTION-SCOPE",
-    title: "62 of 96 pass every gate, and promote-skills is fail-closed for the whole batch",
-    status: "BLOCKED_ON_OWNER",
+    title: "RULED option B — re-scope the batch to the 62, hold the 34 in a named register",
+    status: "COMPLETE",
     dependsOn: ["RESOLVABLE-28"],
     decision:
-      "`promote-skills` REFUSES unless every candidate clears every non-waived criterion — " +
-      "\"promoting the passing subset would leave the corpus half live, with no single " +
-      "description of what is retrievable\". So 34 below-floor skills block 62 that are ready. " +
-      "Three ways forward, and each is a product call: (A) --waive RESOLVABLE_ABOVE_FLOOR, which " +
-      "promotes all 96 and records the waiver — the 34 become active but stay unassignable, " +
-      "which is exactly the state the RESOLVABLE-28 ruling describes; (B) re-scope the batch to " +
-      "the 62 that pass, which changes what a batch means; (C) do the corpus work in " +
-      "corpus-improvement-candidates-2026-08-26.md first and promote all 96 cleanly. " +
-      "NOT TAKEN HERE: a waiver is a gate override, and the standing instruction is to promote " +
-      "only if every gate is green.",
+      "OWNER RULING 2026-08-27, OPTION B. Re-scope the promotion batch from 96 to the 62 that " +
+      "pass RESOLVABLE_ABOVE_FLOOR. The 34 must NOT be waived, deleted or promoted; they are " +
+      "recorded as HOLD / IMPROVEMENT QUEUE with their measured failure reasons so they can be " +
+      "improved and promoted later. Option A (--waive) was NOT taken: a waiver promotes a skill " +
+      "that failed, and the 34 would go live and unassignable. Option C stays available and is " +
+      "what empties the queue. " +
+      "WHAT MADE B SAFE TO IMPLEMENT: the fail-closed refusal objects to a subset that NOTHING " +
+      "DESCRIBES — \"no single description of what is retrievable\" — not to a subset as such. " +
+      "held-skills.json IS that description, so the runner now selects against it. Holding " +
+      "changes the SELECTION and never the JUDGEMENT: all 34 are still judged in full, still " +
+      "fail RESOLVABLE_ABOVE_FLOOR, still appear in the promotion report, and stay `provisional`. " +
+      "No criterion was waived, the 0.75 floor did not move, and CRITERIA is unchanged.",
     evidence:
-      "promote-skills.ts fail-closed branch · corpus-improvement-candidates-2026-08-26.md · " +
-      "activation-readiness-2026-08-26.md",
+      "packages/db/data/taxonomy/held-skills.json (34 entries, each measured from the recorded " +
+      "plan run, pinned id-for-id against it by test) · promotion-holds.ts, whose three " +
+      "properties stop the register becoming a silencer: a hold authorises exactly one " +
+      "criterion, a hold must still be true (RELEASABLE refuses on apply), and omission is " +
+      "self-correcting · promotion-holds.test.ts, 21 tests.",
     unblocks: ["PROMOTION"],
   },
   {
     id: "PROMOTION",
-    title: "Promote the 96 — 62 now pass every gate, and the batch is all-or-nothing",
-    status: "BLOCKED_ON_OWNER",
+    title: "DONE — 62 of the batch's 96 promoted to active, 34 held",
+    status: "COMPLETE",
     dependsOn: ["Q1", "EVAL-COVERED", "RESOLVABLE-28", "RESOLVABLE-6", "NO-REGRESSION-EVIDENCE", "PROMOTION-SCOPE"],
-    decision:
-      "Nothing left to decide about the EVIDENCE — see PROMOTION-SCOPE for the one question " +
-      "that remains, which is about the batch, not the gates.",
     evidence:
-      "promote-skills --plan 2026-08-26 on fresh evidence: freshness current, regression PASS, " +
-      "96 candidates, ELIGIBLE 62, blocked 34, sole blocking criterion RESOLVABLE_ABOVE_FLOOR.",
+      "APPLIED 2026-08-27 under both ops-guard signals. promotion-2026-08-27T05_23_00.862Z.json: " +
+      "candidates 96, held 34, selected 62, eligible 62, blocked 0, WAIVED NONE, freshness " +
+      "current, regression PASS. Predicted mutation 62 rows and applied 62 — `promoted 62 / 62`, " +
+      "0 skipped by the concurrency guard. Production before: active 49 / provisional 111. " +
+      "After: active 111 / provisional 49, deprecated 5 unchanged. All 34 held ids verified " +
+      "STILL `provisional`. Reversible with `--revert <report> --apply`.",
     unblocks: ["CANONICALIZATION"],
   },
   {
