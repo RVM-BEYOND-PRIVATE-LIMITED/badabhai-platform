@@ -61,8 +61,31 @@ pnpm --filter @badabhai/db db:migrate                       # applies 0093 only
 
 **Authorization: none beyond Step 1.** Still ₹0, still no taxonomy write.
 
-The dry-run runner (`db:discover:skills`) has **no write path by design**. Persisting is a
-separate runner, and it is the one piece of Phase 2 still to build (see §3).
+The dry-run runner (`db:discover:skills`) has **no write path by design** — asserted against its
+own source, so "it does not write" is checked rather than promised. Persisting is a separate
+runner, and it is the ONLY runner in this workstream with an `--apply`:
+
+```bash
+# 1. Produce a run. Read-only, no authorization, no spend.
+pnpm --filter @badabhai/db db:discover:skills --label phase5 --out .scratch/run
+
+# 2. PLAN first — the default. Refuses a bad file before it opens a connection.
+pnpm --filter @badabhai/db db:persist:discovery-run --dir .scratch/run
+
+# 3. Write, guarded.
+OPS_ALLOW_PRODUCTION=persist:discovery-run \
+pnpm --filter @badabhai/db db:persist:discovery-run --dir .scratch/run --apply \
+  --i-am-authorised-to-write-to-production
+```
+
+It re-derives the corpus fingerprint from the LIVE catalogue and refuses a run measured against a
+corpus that has since moved — putting stale candidates in front of a reviewer with nothing on the
+row saying so is the failure that guard exists for. `--allow-stale` is the deliberate escape hatch
+for re-persisting a historical run for audit, and it says so in the output.
+
+A source-level test extracts every `INSERT INTO <table>` in the runner and asserts it is one of
+the four staging tables, so a future edit that adds `INSERT INTO skill` fails a test rather than
+production.
 
 - **Verify**: `SELECT status, source_count, candidate_count, input_fingerprint FROM
   skill_discovery_run;` — one row, `completed`, and the fingerprint equal to the report's.
@@ -151,6 +174,37 @@ pnpm --filter @badabhai/db db:seed:domain-skills --apply          # writes
   skill_id IN (…);` — safe **only** while the skills are still `provisional` and nothing
   references them. After promotion, the correct undo is deprecate-and-crosswalk (SG-5), not
   delete.
+
+### Step 7b — Backfill `resulting_skill_id`
+
+**Authorization: production write (guarded).** No spend.
+
+Closes the audit loop. Until the offline chain actually mints a skill, the `approved_create` row's
+`resulting_skill_id` is NULL — deliberately, because that NULL is the honest answer to *"did this
+approval ever ship?"*. Once Step 7 has seeded, this stamps the ones that did:
+
+```bash
+pnpm --filter @badabhai/db db:backfill:resulting-skill                    # PLAN, the default
+pnpm --filter @badabhai/db db:backfill:resulting-skill --run <run_id>     # scoped to one run
+
+OPS_ALLOW_PRODUCTION=backfill:resulting-skill \
+pnpm --filter @badabhai/db db:backfill:resulting-skill --apply \
+  --i-am-authorised-to-write-to-production
+```
+
+- **It DERIVES its target.** `taxonomySkillIdFor(proposed_skill_name)` — the same pure function
+  the export path mints with. There is no `--skill-id` flag and there must never be one: an
+  operator who can name the target can point any approval at any skill in the corpus, which is
+  `approved_map` without the review, the reason or the reviewer.
+- **A label/skill mismatch is reported, not guessed.** It reads as `not_shipped_yet` and the run
+  prints the derived id so a human can see exactly what was looked for.
+- **It writes one column on one table.** The guarded `WHERE` requires
+  `status = 'approved_create' AND resulting_skill_id IS NULL`, so it can never overwrite a
+  resolution somebody else recorded, and it refuses a deprecated or `kind = 'match_skill'` target.
+- **Verify**: `SELECT count(*) FROM skill_candidate WHERE status = 'approved_create' AND
+  resulting_skill_id IS NULL;` — the remainder is the set still waiting on the chain.
+- **Rollback**: `UPDATE skill_candidate SET resulting_skill_id = NULL WHERE candidate_id = '<id>';`
+  The column is a record of what shipped, not a dependency of anything.
 
 ### Step 8 — Embed the new aliases
 
