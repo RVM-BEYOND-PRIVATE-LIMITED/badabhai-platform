@@ -36,6 +36,7 @@ afterAll(() => {
 
 const { adminFetch, isAdminRequestError, isAdminUnauthorized, isAdminForbidden } =
   await import("./admin-http");
+type AdminRequestErrorLike = { body?: Record<string, unknown> };
 const { describeAdminActionError } = await import("./describe-admin-error");
 
 const fetchMock = vi.fn();
@@ -294,6 +295,58 @@ describe("no internal detail survives into operator-facing copy", () => {
     expect(copy).not.toMatch(/\d{1,3}(\.\d{1,3}){3}/);
     expect(copy).not.toMatch(/\n\s+at\s/);
     expect(copy).not.toContain("fake.admin.jwt.value");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5b. `AdminRequestError.body` — additive, for a route whose 4xx carries more than a message.
+// ---------------------------------------------------------------------------
+
+describe("AdminRequestError.body — the raw `error` object, when there was one", () => {
+  it("carries the full error object alongside the message on a structured 409", async () => {
+    const err = await failureFor(
+      nestEnvelope(409, {
+        message: "conflict",
+        candidate_id: "c-1",
+        conflict: "stale_expected_status",
+        current_status: "approved_create",
+        expected_status: "pending",
+      }),
+      { status: 409, headers: JSON_HEADERS },
+    );
+    expect(isAdminRequestError(err)).toBe(true);
+    expect((err as AdminRequestErrorLike).body).toEqual({
+      message: "conflict",
+      candidate_id: "c-1",
+      conflict: "stale_expected_status",
+      current_status: "approved_create",
+      expected_status: "pending",
+    });
+  });
+
+  it("is undefined on every degraded body — HTML, empty, non-object", async () => {
+    const html = await failureFor("<html>404</html>", { status: 404 });
+    expect((html as AdminRequestErrorLike).body).toBeUndefined();
+
+    const empty = await failureFor("", { status: 400 });
+    expect((empty as AdminRequestErrorLike).body).toBeUndefined();
+
+    const bareString = await failureFor(JSON.stringify({ error: "gateway text" }), {
+      status: 404,
+      headers: JSON_HEADERS,
+    });
+    expect((bareString as AdminRequestErrorLike).body).toBeUndefined();
+  });
+
+  it("is undefined on a transport failure — there was never a response to parse", async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"));
+    let thrown: unknown;
+    try {
+      await adminFetch("/admin/me");
+    } catch (err) {
+      thrown = err;
+    }
+    expect((thrown as AdminRequestErrorLike).body).toBeUndefined();
   });
 });
 
