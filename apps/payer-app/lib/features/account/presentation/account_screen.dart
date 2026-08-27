@@ -9,6 +9,7 @@ import '../../../core/session/app_session.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_alert_dialog.dart';
 import '../../../core/widgets/bb_avatar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_card.dart';
@@ -146,7 +147,7 @@ class _AccountView extends StatelessWidget {
                     danger: true,
                     showBorder: false,
                     showChevron: false,
-                    onTap: onSignOut,
+                    onTap: () => _confirmSignOut(context),
                   ),
                 ],
               ),
@@ -188,6 +189,20 @@ class _AccountView extends StatelessWidget {
         builder: (_) => const ReferralScreen(),
       ),
     );
+  }
+
+  /// Confirm before the C1 revoke-and-wipe sign-out — a themed two-button modal
+  /// (tap-outside reads as cancel) so a mis-tap on the danger row never ends the
+  /// session. Only a confirm runs [onSignOut].
+  Future<void> _confirmSignOut(BuildContext context) async {
+    final bool confirmed = await showBbConfirm(
+      context,
+      title: 'Sign out?',
+      message: "You'll need your phone number and OTP to sign back in.",
+      confirmLabel: 'Sign out',
+      destructive: true,
+    );
+    if (confirmed) onSignOut();
   }
 
   Future<void> _openEdit(BuildContext context, PayerMe me) async {
