@@ -8,7 +8,12 @@ import {
   UnprocessableEntityException,
   forwardRef,
 } from "@nestjs/common";
-import type { AnswerRecord, AnswerType, QuestionPackOption } from "@badabhai/ai-contracts";
+import type {
+  AnswerRecord,
+  AnswerType,
+  QuestionPackItem,
+  QuestionPackOption,
+} from "@badabhai/ai-contracts";
 
 import { ChatRepository } from "../chat/chat.repository";
 import { ChatService, type ChatTurnOutcome } from "../chat/chat.service";
@@ -19,6 +24,7 @@ import {
   ProfilingOrchestrator,
   UNAVAILABLE_REPLY,
   type SessionView,
+  type SettledView,
   type TurnResult,
 } from "./orchestrator.service";
 import { ProfilingVoiceRepository } from "./profiling-voice.repository";
@@ -422,10 +428,24 @@ export class ProfilingSessionService {
       );
     }
 
-    const text =
-      dto.answer.kind === "spoken"
-        ? await this.transcribeCorrection(workerId, dto.answer.voice_note_id, ctx)
-        : this.textFor(dto.answer, item.options, item.answer_type);
+    let text: string;
+    if (dto.answer.kind === "spoken") {
+      const transcribed = await this.transcribeCorrection(workerId, dto.answer.voice_note_id, ctx);
+      text = transcribed.text;
+      // THE `profiling_voice_answer` EVIDENCE ROW `recordClip` already writes for a first-time
+      // spoken answer (#1272) — reached only here, on success, because `transcribeCorrection`
+      // THROWS on failure and there is no clip to record evidence for.
+      await this.recordCorrectionClip(
+        workerId,
+        dto.session_id,
+        dto.answer.voice_note_id,
+        view,
+        item,
+        transcribed.durationSeconds,
+      );
+    } else {
+      text = this.textFor(dto.answer, item.options, item.answer_type);
+    }
 
     const existing = await this.workers.latestProfile(workerId);
     const outcome = await this.orchestrator.correctAnswer({
@@ -434,6 +454,11 @@ export class ProfilingSessionService {
       questionKey: dto.question_key,
       text,
       method: dto.answer.kind,
+      // THE SAME PROVENANCE `spokenAnswer` PASSES TO `runTurn` (#1244/#1272): the clip that
+      // produced these words, or `null` for every other affordance — never inferred from
+      // `method`, so the correction's `chat_messages` row is tagged the same way a first-time
+      // spoken answer's is.
+      voiceNoteId: dto.answer.kind === "spoken" ? dto.answer.voice_note_id : null,
       profileAlreadyBuilt: existing !== undefined && existing !== null,
       now: new Date(),
       ctx,
@@ -501,12 +526,15 @@ export class ProfilingSessionService {
    * There, a lost clip returns `unavailable` and the worker records again against a question still
    * on screen. Here there is no question on screen and no turn to retry — a soft failure would
    * leave the review screen showing the old value with no indication the correction was lost.
+   *
+   * DURATION RIDES ALONG WITH THE TEXT (#1272), so the caller can hand it to
+   * {@link recordCorrectionClip} without a second call to the transcription service.
    */
   private async transcribeCorrection(
     workerId: string,
     voiceNoteId: string,
     ctx: RequestContext,
-  ): Promise<string> {
+  ): Promise<{ text: string; durationSeconds: number | null }> {
     const transcribed = await this.transcription.transcribeNow({
       voiceNoteId,
       workerId,
@@ -518,7 +546,61 @@ export class ProfilingSessionService {
         `That recording could not be transcribed (${transcribed.errorCode})`,
       );
     }
-    return transcribed.text;
+    return { text: transcribed.text, durationSeconds: transcribed.durationSeconds };
+  }
+
+  /**
+   * The `profiling_voice_answer` row for a SPOKEN CORRECTION — the same evidence {@link recordClip}
+   * writes for a first-time spoken answer, replicated here because #1272 found the correction path
+   * writing none at all: a correction clip was bought, stored and transcribed with nothing in
+   * Postgres saying which question it answered.
+   *
+   * SUCCESS ONLY, unlike `recordClip`. `transcribeCorrection` THROWS on a failed transcription —
+   * deliberately, see its own docs — so this method is only ever reached once the words arrived;
+   * there is no failed clip on this path to record evidence for.
+   *
+   * ORDINAL IS THE QUESTION'S POSITION IN THE PINNED PACK, not "how many are behind the worker"
+   * (`recordClip`'s definition). There is no turn in progress here to count against — the question
+   * is already settled — so this reads the static position of `item` in the pack's own item order,
+   * which also satisfies the schema's contract that ordinal "repeats across attempts of the same
+   * question" for free: the pack order never changes between correction attempts.
+   *
+   * NEVER FAILS THE CORRECTION, matching `recordClip`. This is an audit fact; the corrected value
+   * is already durable in `worker_pack_answer` by the time this runs.
+   */
+  private async recordCorrectionClip(
+    workerId: string,
+    sessionId: string,
+    voiceNoteId: string,
+    view: SettledView,
+    item: QuestionPackItem,
+    durationSeconds: number | null,
+  ): Promise<void> {
+    const position = view.items.findIndex(
+      (candidate) => candidate.question_key === item.question_key,
+    );
+    try {
+      await this.voiceAnswers.recordAnswer({
+        workerId,
+        sessionId,
+        voiceNoteId,
+        packId: view.packId,
+        packVersion: view.packVersion,
+        questionKey: item.question_key,
+        // `item` was resolved FROM `view.items` by the caller, so `position` cannot be -1 in
+        // practice; the floor is defensive only, since `ordinal` is a NOT NULL smallint.
+        ordinal: position >= 0 ? position + 1 : 1,
+        durationSeconds,
+        transcriptStatus: "succeeded",
+        transcriptErrorCode: null,
+      });
+    } catch (err) {
+      this.logger.error(
+        `failed to record the correction voice-answer evidence row session=${sessionId} ` +
+          `question=${item.question_key}; the CORRECTION is unaffected: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /**
