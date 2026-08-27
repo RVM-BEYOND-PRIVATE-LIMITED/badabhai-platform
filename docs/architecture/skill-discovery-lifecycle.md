@@ -238,6 +238,13 @@ become unrepresentable states rather than 500s naming a constraint. `create` doe
 `resulting_skill_id`: that column stays NULL until the offline chain actually mints the skill,
 which makes it the honest answer to *"did this approval ever ship?"*.
 
+**Every named trade is resolved against `job_domain` before the transaction opens** —
+`assertLiveJobDomains`, requiring `selectable AND status = 'active'`, refusing partial resolution
+and naming the unknown ids. Nothing else catches a typo: `approved_job_domain_ids` is `text[]`, and
+Postgres cannot put a foreign key on an array element, so `skill_candidate_create_domain_chk`
+counts the array and stops while the DTO checks only the shape. Without this, a plausible `jd_`
+typo is recorded as a decision and surfaces weeks later as an FK violation halfway through a seed.
+
 **`approved_job_domain_ids` is mandatory on `create`, and that requirement was learned the hard
 way.** The first export path emitted no edges, on the defensible-sounding grounds that a discovery
 pipeline must not *infer* what a trade requires — and every batch it produced was permanently
@@ -327,16 +334,46 @@ ships the skill. Until then it is NULL, and that NULL is the honest answer.
 
 ## The write surface, as a property
 
-`apps/api/src/admin/taxonomy-write-surface.test.ts` scans every implementation file under
-`apps/api/src` and asserts, as an **equality**, that exactly one file writes any taxonomy-spine
-table: `skills/skills.repository.ts`, writing `unresolved_phrase` — a discovery **input**. Zero
-files write `skill`, `skill_alias`, `job_domain`, `job_domain_alias` or `job_domain_skill`.
+**One scanner, two consumers.** `packages/db/src/lifecycle-writer-scan.ts` walks every workspace
+that can reach the database and returns the writer set keyed by repo-relative path.
+`skill-lifecycle.test.ts` asks the repo-wide question of it; `apps/api`'s
+`taxonomy-write-surface.test.ts` asks the request-path question of the same answer.
 
-The scan strips comments first, because the three review-layer files each explain at length that
-they do not write those tables, naming all three — counting prose would flag exactly the files most
-careful to say what they refuse to do. `packages/db/src/lifecycle-writer-scan.ts` holds the other
-half of the boundary. Direction of error is stated in both: a dynamically assembled statement would
-be missed, so a hit is proof and a miss is not.
+**Measured, repo-wide (2026-08-27):**
+
+| table | writers | where |
+|---|---:|---|
+| `skill` | 6 | all `packages/db` |
+| `skill_alias` | 8 | all `packages/db` |
+| `job_domain_alias` | 3 | all `packages/db` |
+| `job_domain` | 1 | `packages/db` |
+| `job_domain_skill` | **1** | `seed-domain-skills.ts` |
+| `unresolved_phrase` | 4 | 3 in `packages/db`, **1 in `apps/api`** |
+
+The single app-side writer is `apps/api/src/skills/skills.repository.ts` → `unresolved_phrase`, the
+inverse of a corpus write: the row that says a worker used a phrase the taxonomy does not have.
+**Zero** files anywhere write `skill`, `skill_alias`, `job_domain`, `job_domain_alias` or
+`job_domain_skill` from a request path.
+
+Three things make that claim hold up rather than merely sound good:
+
+- **The root list is derived, not remembered.** A writer needs the Drizzle models or a connection,
+  and both arrive through `@badabhai/db`. `workspacesDependingOnDb` re-reads the workspace
+  manifests every run and the test fails if a third consumer appears, so a new one becomes a
+  decision about `SPINE_WRITER_ROOTS` rather than a hole in it.
+- **Comments are stripped first.** The three review-layer files each explain at length that they do
+  not write those tables, naming all three. Counting prose would flag exactly the files most
+  careful to say what they refuse to do.
+- **Direction of error is stated.** A dynamically assembled statement would be missed, so a hit is
+  proof and a miss is not. It is a floor under the promise, not the promise.
+
+> **Why this was worth doing.** The scan previously read one directory while asserting a
+> repo-wide property, and `apps/api` — 198 files importing `@badabhai/db`, every HTTP request path
+> in the product — was outside it. And the first repo-wide run was itself wrong: `packages/db`
+> imports drizzle's `sql` as `dsql` and the matcher was built for that, so pointed at `apps/api` it
+> read 437 files and reported **zero** writers. An audit that returns "nothing found" because it
+> cannot read the syntax in front of it is worse than no audit, because the empty result gets
+> quoted.
 
 ## What has NOT been decided, and by whom
 
