@@ -452,3 +452,75 @@ const SKILL_CANDIDATE_AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
 export function auditActionLabel(code: string): string {
   return SKILL_CANDIDATE_AUDIT_ACTION_LABELS[code] ?? code;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// The in-band markers, the audit cap, and the provenance note (#1280, corrections 3, 5, 6)
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * THE MARKERS THE READ ROUTES CARRY ABOUT THEIR OWN ANSWERS — `grouping_basis`, `tier_basis`,
+ * `corpus_effect`.
+ *
+ * All three were already parsed and typed; none was ever rendered, which left the console holding
+ * a disclaimer the reviewer never sees. Each is the server saying that the thing above it was
+ * DERIVED at read time and is stored nowhere, or that a decision changed no taxonomy — exactly the
+ * claims a reviewer would otherwise have to take on trust from a screen that looks like it is
+ * listing records.
+ *
+ * The `corpus_effect` one earns its place on the audit trail specifically: an entry reading
+ * "Approved — create new skill", read back weeks later, looks like the skill exists.
+ */
+const SKILL_BASIS_MARKER_LABELS: Readonly<Record<string, string>> = {
+  groups_are_derived_not_stored:
+    "A batch is worked out fresh on every read. There is no group row in any table, no group id, and no decision is ever recorded against a batch.",
+  review_tier_is_derived_not_stored:
+    "A tier is worked out from the phrase class and whether a strong match exists. It is not a stored column, and nothing decides on it.",
+  [SKILL_DECISION_EFFECT_RECORDED_ONLY]:
+    "Recording a decision does not change the taxonomy. Every entry above is a decision being written down; the skill corpus is only ever changed by the offline chain that runs afterwards.",
+};
+
+/**
+ * An unrecognised marker renders ITSELF, never a guessed sentence — the same fallback
+ * {@link auditActionLabel} uses, for a sharper reason: these markers exist so the surface cannot
+ * paraphrase what the server said about its own answer, and inventing one would defeat them.
+ */
+export function basisMarkerLabel(marker: string): string {
+  return SKILL_BASIS_MARKER_LABELS[marker] ?? marker;
+}
+
+/**
+ * THE CEILING ON THE AUDIT READ (#1280, correction 6).
+ *
+ * `listAuditEvents` selects `LIMIT 200` and the response carries NO truncation flag — unlike
+ * `/groups`, which counts first and refuses an over-broad filter with a 400 rather than returning
+ * a partial answer that presents itself as a whole one. Here a candidate with 201 events and one
+ * with exactly 200 produce indistinguishable responses.
+ *
+ * Unreachable in practice: the status ladder is terminal, so a candidate accrues two or three
+ * events and no realistic path adds a two-hundredth. That is a reason to say it quietly, not a
+ * reason to leave it unsaid — the failure mode is an auditor reading a truncated trail as a
+ * complete one, which is the single thing an audit surface must never allow.
+ *
+ * So the panel asserts nothing it cannot see: under the cap the trail is complete and it says
+ * nothing; AT the cap it says the cap was reached and that the response cannot distinguish
+ * "exactly 200" from "cut at 200". There is no "load the rest" affordance anywhere, because no
+ * route serves one.
+ */
+export const SKILL_AUDIT_MAX_ENTRIES = 200;
+
+export const SKILL_AUDIT_CAP_NOTE = `This trail is showing ${SKILL_AUDIT_MAX_ENTRIES} entries, which is the most the audit read returns. The response carries no marker for whether anything was left out, so this list cannot be treated as the complete history — read the event spine directly if the full sequence matters.`;
+
+/**
+ * WHY A MODEL NAME IS ON THIS SCREEN WHEN A SIMILARITY SCORE NEVER IS (#1280, correction 5).
+ *
+ * The rule this console enforces is *no similarity measurement* — no cosine figure, no vector, no
+ * number a reviewer could turn into an approval floor. It is not "no machine word anywhere", and
+ * conflating the two cost real auditability: `model` and `prompt_version` are facts about the RUN,
+ * both inside the frozen provenance digest, so omitting them showed a reviewer nine of eleven
+ * fields under a heading that says "frozen record".
+ *
+ * Neither field ranks, orders or gates anything. The similarity score is the field that would, and
+ * it is absent from the wire by construction.
+ */
+export const SKILL_PROVENANCE_RUN_NOTE =
+  "How the run that produced this phrase was configured. These are facts about the run, recorded when it happened and frozen into the digest below — none of them measures how good a match anything is, and nothing here is a reason to approve or reject.";

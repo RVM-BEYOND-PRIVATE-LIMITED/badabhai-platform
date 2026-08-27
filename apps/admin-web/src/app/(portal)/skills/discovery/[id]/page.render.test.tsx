@@ -241,6 +241,57 @@ describe("#1280 — the audit read is a separate, degradable fetch", () => {
     const out = await render();
     expect(out).toContain("No recorded events yet.");
   });
+
+  it("renders `corpus_effect` — the trail's own statement that nothing here moved the taxonomy", async () => {
+    // #1280 correction 3. The response has always carried this marker and the mirror has always
+    // typed it; nothing showed it. An "Approved — create new skill" entry read back weeks later
+    // looks like the skill exists, and this is the sentence that says it does not.
+    const out = await render();
+    expect(out).toContain("Recording a decision does not change the taxonomy");
+  });
+
+  it("an UNRECOGNISED corpus_effect renders itself rather than a guessed sentence", async () => {
+    stub.audit = { ...AUDIT, corpus_effect: "something_the_server_added_later" };
+    const out = await render();
+    expect(out).toContain("something_the_server_added_later");
+  });
+
+  /*
+   * ── THE 200-ENTRY CAP (#1280, correction 6) ──────────────────────────────────────────
+   * `listAuditEvents` is `LIMIT 200` with no truncation flag, so a candidate with 201 events and
+   * one with exactly 200 arrive identical. Unlike `/groups`, which counts first and refuses an
+   * over-broad filter outright, this route truncates silently.
+   *
+   * Under the cap nothing was dropped and the warning would be noise; at it, the panel cannot
+   * tell the two apart and stops claiming completeness. Unreachable in practice — the status
+   * ladder is terminal — which is a reason to say it quietly, not to leave it unsaid.
+   */
+  const auditEntries = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      event_id: `evt-${i}`,
+      occurred_at: "2026-08-20T09:00:00.000Z",
+      action_code: "skill_candidate_deferred",
+      admin_id: "adm-42",
+    }));
+
+  it("says nothing about a cap while the trail is under it", async () => {
+    stub.audit = { ...AUDIT, entries: auditEntries(199) };
+    const out = await render();
+    expect(out).not.toContain("cannot be treated as the complete history");
+  });
+
+  it("AT the cap it stops claiming completeness, because it cannot tell 200 from truncated", async () => {
+    stub.audit = { ...AUDIT, entries: auditEntries(200) };
+    const out = await render();
+    expect(out).toContain("cannot be treated as the complete history");
+    expect(out).toContain("no marker for whether anything was left out");
+  });
+
+  it("offers NO load-the-rest affordance at the cap — no route serves one", async () => {
+    stub.audit = { ...AUDIT, entries: auditEntries(200) };
+    const out = await render();
+    expect(out.toLowerCase()).not.toMatch(/load (the )?(rest|more)|show all|full history/);
+  });
 });
 
 describe("404 / 400 — both read as not-found", () => {
@@ -273,10 +324,22 @@ describe("404 / 400 — both read as not-found", () => {
   });
 });
 
-describe("AC#5/#6 — no score, vector, cosine or embedding model name, and EVERY match shown", () => {
-  it("never renders the literal words cosine, vector, or embedding model", async () => {
+describe("AC#5/#6 — no similarity measurement reaches the reviewer, and EVERY match shown", () => {
+  /*
+   * `embedding model` LEFT THIS REGEX (#1280, correction 5), and the reason matters.
+   *
+   * The provenance panel now renders `provenance.model` — a verbatim configuration string the
+   * server serves, whose VALUE can legitimately contain those words. Banning the substring would
+   * fail on a well-named model rather than on a leaked measurement: a test asserting the wrong
+   * thing, loudly.
+   *
+   * `cosine` and `vector` stay. Neither is ever a value this surface renders, so either appearing
+   * means the screen has started teaching the vocabulary it exists to spare a reviewer. And the
+   * assertion that guards the actual hazard is the next one — the NUMBER.
+   */
+  it("never renders the literal words cosine or vector", async () => {
     const out = await render();
-    expect(out.toLowerCase()).not.toMatch(/cosine|vector|embedding model/);
+    expect(out.toLowerCase()).not.toMatch(/cosine|vector/);
   });
 
   it("never renders a bare similarity-score-shaped number", async () => {
@@ -284,10 +347,34 @@ describe("AC#5/#6 — no score, vector, cosine or embedding model name, and EVER
     expect(out).not.toMatch(/\b0\.\d{2}\b/);
   });
 
-  it("omits the provenance model name and prompt version, even though the response carries them", async () => {
+  /*
+   * ── THIS TEST USED TO ASSERT THE OPPOSITE ────────────────────────────────────────────
+   * It pinned that `provenance.model` and `provenance.prompt_version` were OMITTED, under a
+   * blanket "no model name in the UI" rule the pre-merge audit found stricter than the contract.
+   * Both sit inside the frozen 19-field digest the same panel prints, so hiding them showed a
+   * reviewer nine of eleven fields under a heading that says "frozen record".
+   *
+   * The rule that protects the decision is the pair above: no similarity measurement. Unchanged.
+   */
+  it("renders the provenance model and prompt version — run configuration, not a measurement", async () => {
     const out = await render();
-    expect(out).not.toContain("text-embedding-3-small");
-    expect(out).not.toContain("v3");
+    expect(out).toContain("text-embedding-3-small");
+    expect(out).toContain(">v3<");
+  });
+
+  it("carries the note saying what those provenance fields are NOT", async () => {
+    const out = await render();
+    expect(out).toContain("none of them measures how good a match anything is");
+  });
+
+  it("renders a null model and prompt version as an em dash, never blank or guessed", async () => {
+    stub.candidate = {
+      ...BASE,
+      provenance: { ...BASE.provenance, model: null, prompt_version: null },
+    };
+    const out = await render();
+    expect(out).toContain('<dt class="kv__k">Model</dt><dd class="kv__v">—</dd>');
+    expect(out).toContain('<dt class="kv__k">Prompt version</dt><dd class="kv__v">—</dd>');
   });
 
   it("renders BOTH the strong and the weak match — never just the top one", async () => {
