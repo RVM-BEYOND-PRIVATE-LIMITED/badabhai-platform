@@ -54,9 +54,11 @@ void main() {
     // ledger' heading mislabelled it; the real per-unlock history is separate.
     expect(find.text('Credit ledger'), findsOneWidget);
 
-    // The external pointer that REPLACED the purchase, and the note saying why.
-    expect(find.text(kBuyCreditsOnWebLabel), findsOneWidget);
-    expect(find.text(kBuyCreditsOnWebNote), findsOneWidget);
+    // The "Buy credits on web" pointer is HIDDEN for now (kShowBuyCreditsOnWeb
+    // = false — Play Store anti-steering for virtual currency). Hidden by
+    // Visibility, code kept, so it must not render.
+    expect(find.text(kBuyCreditsOnWebLabel), findsNothing);
+    expect(find.text(kBuyCreditsOnWebNote), findsNothing);
 
     // No purchase surface leaked back in: no 'Buy credits' heading, no pack
     // card (its ₹ price), no Buy button.
@@ -66,16 +68,15 @@ void main() {
   });
 
   testWidgets(
-      'tapping the pointer hands an https web URL to the OS, not an in-app '
-      'purchase', (WidgetTester tester) async {
+      'while kShowBuyCreditsOnWeb is off the pointer is hidden — nothing to tap, '
+      'no URL launched', (WidgetTester tester) async {
     await pump(tester);
 
-    await tester.tap(find.text(kBuyCreditsOnWebLabel));
-    await tester.pumpAndSettle();
-
-    expect(launched.length, 1);
-    expect(launched.single.scheme, 'https');
-    expect(launched.single.path, endsWith('/credits'));
+    // Hidden by Visibility → not in the render tree, so it cannot be tapped and
+    // the external launcher is never invoked. (Re-enable the flag to restore the
+    // https-hand-off behaviour this used to assert; the launcher code is kept.)
+    expect(find.text(kBuyCreditsOnWebLabel), findsNothing);
+    expect(launched, isEmpty);
   });
 
   testWidgets('still shows the per-unlock history further down', (
