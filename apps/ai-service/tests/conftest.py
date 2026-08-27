@@ -73,6 +73,9 @@ def _force_mock_only_env() -> None:
     # made profile_extraction resolve to the CHEAP model under tests, masking the
     # three-model pin the flip gate depends on (validation-model == flip-model).
     os.environ["DEFAULT_CAPABLE_MODEL"] = "gemini-2.5-flash"
+    # Pro tier (#1237) — the chat turn's model, decoupled from the pinned capable tier above
+    # precisely so raising it cannot move extraction. Mirrors config.py `default_pro_model`.
+    os.environ["DEFAULT_PRO_MODEL"] = "gemini-2.5-pro"
     os.environ["DEFAULT_FALLBACK_MODEL"] = "claude-haiku-4-5"
     # Drop the eval target so the skip-gated per-field real test stays SKIPPED
     # even when a developer .env sets it.
@@ -139,7 +142,11 @@ def _force_mock_only_env() -> None:
     # are deterministic regardless of what a developer's .env tunes. These do not
     # arm a call by themselves, but they change WHICH model resolves and what the
     # worst-case cost check computes — both of which tests assert on.
-    os.environ["AI_CHAT_MODEL_TIER"] = "capable"
+    # MUST mirror the committed default (config.py `ai_chat_model_tier`), for the same reason
+    # DEFAULT_CAPABLE_MODEL above must: a stale value here makes the whole suite resolve the chat
+    # turn to a model prod does not use, which is the exact drift that once masked the extraction
+    # pin. `pro` since #1237.
+    os.environ["AI_CHAT_MODEL_TIER"] = "pro"
     os.environ["AI_CHAT_MAX_OUTPUT_TOKENS"] = "512"
     os.environ["AI_CHAT_TEMPERATURE"] = "0.3"
     os.environ["AI_CHAT_MAX_RETRIES"] = "1"

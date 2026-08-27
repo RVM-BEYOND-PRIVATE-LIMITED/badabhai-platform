@@ -15,7 +15,19 @@ from typing import Literal
 from ..config import Settings
 
 TaskType = Literal["profiling_chat_turn", "profile_extraction", "resume_generation"]
-ModelTier = Literal["cheap", "capable"]
+# THREE TIERS, AND THE THIRD EXISTS TO KEEP THE SECOND PINNED (#1237).
+#
+# `capable` used to be the top of the scale, so raising chat quality meant raising
+# `default_capable_model` — which is ALSO what `profile_extraction` and `profile_parse`
+# resolve through. That single knob is pinned to `gemini-2.5-flash` by an open GO/NO-GO item
+# (docs/ai/real-llm-flip-go-no-go.md Finding 4: validation-model must equal flip-model) and by
+# an executable guard (tests/test_extraction_model_pin.py). Moving it to improve the CHAT turn
+# would have silently re-pointed two extraction paths at a model their funded 56-case
+# re-validation never ran on, and the only task that is live today is the chat turn.
+#
+# `pro` decouples them: chat points here, extraction and parse stay on `capable`, and the pin
+# holds. This is a tier ABOVE capable, not a rename of it.
+ModelTier = Literal["cheap", "capable", "pro"]
 
 
 @dataclass(frozen=True)
@@ -39,13 +51,15 @@ class TaskRoute:
 # the whole turn fails over). An operator who could switch it off would be able to
 # break parsing from the environment.
 #
-# tier is configurable for the chat turn only, and it defaults to CAPABLE now. The
-# cheap tier was right when the model merely REPHRASED a question the deterministic
-# engine had already chosen; it now conducts the interview, tracks the Resume Field
-# Set, and emits strict JSON in Hinglish.
+# tier is configurable for the chat turn only, and it defaults to PRO now (#1237). It went
+# cheap -> capable when the model stopped merely REPHRASING a question the deterministic engine
+# had already chosen and began conducting the interview, tracking the Resume Field Set, and
+# emitting strict JSON in Hinglish; it goes capable -> pro because that is the one task with
+# real calls armed (`AI_REAL_CALL_TASKS` defaults to `profiling_chat_turn` alone) and therefore
+# the only one where the model a worker actually meets is decided here.
 _ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
     # (default tier, json_mode)
-    "profiling_chat_turn": ("capable", True),
+    "profiling_chat_turn": ("pro", True),
     "profile_extraction": ("capable", True),
     # OIE Phase 7 — the ONE parse call. CAPABLE because the task is harder than it looks: it must
     # copy a span character-for-character out of Hinglish/Devanagari text while typing the value,
@@ -68,12 +82,26 @@ _ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
 def _chat_tier(settings: Settings) -> ModelTier:
     """Chat tier from config, falling back to the shape default on a bad value.
 
-    Fails SOFT rather than raising: an unrecognised AI_CHAT_MODEL_TIER should not
-    take the service down at request time, and "capable" is the safe direction to
-    fall back in (a better model, not a worse one).
+    Fails SOFT rather than raising: an unrecognised AI_CHAT_MODEL_TIER should not take the
+    service down at request time.
+
+    ``"pro"`` MUST BE IN THE ALLOWLIST, and forgetting it is the whole failure mode this
+    function can have (#1237): an unlisted value is not an error, it silently becomes the shape
+    default — so a `pro` tier the settings ask for but this tuple does not know would quietly
+    keep serving the previous model with nothing anywhere saying so.
+
+    THE FALLBACK TARGET IS THE SHAPE DEFAULT, WHICH IS NOW ALSO ``"pro"``, and that pairing is
+    deliberate. The two must agree: if the shape default stayed ``"capable"`` while the settings
+    default said ``"pro"``, a single typo in AI_CHAT_MODEL_TIER would silently DOWNGRADE the one
+    worker-facing task in production — invisible, because a working answer from a cheaper model
+    looks exactly like a working answer. Falling back to the more expensive tier is bounded by
+    ``ai_max_daily_cost_inr`` (a visible, global ceiling); falling back to a cheaper one is
+    bounded by nothing and reads as success.
     """
     tier = settings.ai_chat_model_tier.strip().lower()
-    return tier if tier in ("cheap", "capable") else _ROUTE_SHAPES["profiling_chat_turn"][0]  # type: ignore[return-value]
+    if tier in ("cheap", "capable", "pro"):
+        return tier  # type: ignore[return-value]
+    return _ROUTE_SHAPES["profiling_chat_turn"][0]
 
 
 def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
@@ -156,8 +184,16 @@ def get_route(task_type: str, settings: Settings | None = None) -> TaskRoute:
 
 
 def resolve_model(task_type: str, settings: Settings) -> str:
-    """Resolve the concrete model id for a task from current settings."""
+    """Resolve the concrete model id for a task from current settings.
+
+    EXHAUSTIVE OVER ``ModelTier`` ON PURPOSE — `pro` is matched explicitly rather than being
+    folded into the capable branch, so that adding a fourth tier without a branch here falls to
+    the CHEAP default and is caught by the tier round-trip test, instead of quietly resolving to
+    whatever the last branch happened to return.
+    """
     route = get_route(task_type, settings)
+    if route.tier == "pro":
+        return settings.default_pro_model
     if route.tier == "capable":
         return settings.default_capable_model
     return settings.default_cheap_model
@@ -178,6 +214,23 @@ _MODEL_RATES_INR: dict[str, tuple[float, float]] = {
     # 2.5 Flash-Lite list price (~$0.10 in / $0.40 out per 1M) ~= Rs 0.008 in /
     # Rs 0.033 out per 1k at ~Rs 83/USD.
     "gemini-2.5-flash-lite": (0.008, 0.033),
+    # Gemini 2.5 Pro (#1237). List price read 2026-08-26 from
+    # https://ai.google.dev/gemini-api/docs/pricing: $1.25 in / $10.00 out per 1M for
+    # prompts <= 200k tokens ~= Rs 0.104 in / Rs 0.83 out per 1k at ~Rs 83/USD — the same
+    # conversion every other row here uses (each one reconciles to the live page exactly).
+    #
+    # THE <=200k TIER IS THE RIGHT ONE TO ENCODE, not a simplification. Pro bills $2.50/$15.00
+    # above 200k, but no routed task can reach that: the chat turn carries a ~200-token system
+    # prompt plus one interview, and `ai_chat_max_output_tokens` caps the reply at 512. A route
+    # that could exceed 200k would need its own entry, and none exists.
+    #
+    # ⚠ THIS ROW IS NOT COSMETIC — an unpriced model is WORSE than a wrong one here. Without it
+    # the estimator falls to `_DEFAULT_RATE_INR` (0.05, 0.15), which UNDER-reads Pro by ~2x on
+    # input and ~5.5x on output. The guardrails are computed from the estimate, so the failure is
+    # silent OVERSPEND — the caps never trip — and not the fall-to-mock that an over-estimate
+    # would cause. Any future model id added to a tier default needs a row here in the same
+    # change, or the ceilings below stop meaning anything.
+    "gemini-2.5-pro": (0.104, 0.83),
     "claude-haiku-or-gemini-flash": (0.02, 0.08),
     "claude-haiku": (0.07, 0.35),
     # Claude Haiku 4.5 (fallback provider): $1/1M in, $5/1M out ~= Rs 0.083 in /

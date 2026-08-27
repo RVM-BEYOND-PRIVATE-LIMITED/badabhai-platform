@@ -575,6 +575,46 @@ services:
       # surface, because the scope decision was already made, reviewed and pinned by a test.
       AI_REAL_CALL_TASKS: ${AI_REAL_CALL_TASKS:-profiling_chat_turn}
 
+      # ---- MODEL ROUTING + THE INR CEILINGS (#1237). PREVIOUSLY UNREACHABLE FROM THE BOX.
+      #
+      # THE SAME DEFECT AS EVERY OTHER BLOCK IN THIS FILE (WORKER_PHOTOS_BUCKET #794,
+      # CHAT_LLM_INTERVIEW_ENABLED #798, ZEPTOMAIL_API_URL #813, LANGFUSE_* below), and the
+      # highest-value instance of it yet: #1237 asks which model tier chat should run on and
+      # states the ids are "fully env-overridable". They are — in `config.py`. They were
+      # declared in NEITHER compose file, so `export DEFAULT_CAPABLE_MODEL=…` on the box had
+      # no path into this container and the pydantic default shipped regardless. The same was
+      # true of the four INR ceilings, which is worse: the issue's own advice is to re-size
+      # them when raising the tier, and that advice was inert.
+      #
+      # ⚠ RESTATED WITH THEIR DEFAULTS, NEVER BARE `${VAR:-}` — this is the SARVAM_TTS_MODEL
+      # rule immediately below, and these five fail HARDER than that one does. All five are
+      # non-optional pydantic fields with real defaults: a bare pass-through hands the
+      # container an EMPTY STRING, which for the three model ids silently resolves every real
+      # call to `""` (no transport, every task degrades to mock with nothing naming the cause)
+      # and for the two `float` ceilings is a VALIDATION ERROR AT BOOT — the identical shape
+      # that crash-looped the api on 2026-08-25 (#1221). Empty is not "unset" to pydantic.
+      #
+      # THE MODEL LITERALS BELOW MUST EQUAL `config.py`'s committed defaults. That is a real
+      # drift risk — two sources of truth for one value — so it is a TEST, not a convention:
+      # `ai-model-routing-compose.guard.test.ts` parses this file and the field defaults out
+      # of `config.py` and fails on any mismatch. Change one, change both, or CI stops you.
+      DEFAULT_CAPABLE_MODEL: ${DEFAULT_CAPABLE_MODEL:-gemini-2.5-flash}
+      DEFAULT_CHEAP_MODEL: ${DEFAULT_CHEAP_MODEL:-gemini-2.5-flash-lite}
+      DEFAULT_PRO_MODEL: ${DEFAULT_PRO_MODEL:-gemini-2.5-pro}
+      DEFAULT_FALLBACK_MODEL: ${DEFAULT_FALLBACK_MODEL:-claude-haiku-4-5}
+      # THE A/B LEVER, and the reason this raise is reversible without a deploy. `pro` is the
+      # shipped default; `AI_CHAT_MODEL_TIER=capable` puts the chat turn back on
+      # `gemini-2.5-flash` from the box. An UNRECOGNISED value fails soft to the route's shape
+      # default (also `pro`) rather than taking the service down — see `_chat_tier`.
+      AI_CHAT_MODEL_TIER: ${AI_CHAT_MODEL_TIER:-pro}
+      # The spend guardrails, in the order they bite. Per-call is the LEAST likely to fire —
+      # a chat turn costs paise, not rupees — so the one to watch when raising a tier is
+      # AI_MAX_DAILY_COST_INR, which is GLOBAL across the platform, not per worker.
+      AI_MAX_CALL_COST_INR: ${AI_MAX_CALL_COST_INR:-10.0}
+      AI_MAX_DAILY_COST_INR: ${AI_MAX_DAILY_COST_INR:-200.0}
+      AI_MAX_USER_DAILY_COST_INR: ${AI_MAX_USER_DAILY_COST_INR:-25.0}
+      AI_MAX_TOTAL_COST_INR: ${AI_MAX_TOTAL_COST_INR:-1000.0}
+
       # ---- The two TTS values are RESTATED, not passed through empty, and that difference
       # matters. `sarvam_tts_model` / `sarvam_tts_speaker` are non-optional `str` with real
       # defaults ("bulbul:v2" / "anushka"); a bare `${VAR:-}` would hand pydantic an EMPTY
