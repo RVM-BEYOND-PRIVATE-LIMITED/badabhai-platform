@@ -6,6 +6,9 @@
  * flatters itself: reporting 100% precision for a threshold that assigns nothing, counting
  * a negative case as a pass, and claiming separability across an overlap.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe as suite, expect, it } from "vitest";
 
 import { CURRENT_FLOOR, describe, safeBand, sweep, type Top1 } from "./taxonomy-floor-sweep";
@@ -133,5 +136,38 @@ suite("safeBand", () => {
     // vacuously true and would license any threshold at all.
     expect(safeBand([0.9], []).separable).toBe(false);
     expect(safeBand([], [0.5]).separable).toBe(false);
+  });
+});
+
+// ===========================================================================
+suite("--offline: a run that CANNOT spend, and cannot pretend it measured everything", () => {
+  const src = readFileSync(join(__dirname, "taxonomy-floor-sweep.ts"), "utf8");
+
+  it("wires the cache's offline mode from the flag, so a miss THROWS instead of buying", () => {
+    // The only form of "this run will not cost money" that is checkable BEFORE the provider is
+    // called. An estimate printed afterwards cannot un-spend anything.
+    expect(src).toContain('offline: argv.includes("--offline"),');
+  });
+
+  it("counts an OFFLINE MISS as unmeasured, NOT as an error", () => {
+    // The defect this closes: the catch read `catch { vec = null }` and every skipped case
+    // landed in `errors`. A deliberate, priced coverage gap and a provider failure are
+    // different facts, and pooling them turned "I declined to measure 41 cases" into "41
+    // things went wrong" — which nobody reads as a caveat on the numbers underneath.
+    expect(src).toContain('if (String((e as Error).message).includes("[embed-cache] OFFLINE"))');
+    expect(src).toContain("unmeasuredOffline.push(cse.case_id);");
+  });
+
+  it("NAMES the cases it did not measure and says the rates are over the decided subset only", () => {
+    // No silent caps. "100% precision" over an unstated subset is the failure mode; a reader
+    // must be told the denominator moved, and which cases to buy to move it back.
+    expect(src).toContain("EVERY figure below is over the ${decided.length} decided cases ONLY.");
+    expect(src).toContain("unmeasuredOffline.slice(0, 12).join(\", \")");
+  });
+
+  it("carries the gap into the RECORD, not just onto the terminal", () => {
+    // A record read six months later is the only thing left. If the caveat lives only in
+    // stdout, the artifact claims a completeness it never had.
+    expect(src).toContain("unmeasured_offline: unmeasuredOffline,");
   });
 });

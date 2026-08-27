@@ -3,6 +3,11 @@
  *
  *   pnpm db:sweep:floor --run [--include-provisional] [--experiment EXP-...]
  *
+ *   --cache --offline        cached query vectors ONLY. A miss THROWS instead of calling the
+ *                            provider, so the run either costs exactly ZERO or fails loudly.
+ *                            The way to re-measure under a standing "no unauthorised spend"
+ *                            instruction without having to trust an estimate afterwards.
+ *
  * ===========================================================================
  * WHAT DECISION THIS INFORMS
  * ===========================================================================
@@ -56,7 +61,9 @@ import { config } from "dotenv";
 import { sql as dsql } from "drizzle-orm";
 
 import { createDbClient } from "./client";
+import { CORPUS_FINGERPRINT_SQL, toFingerprint, type CorpusFingerprint } from "./corpus-fingerprint";
 import { parseEmbedResponse } from "./embed-response";
+import { createEmbedCache, type EmbedCache } from "./taxonomy-embed-cache";
 import { loadEvalFixture, type EvalCase } from "./taxonomy-eval-fixture";
 import {
   ALIAS_OVERFETCH,
@@ -221,10 +228,15 @@ async function main(): Promise<void> {
     const corpus = (await db.execute(
       dsql`SELECT count(*)::int AS embedded,
                   count(DISTINCT skill_id)::int AS skills,
-                  count(DISTINCT embedding_model)::int AS models
+                  count(DISTINCT embedding_model)::int AS models,
+                  min(embedding_model) AS model
            FROM skill_alias WHERE embedding IS NOT NULL`,
-    )) as unknown as { embedded: number; skills: number; models: number }[];
-    const c = corpus[0] as { embedded: number; skills: number; models: number };
+    )) as unknown as { embedded: number; skills: number; models: number; model: string | null }[];
+    const c = corpus[0] as { embedded: number; skills: number; models: number; model: string | null };
+    // The corpus's OWN model, read rather than assumed. Used as the query-cache key so cached
+    // query vectors and stored alias vectors are guaranteed to share a space; `null` when the
+    // corpus mixes models or stamps none, which disables the cache rather than guessing.
+    const sweepEmbeddingModel = c.models === 1 ? c.model : null;
 
     console.log(`[${SCRIPT}] canonicalization-floor sweep (query -> alias)`);
     console.log(`  fixture                  = ${fixturePath} (${fixture.cases.length} cases)`);
@@ -244,26 +256,73 @@ async function main(): Promise<void> {
     const started = Date.now();
     const rows: Top1[] = [];
     let errors = 0;
+    /** Cases skipped because `--offline` refused to buy a vector. NOT errors — see the loop. */
+    const unmeasuredOffline: string[] = [];
     let estCost = 0;
 
     // Coverage-probe cases are excluded: they exist to ask "is this reachable at all", and a
     // deliberately-unreachable case contributes a null decision, not a threshold data point.
     const cases = fixture.cases.filter((x) => x.category !== "unembedded_shipped");
 
-    for (const cse of cases as EvalCase[]) {
+    // -- THE QUERY-EMBED CACHE, same contract as the evaluator's ------------------------
+    //
+    // The sweep embeds exactly the same fixture queries the evaluator does, one provider
+    // request each, so it has exactly the same cost and exactly the same reason to memoise:
+    // the embedder is deterministic for a given model, and the model is part of the key so a
+    // model change misses rather than mixing two vector spaces.
+    //
+    // A MISS STILL GOES THROUGH `embedViaProvider`, so the mock guard and the cost accounting
+    // apply to it unchanged. OPT-IN via `--cache`; without the flag this runner behaves
+    // exactly as it always has.
+    const embedViaProvider = async (text: string): Promise<number[] | null> => {
       const resp = await fetch(`${aiBase}/embeddings/skill-alias`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ items: [{ alias_id: EVAL_QUERY_UUID, text: cse.query }] }),
+        body: JSON.stringify({ items: [{ alias_id: EVAL_QUERY_UUID, text }] }),
       });
-      if (!resp.ok) {
-        errors += 1;
-        continue;
-      }
+      if (!resp.ok) return null;
       const data = parseEmbedResponse(await resp.json(), new Set([EVAL_QUERY_UUID]));
       estCost += data.estimated_cost_inr;
       if (data.is_mock) throw new Error(`[${SCRIPT}] the ai-service returned a MOCK vector — refusing to sweep.`);
-      const vec = data.results[0]?.vector ?? null;
+      return data.results[0]?.vector ?? null;
+    };
+
+    const queryCache: EmbedCache | null =
+      argv.includes("--cache") && sweepEmbeddingModel !== null
+        ? createEmbedCache({
+            model: sweepEmbeddingModel,
+            // `--offline` turns a miss into a THROW. An estimate printed after the fact cannot
+            // un-spend anything; this is the only form of "this run will not cost money" that
+            // is checkable BEFORE the provider is called.
+            offline: argv.includes("--offline"),
+            fetchVector: async (text: string) => {
+              const v = await embedViaProvider(text);
+              if (v === null) throw new Error(`[${SCRIPT}] provider returned no vector`);
+              return v;
+            },
+          })
+        : null;
+
+    for (const cse of cases as EvalCase[]) {
+      let vec: number[] | null;
+      if (queryCache === null) {
+        vec = await embedViaProvider(cse.query);
+      } else {
+        try {
+          vec = await queryCache.embed(cse.query);
+        } catch (e) {
+          // AN OFFLINE REFUSAL IS NOT A PROVIDER FAILURE, and collapsing the two is how a
+          // partial sweep gets reported as a complete one. `--offline` declines to BUY a
+          // vector: a deliberate, recoverable, priced gap in coverage, and the run has to name
+          // the cases it therefore did not measure. Everything else is a real error.
+          if (String((e as Error).message).includes("[embed-cache] OFFLINE")) {
+            unmeasuredOffline.push(cse.case_id);
+          } else {
+            errors += 1;
+          }
+          continue;
+        }
+      }
       if (vec === null) {
         errors += 1;
         continue;
@@ -299,6 +358,16 @@ async function main(): Promise<void> {
       });
     }
 
+    // PERSIST THE MISSES, or the cache is read-only and every run pays the same queries again.
+    // Learned the hard way: the first two sweeps after `--cache` landed each paid for the same
+    // 41 uncached v3 queries, because the vectors were memoised in memory and never written.
+    // A cache that only ever hits on what something ELSE put there is not a cache.
+    if (queryCache !== null) {
+      queryCache.flush();
+      const st = queryCache.stats();
+      console.log(`  query embeds             = ${st.hits} cached, ${st.misses} paid`);
+    }
+
     const decided = rows.filter((r) => r.score !== null);
     const tpScores = decided.filter((r) => r.correct).map((r) => r.score as number);
     const fpScores = decided.filter((r) => !r.correct).map((r) => r.score as number);
@@ -307,7 +376,17 @@ async function main(): Promise<void> {
     const band = safeBand(tpScores, fpScores);
     const points = sweep(rows, THRESHOLDS);
 
-    console.log(`\n[${SCRIPT}] RESULTS  (${decided.length} decisions, ${errors} errors, ${Math.round((Date.now() - started) / 1000)}s)`);
+    console.log(`\n[${SCRIPT}] RESULTS  (${decided.length} of ${cases.length} decided, ${errors} errors, ${unmeasuredOffline.length} UNMEASURED, ${Math.round((Date.now() - started) / 1000)}s)`);
+    if (unmeasuredOffline.length > 0) {
+      // NO SILENT CAPS. Every figure below describes the DECIDED subset, and a reader who is
+      // not told the size of the gap will read "100% precision" as a claim about the whole
+      // fixture. The remedy is priced: one provider embed per named case.
+      console.log(
+        `  UNMEASURED (--offline, no cached vector) = ${unmeasuredOffline.length} of ${cases.length}. ` +
+          `EVERY figure below is over the ${decided.length} decided cases ONLY.`,
+      );
+      console.log(`    ${unmeasuredOffline.slice(0, 12).join(", ")}${unmeasuredOffline.length > 12 ? ", ..." : ""}`);
+    }
     console.log(`  TRUE-POSITIVE  top-1 scores (correct answer won):`);
     console.log(`    n=${tp.n}  min=${tp.min}  p05=${tp.p05}  p50=${tp.p50}  p95=${tp.p95}  max=${tp.max}`);
     console.log(`  FALSE-POSITIVE top-1 scores (wrong answer won):`);
@@ -343,6 +422,22 @@ async function main(): Promise<void> {
     }
 
     if (experiment !== null) {
+      // WHICH CORPUS this swept. Read AFTER the queries, so it describes the corpus the run
+      // actually saw rather than one it might have raced. A failure is recorded as null and
+      // never fabricated: `promote-skills` treats a missing fingerprint as STALE, which is the
+      // correct reading of "cannot prove currency".
+      //
+      // This was absent until 2026-08-26, and `promote-skills` has read
+      // `sweepRecord.corpus_fingerprint` for longer than that — so every sweep record ever
+      // written was stale on arrival and `RESOLVABLE_ABOVE_FLOOR` evidence could not be made
+      // fresh by any re-run. Stamping it does not relax the check.
+      let corpusFingerprint: CorpusFingerprint | null = null;
+      try {
+        const fpRows = (await db.execute(CORPUS_FINGERPRINT_SQL)) as unknown as Record<string, unknown>[];
+        corpusFingerprint = fpRows[0] ? toFingerprint(fpRows[0]) : null;
+      } catch (e) {
+        console.log(`[${SCRIPT}] WARN could not read the corpus fingerprint: ${String(e)}`);
+      }
       const stamp = new Date().toISOString();
       const record: ExperimentRecord = {
         experiment,
@@ -354,9 +449,15 @@ async function main(): Promise<void> {
         fixture_version: fixture.manifest.version,
         corpus_batch: fixture.manifest.corpus_batch,
         model: null,
-        embedding_model: "gemini-embedding-001",
+        // MEASURED, not typed. The literal that stood here would have kept saying
+        // "gemini-embedding-001" through a model migration, on a record whose entire purpose
+        // is to say which corpus and which geometry produced the numbers.
+        embedding_model: sweepEmbeddingModel,
+        corpus_fingerprint: corpusFingerprint,
         query_count: decided.length,
         failure_count: errors,
+        // Separate from `failure_count` on purpose — see the offline branch in the loop.
+        unmeasured_offline: unmeasuredOffline,
         latency_ms: Date.now() - started,
         // Deliberately null: a floor sweep measures the ASSIGNMENT decision, not ranking.
         recall_at_1: null,

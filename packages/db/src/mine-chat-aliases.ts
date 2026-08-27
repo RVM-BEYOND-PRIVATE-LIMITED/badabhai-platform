@@ -51,6 +51,15 @@ import { hasForbiddenAliasChars, resolveJobDomainCorpus } from "./job-domain-cor
 import { buildOccupationIndex, resolveOccupation, type OccupationIndex } from "./occupation-retrieval-eval";
 import { chatMessages } from "./schema";
 
+// THE REPOSITORY-ROOT `.env` FIRST, exactly as the other 55 db runners do. Without it this
+// runner threw `DATABASE_URL is not set` for its entire life: `pnpm db:mine:aliases` runs with
+// cwd = packages/db, where a bare `config()` finds no file, and nothing else supplies the URL.
+// The bug was invisible because the runner has never had traffic to mine — the failure read as
+// "not wired up yet" rather than as a defect. Measured 2026-08-26: `chat_messages` now holds 232
+// inbound rows, so the generator has an input for the first time and the fault became reachable.
+// Order matters and is the established one: dotenv NEVER overwrites an already-set variable, so
+// the root file supplies defaults and a real environment (CI, a container) still wins.
+config({ path: "../../.env" });
 config();
 
 const SCRIPT = "mine:aliases";

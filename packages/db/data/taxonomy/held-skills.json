@@ -1,0 +1,289 @@
+{
+  "kind": "promotion-holds",
+  "why": "Skills EXCLUDED from a promotion batch by owner ruling, with the measured reason each one is out. This register is what makes a partial promotion describable: promote-skills refuses to promote a subset of a batch because \"promoting the passing subset would leave the corpus half live, with no single description of what is retrievable\" — this file IS that description, so the runner selects against it instead of refusing. Nothing here is deleted, waived or downgraded: every held skill is still judged in full, its verdict is still written to the promotion report, and it returns to the batch automatically the moment its entry is removed.",
+  "ruling": "OWNER DECISION 2026-08-27, PROMOTION-SCOPE option B — re-scope the batch to the 62 that pass RESOLVABLE_ABOVE_FLOOR. The remaining 34 must NOT be waived, deleted or promoted; they are recorded here as HOLD / IMPROVEMENT QUEUE with their measured failure reasons so they can be improved and promoted later. The 0.75 floor, RESOLVABLE_ABOVE_FLOOR, NO_REGRESSION, EVAL_COVERED and every fail-closed behaviour are unchanged.",
+  "recorded_at": "2026-08-27",
+  "measured_from": {
+    "plan_report": "docs/registers/skill-promotions/promotion-plan-2026-08-26T13_54_29.488Z.json",
+    "floor_sweep": "data/taxonomy/eval/experiments/EXP-P9-REGRESSION-FRESH/floor-sweep-2026-08-26T13_18_14.220Z.json",
+    "evaluation": "data/taxonomy/eval/experiments/EXP-P9-REGRESSION-FRESH/eval-taxonomy-retrieval-v1-v2-e2-2026-08-26T13_15_06.410Z.json",
+    "fixture": "data/taxonomy/eval/retrieval-v3.jsonl",
+    "floor": 0.75,
+    "batch_dir": "data/taxonomy/batches/batch_2026-08-16T14-30-41Z-remediation-phase9d"
+  },
+  "improvement_queue": "docs/registers/taxonomy-decisions/corpus-improvement-candidates-2026-08-26.md — the same 34, with their gaps, and the GP-04 worked example showing one evidenced alias moved a skill 0.0555.",
+  "holds": [
+    {
+      "skill_id": "skill_assembly_line_sequencing",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.7043,
+      "gap_to_floor": 0.0457,
+      "detail": "best validated resolution 0.7043 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_battery_capacity_checking",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "NO_CORRECT_CASE_IN_SWEEP",
+      "best_correct_score": null,
+      "gap_to_floor": null,
+      "detail": "no validated query ever resolved to this skill correctly"
+    },
+    {
+      "skill_id": "skill_battery_cell_stacking",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.6874,
+      "gap_to_floor": 0.0626,
+      "detail": "best validated resolution 0.6874 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_battery_terminal_crimping",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.6797,
+      "gap_to_floor": 0.0703,
+      "detail": "best validated resolution 0.6797 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_belt_and_chain_drive_alignment",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.6666,
+      "gap_to_floor": 0.0834,
+      "detail": "best validated resolution 0.6666 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_body_panel_alignment",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.6827,
+      "gap_to_floor": 0.0673,
+      "detail": "best validated resolution 0.6827 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_clutch_and_gearbox_repair",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.6951,
+      "gap_to_floor": 0.0549,
+      "detail": "best validated resolution 0.6951 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_concrete_curing",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.6399,
+      "gap_to_floor": 0.1101,
+      "detail": "best validated resolution 0.6399 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_customer_site_handover",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.7245,
+      "gap_to_floor": 0.0255,
+      "detail": "best validated resolution 0.7245 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_cutting_tool_selection",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.7148,
+      "gap_to_floor": 0.0352,
+      "detail": "best validated resolution 0.7148 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_distortion_control_in_weldments",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.7302,
+      "gap_to_floor": 0.0198,
+      "detail": "best validated resolution 0.7302 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_electrical_fault_finding",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.6419,
+      "gap_to_floor": 0.1081,
+      "detail": "best validated resolution 0.6419 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_electrical_safety_and_lockout",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.6515,
+      "gap_to_floor": 0.0985,
+      "detail": "best validated resolution 0.6515 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_first_piece_approval",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.6933,
+      "gap_to_floor": 0.0567,
+      "detail": "best validated resolution 0.6933 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_house_wiring_installation",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.6836,
+      "gap_to_floor": 0.0664,
+      "detail": "best validated resolution 0.6836 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_indoor_unit_servicing_and_cleaning",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "NO_CORRECT_CASE_IN_SWEEP",
+      "best_correct_score": null,
+      "gap_to_floor": null,
+      "detail": "no validated query ever resolved to this skill correctly"
+    },
+    {
+      "skill_id": "skill_insulation_resistance_testing",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.6395,
+      "gap_to_floor": 0.1105,
+      "detail": "best validated resolution 0.6395 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_issue_and_requisition_control",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.7356,
+      "gap_to_floor": 0.0144,
+      "detail": "best validated resolution 0.7356 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_motor_connection_and_starter_wiring",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.7379,
+      "gap_to_floor": 0.0121,
+      "detail": "best validated resolution 0.7379 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_non_destructive_testing_of_castings",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.6639,
+      "gap_to_floor": 0.0861,
+      "detail": "best validated resolution 0.6639 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_pump_and_valve_repair",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "NO_CORRECT_CASE_IN_SWEEP",
+      "best_correct_score": null,
+      "gap_to_floor": null,
+      "detail": "no validated query ever resolved to this skill correctly"
+    },
+    {
+      "skill_id": "skill_refrigerant_leak_detection",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.686,
+      "gap_to_floor": 0.064,
+      "detail": "best validated resolution 0.686 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_sanitary_fixture_installation",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.7184,
+      "gap_to_floor": 0.0316,
+      "detail": "best validated resolution 0.7184 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_sheet_metal_marking_and_layout",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.6762,
+      "gap_to_floor": 0.0738,
+      "detail": "best validated resolution 0.6762 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_site_material_stacking",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.7186,
+      "gap_to_floor": 0.0314,
+      "detail": "best validated resolution 0.7186 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_split_unit_installation",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.725,
+      "gap_to_floor": 0.025,
+      "detail": "best validated resolution 0.725 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_sub_assembly_quality_checking",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.7443,
+      "gap_to_floor": 0.0057,
+      "detail": "best validated resolution 0.7443 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_switchgear_installation",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "NO_CORRECT_CASE_IN_SWEEP",
+      "best_correct_score": null,
+      "gap_to_floor": null,
+      "detail": "no validated query ever resolved to this skill correctly"
+    },
+    {
+      "skill_id": "skill_thermostat_and_control_wiring",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.7466,
+      "gap_to_floor": 0.0034,
+      "detail": "best validated resolution 0.7466 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_vehicle_diagnostic_scanning",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.7181,
+      "gap_to_floor": 0.0319,
+      "detail": "best validated resolution 0.7181 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_vibration_and_noise_fault_diagnosis",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.7202,
+      "gap_to_floor": 0.0298,
+      "detail": "best validated resolution 0.7202 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_wall_plumb_and_level_checking",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.7051,
+      "gap_to_floor": 0.0449,
+      "detail": "best validated resolution 0.7051 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_welding_machine_consumable_changeover",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.6244,
+      "gap_to_floor": 0.1256,
+      "detail": "best validated resolution 0.6244 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    },
+    {
+      "skill_id": "skill_wiring_harness_routing",
+      "criterion": "RESOLVABLE_ABOVE_FLOOR",
+      "category": "CORRECT_BUT_BELOW_FLOOR",
+      "best_correct_score": 0.5986,
+      "gap_to_floor": 0.1514,
+      "detail": "best validated resolution 0.5986 is BELOW the 0.75 floor — promoting it would make it live but unassignable"
+    }
+  ]
+}

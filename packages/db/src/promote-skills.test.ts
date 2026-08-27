@@ -292,7 +292,19 @@ describe("the audit report", () => {
       counts: { MATCHED: 1, INTENTIONALLY_UNMATCHED: 0, MISSING_DECISION: 0, INVALID_TARGET: 0 },
       blocking: [],
     },
+    // The default is an UNHELD batch: candidates 1 = held 0 + selected 1. The held case has
+    // its own coverage in `promotion-holds.test.ts`.
+    holds: {
+      register: "held-skills.json",
+      ruling: "none — nothing held in this fixture",
+      held: [],
+      releasable: [],
+      unauthorised: [],
+      unknown: [],
+    },
     candidates: 1,
+    held: 0,
+    selected: 1,
     eligible: 1,
     blocked: 0,
     promoted: ["skill_x"],

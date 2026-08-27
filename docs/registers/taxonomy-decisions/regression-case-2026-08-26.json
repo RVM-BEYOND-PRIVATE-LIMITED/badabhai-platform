@@ -1,0 +1,17 @@
+{
+  "kind": "regression-case",
+  "measured_at": "2026-08-26T13:41:15.012Z",
+  "source": "pnpm db:audit:regression-case --fixture=data/taxonomy/eval/retrieval-v2.jsonl",
+  "target": "SUPABASE (remote)",
+  "read_only": true,
+  "role": "postgres",
+  "bypass_rls": true,
+  "population_predicate": "every scoreable case in data/taxonomy/eval/retrieval-v2.jsonl whose query vector is in the local embed cache, retrieved through the canonical Path A predicate at statuses active+provisional",
+  "ai_spend_inr": 0,
+  "production_mutation_performed": false,
+  "floor": 0.75,
+  "embedding_model": "gemini-embedding-001",
+  "checked": 113,
+  "unmeasured": [],
+  "misses": []
+}

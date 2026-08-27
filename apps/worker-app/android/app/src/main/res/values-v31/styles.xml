@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ (API 31+) routes cold launches through the system SplashScreen
+         API. Paint its splash background brand blue so it matches the Flutter
+         SplashScreen instead of the default launcher icon on a white/black window.
+         Applies to both light and dark (no -night-v31 override). -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowSplashScreenBackground">@color/bb_launch_bg</item>
+    </style>
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@color/bb_launch_bg</item>
+    </style>
+</resources>

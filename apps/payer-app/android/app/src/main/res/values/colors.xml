@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Native launch-window colour. Light canvas = AppColors.surfacePage
+         (#F2F4F8), the same background the light-only Flutter first frame paints,
+         so the cold-start native window matches it (no white/black/dark flash)
+         in both light and dark mode. Keep in sync with AppColors.surfacePage. -->
+    <color name="bb_launch_bg">#FFF2F4F8</color>
+</resources>

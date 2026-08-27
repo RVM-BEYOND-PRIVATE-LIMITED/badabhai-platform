@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:http/http.dart' as http;
 
 import 'payer_account_deleted_signal.dart';
@@ -202,7 +203,7 @@ class PayerHttp {
         // signs with the fresh bearer even if this response is an error the caller
         // rethrows.
         await _adoptRollingToken(path, res, authed: authed);
-        return _decode(res);
+        return await _decode(res);
       } on TimeoutException {
         // A timeout means the server ACCEPTED the request but did not answer inside
         // kRequestTimeout. Retrying would just multiply the wait (up to N×15s) on a
@@ -295,24 +296,15 @@ class PayerHttp {
   static bool _isNoRefreshPath(String path) =>
       path == '/payer/refresh' || path == '/payer/logout';
 
-  PayerResponse _decode(http.Response res) {
-    final Map<String, dynamic> body = res.body.isEmpty
-        ? <String, dynamic>{}
-        : () {
-            try {
-              final dynamic decoded = jsonDecode(res.body);
-              if (decoded is Map<String, dynamic>) return decoded;
-              // Some payer routes return a top-level JSON array (e.g.
-              // GET /payer/job-postings, GET /payer/agency/jobs). Wrap it under
-              // `items` so the typed clients read a stable envelope.
-              if (decoded is List<dynamic>) {
-                return <String, dynamic>{'items': decoded};
-              }
-              return <String, dynamic>{};
-            } catch (_) {
-              return <String, dynamic>{};
-            }
-          }();
+  /// Above this raw-body size, JSON is parsed on a BACKGROUND isolate via
+  /// [compute] so a large list payload (e.g. a big applicant feed) never blocks
+  /// the UI isolate. Below it, decode inline — for the common small response an
+  /// isolate hop would cost more than the parse it saves.
+  static const int _kOffloadDecodeBytes = 64 * 1024;
+
+  Future<PayerResponse> _decode(http.Response res) async {
+    final Map<String, dynamic> body =
+        res.body.isEmpty ? <String, dynamic>{} : await _parseBody(res.body);
     // RESERVED account-deletion contract: a call made with a VALID bearer whose
     // payer row is gone server-side comes back 410 { code: PAYER_ACCOUNT_DELETED }.
     // Fire the app-scoped signal here — the single decode choke point for every
@@ -323,5 +315,24 @@ class PayerHttp {
       _onAccountDeleted?.call();
     }
     return PayerResponse(res.statusCode, body);
+  }
+
+  /// Parses [raw] into the stable `{...}` envelope, offloading a LARGE body to a
+  /// background isolate (see [_kOffloadDecodeBytes]) so a big list payload does
+  /// not parse on the UI isolate. A malformed body decodes to `{}` (unchanged).
+  Future<Map<String, dynamic>> _parseBody(String raw) async {
+    try {
+      final dynamic decoded = raw.length > _kOffloadDecodeBytes
+          ? await compute(jsonDecode, raw)
+          : jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+      // Some payer routes return a top-level JSON array (e.g.
+      // GET /payer/job-postings, GET /payer/agency/jobs). Wrap it under `items`
+      // so the typed clients read a stable envelope.
+      if (decoded is List<dynamic>) return <String, dynamic>{'items': decoded};
+      return <String, dynamic>{};
+    } catch (_) {
+      return <String, dynamic>{};
+    }
   }
 }

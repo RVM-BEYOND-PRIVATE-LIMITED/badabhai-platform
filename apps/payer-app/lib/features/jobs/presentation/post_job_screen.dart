@@ -22,7 +22,8 @@ import 'widgets/match_skill_picker.dart';
 ///
 ///  - [loading]     — `fetchMatchSkills()` in flight; Post is held until known.
 ///  - [available]   — the route answered with skills; show the picker + reach
-///    meter and gate Post on reach (E13).
+///    meter and gate Post on at least one skill picked (a zero reach preview is
+///    informational — reach is dynamic, so it does not block posting).
 ///  - [unavailable] — the route is off server-side (`MATCH_V1_ENABLED` false →
 ///    404/error) or returned nothing; HIDE the picker and fall back to the
 ///    existing free-text skills flow so posting still works.
@@ -120,6 +121,11 @@ class _PostJobScreenState extends State<PostJobScreen> {
   final Set<String> _untickedRelatedIds = <String>{};
   ReachPreview? _reach;
   bool _reachLoading = false;
+  // True when the LAST reach preview fetch FAILED (network/5xx). Distinct from
+  // "no preview yet": without it a failed fetch left `_reach == null` and the
+  // meter span "Counting workers…" forever with Post stuck disabled and no
+  // retry. Reset when a fetch starts / succeeds / the pick is cleared.
+  bool _reachFailed = false;
   int _maxSkillsPerPosting = _matchSkillCapFallback;
   int _reachSeq = 0;
   Timer? _reachDebounce;
@@ -232,12 +238,16 @@ class _PostJobScreenState extends State<PostJobScreen> {
         setState(() {
           _reach = null;
           _reachLoading = false;
+          _reachFailed = false;
         });
       }
       return;
     }
     final int seq = ++_reachSeq;
-    setState(() => _reachLoading = true);
+    setState(() {
+      _reachLoading = true;
+      _reachFailed = false;
+    });
     try {
       final ReachPreview preview =
           await locator<PayerApiClient>().reachPreview(
@@ -254,13 +264,20 @@ class _PostJobScreenState extends State<PostJobScreen> {
       });
     } catch (_) {
       if (!mounted || seq != _reachSeq) return;
-      setState(() => _reachLoading = false);
+      // Surface the failure (and offer a retry) instead of leaving the meter on
+      // a forever "Counting workers…" spinner with Post stuck disabled.
+      setState(() {
+        _reachLoading = false;
+        _reachFailed = true;
+      });
     }
   }
 
-  /// E13 gate — "never take money for a posting into a void". Post is disabled
-  /// for the company path while V1 is [loading] and unless a picked set reaches
-  /// at least one worker. The agency path and the V1-off fallback are ungated.
+  /// Post is disabled for the company path while V1 is [loading], and requires at
+  /// least one demand skill picked (so the job is matchable). It does NOT require
+  /// a non-zero reach preview: reach is dynamic — the backend links workers who
+  /// join later to an existing open posting — so a zero-reach-today job is still
+  /// worth posting. The agency path and the V1-off fallback are ungated.
   bool get _companyCanPost {
     switch (_matchV1) {
       case _MatchV1.loading:
@@ -268,11 +285,14 @@ class _PostJobScreenState extends State<PostJobScreen> {
       case _MatchV1.unavailable:
         return true;
       case _MatchV1.available:
-        final ReachPreview? r = _reach;
-        return _pickedSkillIds.isNotEmpty &&
-            r != null &&
-            !r.zeroReach &&
-            r.reachTotal > 0;
+        // DYNAMIC REACH: a company job's reach is NOT frozen at post time. The
+        // backend's `reconcileReachForWorker` links a worker who joins/updates
+        // LATER to an already-open matching posting, so a job that reaches no one
+        // today can reach someone next week (and the server create never rejected
+        // a zero-reach post). So Post only needs at least one skill — enough for
+        // the job to be matchable now or in future; a zero reach PREVIEW is
+        // informational, not a blocker (was the old E13 hard gate).
+        return _pickedSkillIds.isNotEmpty;
     }
   }
 
@@ -395,16 +415,16 @@ class _PostJobScreenState extends State<PostJobScreen> {
       return;
     }
 
-    // E13 gate — defence in depth behind the disabled Post button: when the
-    // demand-skill picker is live, never submit a pick that reaches no worker.
+    // Defence in depth behind the disabled Post button: when the demand-skill
+    // picker is live the job needs at least one skill so it can be matched to
+    // workers (now, or as they join — reach is dynamic, see `_companyCanPost`).
     final bool v1 = _matchV1 == _MatchV1.available;
-    if (v1 && !_companyCanPost) {
+    if (v1 && _pickedSkillIds.isEmpty) {
       showBbToast(
         context,
-        title: _pickedSkillIds.isEmpty ? 'Pick a skill' : 'No workers match yet',
-        message: _pickedSkillIds.isEmpty
-            ? 'Choose at least one skill this role needs.'
-            : 'Widen the skills so this posting reaches someone.',
+        title: 'Pick a skill',
+        message: 'Choose at least one skill this role needs so we can match it '
+            'to workers.',
         icon: Icons.info_outline,
       );
       return;
@@ -582,8 +602,9 @@ class _PostJobScreenState extends State<PostJobScreen> {
             iconLeft: Icons.send,
             block: true,
             loading: _submitting,
-            // E13 — disabled (null) for the company path until the picked skills
-            // reach at least one worker; the agency path is never gated here.
+            // Disabled (null) for the company path until at least one demand skill
+            // is picked (reach is not required — it is dynamic); the agency path
+            // is never gated here.
             onPressed: (_isAgency || _companyCanPost) ? _submit : null,
           ),
         ),
@@ -865,6 +886,8 @@ class _PostJobScreenState extends State<PostJobScreen> {
             untickedRelatedIds: _untickedRelatedIds,
             reach: _reach,
             reachLoading: _reachLoading,
+            reachFailed: _reachFailed,
+            onRetryReach: _loadReach,
             maxSkills: _maxSkillsPerPosting,
             onToggleSkill: _onToggleSkill,
             onToggleRelated: _onToggleRelated,

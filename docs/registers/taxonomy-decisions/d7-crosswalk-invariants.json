@@ -1,0 +1,137 @@
+{
+  "kind": "crosswalk-invariants",
+  "measured_at": "2026-08-26T08:00:46.950Z",
+  "source": "pnpm db:audit:crosswalk-invariants",
+  "target": "SUPABASE (remote)",
+  "read_only": true,
+  "role": "postgres",
+  "bypass_rls": true,
+  "population_predicate": "every crosswalk in either set: skill.replaced_by IS NOT NULL (live) union SKILL_CORPUS[].replacedBy (corpus). HOP-0 scores each subject's embedded aliases against the active job_domain_skill scope of every domain the subject has an active edge in, with the subject itself excluded.",
+  "ai_spend_inr": 0,
+  "floor": 0.75,
+  "crosswalk_count": 6,
+  "widening_count": 2,
+  "unruled_widening_count": 0,
+  "crosswalks": [
+    {
+      "skill_id": "skill_boring",
+      "successor": "skill_turning",
+      "source": "CORPUS-ONLY",
+      "subject_status": "active",
+      "successor_status": "active",
+      "bridge_subject": [],
+      "bridge_successor": [
+        "mskill_cnc_turner"
+      ],
+      "claims_gained": [
+        "mskill_cnc_turner"
+      ],
+      "widening": true,
+      "retag_eligible": false,
+      "hop0_lands_on_successor": 0,
+      "hop0_lands_elsewhere_above_floor": [
+        {
+          "phrase": "boring",
+          "got": "skill_drilling",
+          "score": 0.7556
+        }
+      ],
+      "ruling": "D-7A, HELD: D-7A, OWNER-HELD: seeding lands 'boring' on skill_drilling at 0.7556 — above the floor, a different operation, and the corpus's named successor (skill_turning, 0.6652) would not win. No option has been selected."
+    },
+    {
+      "skill_id": "skill_cad_interpretation",
+      "successor": "skill_drawing_reading",
+      "source": "CORPUS-ONLY",
+      "subject_status": "active",
+      "successor_status": "active",
+      "bridge_subject": [],
+      "bridge_successor": [],
+      "claims_gained": [],
+      "widening": false,
+      "retag_eligible": false,
+      "hop0_lands_on_successor": 0,
+      "hop0_lands_elsewhere_above_floor": [],
+      "ruling": null
+    },
+    {
+      "skill_id": "skill_chassis_fitting",
+      "successor": "skill_mechanical_assembly",
+      "source": "LIVE",
+      "subject_status": "deprecated",
+      "successor_status": "active",
+      "bridge_subject": null,
+      "bridge_successor": [
+        "mskill_fitter"
+      ],
+      "claims_gained": [
+        "mskill_fitter"
+      ],
+      "widening": true,
+      "retag_eligible": true,
+      "hop0_lands_on_successor": 1,
+      "hop0_lands_elsewhere_above_floor": [],
+      "ruling": "D-7B, RATIFIED 2026-08-26: the existing behaviour is defensible and is accepted as-is."
+    },
+    {
+      "skill_id": "skill_dimensional_inspection",
+      "successor": "skill_quality_control",
+      "source": "CORPUS-ONLY",
+      "subject_status": "active",
+      "successor_status": "active",
+      "bridge_subject": [
+        "mskill_quality_inspector"
+      ],
+      "bridge_successor": [
+        "mskill_quality_inspector"
+      ],
+      "claims_gained": [],
+      "widening": false,
+      "retag_eligible": false,
+      "hop0_lands_on_successor": 1,
+      "hop0_lands_elsewhere_above_floor": [
+        {
+          "phrase": "dimensional inspection",
+          "got": "skill_drawing_reading",
+          "score": 0.757
+        },
+        {
+          "phrase": "dimensional inspection",
+          "got": "skill_drawing_reading",
+          "score": 0.757
+        }
+      ],
+      "ruling": null
+    },
+    {
+      "skill_id": "skill_gdt_reading",
+      "successor": "skill_drawing_reading",
+      "source": "CORPUS-ONLY",
+      "subject_status": "active",
+      "successor_status": "active",
+      "bridge_subject": [],
+      "bridge_successor": [],
+      "claims_gained": [],
+      "widening": false,
+      "retag_eligible": false,
+      "hop0_lands_on_successor": 0,
+      "hop0_lands_elsewhere_above_floor": [],
+      "ruling": null
+    },
+    {
+      "skill_id": "skill_go_no_go_gauge_checking",
+      "successor": "skill_measuring_instruments",
+      "source": "LIVE",
+      "subject_status": "deprecated",
+      "successor_status": "active",
+      "bridge_subject": null,
+      "bridge_successor": [],
+      "claims_gained": [],
+      "widening": false,
+      "retag_eligible": true,
+      "hop0_lands_on_successor": 2,
+      "hop0_lands_elsewhere_above_floor": [],
+      "ruling": null
+    }
+  ],
+  "production_mutation_performed": false
+}

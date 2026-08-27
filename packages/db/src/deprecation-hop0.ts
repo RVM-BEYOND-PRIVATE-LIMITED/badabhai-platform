@@ -185,6 +185,20 @@ export function summarizeHop0(inputs: readonly Hop0Input[], floor: number): Hop0
 }
 
 /**
+ * The three skills D-7C would seed as deprecated — the set, in one place.
+ *
+ * It lives beside `D7C_SEED_EXCLUSIONS` because the two are halves of one decision: this list
+ * is what the seed touches, that map is what it must never touch, and a reader who finds one
+ * without the other will reconstruct the wrong scope. Exported so the audits share a single
+ * definition rather than each carrying a copy that can drift.
+ */
+export const D7C_NEUTRAL_SUBJECTS: readonly string[] = [
+  "skill_gdt_reading",
+  "skill_cad_interpretation",
+  "skill_dimensional_inspection",
+];
+
+/**
  * Skills that must NOT be included in the D-7C seed, and the measured reason.
  *
  * D-7C's three-vs-four split is load-bearing (see `d7a-boring-hold.md`). Encoded here rather

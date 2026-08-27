@@ -197,3 +197,21 @@ PROMOTION CANDIDATES      96, eligible 0    unchanged
 ```
 
 **PROMOTION BLOCKED.**
+
+
+---
+
+## OWNER RATIFICATION — 2026-08-26
+
+**Explicitly ratified, and the boundary restated.** The **5 approved MATCHED mappings are
+authoritative.** Every other promotable skill is **INTENTIONALLY_UNMATCHED** unless and until it
+is explicitly approved otherwise.
+
+**No new `mskill_*` may be invented.** The match vocabulary is a closed set of 18, and the
+vocabulary-gap audit measured why widening it would be inert today: `TRADE_KEYS` is a validated
+15-value union, `TRADE_TO_MATCH_SKILL` is total over it, and only **7 of the 18** match skills
+are reachable from the demand surface at all. Adding a nineteenth would add an id nothing can
+route to.
+
+`Q1` was already COMPLETE in the programme graph; this records that the disposition set is
+ratified by the owner rather than inferred from the pack.

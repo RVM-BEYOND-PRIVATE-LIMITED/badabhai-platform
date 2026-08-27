@@ -1,0 +1,405 @@
+{
+  "kind": "sibling-margin",
+  "decision": "§5a-2",
+  "owner_decision": "PENDING",
+  "measured_at": "2026-08-26T08:10:43.910Z",
+  "source": "pnpm db:audit:sibling-margin",
+  "target": "SUPABASE (remote)",
+  "read_only": true,
+  "role": "postgres",
+  "bypass_rls": true,
+  "population_predicate": "every embedded skill_alias row on an active skill with a non-null domain_id (106 probes), scored LEAVE-ONE-OUT against its own domain_id scope: the probe row is removed from the candidate pool and every other row, including the probe's other aliases, remains",
+  "embedding_model": "gemini-embedding-001",
+  "ai_spend_inr": 0,
+  "floor": 0.75,
+  "policy_implemented": null,
+  "policy_note": "No separation rule is implemented anywhere. `separation` exists only inside this process; no runner, service or config reads it, and config.py is untouched.",
+  "measurement_caveat": "Leave-one-out over CORPUS phrases, not worker paraphrases. A held-out alias is closer to its own skill's remaining aliases than a real paraphrase would be, so these margins are optimistic and the wrong-answer count is a LOWER bound.",
+  "probes": 106,
+  "unmeasurable_single_alias_skills": 2,
+  "at_floor": {
+    "correct": 43,
+    "wrong": 15,
+    "unresolved": 46
+  },
+  "margin_distribution": {
+    "correct": {
+      "n": 43,
+      "min": 0,
+      "p05": 0.002,
+      "p50": 0.1331,
+      "p95": 1.817,
+      "max": 1.8743
+    },
+    "wrong": {
+      "n": 15,
+      "min": 0.026,
+      "p05": 0.026,
+      "p50": 0.1505,
+      "p95": 0.2708,
+      "max": 0.2708
+    }
+  },
+  "distributions_overlap": true,
+  "duplicate_text_pairs": 8,
+  "duplicate_text_note": "Where the runner-up carries the same text as the probe, the vectors are identical and the score is exactly 1.0000. No floor and no separation can arbitrate that; the D-7C-1 alias cleanup drives these to zero. Swept separately so the cleanup's removals cannot read as a margin policy working.",
+  "separation_sweep": [
+    {
+      "separation": 0,
+      "correct": 43,
+      "wrong": 15,
+      "unresolved": 46,
+      "lostCorrect": 0,
+      "rejectedWrong": 0
+    },
+    {
+      "separation": 0.005,
+      "correct": 40,
+      "wrong": 15,
+      "unresolved": 49,
+      "lostCorrect": 3,
+      "rejectedWrong": 0
+    },
+    {
+      "separation": 0.01,
+      "correct": 40,
+      "wrong": 15,
+      "unresolved": 49,
+      "lostCorrect": 3,
+      "rejectedWrong": 0
+    },
+    {
+      "separation": 0.02,
+      "correct": 40,
+      "wrong": 15,
+      "unresolved": 49,
+      "lostCorrect": 3,
+      "rejectedWrong": 0
+    },
+    {
+      "separation": 0.03,
+      "correct": 39,
+      "wrong": 14,
+      "unresolved": 51,
+      "lostCorrect": 4,
+      "rejectedWrong": 1
+    },
+    {
+      "separation": 0.05,
+      "correct": 38,
+      "wrong": 14,
+      "unresolved": 52,
+      "lostCorrect": 5,
+      "rejectedWrong": 1
+    },
+    {
+      "separation": 0.075,
+      "correct": 30,
+      "wrong": 12,
+      "unresolved": 62,
+      "lostCorrect": 13,
+      "rejectedWrong": 3
+    },
+    {
+      "separation": 0.1,
+      "correct": 28,
+      "wrong": 10,
+      "unresolved": 66,
+      "lostCorrect": 15,
+      "rejectedWrong": 5
+    },
+    {
+      "separation": 0.15,
+      "correct": 17,
+      "wrong": 8,
+      "unresolved": 79,
+      "lostCorrect": 26,
+      "rejectedWrong": 7
+    },
+    {
+      "separation": 0.2,
+      "correct": 8,
+      "wrong": 4,
+      "unresolved": 92,
+      "lostCorrect": 35,
+      "rejectedWrong": 11
+    }
+  ],
+  "separation_sweep_duplicates_removed": [
+    {
+      "separation": 0,
+      "correct": 43,
+      "wrong": 7,
+      "unresolved": 46,
+      "lostCorrect": 0,
+      "rejectedWrong": 0
+    },
+    {
+      "separation": 0.005,
+      "correct": 40,
+      "wrong": 7,
+      "unresolved": 49,
+      "lostCorrect": 3,
+      "rejectedWrong": 0
+    },
+    {
+      "separation": 0.01,
+      "correct": 40,
+      "wrong": 7,
+      "unresolved": 49,
+      "lostCorrect": 3,
+      "rejectedWrong": 0
+    },
+    {
+      "separation": 0.02,
+      "correct": 40,
+      "wrong": 7,
+      "unresolved": 49,
+      "lostCorrect": 3,
+      "rejectedWrong": 0
+    },
+    {
+      "separation": 0.03,
+      "correct": 39,
+      "wrong": 6,
+      "unresolved": 51,
+      "lostCorrect": 4,
+      "rejectedWrong": 1
+    },
+    {
+      "separation": 0.05,
+      "correct": 38,
+      "wrong": 6,
+      "unresolved": 52,
+      "lostCorrect": 5,
+      "rejectedWrong": 1
+    },
+    {
+      "separation": 0.075,
+      "correct": 30,
+      "wrong": 4,
+      "unresolved": 62,
+      "lostCorrect": 13,
+      "rejectedWrong": 3
+    },
+    {
+      "separation": 0.1,
+      "correct": 28,
+      "wrong": 2,
+      "unresolved": 66,
+      "lostCorrect": 15,
+      "rejectedWrong": 5
+    },
+    {
+      "separation": 0.15,
+      "correct": 17,
+      "wrong": 0,
+      "unresolved": 79,
+      "lostCorrect": 26,
+      "rejectedWrong": 7
+    },
+    {
+      "separation": 0.2,
+      "correct": 8,
+      "wrong": 0,
+      "unresolved": 88,
+      "lostCorrect": 35,
+      "rejectedWrong": 7
+    }
+  ],
+  "smallest_separating_delta": null,
+  "smallest_separating_delta_duplicates_removed": 0.15,
+  "option_c_shared_token_rule": {
+    "pairs_considered": 15,
+    "caught": [
+      "quality check / quality check karna",
+      "quality check karna / quality check",
+      "quality control / quality check",
+      "TIG welding / MIG welding",
+      "MIG welding / TIG welding",
+      "drawing padhna / drawing reading",
+      "arc welding / TIG welding",
+      "Fanuc controller / Mitsubishi controller",
+      "Mitsubishi controller / Fanuc controller",
+      "stick welding / MIG welding"
+    ],
+    "missed": [
+      "GMAW / SMAW",
+      "SMAW / GMAW",
+      "GTAW / GMAW",
+      "read engineering drawings / blueprint reading",
+      "drilling / boring"
+    ],
+    "worst_pair_is_missed": true
+  },
+  "misassignments_above_floor_count": 15,
+  "misassignments_genuine_count": 7,
+  "misassignments_above_floor": [
+    {
+      "phrase": "geometric dimensioning and tolerancing",
+      "domain": "cnc-machining",
+      "want": "skill_gdt_reading",
+      "got": "skill_drawing_reading",
+      "via": "geometric dimensioning and tolerancing",
+      "own_score": 0.8495,
+      "other_score": 1,
+      "margin": 0.1505,
+      "duplicate_text": true
+    },
+    {
+      "phrase": "drawing reading",
+      "domain": "cnc-machining",
+      "want": "skill_gdt_reading",
+      "got": "skill_drawing_reading",
+      "via": "drawing reading",
+      "own_score": 0.7292,
+      "other_score": 1,
+      "margin": 0.2708,
+      "duplicate_text": true
+    },
+    {
+      "phrase": "blueprint reading",
+      "domain": "cnc-machining",
+      "want": "skill_drawing_reading",
+      "got": "skill_gdt_reading",
+      "via": "blueprint reading",
+      "own_score": 0.7985,
+      "other_score": 1,
+      "margin": 0.2015,
+      "duplicate_text": true
+    },
+    {
+      "phrase": "GD&T",
+      "domain": "cnc-machining",
+      "want": "skill_drawing_reading",
+      "got": "skill_gdt_reading",
+      "via": "GD&T",
+      "own_score": 0.8495,
+      "other_score": 1,
+      "margin": 0.1505,
+      "duplicate_text": true
+    },
+    {
+      "phrase": "drawing reading",
+      "domain": "cnc-machining",
+      "want": "skill_drawing_reading",
+      "got": "skill_gdt_reading",
+      "via": "drawing reading",
+      "own_score": 0.7985,
+      "other_score": 1,
+      "margin": 0.2015,
+      "duplicate_text": true
+    },
+    {
+      "phrase": "geometric dimensioning and tolerancing",
+      "domain": "cnc-machining",
+      "want": "skill_drawing_reading",
+      "got": "skill_gdt_reading",
+      "via": "geometric dimensioning and tolerancing",
+      "own_score": 0.8495,
+      "other_score": 1,
+      "margin": 0.1505,
+      "duplicate_text": true
+    },
+    {
+      "phrase": "blueprint reading",
+      "domain": "cnc-machining",
+      "want": "skill_gdt_reading",
+      "got": "skill_drawing_reading",
+      "via": "blueprint reading",
+      "own_score": 0.7292,
+      "other_score": 1,
+      "margin": 0.2708,
+      "duplicate_text": true
+    },
+    {
+      "phrase": "GD&T",
+      "domain": "cnc-machining",
+      "want": "skill_gdt_reading",
+      "got": "skill_drawing_reading",
+      "via": "GD&T",
+      "own_score": 0.8495,
+      "other_score": 1,
+      "margin": 0.1505,
+      "duplicate_text": true
+    },
+    {
+      "phrase": "GMAW",
+      "domain": "welding",
+      "want": "skill_mig_welding",
+      "got": "skill_arc_welding",
+      "via": "SMAW",
+      "own_score": 0.7657,
+      "other_score": 0.8405,
+      "margin": 0.0748,
+      "duplicate_text": false
+    },
+    {
+      "phrase": "SMAW",
+      "domain": "welding",
+      "want": "skill_arc_welding",
+      "got": "skill_mig_welding",
+      "via": "GMAW",
+      "own_score": 0.7379,
+      "other_score": 0.8405,
+      "margin": 0.1026,
+      "duplicate_text": false
+    },
+    {
+      "phrase": "GTAW",
+      "domain": "welding",
+      "want": "skill_tig_welding",
+      "got": "skill_mig_welding",
+      "via": "GMAW",
+      "own_score": 0.7742,
+      "other_score": 0.8355,
+      "margin": 0.0613,
+      "duplicate_text": false
+    },
+    {
+      "phrase": "quality check",
+      "domain": "metrology-quality",
+      "want": "skill_dimensional_inspection",
+      "got": "skill_quality_control",
+      "via": "quality check karna",
+      "own_score": 0.6984,
+      "other_score": 0.8219,
+      "margin": 0.1234,
+      "duplicate_text": false
+    },
+    {
+      "phrase": "quality check karna",
+      "domain": "metrology-quality",
+      "want": "skill_quality_control",
+      "got": "skill_dimensional_inspection",
+      "via": "quality check",
+      "own_score": 0.7295,
+      "other_score": 0.8219,
+      "margin": 0.0923,
+      "duplicate_text": false
+    },
+    {
+      "phrase": "quality control",
+      "domain": "metrology-quality",
+      "want": "skill_quality_control",
+      "got": "skill_dimensional_inspection",
+      "via": "quality check",
+      "own_score": 0.7328,
+      "other_score": 0.8083,
+      "margin": 0.0755,
+      "duplicate_text": false
+    },
+    {
+      "phrase": "TIG welding",
+      "domain": "welding",
+      "want": "skill_tig_welding",
+      "got": "skill_mig_welding",
+      "via": "MIG welding",
+      "own_score": 0.7742,
+      "other_score": 0.8002,
+      "margin": 0.026,
+      "duplicate_text": false
+    }
+  ],
+  "production_mutation_performed": false
+}

@@ -22,10 +22,10 @@ import { randomUUID } from "node:crypto";
  *   buyPlan ACTUALLY pauses. The two postures CONTRADICT on the same running config, so
  *   this suite SPLITS the cases by what the running API must have been started with:
  *
- *   - ENFORCEMENT cases (ATOMICITY / pause-at-limit / auto-resume) assert plans REALLY
- *     pause → they REQUIRE the API started with CAPACITY_ENFORCEMENT_ENABLED=true. They
- *     are GUARDED on E2E_CAPACITY_ENFORCED=1 and SKIP otherwise (so a default-started API
- *     does not red-fail them; you OPT IN once the API is started enforced).
+ *   - ENFORCEMENT cases (ATOMICITY / pause-at-limit) assert plans REALLY pause → they
+ *     REQUIRE the API started with CAPACITY_ENFORCEMENT_ENABLED=true. They are GUARDED
+ *     on E2E_CAPACITY_ENFORCED=1 and SKIP otherwise (so a default-started API does not
+ *     red-fail them; you OPT IN once the API is started enforced).
  *   - SHADOW case (the new DEFAULT posture) asserts an over-cap buyPlan stays 'active'
  *     with paused=false + wouldPause=true and emits NO posting_plan.paused. It runs only
  *     when E2E_CAPACITY_ENFORCED is NOT set (i.e. against a default/shadow-started API).
@@ -34,8 +34,7 @@ import { randomUUID } from "node:crypto";
  *     A) default-started API (flag OFF) → RUN_E2E=1 ...           → shadow case runs.
  *     B) API started CAPACITY_ENFORCEMENT_ENABLED=true            → enforcement cases run
  *        → RUN_E2E=1 E2E_CAPACITY_ENFORCED=1 ...                     (set BOTH env + flag).
- *   The faceless/no-PII + capacity.purchased/payment.* cases are posture-agnostic (they
- *   never assert a pause) and run in BOTH.
+ *   The faceless/no-PII case is posture-agnostic (it never asserts a pause) and runs in BOTH.
  *
  * Cases:
  *   - ATOMICITY [enforced]: set a payer's allowance to N, fire M>N concurrent buyPlan
@@ -43,15 +42,20 @@ import { randomUUID } from "node:crypto";
  *     'active' and the rest 'paused' — the cap is NEVER exceeded under concurrency.
  *   - pause-at-limit [enforced]: a buyPlan that would exceed the cap returns paused=true
  *     + emits posting_plan.paused (reason capacity_exceeded).
- *   - auto-resume [enforced]: buying MORE capacity (buyCapacity raising the cap) flips the
- *     OLDEST paused plans active up to the new headroom, oldest-paid-first, emitting
- *     posting_plan.resumed (reason capacity_restored).
  *   - SHADOW [default]: an over-cap buyPlan returns 201 with paused=false + wouldPause=true,
  *     persists status='active', and emits NO posting_plan.paused for it.
  *   - faceless / no-PII [any posture]: the PII sentinel + the PII key set never appear in
- *     payer_capacity / posting_plans rows or in any capacity.* / posting_plan.* /
- *     payment.* event payload (the contact-unlock.e2e PII_KEYS sweep).
- *   - events [any posture]: capacity.purchased + payment.* on purchase; real_call:false.
+ *     payer_capacity / posting_plans rows or in any posting_plan.* / payment.* event
+ *     payload (the contact-unlock.e2e PII_KEYS sweep).
+ *
+ * #1166 (2026-08-26): the ops `POST /payers/:payerId/capacity` route (`buyCapacity` via
+ * `InternalServiceGuard`) was RETIRED — no caller existed anywhere in the repo, and it
+ * duplicated the live payer-self `POST /payer/capacity` route. That retired the
+ * auto-resume / capacity.purchased+payment.* / fail-closed-auth cases this suite used to
+ * assert over HTTP against it (removed below, not ported — the live route has no headless
+ * session-mint harness here, see BL-18). `buyCapacity`'s auto-resume + event-emission
+ * behaviour remains unit-tested (mocked lockPayer) in `posting-plans.service.test.ts`;
+ * only the real-Postgres/advisory-lock proof of THAT path is no longer exercised e2e.
  *
  * Opt-in (same harness as contact-unlock.e2e.test.ts):
  *   1. docker compose up -d postgres redis     # or point at Supabase
@@ -101,20 +105,21 @@ async function req(
 
 // BL-18: this suite was hard-`describe.skip`ped as "mints an authenticated payer session
 // via OTP login" — that claim was STALE even before OTP went real-only. Read the whole file:
-// every case drives `POST /job-postings/:id/plan` and `POST /payers/:payerId/capacity`
-// through `InternalServiceGuard` (the ops `x-internal-service-token` header) against a bare
-// `randomUUID()` `payer_id`, never a Bearer payer session. That is by design — `payer_capacity`
-// and `posting_plans` are the deliberately FK-less "opaque rail" (see packages/db/src/schema/
-// payer.ts's own comment on `payerCapacity`/`postingPlans`): no `payers` row is required to
-// exercise this surface at all, so there was never a payer login to unblock here. Opt-in via
-// `RUN` (RUN_E2E) same as every other e2e file; `describe.skipIf` (not a hard skip) so the
-// suite actually executes wherever RUN is set, CI included.
+// every case drives `POST /job-postings/:id/plan` through `InternalServiceGuard` (the ops
+// `x-internal-service-token` header) against a bare `randomUUID()` `payer_id`, never a
+// Bearer payer session. That is by design — `payer_capacity` and `posting_plans` are the
+// deliberately FK-less "opaque rail" (see packages/db/src/schema/payer.ts's own comment on
+// `payerCapacity`/`postingPlans`): no `payers` row is required to exercise this surface at
+// all, so there was never a payer login to unblock here. Opt-in via `RUN` (RUN_E2E) same as
+// every other e2e file; `describe.skipIf` (not a hard skip) so the suite actually executes
+// wherever RUN is set, CI included. (#1166: the ops `/payers/:payerId/capacity` route this
+// comment used to also name was retired — see the file header.)
 describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
   let client!: DbClient;
 
   beforeAll(() => {
     client = createDbClient(DATABASE_URL);
-    expect(OPS_TOKEN, "set INTERNAL_SERVICE_TOKEN for the capacity route").not.toBe("");
+    expect(OPS_TOKEN, "set INTERNAL_SERVICE_TOKEN for the ops job-postings/plan route").not.toBe("");
   });
 
   afterAll(async () => {
@@ -203,40 +208,10 @@ describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
     expect((pausedEvents[0]!.payload as { reason?: string }).reason).toBe("capacity_exceeded");
   });
 
-  it.skipIf(!ENFORCED)("auto-resume: buying more capacity flips the oldest paused plans active (oldest-paid-first) and emits posting_plan.resumed", async () => {
-    const payer = randomUUID();
-    await setCapacity(payer, 1);
-
-    // One active + two paused (the over-cap ones), each a distinct posting.
-    const r1 = await req("POST", `/job-postings/${await seedPosting()}/plan`, { ops: true, body: { payer_id: payer, tier: "standard" } });
-    expect(r1.json.paused).toBe(false);
-    const r2 = await req("POST", `/job-postings/${await seedPosting()}/plan`, { ops: true, body: { payer_id: payer, tier: "standard" } });
-    const r3 = await req("POST", `/job-postings/${await seedPosting()}/plan`, { ops: true, body: { payer_id: payer, tier: "standard" } });
-    expect(r2.json.paused).toBe(true);
-    expect(r3.json.paused).toBe(true);
-    const pausedFirst = r2.json.plan.id as string; // paid earlier → resumes first
-    const pausedSecond = r3.json.plan.id as string;
-
-    // Raise the cap to cap_5 (allowance 5) → 1 active + headroom for both paused.
-    const cap = await req("POST", `/payers/${payer}/capacity`, { ops: true, body: { tier: "cap_5" } });
-    expect(cap.status).toBe(201);
-    expect(cap.json.max_active_vacancies).toBe(5);
-    // Deterministic oldest-paid-first order.
-    expect(cap.json.resumed_plan_ids).toEqual([pausedFirst, pausedSecond]);
-
-    // The DB reflects the resume: all three plans now active.
-    const plans = await plansForPayer(payer);
-    expect(plans.filter((p) => p.status === "active").length).toBe(3);
-    expect(plans.filter((p) => p.status === "paused").length).toBe(0);
-
-    // A posting_plan.resumed (reason capacity_restored) was emitted for each resumed plan.
-    const resumed = (await allEvents()).filter((e) => e.eventName === "posting_plan.resumed");
-    const resumedForPayer = resumed.filter((e) =>
-      [pausedFirst, pausedSecond].includes((e.payload as { plan_id?: string }).plan_id ?? ""),
-    );
-    expect(resumedForPayer.length).toBe(2);
-    for (const e of resumedForPayer) expect((e.payload as { reason?: string }).reason).toBe("capacity_restored");
-  });
+  // #1166: an "auto-resume" case (buying more capacity via the ops route to flip the
+  // oldest paused plans active) used to live here. It drove `POST /payers/:payerId/capacity`,
+  // which is retired — see the file header. `PostingPlansService.buyCapacity`'s auto-resume
+  // ordering + event emission stays unit-tested in `posting-plans.service.test.ts`.
 
   // SHADOW-ONLY (the new DEFAULT posture, ADR-0016 D5): runs against a default-started API
   // (E2E_CAPACITY_ENFORCED unset). An over-cap buyPlan does NOT pause — it persists 'active'
@@ -288,34 +263,15 @@ describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
     expect(purchased.length).toBe(1);
   });
 
-  it("emits capacity.purchased + payment.* on purchase; payment.* carry real_call:false (mock payments)", async () => {
-    const payer = randomUUID();
-    const cap = await req("POST", `/payers/${payer}/capacity`, { ops: true, body: { tier: "cap_5" } });
-    expect(cap.status).toBe(201);
+  // #1166: "emits capacity.purchased + payment.*" and "the capacity route requires the
+  // internal secret (fail closed)" used to live here, both driving the now-retired ops
+  // `POST /payers/:payerId/capacity` route directly. Removed, not ported — see the file
+  // header. The live payer-self `POST /payer/capacity` route (payer-portal) has its own
+  // unit coverage for the same event emission + auth posture.
 
-    const evts = await allEvents();
-    const purchased = evts.filter(
-      (e) => e.eventName === "capacity.purchased" && (e.payload as { payer_id?: string }).payer_id === payer,
-    );
-    expect(purchased.length).toBe(1);
-    expect(purchased[0]!.payload).toMatchObject({ tier: "cap_5", max_active_vacancies: 5, real_call: false });
-
-    // payment.authorized + payment.captured for this payer, both real_call:false.
-    const payments = evts.filter(
-      (e) => e.eventName.startsWith("payment.") && (e.payload as { payer_id?: string }).payer_id === payer,
-    );
-    expect(payments.map((p) => p.eventName).sort()).toEqual(["payment.authorized", "payment.captured"]);
-    for (const p of payments) expect((p.payload as { real_call?: boolean }).real_call).toBe(false);
-  });
-
-  it("the capacity route requires the internal secret (fail closed)", async () => {
-    const r = await req("POST", `/payers/${randomUUID()}/capacity`, { body: { tier: "cap_5" } });
-    expect(r.status).toBe(401);
-  });
-
-  it("faceless: the PII sentinel + PII keys never appear in capacity rows or in capacity.* / posting_plan.* / payment.* events", async () => {
-    // A full purchase + pause + resume cycle, with the PII sentinel attached only to
-    // the (PII-bearing) job_posting org label — it must NOT leak into the faceless rails.
+  it("faceless: the PII sentinel + PII keys never appear in capacity rows or in posting_plan.* / payment.* events", async () => {
+    // A purchase + pause cycle, with the PII sentinel attached only to the (PII-bearing)
+    // job_posting org label — it must NOT leak into the faceless rails.
     const payer = randomUUID();
     await setCapacity(payer, 1);
     const p1 = (
@@ -332,7 +288,6 @@ describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
     )[0]!.id;
     await req("POST", `/job-postings/${p1}/plan`, { ops: true, body: { payer_id: payer, tier: "standard" } });
     await req("POST", `/job-postings/${p2}/plan`, { ops: true, body: { payer_id: payer, tier: "standard" } }); // paused
-    await req("POST", `/payers/${payer}/capacity`, { ops: true, body: { tier: "cap_5" } }); // resume
 
     // The faceless rails (capacity + plan rows) never carry the sentinel or any PII key.
     const capRows = (await client.db.select().from(payerCapacity)).filter((c) => c.payerId === payer);
@@ -341,10 +296,10 @@ describe.skipIf(!RUN)("Per-payer hiring capacity (e2e, ADR-0016)", () => {
     expect(rowsSerialized).not.toContain(PII_SENTINEL);
     for (const k of PII_KEYS) expect(rowsSerialized).not.toContain(`"${k}"`);
 
-    // No capacity-family event payload carries the sentinel or a PII key.
+    // No posting_plan.*/payment.* event payload carries the sentinel or a PII key.
     const evtPayloads = JSON.stringify(
       (await allEvents())
-        .filter((e) => ["capacity.", "posting_plan.", "payment."].some((pfx) => e.eventName.startsWith(pfx)))
+        .filter((e) => ["posting_plan.", "payment."].some((pfx) => e.eventName.startsWith(pfx)))
         .map((e) => e.payload),
     );
     expect(evtPayloads).not.toContain(PII_SENTINEL);

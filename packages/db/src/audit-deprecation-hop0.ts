@@ -34,6 +34,7 @@ import { ATTRIBUTE_TO_MATCH_SKILLS, SKILL_CORPUS } from "@badabhai/taxonomy";
 import { createDbClient } from "./client";
 import {
   classifyLanding,
+  D7C_NEUTRAL_SUBJECTS,
   D7C_SEED_EXCLUSIONS,
   summarizeHop0,
   type Hop0Input,
@@ -49,11 +50,7 @@ config();
 const SCRIPT = "audit:deprecation-hop0";
 
 /** The D-7C set. `skill_boring` is absent by decision, not by oversight — see D7C_SEED_EXCLUSIONS. */
-const DEFAULT_SUBJECTS = [
-  "skill_gdt_reading",
-  "skill_cad_interpretation",
-  "skill_dimensional_inspection",
-];
+const DEFAULT_SUBJECTS = D7C_NEUTRAL_SUBJECTS;
 
 function arg(n: string): string | undefined {
   return process.argv.find((x) => x.startsWith(`--${n}=`))?.slice(n.length + 3);

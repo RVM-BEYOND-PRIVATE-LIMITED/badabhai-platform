@@ -113,14 +113,13 @@ consolidated by this audit** — each item is a candidate for a future, individu
 
 ## Deliberate, documented duplication — do not consolidate
 
-### DU-8 — Ops-vs-payer duplicate money/data surfaces in apps/api (4 controller pairs)
+### DU-8 — Ops-vs-payer duplicate money/data surfaces in apps/api (3 controller pairs)
 
 | Ops-only (retained) | Payer-scoped (canonical) | Shared service |
 |---|---|---|
 | `unlocks.controller.ts` | `payer-unlocks.controller.ts` | `UnlockService` |
 | `resume-disclosure.controller.ts` | `payer-disclosure.controller.ts` | `ResumeDisclosureService` |
 | `posting-plans.controller.ts` | `payer-job-postings.controller.ts` | `PostingPlansService` |
-| `posting-plans/capacity.controller.ts` | `payer-capacity.controller.ts` | `PostingPlansService` |
 
 Each ops controller carries an explicit docstring naming its payer-scoped replacement,
 stating it "MUST NEVER be network-exposed to payers" and is `@deprecated for the PAYER path`.
@@ -130,6 +129,14 @@ accidental convergence. **Two named, tracked blockers keep the ops routes alive*
 admin auth (ADMIN-4..8/OBS-4, deferred) and a headless payer-session mint for
 `db:verify:demand` (TD33/TD50). **Recommendation: KEEP both sides** — this is tracked technical
 debt with a named unblock path, not an audit finding requiring new action.
+
+**(2026-08-26, #1166): the 4th pair — `posting-plans/capacity.controller.ts` vs
+`payer-capacity.controller.ts` — is REMOVED from this table.** The ops `CapacityController`
+was retired outright (not kept alongside its payer-scoped twin): it had no caller anywhere
+in the repo, its own Flutter capacity-purchase UI had already been removed, and unlike the
+other three ops routes above it had no named unblock blocker keeping it alive. The payer-
+scoped `payer-capacity.controller.ts` is now the only route onto `PostingPlansService`'s
+capacity surface.
 
 ### DU-9 — `apps/web` and `apps/payer-web`'s parallel `unlock-view.ts`
 

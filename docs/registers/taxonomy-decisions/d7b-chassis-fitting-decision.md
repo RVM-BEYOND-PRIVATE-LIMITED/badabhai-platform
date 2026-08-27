@@ -228,3 +228,17 @@ PROMOTION CANDIDATES      0                 unchanged
 §5a (the D6-0 anchor-path defect) is independent of this task and remains **OWNER DECISION:
 PENDING**. Nothing here touched the 22 aliases, their domains, their embeddings, the floor, or
 `skill_canonicalize_enabled`.
+
+
+---
+
+## OWNER RATIFICATION — 2026-08-26
+
+**Explicitly ratified.** The existing behaviour is approved as-is: `skill_chassis_fitting`
+widens to `mskill_fitter`, and that widening is defensible rather than merely tolerated.
+
+**Scope of the ratification, stated because it is narrow.** This ruling covers
+`skill_chassis_fitting` and nothing else. It is **not** to be generalised to automotive-body
+competencies as a class — a second skill in that family gets its own reading, on its own
+evidence. The crosswalk invariants audit (`db:audit:crosswalk-invariants`) preserves this ruling
+in its `RULED` map so a later sweep reports it as decided rather than re-opening it.

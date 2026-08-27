@@ -13,13 +13,20 @@ ACTIVE    production configuration actually routes traffic through it
 COMPLETE  all of the above AND acceptance criteria met
 ```
 
-"Working", "done" and "production-ready" are not used. **Last updated 2026-08-24.**
+"Working", "done" and "production-ready" are not used. **Last updated 2026-08-26.**
 
 > **Every count in this file carries a measurement date, and they are not all the same date.**
 > On 2026-08-21 at 10:36 UTC, 119 `workers` and 45 `worker_profiles` rows were deleted manually
 > through the Supabase dashboard (`worker-data-discrepancy-resolved.md`). Counts taken before
 > that moment are pre-deletion snapshots — accurate when taken, and not current. Rows below are
-> marked **[08-24]** where re-measured and **[08-21 pre]** where not.
+> marked **[08-26]** where re-measured on 2026-08-26 (`live-population-2026-08-26.md`),
+> **[08-24]** where last measured then, and **[08-21 pre]** where not.
+>
+> **Two 08-24 figures do not reproduce and are NOT silently corrected below.** The recorded
+> "1 worker" cannot be reconciled — 31 workers already existed before 2026-08-24 and nothing was
+> deleted after 08-21; five candidate predicates were probed and none yields 1. And `jobs`
+> 25 → 19 and `applications` 92 → 28 have no forensic record, because the delete-forensics
+> trigger exists on `workers` and `worker_profiles` only. Both are open items in the graph.
 
 ---
 
@@ -31,10 +38,10 @@ COMPLETE  all of the above AND acceptance criteria met
 | **CURRENT MILESTONE** | Stage D — promotion readiness |
 | **COMPLETED** | Stage A observe · Stage B backfill (P1-B PASS) · Stage C shadow (offline) · 41 trainer phrases |
 | **IN PROGRESS** | Stage D — 5 of 7 promotion gates green at 96/96 |
-| **BLOCKED** | Both evidence gates measured and **FAILING on their own terms**: `RESOLVABLE_ABOVE_FLOOR` 62/96, `NO_REGRESSION` 0.9675 < 1.0. Promotion candidates **0**. |
-| **NEXT 3 ACTIONS** | 1. **Owner: the 0.75 floor** (`decision-canonicalization-floor-0.75.md`). 2. **Owner: `NO_REGRESSION` semantics** (`decision-no-regression-fixture-architecture.md`). 3. **Owner: D-1 bridge ownership** (`adr-d1-attribute-to-match-skill-bridge.md`). |
+| **BLOCKED** | `RESOLVABLE_ABOVE_FLOOR` **34 of 96 fail** (62 pass — the two documents used opposite conventions) and `NO_REGRESSION` **96 of 96**. `EVAL_COVERED` is **green** under the fixture in use; the "41/96" quoted elsewhere is the superseded `retrieval-v2`. Promotion candidates **0**. |
+| **NEXT 3 ACTIONS** | 1. **Owner: `D-7C-1a`** — two ratified decisions together orphan `GD&T`; the seeder refuses on it. 2. **Owner: `NO_REGRESSION` semantics** — two prior instructions point different ways, and the gate is untouched until one is unambiguous. 3. **Infra: the value of `SKILL_CANONICALIZE_ENABLED`** — the secret was changed 2026-08-24 and every deploy since carries it. |
 | **PRODUCTION-CRITICAL** | **None.** No taxonomy component is on a production request path. |
-| **OPTIONAL / HARDENING** | 4 unguarded write runners · `AI_SPEND_REDIS_URL` IPv6 · pooler saturation |
+| **OPTIONAL / HARDENING** | 4 unguarded write runners *(unverified — a 08-26 attempt to re-count said six and was itself wrong; the six named all reach the guard via `parseCommonCli`)* · `AI_SPEND_REDIS_URL` IPv6 · pooler saturation · no delete-forensics on `jobs`/`applications` |
 | **REMAINING EFFORT (Track A)** | ~4–6 sessions to Phase 10 complete |
 | **REMAINING EFFORT (Track B)** | Large — see §D. Not a Phase 9 blocker. |
 
@@ -77,19 +84,19 @@ COMPLETE  all of the above AND acceptance criteria met
 
 | Component | Built | Deployed | Production verified | Actually used | Flag | Status |
 |---|:--:|:--:|:--:|:--:|---|---|
-| OTP / auth | ✅ | ✅ | ✅ 382 verified **[08-21 pre]** | ✅ **1 worker [08-24]** | — | **ACTIVE** |
+| OTP / auth | ✅ | ✅ | ✅ 382 verified **[08-21 pre]** | ✅ **37 workers [08-26]**, all created 08-21..25 | — | **ACTIVE** |
 | Consent / DPDP | ✅ | ✅ | ✅ 333 accepted **[08-21 pre]** | ✅ | — | **ACTIVE** |
 | AI profiling | ✅ | ✅ | ✅ 223 extractions **[08-21 pre]** | ✅ | on | **ACTIVE** |
 | Resume | ✅ | ✅ | ✅ 114 generated / 196 downloads | ✅ | — | **ACTIVE** |
-| Job feed | ✅ | ✅ | ✅ 7,616 shows / 25 jobs | ✅ | — | **ACTIVE — basic filters only** |
-| Applications | ✅ | ✅ | ✅ 92 across 21 jobs | ✅ | — | **ACTIVE** |
+| Job feed | ✅ | ✅ | ✅ 7,616 shows **[08-21 pre]** / **19 jobs, 17 open [08-26]** | ✅ | — | **ACTIVE — basic filters only** |
+| Applications | ✅ | ✅ | **28 [08-26]** (92 across 21 jobs **[08-24]**, unreconciled) | ✅ | — | **ACTIVE** |
 | Interview kit | ✅ | ✅ | ⚠ 16 failed / 12 completed | ✅ | — | **DEGRADED** |
 | Voice | ✅ | ✅ | ❌ 0 events | ❌ | consent purpose unissued | **DORMANT** |
 | Skill taxonomy corpus | ✅ | ✅ | ✅ 4,071 domains / 9,121 aliases **[08-24]** | ❌ | — | **BUILT, not routed** |
-| Skill canonicalization | ✅ | ✅ | ❌ | ❌ | `SKILL_CANONICALIZE_ENABLED=false` | **FLAG-OFF** |
-| Domain match | ✅ | ✅ | ❌ | ❌ | `DOMAIN_MATCH_ENABLED=false` | **FLAG-OFF** |
+| Skill canonicalization | ✅ | ✅ | ❌ | ❌ | `SKILL_CANONICALIZE_ENABLED` — **value UNVERIFIED**; the secret exists and was changed 2026-08-24 11:30:45 UTC, and deploys run on every `main` push | **STATE UNKNOWN** |
+| Domain match | ✅ | ✅ | ⚠ **10 of 22 profiles carry a `job_domain_id` [08-26]** — all lexical (`l0_exact`/`l2_trigram`) or worker-confirmed; the ANN layer never ran | partial | `DOMAIN_MATCH_ENABLED=false` — **PROVED**: the secret does not exist, so compose's `:-false` governs | **FLAG-OFF, lexical layers live** |
 | Path A / Path B retrieval | ✅ | ✅ | shadow only | ❌ | gated by canonicalize | **SHADOW** |
-| Reach engine / `job_reach` | ✅ | ✅ | ❌ **0 rows [08-24]** | ❌ | — | **NOT CONNECTED** |
+| Reach engine / `job_reach` | ✅ | ✅ | ❌ **0 rows [08-26]** | ❌ | — | **NOT CONNECTED** |
 | Relevance ranking | ✅ | ✅ | ❌ | ❌ | — | **NOT CONNECTED** |
 | Job visibility relevance | ❌ | ❌ | ❌ | ❌ | — | **NOT BUILT** |
 
@@ -97,17 +104,17 @@ COMPLETE  all of the above AND acceptance criteria met
 
 | # | arrow | state | evidence |
 |---|---|---|---|
-| 1 | Job created → `jobs` row | **LIVE** | 25 jobs in production |
+| 1 | Job created → `jobs` row | **LIVE** | **19 jobs, 17 open [08-26]**; none created since 2026-08-05 |
 | 2 | Job title → `job_domain` (ANN over `job_domain_alias`) | **FLAG-OFF** | `DOMAIN_MATCH_ENABLED=false` |
 | 3 | `job_domain` → `job_domain_skill` scope | **NOT REACHED** | step 2 never runs |
 | 4 | Skill phrases → canonical ids → `job_posting_skill` | **NOT CONNECTED** | **0 rows, ever** |
 | 5 | Worker speech → extracted skill labels | **LIVE** | 223 extractions |
-| 6 | Labels → canonical ids → `worker_skill` | **FLAG-OFF** | 8 rows, none recent |
-| 7 | worker ∩ job skills → reachability (`job_reach`) | **NOT CONNECTED** | 6 rows; feed does not read it |
+| 6 | Labels → canonical ids → `worker_skill` | **FLAG-OFF** | **0 rows [08-26]** |
+| 7 | worker ∩ job skills → reachability (`job_reach`) | **NOT CONNECTED** | **0 rows [08-26]**; feed does not read it |
 | 8 | reachability → relevance score | **NOT CONNECTED** | `scoring.ts` not on the request path |
 | 9 | score → feed ordering | **NOT CONNECTED** | feed emits `score: 0` |
 | 10 | **feed query → worker** | **LIVE** | `findOpenJobs` |
-| 11 | feed → application | **LIVE** | 92 applications |
+| 11 | feed → application | **LIVE** | **28 applications [08-26]** |
 
 **The honest summary:** steps 1, 5, 10 and 11 are live. **Steps 2–4 and 6–9 — the entire
 relevance chain — are not connected.** A worker sees a job because it is open, in their city,
@@ -238,12 +245,32 @@ the ratified-alias delivery path, the two widening crosswalks, and evidence prov
 > decisions in FACTS / MEASURED EVIDENCE / RISK / OPTIONS / RECOMMENDATION form, plus the
 > mutation plans, rollbacks, sequencing and the pooler note. The table below is the index.
 
-**No independently executable engineering task remains in this programme.** Every remaining item
-is blocked on one of the four things an agent must not decide for itself.
+> **RE-STATED 2026-08-26.** The sentence that stood here — *"No independently executable
+> engineering task remains in this programme"* — was **false** while the nine tasks that have
+> since landed were available, and is **true again today**: the graph finds zero executable
+> items. The decision surface is now held as typed data with a validator
+> (`programme-graph.ts`), rendered to
+> [`programme-graph.md`](../registers/taxonomy-decisions/programme-graph.md), precisely so a
+> claim like that cannot sit in prose being quietly wrong again.
+
+**The programme is blocked on people, not on engineering.**
+
+```
+EXECUTABLE                     0
+BLOCKED_ON_OWNER              11
+BLOCKED_ON_AI_SPEND            2   INR 0.028128 total
+BLOCKED_ON_PRODUCTION_WRITE    3   mechanisms built, tested, never invoked
+BLOCKED_ON_DATA                2
+BLOCKED_ON_INFRA               4
+COMPLETE                       8
+```
+
+Promotion is blocked by **4** items, canonicalization by **12**. The table below is the older
+index; the graph is authoritative for status.
 
 | # | decision | evidence | recommendation |
 |---|---|---|---|
-| **Q1** | who owns the attribute→match mapping | **96 of 96** promotable skills are outside `SKILL_CORPUS`; promotion would make them active and reach nothing, **failing no test** | require a mapping or an explicit "not matched" per promotable skill |
+| ~~**Q1**~~ | ~~who owns the attribute→match mapping~~ **RATIFIED 2026-08-26** | 5 mapped, 91 explicitly unmatched; the exhaustiveness contract now covers `SKILL_CORPUS` ∪ the promotable batch | **CLOSED** — `MATCH_VOCABULARY` passes 0/96 |
 | **0.75 floor** | keep or move | Hindi and English paraphrase sit at the same distance from it; for single-word vernacular the correct answers **interleave with the negatives** (`chhilai` 0.5284 < `biryani banana` 0.5427) | **keep** — no threshold separates them; the fix is the corpus |
 | **`NO_REGRESSION`** | fixture-version semantics | rejects on version mismatch before comparing scores | unchanged — decision recorded separately |
 | **D6-0** | ~~ship the 22 ratified vernacular aliases~~ **— already shipped 2026-07-16** | all 22 live in `skill_alias` and embedded (measured 2026-08-24). The earlier "none delivered" claim was wrong. | authorize the **re-sweep** (~INR 0.003) — the effect has never been measured |
@@ -251,11 +278,23 @@ is blocked on one of the four things an agent must not decide for itself.
 | **D-7 B** | should `skill_chassis_fitting` inherit `mskill_fitter` | same shape, **and live in production today** | rule before the next `db:retag:skills` |
 | **D-7 C** | seed the 4 corpus deprecations | 4 rows drift; the seeder warns `--preserve-existing-status` is mandatory | not until A and B are ruled on — seeding arms the dormant hazard |
 | **D6-1** | who authors the vernacular fixture | 0 romanized cases in the gate-bearing fixture; `db:mine:aliases` has **nothing to mine** (1 worker) | needs human authoring or worker traffic — not an agent |
-| **Promotion** | — | `RESOLVABLE_ABOVE_FLOOR` FAIL 62/96, `NO_REGRESSION` FAIL | **0 candidates.** Blocked on the above |
+| **D-7C-1a** | *(new 08-26)* the 2026-08-21 elections and the D-7C seed together orphan `GD&T` | both ratified, each safe alone; `db:seed:deprecations` refuses on it | re-point the elections, drop `skill_gdt_reading` from the seed, or accept the loss |
+| **D-7C-1b** | *(new 08-26)* which skill keeps `CAD`, `drawing padhna`, `read engineering drawings`, `technical drawing` | 4 duplicate rows at 1.0000; the successor is the corpus's own answer | ratify the successor, elect the source, or wait for TAX-6 |
+| **§5a-2** | *(new 08-26)* the sibling margin | separation costs **26 of 43** right answers at its first working value; a shared-token rule misses GMAW/SMAW at 0.8405 | evidence favours A or a curated C; B is the option the numbers argue against |
+| **Flag value** | *(new 08-26)* what is `SKILL_CANONICALIZE_ENABLED` in the running container | the secret exists and was **changed 2026-08-24 11:30:45 UTC**; deploys run on every `main` push | **infra fact request** — one command on the box |
+| **Promotion** | — | `RESOLVABLE_ABOVE_FLOOR` **34 fail / 62 pass**, `NO_REGRESSION` 96 fail | **0 candidates.** Blocked on the above |
 
 ### Infrastructure
 
 The Supabase pooler (`EMAXCONNSESSION`, `pool_size: 15`) blocked read-only verification eight
-times on 2026-08-21 and was responsive on 2026-08-24. It is intermittent rather than fixed, it
-is the binding constraint on every measurement task, and **no configuration was changed**. It
-warrants its own owner and task.
+times on 2026-08-21, was responsive on 2026-08-24, and **did not fire once across the 2026-08-26
+session** — roughly forty read-only runs, including six full-corpus vector sweeps. It is
+intermittent rather than fixed, it remains the binding constraint on every measurement task, and
+**no configuration was changed**. It warrants its own owner and task.
+
+**Two infrastructure facts added 2026-08-26.** `DOMAIN_MATCH_ENABLED` does not exist as a secret,
+so compose's `${DOMAIN_MATCH_ENABLED:-false}` governs and the deployed value is **proved false**.
+`SKILL_CANONICALIZE_ENABLED` **does** exist, its value was **changed on 2026-08-24 11:30:45 UTC**,
+and the deploy job runs on every push to `main` — so the change is live and nothing in this
+repository records what it became. Several documents lean on *"the flag is off"* as a safety
+argument; exactly one of those two flags supports it.

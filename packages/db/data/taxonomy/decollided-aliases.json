@@ -1,6 +1,7 @@
 {
   "kind": "alias-exclusions",
   "why": "Alias rows deliberately removed from retrieval by duplicate election. The row, its id and its text are KEPT (CLAUDE.md section 10 — nothing is deleted); only `embedding` is NULLed, so the row stops being a Path B candidate. This file is the DURABLE half: `db:embed:skills` seeds its blocked-id list from here, so neither a routine backfill nor `--reset-embeddings` can silently re-embed a row that was de-elected on purpose.",
+  "history": "2026-08-21 — four elections ratified (blueprint reading, drawing reading, GD&T, geometric dimensioning and tolerancing). 2026-08-26 — owner ruled D-7C-1a option A and D-7C-1b option A: the two GD&T exclusions were RE-POINTED (see `repointed_2026_08_26`) and the four D-7C-1b elections moved here from proposed-d7c1-cleanup.json, which was deleted rather than flagged so that no second source of truth exists.",
   "exclusions": [
     {
       "alias_id": "d197cbbe-350d-5de3-8fee-f0a37aecfe58",
@@ -23,24 +24,74 @@
       "phase": "9 / Stage B (P1-B rule 4)"
     },
     {
-      "alias_id": "60913ff3-3420-511e-8ec4-4605afe6d970",
-      "skill_id": "skill_drawing_reading",
+      "alias_id": "ff0e1497-e6ce-5737-88e2-e5954d9fb5ae",
+      "skill_id": "skill_gdt_reading",
       "text": "GD&T",
       "domain_id": "cnc-machining",
-      "winner_skill_id": "skill_gdt_reading",
-      "reason": "cross-skill alias collision inside one legacy slug; GD&T is a distinct, narrower competency and keeps its own skill id",
-      "decided_by": "product owner, 2026-08-21",
-      "phase": "9 / Stage B (P1-B rule 4)"
+      "winner_skill_id": "skill_drawing_reading",
+      "reason": "D-7C-1a option A. RE-POINTED 2026-08-26: the 2026-08-21 election excluded skill_drawing_reading's copy so that skill_gdt_reading kept the text, but D-7C deprecates skill_gdt_reading — applying both decisions removed the phrase from retrieval entirely. The winner is now the holder that survives the seed. The competency judgement of 2026-08-21 is unchanged; only which ROW carries the text changed, because the other row is about to go dark.",
+      "decided_by": "product owner, 2026-08-26 (D-7C-1a option A)",
+      "phase": "9 / D-7C-1a",
+      "repointed_2026_08_26": {
+        "was_excluding": "60913ff3-3420-511e-8ec4-4605afe6d970",
+        "was_winner": "skill_gdt_reading",
+        "why": "that winner is a D-7C deprecation subject; keeping it would orphan the phrase"
+      }
     },
     {
-      "alias_id": "b6cf46a9-3cdb-560c-8b40-7a166b226d2d",
-      "skill_id": "skill_drawing_reading",
+      "alias_id": "046812dd-942d-5de5-80b1-54e23aab143b",
+      "skill_id": "skill_gdt_reading",
       "text": "geometric dimensioning and tolerancing",
       "domain_id": "cnc-machining",
-      "winner_skill_id": "skill_gdt_reading",
-      "reason": "cross-skill alias collision inside one legacy slug; GD&T is a distinct, narrower competency and keeps its own skill id",
-      "decided_by": "product owner, 2026-08-21",
-      "phase": "9 / Stage B (P1-B rule 4)"
+      "winner_skill_id": "skill_drawing_reading",
+      "reason": "D-7C-1a option A. RE-POINTED 2026-08-26, for the same reason as GD&T above: the original election handed the text to a skill the D-7C seed deprecates, so applying both decisions lost the phrase. The surviving holder keeps it.",
+      "decided_by": "product owner, 2026-08-26 (D-7C-1a option A)",
+      "phase": "9 / D-7C-1a",
+      "repointed_2026_08_26": {
+        "was_excluding": "b6cf46a9-3cdb-560c-8b40-7a166b226d2d",
+        "was_winner": "skill_gdt_reading",
+        "why": "that winner is a D-7C deprecation subject; keeping it would orphan the phrase"
+      }
+    },
+    {
+      "alias_id": "02776ee2-3322-5846-8538-c04d2a2b19ec",
+      "skill_id": "skill_cad_interpretation",
+      "text": "CAD",
+      "domain_id": "cnc-programming",
+      "winner_skill_id": "skill_drawing_reading",
+      "reason": "D-7C-1b option A. TD-01 merge residue: byte-identical text on the corpus-deprecated source and on its named successor, both at 1.0000, winner decided by index order. The successor keeps it, which is the reading the ratified crosswalk already names.",
+      "decided_by": "product owner, 2026-08-26 (D-7C-1b option A)",
+      "phase": "9 / D-7C-1b"
+    },
+    {
+      "alias_id": "4a0b0c77-c595-5503-8c62-2461253de70e",
+      "skill_id": "skill_cad_interpretation",
+      "text": "drawing padhna",
+      "domain_id": "cnc-programming",
+      "winner_skill_id": "skill_drawing_reading",
+      "reason": "D-7C-1b option A. Also one of the 22 vernacular aliases ratified 2026-07-16, so the surviving copy was verified to exist before this was written: skill_drawing_reading holds `drawing padhna` (794cc831-ccf7-5f32-8fa4-dfb7ab2585b2, lang hi, embedded) in cnc-machining. The ratified vernacular term survives this election.",
+      "decided_by": "product owner, 2026-08-26 (D-7C-1b option A)",
+      "phase": "9 / D-7C-1b"
+    },
+    {
+      "alias_id": "580d7d5b-4d12-54ee-811c-ff954e880388",
+      "skill_id": "skill_cad_interpretation",
+      "text": "read engineering drawings",
+      "domain_id": "cnc-programming",
+      "winner_skill_id": "skill_drawing_reading",
+      "reason": "D-7C-1b option A. TD-01 merge residue; the named successor keeps the text.",
+      "decided_by": "product owner, 2026-08-26 (D-7C-1b option A)",
+      "phase": "9 / D-7C-1b"
+    },
+    {
+      "alias_id": "0c6caf0d-9d88-5030-8e47-c238a5620840",
+      "skill_id": "skill_cad_interpretation",
+      "text": "technical drawing",
+      "domain_id": "cnc-programming",
+      "winner_skill_id": "skill_drawing_reading",
+      "reason": "D-7C-1b option A. TD-01 merge residue; the named successor keeps the text.",
+      "decided_by": "product owner, 2026-08-26 (D-7C-1b option A)",
+      "phase": "9 / D-7C-1b"
     }
   ]
 }

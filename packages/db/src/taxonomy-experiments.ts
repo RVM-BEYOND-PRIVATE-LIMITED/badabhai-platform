@@ -36,6 +36,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import type { CorpusFingerprint } from "./corpus-fingerprint";
 import { TAXONOMY_DATA_DIR } from "./taxonomy-corpus";
 
 /** Where records live. One directory per experiment, one file per run. */
@@ -68,6 +69,13 @@ export const EXPERIMENTS = {
   // records apart is that nobody can accidentally read one as the other.
   "EXP-P9-TRAINER-V3":
     "Phase 9 Stage D. Evaluator v2, fixture v3 (127 v2 cases + 41 reviewed trainer paraphrases). Establishes whether the harder instrument still scores 1.0 before any baseline is re-pointed.",
+  // Filed separately from EXP-P8-BASELINE because the CORPUS changed, not the instrument —
+  // the mirror image of the EXP-P9-TRAINER-V3 note above. Same evaluator v2, same fixture v2,
+  // re-run so that NO_REGRESSION has evidence carrying a corpus_fingerprint equal to the live
+  // one. Every earlier v2 record predates fingerprinting and therefore cannot clear that gate,
+  // and backfilling a fingerprint would fabricate the proof the field exists to provide.
+  "EXP-P9-REGRESSION-FRESH":
+    "Phase 9 promotion gate. Evaluator v2, fixture v2, re-run against the CURRENT corpus so the NO_REGRESSION comparison has fresh, fingerprinted evidence on the immutable baseline instrument.",
 } as const;
 export type ExperimentId = keyof typeof EXPERIMENTS;
 
@@ -104,6 +112,16 @@ export interface ExperimentRecord {
   // ── what ran ────────────────────────────────────────────────────────────
   query_count: number;
   failure_count: number;
+  /**
+   * Cases a run DECLINED to measure, by case id — distinct from `failure_count`, which counts
+   * things that went wrong.
+   *
+   * A run under `--offline` will not buy a query vector it has not already cached. That is a
+   * deliberate, priced gap, and it must not be filed alongside provider errors: pooled, the
+   * two turn a partial measurement into a complete-looking one, and every rate in the record
+   * silently becomes a rate over an unstated subset.
+   */
+  unmeasured_offline?: string[];
   /** Wall clock for the whole run. NOT per-query latency; see the field note in callers. */
   latency_ms: number | null;
 
@@ -120,6 +138,21 @@ export interface ExperimentRecord {
 
   // ── ANN configuration in effect ─────────────────────────────────────────
   ann: AnnConfig;
+
+  /**
+   * WHICH CORPUS this run measured — the freshness proof `promote-skills` reads.
+   *
+   * Optional because records written before fingerprinting exist and must stay readable. They
+   * simply cannot clear a freshness check, which is correct: absence is not currency, and
+   * backfilling one would fabricate the proof the field exists to provide.
+   *
+   * It was missing from this interface while `promote-skills` already read
+   * `sweepRecord.corpus_fingerprint`, so `RESOLVABLE_ABOVE_FLOOR` evidence was **stale by
+   * construction** — the only producer of sweep records had nowhere to put the value. Adding
+   * the field does not relax the check; a stale sweep still fails. It makes a satisfiable
+   * check out of an unsatisfiable one.
+   */
+  corpus_fingerprint?: CorpusFingerprint | null;
 
   /** Anything experiment-specific. Kept as an open bag so a new experiment kind does not
    *  require a schema change to the shared record. */

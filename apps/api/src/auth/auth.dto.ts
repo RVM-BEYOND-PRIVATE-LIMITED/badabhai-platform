@@ -152,9 +152,10 @@ export interface AccountDeleteCancelResponse {
   success: true;
 }
 
-/** Response of POST /auth/account/delete/immediate — the QA-ONLY immediate hard-delete seam.
- * ALWAYS { ok: true } when the flag is armed (the delete is idempotent; an already-gone row is
- * still a 200). The route 404s while TEST_IMMEDIATE_DELETE_ENABLED is off. */
+/** Response of POST /auth/account/delete/immediate — the QA-ONLY immediate complete-erasure seam
+ * (routes through the same `AccountDeletionService.execute` as the graced DPDP flow — #1239).
+ * ALWAYS { ok: true } when the flag is armed (the erasure is idempotent; an already-gone worker
+ * is still a 200). The route 404s while TEST_IMMEDIATE_DELETE_ENABLED is off. */
 export interface AccountDeleteImmediateResponse {
   ok: true;
 }

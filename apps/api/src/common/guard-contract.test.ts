@@ -16,7 +16,6 @@ import { InterviewKitController } from "../interview-kit/interview-kit.controlle
 import { JobsController } from "../jobs/jobs.controller";
 import { JobPostingsController } from "../job-postings/job-postings.controller";
 import { MessagingController } from "../messaging/messaging.controller";
-import { CapacityController } from "../posting-plans/capacity.controller";
 import { PostingPlansController } from "../posting-plans/posting-plans.controller";
 import { PricingController } from "../pricing/pricing.controller";
 import { AiJobsController } from "../profiles/ai-jobs.controller";
@@ -244,7 +243,8 @@ const CONTRACT: ControllerContract[] = [
     ctor: NotificationPrefsController,
     routes: { get: [C, W], update: [C, W] },
   },
-  { name: "Capacity", ctor: CapacityController, routes: { buyCapacity: [I] } },
+  // #1166 — the ops CapacityController (POST /payers/:payerId/capacity) was RETIRED
+  // (no caller, duplicated the live payer-self route below). Do not re-add it here.
   { name: "PostingPlans", ctor: PostingPlansController, routes: { buyPlan: [I], buyBoost: [I] } },
   {
     name: "Pricing",

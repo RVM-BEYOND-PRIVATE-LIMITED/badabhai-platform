@@ -27,7 +27,7 @@
 {"kind":"skill","skill_id":"skill_body_panel_alignment","label_en":"Body panel alignment","label_hi":"बॉडी पैनल सीध","aliases":[{"text":"panel alignment","lang":"en"},{"text":"बॉडी सेटिंग","lang":"hi"}]}
 {"kind":"skill","skill_id":"skill_lathe_chuck_mounting","label_en":"Lathe chuck mounting","label_hi":"लेथ चक माउंटिंग","aliases":[{"text":"chuck mounting","lang":"en"},{"text":"चक कसना","lang":"hi"}]}
 {"kind":"skill","skill_id":"skill_cutting_tool_selection","label_en":"Cutting tool selection","label_hi":"कटिंग टूल चयन","aliases":[{"text":"insert selection","lang":"en"},{"text":"टूल चुनना","lang":"hi"}]}
-{"kind":"skill","skill_id":"skill_coolant_management","label_en":"Coolant management","label_hi":"कूलेंट प्रबंधन","aliases":[{"text":"coolant top up","lang":"en"},{"text":"कूलेंट भरना","lang":"hi"}]}
+{"kind":"skill","skill_id":"skill_coolant_management","label_en":"Coolant management","label_hi":"कूलेंट प्रबंधन","aliases":[{"text":"coolant top up","lang":"en"},{"text":"coolant level","lang":"en"},{"text":"कूलेंट भरना","lang":"hi"}]}
 {"kind":"skill","skill_id":"skill_first_piece_approval","label_en":"First piece approval","label_hi":"पहला पीस अनुमोदन","aliases":[{"text":"first piece check","lang":"en"},{"text":"पहला पीस जांच","lang":"hi"}]}
 {"kind":"skill","skill_id":"skill_mortar_mixing","label_en":"Mortar mixing","label_hi":"गारा मिश्रण","aliases":[{"text":"mortar mix","lang":"en"},{"text":"गारा बनाना","lang":"hi"},{"text":"मसाला तैयार करना","lang":"hi"}]}
 {"kind":"skill","skill_id":"skill_stone_dressing","label_en":"Stone dressing","label_hi":"पत्थर तराशना","aliases":[{"text":"stone shaping","lang":"en"},{"text":"पत्थर घड़ना","lang":"hi"}]}

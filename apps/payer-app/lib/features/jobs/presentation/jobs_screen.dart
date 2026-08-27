@@ -134,14 +134,29 @@ class _JobsView extends StatelessWidget {
           );
         }
 
-        return ListView(
+        return ListView.builder(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
             AppSpacing.s2,
             AppSpacing.gutter,
             AppSpacing.s6,
           ),
-          children: <Widget>[
+          // Lazy: header at index 0, then one job card per index — off-screen
+          // postings are not built up front (mirrors the applicant-feed fix).
+          itemCount: 1 + state.jobs.length,
+          itemBuilder: (BuildContext context, int index) {
+            if (index != 0) {
+              final JobPosting job = state.jobs[index - 1];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+                child: job.id == null
+                    ? _JobCard(job: job)
+                    : _RealJobCard(job: job),
+              );
+            }
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: <Widget>[
@@ -189,15 +204,9 @@ class _JobsView extends StatelessWidget {
               _ResumeChatCard(onResume: onAiPost!),
             ],
             const SizedBox(height: AppSpacing.s3),
-            for (final JobPosting job in state.jobs) ...<Widget>[
-              // REAL rows carry an id; MOCK rows do not.
-              if (job.id == null)
-                _JobCard(job: job)
-              else
-                _RealJobCard(job: job),
-              const SizedBox(height: AppSpacing.s3),
-            ],
-          ],
+              ],
+            );
+          },
         );
       },
     );
