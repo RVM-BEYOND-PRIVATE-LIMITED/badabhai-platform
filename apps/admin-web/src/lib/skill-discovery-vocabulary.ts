@@ -490,3 +490,92 @@ export interface SkillSearchOutcome {
   /** Present only on a failed lookup. The decision form around it stays usable. */
   error?: string;
 }
+
+/**
+ * THE CEILING ON THE AUDIT READ, AND WHY THE CONSOLE HAS TO KNOW ABOUT IT.
+ *
+ * `listAuditEvents` selects `LIMIT 200` and the response carries NO truncation flag — unlike
+ * `/groups`, which counts first and refuses an over-broad filter with a 400 rather than returning
+ * a partial answer that presents itself as a whole one. Here a candidate with 201 events and a
+ * candidate with exactly 200 produce identical-looking responses.
+ *
+ * Unreachable in practice: the status ladder is terminal, so a candidate accrues two or three
+ * events and no realistic path adds a two-hundredth. That is a reason to say so quietly, not a
+ * reason to leave it unsaid — the failure mode is an auditor reading a truncated trail as a
+ * complete one, which is the single thing an audit surface must never let happen.
+ *
+ * So the console asserts nothing it cannot see: at fewer than 200 entries the trail is complete
+ * and the panel says nothing; AT the cap it says the cap was reached and that the response cannot
+ * distinguish "exactly 200" from "cut at 200". And there is no "load the rest" affordance
+ * anywhere, because there is no route behind one.
+ */
+export const SKILL_AUDIT_MAX_ENTRIES = 200;
+
+export const SKILL_AUDIT_CAP_NOTE = `This trail is showing ${SKILL_AUDIT_MAX_ENTRIES} entries, which is the most the audit read returns. The response carries no marker for whether anything was left out, so this list cannot be treated as the complete history — read the event spine directly if the full sequence matters.`;
+
+/**
+ * HOW THE SERVER ORDERS THE BATCHES — stated on the screen, because it is not the obvious one.
+ *
+ * The order is `candidates` DESCENDING, tie-broken by group key in code-unit order. It is NOT
+ * `undecided`, and the difference is visible to a reviewer: a batch of 35 that is entirely decided
+ * outranks a batch of 10 that nobody has opened.
+ *
+ * ── THE CONSOLE DOES NOT RE-SORT ───────────────────────────────────────────────────────
+ * Re-ordering here would put a second ordering rule in the browser, disagreeing with the one the
+ * server publishes, over a list whose whole promise is that it is exhaustive and reproducible for
+ * the applied filters. Two orders for one set is the same class of defect as two groupings for one
+ * set, which this screen already deleted once.
+ *
+ * Whether the SERVER should order by `undecided` instead is a live product question (#1280,
+ * correction 2) and an owner's call, not a thing to paper over in a render. Until it is answered,
+ * the console does the two honest things: it says what the order actually is, and it marks the
+ * batches with nothing left to decide so they can be skipped by eye.
+ */
+export const SKILL_GROUP_ORDER_NOTE =
+  "Ordered by batch size, largest first — not by how much is left to review. A large batch that has already been decided will sit above a small one nobody has opened; the ones with nothing left to decide are marked so.";
+
+/**
+ * The grouping and tier markers the two read routes carry in band (`grouping_basis`, `tier_basis`).
+ *
+ * They are rendered rather than merely parsed. Each is the server stating that the thing above it
+ * was DERIVED at read time and is stored nowhere — which is exactly the claim a reviewer would
+ * otherwise have to take on trust from a UI that looks like it is listing records.
+ */
+export const SKILL_BASIS_MARKER_LABELS: Readonly<Record<string, string>> = {
+  groups_are_derived_not_stored:
+    "A batch is worked out fresh on every read. There is no group row in any table, no group id, and no decision is ever recorded against a batch.",
+  review_tier_is_derived_not_stored:
+    "A tier is worked out from the candidate's phrase class and whether it has a strong match. It is not a stored column and nothing decides on it.",
+  /*
+   * The audit read carries the same literal the decision write does, and it belongs on the trail
+   * for a reason the decision panel's own copy cannot cover: somebody reading an approval WEEKS
+   * later needs to know the taxonomy did not move when it was recorded. Without it, an entry
+   * reading "Approved as a new skill" looks like the skill exists.
+   */
+  [SKILL_DECISION_EFFECT_RECORDED_ONLY]:
+    "Recording a decision here does not change the taxonomy. Every entry above is a decision being written down; the skill corpus is only ever changed by the offline chain that runs afterwards.",
+};
+
+/**
+ * An unrecognised marker renders ITSELF rather than a guessed sentence — same rule as
+ * {@link auditActionLabel}, for the same reason: these markers exist so the surface cannot
+ * paraphrase what the server said about its own answer.
+ */
+export function basisMarkerLabel(marker: string): string {
+  return SKILL_BASIS_MARKER_LABELS[marker] ?? marker;
+}
+
+/**
+ * WHY A MODEL NAME IS ON THIS SCREEN WHEN A SCORE NEVER IS.
+ *
+ * The rule this console enforces is *no similarity measurement* — no cosine figure, no vector, no
+ * number a reviewer could turn into an approval floor. It is not "no machine word anywhere", and
+ * conflating the two costs real auditability: `model` and `prompt_version` are facts about the RUN
+ * that produced the phrase, both inside the frozen provenance digest, and hiding two of the
+ * digest's fields leaves a reviewer looking at a partial record labelled as the complete one.
+ *
+ * Neither field ranks anything, orders anything, or gates anything. The similarity score is the
+ * field that does, and it is absent from the wire by construction (#1280, correction 5).
+ */
+export const SKILL_PROVENANCE_RUN_NOTE =
+  "How the run that produced this phrase was configured. These are facts about the run, recorded when it happened and frozen into the digest below — none of them measures how good a match anything is, and nothing here is a reason to approve or reject.";

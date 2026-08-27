@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { ZodType } from "zod";
+import {
+  SKILL_AUDIT_CAP_NOTE,
+  SKILL_AUDIT_MAX_ENTRIES,
+} from "./skill-discovery-vocabulary";
 
 /**
  * The skill-discovery data layer (#1260).
@@ -263,6 +267,51 @@ describe("the list item schema", () => {
     const parsed = skillDiscoveryListItemSchema.parse({ ...LIST_ROW, score: 0.87 });
     expect(parsed).not.toHaveProperty("score");
   });
+
+  /*
+   * ── THE TWO FIELDS THAT ACTUALLY LEAKED (#1280, correction 1) ────────────────────────
+   * The detail read served `confidence` — the raw `real` 0..1 score, CHECKed in migration 0093 —
+   * and `created_at_iso`, neither of them in any DTO. A service spread of a row type that is a
+   * SUBTYPE of the wire row put them there, and TypeScript does not excess-property-check a
+   * spread, so it compiled and shipped. Both are removed at the source now.
+   *
+   * These assertions are the console's end of that: the mirror declares no key for either, so a
+   * server that regressed would have them STRIPPED at the parse rather than carried to a screen
+   * where a reviewer could learn that 0.87 is good enough. A band is the wire representation and
+   * the only one there has ever been — a band cannot be turned into an approval floor.
+   */
+  it("strips a leaked raw `confidence` score rather than carrying it to a screen", () => {
+    const parsed = skillDiscoveryDetailSchema.parse({ ...DETAIL_ROW, confidence: 0.87 });
+    expect(parsed).not.toHaveProperty("confidence");
+    // The BAND still parses — it is the contracted representation, not a casualty of the fix.
+    expect(parsed.confidence_band).toBe(DETAIL_ROW.confidence_band);
+  });
+
+  it("strips a leaked `created_at_iso` — `created_at` is the contracted field and survives", () => {
+    const parsed = skillDiscoveryDetailSchema.parse({
+      ...DETAIL_ROW,
+      created_at_iso: "2026-08-26T09:00:00.000Z",
+    });
+    expect(parsed).not.toHaveProperty("created_at_iso");
+    expect(parsed.created_at).toBe(DETAIL_ROW.created_at);
+  });
+
+  it("keeps the provenance fields NESTED — never read from the top level", () => {
+    // The same spread also flattened `classifier_rule` / `model` / `corpus_fingerprint` /
+    // `provenance_digest` onto the response. The contract nests them, this mirror nests them, and
+    // a top-level copy is dropped — so no render can start depending on the flattened shape.
+    const parsed = skillDiscoveryDetailSchema.parse({
+      ...DETAIL_ROW,
+      classifier_rule: "top_level_copy",
+      model: "top_level_copy",
+      corpus_fingerprint: "top_level_copy",
+      provenance_digest: "top_level_copy",
+    });
+    expect(parsed).not.toHaveProperty("classifier_rule");
+    expect(parsed).not.toHaveProperty("model");
+    expect(parsed.provenance.classifier_rule).toBe(DETAIL_ROW.provenance.classifier_rule);
+    expect(parsed.provenance.provenance_digest).toBe(DETAIL_ROW.provenance.provenance_digest);
+  });
 });
 
 describe("the page envelope", () => {
@@ -425,6 +474,39 @@ describe("GET /admin/skill-discovery/groups — the server does the grouping", (
     expect(parsed.groups[0]).not.toHaveProperty("score");
   });
 
+  it("carries the two in-band markers the console renders (#1280, correction 3)", () => {
+    const parsed = skillDiscoveryGroupsSchema.parse(RESPONSE);
+    expect(parsed.grouping_basis).toBe("groups_are_derived_not_stored");
+    expect(parsed.tier_basis).toBe("review_tier_is_derived_not_stored");
+  });
+
+  it("strips an added field rather than rejecting the whole response", () => {
+    // Additive backend releases must not take a review screen down for a field it does not use.
+    // Every schema here is a plain `z.object`; none is `.strict()`.
+    const parsed = skillDiscoveryGroupsSchema.parse({
+      ...RESPONSE,
+      groups: [{ ...GROUP, some_future_field: "x" }],
+      some_future_field: { nested: true },
+    });
+    expect(parsed).not.toHaveProperty("some_future_field");
+    expect(parsed.groups[0]).not.toHaveProperty("some_future_field");
+    expect(parsed.groups[0]!.candidate_ids).toEqual(GROUP.candidate_ids);
+  });
+
+  it("preserves the SERVER's group order — the mirror never re-sorts (#1280, correction 2)", () => {
+    // The order is `candidates` descending, tie-broken on `key` in code-unit order, and it is NOT
+    // `undecided` — a finished 9-member batch outranks an untouched 2-member one. A parse that
+    // quietly reordered would put a second ordering rule behind the one the server publishes.
+    const finished = { ...GROUP, key: "direct|A|big", candidates: 9, undecided: 0 };
+    const untouched = { ...GROUP, key: "direct|B|small", candidates: 2, undecided: 2 };
+    const parsed = skillDiscoveryGroupsSchema.parse({
+      ...RESPONSE,
+      groups: [finished, untouched],
+      total_groups: 2,
+    });
+    expect(parsed.groups.map((g) => g.key)).toEqual(["direct|A|big", "direct|B|small"]);
+  });
+
   it("an empty population is a real answer, not a failure", () => {
     expect(
       skillDiscoveryGroupsSchema.parse({
@@ -575,6 +657,44 @@ describe("GET /admin/skill-discovery/:id/audit — the spine plus the row", () =
     const parsed = skillCandidateAuditSchema.parse(AUDIT);
     expect(parsed.entries[0]).not.toHaveProperty("review_reason");
     expect(parsed.entries[0]).not.toHaveProperty("resulting_skill_id");
+  });
+
+  /*
+   * ── THE CAP IS A LOCAL CONSTANT, NOT A NUMBER IN A SENTENCE (#1280, correction 6) ────
+   * The route is `LIMIT 200` and returns no truncation flag, so the response cannot say whether
+   * anything was cut. The console cannot detect that either — what it CAN do is refuse to claim
+   * completeness once the count reaches the cap, and never build an affordance on top of a trail
+   * that might be partial. The two facts asserted here are the ones a future reader needs: the
+   * response carries no truncation marker, and the console's cap matches the server's.
+   */
+  it("the response carries NO truncation marker — the console cannot detect a cut trail", () => {
+    const parsed = skillCandidateAuditSchema.parse(AUDIT);
+    expect(parsed).not.toHaveProperty("truncated");
+    expect(parsed).not.toHaveProperty("total");
+  });
+
+  it("the console's cap matches the route's own LIMIT", () => {
+    expect(SKILL_AUDIT_MAX_ENTRIES).toBe(200);
+    expect(SKILL_AUDIT_CAP_NOTE).toContain("200");
+  });
+
+  /*
+   * ADDITIVE SERVER CHANGES MUST NOT BREAK THIS CONSOLE (#1280, correction 3).
+   *
+   * The audit found four response fields the issue text omitted — `candidate_id` and
+   * `corpus_effect` here, `tier_basis` and `grouping_basis` on the grouping route. All four are
+   * declared now, but the general property is the one worth pinning: every schema in this module
+   * is a plain `z.object`, so an unknown key is STRIPPED rather than rejected.
+   *
+   * A `.strict()` mirror would turn any additive backend release into a hard failure on a review
+   * screen — the console down for a field it does not even use. Stripping is also what keeps the
+   * score-leak guards honest: a key with no home is dropped, never surfaced.
+   */
+  it("keeps `candidate_id` and `corpus_effect`, and strips a field it has never heard of", () => {
+    const parsed = skillCandidateAuditSchema.parse({ ...AUDIT, some_future_field: 1 });
+    expect(parsed.candidate_id).toBe(AUDIT.candidate_id);
+    expect(parsed.corpus_effect).toBe("decision_recorded_no_corpus_write");
+    expect(parsed).not.toHaveProperty("some_future_field");
   });
 });
 

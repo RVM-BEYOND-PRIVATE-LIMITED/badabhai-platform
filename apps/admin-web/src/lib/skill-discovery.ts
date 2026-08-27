@@ -46,7 +46,23 @@ const requirementSchema = z.enum(ADMIN_SKILL_REQUIREMENTS);
 // GET /admin/skill-discovery — the queue
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
-/** One queue row. Mirrors `AdminSkillDiscoveryListItem` field for field. */
+/**
+ * One queue row. Mirrors `AdminSkillDiscoveryListItem` field for field.
+ *
+ * ── TWO FIELDS THIS MIRROR HAS NEVER DECLARED, AND NOW CANNOT ──────────────────────────
+ * The detail read used to serve `confidence` and `created_at_iso` — neither in any DTO. The
+ * service spread a row whose type is a SUBTYPE of the wire row, and TypeScript does not
+ * excess-property-check a spread, so the raw candidate score (a `real`, 0..1) reached the
+ * response under a key no contract declared. It has been removed at the source (#1280,
+ * correction 1) and is not coming back.
+ *
+ * `confidence_band` below is the wire representation of that number and the only one there has
+ * ever been, deliberately: a band cannot be turned into a threshold, and "approve above 0.8" is
+ * an approval floor no owner ever ruled on. This mirror never read either field, and because
+ * every schema here is a plain `z.object`, a server that regressed and served the score again
+ * would have it STRIPPED at the parse rather than carried to a screen. `created_at` is a
+ * different, contracted field and is still served.
+ */
 export const skillDiscoveryListItemSchema = z.object({
   id: z.string(),
   run_id: z.string(),
@@ -276,7 +292,19 @@ export function getSkillDiscoveryMetrics(runId?: string): Promise<SkillDiscovery
  *      grouping algorithm silently disagreeing with the real one.
  *
  * So `key`, `anchor`, `label`, the membership and the ordering are all read from the response and
- * none of them is recomputed here. Groups arrive biggest-first; that order is rendered as given.
+ * none of them is recomputed here.
+ *
+ * ── AND THE ORDER IS `candidates` DESCENDING, NOT `undecided` ──────────────────────────
+ * Tie-broken by `key` in code-unit order — a total, host-independent comparison, so two identical
+ * requests give the identical sequence. Worth naming precisely because the intuitive reading is
+ * wrong: a 35-member batch with nothing left to decide outranks a 10-member batch nobody has
+ * opened (#1280, correction 2).
+ *
+ * The console renders that order untouched and adds no sort of its own. A second ordering rule in
+ * the browser would disagree with the one the server publishes over a list whose whole promise is
+ * to be exhaustive and reproducible — the same defect as a second grouping, one field along.
+ * Whether the SERVER should order by `undecided` is a product question with an owner; the screen
+ * states the rule and marks the finished batches instead of quietly imposing a different one.
  *
  * ── AND A GROUP IS STILL A LENS, NOT A TAXONOMY OBJECT ─────────────────────────────────
  * `grouping_basis` says so in band. There is no group id in any table, no group-level decision,
@@ -425,9 +453,18 @@ export type SkillCandidateAuditEntry = z.infer<typeof skillCandidateAuditEntrySc
  * candidate currently is, and an auditor needs to see them agree. If they ever do not, that
  * disagreement is the finding — which a response carrying only one half could never surface.
  *
- * `current` is ALWAYS present. An undecided candidate has a `current` whose fields are null, not
- * an absent block: a nullable one would make "nothing has happened yet" and "the row is gone" the
- * same response, and the second is a 404.
+ * `current` is ALWAYS present — non-nullable, always populated, its FIELDS null on an undecided
+ * candidate (#1280, correction 4). A nullable block would make "nothing has happened yet" and
+ * "the row is gone" the same response, and the second is a 404.
+ *
+ * ── `entries` IS CAPPED AT 200 AND SAYS NOTHING ABOUT IT ───────────────────────────────
+ * The query is `LIMIT 200` with no truncation flag, so a candidate with 201 events and one with
+ * exactly 200 are indistinguishable on the wire. Unlike the grouping route, which counts first
+ * and refuses rather than answering partially, this one truncates silently.
+ *
+ * Nothing is built on top of it: there is no "load the full history" affordance on this surface,
+ * because there is no route behind one. The panel says the cap was reached when it is reached and
+ * makes no completeness claim then — see `SKILL_AUDIT_CAP_NOTE` (#1280, correction 6).
  */
 export const skillCandidateAuditSchema = z.object({
   candidate_id: z.string(),

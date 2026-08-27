@@ -211,6 +211,18 @@ describe("AC#1 — dashboard tiles render from one metrics request, no client ag
     expect(zeroCount).toBeGreaterThanOrEqual(4);
   });
 
+  it("renders `tier_basis` beside the three tier counts it qualifies", async () => {
+    // #1280 correction 3. The tiles look like counts of a stored column and are not — the tier is
+    // recomputed per read from the phrase class and whether a strong match exists.
+    const out = await render();
+    // `renderToStaticMarkup` escapes the apostrophe, so the assertion matches either form rather
+    // than pinning an HTML entity that a copy edit would break for the wrong reason.
+    expect(out.replace(/&#x27;/g, "'")).toContain(
+      "A tier is worked out from the candidate's phrase class",
+    );
+    expect(out).toContain("not a stored column and nothing decides on it");
+  });
+
   it("degrades to an error tile without blanking the queue below when metrics fails", async () => {
     stub.metricsFailure = new TypeError("network down");
     stub.page = { items: [ROW], nextCursor: null };
@@ -285,6 +297,65 @@ describe("AC#2 — grouped is the default and never asks for the whole 6,673-row
     stub.groups = { ...stub.groups, groups: [{ ...GROUP, unanimous_action: null }] };
     const out = await render();
     expect(out).toContain("Members disagree");
+  });
+
+  /*
+   * ── THE ORDER IS THE SERVER'S, AND IT IS NOT THE INTUITIVE ONE (#1280, correction 2) ─
+   * `candidates` DESCENDING, tie-broken on the group key in code-unit order. NOT `undecided`, so a
+   * 35-member batch with nothing left to decide outranks a 10-member batch nobody has opened.
+   *
+   * The console does not re-sort. A second ordering rule in the browser would disagree with the
+   * one the server publishes, over a list whose promise is to be exhaustive and reproducible for
+   * the applied filters — the same defect as the page-local grouping this screen already deleted,
+   * one field along. Whether the SERVER should order by `undecided` is an owner's call.
+   *
+   * So the two honest moves, both pinned here: say what the order is, and mark the batches with
+   * nothing left to decide so a reviewer skips them by eye.
+   */
+  it("renders the batches in the server's order, unchanged", async () => {
+    const finished = { ...GROUP, key: "direct|A|big", label: "big — A", candidates: 9, undecided: 0 };
+    const untouched = { ...GROUP, key: "direct|B|small", label: "small — B", candidates: 2, undecided: 2 };
+    stub.groups = { ...stub.groups, groups: [finished, untouched], total_groups: 2 };
+    const out = await render();
+    expect(out.indexOf("big — A")).toBeLessThan(out.indexOf("small — B"));
+  });
+
+  it("does not reorder even when the server's own order puts a finished batch first", async () => {
+    // The same two batches with the response order REVERSED. A console that re-sorted by
+    // `undecided` would produce the same rendering for both fixtures; this one cannot.
+    const finished = { ...GROUP, key: "direct|A|big", label: "big — A", candidates: 9, undecided: 0 };
+    const untouched = { ...GROUP, key: "direct|B|small", label: "small — B", candidates: 2, undecided: 2 };
+    stub.groups = { ...stub.groups, groups: [untouched, finished], total_groups: 2 };
+    const out = await render();
+    expect(out.indexOf("small — B")).toBeLessThan(out.indexOf("big — A"));
+  });
+
+  it("states the ordering rule, including that it is not by how much is left", async () => {
+    const out = await render();
+    expect(out).toContain("Ordered by batch size, largest first");
+    expect(out).toContain("not by how much is left to review");
+  });
+
+  it("marks a batch with nothing left to decide instead of moving it", async () => {
+    stub.groups = { ...stub.groups, groups: [{ ...GROUP, undecided: 0 }] };
+    const out = await render();
+    expect(out).toContain("nothing left to decide");
+    expect(out).not.toContain("0 still to decide");
+  });
+
+  it("renders `grouping_basis` — the server's own statement that a batch is stored nowhere", async () => {
+    // #1280 correction 3: the response carries it and the console was parsing it without ever
+    // showing it, leaving a disclaimer the reviewer never sees on a screen that looks like a list
+    // of records.
+    const out = await render();
+    expect(out).toContain("A batch is worked out fresh on every read");
+    expect(out).toContain("no decision is ever recorded against a batch");
+  });
+
+  it("an UNRECOGNISED basis marker renders itself rather than a guessed sentence", async () => {
+    stub.groups = { ...stub.groups, grouping_basis: "some_marker_added_later" };
+    const out = await render();
+    expect(out).toContain("some_marker_added_later");
   });
 
   it("switches to the flat view and asks for the smaller default page size", async () => {

@@ -264,10 +264,22 @@ describe("404 / 400 — both read as not-found", () => {
   });
 });
 
-describe("AC#5/#6 — no score, vector, cosine or embedding model name, and EVERY match shown", () => {
-  it("never renders the literal words cosine, vector, or embedding model", async () => {
+describe("AC#5/#6 — no similarity measurement reaches the reviewer, and EVERY match shown", () => {
+  /*
+   * `embedding model` LEFT THIS REGEX (#1280, correction 5), and the reason matters.
+   *
+   * The provenance panel now renders `provenance.model` — a verbatim configuration string the
+   * server serves, whose value can legitimately contain those words. Banning the substring would
+   * fail on a well-named model rather than on a leaked measurement, which is a test asserting the
+   * wrong thing loudly.
+   *
+   * `cosine` and `vector` stay: neither is ever a value this surface renders, so either one
+   * appearing means the screen has started teaching the vocabulary it exists to spare a reviewer.
+   * The assertion that guards the actual hazard is the next one — the NUMBER.
+   */
+  it("never renders the literal words cosine or vector", async () => {
     const out = await render();
-    expect(out.toLowerCase()).not.toMatch(/cosine|vector|embedding model/);
+    expect(out.toLowerCase()).not.toMatch(/cosine|vector/);
   });
 
   it("never renders a bare similarity-score-shaped number", async () => {
@@ -275,10 +287,36 @@ describe("AC#5/#6 — no score, vector, cosine or embedding model name, and EVER
     expect(out).not.toMatch(/\b0\.\d{2}\b/);
   });
 
-  it("omits the provenance model name and prompt version, even though the response carries them", async () => {
+  /*
+   * ── THIS TEST USED TO ASSERT THE OPPOSITE ────────────────────────────────────────────
+   * It pinned that `provenance.model` and `provenance.prompt_version` were OMITTED, under a
+   * blanket "no model name in the UI" rule the pre-merge audit found to be stricter than the
+   * contract (#1280, correction 5). Both fields are inside the frozen 19-field digest, so hiding
+   * them showed a reviewer nine of eleven fields under a heading that says "frozen record" — and
+   * neither field ranks, orders or gates anything.
+   *
+   * The rule that protects the decision is the one below it: no similarity measurement. That is
+   * unchanged, and the three tests around this one are what enforce it.
+   */
+  it("renders the provenance model and prompt version — run configuration, not a measurement", async () => {
     const out = await render();
-    expect(out).not.toContain("text-embedding-3-small");
-    expect(out).not.toContain("v3");
+    expect(out).toContain("text-embedding-3-small");
+    expect(out).toContain(">v3<");
+  });
+
+  it("carries the note saying what those provenance fields are NOT", async () => {
+    const out = await render();
+    expect(out).toContain("none of them measures how good a match anything is");
+  });
+
+  it("renders a null model and prompt version as an em dash, never as a blank or a guess", async () => {
+    stub.candidate = {
+      ...BASE,
+      provenance: { ...BASE.provenance, model: null, prompt_version: null },
+    };
+    const out = await render();
+    expect(out).toContain('<dt class="kv__k">Model</dt><dd class="kv__v">—</dd>');
+    expect(out).toContain('<dt class="kv__k">Prompt version</dt><dd class="kv__v">—</dd>');
   });
 
   it("renders BOTH the strong and the weak match — never just the top one", async () => {
@@ -508,6 +546,58 @@ describe("the audit trail comes from the audit route, and is never assembled her
     stub.audit = { ...AUDIT_DECIDED };
     const out = await render();
     expect(out).not.toContain("@");
+  });
+
+  /*
+   * ── THE 200-ENTRY CAP (#1280, correction 6) ──────────────────────────────────────────
+   * `listAuditEvents` is `LIMIT 200` and the response carries NO truncation flag, so a candidate
+   * with 201 events and one with exactly 200 arrive identical. Unlike `/groups`, which counts
+   * first and refuses an over-broad filter outright, this route truncates silently.
+   *
+   * Below the cap nothing was dropped and the warning would be noise; at the cap the panel cannot
+   * tell the two apart and stops claiming completeness. It is unreachable in practice — the
+   * status ladder is terminal — which is a reason to say it quietly, not to leave it unsaid.
+   */
+  const auditEntries = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      event_id: `e0000000-0001-4a00-8000-${String(i).padStart(12, "0")}`,
+      occurred_at: "2026-08-27T09:00:00.000Z",
+      action_code: "skill_candidate_deferred",
+      admin_id: "a-1",
+    }));
+
+  it("says nothing about a cap while the trail is under it", async () => {
+    stub.audit = { ...AUDIT_DECIDED, entries: auditEntries(199) };
+    const out = await render();
+    expect(out).not.toContain("cannot be treated as the complete history");
+  });
+
+  it("AT the cap it stops claiming completeness, because it cannot tell 200 from truncated", async () => {
+    stub.audit = { ...AUDIT_DECIDED, entries: auditEntries(200) };
+    const out = await render();
+    expect(out).toContain("cannot be treated as the complete history");
+    expect(out).toContain("no marker for whether anything was left out");
+  });
+
+  it("offers NO load-the-rest affordance at the cap — no route serves one", async () => {
+    stub.audit = { ...AUDIT_DECIDED, entries: auditEntries(200) };
+    const out = await render();
+    expect(out.toLowerCase()).not.toMatch(/load (the )?(rest|more)|show all|full history/);
+  });
+
+  it("renders `corpus_effect` — the trail's own statement that nothing here moved the taxonomy", async () => {
+    // #1280 correction 3: the audit response carries this marker and the console was parsing it
+    // without ever showing it. An "Approved as a new skill" entry read months later looks like
+    // the skill exists; this is the sentence that says it does not.
+    stub.audit = { ...AUDIT_DECIDED };
+    const out = await render();
+    expect(out).toContain("Recording a decision here does not change the taxonomy");
+  });
+
+  it("an UNRECOGNISED corpus_effect renders itself rather than a guessed sentence", async () => {
+    stub.audit = { ...AUDIT_DECIDED, corpus_effect: "something_the_server_added_later" };
+    const out = await render();
+    expect(out).toContain("something_the_server_added_later");
   });
 });
 

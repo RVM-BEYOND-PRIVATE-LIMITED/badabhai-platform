@@ -11,19 +11,22 @@ import {
 } from "../../../../../lib/skill-discovery";
 import {
   ADMIN_SKILL_REVIEW_TIER_LABELS,
+  SKILL_APPROVED_DOMAINS_NOTE,
+  SKILL_AUDIT_CAP_NOTE,
+  SKILL_AUDIT_MAX_ENTRIES,
+  SKILL_AUDIT_SPINE_NOTE,
   SKILL_CANDIDATE_ACTION_LABELS,
   SKILL_CANDIDATE_SOURCE_TYPE_LABELS,
   SKILL_CANDIDATE_STATUS_LABELS,
   SKILL_CANDIDATE_STATUS_TONE,
+  SKILL_PROVENANCE_RUN_NOTE,
+  auditActionLabel,
+  basisMarkerLabel,
   isTerminalSkillStatus,
   relationLabel,
+  requirementLabel,
 } from "../../../../../lib/skill-discovery-vocabulary";
 import { formatRelative, formatTimestamp } from "../../../../../lib/format";
-import { auditActionLabel, requirementLabel } from "../../../../../lib/skill-discovery-vocabulary";
-import {
-  SKILL_APPROVED_DOMAINS_NOTE,
-  SKILL_AUDIT_SPINE_NOTE,
-} from "../../../../../lib/skill-discovery-vocabulary";
 import { StatusPill } from "../../../../../components/status-pill";
 import { DetailList } from "../../../../../components/detail-list";
 import { SkillDecisionPanel } from "./decision-panel";
@@ -34,20 +37,27 @@ export const metadata = { title: "Skill Candidate" };
 /**
  * One skill candidate, in full — the review screen (#1260).
  *
- * ── ONE REQUEST, NO N+1 ─────────────────────────────────────────────────────────────────
- * `getSkillDiscoveryCandidate` is the only fetch. Sources, related skills, provenance and the
- * decision record all arrive on the SAME response; nothing on this page issues a second read
- * per source or per match.
+ * ── TWO REQUESTS, NO N+1 ────────────────────────────────────────────────────────────────
+ * The candidate first, then its audit trail — and in that order rather than concurrently, so a
+ * candidate that does not exist 404s without a second read being spent on it. Everything else on
+ * this page arrives on the candidate response: sources, related skills, provenance and the
+ * decision record. Nothing issues a read per source or per match.
  *
- * ── WHAT NEVER APPEARS HERE, DELIBERATELY, EVEN THOUGH THE FIELD EXISTS ON THE WIRE ─────
- * `provenance.model` / `provenance.prompt_version` are OMITTED from the rendered record. The
- * DTO serves them because they are part of the frozen 19-field digest, but the issue's own
- * hard rule is absolute — "a reviewer is never shown the words cosine, embedding or vector",
- * and a model identifier IS the embedding model name that rule refuses. Every other frozen
- * field renders as a plain record below; these two do not. `embedding_status` is rendered,
- * translated to a sentence rather than the raw enum, because it states a provenance FACT
- * ("this phrase needed no embedding") without naming a model or a score — closer in kind to
- * `classifier_rule` than to a model identifier.
+ * ── WHAT NEVER APPEARS HERE — AND WHAT WAS WRONGLY BEING HIDDEN ─────────────────────────
+ * The rule this screen enforces is *no similarity measurement*: no cosine figure, no vector, no
+ * number a reviewer could turn into an approval floor. The wire has no `score` key by
+ * construction, this file renders none, and the contract-parity test fails if either side grows
+ * one.
+ *
+ * `provenance.model` and `provenance.prompt_version` used to be dropped as well, under a blanket
+ * reading of that rule which the pre-merge audit found to be stricter than the contract (#1280,
+ * correction 5). They are configuration facts about the RUN, both inside the frozen 19-field
+ * digest, and neither ranks or gates anything — while omitting them left a reviewer reading nine
+ * of eleven fields under a heading that says "frozen record". They render now, under
+ * `SKILL_PROVENANCE_RUN_NOTE`, which says what they are and what they are not.
+ *
+ * `embedding_status` is rendered as a sentence rather than the raw enum, for the reason it always
+ * was: it states a provenance FACT ("this phrase needed no embedding") and measures nothing.
  */
 export default async function SkillDiscoveryDetailPage({
   params,
@@ -265,6 +275,7 @@ export default async function SkillDiscoveryDetailPage({
           <p className="panel__sub">
             A frozen record, never a form — nothing on this screen can edit any of it.
           </p>
+          <p className="field__help">{SKILL_PROVENANCE_RUN_NOTE}</p>
         </div>
         <DetailList
           items={[
@@ -286,6 +297,22 @@ export default async function SkillDiscoveryDetailPage({
               label: "Embedding note",
               value: EMBEDDING_STATUS_NOTE[candidate.provenance.embedding_status],
             },
+            /*
+             * MODEL AND PROMPT VERSION ARE SHOWN, AND THE SCORE STILL IS NOT.
+             *
+             * This screen used to drop both, under a blanket "no model name in the UI" rule that
+             * was stricter than the contract and cost real auditability: the two fields are inside
+             * the frozen provenance digest, so hiding them left a reviewer reading nine of eleven
+             * fields under a heading that says "frozen record".
+             *
+             * The rule that actually protects the decision is *no similarity measurement* — no
+             * cosine figure, no vector, no number a reviewer converts into an approval floor. That
+             * one is unchanged and is enforced by construction: the wire type has no `score` key,
+             * this file never renders one, and the contract-parity test fails if either side grows
+             * one. A configuration string ranks nothing (#1280, correction 5).
+             */
+            { label: "Model", value: candidate.provenance.model ?? "—" },
+            { label: "Prompt version", value: candidate.provenance.prompt_version ?? "—" },
             {
               label: "Corpus fingerprint",
               value: <span className="mono">{candidate.provenance.corpus_fingerprint}</span>,
@@ -362,19 +389,36 @@ function AuditTrailPanel({ audit }: { audit: SkillCandidateAudit | null }) {
               show because nothing has happened, which is different from a read that failed.
             </p>
           ) : (
-            <ol className="chain">
-              {audit.entries.map((e) => (
-                <li className="chain__item" key={e.event_id}>
-                  <strong>{auditActionLabel(e.action_code)}</strong>
-                  {" by "}
-                  {/* An OPAQUE id. This console resolves no admin names anywhere on this surface. */}
-                  <span className="mono">{e.admin_id ?? "—"}</span>
-                  <span className="chain__time" title={formatTimestamp(e.occurred_at)}>
-                    {formatRelative(e.occurred_at)}
-                  </span>
-                </li>
-              ))}
-            </ol>
+            <>
+              <ol className="chain">
+                {audit.entries.map((e) => (
+                  <li className="chain__item" key={e.event_id}>
+                    <strong>{auditActionLabel(e.action_code)}</strong>
+                    {" by "}
+                    {/* An OPAQUE id. This console resolves no admin names anywhere on this surface. */}
+                    <span className="mono">{e.admin_id ?? "—"}</span>
+                    <span className="chain__time" title={formatTimestamp(e.occurred_at)}>
+                      {formatRelative(e.occurred_at)}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              {/*
+               * THE CAP, DECLARED ONLY WHEN IT IS ACTUALLY REACHED.
+               *
+               * The audit read is `LIMIT 200` and carries no truncation flag, so a candidate with
+               * 201 events and one with exactly 200 arrive identical. Below the cap nothing was
+               * dropped and a warning would be noise; AT the cap this panel cannot tell the two
+               * apart, and on an audit surface the only honest move is to stop claiming
+               * completeness (#1280, correction 6).
+               *
+               * There is deliberately no "load the rest" control beside it. No route serves one,
+               * and an affordance that cannot work is worse than the plain sentence.
+               */}
+              {audit.entries.length >= SKILL_AUDIT_MAX_ENTRIES && (
+                <p className="field__help">{SKILL_AUDIT_CAP_NOTE}</p>
+              )}
+            </>
           )}
 
           <h3 className="panel__title">The record as it stands now</h3>
@@ -442,6 +486,13 @@ function AuditTrailPanel({ audit }: { audit: SkillCandidateAudit | null }) {
           {audit.current.approved_job_domain_ids.length > 0 ? (
             <p className="field__help">{SKILL_APPROVED_DOMAINS_NOTE}</p>
           ) : null}
+          {/*
+           * `corpus_effect`, rendered rather than merely parsed (#1280, correction 3). It is the
+           * response's own statement that none of the entries above changed the taxonomy — the
+           * thing a reader of a months-old "Approved as a new skill" entry most needs and is least
+           * likely to assume.
+           */}
+          <p className="field__help">{basisMarkerLabel(audit.corpus_effect)}</p>
         </>
       )}
     </section>

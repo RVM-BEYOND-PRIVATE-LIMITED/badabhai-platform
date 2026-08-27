@@ -19,6 +19,8 @@ import {
   SKILL_CANDIDATE_STATUS_LABELS,
   SKILL_CANDIDATE_STATUS_TONE,
   SKILL_CANDIDATE_TERMINAL_STATUSES,
+  SKILL_GROUP_ORDER_NOTE,
+  basisMarkerLabel,
   type AdminSkillReviewTier,
 } from "../../../../lib/skill-discovery-vocabulary";
 import { formatCount, formatRelative, formatTimestamp } from "../../../../lib/format";
@@ -36,7 +38,10 @@ export const metadata = { title: "Skill Discovery" };
  * This view used to bucket ONE PAGE by `trade_family` in the browser, because no grouping route
  * existed and the real anchor rule needs a token count taken across the whole filtered set. That
  * gap was handed back to Backend and is CLOSED: `GET /admin/skill-discovery/groups` now returns
- * the batches, exhaustively for the applied filters, biggest-first.
+ * the batches, exhaustively for the applied filters, ordered by `candidates` descending and
+ * tie-broken on the group key in code-unit order. NOT by `undecided` — so a large finished batch
+ * sits above a small untouched one, which the screen states rather than silently re-sorting away
+ * (#1280, correction 2).
  *
  * The browser-side version is DELETED rather than kept as a fallback, and the deletion is the
  * point. A page-local grouping is a second copy of a server authority (CLAUDE.md invariant #9)
@@ -536,6 +541,13 @@ function MetricsTiles({ metrics }: { metrics: SkillDiscoveryMetrics | null }) {
           ? `Oldest still awaiting a decision: ${formatRelative(metrics.oldest_awaiting_created_at)} (${formatTimestamp(metrics.oldest_awaiting_created_at)}).`
           : "Nothing is currently awaiting a decision."}
       </p>
+      {/*
+       * `tier_basis`, rendered next to the three tier counts it qualifies. The tiles look like
+       * counts of a stored column and are not — the tier is recomputed per read from the phrase
+       * class and whether a strong match exists. Parsing that marker and not showing it would leave
+       * the console holding a disclaimer the reviewer never sees (#1280, correction 3).
+       */}
+      <p className="field__help">{basisMarkerLabel(metrics.tier_basis)}</p>
     </>
   );
 }
@@ -636,6 +648,20 @@ function ServerGroupedQueue({
         above: batches are recomputed on every read and are not stored anywhere, so there is nothing
         to reconcile these counts against.
       </p>
+      {/*
+       * The ordering rule, said out loud. It is `candidates` descending and NOT `undecided`, which
+       * is the opposite of what a queue implies, so a reviewer working top-down would otherwise
+       * spend their first screens on batches that are already finished. The console does not
+       * re-sort — see `SKILL_GROUP_ORDER_NOTE` for why a second order is the same defect as a
+       * second grouping — it says what the order is and marks the finished batches.
+       */}
+      <p className="field__help">{SKILL_GROUP_ORDER_NOTE}</p>
+      {/*
+       * `grouping_basis`, rendered rather than merely parsed. The server saying "a batch is derived
+       * and stored nowhere" is exactly the claim a reviewer would otherwise have to take on trust
+       * from a screen that looks like it is listing records (#1280, correction 3).
+       */}
+      <p className="field__help">{basisMarkerLabel(groups.grouping_basis)}</p>
       <ul className="reviewgroups">
         {groups.groups.map((g) => (
           <ReviewGroupCard key={g.key} group={g} groupHref={groupHref} />
@@ -662,10 +688,21 @@ function ReviewGroupCard({
   return (
     <li className="panel">
       <details className="reviewgroup">
+        {/*
+         * `undecided === 0` gets a marker rather than a re-sort. The server orders by batch SIZE,
+         * so a finished batch can outrank an untouched one; the reviewer needs to skip it by eye,
+         * and moving it in the list would mean this screen publishes an order the server does not
+         * (#1280, correction 2). "Nothing left to decide" is also not "approved" — a batch counts
+         * `deferred` as decided, because somebody looked.
+         */}
         <summary>
           <strong>{group.label}</strong> · {formatCount(group.candidates)}{" "}
-          {group.candidates === 1 ? "candidate" : "candidates"} · {formatCount(group.undecided)}{" "}
-          still to decide
+          {group.candidates === 1 ? "candidate" : "candidates"} ·{" "}
+          {group.undecided === 0 ? (
+            <span className="table__meta">nothing left to decide</span>
+          ) : (
+            <>{formatCount(group.undecided)} still to decide</>
+          )}
         </summary>
 
         <dl className="kv">
