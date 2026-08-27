@@ -99,4 +99,35 @@ export type { ReviewTier } from "./skill-discovery-plan";
 export { STRONG_MATCH_RELATIONS, isStrongRelation } from "./skill-discovery-match";
 export type { MatchRelation } from "./skill-discovery-match";
 export { CLASSIFIER_RULES } from "./skill-discovery-classify";
+
+// ── The taxonomy WRITE-SURFACE audit (repo-wide) ────────────────────────────────────────────
+//
+// Exported because the property it measures is not a `packages/db` property. "No request path can
+// author the matching vocabulary" is a claim about `apps/api`, and `apps/api` is where it has to
+// be assertable — `taxonomy-write-surface.test.ts` consumes exactly these three symbols.
+//
+// IT IS HERE RATHER THAN BEHIND A `./lifecycle-writer-scan` SUBPATH because `apps/api` compiles
+// with a `moduleResolution` that does not read the `exports` map (TS2307 on the subpath, with the
+// compiler itself pointing at the `.d.ts` it could see but not resolve). A subpath that only some
+// consumers can import is worse than a barrel entry every consumer can.
+//
+// AND THE ALTERNATIVE WAS A SECOND SCANNER, which is what was there first and what makes this
+// worth the barrel space. Two detectors disagreed within a day and in the direction that matters:
+// the shared one matched only the `dsql` tag that `packages/db` uses, so pointed at `apps/api` —
+// which imports drizzle's `sql` under its own name — it read 437 files and reported ZERO writers.
+// A clean bill of health from a scanner that could not read the syntax in front of it.
+//
+// These are filesystem readers, safe to import from a test and never called on a request path.
+export {
+  SPINE_TABLES,
+  SPINE_WRITER_ROOTS,
+  crossVocabularyWriters,
+  scanWriters,
+  scanWritersAcross,
+  sourceFiles,
+  spineSourceFiles,
+  stripComments,
+  workspacesDependingOnDb,
+} from "./lifecycle-writer-scan";
+export type { SpineTable, SpineWriterRoot, WriterScan } from "./lifecycle-writer-scan";
 export type { ClassifierRule, PhraseClass } from "./skill-discovery-classify";

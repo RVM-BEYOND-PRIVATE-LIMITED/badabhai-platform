@@ -499,8 +499,13 @@ export class AdminSkillDiscoveryService {
       );
     }
 
-    // ── 7. the mapping target ──────────────────────────────────────────────────────────
+    // ── 7. the referential checks on what the body NAMES ───────────────────────────────
+    //
+    // Both are pre-transaction on purpose. Each is a read whose answer cannot change the decision
+    // ladder, and finding out inside the transaction would surface as a constraint name thrown
+    // mid-decision instead of a 400 naming the field.
     if (targetSkillId !== undefined) await this.assertMappableTarget(targetSkillId);
+    if (dto.decision === "create") await this.assertLiveJobDomains(dto.approved_job_domain_ids);
 
     // ── 8. the transaction ─────────────────────────────────────────────────────────────
     const write = AdminSkillDiscoveryService.writeFor(
@@ -640,6 +645,45 @@ export class AdminSkillDiscoveryService {
    *     a match skill is renamed out of the mskill_ prefix AND out of `MATCH_SKILLS`. `kind` is
    *     the fact the prefix is only a proxy for.
    */
+  /**
+   * EVERY TRADE THE REVIEWER NAMED MUST EXIST AND STILL BE LIVE.
+   *
+   * ── WHY A SCHEMA RULE CANNOT DO THIS, AND WHY THE DATABASE WILL NOT EITHER ──────────────
+   * `approved_job_domain_ids` is `text[]`, and Postgres CANNOT put a foreign key on an array
+   * element. So nothing in migration 0093 refuses an id that names no domain:
+   * `skill_candidate_create_domain_chk` counts the array and stops there, and the DTO's
+   * `JobDomainId` checks the SHAPE (`jd_` + charset) because shape is all a schema can see.
+   *
+   * A plausible `jd_` typo therefore passes the pipe, passes the CHECK, and is RECORDED AS A
+   * DECISION. It surfaces weeks later as an FK violation halfway through `db:seed:domain-skills`,
+   * naming a constraint instead of a fix, with the reviewer who could have corrected it long gone
+   * — and the approval itself still sitting in the table looking valid.
+   *
+   * ── `selectable AND status = 'active'` IS PART OF THE QUESTION ─────────────────────────
+   * Not a filter bolted on. A deprecated or non-selectable domain is on no trade's picker, so an
+   * edge to it reaches nobody — which is precisely the condition `SKILL_ORPHAN` exists to refuse
+   * (*"it seeds, it embeds, and it is invisible"*). Approving a skill onto one produces exactly
+   * the outcome `approved_job_domain_ids` was added to prevent, so accepting it here would make
+   * the field ceremonial.
+   *
+   * ── THE REFUSAL NAMES THE IDS ──────────────────────────────────────────────────────────
+   * A bare "one or more trades are invalid" makes a reviewer re-check twenty tick-boxes by hand.
+   * The unknown ids are the reviewer's own input echoed back — no skill, no worker, nothing
+   * disclosed — so there is nothing to withhold and every reason to be specific.
+   */
+  private async assertLiveJobDomains(ids: readonly string[]): Promise<void> {
+    const requested = [...new Set(ids)];
+    const live = await this.repo.findLiveJobDomainIds(requested);
+    const unknown = requested.filter((id) => !live.has(id));
+    if (unknown.length > 0) {
+      throw new BadRequestException(
+        `These trades are not live, selectable job domains: ${unknown.join(", ")}. ` +
+          "A new skill must be attached to trades that exist and are on a picker, or nothing " +
+          "will ever reach it.",
+      );
+    }
+  }
+
   private async assertMappableTarget(skillId: string): Promise<void> {
     const skill = await this.repo.findCorpusSkill(skillId);
     if (!skill) {

@@ -165,6 +165,10 @@ const ALLOWED_REPO_MEMBERS = new Set<string>([
   "listMatches",
   "metricFacts",
   "findCorpusSkill",
+  // Reads `job_domain` to resolve the trades a `create` decision names. A READ, and the second
+  // of the two tables outside migration 0093 this surface may touch — an array column cannot
+  // carry a foreign key, so nothing in the schema refuses a `jd_` id that names no domain.
+  "findLiveJobDomainIds",
   "findStatus",
   "advanceToNeedsReview",
   "recordDecision",
@@ -179,6 +183,7 @@ interface RepoFake {
   listMatches: ReturnType<typeof vi.fn>;
   metricFacts: ReturnType<typeof vi.fn>;
   findCorpusSkill: ReturnType<typeof vi.fn>;
+  findLiveJobDomainIds: ReturnType<typeof vi.fn>;
   findStatus: ReturnType<typeof vi.fn>;
   advanceToNeedsReview: ReturnType<typeof vi.fn>;
   recordDecision: ReturnType<typeof vi.fn>;
@@ -212,6 +217,10 @@ function make(): Mocks {
       status: "active" as const,
       kind: "attribute" as const,
     })),
+    // Resolves whatever it is asked for by default, so the ordinary path is not about domains.
+    // The tests that care override it — including with an EMPTY set, which is what a `jd_` typo
+    // actually looks like from here.
+    findLiveJobDomainIds: vi.fn(async (ids: readonly string[]) => new Set(ids)),
     findStatus: vi.fn(async () => ({ candidate_id: CANDIDATE_ID, status: "needs_review" as const })),
     advanceToNeedsReview: vi.fn(async () => ({ status: "needs_review" as const })),
     recordDecision: vi.fn(async (write: { nextStatus: SkillCandidateStatus }) => ({
@@ -492,6 +501,91 @@ describe("alias / merge verify the target skill", () => {
 // ═════════════════════════════════════════════════════════════════════════════════════════
 // The ladder — canTransition is the ONLY enforcement
 // ═════════════════════════════════════════════════════════════════════════════════════════
+
+describe("a CREATE must name trades that actually exist", () => {
+  // `approved_job_domain_ids` is `text[]`, and Postgres cannot put a foreign key on an array
+  // element. So NOTHING in migration 0093 refuses an id that names no domain:
+  // `skill_candidate_create_domain_chk` counts the array and stops, and the DTO checks the SHAPE
+  // (`jd_` + charset) because shape is all a schema can see. A plausible typo therefore passes
+  // the pipe, passes the CHECK, and is recorded as a decision — surfacing weeks later as an FK
+  // violation halfway through a seed, naming a constraint instead of a fix.
+  //
+  // This block is the only thing standing between those two moments.
+
+  it("resolves every named trade against job_domain before opening a transaction", async () => {
+    await m.service.decide(ADMIN_ID, CANDIDATE_ID, CREATE, CTX);
+    expect(m.repo.findLiveJobDomainIds).toHaveBeenCalledWith(CREATE.approved_job_domain_ids);
+    // BEFORE, not inside: the answer cannot change the ladder, and finding out mid-transaction
+    // means a 500 naming a constraint rather than a 400 naming the field.
+    const resolveOrder = m.repo.findLiveJobDomainIds.mock.invocationCallOrder[0] ?? 0;
+    const txOrder = m.repo.withTransaction.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER;
+    expect(resolveOrder).toBeLessThan(txOrder);
+  });
+
+  it("400s a well-formed id that names no domain, and NAMES the id", async () => {
+    m.repo.findLiveJobDomainIds.mockResolvedValueOnce(new Set<string>());
+    const err = await m.service
+      .decide(ADMIN_ID, CANDIDATE_ID, CREATE, CTX)
+      .catch((e: unknown) => e);
+    expect((err as { status?: number }).status).toBe(400);
+    // Echoing the reviewer's own input back is not a disclosure — no skill, no worker, nothing
+    // but what they just typed — and a bare "one or more trades are invalid" makes them re-check
+    // twenty tick-boxes by hand.
+    expect(String((err as Error).message)).toContain(CREATE.approved_job_domain_ids[0] as string);
+    expect(m.repo.withTransaction).not.toHaveBeenCalled();
+    expect(m.repo.recordDecision).not.toHaveBeenCalled();
+    expect(m.events.emit).not.toHaveBeenCalled();
+  });
+
+  it("refuses the whole decision when only SOME of the trades resolve", async () => {
+    // Partial acceptance would silently drop a trade the reviewer deliberately ticked, and the
+    // skill would ship attached to fewer pickers than the human approved.
+    const body = { ...CREATE, approved_job_domain_ids: ["jd_nco_7212_0100", "jd_typo_here"] };
+    m.repo.findLiveJobDomainIds.mockResolvedValueOnce(new Set(["jd_nco_7212_0100"]));
+    const err = await m.service.decide(ADMIN_ID, CANDIDATE_ID, body, CTX).catch((e: unknown) => e);
+    expect((err as { status?: number }).status).toBe(400);
+    expect(String((err as Error).message)).toContain("jd_typo_here");
+    expect(String((err as Error).message)).not.toContain("jd_nco_7212_0100");
+    expect(m.repo.recordDecision).not.toHaveBeenCalled();
+  });
+
+  it("only asks about DISTINCT ids — a duplicated tick is not two trades", async () => {
+    const body = {
+      ...CREATE,
+      approved_job_domain_ids: ["jd_nco_7212_0100", "jd_nco_7212_0100"],
+    };
+    await m.service.decide(ADMIN_ID, CANDIDATE_ID, body, CTX);
+    expect(m.repo.findLiveJobDomainIds).toHaveBeenCalledWith(["jd_nco_7212_0100"]);
+  });
+
+  it("does NOT resolve domains for alias, merge, reject or hold", async () => {
+    // Only `create` carries the field — `.strict()` makes it a 400 on the other four — so asking
+    // would be a round trip for a value that cannot exist. An `alias` lands on a skill that
+    // already has its own edges.
+    for (const body of [ALIAS, MERGE, REJECT, HOLD]) {
+      m.repo.findLiveJobDomainIds.mockClear();
+      m.repo.findStatus.mockResolvedValueOnce({
+        candidate_id: CANDIDATE_ID,
+        status: "needs_review",
+      });
+      await m.service.decide(ADMIN_ID, CANDIDATE_ID, body, CTX).catch(() => undefined);
+      expect(m.repo.findLiveJobDomainIds).not.toHaveBeenCalled();
+    }
+  });
+
+  it("records the approved trades verbatim on the write once they all resolve", async () => {
+    // The reviewer's judgement RECORDED, not an edge written: `db:seed:domain-skills` writes the
+    // `job_domain_skill` rows later, from the corpus, after a human commit.
+    await m.service.decide(ADMIN_ID, CANDIDATE_ID, CREATE, CTX);
+    expect(m.repo.recordDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approvedJobDomainIds: CREATE.approved_job_domain_ids,
+        approvedRequirement: CREATE.approved_requirement,
+      }),
+      FAKE_TX,
+    );
+  });
+});
 
 describe("the transition is validated with canTransition before any write", () => {
   it("refuses pending -> approved_create as illegal_transition", async () => {
