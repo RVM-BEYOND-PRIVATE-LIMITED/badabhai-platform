@@ -398,17 +398,22 @@ services:
       PACE_ENABLED: ${PACE_ENABLED:-false}
       TEST_LOGIN_ENABLED: ${TEST_LOGIN_ENABLED:-false}
       PAYER_TEST_LOGIN_ENABLED: ${PAYER_TEST_LOGIN_ENABLED:-false}
-      # #1264 — THE IMMEDIATE-DELETE SEAM, and it needs BOTH names for the same reason
-      # TEST_LOGIN_ENABLED does. Neither was declared here before, so `export
+      # #1264 — THE IMMEDIATE-DELETE SEAM. Neither name was declared here before, so `export
       # TEST_IMMEDIATE_DELETE_ENABLED=true` on the box had no path into the container at all —
       # the #872 / #794 / #798 / #813 class of gap, and the reason the button in the QA build
       # could never have worked no matter what was set on the host.
       #
-      # DECLARING THEM DOES NOT ARM ANYTHING. This service runs `NODE_ENV: production` (a literal,
-      # above), where `assertAuthConfig` REFUSES TO BOOT on the boolean alone — so a box that
-      # exports only `TEST_IMMEDIATE_DELETE_ENABLED=true` does not get a live seam, it gets a
-      # crash loop that names the missing allowlist. Both names must be set, and the second one
-      # enumerates exactly which accounts the seam can ever destroy.
+      # ⚠ THE BOOLEAN ALONE ARMS IT, HERE, ON THIS PRODUCTION SERVICE. An earlier revision of
+      # this block said declaring these "does not arm anything" because `assertAuthConfig` would
+      # refuse to boot on the boolean alone under `NODE_ENV: production`. That refusal was
+      # REMOVED by owner decision on 2026-08-27 and the sentence no longer holds. Exporting
+      # `TEST_IMMEDIATE_DELETE_ENABLED=true` on this box now gives every authenticated worker a
+      # live, OTP-less, irreversible self-delete — reachable with any valid token, from any
+      # build, because a client-side button is not an authorization boundary.
+      #
+      # The second name is now an OPTIONAL narrowing: leave it empty for "anyone" (the intended
+      # posture), or list ids to restrict the seam to them. See `assertAuthConfig` for the
+      # #1187 -> #1264 -> now history and the accepted consequence.
       #
       # THE ID LIST IS NOT A SECRET — a worker id is opaque — so it belongs here as a plain
       # value rather than in the secret bridge, where the parity check could not see it.

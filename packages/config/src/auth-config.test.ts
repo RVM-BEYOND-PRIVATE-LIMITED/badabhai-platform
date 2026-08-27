@@ -243,26 +243,31 @@ describe("assertAuthConfig — TEST_IMMEDIATE_DELETE_ENABLED (#1187)", () => {
     expect(() => cfg({ TEST_IMMEDIATE_DELETE_ENABLED: "TRUE" })).toThrow();
   });
 
-  it("armed in PRODUCTION refuses to boot, even fully configured (hard structural block)", () => {
-    expect(() => assertAuthConfig(armed(), "production")).toThrow(/TEST_IMMEDIATE_DELETE_ENABLED/i);
+  // ⚠ THESE TWO CASES ARE INVERTED FROM WHAT #1187 SHIPPED, and that is the point of keeping
+  // them rather than deleting them. #1187 asserted a production boot REFUSAL; the owner removed
+  // that guard on 2026-08-27 so the seam can be armed on the production backend. They now assert
+  // the opposite, so that re-adding the refusal — by edit, by revert, or by a well-meaning reader
+  // who finds the removal alarming — FAILS LOUDLY here instead of silently breaking the shipped
+  // product. A removed guard with no test is how a decision quietly becomes a regression.
+  it("armed in PRODUCTION now BOOTS — the #1187 refusal was removed by owner decision", () => {
+    expect(() => assertAuthConfig(armed(), "production")).not.toThrow();
   });
 
-  it("armed with an UNSET / unknown / mis-cased NODE_ENV refuses to boot", () => {
+  it("armed with an UNSET / unknown / mis-cased NODE_ENV also boots — no env is special now", () => {
     const c = armed();
-    expect(() => assertAuthConfig(c, "")).toThrow(/TEST_IMMEDIATE_DELETE_ENABLED/i);
-    expect(() => assertAuthConfig(c, "prod")).toThrow(/TEST_IMMEDIATE_DELETE_ENABLED/i);
-    // The allow-list match is EXACT, never case-folded — a typo must never arm the seam.
+    expect(() => assertAuthConfig(c, "")).not.toThrow();
+    expect(() => assertAuthConfig(c, "prod")).not.toThrow();
+    // These used to be the typo cases that must NOT arm the seam. There is no longer an
+    // environment in which the flag is refused, so a typo cannot change the outcome either.
     for (const typo of ["Production", "PRODUCTION", "Staging", "STAGING", "DEVELOPMENT", "Test"]) {
-      expect(() => assertAuthConfig(c, typo), `${typo} must not arm the seam`).toThrow(
-        /TEST_IMMEDIATE_DELETE_ENABLED/i,
-      );
+      expect(() => assertAuthConfig(c, typo), `${typo} must boot`).not.toThrow();
     }
     // Truly UNSET: an explicit `undefined` falls back to process.env.NODE_ENV (the default
     // param), so delete it for the assertion — the same pattern the test-login block uses.
     const prev = process.env.NODE_ENV;
     delete process.env.NODE_ENV;
     try {
-      expect(() => assertAuthConfig(c)).toThrow(/TEST_IMMEDIATE_DELETE_ENABLED/i);
+      expect(() => assertAuthConfig(c)).not.toThrow();
     } finally {
       if (prev === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = prev;
@@ -333,23 +338,19 @@ describe("assertAuthConfig — TEST_IMMEDIATE_DELETE_WORKER_IDS (#1264)", () => 
     expect(() => assertAuthConfig(armedWith(`${DEV_A},${DEV_B}`), "production")).not.toThrow();
   });
 
-  it("PRODUCTION + armed + an EMPTY allowlist still REFUSES — #1187's invariant is intact", () => {
-    // The regression that would undo this change: an operator exports only the boolean onto a
-    // production box and gets a live seam armed for every authenticated worker. It must crash.
-    expect(() => assertAuthConfig(armedWith(""), "production")).toThrow(
-      /TEST_IMMEDIATE_DELETE/i,
-    );
-    expect(() => assertAuthConfig(armedWith("   "), "production")).toThrow(
-      /TEST_IMMEDIATE_DELETE/i,
-    );
+  it("PRODUCTION + armed + an EMPTY allowlist BOOTS — the allowlist is optional, not required", () => {
+    // INVERTED on 2026-08-27, deliberately. This case previously asserted a crash, on the
+    // grounds that a boolean-only production box must never get a live seam. The owner decided
+    // the opposite: the button deletes whoever taps it, and the gate is which APK ships it.
+    // The assertion is kept and flipped so re-adding the requirement fails here rather than
+    // crash-looping the production API on a config that is now the intended one.
+    expect(() => assertAuthConfig(armedWith(""), "production")).not.toThrow();
+    expect(() => assertAuthConfig(armedWith("   "), "production")).not.toThrow();
   });
 
-  it("an UNSET or mis-cased NODE_ENV with an empty list refuses, exactly as before", () => {
-    // "not production" is never inferred from the absence of the string "production".
+  it("an UNSET or mis-cased NODE_ENV with an empty list also boots — no env is special now", () => {
     for (const env of ["", "prod", "Production", "PRODUCTION", "Staging"]) {
-      expect(() => assertAuthConfig(armedWith(""), env), `${env} must refuse`).toThrow(
-        /TEST_IMMEDIATE_DELETE/i,
-      );
+      expect(() => assertAuthConfig(armedWith(""), env), `${env} must boot`).not.toThrow();
     }
   });
 
