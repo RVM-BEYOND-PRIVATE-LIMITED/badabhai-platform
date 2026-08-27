@@ -55,6 +55,7 @@ class AuthedClient {
     http.Client? client,
     Uuid? uuid,
     this.refreshSkew = const Duration(seconds: 90),
+    this.refreshIdemMaxAge = const Duration(seconds: 180),
     this.maxNetworkRetries = 2,
     this.retryBackoff = const Duration(milliseconds: 300),
     this.requestTimeout = kRequestTimeout,
@@ -91,6 +92,17 @@ class AuthedClient {
   /// (and a visible stall). The skew must comfortably exceed worst-case request
   /// latency, so it is sized against the network, not against clock drift.
   final Duration refreshSkew;
+
+  /// #1134 — the longest an UNCONFIRMED refresh rotation's persisted idempotency
+  /// key may still be replayed. Kept in sync with the server's
+  /// `IDEM_GRACE_SECONDS` (180s, `session.service.ts`): the server honours the key
+  /// only that long, so past it the client's key is not just useless but harmful —
+  /// replaying re-presents an already-`used` refresh token, trips reuse detection,
+  /// and revokes the whole family. Past this age the client drops the stale key
+  /// and re-auths CLEANLY instead (no doomed replay, no family revocation, no
+  /// false `worker.refresh_reuse_detected`). NOT a config on either side (the
+  /// server value is a `private static readonly`); this constant mirrors it.
+  final Duration refreshIdemMaxAge;
 
   /// Bounded transport retries for an idempotent write (same Idempotency-Key).
   final int maxNetworkRetries;
@@ -314,10 +326,32 @@ class AuthedClient {
     // — a per-worker, ~daily force-logout the app renders as "PIN sahi nahi".
     // Mint + persist ONE only when none is on file; reuse it until the rotation
     // lands. (The server durability counterpart is #999.)
+    //
+    // #1134 — but bound how long that unconfirmed rotation may be replayed. The
+    // client used to keep the key INDEFINITELY while the server honours it for
+    // `IDEM_GRACE_SECONDS` (180s) only. A resumed session (lost rotation response,
+    // then backgrounded for minutes to days) would replay past the grace, hit
+    // reuse detection, and revoke the family — a false "PIN sahi nahi" for a
+    // worker whose PIN is correct, plus every other device logged out. If the
+    // persisted key is older than [refreshIdemMaxAge] (or a legacy key carries no
+    // mint stamp), the rotation is no longer safely completable: drop the stale
+    // key and re-auth CLEANLY — WITHOUT sending the doomed request — so no used
+    // token is ever re-presented, the family survives, and no false reuse event
+    // is emitted. This is posture-neutral: it removes replay surface, never adds.
     String? idempotencyKey = await _tokenStore.readRefreshIdempotencyKey();
-    if (idempotencyKey == null || idempotencyKey.isEmpty) {
+    if (idempotencyKey != null && idempotencyKey.isNotEmpty) {
+      final DateTime? mintedAt =
+          await _tokenStore.readRefreshIdempotencyKeyMintedAt();
+      final bool tooOldToReplay = mintedAt == null ||
+          DateTime.now().difference(mintedAt) > refreshIdemMaxAge;
+      if (tooOldToReplay) {
+        await _tokenStore.clearRefreshIdempotencyKey();
+        await _forceReauth();
+        return;
+      }
+    } else {
       idempotencyKey = _uuid.v4();
-      await _tokenStore.writeRefreshIdempotencyKey(idempotencyKey);
+      await _tokenStore.writeRefreshIdempotencyKey(idempotencyKey, DateTime.now());
     }
 
     AuthResponse res;

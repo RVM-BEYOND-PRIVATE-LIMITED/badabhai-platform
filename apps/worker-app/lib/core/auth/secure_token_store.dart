@@ -53,6 +53,7 @@ class SecureTokenStore {
   static const String _kPinSet = 'bb_auth_pin_set';
   static const String _kAccessExpiresAt = 'bb_auth_access_expires_at';
   static const String _kRefreshIdemKey = 'bb_auth_refresh_idem_key';
+  static const String _kRefreshIdemMintedAt = 'bb_auth_refresh_idem_minted_at';
 
   /// Access token — MEMORY ONLY. Survives the app process but NOT a cold start;
   /// after a restart the interceptor refreshes it from the persisted refresh
@@ -72,10 +73,32 @@ class SecureTokenStore {
   /// rotation whose response was lost re-presents an already-`used` token and
   /// reuse-detection force-logs-out the worker. Held only until the rotation is
   /// durably persisted, then cleared.
+  ///
+  /// [mintedAt] stamps WHEN the key was first minted so the caller can bound how
+  /// long an unconfirmed rotation may be replayed (#1134): the server honours the
+  /// key for `IDEM_GRACE_SECONDS` only, past which replaying it trips reuse
+  /// detection. The timestamp is written ALONGSIDE the key and stays fixed across
+  /// reuses (the clock runs from the first mint, not each retry).
   Future<String?> readRefreshIdempotencyKey() => _store.read(_kRefreshIdemKey);
-  Future<void> writeRefreshIdempotencyKey(String key) =>
-      _store.write(_kRefreshIdemKey, key);
-  Future<void> clearRefreshIdempotencyKey() => _store.delete(_kRefreshIdemKey);
+  Future<void> writeRefreshIdempotencyKey(String key, DateTime mintedAt) async {
+    await _store.write(_kRefreshIdemKey, key);
+    await _store.write(
+        _kRefreshIdemMintedAt, mintedAt.millisecondsSinceEpoch.toString());
+  }
+
+  /// When the persisted refresh idempotency key was first minted, or null when
+  /// none is on file (or a legacy key persisted before #1134 carried no stamp).
+  Future<DateTime?> readRefreshIdempotencyKeyMintedAt() async {
+    final String? raw = await _store.read(_kRefreshIdemMintedAt);
+    if (raw == null) return null;
+    final int? ms = int.tryParse(raw);
+    return ms == null ? null : DateTime.fromMillisecondsSinceEpoch(ms);
+  }
+
+  Future<void> clearRefreshIdempotencyKey() async {
+    await _store.delete(_kRefreshIdemKey);
+    await _store.delete(_kRefreshIdemMintedAt);
+  }
 
   Future<bool> readPinSet() async => (await _store.read(_kPinSet)) == 'true';
   Future<void> writePinSet(bool value) =>
@@ -133,5 +156,6 @@ class SecureTokenStore {
     await _store.delete(_kPinSet);
     await _store.delete(_kAccessExpiresAt);
     await _store.delete(_kRefreshIdemKey);
+    await _store.delete(_kRefreshIdemMintedAt);
   }
 }
