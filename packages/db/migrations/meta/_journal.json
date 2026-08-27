@@ -1,4 +1,5 @@
 {
+  "_note": "PINNED TIMESTAMPS — READ BEFORE REGENERATING. JSON has no comment syntax, so this key is the note. Entry 0094 (worker_employment_history) carries when=1787749973672 because that is the value it was ACTUALLY APPLIED under on 2026-08-28. `drizzle-kit generate` stamps a NEW `when` every time it rewrites a migration; drizzle then SKIPS any entry whose `when` is below MAX(created_at) in __drizzle_migrations, so a re-stamped 0094 is re-run against a database that already has those tables, dies on \"relation already exists\", and blocks every later migration behind it. If you regenerate, pin `when` back to the applied value. There is no schema<->migration drift gate in CI to catch this (supabase-checks.yml is disabled_manually, TD97) — this note and the header of the .sql file are the only protection.",
   "version": "7",
   "dialect": "postgresql",
   "entries": [
@@ -658,6 +659,13 @@
       "version": "7",
       "when": 1787749973671,
       "tag": "0093_skill_discovery_candidate_layer",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1787749973672,
+      "tag": "0094_worker_employment_history",
       "breakpoints": true
     }
   ]

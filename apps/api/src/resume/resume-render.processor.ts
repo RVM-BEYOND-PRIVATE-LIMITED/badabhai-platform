@@ -5,10 +5,14 @@ import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
+import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import { StorageService } from "../storage/storage.service";
 import { ResumeRepository } from "./resume.repository";
 import { ResumeRenderer } from "./resume-renderer.service";
-import { buildResumeRenderInput } from "./resume-render-input";
+import { buildResumeRenderInput, type TradeSheetContext } from "./resume-render-input";
+import { buildResumeQrDataUri } from "./resume-qr";
+import { buildSheetFooterMeta, RESUME_PROFILE_ORIGIN, resumeRefCode } from "./resume-sheet-footer";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 
 /**
@@ -34,6 +38,8 @@ export class ResumeRenderProcessor extends WorkerHost {
     private readonly pii: PiiCryptoService,
     private readonly renderer: ResumeRenderer,
     private readonly storage: StorageService,
+    private readonly attributes: WorkerAttributesRepository,
+    private readonly employments: WorkerEmploymentRepository,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {
     super();
@@ -108,6 +114,78 @@ export class ResumeRenderProcessor extends WorkerHost {
       }
     }
 
+    // THE TRADE CAPABILITY BLOCK — the `bb_trade` sheet's first and most-scanned section.
+    //
+    // DEGRADES TO ABSENCE, NEVER TO A FAILED RENDER. A worker whose interview predates the role
+    // packs, or whose trade has no map yet, simply has no rows and the section collapses; a query
+    // that throws must not cost them the whole PDF, exactly as the photo fetch above must not.
+    let tradeSheet: TradeSheetContext | null = null;
+    const renderedAt = new Date();
+    try {
+      const loaded = await this.attributes.loadTradeSheet(workerId);
+
+      // THE NUMBER, DECRYPTED SERVER-SIDE, on the same degrade as the name three lines up: a
+      // rotated or tampered token costs the worker the phone line, never the whole PDF. Owner
+      // ruling 2026-08-28 puts it on both copies; the payer only ever receives one post-unlock.
+      let phone: string | null = null;
+      if (worker?.phoneE164) {
+        try {
+          phone = this.pii.decrypt(worker.phoneE164);
+        } catch {
+          this.logger.warn(`could not decrypt phone for worker ${workerId}; rendering without it`);
+        }
+      }
+
+      // POINTS AT THE SITE ROOT FOR NOW — owner ruling 2026-08-28. The per-worker `/w/<code>`
+      // page is Phase 3, and a QR that resolves to a 404 is worse on a printed page than a QR
+      // that resolves to the homepage: the sheet outlives the render, and paper cannot be
+      // re-issued once it is in an employer's stack.
+      const qrDataUri = await buildResumeQrDataUri(RESUME_PROFILE_ORIGIN);
+
+      // ZONE 4 — the two-level work history. EMPTY FOR EVERY WORKER TODAY: nothing writes
+      // `worker_employment` yet, so the mapper falls back to the tag-derived role + duration
+      // line every existing résumé already renders. Reading it here is what lets the capture
+      // surface, whenever it lands, flip workers over one at a time with no cutover.
+      //
+      // ITS OWN try/catch INSIDE THE OUTER ONE, deliberately. A failure here must cost the work
+      // history and nothing else — folding it into the outer catch would take the capability
+      // block, the phone and the QR down with it, which is a strictly worse sheet than one with
+      // an older-shaped Zone 4.
+      let employments: Awaited<ReturnType<WorkerEmploymentRepository["loadForResume"]>> = [];
+      try {
+        employments = await this.employments.loadForResume(workerId);
+      } catch {
+        this.logger.warn(
+          `could not load work history for worker ${workerId}; rendering the fallback history`,
+        );
+      }
+
+      tradeSheet = {
+        ...loaded,
+        employments,
+        // ONE CLOCK PER RENDER, shared with the footer below, so a sheet generated at midnight
+        // cannot date its footer one day and compute a current job's tenure against the next.
+        asOf: renderedAt,
+        phone,
+        // Devanagari is not transliterated yet; the slot stays null rather than printing the
+        // Latin name twice. `nameDevanagari` is audience-gated inside the mapper regardless.
+        nameDevanagari: null,
+        // No verification tier exists in the schema yet, so the masthead's right slot collapses.
+        // The unverified state must read as neutral, never as a warning.
+        trustBadge: null,
+        qrDataUri,
+        qrCaption: "Scan to open this worker's live profile",
+        shortLink: RESUME_PROFILE_ORIGIN.replace(/^https?:\/\//, ""),
+        footerMeta: buildSheetFooterMeta({
+          generatedAt: renderedAt,
+          trustBadge: null,
+          refCode: resumeRefCode(resumeId),
+        }),
+      };
+    } catch {
+      this.logger.warn(`could not load trade attributes for worker ${workerId}; rendering without`);
+    }
+
     const input = buildResumeRenderInput(
       resume.sourceProfileSnapshot,
       displayName,
@@ -129,6 +207,7 @@ export class ResumeRenderProcessor extends WorkerHost {
       // The worker's OWN copy — real name, their photo, and their expected salary. The
       // payer-facing disclosure passes "employer" and gets none of the three.
       "worker",
+      tradeSheet,
     );
 
     let pdf: Buffer | null = null;
@@ -176,7 +255,9 @@ export class ResumeRenderProcessor extends WorkerHost {
       } else if (this.isFinalAttempt(job) && !this.config.RESUME_RENDER_ENABLED) {
         // Kill-switch off is an expected steady state, not a failure: leave the row
         // 'pending' so it renders once rendering is enabled, rather than marking it failed.
-        this.logger.log(`resume ${resumeId} not rendered (render disabled); leaving status pending`);
+        this.logger.log(
+          `resume ${resumeId} not rendered (render disabled); leaving status pending`,
+        );
       } else if (this.isFinalAttempt(job)) {
         await this.resumes.markRenderFailed(resumeId);
         this.logger.warn(`resume ${resumeId} render failed after final attempt; marked failed`);

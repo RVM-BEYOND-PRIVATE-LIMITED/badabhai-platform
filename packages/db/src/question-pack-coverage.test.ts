@@ -55,9 +55,7 @@ function bindingsOf(): ResolvableBinding[] {
 /** family_id → true when that family has an ACTIVE pack. Reach means a pack, not a binding. */
 function familiesWithActivePack(): Set<string> {
   const corpus = loadQuestionPackCorpus();
-  return new Set(
-    corpus.packs.filter((p) => p.status === "active").map((p) => p.family_id),
-  );
+  return new Set(corpus.packs.filter((p) => p.status === "active").map((p) => p.family_id));
 }
 
 describe("every blue-collar occupation reaches a real question pack", () => {
@@ -79,7 +77,9 @@ describe("every blue-collar occupation reaches a real question pack", () => {
 
   it("resolves EVERY occupation to a family — none falls off the chain", () => {
     const unresolved = occupations.filter(
-      (d) => resolveFamily(bindings, { jobDomainId: jobDomainIdFor(d), iscoUnitCode: d.isco_unit }) === null,
+      (d) =>
+        resolveFamily(bindings, { jobDomainId: jobDomainIdFor(d), iscoUnitCode: d.isco_unit }) ===
+        null,
     );
     expect(unresolved.map(jobDomainIdFor)).toEqual([]);
   });
@@ -88,7 +88,10 @@ describe("every blue-collar occupation reaches a real question pack", () => {
     // The check the live verifier cannot make: it never joins `question_pack`, so an occupation
     // bound to a family with no active pack would still count as covered there.
     const packless = occupations.filter((d) => {
-      const r = resolveFamily(bindings, { jobDomainId: jobDomainIdFor(d), iscoUnitCode: d.isco_unit });
+      const r = resolveFamily(bindings, {
+        jobDomainId: jobDomainIdFor(d),
+        iscoUnitCode: d.isco_unit,
+      });
       return r !== null && !active.has(r.familyId);
     });
     expect(packless.map(jobDomainIdFor)).toEqual([]);
@@ -98,7 +101,10 @@ describe("every blue-collar occupation reaches a real question pack", () => {
     // "Reaches a pack" and "reaches a trade pack" are different claims, and only the second is
     // worth anything to a worker: the universal pack is the same seven questions for everyone.
     const onlyUniversal = occupations.filter((d) => {
-      const r = resolveFamily(bindings, { jobDomainId: jobDomainIdFor(d), iscoUnitCode: d.isco_unit });
+      const r = resolveFamily(bindings, {
+        jobDomainId: jobDomainIdFor(d),
+        iscoUnitCode: d.isco_unit,
+      });
       return r === null || r.specificity === 0;
     });
     expect(onlyUniversal.map(jobDomainIdFor)).toEqual([]);
@@ -107,14 +113,25 @@ describe("every blue-collar occupation reaches a real question pack", () => {
   it("reports the specificity mix, so a silent slide toward the fallback is visible", () => {
     const mix = new Map<number, number>();
     for (const d of occupations) {
-      const r = resolveFamily(bindings, { jobDomainId: jobDomainIdFor(d), iscoUnitCode: d.isco_unit });
+      const r = resolveFamily(bindings, {
+        jobDomainId: jobDomainIdFor(d),
+        iscoUnitCode: d.isco_unit,
+      });
       const key = r?.specificity ?? -1;
       mix.set(key, (mix.get(key) ?? 0) + 1);
     }
-    // Unit-level (40) is the most specific level the corpus actually uses; minor-level (30) is the
-    // cluster tier. Both are real packs. Nothing may land on universal (0) or unresolved (-1).
+    // THREE real tiers, not two. Job-domain (50) is the ROLE-PACK tier — a pack authored for one
+    // named occupation rather than for a whole unit group, which is how `fam_cnc_turning` reaches
+    // a turner without disturbing the rest of ISCO 7223. Unit (40) is the trade tier and minor
+    // (30) the cluster tier. Nothing may land on universal (0) or unresolved (-1).
     expect(mix.get(0) ?? 0).toBe(0);
     expect(mix.get(-1) ?? 0).toBe(0);
-    expect((mix.get(40) ?? 0) + (mix.get(30) ?? 0)).toBe(occupations.length);
+    expect((mix.get(50) ?? 0) + (mix.get(40) ?? 0) + (mix.get(30) ?? 0)).toBe(occupations.length);
+    // Each job-domain binding names exactly ONE occupation, so the 50-tier count and the number of
+    // such bindings must agree. A mismatch means a binding points at a job domain that is not in
+    // the catalogue (it would resolve nothing and silently fall to the unit tier) or that two
+    // bindings name the same one — both are dead role packs, which is the failure this whole file
+    // exists to make visible.
+    expect(mix.get(50) ?? 0).toBe(bindings.filter((b) => b.jobDomainId).length);
   });
 });

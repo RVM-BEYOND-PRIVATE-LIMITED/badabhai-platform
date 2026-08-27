@@ -1,0 +1,421 @@
+{
+  "_why": "Role track for TURNING, the first pack authored under docs/profiling/role-pack-authoring-guide.md. fam_machining stays the generic machining interview bound at ISCO unit 7223; this pack binds the four NCO turning occupations directly (job_domain specificity 50 beats unit 40), so a turner gets turning depth and every other machining worker is untouched.",
+  "_scope": "CNC AND CONVENTIONAL, by owner ruling 2026-08-28. Binding only the two CNC codes (7223.6001/6002) made the pack reachable by exactly ONE alias phrase, 'cnc turning' — every natural Hinglish word for the trade (kharad, kharaad, खराद, lathe, लेथ, turning ka kaam) routes to 7223.0701 'Lathe Machinist' and would have fallen to the six generic machining questions. Adding 7223.0701 and 7223.0601 takes reach from one phrase to six WITHOUT touching the alias corpus. That is why the gate question says 'Turning', not 'CNC turning': a khraad operator must be able to answer it honestly. The machine question offers 'Khraad ya conventional lathe', and controller / advanced_capability both carry an escape chip, so nothing here forces a conventional turner to claim CNC skills. Pinned by packages/db/src/question-pack-reachability.test.ts.",
+  "_depth": "THE TIER GATE IS turning_experience, and it is asked FIRST. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber ?? valueBool, so adding a value_text would make the answer a STRING; every gte below would then compare a string to a number, compare() returns null, and the predicate is false forever. A permanently-false ask_if is a question that is never asked, silently -- the #776 defect that sat in qp_welding for the life of the pack.",
+  "_budget": "MAX_ENGINE_ASKS is 24 and qp_universal spends 8. Tier 0 is 8 items (16 total), tier 1 adds 3 (19), tier 2 adds 4 (23). One more tier-2 item would truncate the conversation of a senior worker before it closes.",
+  "pack_id": "qp_cnc_turning",
+  "version": 1,
+  "family_id": "fam_cnc_turning",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Drafted for owner review (Prakash). Shop-floor vocabulary NOT yet corrected by a practising turner.",
+  "items": [
+    {
+      "question_key": "turning_experience",
+      "prompt_text": "Turning ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal turning ka kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "turning_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "under_one", "label_text": "1 saal se kam", "value_number": 0 },
+        { "option_key": "one_to_three", "label_text": "1 se 3 saal", "value_number": 2 },
+        { "option_key": "three_to_seven", "label_text": "3 se 7 saal", "value_number": 5 },
+        { "option_key": "over_seven", "label_text": "7 saal se zyada", "value_number": 10 }
+      ]
+    },
+    {
+      "question_key": "turning_machine",
+      "prompt_text": "Aap kaunsi turning machine chalate hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "turning_machine",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "cnc_lathe",
+          "label_text": "CNC lathe ya turning centre",
+          "value_text": "cnc_lathe"
+        },
+        {
+          "option_key": "conventional_lathe",
+          "label_text": "Khraad ya conventional lathe",
+          "value_text": "conventional_lathe"
+        },
+        { "option_key": "vtl", "label_text": "VTL, vertical lathe", "value_text": "vtl" },
+        {
+          "option_key": "sliding_head",
+          "label_text": "Sliding head, Swiss type",
+          "value_text": "sliding_head"
+        },
+        { "option_key": "spm", "label_text": "SPM machine", "value_text": "spm" },
+        {
+          "option_key": "other_machine",
+          "label_text": "Koi aur machine",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "controller_brand",
+      "prompt_text": "Machine par kaunsa controller lagaa hai?",
+      "why_text": "Controller jaanne wale operator ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "controller_brand",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "fanuc", "label_text": "Fanuc", "value_text": "fanuc" },
+        { "option_key": "siemens", "label_text": "Siemens", "value_text": "siemens" },
+        { "option_key": "mitsubishi", "label_text": "Mitsubishi", "value_text": "mitsubishi" },
+        { "option_key": "haas", "label_text": "Haas", "value_text": "haas" },
+        { "option_key": "mazak", "label_text": "Mazak", "value_text": "mazak" },
+        {
+          "option_key": "unknown_controller",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "turning_operation",
+      "prompt_text": "Kaunse turning operation aap karte hain?",
+      "why_text": "Operation se pata chalta hai aap kis level ka kaam karte hain.",
+      "target_kind": "attribute",
+      "target_field": "turning_operation",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "facing_od",
+          "label_text": "Facing aur OD turning",
+          "value_text": "facing_od"
+        },
+        { "option_key": "boring", "label_text": "Boring, ID turning", "value_text": "boring" },
+        { "option_key": "threading", "label_text": "Threading", "value_text": "threading" },
+        {
+          "option_key": "grooving",
+          "label_text": "Grooving aur parting",
+          "value_text": "grooving"
+        },
+        {
+          "option_key": "drilling",
+          "label_text": "Drilling aur tapping",
+          "value_text": "drilling"
+        },
+        { "option_key": "knurling", "label_text": "Knurling aur taper", "value_text": "knurling" }
+      ]
+    },
+    {
+      "question_key": "workholding",
+      "prompt_text": "Job pakadne ke liye kya use karte hain?",
+      "why_text": "Job pakadna turning ka sabse zaroori hissa hai.",
+      "target_kind": "attribute",
+      "target_field": "workholding",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "options": [
+        { "option_key": "three_jaw", "label_text": "Teen jaw chuck", "value_text": "three_jaw" },
+        { "option_key": "four_jaw", "label_text": "Chaar jaw chuck", "value_text": "four_jaw" },
+        { "option_key": "collet", "label_text": "Collet", "value_text": "collet" },
+        { "option_key": "soft_jaw", "label_text": "Soft jaw", "value_text": "soft_jaw" },
+        {
+          "option_key": "tailstock",
+          "label_text": "Tailstock ya centre",
+          "value_text": "tailstock"
+        },
+        { "option_key": "steady_rest", "label_text": "Steady rest", "value_text": "steady_rest" }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "prompt_text": "Aap kaunse material par kaam karte hain?",
+      "why_text": "Har material ka cutting alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "options": [
+        { "option_key": "mild_steel", "label_text": "MS, mild steel", "value_text": "mild_steel" },
+        {
+          "option_key": "alloy_steel",
+          "label_text": "EN8, EN31 alloy steel",
+          "value_text": "alloy_steel"
+        },
+        { "option_key": "stainless", "label_text": "Stainless steel", "value_text": "stainless" },
+        { "option_key": "aluminium", "label_text": "Aluminium", "value_text": "aluminium" },
+        { "option_key": "brass", "label_text": "Brass ya copper", "value_text": "brass" },
+        { "option_key": "cast_iron", "label_text": "Cast iron", "value_text": "cast_iron" }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "prompt_text": "Aap kaunse maapne ke auzaar use karte hain?",
+      "why_text": "Micrometer wale ko fine kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "options": [
+        { "option_key": "vernier", "label_text": "Vernier caliper", "value_text": "vernier" },
+        { "option_key": "micrometer", "label_text": "Micrometer", "value_text": "micrometer" },
+        { "option_key": "bore_gauge", "label_text": "Bore dial gauge", "value_text": "bore_gauge" },
+        {
+          "option_key": "height_gauge",
+          "label_text": "Height gauge",
+          "value_text": "height_gauge"
+        },
+        {
+          "option_key": "plug_gauge",
+          "label_text": "Plug ya ring gauge",
+          "value_text": "plug_gauge"
+        },
+        {
+          "option_key": "dial_indicator",
+          "label_text": "Dial indicator",
+          "value_text": "dial_indicator"
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        { "option_key": "no_drawing", "label_text": "Nahi padh pata", "value_text": "none" },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        { "option_key": "gdt", "label_text": "GD aur T bhi samajhta hoon", "value_text": "gdt" }
+      ]
+    },
+
+    {
+      "question_key": "setting_operation",
+      "prompt_text": "Setting mein aap kya kya karte hain?",
+      "why_text": "Setting karne wale operator ko zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "setting_operation",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": { "op": "gte", "left": { "field": "turning_experience" }, "right": { "const": 2 } },
+      "options": [
+        { "option_key": "tool_offset", "label_text": "Tool offset", "value_text": "tool_offset" },
+        { "option_key": "work_offset", "label_text": "Work offset", "value_text": "work_offset" },
+        {
+          "option_key": "nose_radius",
+          "label_text": "Tool nose radius compensation",
+          "value_text": "nose_radius"
+        },
+        {
+          "option_key": "jaw_change",
+          "label_text": "Chuck ya jaw badalna",
+          "value_text": "jaw_change"
+        },
+        {
+          "option_key": "tailstock_set",
+          "label_text": "Tailstock setting",
+          "value_text": "tailstock_set"
+        },
+        {
+          "option_key": "first_piece",
+          "label_text": "Pehla piece set karna",
+          "value_text": "first_piece"
+        }
+      ]
+    },
+    {
+      "question_key": "tolerance_band",
+      "prompt_text": "Aap kitni tolerance tak kaam kar lete hain?",
+      "why_text": "Tolerance se aapke kaam ki fine quality pata chalti hai.",
+      "target_kind": "attribute",
+      "target_field": "tolerance_band",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "ask_if": { "op": "gte", "left": { "field": "turning_experience" }, "right": { "const": 2 } },
+      "options": [
+        { "option_key": "point_one", "label_text": "0.10 mm tak", "value_text": "0.10" },
+        { "option_key": "point_zero_five", "label_text": "0.05 mm tak", "value_text": "0.05" },
+        { "option_key": "point_zero_two", "label_text": "0.02 mm tak", "value_text": "0.02" },
+        {
+          "option_key": "point_zero_one",
+          "label_text": "0.01 mm ya usse kam",
+          "value_text": "0.01"
+        },
+        {
+          "option_key": "tolerance_unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "prompt_text": "Aap kis industry ke parts banate hain?",
+      "why_text": "Industry jaanne se milti julti company dikhayi jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": { "op": "gte", "left": { "field": "turning_experience" }, "right": { "const": 2 } },
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automobile parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job shop",
+          "value_text": "general_engg"
+        },
+        { "option_key": "pump_valve", "label_text": "Pump aur valve", "value_text": "pump_valve" },
+        { "option_key": "oil_gas", "label_text": "Oil aur gas", "value_text": "oil_gas" },
+        { "option_key": "defence", "label_text": "Defence ya aerospace", "value_text": "defence" },
+        { "option_key": "agri", "label_text": "Agriculture parts", "value_text": "agri" }
+      ]
+    },
+
+    {
+      "question_key": "programming_level",
+      "prompt_text": "Programme ke saath aap kitna kaam karte hain?",
+      "why_text": "Programme likhne wale ko sabse zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "programming_level",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "ask_if": { "op": "gte", "left": { "field": "turning_experience" }, "right": { "const": 5 } },
+      "options": [
+        {
+          "option_key": "offset_only",
+          "label_text": "Sirf offset badalta hoon",
+          "value_text": "offset_only"
+        },
+        {
+          "option_key": "edit_program",
+          "label_text": "Programme edit kar leta hoon",
+          "value_text": "edit_program"
+        },
+        {
+          "option_key": "write_program",
+          "label_text": "Naya programme likh leta hoon",
+          "value_text": "write_program"
+        },
+        { "option_key": "cam", "label_text": "CAM software se banata hoon", "value_text": "cam" }
+      ]
+    },
+    {
+      "question_key": "advanced_capability",
+      "prompt_text": "Aapki machine mein kaunsa feature hai?",
+      "why_text": "Yeh feature wali machine chalane wale kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "advanced_capability",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": { "op": "gte", "left": { "field": "turning_experience" }, "right": { "const": 5 } },
+      "options": [
+        {
+          "option_key": "live_tooling",
+          "label_text": "Live tooling",
+          "value_text": "live_tooling"
+        },
+        { "option_key": "bar_feeder", "label_text": "Bar feeder", "value_text": "bar_feeder" },
+        { "option_key": "sub_spindle", "label_text": "Sub spindle", "value_text": "sub_spindle" },
+        { "option_key": "c_axis", "label_text": "C axis", "value_text": "c_axis" },
+        { "option_key": "y_axis", "label_text": "Y axis", "value_text": "y_axis" },
+        {
+          "option_key": "no_advanced",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "quality_work",
+      "prompt_text": "Quality ka kaunsa kaam aap karte hain?",
+      "why_text": "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "quality_work",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": { "op": "gte", "left": { "field": "turning_experience" }, "right": { "const": 5 } },
+      "options": [
+        {
+          "option_key": "first_piece_check",
+          "label_text": "Pehla piece check karna",
+          "value_text": "first_piece_check"
+        },
+        {
+          "option_key": "in_process",
+          "label_text": "Beech beech mein checking",
+          "value_text": "in_process"
+        },
+        { "option_key": "spc", "label_text": "SPC chart bharna", "value_text": "spc" },
+        {
+          "option_key": "rejection",
+          "label_text": "Rejection analysis",
+          "value_text": "rejection"
+        },
+        {
+          "option_key": "no_quality",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "troubleshooting",
+      "prompt_text": "Machine problem mein aap kya theek karte hain?",
+      "why_text": "Problem theek karne wale operator ki demand zyada hai.",
+      "target_kind": "attribute",
+      "target_field": "troubleshooting",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": { "op": "gte", "left": { "field": "turning_experience" }, "right": { "const": 5 } },
+      "options": [
+        {
+          "option_key": "tool_wear",
+          "label_text": "Tool ghisna ya tootna",
+          "value_text": "tool_wear"
+        },
+        { "option_key": "chatter", "label_text": "Chatter aur vibration", "value_text": "chatter" },
+        {
+          "option_key": "size_variation",
+          "label_text": "Size ka farak",
+          "value_text": "size_variation"
+        },
+        {
+          "option_key": "surface_finish",
+          "label_text": "Surface finish kharab",
+          "value_text": "surface_finish"
+        },
+        { "option_key": "alarm", "label_text": "Alarm clear karna", "value_text": "alarm" },
+        {
+          "option_key": "no_trouble",
+          "label_text": "Koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    }
+  ]
+}

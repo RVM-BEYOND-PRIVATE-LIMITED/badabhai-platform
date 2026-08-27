@@ -34,10 +34,19 @@ ENV NODE_ENV=production
 # shared-mime-info + a font package are needed for correct rendering. bookworm's
 # pip is PEP-668 externally-managed, hence --break-system-packages (acceptable in a
 # single-purpose container). The trailing `weasyprint --version` is a build gate.
+#
+# `fonts-noto-core` IS LOAD-BEARING, NOT A NICETY. The bb_trade sheet prints the worker's name
+# in Devanagari beneath the Latin form, and DejaVu carries no Devanagari at all — without this
+# the line renders as a row of empty boxes on the worker's own résumé, and nothing fails: the
+# PDF generates, uploads and downloads exactly as it should. It also satisfies the design
+# guideline's rule that both scripts come from the SAME family, since this package supplies
+# Noto Sans and Noto Sans Devanagari together and the template asks for "Noto Sans" first.
+# Verified by rendering the sheet in a container with this package installed.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 python3-pip \
       libpango-1.0-0 libpangocairo-1.0-0 libpangoft2-1.0-0 \
       libgdk-pixbuf-2.0-0 libffi8 libfontconfig1 shared-mime-info fonts-dejavu-core \
+      fonts-noto-core \
   && pip3 install --no-cache-dir --break-system-packages weasyprint \
   && apt-get clean && rm -rf /var/lib/apt/lists/* \
   && weasyprint --version

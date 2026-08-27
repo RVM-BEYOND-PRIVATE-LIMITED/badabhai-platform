@@ -59,6 +59,7 @@ import {
   payerMembers,
   payerOrgs,
   payers,
+  workerEmployment,
   workers,
 } from "./schema";
 
@@ -222,6 +223,25 @@ function buildTargets(db: Database): PiiTarget[] {
       "payer_member_invites",
       "invited_email_enc",
       "invitedEmailEnc",
+    ),
+    // ── 0094: the work history the résumé prints ─────────────────────────────────────────────
+    //
+    // `worker_employment.employer_name_enc` is the first encrypted column outside `workers` to
+    // hold a WORKER's own record — "Ramesh worked at Sandhar Technologies from January 2023" is
+    // personal data under DPDP even though the company name alone is not.
+    //
+    // ADDED WITH THE TABLE, WHILE IT IS EMPTY, which is exactly the lesson the two targets above
+    // record: a target costs nothing on a table with no rows and makes the FIRST row written
+    // rotatable. The alternative is discovering the gap during a key retirement, when the answer
+    // is "this kid can never be retired" and nobody can say why. The coverage guard in
+    // `reencrypt-pii-backfill.test.ts` caught this omission on the first run after the migration.
+    target(
+      workerEmployment,
+      workerEmployment.id,
+      workerEmployment.employerNameEnc,
+      "worker_employment",
+      "employer_name_enc",
+      "employerNameEnc",
     ),
   ];
 }

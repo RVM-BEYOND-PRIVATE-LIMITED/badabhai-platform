@@ -112,6 +112,11 @@ const LOCKED_TABLES = [
   "worker_pack_answer", // 0073: the durable typed record of what a worker said, one row per (worker, pack, question_key) — WORKER-AUTHORED answer values, not reference data; RLS+FORCE+REVOKE in migration 0073
   // ── Voice profiling form (migration 0071) ───────────────────────────────────
   "worker_attributes", // 0071: the settled value of an `attribute`-kind answer (77% of the pack corpus had no destination before this) — trade facts keyed by an opaque worker_id, same class as worker_profiles; RLS+FORCE+REVOKE in migration 0071
+  // 0094: the work history the résumé prints — employers a worker names and the roles held
+  // inside them. `employer_name_enc` is an AES-256-GCM token, so this is the first table
+  // outside `workers` holding a worker's employment record; deny-by-default, no policy.
+  "worker_employment",
+  "worker_employment_role",
   "profiling_voice_answer", // 0071: one row per recorded answer clip — opaque ids + question_key + status, NEVER a transcript (that stays on voice_notes); RLS+FORCE+REVOKE in migration 0071
   // ── Canonical Domain→Skill taxonomy (migration 0076) ────────────────────────
   // Listed late, and that is the finding rather than the fix: 0076 created these three

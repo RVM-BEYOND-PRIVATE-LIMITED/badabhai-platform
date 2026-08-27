@@ -61,6 +61,7 @@ import {
   profilingVoiceAnswers,
   workerAttributes,
 } from "./profiling";
+import { workerEmployment, workerEmploymentRole } from "./employment";
 import {
   generatedResumes,
   profileQuestions,
@@ -142,6 +143,7 @@ export * from "./question-pack";
 export * from "./chat";
 export * from "./pack-answer";
 export * from "./profiling";
+export * from "./employment";
 export * from "./profile";
 export * from "./job";
 export * from "./payer";
@@ -182,6 +184,10 @@ export type VoiceNote = typeof voiceNotes.$inferSelect;
 export type NewVoiceNote = typeof voiceNotes.$inferInsert;
 export type WorkerAttribute = typeof workerAttributes.$inferSelect;
 export type NewWorkerAttribute = typeof workerAttributes.$inferInsert;
+export type WorkerEmployment = typeof workerEmployment.$inferSelect;
+export type NewWorkerEmployment = typeof workerEmployment.$inferInsert;
+export type WorkerEmploymentRole = typeof workerEmploymentRole.$inferSelect;
+export type NewWorkerEmploymentRole = typeof workerEmploymentRole.$inferInsert;
 export type ProfilingVoiceAnswer = typeof profilingVoiceAnswers.$inferSelect;
 export type NewProfilingVoiceAnswer = typeof profilingVoiceAnswers.$inferInsert;
 export type GeneratedResume = typeof generatedResumes.$inferSelect;
@@ -375,6 +381,8 @@ export const schema = {
   referralLinks,
   referralClicks,
   workerAttributes,
+  workerEmployment,
+  workerEmploymentRole,
   profilingVoiceAnswers,
   workerAiCostTotals,
   sessionAiCostTotals,

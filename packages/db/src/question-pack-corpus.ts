@@ -45,10 +45,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { checkPersonaTokens } from "@badabhai/profiling-lexicon";
-import {
-  predicateFields,
-  validatePredicate,
-} from "./question-pack-predicate";
+import { predicateFields, validatePredicate } from "./question-pack-predicate";
 
 export const QUESTION_PACK_DATA_DIR = join(__dirname, "..", "data", "question-packs");
 
@@ -56,7 +53,25 @@ const FAMILY_ID_RE = /^fam_[a-z0-9_]+$/;
 const PACK_ID_RE = /^qp_[a-z0-9_]+$/;
 /** The SAME filter `chat.service.ts` applies before an id reaches an event payload. */
 const QUESTION_KEY_RE = /^[a-z_]+$/;
-const OPTION_KEY_RE = /^[a-z0-9_]+$/;
+/**
+ * MUST STAY IDENTICAL TO `slugKey` IN `packages/ai-contracts/src/oie.ts`, which is what
+ * `QuestionPackSchema` validates an option against at RUNTIME.
+ *
+ * It used to be `/^[a-z0-9_]+$/` — one character wider than the contract — and that gap is a
+ * build-time gate that PERMITS what the runtime refuses. An author writing `basic_2d` got a green
+ * `db:verify:packs` and a pack that then failed `QuestionPackSchema.parse` inside
+ * `pack-registry.service.ts`: the whole pack unavailable, every worker in that trade silently
+ * falling through to the universal seven questions. Green corpus, dead trade.
+ *
+ * Measured when this was tightened: exactly one option key in the corpus contained a digit, and it
+ * was in the pack being authored at the time. Nothing shipped had to change — which is the only
+ * reason this could be tightened rather than negotiated.
+ *
+ * A validator is only as good as what it REFUSES. If this and `slugKey` ever diverge again, the
+ * looser one wins at review time and the stricter one wins at runtime, which is the worst
+ * possible ordering.
+ */
+const OPTION_KEY_RE = /^[a-z_]+$/;
 const MAX_QUESTION_KEY_LEN = 40;
 
 const TARGET_KINDS = ["rfs", "match_skill", "attribute", "none"] as const;
@@ -112,10 +127,17 @@ const MAX_QUESTION_MARKS = 1;
 // justified by a false example is worse than no justification at all. Pinned by the
 // "catches a KEYCAP sequence" test.
 //
-// Kept on ONE line so the directive above lands on the regex literal itself — split
-// across two lines it applies to the `const` and the rule fires anyway.
-// eslint-disable-next-line no-misleading-character-class
-const EMOJI_RE = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{2190}-\u{21FF}\u{FE0F}]/u;
+// A BLOCK DISABLE, NOT `eslint-disable-next-line`, AND THAT IS THE FIX FOR A REAL BREAKAGE.
+// The line form only works while the declaration stays on ONE line: prettier wraps this one at
+// the `=` (the literal is 103 characters), the directive then lands on `const EMOJI_RE =`, and
+// the rule fires on the next line — a lint error introduced by running the formatter, on a file
+// whose previous comment here said "kept on ONE line" and trusted everyone to notice. It was
+// broken exactly that way on 2026-08-28. A block disable is invariant under reflow, so the
+// suppression no longer depends on a formatter's line-breaking decisions.
+/* eslint-disable no-misleading-character-class */
+const EMOJI_RE =
+  /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{2190}-\u{21FF}\u{FE0F}]/u;
+/* eslint-enable no-misleading-character-class */
 
 // ===========================================================================
 // Record shapes
@@ -235,13 +257,18 @@ export function loadQuestionPackCorpus(dir: string = QUESTION_PACK_DATA_DIR): Qu
         }
         if (parsed.kind === "family") families.push(parsed);
         else if (parsed.kind === "binding") bindings.push(parsed);
-        else throw new Error(`_families.jsonl:${i + 1} has unknown kind ${JSON.stringify((parsed as { kind: string }).kind)}`);
+        else
+          throw new Error(
+            `_families.jsonl:${i + 1} has unknown kind ${JSON.stringify((parsed as { kind: string }).kind)}`,
+          );
       });
   }
 
   const packDir = join(dir, "packs");
   if (existsSync(packDir)) {
-    for (const file of readdirSync(packDir).filter((f) => f.endsWith(".json")).sort()) {
+    for (const file of readdirSync(packDir)
+      .filter((f) => f.endsWith(".json"))
+      .sort()) {
       const raw = readFileSync(join(packDir, file), "utf8");
       try {
         packs.push(JSON.parse(raw) as PackRecord);
@@ -306,7 +333,10 @@ function optionValue(o: PackOptionRecord): boolean | number | string | undefined
  * run against the committed corpus, so the pack fails review instead of the worker losing an
  * answer in production.
  */
-function chipValueSurvivesCapture(declared: RfsValueType, value: boolean | number | string): boolean {
+function chipValueSurvivesCapture(
+  declared: RfsValueType,
+  value: boolean | number | string,
+): boolean {
   switch (declared) {
     case "boolean":
       return typeof value === "boolean";
@@ -336,7 +366,10 @@ export function checkPromptPersona(text: string, where: string): string[] {
         `Two questions in one turn is the fastest way to lose a low-literacy worker.`,
     );
   }
-  const words = text.trim().split(/\s+/).filter((w) => w.length > 0);
+  const words = text
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length > 0);
   if (words.length > MAX_PROMPT_WORDS) {
     problems.push(`${where}: prompt is ${words.length} words, max ${MAX_PROMPT_WORDS}`);
   }
@@ -374,13 +407,17 @@ export function validateQuestionPackCorpus(
     }
     if (familyIds.has(f.family_id)) problems.push(`${where}: duplicate family_id`);
     familyIds.add(f.family_id);
-    if (!f.label_en || f.label_en.trim().length === 0) problems.push(`${where}: label_en is required`);
-    if (f.status && !STATUSES.includes(f.status)) problems.push(`${where}: unknown status ${JSON.stringify(f.status)}`);
+    if (!f.label_en || f.label_en.trim().length === 0)
+      problems.push(`${where}: label_en is required`);
+    if (f.status && !STATUSES.includes(f.status))
+      problems.push(`${where}: unknown status ${JSON.stringify(f.status)}`);
     // label_hi is what a worker is SHOWN when the engine confirms their trade. Its
     // absence is not fatal (label_en is the fallback) but it is worth flagging, because
     // "Metal Working Machine Tool Setters and Operators" is unusable as a confirmation.
     if (!f.label_hi) {
-      problems.push(`${where}: WARN label_hi is missing — the worker-facing confirmation will fall back to label_en`);
+      problems.push(
+        `${where}: WARN label_hi is missing — the worker-facing confirmation will fall back to label_en`,
+      );
     }
   }
 
@@ -395,7 +432,9 @@ export function validateQuestionPackCorpus(
     }
     const spec = bindingSpecificity(b);
     if (spec === null) {
-      problems.push(`${where}: sets no target — needs exactly one of job_domain_id, isco_*_code or is_universal`);
+      problems.push(
+        `${where}: sets no target — needs exactly one of job_domain_id, isco_*_code or is_universal`,
+      );
       continue;
     }
     const setCount = [
@@ -407,7 +446,9 @@ export function validateQuestionPackCorpus(
       b.is_universal ? "u" : null,
     ].filter(Boolean).length;
     if (setCount > 1) {
-      problems.push(`${where}: sets ${setCount} targets — exactly one is allowed (mirrors pfb_exactly_one_target_chk)`);
+      problems.push(
+        `${where}: sets ${setCount} targets — exactly one is allowed (mirrors pfb_exactly_one_target_chk)`,
+      );
       continue;
     }
     const target = bindingTarget(b);
@@ -427,11 +468,21 @@ export function validateQuestionPackCorpus(
     const tax = opts.taxonomy;
     if (tax) {
       const missing =
-        (b.job_domain_id && !tax.jobDomainIds.has(b.job_domain_id) && `job_domain_id ${b.job_domain_id}`) ||
-        (b.isco_unit_code && !tax.iscoUnitCodes.has(b.isco_unit_code) && `isco_unit_code ${b.isco_unit_code}`) ||
-        (b.isco_minor_code && !tax.iscoMinorCodes.has(b.isco_minor_code) && `isco_minor_code ${b.isco_minor_code}`) ||
-        (b.isco_submajor_code && !tax.iscoSubmajorCodes.has(b.isco_submajor_code) && `isco_submajor_code ${b.isco_submajor_code}`) ||
-        (b.isco_major_code && !tax.iscoMajorCodes.has(b.isco_major_code) && `isco_major_code ${b.isco_major_code}`);
+        (b.job_domain_id &&
+          !tax.jobDomainIds.has(b.job_domain_id) &&
+          `job_domain_id ${b.job_domain_id}`) ||
+        (b.isco_unit_code &&
+          !tax.iscoUnitCodes.has(b.isco_unit_code) &&
+          `isco_unit_code ${b.isco_unit_code}`) ||
+        (b.isco_minor_code &&
+          !tax.iscoMinorCodes.has(b.isco_minor_code) &&
+          `isco_minor_code ${b.isco_minor_code}`) ||
+        (b.isco_submajor_code &&
+          !tax.iscoSubmajorCodes.has(b.isco_submajor_code) &&
+          `isco_submajor_code ${b.isco_submajor_code}`) ||
+        (b.isco_major_code &&
+          !tax.iscoMajorCodes.has(b.isco_major_code) &&
+          `isco_major_code ${b.isco_major_code}`);
       if (missing) problems.push(`${where}: ${missing} does not exist in the occupation catalogue`);
     }
   }
@@ -440,10 +491,14 @@ export function validateQuestionPackCorpus(
   // trade resolves to nothing and the interview has no questions to ask — which is a
   // dead conversation, not a degraded one.
   if (bindings.length > 0 && universalCount === 0) {
-    problems.push(`corpus: no universal binding — every unauthored trade would resolve to no pack at all`);
+    problems.push(
+      `corpus: no universal binding — every unauthored trade would resolve to no pack at all`,
+    );
   }
   if (universalCount > 1) {
-    problems.push(`corpus: ${universalCount} universal bindings — exactly one is allowed (mirrors pfb_universal_uq)`);
+    problems.push(
+      `corpus: ${universalCount} universal bindings — exactly one is allowed (mirrors pfb_universal_uq)`,
+    );
   }
 
   // ── Packs ─────────────────────────────────────────────────────────────────
@@ -462,14 +517,18 @@ export function validateQuestionPackCorpus(
     const key = `${p.pack_id}@${p.version}`;
     if (seenPacks.has(key)) problems.push(`${where}: duplicate (pack_id, version)`);
     seenPacks.add(key);
-    if (!familyIds.has(p.family_id)) problems.push(`${where}: family_id ${p.family_id} is not a family in this corpus`);
-    if (p.status && !STATUSES.includes(p.status)) problems.push(`${where}: unknown status ${JSON.stringify(p.status)}`);
+    if (!familyIds.has(p.family_id))
+      problems.push(`${where}: family_id ${p.family_id} is not a family in this corpus`);
+    if (p.status && !STATUSES.includes(p.status))
+      problems.push(`${where}: unknown status ${JSON.stringify(p.status)}`);
 
     const locale = p.locale ?? "hi-IN";
     if ((p.status ?? "draft") === "active") {
       const activeKey = `${p.family_id}|${locale}`;
       if (familiesWithActivePack.has(activeKey)) {
-        problems.push(`${where}: a second ACTIVE pack for ${activeKey} — the resolver must never have to choose`);
+        problems.push(
+          `${where}: a second ACTIVE pack for ${activeKey} — the resolver must never have to choose`,
+        );
       }
       familiesWithActivePack.add(activeKey);
     }
@@ -495,26 +554,44 @@ export function validateQuestionPackCorpus(
       if (keys.has(it.question_key)) problems.push(`${iw}: duplicate question_key in this pack`);
       keys.add(it.question_key);
 
-      if (!TARGET_KINDS.includes(it.target_kind)) problems.push(`${iw}: unknown target_kind ${JSON.stringify(it.target_kind)}`);
-      if (!ANSWER_TYPES.includes(it.answer_type)) problems.push(`${iw}: unknown answer_type ${JSON.stringify(it.answer_type)}`);
+      if (!TARGET_KINDS.includes(it.target_kind))
+        problems.push(`${iw}: unknown target_kind ${JSON.stringify(it.target_kind)}`);
+      if (!ANSWER_TYPES.includes(it.answer_type))
+        problems.push(`${iw}: unknown answer_type ${JSON.stringify(it.answer_type)}`);
       if (it.target_kind === "match_skill" && !it.target_skill_id) {
         problems.push(`${iw}: target_kind 'match_skill' needs target_skill_id`);
       }
       if ((it.target_kind === "rfs" || it.target_kind === "attribute") && !it.target_field) {
         problems.push(`${iw}: target_kind '${it.target_kind}' needs target_field`);
       }
-      if (opts.skills?.skillIds.size && it.target_skill_id && !opts.skills.skillIds.has(it.target_skill_id)) {
+      if (
+        opts.skills?.skillIds.size &&
+        it.target_skill_id &&
+        !opts.skills.skillIds.has(it.target_skill_id)
+      ) {
         problems.push(`${iw}: target_skill_id ${it.target_skill_id} is not a skill`);
       }
-      if (opts.fields?.fieldIds.size && it.target_kind === "rfs" && it.target_field && !opts.fields.fieldIds.has(it.target_field)) {
-        problems.push(`${iw}: target_field ${it.target_field} is not in the Resume Field Set vocabulary`);
+      if (
+        opts.fields?.fieldIds.size &&
+        it.target_kind === "rfs" &&
+        it.target_field &&
+        !opts.fields.fieldIds.has(it.target_field)
+      ) {
+        problems.push(
+          `${iw}: target_field ${it.target_field} is not in the Resume Field Set vocabulary`,
+        );
       }
-      if (it.max_asks !== undefined && (!Number.isInteger(it.max_asks) || it.max_asks < 1 || it.max_asks > 3)) {
+      if (
+        it.max_asks !== undefined &&
+        (!Number.isInteger(it.max_asks) || it.max_asks < 1 || it.max_asks > 3)
+      ) {
         problems.push(`${iw}: max_asks must be an integer 1..3`);
       }
       if (
-        it.min_turn !== undefined && it.min_turn !== null &&
-        it.max_turn !== undefined && it.max_turn !== null &&
+        it.min_turn !== undefined &&
+        it.min_turn !== null &&
+        it.max_turn !== undefined &&
+        it.max_turn !== null &&
         it.min_turn > it.max_turn
       ) {
         problems.push(`${iw}: min_turn ${it.min_turn} is after max_turn ${it.max_turn}`);
@@ -568,17 +645,23 @@ export function validateQuestionPackCorpus(
       const optLabels = new Set<string>();
       for (const o of options) {
         const ow = `${iw} option ${o.option_key}`;
-        if (!OPTION_KEY_RE.test(o.option_key ?? "")) problems.push(`${ow}: option_key must match ${OPTION_KEY_RE}`);
+        if (!OPTION_KEY_RE.test(o.option_key ?? ""))
+          problems.push(`${ow}: option_key must match ${OPTION_KEY_RE}`);
         if (optKeys.has(o.option_key)) problems.push(`${ow}: duplicate option_key`);
         optKeys.add(o.option_key);
-        if (!o.label_text || o.label_text.trim().length === 0) problems.push(`${ow}: label_text is required`);
+        if (!o.label_text || o.label_text.trim().length === 0)
+          problems.push(`${ow}: label_text is required`);
         // The label IS the worker's recorded answer, verbatim. Two identical labels make
         // the record ambiguous after the fact and are indistinguishable to the worker.
-        else if (optLabels.has(o.label_text)) problems.push(`${ow}: duplicate label_text ${JSON.stringify(o.label_text)} — the label is the answer of record`);
+        else if (optLabels.has(o.label_text))
+          problems.push(
+            `${ow}: duplicate label_text ${JSON.stringify(o.label_text)} — the label is the answer of record`,
+          );
         else optLabels.add(o.label_text);
         // OPTIONS ARE ANSWERS, NEVER QUESTIONS. Unenforceable while an LLM wrote them;
         // mechanical now that they are reviewed rows.
-        if (o.label_text?.includes("?")) problems.push(`${ow}: label_text contains '?' — options are ANSWERS, never questions`);
+        if (o.label_text?.includes("?"))
+          problems.push(`${ow}: label_text contains '?' — options are ANSWERS, never questions`);
 
         // A CHIP NOBODY CAN ANSWER WITH. See `chipValueSurvivesCapture`: capture refuses an option
         // value that contradicts its field's declared type, so a mistyped chip is tappable, silent
@@ -612,17 +695,22 @@ export function validateQuestionPackCorpus(
       }
       // A question gated on ITSELF can never fire.
       for (const f of [...predicateFields(it.ask_if), ...predicateFields(it.skip_if)]) {
-        if (f === it.question_key) problems.push(`${iw}: its own condition reads ${f} — it could never fire`);
+        if (f === it.question_key)
+          problems.push(`${iw}: its own condition reads ${f} — it could never fire`);
       }
       if (it.parent_item_key) {
         if (!keys.has(it.parent_item_key)) {
-          problems.push(`${iw}: parent_item_key ${it.parent_item_key} is not a question in this pack`);
+          problems.push(
+            `${iw}: parent_item_key ${it.parent_item_key} is not a question in this pack`,
+          );
         } else {
           const parent = p.items.find((x) => x.question_key === it.parent_item_key);
           // DEPTH 1. A follow-up to a follow-up is a conversation tree nobody can review,
           // and the engine's ask accounting assumes a flat-plus-one shape.
           if (parent?.parent_item_key) {
-            problems.push(`${iw}: follow-up depth is capped at 1 (parent ${parent.question_key} is itself a follow-up)`);
+            problems.push(
+              `${iw}: follow-up depth is capped at 1 (parent ${parent.question_key} is itself a follow-up)`,
+            );
           }
           if (parent?.question_key === it.question_key) {
             problems.push(`${iw}: is its own parent`);
@@ -633,7 +721,9 @@ export function validateQuestionPackCorpus(
 
     // Every family with a pack should also have a binding, or the pack is unreachable.
     if (!bindings.some((b) => b.family_id === p.family_id)) {
-      problems.push(`${where}: family ${p.family_id} has no binding — this pack can never be resolved`);
+      problems.push(
+        `${where}: family ${p.family_id} has no binding — this pack can never be resolved`,
+      );
     }
   }
 
@@ -662,6 +752,9 @@ export function summariseQuestionPackCorpus(c: QuestionPackCorpus): Record<strin
     packs: c.packs.length,
     active_packs: c.packs.filter((p) => (p.status ?? "draft") === "active").length,
     items: c.packs.reduce((n, p) => n + (p.items?.length ?? 0), 0),
-    options: c.packs.reduce((n, p) => n + (p.items ?? []).reduce((m, i) => m + (i.options?.length ?? 0), 0), 0),
+    options: c.packs.reduce(
+      (n, p) => n + (p.items ?? []).reduce((m, i) => m + (i.options?.length ?? 0), 0),
+      0,
+    ),
   };
 }

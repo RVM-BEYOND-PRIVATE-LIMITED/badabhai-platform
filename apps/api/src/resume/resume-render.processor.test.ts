@@ -1,4 +1,6 @@
 import "reflect-metadata";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import type { Job } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
@@ -9,12 +11,17 @@ import type { WorkersRepository } from "../workers/workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import type { ResumeRenderer } from "./resume-renderer.service";
 import type { StorageService } from "../storage/storage.service";
+import type { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
+import type { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
+import type { WorkerEmploymentRecord } from "./resume-employment-rows";
 import type { ResumeRenderJobData } from "../queue/queue.constants";
 
 const RESUME_ID = "res-1";
 const WORKER_ID = "w-1";
 const REAL_NAME = "Asha Kumari";
 const NAME_TOKEN = "v1.ciphertext";
+const PHONE_TOKEN = "v1.phone-ciphertext";
+const REAL_PHONE = "+91 98765 43210";
 
 // A valid (name-free) DraftProfile snapshot. The name lives nowhere in here.
 // Uses PROPER taxonomy IDs (skill_*, mach_*) so labelForTaxonomyId resolution is tested.
@@ -58,19 +65,29 @@ const DEFAULT_ROW = {
   sourceProfileSnapshot: SNAPSHOT,
 };
 
-function setup(opts: {
-  // Pass `null` to simulate a missing row; omit to use the default pending row.
-  resume?: Record<string, unknown> | null;
-  fullName?: string | null;
-  decryptThrows?: boolean;
-  renderResult?: Buffer | null;
-  renderThrows?: boolean;
-  renderEnabled?: boolean;
-  // #947 — the worker's own "Night shift ke liye taiyaar" toggle, as the column stores it.
-  // Undefined here means the column DEFAULT, which is what nearly every real row holds.
-  nightShiftReady?: boolean;
-} = {}) {
-  const resumeRow = opts.resume === undefined ? DEFAULT_ROW : opts.resume ?? undefined;
+function setup(
+  opts: {
+    // Pass `null` to simulate a missing row; omit to use the default pending row.
+    resume?: Record<string, unknown> | null;
+    fullName?: string | null;
+    decryptThrows?: boolean;
+    renderResult?: Buffer | null;
+    renderThrows?: boolean;
+    renderEnabled?: boolean;
+    // #947 — the worker's own "Night shift ke liye taiyaar" toggle, as the column stores it.
+    // Undefined here means the column DEFAULT, which is what nearly every real row holds.
+    nightShiftReady?: boolean;
+    // The worker's settled pack answers, and the failure mode of reading them.
+    tradeSheet?: { packId: string | null; attributes: Record<string, unknown> };
+    attrThrows?: boolean;
+    // `null` simulates a worker row with no phone ciphertext; omit for the normal case.
+    phoneToken?: string | null;
+    // Zone 4 — seeded `worker_employment` rows, and the failure mode of reading them.
+    employments?: WorkerEmploymentRecord[];
+    empThrows?: boolean;
+  } = {},
+) {
+  const resumeRow = opts.resume === undefined ? DEFAULT_ROW : (opts.resume ?? undefined);
 
   const resumes = {
     findById: vi.fn(async () => resumeRow),
@@ -81,13 +98,14 @@ function setup(opts: {
     findById: vi.fn(async () => ({
       id: WORKER_ID,
       fullName: opts.fullName ?? null,
+      phoneE164: opts.phoneToken === undefined ? PHONE_TOKEN : opts.phoneToken,
       resumeNightShiftReady: opts.nightShiftReady ?? false,
     })),
   };
   const pii = {
-    decrypt: vi.fn(() => {
+    decrypt: vi.fn((token: string) => {
       if (opts.decryptThrows) throw new Error("GCM auth failed");
-      return REAL_NAME;
+      return token === PHONE_TOKEN ? REAL_PHONE : REAL_NAME;
     }),
   };
   const renderer = {
@@ -98,6 +116,22 @@ function setup(opts: {
     buildResumeHtml: vi.fn((_input: ResumeRenderInput) => "<html></html>"),
   };
   const storage = { uploadPdf: vi.fn(async () => undefined) };
+  // The trade capability block. `attrThrows` exercises the degrade: a failed attribute read must
+  // cost the worker the section, never the whole PDF.
+  const attributes = {
+    loadTradeSheet: vi.fn(async () => {
+      if (opts.attrThrows) throw new Error("attr boom");
+      return opts.tradeSheet ?? { packId: null, attributes: {} };
+    }),
+  };
+  // Zone 4. `empThrows` exercises the same degrade the attribute read has: a failed history read
+  // must cost the worker the employer blocks, never the whole PDF.
+  const employments = {
+    loadForResume: vi.fn(async () => {
+      if (opts.empThrows) throw new Error("employment boom");
+      return opts.employments ?? [];
+    }),
+  };
   const config = {
     RESUME_RENDER_ENABLED: opts.renderEnabled ?? true,
   } as ServerConfig;
@@ -108,9 +142,11 @@ function setup(opts: {
     pii as unknown as PiiCryptoService,
     renderer as unknown as ResumeRenderer,
     storage as unknown as StorageService,
+    attributes as unknown as WorkerAttributesRepository,
+    employments as unknown as WorkerEmploymentRepository,
     config,
   );
-  return { proc, resumes, workers, pii, renderer, storage };
+  return { proc, resumes, workers, pii, renderer, storage, attributes, employments };
 }
 
 /**
@@ -143,6 +179,97 @@ describe("ResumeRenderProcessor — the worker's night-shift toggle (#947)", () 
   });
 });
 
+/**
+ * THE TRADE CAPABILITY BLOCK — the wiring, not the mapping.
+ *
+ * `trade-resume-map.test.ts` proves the dictionary turns slugs into English. These prove the
+ * values REACH it: before this, `worker_attributes` was written by every interview and read by
+ * nothing, so the `bb_trade` sheet's first and most-scanned section rendered empty for every
+ * worker while the data sat in Postgres.
+ */
+describe("ResumeRenderProcessor — the trade capability block", () => {
+  it("reads the worker's pack answers and puts them on the sheet", async () => {
+    const { proc, renderer, attributes } = setup({
+      fullName: NAME_TOKEN,
+      tradeSheet: {
+        packId: "qp_cnc_turning",
+        attributes: { turning_machine: ["cnc_lathe"], controller_brand: ["fanuc"] },
+      },
+    });
+    await proc.process(makeJob());
+    expect(attributes.loadTradeSheet).toHaveBeenCalledWith(WORKER_ID);
+    const input = renderer.renderPdf.mock.calls[0]![0];
+    expect(input.capSectionTitle).toBe("Machines, controllers & capability");
+    expect(input.capChipRows).toEqual([
+      { label: "Machines", values: ["CNC lathe / turning centre"] },
+      { label: "Controllers", values: ["Fanuc"] },
+    ]);
+  });
+
+  it("renders the PDF anyway when the attribute read THROWS", async () => {
+    // A capability section is worth having; it is not worth a worker losing their resume over.
+    // Same degrade the photo fetch and the name decrypt already take, and for the same reason.
+    const { proc, renderer, storage } = setup({ fullName: NAME_TOKEN, attrThrows: true });
+    const res = await proc.process(makeJob());
+    expect(res).toEqual({ rendered: true });
+    expect(storage.uploadPdf).toHaveBeenCalledOnce();
+    const input = renderer.renderPdf.mock.calls[0]![0];
+    expect(input.capSectionTitle).toBeNull();
+    expect(input.capChipRows).toEqual([]);
+  });
+
+  it("leaves the section absent for a worker with no pack answers", async () => {
+    // The common case today: 140-odd trades have no map, and every profile predating the role
+    // packs has no attributes. The section must collapse, not print an empty heading.
+    const { proc, renderer } = setup({ fullName: NAME_TOKEN });
+    await proc.process(makeJob());
+    const input = renderer.renderPdf.mock.calls[0]![0];
+    expect(input.capSectionTitle).toBeNull();
+    expect([...input.capChipRows!, ...input.capTickRows!, ...input.capFactRows!]).toEqual([]);
+  });
+});
+
+/**
+ * THE SHEET'S IDENTITY AND FOOTER SLOTS. Every one of these is a thing a supervisor holds in
+ * their hand: the number they ring, the code they quote back, the square they scan. All of them
+ * degrade to absence and none of them may cost the worker a render.
+ */
+describe("ResumeRenderProcessor — the bb_trade footer and identity slots", () => {
+  it("decrypts the phone SERVER-SIDE and puts it on the worker's own sheet", async () => {
+    const { proc, pii, renderer } = setup({ fullName: NAME_TOKEN });
+    await proc.process(makeJob());
+    expect(pii.decrypt).toHaveBeenCalledWith(PHONE_TOKEN);
+    expect(renderer.renderPdf.mock.calls[0]![0].phone).toBe(REAL_PHONE);
+  });
+
+  it("renders without a phone rather than failing when the row has none", async () => {
+    const { proc, renderer } = setup({ fullName: NAME_TOKEN, phoneToken: null });
+    const res = await proc.process(makeJob());
+    expect(res).toEqual({ rendered: true });
+    expect(renderer.renderPdf.mock.calls[0]![0].phone).toBeNull();
+  });
+
+  it("embeds the QR as a self-contained data: URI — never a network reference", async () => {
+    // WeasyPrint blocks on a remote fetch. A URL here would hang or silently blank the footer.
+    const { proc, renderer } = setup({ fullName: NAME_TOKEN });
+    await proc.process(makeJob());
+    const input = renderer.renderPdf.mock.calls[0]![0];
+    expect(input.qrDataUri).toMatch(/^data:image\/svg\+xml,/);
+    expect(input.shortLink).toBe("badabhai.ai");
+  });
+
+  it("stamps a footer carrying the date and a stable ref code", async () => {
+    const { proc, renderer } = setup({ fullName: NAME_TOKEN });
+    await proc.process(makeJob());
+    const meta = renderer.renderPdf.mock.calls[0]![0].footerMeta!;
+    expect(meta).toMatch(/^Generated \d{1,2} \w+ \d{4}/);
+    expect(meta).toMatch(/Ref [ACDEFGHJKLMNPQRTUVWXY34679]{6}$/);
+    // No verification tier exists yet, so the badge collapses rather than printing a warning.
+    expect(renderer.renderPdf.mock.calls[0]![0].trustBadge).toBeNull();
+    expect(meta).not.toMatch(/·\s*·/);
+  });
+});
+
 describe("ResumeRenderProcessor — security (TD5)", () => {
   it("decrypts the name SERVER-SIDE and feeds it to the renderer as displayName", async () => {
     const { proc, pii, renderer } = setup({ fullName: NAME_TOKEN });
@@ -163,10 +290,21 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
   });
 
   it("never references EventsService (no events.emit reachable from this processor)", () => {
-    // Static guard: a future refactor that wires events into the render processor
-    // would break the 'render emits no event' guarantee. The constructor arity must
-    // stay at exactly the six non-event deps.
-    expect(ResumeRenderProcessor.length).toBe(6);
+    // Static guard: a future refactor that wires events into the render processor would break the
+    // 'render emits no event' guarantee. The constructor arity must stay at exactly the
+    // NON-EVENT deps, currently seven:
+    //   resumes · workers · pii · renderer · storage · attributes · employments · config
+    // `attributes` (WorkerAttributesRepository) joined in 2026-08-28 for the trade sheet's
+    // capability block, and `employments` (WorkerEmploymentRepository) the same day for Zone 4 —
+    // both read-only repositories, neither with an event surface.
+    //
+    // ARITY ALONE IS A PROXY, so the real property is asserted directly below it: a number can be
+    // bumped to make this pass while wiring in exactly the dependency it exists to keep out.
+    expect(ResumeRenderProcessor.length).toBe(8);
+    const source = readFileSync(join(__dirname, "resume-render.processor.ts"), "utf8");
+    expect(source, "an events dependency reached the render processor").not.toMatch(
+      /EventsService|events\.emit/,
+    );
   });
 
   it("degrades to a name-less render WITHOUT throwing when decrypt fails", async () => {

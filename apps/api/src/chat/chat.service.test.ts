@@ -496,6 +496,7 @@ const OFFER = {
   kind: "disambiguate" as const,
   reply: "Aap in mein se kaun sa kaam karte hain?",
   questionKey: null,
+  answerType: "single_select" as const,
   options: [
     { option_key: "occ_0", label_text: "Welder", value: "Welder", is_none_of_above: false },
     { option_key: "occ_1", label_text: "Fitter", value: "Fitter", is_none_of_above: false },
@@ -625,6 +626,12 @@ describe("ChatService.postMessage — degradation is a true no-op", () => {
     expect(res.question_kind).toBe("disambiguate");
     expect(res.suggested_followups).toEqual(["Welder", "Fitter", DISAMBIGUATION_ESCAPE_LABEL]);
     expect(res.suggested_options.filter((o) => o.is_none_of_above)).toHaveLength(1);
+    // `answer_type` joins the same guard because it has the SAME failure mode: the replay
+    // literal is a hand-written object, so a new field is easy to add to `projectTurn` and
+    // forget here. Answering null would tell the client "nothing pack-shaped on screen" for a
+    // turn that is a single-select with three chips -- the widget vanishes on a retry, which is
+    // exactly when a worker on a bad link is most likely to be looking at it.
+    expect(res.answer_type).toBe("single_select");
   });
 
   it("a degraded turn is `ask` with nothing to tap — the worker retries into a live session", async () => {

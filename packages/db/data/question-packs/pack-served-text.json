@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 142,
+  "pack_count": 143,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -113,6 +113,10 @@
     "qp_cleaning_helpers@2": {
       "served_text_sha256": "7180bc3eb633ccbbe7d4d825d037e9b770f8813c48a026c4917628c3a6d6eae2",
       "served_text_count": 9
+    },
+    "qp_cnc_turning@1": {
+      "served_text_sha256": "7cb84d91d13fd91471514fa9ebe7c82e6deac6ca661fbc21067e3c3a72e9eb17",
+      "served_text_count": 47
     },
     "qp_cobbler@1": {
       "served_text_sha256": "169381f2db7c8fefe6fb67b907f1786712f95e5b82cbe9050de5aeb56ab3e17e",
