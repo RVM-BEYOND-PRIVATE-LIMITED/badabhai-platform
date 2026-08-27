@@ -4,10 +4,13 @@ import { isAdminRequestError } from "../../../../lib/admin-http";
 import {
   getSkillDiscoveryMetrics,
   listSkillDiscovery,
+  listSkillDiscoveryGroups,
   type AdminSkillDiscoverySort,
   type SkillDiscoveryFilters,
+  type SkillDiscoveryGroups,
   type SkillDiscoveryListItem,
   type SkillDiscoveryMetrics,
+  type SkillReviewGroup,
 } from "../../../../lib/skill-discovery";
 import {
   ADMIN_SKILL_REVIEW_TIER_LABELS,
@@ -29,19 +32,23 @@ export const metadata = { title: "Skill Discovery" };
 /**
  * Skill Discovery — the review queue (#1260).
  *
- * ── GROUPED IS THE DEFAULT, AND WHAT "GROUP" HONESTLY MEANS HERE ────────────────────────
- * The owner's brief describes a group as candidates sharing a trade family AND an anchor term
- * (`packages/db/src/skill-discovery-groups.ts`'s `anchorToken`) — but `anchorToken` needs a
- * GLOBAL count across the whole 6,673-row table to pick the highest-weight token, and none of
- * the four API routes exposes it (list rows carry `trade_family`, not `evidence_tokens`, and
- * there is no group-listing endpoint). Reimplementing that algorithm client-side, over a
- * single page, would silently drift from the real one and is exactly the "second copy of a
- * server authority" CLAUDE.md invariant #9 forbids — so this view groups by `trade_family`
- * alone, which `anchorToken`'s own module names as the CORRECT FALLBACK for a candidate with
- * no usable anchor token. It groups WITHIN one server page (never the whole table), which is
- * what keeps AC#2 honest: the page never claims a count this contract cannot support, and a
- * card's copy says explicitly that it is scoped to the page, not the corpus. Handed back to
- * Backend as a contract-gap finding — see the PR description.
+ * ── GROUPED IS THE DEFAULT, AND THE SERVER IS NOW THE ONE GROUPING ──────────────────────
+ * This view used to bucket ONE PAGE by `trade_family` in the browser, because no grouping route
+ * existed and the real anchor rule needs a token count taken across the whole filtered set. That
+ * gap was handed back to Backend and is CLOSED: `GET /admin/skill-discovery/groups` now returns
+ * the batches, exhaustively for the applied filters, biggest-first.
+ *
+ * The browser-side version is DELETED rather than kept as a fallback, and the deletion is the
+ * point. A page-local grouping is a second copy of a server authority (CLAUDE.md invariant #9)
+ * that cannot agree with the first: `anchor` is chosen from a global token count, so the same
+ * candidate would land in a different batch on every page-turn. `key`, `anchor`, `label`, the
+ * membership and the ordering are all read from the response now, and nothing here recomputes
+ * any of them.
+ *
+ * The grouped view therefore takes NO cursor and NO pager: a group promises its member list is
+ * complete for the filters, and a paged answer cannot. An over-broad filter is refused by the
+ * route with a 400 naming the count, which this page renders as a refusal rather than silently
+ * showing a truncated set.
  *
  * ── "FLAT" IS NOT A PRIORITY SORT ────────────────────────────────────────────────────────
  * `AdminSkillDiscoveryQuerySchema`'s own comment refuses a priority order outright: a computed
@@ -116,17 +123,17 @@ export default async function SkillDiscoveryPage({
 
   const filtered = Boolean(
     rawStatus ||
-      (statusScopeParam && statusScopeParam !== "awaiting") ||
-      (tierParam && tierParam !== "direct") ||
-      runId ||
-      clusterKey ||
-      phrase ||
-      tradeFamily ||
-      band ||
-      proposedAction ||
-      sourceType ||
-      createdFrom ||
-      createdTo,
+    (statusScopeParam && statusScopeParam !== "awaiting") ||
+    (tierParam && tierParam !== "direct") ||
+    runId ||
+    clusterKey ||
+    phrase ||
+    tradeFamily ||
+    band ||
+    proposedAction ||
+    sourceType ||
+    createdFrom ||
+    createdTo,
   );
 
   const limit = view === "grouped" ? GROUPED_LIMIT : FLAT_LIMIT;
@@ -148,16 +155,50 @@ export default async function SkillDiscoveryPage({
     limit,
   };
 
-  const [pageRes, metricsRes] = await Promise.allSettled([
-    listSkillDiscovery(query),
+  /*
+   * The grouping route's own query type OMITS cursor/limit/sort, so they are stripped by
+   * destructuring rather than by passing `undefined` — the type refuses the key outright, which
+   * is the point: a paged or sorted grouping is not a thing this route can answer.
+   */
+  const { cursor: _cursor, limit: _limit, sort: _sort, ...groupQuery } = query;
+
+  /*
+   * TWO DIFFERENT READS BEHIND ONE TOGGLE, and they are not interchangeable.
+   *
+   * FLAT pages the queue with a keyset cursor. GROUPED calls the grouping route, which takes no
+   * cursor and no limit because a group's contract is that its member list is COMPLETE for the
+   * filters — so the grouped view has no pager, and asking for one would be asking the server to
+   * break that promise. Only the read the current view needs is issued; the other would be a
+   * round trip nobody reads.
+   */
+  const [dataRes, metricsRes] = await Promise.allSettled([
+    view === "grouped" ? listSkillDiscoveryGroups(groupQuery) : listSkillDiscovery(query),
     getSkillDiscoveryMetrics(),
   ]);
 
+  /*
+   * A 400 IS THE OPERATOR'S FILTERS, and on the grouped route it is ALSO how "your filter matches
+   * too much to group exhaustively" arrives — the route refuses with a count rather than
+   * truncating. Both render as a refusal carrying the server's own words, which is why the
+   * message is surfaced rather than replaced with generic copy.
+   */
   const badRequest =
-    pageRes.status === "rejected" &&
-    isAdminRequestError(pageRes.reason) &&
-    pageRes.reason.status === 400;
-  const page = pageRes.status === "fulfilled" ? pageRes.value : null;
+    dataRes.status === "rejected" &&
+    isAdminRequestError(dataRes.reason) &&
+    dataRes.reason.status === 400;
+  const refusal =
+    badRequest && dataRes.status === "rejected" ? (dataRes.reason as Error).message : null;
+
+  const page =
+    view === "flat" && dataRes.status === "fulfilled"
+      ? (dataRes.value as Awaited<ReturnType<typeof listSkillDiscovery>>)
+      : null;
+  const groups =
+    view === "grouped" && dataRes.status === "fulfilled"
+      ? (dataRes.value as SkillDiscoveryGroups)
+      : null;
+  /** True when the read this view needed failed for any reason other than a refusal. */
+  const readFailed = dataRes.status === "rejected" && !badRequest;
   const metrics = metricsRes.status === "fulfilled" ? metricsRes.value : null;
 
   const activeTier = tierParam ?? "direct";
@@ -216,9 +257,9 @@ export default async function SkillDiscoveryPage({
           <p className="page__eyebrow">Skills</p>
           <h1 className="page__title">Skill Discovery</h1>
           <p className="page__sub">
-            AI-surfaced claims that the canonical skill taxonomy may be missing something. Each
-            row is a claim, never a skill — an approval only records a decision; the corpus write
-            stays in the offline, gated chain.
+            AI-surfaced claims that the canonical skill taxonomy may be missing something. Each row
+            is a claim, never a skill — an approval only records a decision; the corpus write stays
+            in the offline, gated chain.
           </p>
         </div>
       </header>
@@ -233,7 +274,7 @@ export default async function SkillDiscoveryPage({
             </h2>
             <p className="panel__sub">
               {view === "grouped"
-                ? "Grouped by trade family, within this page of the keyset-ordered queue — a lens, not a merge. Every member still gets its own decision."
+                ? "Batched by the server across every candidate these filters match — a lens, not a merge. Every member still gets its own decision, its own reason and its own audit row."
                 : "One row per candidate, newest or oldest first within the selected tier and band — there is no computed priority order."}
             </p>
           </div>
@@ -293,7 +334,11 @@ export default async function SkillDiscoveryPage({
             Ambiguous
           </Link>
           {activeTier === "derived" && derivedAck ? (
-            <Link aria-current="true" className="btn btn--sm btn--primary" href={tierTabHref("derived")}>
+            <Link
+              aria-current="true"
+              className="btn btn--sm btn--primary"
+              href={tierTabHref("derived")}
+            >
               Derived
             </Link>
           ) : (
@@ -328,13 +373,19 @@ export default async function SkillDiscoveryPage({
               Nothing was fetched. One of the filters, as it stands in the address bar, is not a
               value this queue accepts — a hand-edited status, tier, band or run id.
             </p>
+            {/* The server's OWN sentence, not a paraphrase. On the grouping route this is also
+                how "your filter matches too much to group exhaustively" arrives — the route
+                refuses with the count rather than truncating, and the count is the actionable
+                part. Replacing it with generic copy would hide the one number that says how much
+                to narrow by. */}
+            {refusal ? <p className="state__body">{refusal}</p> : null}
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/skills/discovery">
                 Reset filters
               </Link>
             </div>
           </div>
-        ) : page === null ? (
+        ) : readFailed ? (
           <div className="state state--error">
             <h3 className="state__title">The queue is unavailable</h3>
             <p className="state__body">
@@ -346,18 +397,28 @@ export default async function SkillDiscoveryPage({
               </Link>
             </div>
           </div>
-        ) : page.items.length === 0 ? (
+        ) : groups !== null ? (
+          groups.groups.length === 0 ? (
+            <EmptyQueueState
+              filtered={filtered}
+              noRunEver={metrics !== null && metrics.total === 0}
+              statusScope={statusScope}
+            />
+          ) : (
+            <ServerGroupedQueue groups={groups} groupHref={listHref} />
+          )
+        ) : page === null || page.items.length === 0 ? (
           <EmptyQueueState
             filtered={filtered}
             noRunEver={metrics !== null && metrics.total === 0}
             statusScope={statusScope}
           />
-        ) : view === "grouped" ? (
-          <GroupedQueue items={page.items} />
         ) : (
           <FlatQueue items={page.items} />
         )}
 
+        {/* Only the FLAT view pages. The grouped route is exhaustive for its filters and takes
+            no cursor, so a pager under it would imply there is more to fetch when there is not. */}
         {page && (
           <Pager
             basePath="/skills/discovery"
@@ -497,9 +558,9 @@ function EmptyQueueState({
       <div className="state">
         <h3 className="state__title">No discovery run has ever been persisted</h3>
         <p className="state__body">
-          This is an operations state, not an empty result: the `skill_candidate` table itself
-          has nothing in it. A discovery run is an offline `packages/db` CLI step, outside this
-          console — see `docs/operations/skill-discovery-activation-plan.md` for how to run one.
+          This is an operations state, not an empty result: the `skill_candidate` table itself has
+          nothing in it. A discovery run is an offline `packages/db` CLI step, outside this console
+          — see `docs/operations/skill-discovery-activation-plan.md` for how to run one.
         </p>
       </div>
     );
@@ -509,8 +570,8 @@ function EmptyQueueState({
       <div className="state">
         <h3 className="state__title">Nothing is awaiting a decision right now</h3>
         <p className="state__body">
-          Every candidate has either been decided or is on hold. Check the Held or Decided
-          scopes above to see them.
+          Every candidate has either been decided or is on hold. Check the Held or Decided scopes
+          above to see them.
         </p>
       </div>
     );
@@ -519,8 +580,8 @@ function EmptyQueueState({
     <div className="state">
       <h3 className="state__title">No candidates match these filters</h3>
       <p className="state__body">
-        Nothing in the queue satisfies this combination of status, tier and filters. Widen or
-        clear a filter above to see more.
+        Nothing in the queue satisfies this combination of status, tier and filters. Widen or clear
+        a filter above to see more.
       </p>
       <div className="state__actions">
         <Link className="btn btn--ghost" href="/skills/discovery">
@@ -532,51 +593,147 @@ function EmptyQueueState({
 }
 
 // ---------------------------------------------------------------------------
-// grouped view — a lens over ONE page, grouped by trade_family (see page header)
+// grouped view — rendered STRAIGHT FROM THE SERVER'S grouping route
 // ---------------------------------------------------------------------------
 
-function GroupedQueue({ items }: { items: SkillDiscoveryListItem[] }) {
-  const groups = new Map<string, SkillDiscoveryListItem[]>();
-  for (const item of items) {
-    const key = item.trade_family ?? "Unspecified trade";
-    const bucket = groups.get(key);
-    if (bucket) bucket.push(item);
-    else groups.set(key, [item]);
-  }
-  const sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+/**
+ * The batches, as the server computed them.
+ *
+ * ⚠ THERE IS NO GROUPING LOGIC IN THIS FILE, AND THERE MUST NOT BE ONE AGAIN. Order, membership,
+ * labels, anchors and every count come off the response untouched. The browser cannot reproduce
+ * them even in principle — the anchor is picked from a token count taken across the whole filtered
+ * set — so a local version could only ever be a second algorithm quietly disagreeing with the
+ * real one.
+ *
+ * ── WHY A GROUP CARD OFFERS TWO DIFFERENT DOORS ────────────────────────────────────────
+ * `candidate_ids` is the EXACT membership, so each member gets a direct link — that list is
+ * precise and complete. The "open in the flat view" link filters by tier and trade family, which
+ * for an ANCHORED batch is a SUPERSET of the batch, and the card says so rather than implying the
+ * two are the same set. Anchor is not a queue filter, so no link can reproduce an anchored batch
+ * exactly; pretending otherwise would be the same lie the page-local grouping used to tell.
+ *
+ * ── AND THERE IS NO GROUP-LEVEL DECISION ───────────────────────────────────────────────
+ * `grouping_basis` says in band that a group has no row anywhere. Every member is decided on its
+ * own screen, with its own reason and its own audit row. A "decide all" control would have to
+ * issue N individual calls, and a single wrong judgement would then create N wrong rows with one
+ * reason attached to all of them.
+ */
+function ServerGroupedQueue({
+  groups,
+  groupHref,
+}: {
+  groups: SkillDiscoveryGroups;
+  groupHref: (over: Record<string, string | undefined>) => string;
+}) {
+  return (
+    <>
+      <p className="panel__sub">
+        {formatCount(groups.total_candidates)}{" "}
+        {groups.total_candidates === 1 ? "candidate" : "candidates"} in{" "}
+        {formatCount(groups.total_groups)}{" "}
+        {groups.total_groups === 1 ? "review screen" : "review screens"} —{" "}
+        {formatCount(groups.total_undecided)} still awaiting a human. Exhaustive for the filters
+        above: batches are recomputed on every read and are not stored anywhere, so there is nothing
+        to reconcile these counts against.
+      </p>
+      <ul className="reviewgroups">
+        {groups.groups.map((g) => (
+          <ReviewGroupCard key={g.key} group={g} groupHref={groupHref} />
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function ReviewGroupCard({
+  group,
+  groupHref,
+}: {
+  group: SkillReviewGroup;
+  groupHref: (over: Record<string, string | undefined>) => string;
+}) {
+  const flatHref = groupHref({
+    view: "flat",
+    tier: group.tier,
+    tradeFamily: group.trade_family ?? undefined,
+    cursor: undefined,
+  });
 
   return (
-    <ul className="reviewgroups">
-      {sorted.map(([tradeFamily, members]) => (
-        <li key={tradeFamily} className="panel">
-          <details className="reviewgroup">
-            <summary>
-              <strong>{tradeFamily}</strong> · {members.length}{" "}
-              {members.length === 1 ? "candidate" : "candidates"} on this page
-            </summary>
-            <div className="tablewrap">
-              <table className="table">
-                <caption className="sr-only">{tradeFamily} candidates</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Phrase</th>
-                    <th scope="col">Proposed</th>
-                    <th scope="col">Suggested action</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Tier</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {members.map((m) => (
-                    <QueueRow key={m.id} item={m} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </details>
-        </li>
-      ))}
-    </ul>
+    <li className="panel">
+      <details className="reviewgroup">
+        <summary>
+          <strong>{group.label}</strong> · {formatCount(group.candidates)}{" "}
+          {group.candidates === 1 ? "candidate" : "candidates"} · {formatCount(group.undecided)}{" "}
+          still to decide
+        </summary>
+
+        <dl className="kv">
+          <dt className="kv__k">Tier</dt>
+          <dd className="kv__v">
+            <StatusPill
+              value={group.tier}
+              label={ADMIN_SKILL_REVIEW_TIER_LABELS[group.tier]}
+              tone={group.tier === "direct" ? "ok" : group.tier === "ambiguous" ? "warn" : "muted"}
+            />
+          </dd>
+          <dt className="kv__k">Trade family</dt>
+          <dd className="kv__v">{group.trade_family ?? "Unspecified"}</dd>
+          <dt className="kv__k">Shared term</dt>
+          <dd className="kv__v">{group.anchor ?? "None — batched on the trade family alone"}</dd>
+          <dt className="kv__k">Evidence behind it</dt>
+          <dd className="kv__v">
+            {formatCount(group.source_rows)} source {group.source_rows === 1 ? "phrase" : "phrases"}{" "}
+            across {formatCount(group.source_domains)}{" "}
+            {group.source_domains === 1 ? "trade" : "trades"}
+          </dd>
+          <dt className="kv__k">Pipeline suggestion</dt>
+          <dd className="kv__v">
+            {group.unanimous_action
+              ? `Every member suggests: ${
+                  SKILL_CANDIDATE_ACTION_LABELS[
+                    group.unanimous_action as keyof typeof SKILL_CANDIDATE_ACTION_LABELS
+                  ] ?? group.unanimous_action
+                } — a suggestion, not a decision`
+              : "Members disagree — there is no single machine reading of this batch"}
+          </dd>
+        </dl>
+
+        <details className="reviewgroup__members">
+          <summary>
+            Show the {formatCount(group.candidates)} exact{" "}
+            {group.candidates === 1 ? "member" : "members"}
+          </summary>
+          <ul className="chips">
+            {group.candidate_ids.map((id) => (
+              <li key={id}>
+                <Link className="link mono" href={`/skills/discovery/${id}`}>
+                  {id.slice(0, 8)}…
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <p className="field__help">
+            These ids are the batch, exactly. Each opens its own review screen, where it is decided
+            on its own — a batch is a way of forming the judgement once, never a way of recording it
+            once.
+          </p>
+        </details>
+
+        <div className="page__actions">
+          <Link className="btn btn--sm btn--ghost" href={flatHref}>
+            Open this trade and tier in the flat view
+          </Link>
+        </div>
+        {group.anchor ? (
+          <p className="field__help">
+            That view filters by tier and trade family only. This batch is narrower — it also shares
+            the term “{group.anchor}” — so the flat view will show these candidates and others
+            alongside them.
+          </p>
+        ) : null}
+      </details>
+    </li>
   );
 }
 
@@ -604,28 +761,6 @@ function FlatQueue({ items }: { items: SkillDiscoveryListItem[] }) {
         </tbody>
       </table>
     </div>
-  );
-}
-
-function QueueRow({ item }: { item: SkillDiscoveryListItem }) {
-  return (
-    <tr>
-      <td>
-        <Link className="link" href={`/skills/discovery/${item.id}`}>
-          {item.normalized_phrase}
-        </Link>
-      </td>
-      <td className="table__meta">{item.proposed_skill_name ?? "—"}</td>
-      <td className="table__meta">{SKILL_CANDIDATE_ACTION_LABELS[item.proposed_action]}</td>
-      <td>
-        <StatusPill
-          value={item.status}
-          label={SKILL_CANDIDATE_STATUS_LABELS[item.status]}
-          tone={SKILL_CANDIDATE_STATUS_TONE[item.status]}
-        />
-      </td>
-      <td className="table__meta">{ADMIN_SKILL_REVIEW_TIER_LABELS[item.review_tier]}</td>
-    </tr>
   );
 }
 

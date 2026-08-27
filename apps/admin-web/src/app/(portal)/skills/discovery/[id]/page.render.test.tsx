@@ -32,6 +32,9 @@ const stub = vi.hoisted(() => {
     capabilities: ["read_entities", "review_skill_candidates"] as string[],
     candidate: null as Record<string, unknown> | null,
     failure: null as unknown,
+    audit: null as Record<string, unknown> | null,
+    auditFailure: null as unknown,
+    auditCalls: 0,
   };
 });
 
@@ -53,6 +56,12 @@ vi.mock("../../../../../lib/skill-discovery", () => ({
     if (stub.failure) throw stub.failure;
     return stub.candidate;
   },
+  getSkillCandidateAudit: async (id: string) => {
+    stub.order.push(`audit:${id}`);
+    stub.auditCalls += 1;
+    if (stub.auditFailure) throw stub.auditFailure;
+    return stub.audit;
+  },
 }));
 
 vi.mock("./decision-panel", async () => {
@@ -66,6 +75,8 @@ const { DecisionOutcomeNotice } = await import("./decision-panel");
 const CANDIDATE_ID = "c0000000-0001-4a00-8000-000000000001";
 
 const BASE = {
+  approved_job_domain_ids: [] as string[],
+  approved_requirement: "preferred",
   id: CANDIDATE_ID,
   run_id: "sdr_20260826T000000Z_a1b2c3",
   cluster_key: "sanitary-fixture-installation",
@@ -138,12 +149,58 @@ const BASE = {
   },
 };
 
+/**
+ * The audit response, as the SPINE plus the row.
+ *
+ * `current` is always present — an undecided candidate has one whose fields are null, never an
+ * absent block, because "nothing has happened yet" and "the row is gone" must not be the same
+ * response.
+ */
+const AUDIT_UNDECIDED = {
+  candidate_id: CANDIDATE_ID,
+  entries: [],
+  current: {
+    status: "needs_review",
+    reviewer_admin_id: null,
+    reviewed_at: null,
+    review_reason: null,
+    resulting_skill_id: null,
+    approved_job_domain_ids: [],
+    approved_requirement: "preferred",
+  },
+  corpus_effect: "decision_recorded_no_corpus_write",
+};
+
+const AUDIT_DECIDED = {
+  ...AUDIT_UNDECIDED,
+  entries: [
+    {
+      event_id: "e0000000-0001-4a00-8000-000000000001",
+      occurred_at: "2026-08-27T09:00:00.000Z",
+      action_code: "skill_candidate_approved_create",
+      admin_id: "a-1",
+    },
+  ],
+  current: {
+    status: "approved_create",
+    reviewer_admin_id: "a-1",
+    reviewed_at: "2026-08-27T09:00:00.000Z",
+    review_reason: "Sanitary fixture installation is a distinct competency from plumbing.",
+    resulting_skill_id: null,
+    approved_job_domain_ids: ["jd_nco_7126_0100", "jd_nco_7411_0100"],
+    approved_requirement: "required",
+  },
+};
+
 beforeEach(() => {
   stub.order.length = 0;
   stub.calls = 0;
+  stub.auditCalls = 0;
   stub.capabilities = ["read_entities", "review_skill_candidates"];
   stub.candidate = { ...BASE };
   stub.failure = null;
+  stub.audit = { ...AUDIT_UNDECIDED };
+  stub.auditFailure = null;
 });
 
 const render = async () =>
@@ -152,9 +209,21 @@ const render = async () =>
   );
 
 describe("the gate", () => {
-  it("requires read_entities before the read runs", async () => {
+  it("requires read_entities before either read runs", async () => {
     await render();
-    expect(stub.order).toEqual(["gate:read_entities", `get:${CANDIDATE_ID}`]);
+    // The candidate first, then its audit trail: a 404 on the candidate is a not-found for the
+    // whole screen, and there is no point asking for the history of a row that does not exist.
+    expect(stub.order).toEqual([
+      "gate:read_entities",
+      `get:${CANDIDATE_ID}`,
+      `audit:${CANDIDATE_ID}`,
+    ]);
+  });
+
+  it("does not ask for the audit trail at all when the candidate is not found", async () => {
+    stub.failure = new stub.RequestError(404);
+    await expect(render()).rejects.toThrow();
+    expect(stub.auditCalls).toBe(0);
   });
 });
 
@@ -359,7 +428,9 @@ describe("409 conflict — DecisionOutcomeNotice renders the code's meaning and 
 
   it("a generic error renders as a failure, distinct from a conflict", () => {
     const out = renderToStaticMarkup(
-      <DecisionOutcomeNotice outcome={{ kind: "error", message: "The admin API is unreachable." }} />,
+      <DecisionOutcomeNotice
+        outcome={{ kind: "error", message: "The admin API is unreachable." }}
+      />,
     );
     expect(out).toContain("Action failed");
     expect(out).toContain("The admin API is unreachable.");
@@ -369,7 +440,12 @@ describe("409 conflict — DecisionOutcomeNotice renders the code's meaning and 
   it("success with changed:true never claims the taxonomy itself changed", () => {
     const out = renderToStaticMarkup(
       <DecisionOutcomeNotice
-        outcome={{ kind: "success", changed: true, status: "approved_create", already_decided: false }}
+        outcome={{
+          kind: "success",
+          changed: true,
+          status: "approved_create",
+          already_decided: false,
+        }}
       />,
     );
     expect(out).toContain("Decision recorded");
@@ -385,5 +461,97 @@ describe("409 conflict — DecisionOutcomeNotice renders the code's meaning and 
     );
     expect(out).toContain("No change");
     expect(out).not.toContain("Action failed");
+  });
+});
+
+describe("the audit trail comes from the audit route, and is never assembled here", () => {
+  it("renders each spine entry with what was RECORDED, not the button that was pressed", async () => {
+    stub.audit = { ...AUDIT_DECIDED };
+    const out = await render();
+    // `alias` on the wire becomes `skill_candidate_approved_map` in the spine, deliberately, so
+    // an auditor reconciling the two needs no translation table. The label must not undo that.
+    expect(out).toContain("Approved as a new skill");
+    expect(out).toContain("a-1");
+  });
+
+  it("renders an unrecognised action code AS ITSELF, never a guessed sentence", async () => {
+    stub.audit = {
+      ...AUDIT_DECIDED,
+      entries: [{ ...AUDIT_DECIDED.entries[0], action_code: "skill_candidate_something_new" }],
+    };
+    const out = await render();
+    expect(out).toContain("skill_candidate_something_new");
+  });
+
+  it("an empty spine says nothing has happened — which is not the same as a failed read", async () => {
+    stub.audit = { ...AUDIT_UNDECIDED };
+    const out = await render();
+    expect(out).toContain("No decision has been recorded against this candidate yet");
+    expect(out).not.toContain("could not be loaded");
+  });
+
+  it("a FAILED audit read says so, and makes no claim about the history", async () => {
+    stub.auditFailure = new TypeError("network down");
+    const out = await render();
+    expect(out).toContain("The audit trail could not be loaded");
+    expect(out).toContain("not an empty history");
+    // The rest of the review screen survives it — the reviewer still came here to decide.
+    expect(out).toContain("sanitary fixture installation");
+  });
+
+  it("says the spine is value-free, so nobody reads a missing reason as a lost one", async () => {
+    const out = await render();
+    expect(out).toContain("carry no values");
+  });
+
+  it("the reviewer stays an OPAQUE id — this screen resolves no names", async () => {
+    stub.audit = { ...AUDIT_DECIDED };
+    const out = await render();
+    expect(out).not.toContain("@");
+  });
+});
+
+describe("the reviewer's trade judgement is rendered where a decision is shown", () => {
+  it("lists the trades and how they need it, on the audit record", async () => {
+    stub.audit = { ...AUDIT_DECIDED };
+    const out = await render();
+    expect(out).toContain("jd_nco_7126_0100");
+    expect(out).toContain("jd_nco_7411_0100");
+    expect(out).toContain("Required for those trades");
+    expect(out).toContain("Trades named by the reviewer");
+  });
+
+  it("explains WHY a human had to name them", async () => {
+    stub.audit = { ...AUDIT_DECIDED };
+    const out = await render();
+    expect(out).toContain("corpus gate refuses one");
+  });
+
+  it("an empty list renders as an em dash, never as the word none", async () => {
+    // Every non-create decision has an empty list. "None" would read as a reviewer having
+    // deliberately chosen no trades, which is a different — and impossible — claim.
+    stub.audit = {
+      ...AUDIT_DECIDED,
+      current: { ...AUDIT_DECIDED.current, approved_job_domain_ids: [], status: "rejected" },
+    };
+    const out = await render();
+    expect(out).not.toContain("Required for those trades");
+    expect(out).not.toMatch(/Trades named by the reviewer<\/dt><dd[^>]*>none/i);
+  });
+
+  it("shows them on the terminal decision record too, beside the decision itself", async () => {
+    stub.candidate = {
+      ...BASE,
+      status: "approved_create",
+      reviewer_admin_id: "a-1",
+      reviewed_at: "2026-08-27T09:00:00.000Z",
+      review_reason: "A distinct competency.",
+      approved_job_domain_ids: ["jd_nco_7126_0100"],
+      approved_requirement: "preferred",
+    };
+    const out = await render();
+    expect(out).toContain("Decision record");
+    expect(out).toContain("jd_nco_7126_0100");
+    expect(out).toContain("Preferred for those trades");
   });
 });

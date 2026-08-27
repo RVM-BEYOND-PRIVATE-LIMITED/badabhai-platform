@@ -4,7 +4,9 @@ import { requireCapability } from "../../../../../lib/auth";
 import { can } from "../../../../../lib/auth/capabilities";
 import { isAdminRequestError } from "../../../../../lib/admin-http";
 import {
+  getSkillCandidateAudit,
   getSkillDiscoveryCandidate,
+  type SkillCandidateAudit,
   type SkillDiscoveryDetail,
 } from "../../../../../lib/skill-discovery";
 import {
@@ -17,6 +19,11 @@ import {
   relationLabel,
 } from "../../../../../lib/skill-discovery-vocabulary";
 import { formatRelative, formatTimestamp } from "../../../../../lib/format";
+import { auditActionLabel, requirementLabel } from "../../../../../lib/skill-discovery-vocabulary";
+import {
+  SKILL_APPROVED_DOMAINS_NOTE,
+  SKILL_AUDIT_SPINE_NOTE,
+} from "../../../../../lib/skill-discovery-vocabulary";
 import { StatusPill } from "../../../../../components/status-pill";
 import { DetailList } from "../../../../../components/detail-list";
 import { SkillDecisionPanel } from "./decision-panel";
@@ -59,6 +66,19 @@ export default async function SkillDiscoveryDetailPage({
     if (isAdminRequestError(err) && (err.status === 404 || err.status === 400)) notFound();
     throw err;
   }
+
+  /*
+   * THE AUDIT TRAIL IS A SECOND, INDEPENDENT READ, and its failure must not take the review
+   * screen with it. The decision controls, the evidence and the sources are all still usable
+   * without it; blanking the page because a history panel could not load would cost a reviewer
+   * the thing they came for. So it is settled separately and its absence renders as an absence.
+   *
+   * It is fetched AFTER the candidate rather than beside it because a 404 on the candidate is a
+   * not-found for the whole screen — there is no point asking for the history of a row that does
+   * not exist.
+   */
+  const auditRes = await Promise.allSettled([getSkillCandidateAudit(id)]);
+  const audit = auditRes[0].status === "fulfilled" ? auditRes[0].value : null;
 
   const terminal = isTerminalSkillStatus(candidate.status);
   const deferred = candidate.status === "deferred";
@@ -143,7 +163,11 @@ export default async function SkillDiscoveryDetailPage({
           ) : (
             <ul className="chips">
               {candidate.sources.map((s) => (
-                <li className="chip" key={`${s.source_type}:${s.source_id}`} title={SKILL_CANDIDATE_SOURCE_TYPE_LABELS[s.source_type]}>
+                <li
+                  className="chip"
+                  key={`${s.source_type}:${s.source_id}`}
+                  title={SKILL_CANDIDATE_SOURCE_TYPE_LABELS[s.source_type]}
+                >
                   {s.original_text}
                 </li>
               ))}
@@ -182,9 +206,8 @@ export default async function SkillDiscoveryDetailPage({
             Existing related skills ({candidate.related_skills.length})
           </h2>
           <p className="panel__sub">
-            Every competing match this candidate has against the shipped catalogue — never
-            just the best one. Never a similarity score: a relation, a strength, and a
-            sentence.
+            Every competing match this candidate has against the shipped catalogue — never just the
+            best one. Never a similarity score: a relation, a strength, and a sentence.
           </p>
         </div>
         {candidate.related_skills.length === 0 ? (
@@ -246,16 +269,36 @@ export default async function SkillDiscoveryDetailPage({
         <DetailList
           items={[
             { label: "Run id", value: <span className="mono">{candidate.provenance.run_id}</span> },
-            { label: "Cluster key", value: <span className="mono">{candidate.provenance.cluster_key}</span> },
+            {
+              label: "Cluster key",
+              value: <span className="mono">{candidate.provenance.cluster_key}</span>,
+            },
             { label: "Classifier rule", value: candidate.provenance.classifier_rule },
-            { label: "Occupation heads", value: candidate.provenance.occupation_heads.join(", ") || "—" },
-            { label: "Evidence tokens", value: candidate.provenance.evidence_tokens.join(", ") || "—" },
-            { label: "Embedding note", value: EMBEDDING_STATUS_NOTE[candidate.provenance.embedding_status] },
-            { label: "Corpus fingerprint", value: <span className="mono">{candidate.provenance.corpus_fingerprint}</span> },
-            { label: "Provenance digest", value: <span className="mono">{candidate.provenance.provenance_digest}</span> },
+            {
+              label: "Occupation heads",
+              value: candidate.provenance.occupation_heads.join(", ") || "—",
+            },
+            {
+              label: "Evidence tokens",
+              value: candidate.provenance.evidence_tokens.join(", ") || "—",
+            },
+            {
+              label: "Embedding note",
+              value: EMBEDDING_STATUS_NOTE[candidate.provenance.embedding_status],
+            },
+            {
+              label: "Corpus fingerprint",
+              value: <span className="mono">{candidate.provenance.corpus_fingerprint}</span>,
+            },
+            {
+              label: "Provenance digest",
+              value: <span className="mono">{candidate.provenance.provenance_digest}</span>,
+            },
           ]}
         />
       </section>
+
+      <AuditTrailPanel audit={audit} />
 
       {terminal ? (
         <TerminalRecordPanel candidate={candidate} />
@@ -278,6 +321,133 @@ export default async function SkillDiscoveryDetailPage({
   );
 }
 
+/**
+ * WHAT HAS HAPPENED TO THIS CANDIDATE — read from `GET /admin/skill-discovery/:id/audit`.
+ *
+ * ── BOTH HALVES, BECAUSE EITHER ALONE MISLEADS ─────────────────────────────────────────
+ * `entries` is the EVENT SPINE: immutable, written on the same transaction as the decision, and
+ * value-free by construction — who acted, what was recorded, when. `current` is the row as the
+ * system of record holds it now. An auditor needs to see them agree, and on the day they do not,
+ * that disagreement is the finding. A panel showing only one half could never surface it.
+ *
+ * ── IT IS NOT ASSEMBLED HERE ───────────────────────────────────────────────────────────
+ * This screen used to have no audit route and could only narrate the candidate's own columns. It
+ * does not any more: the order, the entries and the `current` block are rendered as served, and
+ * nothing is inferred from timestamps or statuses to fill a gap.
+ *
+ * ── AND ITS ABSENCE IS AN ABSENCE ──────────────────────────────────────────────────────
+ * A failed audit read renders as "could not be loaded", never as "nothing has happened". Those
+ * are opposite claims, and on an audit surface the wrong one is the more dangerous.
+ */
+function AuditTrailPanel({ audit }: { audit: SkillCandidateAudit | null }) {
+  return (
+    <section className="panel" aria-labelledby="sd-audit">
+      <div className="panel__head">
+        <h2 className="panel__title" id="sd-audit">
+          Audit trail
+        </h2>
+        <p className="panel__sub">{SKILL_AUDIT_SPINE_NOTE}</p>
+      </div>
+
+      {audit === null ? (
+        <p className="state__body">
+          The audit trail could not be loaded. That is a failed read, not an empty history — this
+          panel makes no claim about what has or has not happened to this candidate.
+        </p>
+      ) : (
+        <>
+          {audit.entries.length === 0 ? (
+            <p className="state__body">
+              No decision has been recorded against this candidate yet. The spine has nothing to
+              show because nothing has happened, which is different from a read that failed.
+            </p>
+          ) : (
+            <ol className="chain">
+              {audit.entries.map((e) => (
+                <li className="chain__item" key={e.event_id}>
+                  <strong>{auditActionLabel(e.action_code)}</strong>
+                  {" by "}
+                  {/* An OPAQUE id. This console resolves no admin names anywhere on this surface. */}
+                  <span className="mono">{e.admin_id ?? "—"}</span>
+                  <span className="chain__time" title={formatTimestamp(e.occurred_at)}>
+                    {formatRelative(e.occurred_at)}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+
+          <h3 className="panel__title">The record as it stands now</h3>
+          <DetailList
+            items={[
+              {
+                label: "Status",
+                value: (
+                  <StatusPill
+                    value={audit.current.status}
+                    label={SKILL_CANDIDATE_STATUS_LABELS[audit.current.status]}
+                    tone={SKILL_CANDIDATE_STATUS_TONE[audit.current.status]}
+                  />
+                ),
+              },
+              { label: "Reviewer", value: audit.current.reviewer_admin_id ?? "—" },
+              {
+                label: "Reviewed",
+                value: audit.current.reviewed_at ? (
+                  <time
+                    dateTime={audit.current.reviewed_at}
+                    title={formatTimestamp(audit.current.reviewed_at)}
+                  >
+                    {formatRelative(audit.current.reviewed_at)}
+                  </time>
+                ) : (
+                  "—"
+                ),
+              },
+              { label: "Reason", value: audit.current.review_reason ?? "—" },
+              {
+                label: "Resulting skill",
+                value: audit.current.resulting_skill_id ? (
+                  <span className="mono">{audit.current.resulting_skill_id}</span>
+                ) : (
+                  "—"
+                ),
+              },
+              {
+                label: "Trades named by the reviewer",
+                value:
+                  audit.current.approved_job_domain_ids.length > 0 ? (
+                    <ul className="chips">
+                      {audit.current.approved_job_domain_ids.map((d) => (
+                        <li className="chip mono" key={d}>
+                          {d}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    // Empty on every undecided row and on every decision that is not a create —
+                    // an em dash, never "none", which would read as a reviewer having chosen none.
+                    "—"
+                  ),
+              },
+              {
+                label: "How those trades need it",
+                value:
+                  audit.current.approved_job_domain_ids.length > 0
+                    ? requirementLabel(audit.current.approved_requirement)
+                    : "—",
+              },
+            ]}
+          />
+          {audit.current.approved_job_domain_ids.length > 0 ? (
+            <p className="field__help">{SKILL_APPROVED_DOMAINS_NOTE}</p>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
 const EMBEDDING_STATUS_NOTE: Record<string, string> = {
   reused: "An existing embedding was reused for this pass.",
   needs_embedding: "This phrase still needs an embedding pass.",
@@ -293,8 +463,8 @@ function TerminalRecordPanel({ candidate }: { candidate: SkillDiscoveryDetail })
           Decision record
         </h2>
         <p className="panel__sub">
-          This candidate is terminal — the decision below cannot be changed here. A
-          re-decision needs a new candidate from a new run.
+          This candidate is terminal — the decision below cannot be changed here. A re-decision
+          needs a new candidate from a new run.
         </p>
       </div>
       <DetailList
@@ -336,8 +506,42 @@ function TerminalRecordPanel({ candidate }: { candidate: SkillDiscoveryDetail })
               "—"
             ),
           },
+          /*
+           * THE REVIEWER'S OWN TRADE JUDGEMENT, shown beside the decision it belongs to.
+           *
+           * It is the half of a `create` approval nothing downstream can reconstruct, and until
+           * the detail read started serving it this record was only half auditable: the screen
+           * could say a skill had been approved but not which trades the human said it belonged
+           * to. Empty renders as an em dash rather than "none" — every non-create decision has an
+           * empty list, and "none" would read as a reviewer having deliberately chosen none.
+           */
+          {
+            label: "Trades named by the reviewer",
+            value:
+              candidate.approved_job_domain_ids.length > 0 ? (
+                <ul className="chips">
+                  {candidate.approved_job_domain_ids.map((d) => (
+                    <li className="chip mono" key={d}>
+                      {d}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                "—"
+              ),
+          },
+          {
+            label: "How those trades need it",
+            value:
+              candidate.approved_job_domain_ids.length > 0
+                ? requirementLabel(candidate.approved_requirement)
+                : "—",
+          },
         ]}
       />
+      {candidate.approved_job_domain_ids.length > 0 ? (
+        <p className="field__help">{SKILL_APPROVED_DOMAINS_NOTE}</p>
+      ) : null}
     </section>
   );
 }
@@ -348,8 +552,8 @@ function HeldRecordPanel({ candidate }: { candidate: SkillDiscoveryDetail }) {
     <section className="notice notice--warn" role="status" aria-labelledby="sd-held">
       <h3 id="sd-held">On hold</h3>
       <p>
-        Somebody looked at this candidate and could not decide — that is a real answer, and it
-        stays re-openable. Previous reason: <em>{candidate.review_reason ?? "none recorded"}</em>
+        Somebody looked at this candidate and could not decide — that is a real answer, and it stays
+        re-openable. Previous reason: <em>{candidate.review_reason ?? "none recorded"}</em>
         {candidate.reviewed_at && (
           <>
             {" "}
@@ -372,8 +576,8 @@ function CapabilityDeniedNotice() {
         </h2>
       </div>
       <p className="field__help">
-        Your role can read this candidate but not decide it — the five decision controls are
-        not shown. Ask an ops admin or super admin to record a decision.
+        Your role can read this candidate but not decide it — the five decision controls are not
+        shown. Ask an ops admin or super admin to record a decision.
       </p>
     </section>
   );

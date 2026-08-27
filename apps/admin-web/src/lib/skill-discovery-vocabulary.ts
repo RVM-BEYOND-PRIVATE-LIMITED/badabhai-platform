@@ -341,8 +341,7 @@ export interface SkillDecisionConflictInfo {
 
 function isSkillCandidateStatus(value: unknown): value is SkillCandidateStatus {
   return (
-    typeof value === "string" &&
-    (SKILL_CANDIDATE_STATUSES as readonly string[]).includes(value)
+    typeof value === "string" && (SKILL_CANDIDATE_STATUSES as readonly string[]).includes(value)
   );
 }
 
@@ -384,3 +383,110 @@ export type SkillDecisionOutcome =
   | { kind: "success"; changed: boolean; status: SkillCandidateStatus; already_decided: boolean }
   | { kind: "conflict"; info: SkillDecisionConflictInfo }
   | { kind: "error"; message: string };
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// The audit trail — action codes, in the reviewer's words
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The five governed action codes `GET /admin/skill-discovery/:id/audit` can carry.
+ *
+ * ⚠ THEY ARE NAMED FOR THE STATUS RECORDED, NOT THE BUTTON PRESSED — `alias` on the wire becomes
+ * `skill_candidate_approved_map` in the spine. That is deliberate on the API's side: the code is
+ * then a total function of the status, so an auditor reconciling the event spine against a
+ * candidate row needs no translation table. This console must not undo that by relabelling them
+ * back into button words, so each label below says what was RECORDED.
+ */
+export const ADMIN_SKILL_AUDIT_ACTION_CODES = [
+  "skill_candidate_approved_create",
+  "skill_candidate_approved_map",
+  "skill_candidate_approved_merge",
+  "skill_candidate_rejected",
+  "skill_candidate_deferred",
+] as const;
+export type AdminSkillAuditActionCode = (typeof ADMIN_SKILL_AUDIT_ACTION_CODES)[number];
+
+export const ADMIN_SKILL_AUDIT_ACTION_LABELS: Readonly<Record<AdminSkillAuditActionCode, string>> =
+  {
+    skill_candidate_approved_create: "Approved as a new skill",
+    skill_candidate_approved_map: "Approved as another name for an existing skill",
+    skill_candidate_approved_merge: "Approved as the same competency as an existing skill",
+    skill_candidate_rejected: "Rejected — not a skill",
+    skill_candidate_deferred: "Held — not enough evidence to decide",
+  };
+
+/**
+ * An unrecognised action code renders ITSELF, never a guessed sentence.
+ *
+ * An invented description of an audit entry is worse than an unfamiliar code: the entry is the
+ * immutable record an auditor cites, and a label this build made up would be indistinguishable
+ * from one the platform vouches for.
+ */
+export function auditActionLabel(code: string): string {
+  return ADMIN_SKILL_AUDIT_ACTION_LABELS[code as AdminSkillAuditActionCode] ?? code;
+}
+
+/**
+ * What the audit response is, and — the part that matters — what it is not.
+ *
+ * The spine half is immutable and value-free by construction: an entry says WHO did WHAT and
+ * WHEN, and carries no reason, no label and no target. The reviewer's prose lives on the row and
+ * is served once, so the two can never disagree.
+ */
+export const SKILL_AUDIT_SPINE_NOTE =
+  "The entries below come from the platform's event spine, written on the same transaction as the decision itself — so an entry cannot have been edited afterwards. They record who acted and when, and carry no values: the reviewer's own words live on the record beside them, stored once rather than copied into both.";
+
+/** How `required` / `preferred` read on a decision record. */
+export const ADMIN_SKILL_REQUIREMENT_LABELS: Readonly<Record<AdminSkillRequirement, string>> = {
+  required: "Required for those trades",
+  preferred: "Preferred for those trades",
+};
+
+export function requirementLabel(requirement: string): string {
+  return ADMIN_SKILL_REQUIREMENT_LABELS[requirement as AdminSkillRequirement] ?? requirement;
+}
+
+/**
+ * Why the trades a `create` decision named are worth showing back.
+ *
+ * The corpus gate refuses a skill that reaches no trade, and the pipeline may not infer which
+ * trades a skill belongs to — so a human names them, and that judgement is the half of an
+ * approval nothing else can reconstruct. A record that omitted it would be only half auditable.
+ */
+export const SKILL_APPROVED_DOMAINS_NOTE =
+  "The trades this reviewer named. A new skill that reaches no trade is on nobody's picker and no posting can be built from it, so the corpus gate refuses one — and the pipeline may not guess them, which is why a human names them here.";
+
+/** The search route refuses a shorter term with a 400; the picker answers it locally. */
+export const ADMIN_SKILLS_QUERY_MIN = 2;
+
+/**
+ * ONE CANONICAL SKILL as the MAP/MERGE picker renders it, and the result envelope around it.
+ *
+ * These live HERE rather than beside the Server Action for a build-time reason with teeth: a
+ * `"use server"` module may export ONLY async functions, so a type exported from one is a build
+ * error waiting to be discovered. They cannot live in `lib/skill-discovery.ts` either — that
+ * module is `import "server-only"` and the picker is a client component. This module is the one
+ * place both sides may import from.
+ *
+ * `mappable` IS THE FIELD THAT MATTERS. The route returns skills that match and says which may
+ * actually be mapped onto, rather than filtering the rest out silently — a reviewer searching for
+ * a skill they remember and getting nothing back cannot tell "no such skill" from "deprecated"
+ * from "that is match vocabulary", and those need three different actions.
+ */
+export interface AdminCanonicalSkillView {
+  skill_id: string;
+  label_en: string;
+  status: string;
+  kind: string;
+  mappable: boolean;
+  not_mappable_reason: string | null;
+}
+
+export interface SkillSearchOutcome {
+  skills: AdminCanonicalSkillView[];
+  /** Echoed from the response, so a stale reply is not read as the answer to a newer keystroke. */
+  q: string;
+  truncated: boolean;
+  /** Present only on a failed lookup. The decision form around it stays usable. */
+  error?: string;
+}

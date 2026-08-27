@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import type { SkillSearchOutcome } from "../../../../../lib/skill-discovery-vocabulary";
 import { useRouter } from "next/navigation";
 import {
   ADMIN_SKILL_REVIEW_DECISIONS,
@@ -13,7 +14,7 @@ import {
   type SkillDecisionOutcome,
   type SkillDecisionRequest,
 } from "../../../../../lib/skill-discovery-vocabulary";
-import { submitSkillDecisionAction } from "./actions";
+import { searchCanonicalSkillsAction, submitSkillDecisionAction } from "./actions";
 
 /**
  * The five-button decision form (#1260).
@@ -78,7 +79,16 @@ export function SkillDecisionPanel({
       case "hold":
         return { decision: "hold", ...base };
     }
-  }, [selected, expectedStatus, reason, skillName, description, domainIds, requirement, resultingSkillId]);
+  }, [
+    selected,
+    expectedStatus,
+    reason,
+    skillName,
+    description,
+    domainIds,
+    requirement,
+    resultingSkillId,
+  ]);
 
   const clientErrors = request ? skillDecisionClientErrors(request) : [];
 
@@ -207,18 +217,15 @@ export function SkillDecisionPanel({
       )}
 
       {(selected === "alias" || selected === "merge") && (
-        <label className="field">
-          <span className="field__label">
-            {selected === "alias" ? "Existing skill this is another name for" : "Existing skill this merges into"}
-          </span>
-          <input
-            className="field__input mono"
-            type="text"
-            value={resultingSkillId}
-            onChange={(e) => setResultingSkillId(e.target.value)}
-            placeholder="skill_…"
-          />
-        </label>
+        <SkillTargetPicker
+          label={
+            selected === "alias"
+              ? "Existing skill this is another name for"
+              : "Existing skill this merges into"
+          }
+          value={resultingSkillId}
+          onPick={setResultingSkillId}
+        />
       )}
 
       <label className="field">
@@ -284,7 +291,11 @@ export function DecisionOutcomeNotice({ outcome }: { outcome: SkillDecisionOutco
           </p>
         </div>
         <div className="alert__actions">
-          <button className="btn btn--ghost btn--sm" type="button" onClick={() => location.reload()}>
+          <button
+            className="btn btn--ghost btn--sm"
+            type="button"
+            onClick={() => location.reload()}
+          >
             Reload
           </button>
         </div>
@@ -315,6 +326,129 @@ export function DecisionOutcomeNotice({ outcome }: { outcome: SkillDecisionOutco
               : "Nothing changed."}
         </p>
       </div>
+    </div>
+  );
+}
+
+/**
+ * THE MAP/MERGE TARGET PICKER — search the canonical corpus instead of typing an id.
+ *
+ * ══ IT SEARCHES THROUGH A SERVER ACTION ════════════════════════════════════════════════
+ * The lookup runs on the server (`searchCanonicalSkillsAction` → `GET /admin/skills?q=`), never
+ * from the browser. This console has no browser-side admin fetch anywhere and this picker does
+ * not become the first one: the admin session lives in an httpOnly cookie the client bundle never
+ * sees. It is also the ADMIN-authed route rather than the service-to-service skills seam, which a
+ * browser must never reach for — wrong guard, no admin identity, no trace under the operator's
+ * session.
+ *
+ * ══ INELIGIBLE RESULTS ARE SHOWN, NOT HIDDEN ═══════════════════════════════════════════
+ * The route says which results may actually be mapped onto and why not, for the ones that cannot.
+ * Filtering those out would leave a reviewer who searched for a skill they remember unable to tell
+ * "no such skill" from "deprecated" from "that is match vocabulary" — and those need three
+ * different actions. So they render, unselectable, with the server's own reason beside them.
+ *
+ * ══ TYPING AN ID IS STILL ALLOWED ══════════════════════════════════════════════════════
+ * The field stays free text. The picker is a convenience over it, not a gate in front of it: a
+ * reviewer who knows the id should not be blocked because the search is down, and the decision
+ * route validates whatever id it is handed regardless. That is what keeps this a lookup rather
+ * than a second authority on what is mappable.
+ */
+function SkillTargetPicker({
+  label,
+  value,
+  onPick,
+}: {
+  label: string;
+  value: string;
+  onPick: (skillId: string) => void;
+}) {
+  const [term, setTerm] = useState("");
+  const [result, setResult] = useState<SkillSearchOutcome | null>(null);
+  const [searching, startSearch] = useTransition();
+
+  function runSearch() {
+    startSearch(async () => {
+      setResult(await searchCanonicalSkillsAction(term));
+    });
+  }
+
+  return (
+    <div className="field">
+      <span className="field__label">{label}</span>
+
+      <div className="filters--inline">
+        <input
+          aria-label="Search canonical skills"
+          className="field__input"
+          onChange={(e) => setTerm(e.target.value)}
+          placeholder="Search by name, e.g. weld"
+          type="search"
+          value={term}
+        />
+        <button
+          className="btn btn--sm btn--ghost"
+          disabled={searching}
+          onClick={runSearch}
+          type="button"
+        >
+          {searching ? "Searching…" : "Search"}
+        </button>
+      </div>
+
+      {result?.error ? (
+        <p className="field__help" role="status">
+          {result.error} You can still type the skill id below.
+        </p>
+      ) : null}
+
+      {result && !result.error ? (
+        result.skills.length === 0 ? (
+          <p className="field__help" role="status">
+            No canonical skill matches “{result.q}”. That is an answer, not a failure — it may
+            genuinely be a new competency.
+          </p>
+        ) : (
+          <>
+            <ul className="chips">
+              {result.skills.map((skill) => (
+                <li key={skill.skill_id}>
+                  <button
+                    className={`btn btn--sm ${value === skill.skill_id ? "btn--primary" : "btn--ghost"}`}
+                    disabled={!skill.mappable}
+                    onClick={() => onPick(skill.skill_id)}
+                    title={skill.not_mappable_reason ?? undefined}
+                    type="button"
+                  >
+                    {skill.label_en}
+                    {skill.mappable ? "" : " — cannot be mapped onto"}
+                  </button>
+                  {skill.not_mappable_reason ? (
+                    <span className="field__help">{skill.not_mappable_reason}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+            {result.truncated ? (
+              <p className="field__help">
+                More skills match than are shown. Type a longer term to narrow it.
+              </p>
+            ) : null}
+          </>
+        )
+      ) : null}
+
+      <input
+        aria-label="Skill id"
+        className="field__input mono"
+        onChange={(e) => onPick(e.target.value)}
+        placeholder="skill_…"
+        type="text"
+        value={value}
+      />
+      <span className="field__help">
+        Pick a result above or type the id. The decision route checks it either way and refuses an
+        unknown, deprecated or match-vocabulary skill with its own reason.
+      </span>
     </div>
   );
 }

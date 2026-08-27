@@ -3,8 +3,11 @@
 import { z } from "zod";
 import { adminFetch, isAdminRequestError } from "../../../../../lib/admin-http";
 import { describeAdminActionError } from "../../../../../lib/describe-admin-error";
+import { searchCanonicalSkills } from "../../../../../lib/skill-discovery";
 import {
+  ADMIN_SKILLS_QUERY_MIN,
   SKILL_CANDIDATE_STATUSES,
+  type SkillSearchOutcome,
   parseSkillDecisionConflict,
   skillDecisionClientErrors,
   type SkillDecisionOutcome,
@@ -78,5 +81,54 @@ export async function submitSkillDecisionAction(
       if (info) return { kind: "conflict", info };
     }
     return { kind: "error", message: describeAdminActionError(err) };
+  }
+}
+
+/**
+ * The MAP/MERGE picker's lookup — `GET /admin/skills?q=`.
+ *
+ * ══ WHY THIS IS A SERVER ACTION AND NOT A BROWSER FETCH ═════════════════════════════════
+ * `adminFetch` reads the admin session from an httpOnly cookie and is `import "server-only"`.
+ * There is no browser-side admin fetch anywhere in this console and this search does not become
+ * the first one: the panel calls this action, the action calls the API, and the token never goes
+ * near the bundle.
+ *
+ * ══ AND IT IS THE ADMIN ROUTE, NOT THE INTERNAL SKILLS SEAM ════════════════════════════
+ * The service-to-service skills controller sits behind its own credential. A console reaching for
+ * it would be authenticating as a service: wrong guard, no admin identity, and nothing tying the
+ * lookup to the operator's session. It is never called from this app.
+ *
+ * ══ IT SEARCHES; IT DECIDES NOTHING ════════════════════════════════════════════════════
+ * The route reports `mappable` per result rather than filtering the ineligible ones out, and this
+ * action passes that through untouched. A reviewer searching for a skill they remember and
+ * getting an empty list cannot tell "no such skill" from "deprecated" from "that is match
+ * vocabulary" — three states needing three different actions. The decision route re-validates
+ * whatever id it is handed regardless, so this makes the picker usable without making it the
+ * authority on what is mappable.
+ *
+ * Failures come back as an EMPTY result plus a message, never as a throw: a lookup that fell over
+ * must not take down the decision form around it, and the reviewer can still type an id.
+ */
+export async function searchCanonicalSkillsAction(q: string): Promise<SkillSearchOutcome> {
+  const term = q.trim();
+  /*
+   * The route's own floor is two characters, and it refuses a shorter term with a 400. Answering
+   * that here rather than spending a round trip on a refusal the client can predict — and the
+   * message says the rule rather than reporting a failure the reviewer did not cause.
+   */
+  if (term.length < ADMIN_SKILLS_QUERY_MIN) {
+    return {
+      skills: [],
+      q: term,
+      truncated: false,
+      error: `Type at least ${ADMIN_SKILLS_QUERY_MIN} characters to search.`,
+    };
+  }
+
+  try {
+    const res = await searchCanonicalSkills(term);
+    return { skills: res.skills, q: res.q, truncated: res.truncated };
+  } catch (err) {
+    return { skills: [], q: term, truncated: false, error: describeAdminActionError(err) };
   }
 }

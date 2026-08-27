@@ -23,10 +23,16 @@ vi.mock("./admin-http", () => ({
 }));
 
 const {
+  adminCanonicalSkillSearchSchema,
+  getSkillCandidateAudit,
   getSkillDiscoveryCandidate,
   getSkillDiscoveryMetrics,
   listSkillDiscovery,
+  listSkillDiscoveryGroups,
+  searchCanonicalSkills,
+  skillCandidateAuditSchema,
   skillDiscoveryDetailSchema,
+  skillDiscoveryGroupsSchema,
   skillDiscoveryListItemSchema,
   skillDiscoveryMetricsSchema,
   skillDiscoveryPageSchema,
@@ -58,6 +64,11 @@ const LIST_ROW = {
 
 const DETAIL_ROW = {
   ...LIST_ROW,
+  // The reviewer's own trade judgement. Empty on an undecided row, which is the fixture's state —
+  // and REQUIRED on the wire, so a response that stopped carrying it is a contract break rather
+  // than a field this console quietly treats as optional.
+  approved_job_domain_ids: [] as string[],
+  approved_requirement: "preferred",
   phrase_class_label: "A job title with a modifier that names actual work.",
   proposed_description: "Operation and fitting of sanitary fixtures.",
   rationale: "An occupation title whose modifier names the work.",
@@ -167,9 +178,7 @@ describe("skillDiscoveryQs — the query builder this module owns (repeated-key 
   });
 
   it("omits undefined, null-shaped and empty-string values", () => {
-    expect(skillDiscoveryQs({ tier: "", tradeFamily: undefined, runId: "r-1" })).toBe(
-      "?runId=r-1",
-    );
+    expect(skillDiscoveryQs({ tier: "", tradeFamily: undefined, runId: "r-1" })).toBe("?runId=r-1");
   });
 
   it("skips empty entries inside a status array without emitting a bare `status=`", () => {
@@ -258,9 +267,9 @@ describe("the list item schema", () => {
 
 describe("the page envelope", () => {
   it("is `{ items, nextCursor }`", () => {
-    expect(skillDiscoveryPageSchema.parse({ items: [LIST_ROW], nextCursor: null }).items).toHaveLength(
-      1,
-    );
+    expect(
+      skillDiscoveryPageSchema.parse({ items: [LIST_ROW], nextCursor: null }).items,
+    ).toHaveLength(1);
   });
 
   it("requires nextCursor as a present key, not merely a truthy one", () => {
@@ -319,9 +328,7 @@ describe("getSkillDiscoveryMetrics — one request, no client-side aggregation",
   it("scopes to one run", async () => {
     transport.body = METRICS_BODY;
     await getSkillDiscoveryMetrics("sdr_20260826T000000Z_a1b2c3");
-    expect(lastPath()).toBe(
-      "/admin/skill-discovery/metrics?runId=sdr_20260826T000000Z_a1b2c3",
-    );
+    expect(lastPath()).toBe("/admin/skill-discovery/metrics?runId=sdr_20260826T000000Z_a1b2c3");
   });
 
   it("parses every densified breakdown, zeros included", () => {
@@ -341,5 +348,315 @@ describe("getSkillDiscoveryMetrics — one request, no client-side aggregation",
     // silently substituted for the server's own figure.
     const metrics = skillDiscoveryMetricsSchema.parse(METRICS_BODY);
     expect(metrics.total).toBe(METRICS_BODY.total);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// The three routes this console gained when the backend closed its contract gaps
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+describe("GET /admin/skill-discovery/groups — the server does the grouping", () => {
+  const GROUP = {
+    key: "direct|Plumbers and Pipe Fitters|sanitary",
+    tier: "direct",
+    trade_family: "Plumbers and Pipe Fitters",
+    anchor: "sanitary",
+    label: "sanitary — Plumbers and Pipe Fitters",
+    candidate_ids: ["c-1", "c-2"],
+    candidates: 2,
+    undecided: 2,
+    source_rows: 7,
+    source_domains: 3,
+    unanimous_action: "create",
+  };
+  const RESPONSE = {
+    groups: [GROUP],
+    total_groups: 1,
+    total_candidates: 2,
+    total_undecided: 2,
+    tier_basis: "review_tier_is_derived_not_stored",
+    grouping_basis: "groups_are_derived_not_stored",
+  };
+
+  it("parses a batch with every field the card renders", () => {
+    const parsed = skillDiscoveryGroupsSchema.parse(RESPONSE);
+    expect(parsed.groups[0]!.anchor).toBe("sanitary");
+    expect(parsed.groups[0]!.candidate_ids).toEqual(["c-1", "c-2"]);
+    expect(parsed.total_groups).toBe(1);
+  });
+
+  it("a family-only batch carries a null anchor, and a null trade family is legal", () => {
+    expect(
+      skillDiscoveryGroupsSchema.safeParse({
+        ...RESPONSE,
+        groups: [{ ...GROUP, anchor: null, trade_family: null }],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("a mixed batch carries a null unanimous action rather than inventing one", () => {
+    const parsed = skillDiscoveryGroupsSchema.parse({
+      ...RESPONSE,
+      groups: [{ ...GROUP, unanimous_action: null }],
+    });
+    expect(parsed.groups[0]!.unanimous_action).toBeNull();
+  });
+
+  it("an unknown TIER fails — it is derived from a closed three-member function", () => {
+    expect(
+      skillDiscoveryGroupsSchema.safeParse({
+        ...RESPONSE,
+        groups: [{ ...GROUP, tier: "unclear" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("a missing membership list fails — a batch that cannot name its members is not a batch", () => {
+    const { candidate_ids, ...withoutMembers } = GROUP;
+    void candidate_ids;
+    expect(
+      skillDiscoveryGroupsSchema.safeParse({ ...RESPONSE, groups: [withoutMembers] }).success,
+    ).toBe(false);
+  });
+
+  it("carries NO cursor and NO score — the response is exhaustive and unranked", () => {
+    const parsed = skillDiscoveryGroupsSchema.parse(RESPONSE);
+    expect(parsed).not.toHaveProperty("nextCursor");
+    expect(parsed.groups[0]).not.toHaveProperty("score");
+  });
+
+  it("an empty population is a real answer, not a failure", () => {
+    expect(
+      skillDiscoveryGroupsSchema.parse({
+        ...RESPONSE,
+        groups: [],
+        total_groups: 0,
+        total_candidates: 0,
+        total_undecided: 0,
+      }).total_groups,
+    ).toBe(0);
+  });
+});
+
+describe("GET /admin/skills?q= — the MAP picker lookup", () => {
+  const SEARCH = {
+    skills: [
+      {
+        skill_id: "skill_plumbing",
+        label_en: "Plumbing",
+        status: "active",
+        kind: "attribute",
+        mappable: true,
+        not_mappable_reason: null,
+      },
+      {
+        skill_id: "skill_retired",
+        label_en: "Retired Thing",
+        status: "deprecated",
+        kind: "attribute",
+        mappable: false,
+        not_mappable_reason: "This skill is deprecated.",
+      },
+    ],
+    q: "plumb",
+    truncated: false,
+  };
+
+  it("parses eligible and INELIGIBLE results together, with the reason", () => {
+    // The route reports the ineligible ones rather than filtering them out: a reviewer who gets
+    // an empty list cannot tell "no such skill" from "deprecated" from "match vocabulary".
+    const parsed = adminCanonicalSkillSearchSchema.parse(SEARCH);
+    expect(parsed.skills).toHaveLength(2);
+    expect(parsed.skills[1]!.mappable).toBe(false);
+    expect(parsed.skills[1]!.not_mappable_reason).toContain("deprecated");
+  });
+
+  it("echoes the term, so a stale reply is not read as the answer to a newer keystroke", () => {
+    expect(adminCanonicalSkillSearchSchema.parse(SEARCH).q).toBe("plumb");
+  });
+
+  it("a truncated result says so", () => {
+    expect(adminCanonicalSkillSearchSchema.parse({ ...SEARCH, truncated: true }).truncated).toBe(
+      true,
+    );
+  });
+
+  it("no results is a real answer", () => {
+    expect(
+      adminCanonicalSkillSearchSchema.parse({ skills: [], q: "zzz", truncated: false }).skills,
+    ).toEqual([]);
+  });
+
+  it("a result missing `mappable` FAILS — the picker must never guess eligibility", () => {
+    const { mappable, ...withoutEligibility } = SEARCH.skills[0]!;
+    void mappable;
+    expect(
+      adminCanonicalSkillSearchSchema.safeParse({ ...SEARCH, skills: [withoutEligibility] })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe("GET /admin/skill-discovery/:id/audit — the spine plus the row", () => {
+  const AUDIT = {
+    candidate_id: "c-1",
+    entries: [
+      {
+        event_id: "e-1",
+        occurred_at: "2026-08-27T09:00:00.000Z",
+        action_code: "skill_candidate_approved_create",
+        admin_id: "a-1",
+      },
+    ],
+    current: {
+      status: "approved_create",
+      reviewer_admin_id: "a-1",
+      reviewed_at: "2026-08-27T09:00:00.000Z",
+      review_reason: "A distinct competency.",
+      resulting_skill_id: null,
+      approved_job_domain_ids: ["jd_nco_7126_0100"],
+      approved_requirement: "required",
+    },
+    corpus_effect: "decision_recorded_no_corpus_write",
+  };
+
+  it("parses the spine entries and the current record together", () => {
+    const parsed = skillCandidateAuditSchema.parse(AUDIT);
+    expect(parsed.entries).toHaveLength(1);
+    expect(parsed.current.approved_job_domain_ids).toEqual(["jd_nco_7126_0100"]);
+    expect(parsed.current.approved_requirement).toBe("required");
+  });
+
+  it("an UNDECIDED candidate has a `current` full of nulls, never an absent one", () => {
+    // A nullable block would make "nothing has happened yet" and "the row is gone" the same
+    // response, and the second is a 404.
+    const parsed = skillCandidateAuditSchema.parse({
+      ...AUDIT,
+      entries: [],
+      current: {
+        status: "pending",
+        reviewer_admin_id: null,
+        reviewed_at: null,
+        review_reason: null,
+        resulting_skill_id: null,
+        approved_job_domain_ids: [],
+        approved_requirement: "preferred",
+      },
+    });
+    expect(parsed.current.status).toBe("pending");
+    expect(parsed.entries).toEqual([]);
+  });
+
+  it("an absent `current` FAILS the parse", () => {
+    const { current, ...withoutCurrent } = AUDIT;
+    void current;
+    expect(skillCandidateAuditSchema.safeParse(withoutCurrent).success).toBe(false);
+  });
+
+  it("an unknown action code PARSES — the vocabulary is closed in TypeScript only", () => {
+    expect(
+      skillCandidateAuditSchema.safeParse({
+        ...AUDIT,
+        entries: [{ ...AUDIT.entries[0], action_code: "skill_candidate_something_new" }],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("an unknown STATUS on the current record fails — that column has a CHECK", () => {
+    expect(
+      skillCandidateAuditSchema.safeParse({
+        ...AUDIT,
+        current: { ...AUDIT.current, status: "archived" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("an entry carries no reason, no label and no target — the spine is value-free", () => {
+    const parsed = skillCandidateAuditSchema.parse(AUDIT);
+    expect(parsed.entries[0]).not.toHaveProperty("review_reason");
+    expect(parsed.entries[0]).not.toHaveProperty("resulting_skill_id");
+  });
+});
+
+describe("the detail read now carries the reviewer trade judgement", () => {
+  it("parses the approved trades and the requirement", () => {
+    const parsed = skillDiscoveryDetailSchema.parse({
+      ...DETAIL_ROW,
+      approved_job_domain_ids: ["jd_nco_7126_0100"],
+      approved_requirement: "required",
+    });
+    expect(parsed.approved_job_domain_ids).toEqual(["jd_nco_7126_0100"]);
+    expect(parsed.approved_requirement).toBe("required");
+  });
+
+  it("an unknown requirement FAILS — the column is CHECK-backed", () => {
+    expect(
+      skillDiscoveryDetailSchema.safeParse({ ...DETAIL_ROW, approved_requirement: "mandatory" })
+        .success,
+    ).toBe(false);
+  });
+
+  it("an absent trade list FAILS — an approval that cannot say which trades is half a record", () => {
+    const { approved_job_domain_ids, ...without } = DETAIL_ROW;
+    void approved_job_domain_ids;
+    expect(skillDiscoveryDetailSchema.safeParse(without).success).toBe(false);
+  });
+});
+
+describe("the three fetchers build the routes they claim to", () => {
+  it("the grouping route carries the filters and NEVER a cursor, limit or sort", async () => {
+    transport.body = {
+      groups: [],
+      total_groups: 0,
+      total_candidates: 0,
+      total_undecided: 0,
+      tier_basis: "review_tier_is_derived_not_stored",
+      grouping_basis: "groups_are_derived_not_stored",
+    };
+    await listSkillDiscoveryGroups({ tier: "direct", status: ["pending", "needs_review"] });
+    const path = lastPath();
+    expect(path.startsWith("/admin/skill-discovery/groups?")).toBe(true);
+    expect(path).toContain("tier=direct");
+    // The repeated key, not a comma-joined literal the server would read as one status.
+    expect(path).toContain("status=pending&status=needs_review");
+    expect(path).not.toContain("cursor=");
+    expect(path).not.toContain("limit=");
+    expect(path).not.toContain("sort=");
+  });
+
+  it("the skills lookup hits the ADMIN route, never the internal service seam", async () => {
+    transport.body = { skills: [], q: "weld", truncated: false };
+    await searchCanonicalSkills("weld");
+    const path = lastPath();
+    expect(path).toBe("/admin/skills?q=weld");
+    // The service-to-service controller is `/internal/skills/*` and carries its own credential.
+    // A browser session must never reach it, and this console never does.
+    expect(path).not.toContain("/internal/");
+  });
+
+  it("the skills lookup encodes the term and forwards an explicit limit", async () => {
+    transport.body = { skills: [], q: "arc welding", truncated: false };
+    await searchCanonicalSkills("arc welding", 5);
+    expect(lastPath()).toContain("q=arc+welding");
+    expect(lastPath()).toContain("limit=5");
+  });
+
+  it("the audit route hangs off the candidate and encodes its id", async () => {
+    transport.body = {
+      candidate_id: "c-1",
+      entries: [],
+      current: {
+        status: "pending",
+        reviewer_admin_id: null,
+        reviewed_at: null,
+        review_reason: null,
+        resulting_skill_id: null,
+        approved_job_domain_ids: [],
+        approved_requirement: "preferred",
+      },
+      corpus_effect: "decision_recorded_no_corpus_write",
+    };
+    await getSkillCandidateAudit("c 1");
+    expect(lastPath()).toBe("/admin/skill-discovery/c%201/audit");
   });
 });

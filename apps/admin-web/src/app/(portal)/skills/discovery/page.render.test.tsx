@@ -21,8 +21,18 @@ const stub = vi.hoisted(() => {
     RequestError,
     order: [] as string[],
     listCalls: [] as Record<string, unknown>[],
+    groupCalls: [] as Record<string, unknown>[],
     page: { items: [] as unknown[], nextCursor: null as string | null },
+    groups: {
+      groups: [] as unknown[],
+      total_groups: 0,
+      total_candidates: 0,
+      total_undecided: 0,
+      tier_basis: "review_tier_is_derived_not_stored",
+      grouping_basis: "groups_are_derived_not_stored",
+    } as Record<string, unknown>,
     listFailure: null as unknown,
+    groupsFailure: null as unknown,
     metrics: null as unknown,
     metricsFailure: null as unknown,
   };
@@ -50,6 +60,12 @@ vi.mock("../../../../lib/skill-discovery", async () => {
       stub.listCalls.push(filters);
       if (stub.listFailure) throw stub.listFailure;
       return stub.page;
+    },
+    listSkillDiscoveryGroups: async (filters: Record<string, unknown>) => {
+      stub.order.push("groups");
+      stub.groupCalls.push(filters);
+      if (stub.groupsFailure) throw stub.groupsFailure;
+      return stub.groups;
     },
     getSkillDiscoveryMetrics: async () => {
       stub.order.push("metrics");
@@ -121,17 +137,60 @@ const ROW = {
   updated_at: "2026-08-26T09:00:00.000Z",
 };
 
+/**
+ * One batch as the SERVER computes it. Every field here is read off the response by the page —
+ * the key, the anchor, the label, the membership and the counts — so a fixture is the only place
+ * this console has an opinion about any of them.
+ */
+const GROUP = {
+  key: "direct|Plumbers and Pipe Fitters|sanitary",
+  tier: "direct",
+  trade_family: "Plumbers and Pipe Fitters",
+  anchor: "sanitary",
+  label: "sanitary — Plumbers and Pipe Fitters",
+  candidate_ids: [
+    "c-1aaaaaaa-0000-4000-8000-000000000001",
+    "c-2bbbbbbb-0000-4000-8000-000000000002",
+  ],
+  candidates: 2,
+  undecided: 2,
+  source_rows: 7,
+  source_domains: 3,
+  unanimous_action: "create",
+};
+
 beforeEach(() => {
   stub.order.length = 0;
   stub.listCalls.length = 0;
+  stub.groupCalls.length = 0;
   stub.page = { items: [], nextCursor: null };
+  stub.groups = {
+    groups: [GROUP],
+    total_groups: 1,
+    total_candidates: 2,
+    total_undecided: 2,
+    tier_basis: "review_tier_is_derived_not_stored",
+    grouping_basis: "groups_are_derived_not_stored",
+  };
   stub.listFailure = null;
+  stub.groupsFailure = null;
   stub.metrics = METRICS;
   stub.metricsFailure = null;
 });
 
 const render = async (searchParams: Record<string, string | string[] | undefined> = {}) =>
   renderToStaticMarkup(await SkillDiscoveryPage({ searchParams: Promise.resolve(searchParams) }));
+
+/**
+ * Render the FLAT view.
+ *
+ * The filter-forwarding assertions below are about what reaches the QUEUE route, and since the
+ * grouping route took over the default view the queue is only read when the operator asks for
+ * flat. Rendering flat is therefore how those tests keep asserting the thing they were written to
+ * assert; `groupCalls` covers the same filters reaching the grouping route.
+ */
+const renderFlat = async (searchParams: Record<string, string | string[] | undefined> = {}) =>
+  render({ ...searchParams, view: "flat" });
 
 describe("the gate", () => {
   it("requires read_entities before the read runs", async () => {
@@ -155,37 +214,81 @@ describe("AC#1 — dashboard tiles render from one metrics request, no client ag
   it("degrades to an error tile without blanking the queue below when metrics fails", async () => {
     stub.metricsFailure = new TypeError("network down");
     stub.page = { items: [ROW], nextCursor: null };
-    const out = await render();
+    const out = await renderFlat();
     expect(out).toContain("Dashboard tiles are unavailable");
     expect(out).toContain("sanitary fixture installation");
   });
 });
 
 describe("AC#2 — grouped is the default and never asks for the whole 6,673-row table", () => {
-  it("defaults to the grouped view", async () => {
+  it("defaults to the grouped view, and reads the GROUPING route rather than the queue", async () => {
     await render();
-    expect(stub.listCalls[0]).toMatchObject({ limit: 100 });
+    expect(stub.order).toContain("groups");
+    // The queue read is not issued at all in this view: two reads for one screen would be a
+    // round trip nobody renders.
+    expect(stub.listCalls).toHaveLength(0);
   });
 
-  it("groups rows by trade_family into an expandable <details> per group", async () => {
-    stub.page = {
-      items: [ROW, { ...ROW, id: "c-2", normalized_phrase: "pipe fitting" }],
-      nextCursor: null,
-    };
+  it("sends the filters to the grouping route and NEVER a cursor, limit or sort", async () => {
+    // The route's contract is that a group is exhaustive for its filters. A cursor or a limit
+    // would ask it to break that promise, and its own query schema refuses all three.
+    await render();
+    const sent = stub.groupCalls[0]!;
+    expect(sent).toMatchObject({ tier: "direct" });
+    expect(sent).not.toHaveProperty("cursor");
+    expect(sent).not.toHaveProperty("limit");
+    expect(sent).not.toHaveProperty("sort");
+  });
+
+  it("renders the server's label, anchor and counts verbatim", async () => {
     const out = await render();
     expect(out).toContain("<details");
-    expect(out).toContain("Plumbers and Pipe Fitters");
-    expect(out).toContain("2 candidates on this page");
+    expect(out).toContain("sanitary — Plumbers and Pipe Fitters");
+    expect(out).toContain("sanitary");
+    expect(out).toContain("2 candidates");
+    expect(out).toContain("2 still to decide");
+    expect(out).toContain("7 source phrases across 3 trades");
   });
 
-  it("groups a null trade_family under an honest label, not a blank heading", async () => {
-    stub.page = { items: [{ ...ROW, trade_family: null }], nextCursor: null };
+  it("renders the exhaustive totals the response carries, not a page-scoped count", async () => {
     const out = await render();
-    expect(out).toContain("Unspecified trade");
+    expect(out).toContain("1 review screen");
+    expect(out).toContain("Exhaustive for the filters");
+    // The old page-scoped hedge is gone because the count is no longer page-scoped.
+    expect(out).not.toContain("candidates on this page");
+  });
+
+  it("lists the EXACT membership as links, so a batch is never approximated", async () => {
+    const out = await render();
+    for (const id of GROUP.candidate_ids) {
+      expect(out).toContain(`/skills/discovery/${id}`);
+    }
+    expect(out).toContain("These ids are the batch, exactly");
+  });
+
+  it("says an anchored batch is NARROWER than the trade-and-tier link it offers", async () => {
+    const out = await render();
+    expect(out).toContain("This batch is narrower");
+  });
+
+  it("a family-only batch offers the flat link with no narrower-than caveat", async () => {
+    stub.groups = {
+      ...stub.groups,
+      groups: [{ ...GROUP, anchor: null, label: "Plumbers and Pipe Fitters" }],
+    };
+    const out = await render();
+    expect(out).toContain("batched on the trade family alone");
+    expect(out).not.toContain("This batch is narrower");
+  });
+
+  it("reports a mixed batch as mixed rather than inventing a single reading", async () => {
+    stub.groups = { ...stub.groups, groups: [{ ...GROUP, unanimous_action: null }] };
+    const out = await render();
+    expect(out).toContain("Members disagree");
   });
 
   it("switches to the flat view and asks for the smaller default page size", async () => {
-    await render({ view: "flat" });
+    await renderFlat({ view: "flat" });
     expect(stub.listCalls[0]).toMatchObject({ limit: 50 });
   });
 
@@ -199,7 +302,7 @@ describe("AC#2 — grouped is the default and never asks for the whole 6,673-row
 
 describe("AC#11 — tier sequencing is visible, never a silent default filter", () => {
   it("defaults to the direct tier, explicitly, and says so", async () => {
-    await render();
+    await renderFlat();
     expect(stub.listCalls[0]).toMatchObject({ tier: "direct" });
     expect((await render()).includes("Direct (default)")).toBe(true);
   });
@@ -214,12 +317,14 @@ describe("AC#11 — tier sequencing is visible, never a silent default filter", 
     await render({ tier: "derived" });
     // The load-bearing assertion: a guessed or shared `?tier=derived` link must not silently
     // serve derived candidates while the tab still reads as unselected — the request itself
-    // falls back to `direct` until the acknowledging click sets `ack=1`.
-    expect(stub.listCalls[0]).toMatchObject({ tier: "direct" });
+    // falls back to `direct` until the acknowledging click sets `ack=1`. Asserted on the
+    // GROUPING call because that is the read the default view issues; the sequencing rule has to
+    // hold on whichever route runs, not just the one it was written against.
+    expect(stub.groupCalls[0]).toMatchObject({ tier: "direct" });
   });
 
   it("carries the derived filter through to the request once acknowledged", async () => {
-    await render({ tier: "derived", ack: "1" });
+    await renderFlat({ tier: "derived", ack: "1" });
     expect(stub.listCalls[0]).toMatchObject({ tier: "derived" });
   });
 
@@ -227,40 +332,40 @@ describe("AC#11 — tier sequencing is visible, never a silent default filter", 
     const bare = await render();
     const allTiersTag = (bare.match(/<a[^>]*>All tiers<\/a>/) ?? [""])[0];
     expect(allTiersTag).not.toContain("btn--primary");
-    expect(stub.listCalls[0]).toMatchObject({ tier: "direct" });
+    expect(stub.groupCalls[0]).toMatchObject({ tier: "direct" });
 
     await render({ tier: "all" });
-    expect(stub.listCalls[1]!.tier).toBeUndefined();
+    expect(stub.groupCalls[1]!.tier).toBeUndefined();
   });
 });
 
 describe("status scope — an explicit default, never hidden", () => {
   it("sends the two undecided statuses explicitly when nothing is chosen", async () => {
-    await render();
+    await renderFlat();
     expect(stub.listCalls[0]).toMatchObject({ status: ["pending", "needs_review"] });
   });
 
   it("held scope sends only `deferred`", async () => {
-    await render({ statusScope: "held" });
+    await renderFlat({ statusScope: "held" });
     expect(stub.listCalls[0]).toMatchObject({ status: ["deferred"] });
   });
 
   it("decided scope sends the four terminal statuses", async () => {
-    await render({ statusScope: "decided" });
+    await renderFlat({ statusScope: "decided" });
     expect(stub.listCalls[0]!.status).toEqual(
       expect.arrayContaining(["approved_create", "approved_map", "approved_merge", "rejected"]),
     );
   });
 
   it("all scope omits the status filter", async () => {
-    await render({ statusScope: "all" });
+    await renderFlat({ statusScope: "all" });
     expect(stub.listCalls[0]!.status).toBeUndefined();
   });
 });
 
 describe("AC#3 — every filter field is reachable", () => {
   it("forwards band, proposedAction, sourceType, tradeFamily, runId, clusterKey, phrase, dates and sort", async () => {
-    await render({
+    await renderFlat({
       band: "high",
       proposedAction: "create",
       sourceType: "worker_phrase",
@@ -297,14 +402,26 @@ describe("AC#5/#6 — no cosine score, vector or embedding model anywhere on thi
 });
 
 describe("the three empty states", () => {
+  const noGroups = () => {
+    stub.groups = {
+      ...stub.groups,
+      groups: [],
+      total_groups: 0,
+      total_candidates: 0,
+      total_undecided: 0,
+    };
+  };
+
   it("no discovery run ever persisted — the ops state", async () => {
     stub.metrics = { ...METRICS, total: 0 };
+    noGroups();
     const out = await render();
     expect(out).toContain("No discovery run has ever been persisted");
   });
 
   it("nothing awaiting decision — a clean queue, not an ops problem", async () => {
     stub.metrics = { ...METRICS, total: 6673 };
+    noGroups();
     const out = await render();
     expect(out).toContain("Nothing is awaiting a decision right now");
     expect(out).not.toContain("No discovery run has ever been persisted");
@@ -312,6 +429,7 @@ describe("the three empty states", () => {
 
   it("no candidates match these filters — a filtered empty result", async () => {
     stub.metrics = { ...METRICS, total: 6673 };
+    noGroups();
     const out = await render({ tradeFamily: "Nonexistent Trade" });
     expect(out).toContain("No candidates match these filters");
   });
@@ -319,7 +437,11 @@ describe("the three empty states", () => {
 
 describe("error states", () => {
   it("a 400 is the operator's filters, not our outage", async () => {
+    // Set on BOTH seams: the default view reads the grouping route and the flat view reads the
+    // queue, and a refusal must render identically whichever one the operator is on. On the
+    // grouping route a 400 is also how "too much to group exhaustively" arrives.
     stub.listFailure = new stub.RequestError(400);
+    stub.groupsFailure = new stub.RequestError(400);
     const out = await render({ tier: "not-a-real-tier" });
     expect(out).toContain("The server rejected this request");
     expect(out).not.toContain("The queue is unavailable");
@@ -327,6 +449,7 @@ describe("error states", () => {
 
   it("anything else is our fault, with a retry that repeats the same query", async () => {
     stub.listFailure = new TypeError("network down");
+    stub.groupsFailure = new TypeError("network down");
     const out = await render({ tradeFamily: "Welders" });
     expect(out).toContain("The queue is unavailable");
     expect(out).toContain("tradeFamily=Welders");
@@ -335,10 +458,19 @@ describe("error states", () => {
 
 describe("grouped rows link to their own decision screen — a group is a lens, never a merge", () => {
   it("every member links to /skills/discovery/:id and there is no group-level decide button", async () => {
-    stub.page = { items: [ROW], nextCursor: null };
     const out = await render();
+    for (const id of GROUP.candidate_ids) {
+      expect(out).toContain(`href="/skills/discovery/${id}"`);
+    }
+    // A group has no row anywhere, so there is nothing a group-level control could address.
+    // Every member is decided on its own screen, with its own reason and its own audit row.
+    expect(out).not.toMatch(/decide all|bulk decide|approve group/i);
+  });
+
+  it("the flat view still links every row to its own screen", async () => {
+    stub.page = { items: [ROW], nextCursor: null };
+    const out = await renderFlat();
     expect(out).toContain(`href="/skills/discovery/${ROW.id}"`);
-    expect(out).not.toMatch(/decide all|bulk decide/i);
   });
 });
 
