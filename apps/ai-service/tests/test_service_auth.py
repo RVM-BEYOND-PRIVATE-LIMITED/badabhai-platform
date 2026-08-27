@@ -62,17 +62,54 @@ def auth_enabled() -> Iterator[None]:
 
 
 class TestServiceAuthConfig:
-    def test_empty_token_fails_at_startup_never_arms_vacuously(self):
-        """The review's HIGH: AI_INTERNAL_TOKEN="" would enter the enforcement branch
-        where compare_digest(b"", b"") passes every TOKENLESS request (open!) while
-        401ing correctly-tokened callers and /health claims auth is on. min_length=16
-        makes an empty/short value fail Settings() at STARTUP instead."""
-        with pytest.raises(ValidationError):
-            Settings(ai_internal_token="")
+    def test_empty_token_reads_as_UNSET_and_still_never_arms_vacuously(self):
+        """The review's HIGH, still closed — by a different route as of #858.
+
+        THE THREAT IS UNCHANGED. `AI_INTERNAL_TOKEN=""` must never enter the enforcement
+        branch, where `compare_digest(b"", b"")` passes every TOKENLESS request (open!) while
+        401ing correctly-tokened callers and `/health` claims auth is on.
+
+        WHAT CHANGED, AND WHY IT IS NOT A RELAXATION. This used to be prevented by making ""
+        a STARTUP FAILURE. That worked, and it had a cost nobody had priced: compose declares
+        service secrets as `${VAR:-}` pass-throughs, which set the variable to the EMPTY
+        STRING when unconfigured — so AI_INTERNAL_TOKEN could not be declared in
+        docker-compose.staging.yml at all without crashing the box, and it therefore was not
+        declared, and the deployed ai-service ran the historical OPEN posture on every route.
+        The gate that could not be misconfigured also could not be deployed.
+
+        "" now means UNSET (`_empty_secret_means_unset`), which REMOVES the vacuous state
+        rather than permitting it: `None` short-circuits the middleware, and `/health`
+        honestly reports `service_auth_enabled: false`. The service never claims a gate it
+        does not have — which is the property this test has always really been about.
+
+        A SHORT NON-EMPTY TOKEN STILL FAILS AT STARTUP, unchanged, because that is a real
+        value that would arm a weak gate. Only "" moved, and only to the meaning it already
+        had everywhere else in the stack (`optionalSecret()` on the TypeScript side).
+        """
+        assert Settings(ai_internal_token="").ai_internal_token is None
+        assert Settings(ai_internal_token="   ").ai_internal_token is None
         with pytest.raises(ValidationError):
             Settings(ai_internal_token="short-token")
         assert Settings(ai_internal_token=None).ai_internal_token is None
         assert Settings(ai_internal_token=TOKEN).ai_internal_token == TOKEN
+
+    def test_an_EMPTY_token_leaves_the_service_honestly_OPEN_not_falsely_gated(self):
+        """The behavioural half of the assertion above — the part that actually matters.
+
+        Pinned as behaviour, not just as a parsed value, because the failure this prevents was
+        never about the type of the field: it was about a request arriving with no header and
+        being SERVED by a gate that believed it was closed.
+        """
+        prior = app_config._settings
+        app_config._settings = Settings(ai_internal_token="")
+        try:
+            client = TestClient(app)
+            # /health tells the truth about the posture...
+            assert client.get("/health").json()["service_auth_enabled"] is False
+            # ...and a tokenless request is served openly rather than "passing" a live gate.
+            assert client.post("/pseudonymize", json={"text": "I run a VMC"}).status_code == 200
+        finally:
+            app_config._settings = prior
 
 
 class TestServiceAuthDisabled:

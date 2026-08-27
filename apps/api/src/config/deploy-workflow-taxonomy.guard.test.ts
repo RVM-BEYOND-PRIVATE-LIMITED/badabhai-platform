@@ -162,82 +162,116 @@ describe("the four Phase-9 flags, as they reach the box", () => {
   });
 });
 
-describe("the FORK-B-1 skill seam — an absence that is deliberate and tracked", () => {
-  // AUDITED 2026-08-27, read-only. `GET /internal/observability/canonicalization` reports
-  // `storeConfigured: false`, and this is why: neither half of the seam is bridged to the
-  // container. Canonicalization is a CHAIN — flag AND store — so with these absent, flipping
-  // SKILL_CANONICALIZE_ENABLED arms a route that resolves NOTHING (`get_skill_store` returns
-  // `NullSkillStore`, whose `nearest_aliases` returns []) while still paying for one embed
-  // per phrase.
+/**
+ * The `environment:` keys one compose service declares, comment-free.
+ *
+ * Bounded to the NEXT top-level service on purpose: an unbounded slice runs to end-of-file and
+ * silently collects every LATER service's keys, which is how the first draft of this file came
+ * to assert a five-key ai-service block that does not exist.
+ */
+function envKeysOf(service: string): string[] {
+  const start = STAGING_COMPOSE.indexOf(`\n  ${service}:`);
+  const rest = STAGING_COMPOSE.slice(start + 3);
+  const next = rest.search(/\n {2}[a-z0-9_-]+:\n/);
+  const block = next === -1 ? rest : rest.slice(0, next);
+  return [...uncommented(block).matchAll(/^ {6}([A-Z_]+):/gm)].map((m) => m[1]!);
+}
+
+describe("the FORK-B-1 skill seam — bridged, and inert until a secret exists", () => {
+  // INVERTED 2026-08-27, and the inversion is the point. Yesterday this block asserted these
+  // two were NOT bridged, and recorded WHY: SKILLS_INTERNAL_TOKEN was one of 14 string secrets
+  // that could not be bridged because a `${VAR:-}` pass-through sets the variable to the EMPTY
+  // STRING, and a bare `.optional()` REJECTS "" — crashing every api boot on the box.
   //
-  // THE ABSENCE IS NOT AN OVERSIGHT. docker-compose.staging.yml names SKILLS_INTERNAL_TOKEN in
-  // a list of 14 string secrets deliberately left unbridged: each is a bare `.optional()` in
-  // the zod schema rather than the `optionalSecret()` helper, so a `${VAR:-}` pass-through
-  // would set it to a DECLARED EMPTY STRING — which `.optional()` REJECTS, crashing every boot
-  // on the box. Wiring them needs the schema field converted first, per issue #858.
+  // #858 removed the blocker rather than routing around it: both tokens are `optionalSecret()`
+  // in packages/config/src/server.ts, and the ai-service applies the same rule in
+  // `_empty_secret_means_unset`. So "" now reads as UNSET on both sides and the bridge is safe.
   //
-  // These assertions pin a KNOWN, REASONED state, so that wiring the seam is a deliberate edit
-  // that updates this test rather than a silent one that makes canonicalization write for real
-  // without anyone re-reading the chain.
-  //
-  // Literal regexes, not `new RegExp(...)`, for the reason stated at the top of this file:
-  // semgrep's detect-non-literal-regexp rule, and a short table being easier to check by eye.
+  // WHAT THIS DOES NOT DO. Bridging the seam does not enable canonicalization. That is
+  // SKILL_CANONICALIZE_ENABLED, asserted false-by-default above and unchanged here. Wiring the
+  // store makes canonicalization POSSIBLE, not ACTIVE — and the two must stay independent,
+  // which is exactly what the ai-service's own matrix test pins.
+  const aiServiceEnvKeys = (): string[] => envKeysOf("ai-service");
+  const apiEnvKeys = (): string[] => envKeysOf("api");
+
   it.each([
-    ["BACKEND_API_URL", /BACKEND_API_URL:\s*\$\{\{/, /envs:[^\n]*\bBACKEND_API_URL\b/],
-    ["SKILLS_INTERNAL_TOKEN", /SKILLS_INTERNAL_TOKEN:\s*\$\{\{/, /envs:[^\n]*\bSKILLS_INTERNAL_TOKEN\b/],
-  ])("%s is NOT bridged from the deploy job", (_name, fromSecrets, inEnvs) => {
-    // Asserted on the UNCOMMENTED text for the same reason AI_REAL_CALL_TASKS is: a guard that
-    // forbade MENTIONING the variable would be deleted the first time someone documented it.
+    ["SKILLS_INTERNAL_TOKEN", /SKILLS_INTERNAL_TOKEN:\s*\$\{\{\s*secrets\.SKILLS_INTERNAL_TOKEN\s*\}\}/, /envs:[^\n]*\bSKILLS_INTERNAL_TOKEN\b/],
+    ["AI_INTERNAL_TOKEN", /AI_INTERNAL_TOKEN:\s*\$\{\{\s*secrets\.AI_INTERNAL_TOKEN\s*\}\}/, /envs:[^\n]*\bAI_INTERNAL_TOKEN\b/],
+  ])("%s is bridged through BOTH hops", (_name, fromSecrets, inEnvs) => {
+    // Both, because either alone is inert: a job-level `env:` entry that drone-ssh does not
+    // export is invisible on the box. That is precisely what #798 was.
+    expect(DEPLOY).toMatch(fromSecrets);
+    expect(DEPLOY).toMatch(inEnvs);
+  });
+
+  it("BACKEND_API_URL is NOT bridged from a secret — it is topology, not a credential", () => {
+    // The compose default names the api over the compose network. Bridging it from a GitHub
+    // secret would let one repository setting silently re-point the seam at an arbitrary host,
+    // which is a bigger permission than the value deserves.
     const bridged = uncommented(DEPLOY);
-    expect(bridged).not.toMatch(fromSecrets);
-    expect(bridged).not.toMatch(inEnvs);
+    expect(bridged).not.toMatch(/BACKEND_API_URL:\s*\$\{\{/);
+    expect(bridged).not.toMatch(/envs:[^\n]*\bBACKEND_API_URL\b/);
   });
 
-  /** The staging ai-service `environment:` keys, bounded to that service and comment-free. */
-  const aiServiceEnvKeys = (): string[] => {
-    const start = STAGING_COMPOSE.indexOf("\n  ai-service:");
-    // Bounded to the NEXT top-level service. An unbounded slice runs to end-of-file and
-    // silently collects every LATER service's keys — which is exactly how the first draft of
-    // this test came to assert a five-key block that does not exist.
-    const rest = STAGING_COMPOSE.slice(start + 3);
-    const next = rest.search(/\n {2}[a-z0-9_-]+:\n/);
-    const block = next === -1 ? rest : rest.slice(0, next);
-    return [...uncommented(block).matchAll(/^ {6}([A-Z_]+):/gm)].map((m) => m[1]!);
-  };
-
-  it.each([["BACKEND_API_URL"], ["SKILLS_INTERNAL_TOKEN"]])(
-    "%s has no pass-through in the staging ai-service block either",
-    (name) => {
-      // The second hop, and #813 proved it is independently load-bearing: a value exported on
-      // the box reaches the container ONLY if compose declares a pass-through. ZeptoMail failed
-      // closed for months on exactly this gap.
-      expect(aiServiceEnvKeys()).not.toContain(name);
-    },
-  );
-
-  it("the ai-service DOES receive the flag, which is what makes the missing store the binding gap", () => {
-    // The positive half, and the asymmetry is the finding: the flag is wired end-to-end while
-    // neither half of the store is. Enabling canonicalization today would therefore arm a route
-    // that cannot resolve anything — not a partial success, a complete no-op that still spends.
+  it("the ai-service receives all three, so the store can be configured at all", () => {
     const keys = aiServiceEnvKeys();
-    expect(keys).toContain("SKILL_CANONICALIZE_ENABLED");
-    expect(keys.length).toBeGreaterThan(5);
+    expect(keys).toContain("BACKEND_API_URL");
+    expect(keys).toContain("SKILLS_INTERNAL_TOKEN");
+    expect(keys).toContain("AI_INTERNAL_TOKEN");
   });
 
-  it("records WHY, so the next reader does not mistake the absence for a bug", () => {
-    // If this reasoning disappears, the assertions above become unexplained prohibitions.
-    expect(STAGING_COMPOSE).toContain("SKILLS_INTERNAL_TOKEN");
-    expect(STAGING_COMPOSE).toContain("#858");
-    expect(STAGING_COMPOSE).toContain("optionalSecret()");
+  it("the api receives BOTH ends of the two service-to-service tokens", () => {
+    // The seam has two directions and they are different secrets:
+    //   api  --x-skills-internal-token-->  api's own SkillsInternalGuard  (ai-service calls in)
+    //   api  --x-ai-internal-token------>  ai-service's TD67 middleware   (api calls out)
+    // Wiring one without the other yields a half-open topology where one direction 401s.
+    const keys = apiEnvKeys();
+    expect(keys).toContain("SKILLS_INTERNAL_TOKEN");
+    expect(keys).toContain("AI_INTERNAL_TOKEN");
   });
 
-  it("the api-side guard fails CLOSED when the token is unset, so an unbridged seam cannot half-open", () => {
+  it.each([
+    ["SKILLS_INTERNAL_TOKEN"],
+    ["AI_INTERNAL_TOKEN"],
+    ["BACKEND_API_URL"],
+  ])("%s uses the empty-tolerant `${VAR:-...}` form, never `${VAR:?}`", (name) => {
+    // `:-` substitutes on empty AS WELL AS unset, which is the whole reason an absent secret
+    // is survivable. `:?` would make an unset secret a hard compose failure and turn "the seam
+    // is not armed yet" into "the box will not start".
+    const pattern = `\${${name}:-`;
+    expect(STAGING_COMPOSE).toContain(pattern);
+    expect(STAGING_COMPOSE).not.toContain(`\${${name}:?`);
+  });
+
+  it("an ABSENT secret must not become a REQUIRED empty string — the #858 property itself", () => {
+    // The assertion that would have caught the original blocker. A `${VAR:-}` pass-through
+    // hands the schema "", so every bridged secret here has to be empty-tolerant. A bare
+    // `.optional()` is not: it accepts `undefined` and rejects "".
+    const SERVER = readFileSync(
+      join(ROOT, "packages", "config", "src", "server.ts"),
+      "utf8",
+    );
+    expect(SERVER).toMatch(/SKILLS_INTERNAL_TOKEN:\s*optionalSecret\(/);
+    expect(SERVER).toMatch(/AI_INTERNAL_TOKEN:\s*optionalSecret\(/);
+    // ...and the helper still only reclassifies the empty string, so a malformed non-empty
+    // value is rejected exactly as before.
+    expect(SERVER).toContain('z.preprocess((v) => (v === "" ? undefined : v), schema.optional())');
+  });
+
+  it("the flag is STILL present and STILL false-by-default — wiring the store armed nothing", () => {
+    expect(aiServiceEnvKeys()).toContain("SKILL_CANONICALIZE_ENABLED");
+    expect(STAGING_COMPOSE).toContain(
+      "SKILL_CANONICALIZE_ENABLED: ${SKILL_CANONICALIZE_ENABLED:-false}",
+    );
+  });
+
+  it("the api-side guard still fails CLOSED when the token is unset", () => {
     const guard = readFileSync(
       join(ROOT, "apps", "api", "src", "skills", "skills-internal.guard.ts"),
       "utf8",
     );
     // No fallback to INTERNAL_SERVICE_TOKEN and no "allow when unconfigured" branch: absent
-    // configuration must DENY, never degrade to open.
+    // configuration must DENY, never degrade to open. Bridging the variable did not touch this.
     expect(guard).toMatch(/if \(!expected\) \{/);
     expect(guard).toMatch(/throw new UnauthorizedException\("skills internal auth is not configured"\)/);
     expect(guard).not.toMatch(/config\.INTERNAL_SERVICE_TOKEN/);

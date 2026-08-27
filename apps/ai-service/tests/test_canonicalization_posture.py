@@ -21,9 +21,15 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 import app.config as app_config
-from app.ai.skill_store import NullSkillStore, get_skill_store, skill_store_configured
+from app.ai.skill_store import (
+    HttpSkillStore,
+    NullSkillStore,
+    get_skill_store,
+    skill_store_configured,
+)
 from app.config import ConfigError, Settings
 from app.main import app
 
@@ -158,6 +164,81 @@ class TestEffectiveConfiguration:
         assert isinstance(get_skill_store(s), NullSkillStore)
         assert NullSkillStore().nearest_aliases(None, [0.0], 5, job_domain_id="jd_x") == []
 
+
+# ===========================================================================
+class TestStoreSelectionMatrix:
+    """The full 2x2x2: the flag and the seam are INDEPENDENT, and only the seam selects.
+
+    `get_skill_store` must never consult `skill_canonicalize_enabled`. If it did, the two
+    halves of the TD65 chain would collapse into one and "wire the seam" would become
+    indistinguishable from "turn canonicalization on" — the exact conflation this activation
+    programme exists to avoid.
+    """
+
+    @pytest.mark.parametrize("flag", [False, True])
+    @pytest.mark.parametrize("url", [None, "http://api:3001"])
+    @pytest.mark.parametrize("token", [None, SEAM_TOKEN])
+    def test_only_the_seam_selects_the_store(self, settings_as, flag, url, token):
+        kwargs = {"skill_canonicalize_enabled": flag}
+        if url is not None:
+            kwargs["backend_api_url"] = url
+        if token is not None:
+            kwargs["skills_internal_token"] = token
+        s = settings_as(**kwargs)
+
+        both = url is not None and token is not None
+        assert skill_store_configured(s) is both
+        assert isinstance(get_skill_store(s), HttpSkillStore if both else NullSkillStore)
+        # ...and the flag is untouched by any of it, in both directions.
+        assert s.skill_canonicalize_enabled is flag
+        assert client().get(ENDPOINT).json() == {
+            "canonicalizationEnabled": flag,
+            "storeConfigured": both,
+            "buildSha": s.build_id,
+        }
+
+
+# ===========================================================================
+class TestEmptyMeansUnset:
+    """#858, the Python half. A `${VAR:-}` pass-through hands the process "", not nothing."""
+
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_an_empty_seam_variable_reads_as_UNSET(self, settings_as, blank):
+        # A bridged-but-unarmed secret must mean "not configured", so the store stays inert
+        # rather than half-constructing an HttpSkillStore against an empty base URL.
+        s = settings_as(backend_api_url=blank, skills_internal_token=blank)
+        assert s.backend_api_url is None
+        assert s.skills_internal_token is None
+        assert skill_store_configured(s) is False
+        assert isinstance(get_skill_store(s), NullSkillStore)
+
+    @pytest.mark.parametrize("blank", ["", "   "])
+    def test_an_empty_AI_INTERNAL_TOKEN_disarms_rather_than_crashing_the_boot(self, blank):
+        # THE CHANGE THAT LET TD67 REACH THE BOX AT ALL. `min_length=16` made "" a startup
+        # failure, so the variable could not be declared as a compose pass-through and was
+        # therefore absent entirely — leaving every route on the historical OPEN posture.
+        assert Settings(ai_internal_token=blank).ai_internal_token is None
+
+    @pytest.mark.parametrize("bad", ["short", "x" * 15])
+    def test_a_SHORT_non_empty_token_STILL_fails_at_startup(self, bad):
+        # The half that must not move. Only the empty string was reclassified; a short secret
+        # is a real value that would arm a weak gate, and it still refuses to boot.
+        with pytest.raises(ValidationError):
+            Settings(ai_internal_token=bad)
+
+    def test_a_VALID_token_still_arms_the_gate(self):
+        assert Settings(ai_internal_token=TOKEN).ai_internal_token == TOKEN
+
+    def test_the_gate_is_never_armed_VACUOUSLY(self, settings_as):
+        # The TD67 review's HIGH, re-pinned against the new semantics. With "" the middleware
+        # would have entered the enforcement branch, where `compare_digest(b"", b"")` passes
+        # every TOKENLESS request while /health claimed auth was on and correctly-tokened
+        # callers got 401. Mapping "" -> None REMOVES that state rather than permitting it:
+        # the middleware short-circuits and /health reports the truth.
+        settings_as(ai_internal_token="")
+        c = TestClient(app)
+        assert c.get("/health").json()["service_auth_enabled"] is False
+        assert c.get(ENDPOINT).status_code == 200
 
 # ===========================================================================
 class TestAuthentication:

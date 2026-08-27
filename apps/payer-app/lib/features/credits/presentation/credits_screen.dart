@@ -42,6 +42,18 @@ const String kBuyCreditsOnWebLabel = 'Buy credits on web';
 const String kBuyCreditsOnWebNote =
     'Credit packs are bought on the BadaBhai website.';
 
+/// Whether the "Buy credits on web" affordance is shown.
+///
+/// HIDDEN FOR NOW (`false`) — credits are an in-app spendable balance (virtual
+/// currency), and an in-app affordance that points out to a web purchase is
+/// Google Play ANTI-STEERING surface, which Play does NOT bless for virtual
+/// currency the way it does for reader content. Hidden by VISIBILITY ONLY: the
+/// button, its note, `_openCreditsOnWeb`, and the whole web-hand-off code stay
+/// in place — flip this back to `true` to re-enable (e.g. once distribution is
+/// confirmed India-only, where anti-steering is struck down, or alternative
+/// billing is wired).
+const bool kShowBuyCreditsOnWeb = false;
+
 /// Credits — the REAL balance (`GET /payer/credits`, ink card) and the REAL
 /// credit ledger (`GET /payer/credits/ledger`), both READ-ONLY.
 ///
@@ -189,8 +201,20 @@ class _CreditsView extends StatelessWidget {
             // REMOVED (store IAP policy / mobile-payments rule). In their place, an
             // honest pointer to the web portal where the purchase actually happens,
             // mirroring the Jobs screen's plan/boost/top-up hand-off.
-            const SizedBox(height: AppSpacing.s5),
-            _BuyCreditsOnWeb(onOpen: () => _openCreditsOnWeb(context)),
+            // Hidden by VISIBILITY ONLY (kShowBuyCreditsOnWeb) — the Play Store
+            // anti-steering concern for virtual currency. Code kept; the leading
+            // spacer rides inside the Visibility so hiding leaves ONE gap, not two.
+            Visibility(
+              visible: kShowBuyCreditsOnWeb,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const SizedBox(height: AppSpacing.s5),
+                  _BuyCreditsOnWeb(onOpen: () => _openCreditsOnWeb(context)),
+                ],
+              ),
+            ),
             const SizedBox(height: AppSpacing.s5),
             // #376 follow-up — this section reads `GET /payer/credits/ledger`
             // (pack purchases, unlock debits, grants, refunds), so it is the

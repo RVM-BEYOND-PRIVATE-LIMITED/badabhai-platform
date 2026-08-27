@@ -91,7 +91,11 @@ const DEFERRED_STRING_SECRETS = [
   "MEMBER_INVITE_ACCEPT_URL",
   "TEST_LOGIN_TOKEN",
   "PAYER_TEST_LOGIN_TOKEN",
-  "SKILLS_INTERNAL_TOKEN",
+  // SKILLS_INTERNAL_TOKEN GRADUATED FROM THIS LIST on 2026-08-27 (#858) — it is the one entry
+  // that has been converted to `optionalSecret()`, so its `${VAR:-}` pass-through is now safe
+  // and it is declared in the api block. See `THE ONE THAT GRADUATED` below. The remaining 13
+  // are unchanged and still deferred: each needs the same schema change first, not a
+  // mechanical batch.
   "GEMINI_FLASH_API_KEY",
   "ANTHROPIC_API_KEY",
   "LITELLM_API_KEY",
@@ -145,6 +149,35 @@ describe("docker-compose.staging.yml — the 12 real-provider/feature boolean ga
       ).toBe(false);
     },
   );
+
+  it.each([["SKILLS_INTERNAL_TOKEN"], ["AI_INTERNAL_TOKEN"]])(
+    "THE ONES THAT GRADUATED: %s is declared, because its schema was converted first",
+    (name) => {
+      // The ORDER is the rule this file enforces, and it was followed: the schema became
+      // `optionalSecret()` in packages/config/src/server.ts, and only then was the
+      // pass-through added here. Declaring it first is what would have crashed the box.
+      expect(
+        api.has(name),
+        `${name} must be declared now that its schema uses optionalSecret() — see #858`,
+      ).toBe(true);
+      // `:-`, not `-`: the deploy bridges an unset GitHub secret as "", and the fallback has
+      // to fire on empty as well as unset or the field receives a declared empty string.
+      expect(api.get(name)).toContain(":-");
+      // ...and the fallback is EMPTY, i.e. "unset", never a baked-in credential.
+      expect(api.get(name)).toBe(`\${${name}:-}`);
+    },
+  );
+
+  it("declaring the two tokens did NOT arm anything", () => {
+    // The whole point of the empty fallback. With no GitHub secret created, both resolve to
+    // "" -> undefined, which means: `SkillsInternalGuard` denies every caller, and TD67 keeps
+    // the historical open posture. Reachable is not the same as armed.
+    // The fallback must be EMPTY — `${VAR:-}` and nothing between `:-` and the brace. A
+    // non-empty default here would be a credential baked into a committed file.
+    for (const name of ["SKILLS_INTERNAL_TOKEN", "AI_INTERNAL_TOKEN"]) {
+      expect(api.get(name)!.endsWith(":-}"), `${name} must fall back to EMPTY`).toBe(true);
+    }
+  });
 
   it.each(DEFERRED_STRING_SECRETS)(
     "%s stays undeclared — a bare `.optional()` schema, not optionalSecret()",

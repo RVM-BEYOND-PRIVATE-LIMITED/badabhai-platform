@@ -231,6 +231,52 @@ describe("payments config (ADR-0010 §D5 / F-6 — mock credits in alpha)", () =
     expect(() => loadServerConfig({ ADMIN_AI_TRACE_MAX_PER_DAY: "" })).toThrow();
   });
 
+  // ── #858: the two service-to-service tokens, now empty-tolerant ────────────────────
+  //
+  // Both are declared in docker-compose as `${VAR:-}` pass-throughs so the box can arm them
+  // with no code change. That form sets the variable to the EMPTY STRING when unconfigured,
+  // and a bare `.optional()` REJECTS "" — which is why neither could be bridged at all, and
+  // why the FORK-B-1 seam sat unwired and the ai-service ran unauthenticated on the box.
+  //
+  // The contrast with ADMIN_AI_TRACE_MAX_PER_HOUR above is the whole point: that one is still
+  // deliberately empty-INtolerant, because no compose line declares it. Empty tolerance is
+  // earned per-variable by the pass-through existing, never applied as a blanket.
+  it("SKILLS_INTERNAL_TOKEN treats an ABSENT secret and an EMPTY pass-through identically", () => {
+    expect(loadServerConfig({}).SKILLS_INTERNAL_TOKEN).toBeUndefined();
+    expect(loadServerConfig({ SKILLS_INTERNAL_TOKEN: "" }).SKILLS_INTERNAL_TOKEN).toBeUndefined();
+    // A real value still arrives intact — the seam is armed by presence, never by shape.
+    expect(loadServerConfig({ SKILLS_INTERNAL_TOKEN: "s3cr3t" }).SKILLS_INTERNAL_TOKEN).toBe("s3cr3t");
+  });
+
+  it("AI_INTERNAL_TOKEN does the same, and STILL rejects a short non-empty value", () => {
+    expect(loadServerConfig({}).AI_INTERNAL_TOKEN).toBeUndefined();
+    expect(loadServerConfig({ AI_INTERNAL_TOKEN: "" }).AI_INTERNAL_TOKEN).toBeUndefined();
+    const valid = "x".repeat(20);
+    expect(loadServerConfig({ AI_INTERNAL_TOKEN: valid }).AI_INTERNAL_TOKEN).toBe(valid);
+    // THE HALF THAT MUST NOT MOVE. `.min(16)` still applies to every non-empty value: a short
+    // token is a REAL value that would arm a weak gate, and it is still a boot failure. Only
+    // "" was reclassified, and only to the meaning it already had everywhere else.
+    expect(() => loadServerConfig({ AI_INTERNAL_TOKEN: "short" })).toThrow();
+    expect(() => loadServerConfig({ AI_INTERNAL_TOKEN: "x".repeat(15) })).toThrow();
+  });
+
+  it("neither token is REQUIRED — an unarmed deployment still boots", () => {
+    // The regression this exists to prevent: making a secret mandatory would take down every
+    // box that has not created it yet, which is precisely the failure mode #858 describes.
+    expect(() => loadServerConfig({})).not.toThrow();
+    expect(() =>
+      loadServerConfig({ SKILLS_INTERNAL_TOKEN: "", AI_INTERNAL_TOKEN: "" }),
+    ).not.toThrow();
+  });
+
+  it("empty tolerance did not leak into UNRELATED secrets", () => {
+    // `optionalSecret()` was applied to exactly two fields. A blanket application would have
+    // silently reclassified every credential in the schema, so this pins the blast radius.
+    expect(() => loadServerConfig({ ADMIN_AI_TRACE_MAX_PER_HOUR: "" })).toThrow();
+    expect(() => loadServerConfig({ DATABASE_URL: "not-a-url" })).toThrow();
+    expect(() => loadServerConfig({ AI_SERVICE_URL: "not-a-url" })).toThrow();
+  });
+
   it("assertPaymentsConfig is a no-op in the alpha mock default", () => {
     expect(() => assertPaymentsConfig(loadServerConfig({}))).not.toThrow();
   });

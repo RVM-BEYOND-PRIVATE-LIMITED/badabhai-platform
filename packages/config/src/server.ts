@@ -311,7 +311,15 @@ export const serverEnvSchema = z.object({
   // ai-service holds THIS token and can reach nothing but the two skills routes —
   // never the resume-PII or money routes. Unset => the skills routes deny ALL
   // callers (fail closed). Treat as a secret.
-  SKILLS_INTERNAL_TOKEN: z.string().min(1).optional(),
+  // #858: `optionalSecret()`, NOT a bare `.optional()`. Compose declares this as a
+  // `${SKILLS_INTERNAL_TOKEN:-}` pass-through so the box can arm the seam with no code
+  // change, and that form sets the variable to the EMPTY STRING when unconfigured —
+  // which `.min(1).optional()` REJECTS, taking the whole api down at boot. This was the
+  // single blocker on wiring the FORK-B-1 seam (see the 14-secret note in
+  // docker-compose.staging.yml). Only `""` is reclassified; a non-empty value is still
+  // validated exactly as before, and `SkillsInternalGuard` still DENIES every request
+  // while it is unset.
+  SKILLS_INTERNAL_TOKEN: optionalSecret(z.string().min(1)),
 
   // PII protection (BACKEND ONLY). Pepper for the keyed HMAC of phone/IP; AES-256
   // key (base64 of 32 bytes) for encrypting phone_e164 at rest. The key NEVER
@@ -1184,7 +1192,12 @@ export const serverEnvSchema = z.object({
   // Scoped to the NestJS→ai-service direction — NOT the api's INTERNAL_SERVICE_TOKEN
   // and NOT SKILLS_INTERNAL_TOKEN (which guards the REVERSE direction). Set BOTH
   // sides together (staging service env, never a committed file).
-  AI_INTERNAL_TOKEN: z.string().min(16).optional(),
+  // #858, same reasoning: bridged to both containers as a `${AI_INTERNAL_TOKEN:-}`
+  // pass-through, so `""` must mean "unset" rather than "fail the parse". The `.min(16)`
+  // still applies to every non-empty value — a SHORT token is still a boot failure, which
+  // is the half that matters: it is the api's side of a gate whose enforcing side refuses
+  // to arm on a short secret.
+  AI_INTERNAL_TOKEN: optionalSecret(z.string().min(16)),
 
   // Browser CORS allow-list for the API — comma-separated EXACT origins
   // (e.g. "https://ops.badabhai.in,https://app.badabhai.in"). Mirrors the
