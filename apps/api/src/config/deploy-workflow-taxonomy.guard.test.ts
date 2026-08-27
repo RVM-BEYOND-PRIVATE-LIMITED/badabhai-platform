@@ -162,6 +162,88 @@ describe("the four Phase-9 flags, as they reach the box", () => {
   });
 });
 
+describe("the FORK-B-1 skill seam — an absence that is deliberate and tracked", () => {
+  // AUDITED 2026-08-27, read-only. `GET /internal/observability/canonicalization` reports
+  // `storeConfigured: false`, and this is why: neither half of the seam is bridged to the
+  // container. Canonicalization is a CHAIN — flag AND store — so with these absent, flipping
+  // SKILL_CANONICALIZE_ENABLED arms a route that resolves NOTHING (`get_skill_store` returns
+  // `NullSkillStore`, whose `nearest_aliases` returns []) while still paying for one embed
+  // per phrase.
+  //
+  // THE ABSENCE IS NOT AN OVERSIGHT. docker-compose.staging.yml names SKILLS_INTERNAL_TOKEN in
+  // a list of 14 string secrets deliberately left unbridged: each is a bare `.optional()` in
+  // the zod schema rather than the `optionalSecret()` helper, so a `${VAR:-}` pass-through
+  // would set it to a DECLARED EMPTY STRING — which `.optional()` REJECTS, crashing every boot
+  // on the box. Wiring them needs the schema field converted first, per issue #858.
+  //
+  // These assertions pin a KNOWN, REASONED state, so that wiring the seam is a deliberate edit
+  // that updates this test rather than a silent one that makes canonicalization write for real
+  // without anyone re-reading the chain.
+  //
+  // Literal regexes, not `new RegExp(...)`, for the reason stated at the top of this file:
+  // semgrep's detect-non-literal-regexp rule, and a short table being easier to check by eye.
+  it.each([
+    ["BACKEND_API_URL", /BACKEND_API_URL:\s*\$\{\{/, /envs:[^\n]*\bBACKEND_API_URL\b/],
+    ["SKILLS_INTERNAL_TOKEN", /SKILLS_INTERNAL_TOKEN:\s*\$\{\{/, /envs:[^\n]*\bSKILLS_INTERNAL_TOKEN\b/],
+  ])("%s is NOT bridged from the deploy job", (_name, fromSecrets, inEnvs) => {
+    // Asserted on the UNCOMMENTED text for the same reason AI_REAL_CALL_TASKS is: a guard that
+    // forbade MENTIONING the variable would be deleted the first time someone documented it.
+    const bridged = uncommented(DEPLOY);
+    expect(bridged).not.toMatch(fromSecrets);
+    expect(bridged).not.toMatch(inEnvs);
+  });
+
+  /** The staging ai-service `environment:` keys, bounded to that service and comment-free. */
+  const aiServiceEnvKeys = (): string[] => {
+    const start = STAGING_COMPOSE.indexOf("\n  ai-service:");
+    // Bounded to the NEXT top-level service. An unbounded slice runs to end-of-file and
+    // silently collects every LATER service's keys — which is exactly how the first draft of
+    // this test came to assert a five-key block that does not exist.
+    const rest = STAGING_COMPOSE.slice(start + 3);
+    const next = rest.search(/\n {2}[a-z0-9_-]+:\n/);
+    const block = next === -1 ? rest : rest.slice(0, next);
+    return [...uncommented(block).matchAll(/^ {6}([A-Z_]+):/gm)].map((m) => m[1]!);
+  };
+
+  it.each([["BACKEND_API_URL"], ["SKILLS_INTERNAL_TOKEN"]])(
+    "%s has no pass-through in the staging ai-service block either",
+    (name) => {
+      // The second hop, and #813 proved it is independently load-bearing: a value exported on
+      // the box reaches the container ONLY if compose declares a pass-through. ZeptoMail failed
+      // closed for months on exactly this gap.
+      expect(aiServiceEnvKeys()).not.toContain(name);
+    },
+  );
+
+  it("the ai-service DOES receive the flag, which is what makes the missing store the binding gap", () => {
+    // The positive half, and the asymmetry is the finding: the flag is wired end-to-end while
+    // neither half of the store is. Enabling canonicalization today would therefore arm a route
+    // that cannot resolve anything — not a partial success, a complete no-op that still spends.
+    const keys = aiServiceEnvKeys();
+    expect(keys).toContain("SKILL_CANONICALIZE_ENABLED");
+    expect(keys.length).toBeGreaterThan(5);
+  });
+
+  it("records WHY, so the next reader does not mistake the absence for a bug", () => {
+    // If this reasoning disappears, the assertions above become unexplained prohibitions.
+    expect(STAGING_COMPOSE).toContain("SKILLS_INTERNAL_TOKEN");
+    expect(STAGING_COMPOSE).toContain("#858");
+    expect(STAGING_COMPOSE).toContain("optionalSecret()");
+  });
+
+  it("the api-side guard fails CLOSED when the token is unset, so an unbridged seam cannot half-open", () => {
+    const guard = readFileSync(
+      join(ROOT, "apps", "api", "src", "skills", "skills-internal.guard.ts"),
+      "utf8",
+    );
+    // No fallback to INTERNAL_SERVICE_TOKEN and no "allow when unconfigured" branch: absent
+    // configuration must DENY, never degrade to open.
+    expect(guard).toMatch(/if \(!expected\) \{/);
+    expect(guard).toMatch(/throw new UnauthorizedException\("skills internal auth is not configured"\)/);
+    expect(guard).not.toMatch(/config\.INTERNAL_SERVICE_TOKEN/);
+  });
+});
+
 describe("R38 — why the compose loopback fix cannot reach the running containers", () => {
   it("the deploy starts the api with --no-deps, so adminer/postgres never start from CD", () => {
     // This is the whole reason R38 has a residual. CD runs `up ... --no-deps api`, so the

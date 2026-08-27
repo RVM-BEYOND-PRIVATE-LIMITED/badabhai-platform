@@ -126,6 +126,25 @@ class TestEffectiveConfiguration:
         assert body["storeConfigured"] is expected is skill_store_configured(s)
         assert isinstance(get_skill_store(s), NullSkillStore) is (not expected)
 
+    @pytest.mark.parametrize("flag", [True, False])
+    @pytest.mark.parametrize("seam", [True, False])
+    def test_the_flag_and_the_STORE_are_INDEPENDENT_in_all_four_combinations(
+        self, settings_as, flag, seam
+    ):
+        # THE FULL MATRIX, because the two are separate halves of the TD65 chain and the
+        # endpoint must never let one imply the other. Audited 2026-08-27: production sits in
+        # the (False, False) corner, and enabling the flag alone moves it to (True, False) —
+        # armed and unable to resolve anything.
+        wired = (
+            {"backend_api_url": "http://api:3000", "skills_internal_token": SEAM_TOKEN}
+            if seam
+            else {}
+        )
+        settings_as(skill_canonicalize_enabled=flag, **wired)
+        body = client().get(ENDPOINT).json()
+        assert body["canonicalizationEnabled"] is flag
+        assert body["storeConfigured"] is seam
+
     def test_the_flag_alone_does_NOT_mean_canonicalization_works(self, settings_as):
         # Why `storeConfigured` is not padding. TD65 is a CHAIN. With the seam unwired the
         # canonicalizer gets NullSkillStore, whose nearest_aliases returns [] — every phrase
