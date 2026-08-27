@@ -356,6 +356,7 @@ const say = (text: string, at: Date = T0) => ({
   text,
   now: at,
   submissionId: null,
+  voiceNoteId: null,
   ctx: CTX as never,
 });
 

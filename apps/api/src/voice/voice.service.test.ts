@@ -37,6 +37,9 @@ function setup(configOverrides: Partial<ServerConfig> = {}) {
       url: "https://supabase.example/storage/v1/object/upload/sign/voice-notes/k?token=t",
       expiresIn: 7200,
     })),
+    // Defaults to "the audio really is there". The registration guard (#1245) calls this, and
+    // the tests that care about a MISSING object override it to false explicitly.
+    objectExists: vi.fn(async () => true),
   };
   const config = { VOICE_NOTES_BUCKET: "", ...configOverrides } as ServerConfig;
   const svc = new VoiceService(
@@ -144,7 +147,7 @@ describe("VoiceService.upload — ownership + PII-free event", () => {
   });
 
   it("creates the note + emits voice_note.uploaded carrying no phone/PII", async () => {
-    const { svc, chat, events } = setup();
+    const { svc, chat, events } = setup({ VOICE_NOTES_BUCKET: "voice-notes" });
     chat.findSession.mockResolvedValueOnce({ id: SESSION, workerId: WORKER });
     const res = await svc.upload(WORKER, UPLOAD, CTX);
     expect(res).toEqual({ voice_note_id: "note-1", duration_seconds: 12 });
@@ -152,6 +155,38 @@ describe("VoiceService.upload — ownership + PII-free event", () => {
     expect(call.event_name).toBe("voice_note.uploaded");
     expect(call.payload.worker_id).toBe(WORKER);
     expect(JSON.stringify(call.payload)).not.toMatch(/phone|full_?name/i);
+  });
+
+  // ── #1245: registration must mean the audio is actually stored ──────────────────────────
+
+  it("503s while VOICE_NOTES_BUCKET is unset — dormancy covers upload, not just the mint", async () => {
+    // The regression: only `createUploadUrl` read the bucket, so a client could register rows
+    // against a bucket that does not exist and drive transcriptions off them.
+    const { svc, chat, voice, events } = setup(); // default: bucket ""
+    chat.findSession.mockResolvedValueOnce({ id: SESSION, workerId: WORKER });
+    await expect(svc.upload(WORKER, UPLOAD, CTX)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+    expect(voice.create).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("400s when NOTHING was actually uploaded to the minted key (no row, no event)", async () => {
+    // A client that took an upload URL and never PUT to it used to get a durable voice_notes
+    // row and a voice_note.uploaded event describing audio that does not exist.
+    const { svc, chat, voice, events, storage } = setup({ VOICE_NOTES_BUCKET: "voice-notes" });
+    chat.findSession.mockResolvedValueOnce({ id: SESSION, workerId: WORKER });
+    storage.objectExists.mockResolvedValueOnce(false);
+    await expect(svc.upload(WORKER, UPLOAD, CTX)).rejects.toBeInstanceOf(BadRequestException);
+    expect(voice.create).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("checks the object in the CONFIGURED bucket, under the minted key", async () => {
+    const { svc, chat, storage } = setup({ VOICE_NOTES_BUCKET: "voice-notes" });
+    chat.findSession.mockResolvedValueOnce({ id: SESSION, workerId: WORKER });
+    await svc.upload(WORKER, UPLOAD, CTX);
+    expect(storage.objectExists).toHaveBeenCalledWith(UPLOAD_BASE.storage_path, "voice-notes");
   });
 });
 
@@ -173,7 +208,7 @@ describe("VoiceService.requestTranscription — ownership + enqueue safety", () 
   });
 
   it("enqueues + emits transcription_requested for the OWNER", async () => {
-    const { svc, voice, events, queue } = setup();
+    const { svc, voice, events, queue } = setup({ VOICE_NOTES_BUCKET: "voice-notes" });
     voice.findById.mockResolvedValueOnce({ id: "vn", workerId: WORKER, storagePath: "p", durationSeconds: 5 });
     const res = await svc.requestTranscription(WORKER, { voice_note_id: "vn" } as never, CTX);
     expect(res).toEqual({ ai_job_id: "job-1", status: "queued" });
@@ -182,7 +217,7 @@ describe("VoiceService.requestTranscription — ownership + enqueue safety", () 
   });
 
   it("on enqueue failure marks the job failed, emits failed, and throws 503", async () => {
-    const { svc, voice, aiJobs, events, queue } = setup();
+    const { svc, voice, aiJobs, events, queue } = setup({ VOICE_NOTES_BUCKET: "voice-notes" });
     voice.findById.mockResolvedValueOnce({ id: "vn", workerId: WORKER, storagePath: "p", durationSeconds: 5 });
     queue.add.mockRejectedValueOnce(new Error("redis down"));
     await expect(
@@ -191,6 +226,24 @@ describe("VoiceService.requestTranscription — ownership + enqueue safety", () 
     expect(aiJobs.markFailed).toHaveBeenCalledOnce();
     const names = events.emit.mock.calls.map((c) => c[0].event_name);
     expect(names).toContain("voice_note.transcription_failed");
+  });
+
+  it("503s while VOICE_NOTES_BUCKET is unset — no job row, no requested event (#1245)", async () => {
+    // With the bucket unset the ai-service cannot fetch the clip, so enqueueing here spends a
+    // job row and emits `transcription_requested` for work that can only fail.
+    const { svc, voice, aiJobs, events, queue } = setup(); // default: bucket ""
+    voice.findById.mockResolvedValueOnce({
+      id: "vn",
+      workerId: WORKER,
+      storagePath: "p",
+      durationSeconds: 5,
+    });
+    await expect(
+      svc.requestTranscription(WORKER, { voice_note_id: "vn" } as never, CTX),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(aiJobs.create).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+    expect(queue.add).not.toHaveBeenCalled();
   });
 });
 

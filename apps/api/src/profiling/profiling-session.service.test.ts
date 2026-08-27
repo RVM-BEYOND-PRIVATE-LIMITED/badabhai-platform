@@ -253,7 +253,7 @@ describe("the server maps option keys to labels — never the client", () => {
     // every turn they drive reaches the reply gate as "no id" and is judged by the hash and the
     // time windows exactly as it was before that argument existed — which is the legacy path this
     // whole file already pins, now stated rather than implied.
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "Stainless steel", CTX, null);
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "Stainless steel", CTX, null, null);
   });
 
   it("carries the client submission id from the DTO through to the reply gate (#931)", async () => {
@@ -285,6 +285,7 @@ describe("the server maps option keys to labels — never the client", () => {
       "Stainless steel",
       CTX,
       "cccccccc-3333-4333-8333-cccccccccccc",
+      null,
     );
   });
 
@@ -298,6 +299,7 @@ describe("the server maps option keys to labels — never the client", () => {
       SESSION,
       "Mild steel, Stainless steel",
       CTX,
+      null,
       null,
     );
   });
@@ -351,7 +353,7 @@ describe("the server maps option keys to labels — never the client", () => {
         } as never,
         CTX,
       );
-      expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, expected, CTX, null);
+      expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, expected, CTX, null, null);
     }
   });
 
@@ -369,7 +371,7 @@ describe("the server maps option keys to labels — never the client", () => {
       CTX,
     );
 
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "Nahi pata", CTX, null);
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "Nahi pata", CTX, null, null);
   });
 });
 
@@ -925,7 +927,7 @@ describe("a spoken answer", () => {
     await service.answer(WORKER, spoken(), CTX);
 
     expect(transcription.transcribeNow).toHaveBeenCalledOnce();
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX, null);
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX, null, "55555555-5555-4555-8555-555555555555");
   });
 
   it("caps the clip at 30 seconds, which is what keeps it a single provider call", async () => {
@@ -1012,7 +1014,7 @@ describe("a spoken answer", () => {
 
     const { step } = await service.answer(WORKER, spoken(), CTX);
 
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX, null);
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX, null, "55555555-5555-4555-8555-555555555555");
     expect(step).toMatchObject({ kind: "question" });
   });
 
