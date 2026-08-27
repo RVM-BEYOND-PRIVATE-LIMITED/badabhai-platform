@@ -32,6 +32,8 @@ const stub = vi.hoisted(() => {
     capabilities: ["read_entities", "review_skill_candidates"] as string[],
     candidate: null as Record<string, unknown> | null,
     failure: null as unknown,
+    audit: null as Record<string, unknown> | null,
+    auditFailure: null as unknown,
   };
 });
 
@@ -52,6 +54,11 @@ vi.mock("../../../../../lib/skill-discovery", () => ({
     stub.calls += 1;
     if (stub.failure) throw stub.failure;
     return stub.candidate;
+  },
+  getSkillDiscoveryAudit: async (id: string) => {
+    stub.order.push(`audit:${id}`);
+    if (stub.auditFailure) throw stub.auditFailure;
+    return stub.audit;
   },
 }));
 
@@ -123,6 +130,8 @@ const BASE = {
   ],
   suggested_aliases: ["sanitary fitting", "sanitary installer"],
   review_reason: null,
+  approved_job_domain_ids: [],
+  approved_requirement: "preferred",
   provenance: {
     run_id: "sdr_20260826T000000Z_a1b2c3",
     cluster_key: "sanitary-fixture-installation",
@@ -138,12 +147,36 @@ const BASE = {
   },
 };
 
+const AUDIT = {
+  candidate_id: CANDIDATE_ID,
+  entries: [
+    {
+      event_id: "evt-1",
+      occurred_at: "2026-08-20T09:00:00.000Z",
+      action_code: "skill_candidate_approved_create",
+      admin_id: "adm-42",
+    },
+  ],
+  current: {
+    status: "pending",
+    reviewer_admin_id: null,
+    reviewed_at: null,
+    review_reason: null,
+    resulting_skill_id: null,
+    approved_job_domain_ids: [],
+    approved_requirement: "preferred",
+  },
+  corpus_effect: "decision_recorded_no_corpus_write",
+};
+
 beforeEach(() => {
   stub.order.length = 0;
   stub.calls = 0;
   stub.capabilities = ["read_entities", "review_skill_candidates"];
   stub.candidate = { ...BASE };
   stub.failure = null;
+  stub.audit = { ...AUDIT };
+  stub.auditFailure = null;
 });
 
 const render = async () =>
@@ -152,16 +185,61 @@ const render = async () =>
   );
 
 describe("the gate", () => {
-  it("requires read_entities before the read runs", async () => {
+  it("requires read_entities before the reads run", async () => {
     await render();
-    expect(stub.order).toEqual(["gate:read_entities", `get:${CANDIDATE_ID}`]);
+    expect(stub.order).toEqual([
+      "gate:read_entities",
+      `get:${CANDIDATE_ID}`,
+      `audit:${CANDIDATE_ID}`,
+    ]);
   });
 });
 
-describe("AC#4 — one request, no N+1", () => {
+describe("AC#4 — one candidate request, no N+1", () => {
   it("fetches the candidate exactly once", async () => {
     await render();
     expect(stub.calls).toBe(1);
+  });
+});
+
+describe("#1280 — the audit read is a separate, degradable fetch", () => {
+  it("fires in parallel with the candidate read, not after a 404 check delays it", async () => {
+    await render();
+    // Both reads are dispatched before either resolves — asserted by both landing in `order`
+    // rather than the audit read being conspicuously absent when the candidate read succeeds.
+    expect(stub.order).toContain(`audit:${CANDIDATE_ID}`);
+  });
+
+  it("a failed audit read degrades to an inline notice, never blanks the whole page", async () => {
+    stub.auditFailure = new TypeError("network down");
+    const out = await render();
+    expect(out).toContain("The audit trail is unavailable");
+    // The rest of the page — the candidate's own read — is intact.
+    expect(out).toContain("sanitary fixture installation");
+  });
+
+  it("renders the spine entries oldest-first, translating the action code", async () => {
+    const out = await render();
+    expect(out).toContain("Approved — create new skill");
+    expect(out).not.toContain("skill_candidate_approved_create");
+  });
+
+  it("admin_id on an entry is rendered as an opaque id, never resolved to a name", async () => {
+    const out = await render();
+    // `shortId` renders the id itself (short enough here to be unchanged) — never a name/email.
+    expect(out).toContain("adm-42");
+  });
+
+  it("`current` on an undecided candidate renders pending with no reviewer, not a blank block", async () => {
+    const out = await render();
+    expect(out).toContain("Audit trail");
+    // `current.status` is "pending" — rendered via the same StatusPill/labels as the header.
+  });
+
+  it("no recorded events yet reads as an honest empty state, not a blank table", async () => {
+    stub.audit = { ...AUDIT, entries: [] };
+    const out = await render();
+    expect(out).toContain("No recorded events yet.");
   });
 });
 
@@ -259,6 +337,34 @@ describe("terminal candidates — a record, with no decision controls", () => {
     stub.candidate = { ...BASE, status: "rejected", resulting_skill_id: null };
     const out = await render();
     expect(out).not.toContain("not yet backfilled");
+  });
+
+  it("#1280 — approved_create renders the approved trades and requirement (the scope of the approval)", async () => {
+    stub.candidate = {
+      ...BASE,
+      status: "approved_create",
+      approved_job_domain_ids: ["jd_nco_7126_0100", "jd_nco_7126_0200"],
+      approved_requirement: "required",
+    };
+    const out = await render();
+    expect(out).toContain("Approved trades");
+    expect(out).toContain("jd_nco_7126_0100");
+    expect(out).toContain("jd_nco_7126_0200");
+    expect(out).toContain("Requirement");
+    expect(out).toContain("Required");
+  });
+
+  it("#1280 — a non-create terminal status (rejected) never renders the approved-scope rows", async () => {
+    // `approved_job_domain_ids`/`approved_requirement` are only ever populated by a `create`
+    // decision; showing them on a rejection would render a scope that was never approved.
+    stub.candidate = {
+      ...BASE,
+      status: "rejected",
+      approved_job_domain_ids: [],
+      approved_requirement: "preferred",
+    };
+    const out = await render();
+    expect(out).not.toContain("Approved trades");
   });
 
   it("terminal renders even for an admin who COULD decide — terminal always wins over both other branches", async () => {

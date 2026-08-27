@@ -4,6 +4,8 @@ import {
   ADMIN_SKILL_REVIEW_DECISIONS,
   ADMIN_SKILL_REVIEW_DECISION_LABELS,
   ADMIN_SKILL_REVIEW_REASON_MIN,
+  ADMIN_SKILLS_QUERY_MIN,
+  auditActionLabel,
   isTerminalSkillStatus,
   parseSkillDecisionConflict,
   phraseClassLabel,
@@ -194,5 +196,31 @@ describe("parseSkillDecisionConflict — narrows an unknown 409 body, never gues
         expected_status: "pending",
       }),
     ).toBeNull();
+  });
+});
+
+describe("auditActionLabel — the decision-history action codes (#1280)", () => {
+  it("translates every real skill_candidate_* action code", () => {
+    expect(auditActionLabel("skill_candidate_approved_create")).toBe(
+      "Approved — create new skill",
+    );
+    expect(auditActionLabel("skill_candidate_approved_map")).toBe("Approved — add as alias");
+    expect(auditActionLabel("skill_candidate_approved_merge")).toBe(
+      "Approved — merge into skill",
+    );
+    expect(auditActionLabel("skill_candidate_rejected")).toBe("Rejected");
+    expect(auditActionLabel("skill_candidate_deferred")).toBe("Held");
+  });
+
+  it("falls back to the raw code for an unrecognised action, never a guessed sentence", () => {
+    expect(auditActionLabel("skill_candidate_some_future_code")).toBe(
+      "skill_candidate_some_future_code",
+    );
+  });
+});
+
+describe("the MAP/MERGE picker's search bound (#1280)", () => {
+  it("mirrors the server's two-character floor", () => {
+    expect(ADMIN_SKILLS_QUERY_MIN).toBe(2);
   });
 });

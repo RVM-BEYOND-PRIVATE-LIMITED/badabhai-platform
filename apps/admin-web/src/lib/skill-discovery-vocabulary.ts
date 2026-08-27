@@ -384,3 +384,71 @@ export type SkillDecisionOutcome =
   | { kind: "success"; changed: boolean; status: SkillCandidateStatus; already_decided: boolean }
   | { kind: "conflict"; info: SkillDecisionConflictInfo }
   | { kind: "error"; message: string };
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// GET /admin/skills?q= — the MAP/MERGE picker's lookup (#1280)
+//
+// Pure types only. The fetch itself (`searchCanonicalSkills`) lives in the server-only
+// `lib/skill-discovery.ts`, exactly the split this file's header explains: the picker is a
+// "use client" component (`decision-panel.tsx`) and cannot import anything from a module that
+// carries `import "server-only"`, even a type-only import — so the SHAPE the client renders is
+// declared here and the transport that fills it lives on the other side of the split.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/** Mirrors `AdminSkillsQuerySchema`'s `q` bounds. */
+export const ADMIN_SKILLS_QUERY_MIN = 2;
+export const ADMIN_SKILLS_QUERY_MAX = 80;
+export const ADMIN_SKILLS_PAGE_MAX = 50;
+export const ADMIN_SKILLS_PAGE_DEFAULT = 20;
+
+/**
+ * One canonical skill as the picker needs it — mirrors `AdminCanonicalSkill`.
+ *
+ * `mappable`/`not_mappable_reason` ARE THE POINT. Deprecated skills and `kind: match_skill`
+ * come back FLAGGED, not filtered — a reviewer who searches and finds nothing cannot tell "no
+ * such skill" from "deprecated" from "that's match vocabulary" without seeing it. This picker
+ * must render every result, disabled where `mappable` is false, with its reason.
+ */
+export interface CanonicalSkillOption {
+  skill_id: string;
+  label_en: string;
+  status: string;
+  kind: string;
+  mappable: boolean;
+  not_mappable_reason: string | null;
+}
+
+/**
+ * The outcome of one search, as the client may honestly render it. Constructed by the Server
+ * Action (`searchCanonicalSkillsAction`), consumed by the picker.
+ *
+ * `q` IS ECHOED ON SUCCESS so the picker can discard a response that arrived after a newer
+ * keystroke was already dispatched — the same stale-response guard `AdminCanonicalSkillSearch`
+ * exists for on the wire.
+ */
+export type SkillSearchOutcome =
+  | { kind: "success"; skills: CanonicalSkillOption[]; q: string; truncated: boolean }
+  | { kind: "error"; message: string };
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// GET /admin/skill-discovery/:id/audit — decision history (#1280)
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * One plain sentence per audit action code (`ADMIN_ACTION_CODES.skill_candidate_*`,
+ * apps/api/src/admin/admin-actions.service.ts). Each code is named for the SoR status it
+ * records, so this is display polish, not translation — an unrecognised code (a future sixth
+ * action, or a value this build has not been taught) renders its own raw code rather than a
+ * guessed sentence, the same fallback `relationLabel`/`phraseClassLabel` use above.
+ */
+const SKILL_CANDIDATE_AUDIT_ACTION_LABELS: Readonly<Record<string, string>> = {
+  skill_candidate_approved_create: "Approved — create new skill",
+  skill_candidate_approved_map: "Approved — add as alias",
+  skill_candidate_approved_merge: "Approved — merge into skill",
+  skill_candidate_rejected: "Rejected",
+  skill_candidate_deferred: "Held",
+};
+
+export function auditActionLabel(code: string): string {
+  return SKILL_CANDIDATE_AUDIT_ACTION_LABELS[code] ?? code;
+}
