@@ -92,6 +92,67 @@ export const ADMIN_CAPABILITIES = [
   "grant_credits",
   "force_close_posting",
   "flag_worker",
+  /**
+   * RECORD a human review decision on one `skill_candidate` row (migration 0093): approve it as
+   * a new canonical skill, as an alias of an existing skill, as a merge into one, reject it, or
+   * hold it. `super_admin` + `ops_admin`.
+   *
+   * ── WHY IT IS ITS OWN CAPABILITY AND NOT ONE OF THE FOUR EXISTING WRITES ────────────────
+   * Because every write row above is a promise about a different DATA CLASS: `suspend_payer` and
+   * `force_close_posting` are entity moderation, `grant_credits` is money, `flag_worker` is a
+   * worker's standing, `manage_admins` is admin identity. This is TAXONOMY AUTHORSHIP — the
+   * vocabulary the deterministic match engine consumes when it decides which worker is shown
+   * which job. Reusing `flag_worker` (the nearest-shaped existing grant) would hand authorship
+   * of the platform's skill vocabulary to every holder of a worker-moderation grant as a SIDE
+   * EFFECT, with nothing in this table, in ADR-0025 §3.1, or in what `GET /admin/me` serves
+   * recording that the row had changed meaning. A capability that has stopped meaning what its
+   * row says is worse than no capability at all: it is an authorization table people still trust.
+   *
+   * ── AND WHY IT IS NOT `read_entities`, WHICH IS WHERE THE QUEUE READS SIT ───────────────
+   * The six reads beside it (queue list, candidate detail, queue metrics, review batches, the
+   * canonical-skill search and one candidate's audit trail) ARE on the read floor: they serve
+   * normalized phrases, enums, counts, provenance and a backlog age — the
+   * operational question ("what is waiting, how old is the oldest thing nobody has opened").
+   * This capability gates only the step that turns a queue row into a RECORDED DECISION.
+   * Splitting them is what lets an `analyst` measure the review backlog without being entitled
+   * to author the vocabulary, which is the same separation `read_ai_traces` makes against the
+   * trace list one row up.
+   *
+   * ── IT IS NOT A PII ROW, SO IT IS DELIBERATELY NOT SHAPED LIKE ONE ─────────────────────
+   * The obvious wrong answer is the `reveal_pii` allow-set (`support` + `super_admin`), because
+   * `skill_candidate_source.original_text` can carry a worker's own words. It is refused.
+   * `support` is the role that reveals one contact to help one worker and changes no platform
+   * state; this surface is the exact inverse — it changes no worker's data and changes what the
+   * matcher believes a skill IS. And the text needs no identity grant to work with: none of the
+   * four 0093 tables has a `worker_id` column, the `worker_phrase` text is contractually
+   * pseudonymized upstream, and the classifier's `FORBIDDEN_CHARS` check runs FIRST and rejects
+   * any phrase carrying a digit, an `@` or a URL. Holding this must not imply holding identity,
+   * and holding identity must not imply holding this.
+   *
+   * ── WHY `ops_admin` AND NOT super_admin-ONLY ───────────────────────────────────────────
+   * The break-glass argument is real and worth stating: a decision here is IRREVERSIBLE in place
+   * (the four terminal statuses can never be left — `canTransition` gives them no outbound edge,
+   * because the decision was recorded against a specific `corpus_fingerprint` and re-opening the
+   * row would silently re-scope it to a corpus the human never saw; a re-decision is a NEW
+   * candidate in a NEW run). Irreversible plus platform-wide is the `toggle_kill_switch` shape.
+   *
+   * What settles it the other way is that this route CANNOT REACH THE CORPUS. An approval records
+   * a decision on `skill_candidate` and nothing else; there is no request-path writer for `skill`,
+   * `skill_alias` or `job_domain_skill` anywhere, and minting one stays in the offline guarded
+   * chain (`validateTaxonomyCorpus` → `taxonomyQualityVerdict` → a human commit →
+   * `db:seed:domain-skills` → `db:promote:skills` C1..C5), which carries its OWN human gate
+   * downstream. So the blast radius of this write is one audited queue row plus a recommendation
+   * a second human must still accept — the same class of governed queue work `flag_worker`
+   * already grants to `ops_admin`. A `super_admin`-only review queue is a queue that stops, and
+   * the review backlog is the throughput constraint on the whole taxonomy phase.
+   *
+   * `support` and `analyst` are DENIED: neither authors platform vocabulary.
+   *
+   * OWNER RULING STILL OWED: ADR-0025 §3.1's table has no row for this capability yet. The
+   * allow-set above is the backend's reasoned default, not a signed cell — see the note on
+   * `ADMIN_CAPABILITY_MATRIX` below.
+   */
+  "review_skill_candidates",
   "toggle_kill_switch",
   "reveal_pii",
   "manage_admins",
@@ -114,6 +175,9 @@ export type AdminCapability = (typeof ADMIN_CAPABILITIES)[number];
  *   - `read_ai_traces` is `super_admin` ONLY, and is a strict subset of `reveal_pii` — the role
  *     that may read a worker's words is a role that may already reveal their phone, never the
  *     reverse.
+ *   - `review_skill_candidates` is the governed-WRITE allow-set (`super_admin` + `ops_admin`),
+ *     NOT the PII one: it authors the match vocabulary, it does not disclose anybody. It is also
+ *     the ONE row in this table with no ADR §3.1 cell behind it yet.
  */
 export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole[]> = {
   read_events: ["super_admin", "ops_admin", "support", "analyst"],
@@ -138,6 +202,13 @@ export const ADMIN_CAPABILITY_MATRIX: Record<AdminCapability, readonly AdminRole
   grant_credits: ["super_admin", "ops_admin"],
   force_close_posting: ["super_admin", "ops_admin"],
   flag_worker: ["super_admin", "ops_admin"],
+  // Migration 0093 — RECORD a review decision on one skill candidate. The governed-write
+  // allow-set, chosen by what the write can REACH: it moves one `skill_candidate` row and emits
+  // one value-free action; the corpus itself is minted only by the offline chain, behind a second
+  // human. `support` is denied because this is not a PII act, `analyst` because it is not a read.
+  // NOT YET AN ADR CELL — see the capability's own docstring; widening or narrowing this row is an
+  // owner decision (CLAUDE.md §16), and the drift test records that the ADR row is still owed.
+  review_skill_candidates: ["super_admin", "ops_admin"],
   toggle_kill_switch: ["super_admin"],
   reveal_pii: ["super_admin", "support"],
   manage_admins: ["super_admin"],

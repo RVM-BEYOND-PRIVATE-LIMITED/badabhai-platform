@@ -30,11 +30,45 @@ export const ADMIN_ACTION_CODES = {
   admin_role_changed: "admin_role_changed",
   admin_suspended: "admin_suspended",
   admin_mfa_reset: "admin_mfa_reset",
+  // ── Migration 0093 — skill-candidate review decisions ────────────────────────────────────
+  // FIVE codes, not one `skill_candidate_reviewed` plus a payload field, because the spine is
+  // VALUE-FREE: which way a reviewer decided IS the value, and the only free-form string the
+  // spine carries is the action code. Collapsing them would either lose the decision from the
+  // audit trail entirely or smuggle it back as a payload key that `.strict()` rejects.
+  //
+  // Each code is named for the SoR STATUS it records, not for the wire word the console sends
+  // (the request body says `alias`/`hold`, the ladder says `approved_map`/`deferred` — see the
+  // decision DTO). That is deliberate: the code is then a total function of
+  // `statusForDecision(...)`, so an auditor reconciling the spine against a `skill_candidate`
+  // row needs no translation table, and a mismatch between the two is visible rather than
+  // arguable. The reason text, the proposed label, the target skill id and the confidence band
+  // stay on the row — none of them may ride an event.
+  skill_candidate_approved_create: "skill_candidate_approved_create",
+  skill_candidate_approved_map: "skill_candidate_approved_map",
+  skill_candidate_approved_merge: "skill_candidate_approved_merge",
+  skill_candidate_rejected: "skill_candidate_rejected",
+  skill_candidate_deferred: "skill_candidate_deferred",
 } as const;
 export type AdminActionCode = (typeof ADMIN_ACTION_CODES)[keyof typeof ADMIN_ACTION_CODES];
 
-/** The faceless event subject for each action's target entity (one of the registered subjects). */
-type AdminActionSubjectType = "payer" | "job_posting" | "worker" | "admin_session";
+/**
+ * The faceless event subject for each action's target entity (one of the registered subjects).
+ *
+ * `"skill_candidate"` (migration 0093) is listed here ONLY because it is now a real member of
+ * `SUBJECT_TYPES` (packages/event-schema/src/enums.ts, verified on disk 2026-08-26 — 27 members).
+ * The order matters and is not cosmetic: the envelope's `subject_type` is the CLOSED
+ * `z.enum(SUBJECT_TYPES)` (envelope.ts:24-27), so widening this local union AHEAD of that list
+ * produces a change that typechecks and then throws `EventValidationException` at
+ * `stage:"envelope"` inside `createEvent` — before any insert, and INSIDE the caller's
+ * transaction, which rolls the review decision back. Compile-clean, runtime-fatal, and invisible
+ * to every unit test that stubs the emit.
+ */
+type AdminActionSubjectType =
+  | "payer"
+  | "job_posting"
+  | "worker"
+  | "admin_session"
+  | "skill_candidate";
 
 /**
  * Governed admin entity actions (ADR-0025 ADMIN-3a, Decision 3/5/6). Each method mutates a

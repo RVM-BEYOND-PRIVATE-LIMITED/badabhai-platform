@@ -163,6 +163,14 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     grant_credits: ["super_admin", "ops_admin"],
     force_close_posting: ["super_admin", "ops_admin"],
     flag_worker: ["super_admin", "ops_admin"],
+    // Migration 0093 — RECORD a review decision on one skill candidate (taxonomy authorship).
+    // THE ONE ROW HERE WITH NO SIGNED ADR CELL BEHIND IT: ADR-0025 §3.1's table has twelve rows
+    // and this is the thirteenth capability. Transcribed from the backend's reasoned default in
+    // `admin-capabilities.ts` (governed-write allow-set, because the write reaches one queue row
+    // and a recommendation — the corpus is minted only by the offline chain, behind a second
+    // human), NOT from the ADR. An owner ruling plus the §3.1 row is still owed; until it lands
+    // this test pins the code against the code, which is drift detection but not ADR compliance.
+    review_skill_candidates: ["super_admin", "ops_admin"],
     toggle_kill_switch: ["super_admin"],
     reveal_pii: ["super_admin", "support"],
     manage_admins: ["super_admin"],
@@ -178,7 +186,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     }
   });
 
-  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL 44 cells", () => {
+  it("the every-cell assertion: can(role, cap) === (role ∈ the ADR cell) for ALL 52 cells", () => {
     const roles: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
     for (const cap of ADMIN_CAPABILITIES) {
       for (const role of roles) {
@@ -191,6 +199,12 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
     expect(can("support", "export")).toBe(false); // the reveal role must not also bulk-export
     expect(can("ops_admin", "reveal_pii")).toBe(false); // mutations role gets no PII
     expect(can("analyst", "export")).toBe(false);
+    // 0093 — taxonomy authorship is NOT a PII act, so it must NOT inherit the `reveal_pii`
+    // allow-set. Asserted on the role that separates the two: `support` holds `reveal_pii` and
+    // is denied this, which is the whole reason the capability is not folded into that row.
+    expect(can("support", "review_skill_candidates")).toBe(false);
+    expect(can("super_admin", "review_skill_candidates")).toBe(true);
+    expect(can("ops_admin", "review_skill_candidates")).toBe(true);
   });
 
   it("read_entities is a READ floor, never an implicit write grant (BP-1)", () => {
@@ -204,6 +218,10 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
       "grant_credits",
       "force_close_posting",
       "flag_worker",
+      // 0093 — the read floor reaches the candidate QUEUE (list/detail/metrics on
+      // `read_entities`, so an analyst can measure the backlog) and must never reach the
+      // DECISION. This is the assertion that keeps those two apart.
+      "review_skill_candidates",
       "manage_admins",
       "toggle_kill_switch",
     ] as const) {
@@ -241,7 +259,7 @@ describe("capability matrix drift (must-fix #5 — pinned to ADR-0025 Decision 3
 describe("capabilitiesFor — what the UI is told matches what the server permits", () => {
   const ROLES: AdminRole[] = ["super_admin", "ops_admin", "support", "analyst"];
 
-  it("agrees with can() on ALL 44 cells — the UI can never show a control the guard denies", () => {
+  it("agrees with can() on ALL 52 cells — the UI can never show a control the guard denies", () => {
     for (const role of ROLES) {
       const granted = capabilitiesFor(role);
       for (const cap of ADMIN_CAPABILITIES) {
@@ -276,6 +294,10 @@ describe("capabilitiesFor — what the UI is told matches what the server permit
       "grant_credits",
       "force_close_posting",
       "flag_worker",
+      // 0093 — taxonomy authorship. Appended at the TAIL of ops_admin's grant deliberately:
+      // this literal is order-sensitive against `ADMIN_CAPABILITIES`, and placing the new
+      // capability anywhere but the end of the governed-write block would move an existing row.
+      "review_skill_candidates",
     ]);
     // super_admin holds everything — the one role for which the list is the whole vocabulary.
     expect(capabilitiesFor("super_admin")).toEqual([...ADMIN_CAPABILITIES]);

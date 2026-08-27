@@ -14,6 +14,7 @@ import { AdminPiiRevealController } from "./admin-pii-reveal.controller";
 import { AdminDashboardController } from "./admin-dashboard.controller";
 import { AdminWorkerJourneyController } from "./admin-worker-journey.controller";
 import { AdminAiTracesController } from "./admin-ai-traces.controller";
+import { AdminSkillDiscoveryController } from "./admin-skill-discovery.controller";
 import { DatabaseModule } from "../database/database.module";
 import { EventsModule } from "../events/events.module";
 
@@ -122,6 +123,18 @@ describe("AdminModule wiring (DI regression guard)", () => {
     expect(tokens).toContain("AdminAiTracesService");
     expect(tokens).toContain("AdminAiTracesRepository");
     expect(tokens).toContain("AdminAiTraceCapService");
+  });
+
+  it("declares the 0093 skill-discovery controller + provides its service/repository", () => {
+    // One new module edge is all it takes to make the app fail to BOOT while typecheck, lint,
+    // build and every unit suite stay green — a controller declared with a provider missing
+    // resolves to null at container build, not at compile. Asserted here rather than trusted to
+    // look right because this file's `toContain` assertions are ADDITIVE: a surface nobody
+    // enrolls is silently unpoliced, which is how a dropped provider ships.
+    expect(getMeta("controllers", AdminModule)).toContain(AdminSkillDiscoveryController);
+    const tokens = providerTokens();
+    expect(tokens).toContain("AdminSkillDiscoveryService");
+    expect(tokens).toContain("AdminSkillDiscoveryRepository");
   });
 
   it("the cap service can reach the Redis queue it is constructed with", () => {

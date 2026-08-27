@@ -121,7 +121,11 @@
     "db:audit:regression-case": "tsx src/audit-regression-case.ts",
     "db:audit:live-drift:ci": "tsx src/live-drift-ci.ts",
     "db:audit:undeclared-routines": "tsx src/audit-undeclared-routines.ts",
-    "db:export:alias-vectors": "tsx src/export-alias-vectors.ts"
+    "db:export:alias-vectors": "tsx src/export-alias-vectors.ts",
+    "db:discover:skills": "tsx src/discover-skills.ts",
+    "db:export:approved-skills": "tsx src/export-approved-skills.ts",
+    "db:persist:discovery-run": "tsx src/persist-discovery-run.ts",
+    "db:backfill:resulting-skill": "tsx src/backfill-resulting-skill.ts"
   },
   "dependencies": {
     "@badabhai/ai-contracts": "workspace:*",

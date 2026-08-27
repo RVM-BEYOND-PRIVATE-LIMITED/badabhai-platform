@@ -37,6 +37,12 @@ import {
   workerProfileSkills,
 } from "./taxonomy";
 import {
+  skillCandidateMatches,
+  skillCandidateSources,
+  skillCandidates,
+  skillDiscoveryRuns,
+} from "./skill-discovery";
+import {
   profilingFamilies,
   profilingFamilyBindings,
   questionPackItems,
@@ -131,6 +137,7 @@ export * from "./worker";
 export * from "./skill";
 export * from "./occupation";
 export * from "./taxonomy";
+export * from "./skill-discovery";
 export * from "./question-pack";
 export * from "./chat";
 export * from "./pack-answer";
@@ -261,6 +268,15 @@ export type WorkerProfileSkill = typeof workerProfileSkills.$inferSelect;
 export type NewWorkerProfileSkill = typeof workerProfileSkills.$inferInsert;
 export type JobPostingSkill = typeof jobPostingSkills.$inferSelect;
 export type NewJobPostingSkill = typeof jobPostingSkills.$inferInsert;
+
+export type SkillDiscoveryRun = typeof skillDiscoveryRuns.$inferSelect;
+export type NewSkillDiscoveryRun = typeof skillDiscoveryRuns.$inferInsert;
+export type SkillCandidate = typeof skillCandidates.$inferSelect;
+export type NewSkillCandidate = typeof skillCandidates.$inferInsert;
+export type SkillCandidateSource = typeof skillCandidateSources.$inferSelect;
+export type NewSkillCandidateSource = typeof skillCandidateSources.$inferInsert;
+export type SkillCandidateMatch = typeof skillCandidateMatches.$inferSelect;
+export type NewSkillCandidateMatch = typeof skillCandidateMatches.$inferInsert;
 export type ProfilingFamily = typeof profilingFamilies.$inferSelect;
 export type NewProfilingFamily = typeof profilingFamilies.$inferInsert;
 export type ProfilingFamilyBinding = typeof profilingFamilyBindings.$inferSelect;
@@ -338,6 +354,10 @@ export const schema = {
   jobDomainSkills,
   workerProfileSkills,
   jobPostingSkills,
+  skillDiscoveryRuns,
+  skillCandidates,
+  skillCandidateSources,
+  skillCandidateMatches,
   profilingFamilies,
   profilingFamilyBindings,
   questionPacks,

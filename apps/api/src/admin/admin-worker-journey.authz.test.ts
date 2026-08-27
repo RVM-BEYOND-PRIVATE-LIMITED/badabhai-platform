@@ -143,7 +143,7 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
     // half-added one would also leave `apps/admin-web`'s exhaustive CAPABILITY_LABELS
     // incomplete, which a backend-only PR cannot fix.
     //
-    // TWO additions since, and NEITHER belongs to the journey:
+    // THREE additions since, and NONE belongs to the journey:
     //  * `read_identity` — the entity/directory NAME reads (owner ruling 2026-08-18). The
     //    journey returns opaque ids, enums, counts and timings and shows no name on any of its
     //    three routes.
@@ -153,6 +153,12 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
     //    build-blocks `body_text` and `transcript_text` out of the journey's projection, so the
     //    journey can say a worker had 14 turns and can never say what any of them were. Reading
     //    the words is a different route, a different table, and a different role.
+    //  * `review_skill_candidates` — RECORDING a review decision on one `skill_candidate` row
+    //    (migration 0093). Taxonomy AUTHORSHIP, on the governed-write allow-set
+    //    (super_admin/ops_admin). It is the only member of this list with no ADR-0025 §3.1 cell
+    //    behind it yet; the owner ruling is owed, and `admin-roles.guard.test.ts` records that.
+    //    It has nothing to do with the journey either: the journey reads one worker's funnel,
+    //    this authors the platform's skill vocabulary and touches no worker row at all.
     expect([...ADMIN_CAPABILITIES].sort()).toEqual(
       [
         "export",
@@ -164,6 +170,7 @@ describe("Phase 6 — the journey is NOT a PII surface and confers nothing on th
         "read_entities",
         "read_events",
         "read_identity",
+        "review_skill_candidates",
         "reveal_pii",
         "suspend_payer",
         "toggle_kill_switch",

@@ -202,6 +202,12 @@ describe("AdminAuthController — delegation to AdminAuthService", () => {
         "grant_credits",
         "force_close_posting",
         "flag_worker",
+        // Migration 0093 — RECORD a review decision on one skill candidate. On the governed-write
+        // allow-set, so `ops_admin` holds it: taxonomy authorship is queue work whose corpus
+        // consequence is gated by a second human offline, not a PII or break-glass act. Listed
+        // LAST because this literal is order-sensitive against `ADMIN_CAPABILITIES`, and the new
+        // row was appended at the tail of the write block precisely so no existing entry moves.
+        "review_skill_candidates",
       ],
     });
   });
