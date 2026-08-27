@@ -1913,6 +1913,29 @@ jobs:
           # `"true"` without that issue closed.
           AGENCY_PAYOUTS_ENABLED: "false"
 
+          # ---- #1264 — the immediate hard-delete seam ----
+          #
+          # Declared in docker-compose.staging.yml as `${TEST_IMMEDIATE_DELETE_ENABLED:-false}`
+          # and bridged from NOWHERE until this line, which is why the worker-app's "Delete
+          # account (test)" button answered "not enabled on this server" even after the compose
+          # declaration landed: drone-ssh exports only the names in `envs:` below, the deploy
+          # script sources no env file, so compose resolved the name to `false` on every deploy.
+          # A manual `export` on the box did not survive either — the next merge to main
+          # recreated the container from the deploy's environment. Same defect class as the
+          # AGENCY_PAYOUTS_ENABLED block above and #872 / #794 / #798 / #813.
+          #
+          # `secrets.*` RATHER THAN A LITERAL, WHICH DIFFERS FROM THE BLOCK ABOVE. That one is a
+          # literal precisely so arming it requires a reviewed diff. This one is owner-set as a
+          # secret so the seam can be toggled without a PR — the owner's explicit choice on
+          # 2026-08-27, made with the consequence stated: with this true, ANY authenticated
+          # worker can irreversibly delete their own account with no OTP and no grace, because
+          # a button hidden in the public APK is a client-side gate and the server cannot see
+          # which build a request came from. See `assertAuthConfig` for the full note.
+          #
+          # UNSET IS SAFE: an absent secret bridges an empty string, `${VAR:-false}` resolves it
+          # to `false`, and `booleanFromString` reads `""` as false. Merging this arms nothing.
+          TEST_IMMEDIATE_DELETE_ENABLED: ${{ secrets.TEST_IMMEDIATE_DELETE_ENABLED }}
+
           # ---- GAP-XC-06 (#920): payer-web's external port, box-specific and NOT a
           # secret in the confidentiality sense — bridged through `secrets.*` anyway,
           # for the SAME reason CORS_ALLOWED_ORIGINS above is: consistency with the one
@@ -1961,7 +1984,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED
           # #994 — THE BODY OF THIS DEPLOY LIVES IN scripts/deploy/staging-deploy.sh.
           #
           # It is not inlined here because GitHub Actions caps a single step input at
