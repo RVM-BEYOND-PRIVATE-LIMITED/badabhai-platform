@@ -70,23 +70,51 @@ const VOCAB = readConsole(VOCAB_PATH);
 const TYPES = readConsole(TYPES_PATH);
 const present = VOCAB !== null && TYPES !== null;
 
+/**
+ * THE THREE PARSERS BELOW USE LITERAL REGEXES THAT CAPTURE THE NAME, then match the name in JS.
+ *
+ * The obvious shape is ``source.match(new RegExp(`export const ${name} = …`))``, and that is a
+ * ReDoS shape `semgrep detect-non-literal-regexp` blocks. This repository has now hit that rule
+ * FOUR times — `migration-adoption.ts`, `audit-undeclared-routines.ts`,
+ * `lifecycle-writer-scan.ts`, and this file — and the last two were both in this change, the
+ * second written immediately after the first was fixed and documented. Knowing the rule is
+ * evidently not the same as remembering it at the moment of writing a three-line helper.
+ *
+ * The inversion is the same one `tablesWrittenIn` uses: one literal matches EVERY declaration of
+ * the shape and captures its name, and the caller picks the one it wants by string equality.
+ * Beyond satisfying the gate it is more honest — `${name}` interpolated into a pattern would also
+ * match a DIFFERENT constant whose name merely contains it, and equality cannot.
+ *
+ * ⚠ All three carry `g` and therefore a `lastIndex`. `matchAll` resets it; `.exec()` in a loop
+ * would not.
+ */
+const TUPLE_DECL = /export const ([A-Z_0-9]+) = \[([\s\S]*?)\] as const;/g;
+const NUMBER_DECL = /export const ([A-Z_0-9]+) = (\d+);/g;
+const REQUEST_BRANCH = /\{\s*decision: "([a-z]+)";([\s\S]*?)\}/g;
+
 /** A `as const` string-array literal, parsed back into its members. */
 function tupleMembers(source: string, name: string): string[] {
-  const m = source.match(new RegExp(`export const ${name} = \\[([\\s\\S]*?)\\] as const;`));
-  if (!m) return [];
-  return [...(m[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((x) => x[1] as string);
+  for (const m of source.matchAll(TUPLE_DECL)) {
+    if (m[1] !== name) continue;
+    return [...(m[2] ?? "").matchAll(/"([a-z_]+)"/g)].map((x) => x[1] as string);
+  }
+  return [];
 }
 
 /** An `export const NAME = <number>;` declaration. */
 function numberConst(source: string, name: string): number | null {
-  const m = source.match(new RegExp(`export const ${name} = (\\d+);`));
-  return m ? Number(m[1]) : null;
+  for (const m of source.matchAll(NUMBER_DECL)) {
+    if (m[1] === name) return Number(m[2]);
+  }
+  return null;
 }
 
 /** The body of one branch of the console's `SkillDecisionRequest` union. */
 function requestBranch(source: string, decision: string): string {
-  const m = source.match(new RegExp(`\\{\\s*decision: "${decision}";([\\s\\S]*?)\\}`));
-  return m?.[1] ?? "";
+  for (const m of source.matchAll(REQUEST_BRANCH)) {
+    if (m[1] === decision) return m[2] ?? "";
+  }
+  return "";
 }
 
 describe("the mirror exists (the skip cannot become the permanent state)", () => {
