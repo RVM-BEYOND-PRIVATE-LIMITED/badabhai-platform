@@ -18,6 +18,7 @@ import type {
   AdminSkillCandidateDetailRow,
   AdminSkillDiscoveryQueueRow,
 } from "./admin-skill-discovery.repository";
+import { ADMIN_SKILL_GROUPS_MAX_CANDIDATES } from "./admin-skill-discovery.dto";
 import type {
   AdminSkillCandidateMatchRow,
   AdminSkillCandidateSource,
@@ -47,6 +48,59 @@ const CTX: RequestContext = {
 };
 const TARGET_SKILL = "skill_arc_welding";
 const OTHER_SKILL = "skill_gas_welding";
+
+/** Three candidates that batch into two groups — one pair on a shared anchor, one singleton. */
+const GROUPING_FACTS = [
+  {
+    candidate_id: "c1",
+    evidence_tokens: ["wood", "turn"],
+    trade_family: "Craft",
+    phrase_class: "OCCUPATION_WITH_SKILL_EVIDENCE",
+    has_strong_match: false,
+    source_alias_count: 2,
+    job_domain_ids: ["jd_1", "jd_2"],
+    proposed_action: "create",
+    status: "pending",
+  },
+  {
+    candidate_id: "c2",
+    evidence_tokens: ["wood", "saw"],
+    trade_family: "Craft",
+    phrase_class: "OCCUPATION_WITH_SKILL_EVIDENCE",
+    has_strong_match: false,
+    source_alias_count: 1,
+    // Overlaps c1 on jd_2 — the union must not double-count it.
+    job_domain_ids: ["jd_2", "jd_3"],
+    proposed_action: "create",
+    status: "approved_create",
+  },
+  {
+    candidate_id: "c3",
+    evidence_tokens: ["metal"],
+    trade_family: "Plant",
+    phrase_class: "ACTIVITY_PHRASE",
+    has_strong_match: false,
+    source_alias_count: 1,
+    job_domain_ids: ["jd_9"],
+    proposed_action: "create",
+    status: "needs_review",
+  },
+];
+
+const AUDIT_EVENTS = [
+  {
+    event_id: "11111111-1111-4111-8111-00000000000a",
+    occurred_at: new Date("2026-08-26T13:00:00.000Z"),
+    action_code: "skill_candidate_approved_create",
+    admin_id: ADMIN_ID,
+  },
+];
+
+const CORPUS_SKILLS = [
+  { skill_id: "skill_arc_welding", label_en: "Arc Welding", status: "active", kind: "attribute" },
+  { skill_id: "skill_old_welding", label_en: "Old Welding", status: "deprecated", kind: "attribute" },
+  { skill_id: "mskill_welder", label_en: "Welder", status: "active", kind: "match_skill" },
+];
 
 /** A fake `tx` token the mocked withTransaction hands to the callback. */
 const FAKE_TX = { __tx: true } as unknown;
@@ -164,6 +218,13 @@ const ALLOWED_REPO_MEMBERS = new Set<string>([
   "listSources",
   "listMatches",
   "metricFacts",
+  // The grouping read and its bound. `countMatching` runs FIRST so an over-broad filter is
+  // refused with a number instead of answered with tens of thousands of rows.
+  "countMatching",
+  "groupingFacts",
+  // The audit read (the event spine) and the MAP picker's lookup. Both SELECTs.
+  "listAuditEvents",
+  "searchCorpusSkills",
   "findCorpusSkill",
   // Reads `job_domain` to resolve the trades a `create` decision names. A READ, and the second
   // of the two tables outside migration 0093 this surface may touch — an array column cannot
@@ -182,6 +243,10 @@ interface RepoFake {
   listSources: ReturnType<typeof vi.fn>;
   listMatches: ReturnType<typeof vi.fn>;
   metricFacts: ReturnType<typeof vi.fn>;
+  countMatching: ReturnType<typeof vi.fn>;
+  groupingFacts: ReturnType<typeof vi.fn>;
+  listAuditEvents: ReturnType<typeof vi.fn>;
+  searchCorpusSkills: ReturnType<typeof vi.fn>;
   findCorpusSkill: ReturnType<typeof vi.fn>;
   findLiveJobDomainIds: ReturnType<typeof vi.fn>;
   findStatus: ReturnType<typeof vi.fn>;
@@ -212,6 +277,10 @@ function make(): Mocks {
       by_phrase_class: [],
       oldest_awaiting_created_at: null,
     })),
+    countMatching: vi.fn(async () => 3),
+    groupingFacts: vi.fn(async () => GROUPING_FACTS),
+    listAuditEvents: vi.fn(async () => AUDIT_EVENTS),
+    searchCorpusSkills: vi.fn(async () => CORPUS_SKILLS),
     findCorpusSkill: vi.fn(async () => ({
       skill_id: TARGET_SKILL,
       status: "active" as const,
@@ -1291,5 +1360,195 @@ describe("the reads", () => {
       runId: "sdr_20260826T120000Z_nightly",
       awaitingStatuses: ["pending", "needs_review"],
     });
+  });
+});
+
+describe("the grouped view", () => {
+  it("groups the WHOLE filtered population, never a page", () => {
+    // The anchor a candidate is batched on comes from a token count across everything passed in,
+    // so a paged grouping gives the same candidate a different batch on every page-turn. The
+    // repository call therefore takes a filter and no cursor and no limit — asserted, because
+    // "we did not pass a cursor" is exactly the kind of thing a later refactor adds for symmetry.
+    return m.service.groups({ tier: "derived" }).then(() => {
+      expect(m.repo.groupingFacts).toHaveBeenCalledWith({ tier: "derived" });
+      const [arg] = m.repo.groupingFacts.mock.calls[0] as [Record<string, unknown>];
+      expect(arg).not.toHaveProperty("cursor");
+      expect(arg).not.toHaveProperty("limit");
+    });
+  });
+
+  it("counts BEFORE it fetches, and refuses an over-broad filter with the number", () => {
+    // A truncated grouping still claims to be exhaustive, which is the one answer worse than a
+    // refusal. The count is one cheap aggregate; the alternative is reading the whole table
+    // before anyone notices it was too large.
+    m.repo.countMatching.mockResolvedValueOnce(ADMIN_SKILL_GROUPS_MAX_CANDIDATES + 1);
+    return m.service.groups({}).then(
+      () => expect.unreachable("should have refused"),
+      (err: unknown) => {
+        expect((err as { status?: number }).status).toBe(400);
+        expect(String((err as Error).message)).toContain(
+          String(ADMIN_SKILL_GROUPS_MAX_CANDIDATES + 1),
+        );
+        expect(m.repo.groupingFacts).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  it("batches on tier and family and anchor, and reports what is still WORK", async () => {
+    const out = await m.service.groups({});
+    // c1 + c2 share tier/family/anchor("wood"); c3 is its own group.
+    expect(out.total_groups).toBe(2);
+    const wood = out.groups.find((g) => g.anchor === "wood");
+    expect(wood?.candidates).toBe(2);
+    // c2 is `approved_create` — decided. Only c1 is still work.
+    expect(wood?.undecided).toBe(1);
+  });
+
+  it("UNIONS the group's job domains rather than summing per-candidate counts", async () => {
+    // c1 has {jd_1, jd_2} and c2 has {jd_2, jd_3}. Summing per-candidate counts gives 4; the
+    // union is 3. A batch is by construction candidates from related trades, so the overlap is
+    // the normal case, not an edge one.
+    const out = await m.service.groups({});
+    expect(out.groups.find((g) => g.anchor === "wood")?.source_domains).toBe(3);
+  });
+
+  it("sums its totals FROM the groups, so the headline cannot contradict the breakdown", async () => {
+    const out = await m.service.groups({});
+    expect(out.total_candidates).toBe(out.groups.reduce((n, g) => n + g.candidates, 0));
+    expect(out.total_undecided).toBe(out.groups.reduce((n, g) => n + g.undecided, 0));
+    expect(out.total_candidates).toBe(GROUPING_FACTS.length);
+  });
+
+  it("says in band that a group is derived, not stored", async () => {
+    // There is no group id in any table. A consumer that wanted to persist one learns from the
+    // response itself that there is nothing to reconcile against.
+    const out = await m.service.groups({});
+    expect(out.grouping_basis).toBe("groups_are_derived_not_stored");
+    expect(out.tier_basis).toBe("review_tier_is_derived_not_stored");
+  });
+
+  it("returns members sorted, so identical requests render identically", async () => {
+    const out = await m.service.groups({});
+    for (const g of out.groups) expect(g.candidate_ids).toEqual([...g.candidate_ids].sort());
+  });
+
+  it("emits nothing — a read is not a state change", async () => {
+    await m.service.groups({});
+    expect(m.events.emit).not.toHaveBeenCalled();
+    expect(m.repo.recordDecision).not.toHaveBeenCalled();
+  });
+});
+
+describe("the audit read", () => {
+  it("serves the spine AND the row, because either alone misleads", async () => {
+    // The spine says what happened and cannot have been edited; the row says what the candidate
+    // NOW is. An auditor needs to see the two agree — and if they ever do not, that is the
+    // finding, which a response carrying one of them could never surface.
+    const out = await m.service.audit(CANDIDATE_ID);
+    expect(out.candidate_id).toBe(CANDIDATE_ID);
+    expect(out.entries).toHaveLength(1);
+    expect(out.entries[0]?.action_code).toBe("skill_candidate_approved_create");
+    expect(out.current.status).toBeDefined();
+    expect(out.current).toHaveProperty("approved_job_domain_ids");
+    expect(out.current).toHaveProperty("approved_requirement");
+  });
+
+  it("carries no values — the spine is value-free by construction", async () => {
+    // WHO did WHAT and WHEN. The reason and the proposed label live on the row, which the detail
+    // read serves; two copies of one fact are two things that can disagree.
+    const out = await m.service.audit(CANDIDATE_ID);
+    for (const entry of out.entries) {
+      expect(Object.keys(entry).sort()).toEqual([
+        "action_code",
+        "admin_id",
+        "event_id",
+        "occurred_at",
+      ]);
+    }
+  });
+
+  it("states that no entry here means a skill was created", async () => {
+    const out = await m.service.audit(CANDIDATE_ID);
+    expect(out.corpus_effect).toBe("decision_recorded_no_corpus_write");
+  });
+
+  it("404s an unknown candidate rather than serving an empty history", async () => {
+    // An empty trail for a candidate that does not exist reads as "nothing ever happened to it",
+    // which is a different and false claim.
+    m.repo.findCandidate.mockResolvedValueOnce(undefined);
+    await expect(m.service.audit(CANDIDATE_ID)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("emits nothing, and writes nothing", async () => {
+    await m.service.audit(CANDIDATE_ID);
+    expect(m.events.emit).not.toHaveBeenCalled();
+    expect(m.repo.recordDecision).not.toHaveBeenCalled();
+    expect(m.repo.withTransaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("the MAP picker's skill lookup", () => {
+  it("REPORTS eligibility rather than filtering the ineligible out", async () => {
+    // A reviewer searching for a skill they remember and finding nothing cannot tell "no such
+    // skill" from "deprecated" from "that one is match vocabulary" — three situations needing
+    // three different actions.
+    const out = await m.service.searchSkills({ q: "weld", limit: 20 });
+    expect(out.skills).toHaveLength(3);
+    const byId = new Map(out.skills.map((sk) => [sk.skill_id, sk]));
+    expect(byId.get("skill_arc_welding")?.mappable).toBe(true);
+    expect(byId.get("skill_arc_welding")?.not_mappable_reason).toBeNull();
+    expect(byId.get("skill_old_welding")?.mappable).toBe(false);
+    expect(byId.get("mskill_welder")?.mappable).toBe(false);
+  });
+
+  it("gives the reason, and names match vocabulary as match vocabulary", async () => {
+    const out = await m.service.searchSkills({ q: "weld", limit: 20 });
+    const byId = new Map(out.skills.map((sk) => [sk.skill_id, sk]));
+    expect(byId.get("mskill_welder")?.not_mappable_reason).toContain("Match vocabulary");
+    expect(byId.get("skill_old_welding")?.not_mappable_reason).toContain("Deprecated");
+  });
+
+  it("agrees with the WRITE about what is mappable", async () => {
+    // Two definitions of "mappable" would let the picker present a choice that always 400s. The
+    // service's decision path refuses exactly these two, so the picker must flag exactly these
+    // two — asserted by running the write against each and comparing.
+    const out = await m.service.searchSkills({ q: "weld", limit: 20 });
+    for (const skill of out.skills) {
+      m.repo.findStatus.mockResolvedValueOnce({ candidate_id: CANDIDATE_ID, status: "needs_review" });
+      m.repo.findCorpusSkill.mockResolvedValueOnce({
+        skill_id: skill.skill_id,
+        status: skill.status as "active" | "deprecated",
+        kind: skill.kind as "attribute" | "match_skill",
+      });
+      const err = await m.service
+        .decide(ADMIN_ID, CANDIDATE_ID, { ...ALIAS, resulting_skill_id: "skill_arc_welding" }, CTX)
+        .then(() => null)
+        .catch((e: unknown) => e);
+      const writeAccepted = err === null;
+      expect(writeAccepted, `${skill.skill_id} picker=${skill.mappable} write=${writeAccepted}`).toBe(
+        skill.mappable,
+      );
+    }
+  });
+
+  it("over-fetches by one to answer `truncated` honestly", async () => {
+    // Without the extra row, "exactly `limit` results" and "more than `limit` results" are the
+    // same response, and the console cannot tell the reviewer to type more.
+    m.repo.searchCorpusSkills.mockResolvedValueOnce([...CORPUS_SKILLS]);
+    const out = await m.service.searchSkills({ q: "weld", limit: 2 });
+    expect(m.repo.searchCorpusSkills).toHaveBeenCalledWith("weld", 3);
+    expect(out.skills).toHaveLength(2);
+    expect(out.truncated).toBe(true);
+  });
+
+  it("echoes the term, so a stale response is not read as a newer keystroke's answer", async () => {
+    const out = await m.service.searchSkills({ q: "weld", limit: 20 });
+    expect(out.q).toBe("weld");
+  });
+
+  it("creates nothing and emits nothing", async () => {
+    await m.service.searchSkills({ q: "weld", limit: 20 });
+    expect(m.events.emit).not.toHaveBeenCalled();
+    expect(m.repo.withTransaction).not.toHaveBeenCalled();
   });
 });

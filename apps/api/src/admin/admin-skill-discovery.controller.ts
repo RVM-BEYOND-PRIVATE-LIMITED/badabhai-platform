@@ -6,17 +6,24 @@ import { AdminRolesGuard, RequireAdminRole } from "./admin-roles.guard";
 import { AdminSkillDiscoveryService } from "./admin-skill-discovery.service";
 import {
   AdminSkillDecisionSchema,
+  AdminSkillDiscoveryGroupsQuerySchema,
+  AdminSkillsQuerySchema,
   AdminSkillDiscoveryMetricsQuerySchema,
   AdminSkillDiscoveryParamsSchema,
   AdminSkillDiscoveryQuerySchema,
+  type AdminCanonicalSkillSearch,
+  type AdminSkillCandidateAudit,
   type AdminSkillDecisionDto,
   type AdminSkillDecisionResult,
   type AdminSkillDiscoveryDetail,
+  type AdminSkillDiscoveryGroups,
+  type AdminSkillDiscoveryGroupsQueryDto,
   type AdminSkillDiscoveryMetrics,
   type AdminSkillDiscoveryMetricsQueryDto,
   type AdminSkillDiscoveryPage,
   type AdminSkillDiscoveryParamsDto,
   type AdminSkillDiscoveryQueryDto,
+  type AdminSkillsQueryDto,
 } from "./admin-skill-discovery.dto";
 
 /**
@@ -165,6 +172,68 @@ export class AdminSkillDiscoveryController {
   }
 
   /**
+   * GET /admin/skill-discovery/groups — the review BATCHES for one filtered population.
+   *
+   * DECLARED BEFORE `:id`, FOR THE SAME REASON `metrics` IS. Nest matches in declaration order,
+   * so `skill-discovery/:id` first would swallow this — and the failure would not even be a 404
+   * but a 400 from the uuid param schema complaining that "groups" is not a uuid, which is a
+   * confusing way to learn about route ordering.
+   *
+   * ── WHY THE SERVER GROUPS AND THE CONSOLE DOES NOT ────────────────────────────────────
+   * Because the console CANNOT, and said so. `anchorToken` picks each candidate's batch from a
+   * token count taken across the whole population, so the algorithm needs the whole population;
+   * a client holding one page of 50 would compute different anchors from the same data. The
+   * merged review screen documents exactly this and degraded to grouping by `trade_family` alone
+   * within a page rather than reimplement it — *"'server authority' CLAUDE.md invariant #9
+   * forbids"*. It was right. This route is what it was waiting for.
+   *
+   * ── EXHAUSTIVE, THEREFORE BOUNDED ─────────────────────────────────────────────────────
+   * There is NO cursor and NO limit: a group promises its member list is complete for the filters,
+   * and a page cannot promise that. An over-broad filter is refused with a 400 naming the count
+   * rather than silently truncated, because a truncated grouping still CLAIMS to be exhaustive.
+   *
+   * `read_entities` — the same floor as the other three reads. A batch is counts, enums and
+   * candidate ids; it discloses nothing the queue does not.
+   */
+  @Get("skill-discovery/groups")
+  @RequireAdminRole("read_entities")
+  groups(
+    @Query(new ZodValidationPipe(AdminSkillDiscoveryGroupsQuerySchema))
+    query: AdminSkillDiscoveryGroupsQueryDto,
+  ): Promise<AdminSkillDiscoveryGroups> {
+    return this.service.groups(query);
+  }
+
+  /**
+   * GET /admin/skills?q= — the canonical skills a MAP or MERGE could resolve onto.
+   *
+   * ── WHY IT IS NOT THE EXISTING SKILLS CONTROLLER ──────────────────────────────────────
+   * `apps/api/src/skills/skills.controller.ts` is `@Controller("internal/skills")` behind
+   * `SkillsInternalGuard` — the SERVICE-TO-SERVICE path. An admin console must not authenticate
+   * as a service: it would pass the wrong guard, carry no admin identity, and leave no trace
+   * under the admin's session. Widening that controller to accept a browser is how an internal
+   * surface quietly becomes a public one.
+   *
+   * ── WHY IT LIVES ON THIS CONTROLLER ───────────────────────────────────────────────────
+   * Because it exists for THIS screen. It is the MAP picker's lookup, its eligibility rule is the
+   * one `assertMappableTarget` enforces on the decision write two routes down, and keeping the
+   * two together is what stops the picker offering something the write then refuses. A general
+   * `/admin/skills` resource — list, detail, mutate — would be a different thing with different
+   * owners, and inventing one to host a search would be inventing a surface nobody asked for.
+   *
+   * ── IT CREATES NOTHING ────────────────────────────────────────────────────────────────
+   * A read. `read_entities`, no write behind it, and the decision route re-validates whatever id
+   * it is handed regardless — this makes the picker usable, not authoritative.
+   */
+  @Get("skills")
+  @RequireAdminRole("read_entities")
+  searchSkills(
+    @Query(new ZodValidationPipe(AdminSkillsQuerySchema)) query: AdminSkillsQueryDto,
+  ): Promise<AdminCanonicalSkillSearch> {
+    return this.service.searchSkills(query);
+  }
+
+  /**
    * GET /admin/skill-discovery/:id — one candidate, with its sources, its related skills in plain
    * language, and its frozen provenance.
    *
@@ -186,6 +255,36 @@ export class AdminSkillDiscoveryController {
     params: AdminSkillDiscoveryParamsDto,
   ): Promise<AdminSkillDiscoveryDetail> {
     return this.service.detail(params.id);
+  }
+
+  /**
+   * GET /admin/skill-discovery/:id/audit — what has happened to this candidate.
+   *
+   * THE EVENT SPINE PLUS THE ROW, and both halves are the point. The spine is immutable and says
+   * what happened; the row says what the candidate NOW is. An auditor needs to see them agree,
+   * and if they ever do not, that disagreement is the finding — which a response carrying only
+   * one of them could never surface.
+   *
+   * READ-ONLY, and it emits nothing itself. Reading an audit trail is not an auditable act here:
+   * these rows carry no identity — there is no `worker_id` column anywhere in migration 0093 —
+   * and recording every read would need a new event name against a pinned `EVENT_NAMES` list for
+   * a fact nobody has asked to know. The sibling that DOES emit on read
+   * (`admin.feedback_viewed`) does so because it serves a worker's prose tied to their id.
+   *
+   * NO VALUES, because the spine carries none: `admin.action_performed` is value-free by
+   * construction, so this says WHO did WHAT and WHEN. The reason and the proposed label live on
+   * the candidate row, which the detail read already serves — one copy of each fact, not two that
+   * could disagree.
+   *
+   * `read_entities`, like the other reads.
+   */
+  @Get("skill-discovery/:id/audit")
+  @RequireAdminRole("read_entities")
+  auditTrail(
+    @Param(new ZodValidationPipe(AdminSkillDiscoveryParamsSchema))
+    params: AdminSkillDiscoveryParamsDto,
+  ): Promise<AdminSkillCandidateAudit> {
+    return this.service.audit(params.id);
   }
 
   /**

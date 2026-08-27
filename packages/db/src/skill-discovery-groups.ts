@@ -54,7 +54,7 @@
  * PURE. Candidates in, groups out. No database, no clock, no I/O.
  */
 import type { SkillCandidateRecord } from "./skill-discovery-candidate";
-import { reviewTier, type ReviewTier } from "./skill-discovery-plan";
+import { reviewTierFrom, type ReviewTier } from "./skill-discovery-plan";
 
 // ===========================================================================
 // The anchor
@@ -126,9 +126,17 @@ export function anchorToken(
   candidate: SkillCandidateRecord,
   counts: ReadonlyMap<string, number>,
 ): string | null {
+  return anchorFor(candidate.evidence_tokens, counts);
+}
+
+/** The same choice over the tokens alone, for callers holding facts rather than a record. */
+export function anchorFor(
+  evidenceTokens: readonly string[],
+  counts: ReadonlyMap<string, number>,
+): string | null {
   let best: string | null = null;
   let bestCount = 0;
-  for (const token of new Set(candidate.evidence_tokens)) {
+  for (const token of new Set(evidenceTokens)) {
     if (NON_ANCHOR.has(token)) continue;
     const count = counts.get(token) ?? 0;
     if (count > bestCount || (count === bestCount && best !== null && token < best)) {
@@ -165,9 +173,67 @@ export interface ReviewGroup {
   readonly source_rows: number;
   /** Distinct job domains behind the batch. The "how widely attested" signal. */
   readonly source_domains: number;
+  /**
+   * Members still awaiting a human — `pending` + `needs_review`.
+   *
+   * THE NUMBER A REVIEWER PICKS A BATCH BY. `candidates` is how big the batch is; this is how
+   * much of it is still work. A group whose members are all decided is history, and a console
+   * that could not tell the two apart would keep offering finished batches at the top of the
+   * queue forever, because {@link groupCandidates} sorts by size.
+   *
+   * `deferred` counts as DECIDED here, deliberately: somebody looked and could not settle it,
+   * which is a different fact from nobody having looked, and folding it in would make "this batch
+   * has 12 left" mean two incompatible things.
+   */
+  readonly undecided: number;
   /** The pipeline's suggestion, when every member agrees. `null` when they do not. */
   readonly unanimous_action: string | null;
 }
+
+/**
+ * THE MINIMUM GROUPING NEEDS — the shape a caller that cannot build whole records must supply.
+ *
+ * ── WHY THIS EXISTS, WHICH IS THE SAME REASON `reviewTierFrom` DOES ────────────────────
+ * {@link groupCandidates} takes `SkillCandidateRecord[]`, and a record carries its `sources` and
+ * `matches` arrays. The pipeline holds those because it just built them. THE ADMIN QUEUE DOES
+ * NOT: a queue read is stored columns plus two aggregates, and materialising 6,673 records to
+ * group them would mean fetching every source row and every match row in the table — tens of
+ * thousands of rows, to compute a handful of counts.
+ *
+ * So the rule is exposed over the facts it actually reads, and `groupCandidates` delegates to it.
+ * Without this the admin side had two options, and the console picked the honest one: it
+ * DEGRADED to grouping by `trade_family` alone, within a single page, and said so in its header
+ * — *"reimplementing that algorithm client-side is 'server authority' CLAUDE.md invariant #9
+ * forbids"*. It was right, and this is the endpoint it was waiting for.
+ *
+ * Every field here is read by the grouping rule and nothing else is:
+ *   `evidence_tokens`      the anchor
+ *   `trade_family`         the family half of the key
+ *   `phrase_class` + `has_strong_match`   the tier, via `reviewTierFrom`
+ *   `source_alias_count`   summed into `source_rows`
+ *   `job_domain_ids`       UNIONED into `source_domains` — see below
+ *   `proposed_action`      the unanimity check
+ *   `status`               the undecided count
+ *
+ * ⚠ `job_domain_ids` IS THE ONE FIELD THAT CANNOT BE A COUNT. `skill_candidate` stores
+ * `source_domain_count` per candidate, and summing that across a group DOUBLE-COUNTS every domain
+ * two members share — which is most of them, since a batch is by construction candidates from
+ * related trades. The group's figure is a UNION, so the ids have to travel.
+ */
+export interface GroupingFacts {
+  readonly candidate_id: string;
+  readonly evidence_tokens: readonly string[];
+  readonly trade_family: string | null;
+  readonly phrase_class: string;
+  readonly has_strong_match: boolean;
+  readonly source_alias_count: number;
+  readonly job_domain_ids: readonly string[];
+  readonly proposed_action: string;
+  readonly status: string;
+}
+
+/** The two statuses that mean "still work". Mirrors `MACHINE_WRITABLE_STATUSES`. */
+const UNDECIDED_STATUSES: ReadonlySet<string> = new Set(["pending", "needs_review"]);
 
 /**
  * Group the queue.
@@ -178,16 +244,61 @@ export interface ReviewGroup {
  * batch would be silently deciding derived candidates while the direct queue was still open.
  */
 export function groupCandidates(candidates: readonly SkillCandidateRecord[]): ReviewGroup[] {
-  const counts = evidenceTokenCounts(candidates);
-  const buckets = new Map<string, SkillCandidateRecord[]>();
+  return groupFacts(
+    candidates.map((c) => ({
+      candidate_id: c.candidate_id,
+      evidence_tokens: c.evidence_tokens,
+      trade_family: c.trade_family,
+      phrase_class: c.phrase_class,
+      has_strong_match: c.matches.some((m) => m.strength === "strong"),
+      source_alias_count: c.source_alias_count,
+      job_domain_ids: c.sources
+        .map((s) => s.job_domain_id)
+        .filter((d): d is string => d !== null),
+      proposed_action: c.proposed_action,
+      status: c.status,
+    })),
+  );
+}
 
-  for (const c of candidates) {
-    const tier = reviewTier(c);
-    const anchor = anchorToken(c, counts);
-    const key = `${tier}|${c.trade_family ?? "-"}|${anchor ?? "-"}`;
+/**
+ * THE GROUPING RULE, over {@link GroupingFacts}. The only implementation;
+ * {@link groupCandidates} projects records into facts and calls this.
+ *
+ * TIER LEADS THE KEY, and that is not cosmetic. The rule is that the `direct` tier is validated
+ * FIRST and the `derived` tail is reviewed in batches only afterwards; a group that mixed the two
+ * would make that impossible to honour, because a reviewer working the "wood" batch would be
+ * silently deciding derived candidates while the direct queue was still open.
+ *
+ * DETERMINISTIC, and it has to be: `anchorToken` breaks count ties alphabetically, the buckets
+ * are keyed by a string derived from the members, and the sort has a total tie-break. Two calls
+ * over the same input produce byte-identical output, so a reviewer returning to "the wood batch"
+ * finds the same batch. There is no id in any table and nothing is persisted — a group is a LENS,
+ * recomputed on every read.
+ *
+ * ⚠ THE ANCHOR IS GLOBAL TO THE INPUT SET, which is what makes this an endpoint rather than a
+ * page transform. `evidenceTokenCounts` counts across everything passed in, so grouping one page
+ * of 50 and grouping the whole filtered set give DIFFERENT anchors for the same candidate — the
+ * top token within 50 rows is rarely the top token within 6,673. Callers must pass the whole
+ * filtered set, never a page.
+ */
+export function groupFacts(facts: readonly GroupingFacts[]): ReviewGroup[] {
+  const counts = new Map<string, number>();
+  for (const f of facts) {
+    for (const token of new Set(f.evidence_tokens)) {
+      if (NON_ANCHOR.has(token)) continue;
+      counts.set(token, (counts.get(token) ?? 0) + 1);
+    }
+  }
+
+  const buckets = new Map<string, GroupingFacts[]>();
+  for (const f of facts) {
+    const tier = reviewTierFrom(f.phrase_class, f.has_strong_match);
+    const anchor = anchorFor(f.evidence_tokens, counts);
+    const key = `${tier}|${f.trade_family ?? "-"}|${anchor ?? "-"}`;
     const bucket = buckets.get(key);
-    if (bucket === undefined) buckets.set(key, [c]);
-    else bucket.push(c);
+    if (bucket === undefined) buckets.set(key, [f]);
+    else bucket.push(f);
   }
 
   const groups: ReviewGroup[] = [];
@@ -195,9 +306,11 @@ export function groupCandidates(candidates: readonly SkillCandidateRecord[]): Re
     const [tier, family, anchor] = key.split("|") as [ReviewTier, string, string];
     const domains = new Set<string>();
     let sourceRows = 0;
+    let undecided = 0;
     for (const m of members) {
       sourceRows += m.source_alias_count;
-      for (const s of m.sources) if (s.job_domain_id !== null) domains.add(s.job_domain_id);
+      for (const d of m.job_domain_ids) domains.add(d);
+      if (UNDECIDED_STATUSES.has(m.status)) undecided += 1;
     }
     const actions = new Set(members.map((m) => m.proposed_action));
     groups.push({
@@ -206,8 +319,16 @@ export function groupCandidates(candidates: readonly SkillCandidateRecord[]): Re
       trade_family: family === "-" ? null : family,
       anchor: anchor === "-" ? null : anchor,
       label: groupLabel(anchor === "-" ? null : anchor, family === "-" ? null : family, tier),
-      candidate_ids: members.map((m) => m.candidate_id),
+      // SORTED, not input order. Everything else about a group is already order-independent —
+      // the key is derived from the members, the anchor from a global count — and this was the
+      // one field that was not: the members array is filled in arrival order, so the same batch
+      // rendered its rows differently depending on how the rows happened to arrive. The endpoint
+      // that feeds this reads SQL with no ORDER BY on the grouping query, so "how they happened
+      // to arrive" is not stable, and a reviewer would see a batch reshuffle between two
+      // identical requests. A test caught it; the fix belongs here rather than in the test.
+      candidate_ids: members.map((m) => m.candidate_id).sort(),
       candidates: members.length,
+      undecided,
       source_rows: sourceRows,
       source_domains: domains.size,
       unanimous_action: actions.size === 1 ? [...actions][0] ?? null : null,
@@ -216,7 +337,7 @@ export function groupCandidates(candidates: readonly SkillCandidateRecord[]): Re
 
   // Biggest batches first — a group of 35 saves 35 decisions, and that is the whole ordering
   // criterion. Tier is NOT re-applied here: it is already in the key, and the caller filters by
-  // tier before rendering (the brief's direct-then-derived sequencing).
+  // tier before rendering (the direct-then-derived sequencing).
   groups.sort((a, b) => b.candidates - a.candidates || a.key.localeCompare(b.key));
   return groups;
 }

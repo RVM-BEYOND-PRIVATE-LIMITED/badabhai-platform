@@ -100,6 +100,25 @@ export { STRONG_MATCH_RELATIONS, isStrongRelation } from "./skill-discovery-matc
 export type { MatchRelation } from "./skill-discovery-match";
 export { CLASSIFIER_RULES } from "./skill-discovery-classify";
 
+// ── The review-queue BATCHING rule ─────────────────────────────────────────────────────────
+//
+// `groupFacts` exists beside `groupCandidates` for the same reason `reviewTierFrom` exists beside
+// `reviewTier`: the admin queue cannot build whole records. A `SkillCandidateRecord` carries its
+// `sources` and `matches`, and materialising 6,673 of them to compute a handful of counts would
+// mean reading every source row and every match row in the table.
+//
+// Until this was exposed, the console had two options and picked the honest one — it DEGRADED to
+// grouping by `trade_family` alone, within a single server page, and said so in its own header:
+// "reimplementing that algorithm client-side is 'server authority' CLAUDE.md invariant #9
+// forbids". It was right, and these are what let a server endpoint replace that.
+export {
+  anchorFor,
+  groupCandidates,
+  groupFacts,
+  groupingReduction,
+} from "./skill-discovery-groups";
+export type { GroupingFacts, ReviewGroup } from "./skill-discovery-groups";
+
 // ── The taxonomy WRITE-SURFACE audit (repo-wide) ────────────────────────────────────────────
 //
 // Exported because the property it measures is not a `packages/db` property. "No request path can

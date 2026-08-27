@@ -12,8 +12,10 @@ import {
   anchorToken,
   evidenceTokenCounts,
   groupCandidates,
+  groupFacts,
   groupingReduction,
   NON_ANCHOR_TOKENS,
+  type GroupingFacts,
 } from "./skill-discovery-groups";
 import {
   candidateId,
@@ -30,6 +32,22 @@ import { deriveOccupationHeads, DEVANAGARI_ROLE_NOUNS } from "./skill-discovery-
 import { reviewTier } from "./skill-discovery-plan";
 
 const RUN = "sdr_20260101-000000Z_test";
+
+/** A minimal fact row. `candidate_id` doubles as the label so failures read clearly. */
+function base(id: string, evidenceTokens: readonly string[] = ["wood"]): GroupingFacts {
+  return {
+    candidate_id: id,
+    evidence_tokens: evidenceTokens,
+    trade_family: "Craft and Related Trades Workers",
+    phrase_class: "OCCUPATION_WITH_SKILL_EVIDENCE",
+    has_strong_match: false,
+    source_alias_count: 1,
+    job_domain_ids: ["jd_a"],
+    proposed_action: "create",
+    status: "pending",
+  };
+}
+
 
 function candidate(
   clusterKey: string,
@@ -337,5 +355,137 @@ describe("reduction reporting", () => {
     const total = groups.reduce((n, g) => n + g.candidates, 0);
     expect(total).toBe(candidates.length);
     for (const c of candidates) expect(["direct", "derived", "ambiguous"]).toContain(reviewTier(c));
+  });
+});
+
+// ===========================================================================
+// groupFacts — the same rule, over what a queue read can actually hold
+// ===========================================================================
+//
+// The admin queue cannot build `SkillCandidateRecord`s: a record carries its `sources` and
+// `matches`, and materialising 6,673 of them to compute a few counts would mean reading every
+// source row and every match row in the table. So the rule is exposed over the facts it reads.
+//
+// Until it was, the console had two options and picked the honest one: it DEGRADED to grouping by
+// `trade_family` alone, within a single server page, and said so in its own header —
+// "reimplementing that algorithm client-side is 'server authority' CLAUDE.md invariant #9
+// forbids". These assertions are what let the endpoint replace that.
+
+describe("groupFacts is the one implementation, and groupCandidates delegates to it", () => {
+  /** The projection `groupCandidates` performs, spelled out so the two can be compared. */
+  const factsOf = (candidates: readonly SkillCandidateRecord[]): GroupingFacts[] =>
+    candidates.map((c) => ({
+      candidate_id: c.candidate_id,
+      evidence_tokens: c.evidence_tokens,
+      trade_family: c.trade_family,
+      phrase_class: c.phrase_class,
+      has_strong_match: c.matches.some((m) => m.strength === "strong"),
+      source_alias_count: c.source_alias_count,
+      job_domain_ids: c.sources
+        .map((x) => x.job_domain_id)
+        .filter((d): d is string => d !== null),
+      proposed_action: c.proposed_action,
+      status: c.status,
+    }));
+
+  it("produces byte-identical groups from records and from facts", () => {
+    // If these ever diverged, the console and the pipeline would disagree about what a batch IS,
+    // and a reviewer working "the wood batch" on screen would be resolving a different set than
+    // the one the coverage report counted.
+    const candidates = ["wood turn", "wood saw", "wood drill", "metal cut", "riksha"].map((k) =>
+      candidate(k),
+    );
+    expect(groupFacts(factsOf(candidates))).toEqual(groupCandidates(candidates));
+  });
+
+  it("agrees on a mixed-tier, mixed-family set too", () => {
+    const candidates = [
+      candidate("wood turn"),
+      candidate("wood saw", { phrase_class: "ACTIVITY_PHRASE" }),
+      candidate("riksha", { phrase_class: "AMBIGUOUS", evidence_tokens: [] }),
+      candidate("metal cut", { trade_family: "Plant and Machine Operators" }),
+    ];
+    expect(groupFacts(factsOf(candidates))).toEqual(groupCandidates(candidates));
+  });
+});
+
+describe("the group counts a reviewer actually reads", () => {
+  it("counts UNDECIDED members, and treats deferred as decided", () => {
+    // `candidates` is how big the batch is; `undecided` is how much of it is still work. Without
+    // the split, a fully-decided batch keeps sitting at the top of the queue forever, because
+    // groups sort by size.
+    //
+    // `deferred` counts as DECIDED: somebody looked and could not settle it, which is a different
+    // fact from nobody having looked. Folding it in would make "12 left" mean two things.
+    const facts: GroupingFacts[] = [
+      { ...base("a"), status: "pending" },
+      { ...base("b"), status: "needs_review" },
+      { ...base("c"), status: "deferred" },
+      { ...base("d"), status: "approved_create" },
+      { ...base("e"), status: "rejected" },
+    ];
+    const [group] = groupFacts(facts);
+    expect(group?.candidates).toBe(5);
+    expect(group?.undecided).toBe(2);
+  });
+
+  it("UNIONS the job domains rather than summing them — the double-count trap", () => {
+    // `skill_candidate.source_domain_count` is per candidate, and summing it across a group
+    // double-counts every domain two members share. A batch is BY CONSTRUCTION candidates from
+    // related trades, so that is most of them: three members attested in the same two domains
+    // would report six.
+    const facts: GroupingFacts[] = [
+      { ...base("a"), job_domain_ids: ["jd_1", "jd_2"] },
+      { ...base("b"), job_domain_ids: ["jd_2", "jd_3"] },
+      { ...base("c"), job_domain_ids: ["jd_1", "jd_3"] },
+    ];
+    const [group] = groupFacts(facts);
+    expect(group?.source_domains).toBe(3);
+  });
+
+  it("reports a unanimous suggestion only when the members really agree", () => {
+    const agreed = groupFacts([base("a"), base("b")]);
+    expect(agreed[0]?.unanimous_action).toBe("create");
+    const split = groupFacts([base("a"), { ...base("b"), proposed_action: "review" }]);
+    expect(split[0]?.unanimous_action).toBeNull();
+  });
+});
+
+describe("grouping is deterministic, and the anchor is global to the input", () => {
+  it("two calls over the same facts produce identical output", () => {
+    // A reviewer returning to "the wood batch" must find the same batch. Nothing is persisted —
+    // a group has no id in any table — so determinism is the only thing making the key stable.
+    const facts = ["wood turn", "wood saw", "metal cut"].map((k) => base(k, k.split(" ")));
+    expect(groupFacts(facts)).toEqual(groupFacts(facts));
+  });
+
+  it("is independent of input ORDER", () => {
+    // The endpoint's SQL has no guaranteed order without an ORDER BY, so a grouping that depended
+    // on arrival order would shuffle batches between identical requests.
+    const facts = ["wood turn", "wood saw", "wood drill", "metal cut"].map((k) =>
+      base(k, k.split(" ")),
+    );
+    expect(groupFacts([...facts].reverse())).toEqual(groupFacts(facts));
+  });
+
+  it("⚠ the anchor depends on the WHOLE input set, which is why this cannot run per page", () => {
+    // `evidenceTokenCounts` counts across everything passed in, so the top token within 50 rows is
+    // rarely the top token within 6,673. Grouping a PAGE gives a different anchor for the same
+    // candidate than grouping the filtered set — the endpoint must pass the whole set, and this
+    // is the assertion that makes that requirement visible rather than a comment.
+    const wholeSet = [
+      base("a", ["wood", "turn"]),
+      base("b", ["wood", "saw"]),
+      base("c", ["wood", "drill"]),
+      base("d", ["turn", "lathe"]),
+    ];
+    const page = wholeSet.slice(2); // "c" and "d" only
+    const anchorIn = (groups: ReturnType<typeof groupFacts>, id: string): string | null =>
+      groups.find((g) => g.candidate_ids.includes(id))?.anchor ?? null;
+    // Across everything, `wood` wins for "c" (3 occurrences vs `drill`'s 1).
+    expect(anchorIn(groupFacts(wholeSet), "c")).toBe("wood");
+    // Within the two-row page, `wood` and `drill` tie at 1 and the alphabetical tie-break takes
+    // over — a different batch for the same candidate.
+    expect(anchorIn(groupFacts(page), "c")).not.toBe("wood");
   });
 });

@@ -7,6 +7,7 @@ import {
   eq,
   gt,
   gte,
+  ilike,
   inArray,
   like,
   lt,
@@ -31,6 +32,7 @@ import {
   type SkillKind,
   type SkillStatus,
 } from "@badabhai/db";
+import type { GroupingFacts } from "@badabhai/db";
 import { DATABASE } from "../database/database.module";
 import type { AdminCountBucket } from "./admin-dashboard.dto";
 import type { EntityCursor } from "./admin-entities.cursor";
@@ -256,6 +258,17 @@ export interface AdminSkillDiscoveryMetricFacts {
   by_phrase_class: AdminSkillPhraseClassTierFacts[];
   /** `min(created_at)` over the statuses the CALLER calls awaiting. `null` when none are. */
   oldest_awaiting_created_at: Date | null;
+}
+
+/**
+ * ONE SPINE ENTRY for a candidate. Values-free by construction — see
+ * {@link AdminSkillDiscoveryRepository.listAuditEvents}.
+ */
+export interface AdminSkillAuditEventRow {
+  event_id: string;
+  occurred_at: Date;
+  action_code: string;
+  admin_id: string | null;
 }
 
 /** The queue's filter set, already validated and coerced by the pipe. */
@@ -502,7 +515,66 @@ export class AdminSkillDiscoveryRepository {
    * syntax and exactly one backslash reaches the pattern.
    */
   private static prefixPattern(phrase: string): string {
-    return `${phrase.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    return `${AdminSkillDiscoveryRepository.escapeLike(phrase)}%`;
+  }
+
+  /**
+   * The `LIKE` metacharacters, escaped. Extracted so the anchored queue search and the
+   * unanchored skill search cannot escape differently — the anchor is the only thing that should
+   * differ between them, and an unescaped `%` makes both of them match everything.
+   */
+  private static escapeLike(value: string): string {
+    return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+  }
+
+  /**
+   * THE QUEUE'S FILTER, as clauses — the ONE definition, shared by every read that honours it.
+   *
+   * WHY EXTRACTED. `list`, `groupingFacts` and `countMatching` must select the SAME population or
+   * the grouping endpoint's contract is broken in a way nobody can see: a group claims to be
+   * exhaustive for the applied filters, so if grouping filtered even slightly differently from
+   * the queue, a reviewer would open a batch of 12 and find 11 rows, or find a row the flat view
+   * never showed them. Inline copies drift; this cannot.
+   *
+   * The cursor is deliberately NOT here. It is a PAGE predicate, not a filter — `groupingFacts`
+   * must never receive one (grouping a page gives a different anchor than grouping the set), and
+   * `countMatching` would report a page rather than a population.
+   */
+  private static filterClauses(filter: AdminSkillDiscoveryFilter): SQL[] {
+    const clauses: SQL[] = [];
+    // `inArray`, because "everything not yet decided" is TWO statuses and serving it as two
+    // requests would mean two cursors that cannot be merged into one honest `nextCursor`.
+    if (filter.status && filter.status.length > 0) {
+      clauses.push(inArray(skillCandidates.status, filter.status));
+    }
+    if (filter.band) clauses.push(eq(skillCandidates.confidenceBand, filter.band));
+    if (filter.proposedAction) {
+      clauses.push(eq(skillCandidates.proposedAction, filter.proposedAction));
+    }
+    if (filter.tier) clauses.push(AdminSkillDiscoveryRepository.TIER_PREDICATES[filter.tier]);
+    if (filter.tradeFamily) clauses.push(eq(skillCandidates.tradeFamily, filter.tradeFamily));
+    if (filter.sourceType) {
+      clauses.push(AdminSkillDiscoveryRepository.hasSourceOfType(filter.sourceType));
+    }
+    if (filter.runId) clauses.push(eq(skillCandidates.runId, filter.runId));
+    if (filter.clusterKey) clauses.push(eq(skillCandidates.clusterKey, filter.clusterKey));
+    if (filter.phrase) {
+      clauses.push(
+        like(
+          skillCandidates.normalizedPhrase,
+          AdminSkillDiscoveryRepository.prefixPattern(filter.phrase),
+        ),
+      );
+    }
+    if (filter.createdFrom) clauses.push(gte(skillCandidates.createdAt, filter.createdFrom));
+    if (filter.createdTo) clauses.push(lte(skillCandidates.createdAt, filter.createdTo));
+    return clauses;
+  }
+
+  /** The same clauses as one `AND`, or `undefined` for an unfiltered read. */
+  private static filterClause(filter: AdminSkillDiscoveryFilter): SQL | undefined {
+    const clauses = AdminSkillDiscoveryRepository.filterClauses(filter);
+    return clauses.length > 0 ? and(...clauses) : undefined;
   }
 
   // ─── the queue ───────────────────────────────────────────────────────────────────────
@@ -540,34 +612,7 @@ export class AdminSkillDiscoveryRepository {
     cursor: EntityCursor | null,
     limit: number,
   ): Promise<AdminSkillDiscoveryQueueRow[]> {
-    const clauses: SQL[] = [];
-
-    // `inArray`, because "everything not yet decided" is TWO statuses and serving it as two
-    // requests would mean two cursors that cannot be merged into one honest `nextCursor`.
-    if (filter.status && filter.status.length > 0) {
-      clauses.push(inArray(skillCandidates.status, filter.status));
-    }
-    if (filter.band) clauses.push(eq(skillCandidates.confidenceBand, filter.band));
-    if (filter.proposedAction) {
-      clauses.push(eq(skillCandidates.proposedAction, filter.proposedAction));
-    }
-    if (filter.tier) clauses.push(AdminSkillDiscoveryRepository.TIER_PREDICATES[filter.tier]);
-    if (filter.tradeFamily) clauses.push(eq(skillCandidates.tradeFamily, filter.tradeFamily));
-    if (filter.sourceType) {
-      clauses.push(AdminSkillDiscoveryRepository.hasSourceOfType(filter.sourceType));
-    }
-    if (filter.runId) clauses.push(eq(skillCandidates.runId, filter.runId));
-    if (filter.clusterKey) clauses.push(eq(skillCandidates.clusterKey, filter.clusterKey));
-    if (filter.phrase) {
-      clauses.push(
-        like(
-          skillCandidates.normalizedPhrase,
-          AdminSkillDiscoveryRepository.prefixPattern(filter.phrase),
-        ),
-      );
-    }
-    if (filter.createdFrom) clauses.push(gte(skillCandidates.createdAt, filter.createdFrom));
-    if (filter.createdTo) clauses.push(lte(skillCandidates.createdAt, filter.createdTo));
+    const clauses: SQL[] = [...AdminSkillDiscoveryRepository.filterClauses(filter)];
     if (cursor) clauses.push(AdminSkillDiscoveryRepository.keyset(sort, cursor));
 
     const query = this.db
@@ -854,6 +899,83 @@ export class AdminSkillDiscoveryRepository {
     }));
   }
 
+  // ─── grouping ────────────────────────────────────────────────────────────────────────
+
+  /**
+   * EVERY candidate matching the filter, projected to the eight facts the batching rule reads.
+   *
+   * ── WHY THIS IS NOT A PAGE, AND CANNOT BE ─────────────────────────────────────────────
+   * `groupFacts` chooses each candidate's anchor from a count taken across the WHOLE input set,
+   * so the top token within 50 rows is rarely the top token within 6,673. Grouping a page would
+   * give a different batch for the same candidate on every page-turn. The endpoint therefore
+   * groups the whole filtered set, and the service caps how large that set may be rather than
+   * paging it — a bounded refusal is honest, a silently truncated grouping is not.
+   *
+   * ── THE DOMAIN IDS TRAVEL, AND THAT IS THE EXPENSIVE PART ─────────────────────────────
+   * `skill_candidate.source_domain_count` is a per-candidate count, and summing it across a group
+   * DOUBLE-COUNTS every domain two members share — which is most of them, since a batch is by
+   * construction candidates from related trades. The group's figure is a UNION, so the ids
+   * themselves have to reach the grouping rule.
+   *
+   * `array_agg(DISTINCT ...)` in a correlated subquery rather than a join: a join against
+   * `skill_candidate_source` multiplies each candidate by its source count, and the caller would
+   * have to de-duplicate rows it should never have received. `FILTER (WHERE job_domain_id IS NOT
+   * NULL)` because a source with no domain contributes nothing to the union and
+   * `array_agg(DISTINCT)` would otherwise return `{NULL}`.
+   *
+   * The strong-match fact reuses {@link HAS_STRONG_MATCH}, so the tier this feeds is the same
+   * tier the queue and the metrics tile report. Three definitions of a tier is how two of them
+   * start disagreeing.
+   */
+  async groupingFacts(filter: AdminSkillDiscoveryFilter): Promise<GroupingFacts[]> {
+    const rows = await this.db
+      .select({
+        candidateId: skillCandidates.candidateId,
+        evidenceTokens: skillCandidates.evidenceTokens,
+        tradeFamily: skillCandidates.tradeFamily,
+        phraseClass: skillCandidates.phraseClass,
+        hasStrongMatch: sql<boolean>`${AdminSkillDiscoveryRepository.HAS_STRONG_MATCH}`,
+        sourceAliasCount: skillCandidates.sourceAliasCount,
+        proposedAction: skillCandidates.proposedAction,
+        status: skillCandidates.status,
+        jobDomainIds: sql<string[] | null>`(
+          select array_agg(distinct s.job_domain_id) filter (where s.job_domain_id is not null)
+            from ${skillCandidateSources} s
+           where s.candidate_id = ${skillCandidates.candidateId}
+        )`,
+      })
+      .from(skillCandidates)
+      .where(AdminSkillDiscoveryRepository.filterClause(filter));
+
+    return rows.map((r) => ({
+      candidate_id: r.candidateId,
+      evidence_tokens: r.evidenceTokens ?? [],
+      trade_family: r.tradeFamily,
+      phrase_class: r.phraseClass,
+      has_strong_match: r.hasStrongMatch,
+      source_alias_count: r.sourceAliasCount,
+      job_domain_ids: r.jobDomainIds ?? [],
+      proposed_action: r.proposedAction,
+      status: r.status,
+    }));
+  }
+
+  /**
+   * How many candidates the filter matches, WITHOUT fetching them.
+   *
+   * The service calls this before {@link groupingFacts} so an over-broad filter is refused with a
+   * number the caller can act on ("narrow this, it matches N") instead of being answered with a
+   * response built from tens of thousands of rows. Counting first costs one cheap aggregate; the
+   * alternative costs the whole read before anyone notices it was too large.
+   */
+  async countMatching(filter: AdminSkillDiscoveryFilter): Promise<number> {
+    const [row] = await this.db
+      .select({ n: count() })
+      .from(skillCandidates)
+      .where(AdminSkillDiscoveryRepository.filterClause(filter));
+    return row?.n ?? 0;
+  }
+
   // ─── metrics ─────────────────────────────────────────────────────────────────────────
 
   /**
@@ -1011,6 +1133,99 @@ export class AdminSkillDiscoveryRepository {
         ),
       );
     return new Set(rows.map((r) => r.jobDomainId));
+  }
+
+  /**
+   * THIS CANDIDATE'S ENTRIES ON THE EVENT SPINE, oldest first.
+   *
+   * ── WHY THE SPINE AND NOT THE ROW ─────────────────────────────────────────────────────
+   * The row holds the CURRENT decision and can be updated; the spine holds what HAPPENED and
+   * cannot. `admin.action_performed` is written on the same transaction as the decision, so an
+   * entry here and a decision there are the same event or neither exists.
+   *
+   * ── IT READS `events`, WHICH IS THE THIRD TABLE OUTSIDE 0093 THIS FILE TOUCHES ────────
+   * A SELECT, filtered to `subject_type = 'skill_candidate'` AND this subject id. Both terms are
+   * needed: `subject_id` is a uuid and uuids are unique in practice, but the composite is what
+   * makes the query mean "this candidate's history" rather than "whatever happens to share an
+   * id", and `events_subject_idx` is on `(subject_type, subject_id)` so the pair is also the
+   * index's own shape.
+   *
+   * THE PAYLOAD IS VALUE-FREE BY CONSTRUCTION, so there is nothing here to redact: the WHAT is an
+   * `action_code`, and `FORBIDDEN_VALUE_FRAGMENTS` scans every payload leaf except that key. The
+   * reason and the proposed label live on the candidate row, where the detail read serves them.
+   *
+   * ORDERED ASCENDING — an audit trail reads forwards — with the event id as a total tie-break,
+   * because a decision and its row write share a transaction and can share a timestamp.
+   */
+  async listAuditEvents(candidateId: string): Promise<AdminSkillAuditEventRow[]> {
+    const rows = (await this.db.execute(sql`
+      SELECT id,
+             occurred_at,
+             coalesce(payload ->> 'action_code', event_name) AS action_code,
+             payload ->> 'admin_id'                          AS admin_id
+        FROM events
+       WHERE subject_type = 'skill_candidate'
+         AND subject_id = ${candidateId}::uuid
+       ORDER BY occurred_at ASC, id ASC
+       LIMIT 200`)) as unknown as {
+      id: string;
+      occurred_at: Date;
+      action_code: string;
+      admin_id: string | null;
+    }[];
+
+    return rows.map((r) => ({
+      event_id: r.id,
+      occurred_at: r.occurred_at,
+      action_code: r.action_code,
+      admin_id: r.admin_id,
+    }));
+  }
+
+  /**
+   * CANONICAL SKILLS MATCHING A SEARCH TERM — the MAP picker's lookup.
+   *
+   * A READ of `skill`, and the second reason this repository knows that table has rows of its own
+   * ({@link findCorpusSkill} being the first). There is no write behind it and there must never
+   * be one.
+   *
+   * ── IT DOES NOT FILTER OUT WHAT CANNOT BE MAPPED ──────────────────────────────────────
+   * Deprecated skills and match skills come back with everything else; the SERVICE labels them.
+   * Filtering here would leave a reviewer searching for a skill they remember and finding
+   * nothing, unable to tell "no such skill" from "deprecated" from "that is match vocabulary" —
+   * and those need three different actions.
+   *
+   * ── THE PATTERN IS ESCAPED, AS EVERYWHERE ELSE IN THIS FILE ───────────────────────────
+   * `ilike` with `%term%`, and `%`/`_`/`\` escaped first — without that a `q` of `%` matches the
+   * whole corpus and `_` silently becomes a wildcard. Unanchored is correct HERE and only here:
+   * `skill.label_en` is 165 rows of published curated vocabulary with no worker-derived text, so
+   * there is no discovery surface to protect, and a reviewer typing "weld" must find "Arc
+   * Welding". The candidate queue's `phrase` stays anchored for exactly the opposite reason.
+   *
+   * Ordered by label so the picker is stable between identical keystrokes.
+   */
+  async searchCorpusSkills(
+    q: string,
+    limit: number,
+  ): Promise<{ skill_id: string; label_en: string; status: SkillStatus; kind: SkillKind }[]> {
+    const rows = await this.db
+      .select({
+        skillId: skills.skillId,
+        labelEn: skills.labelEn,
+        status: skills.status,
+        kind: skills.kind,
+      })
+      .from(skills)
+      .where(ilike(skills.labelEn, `%${AdminSkillDiscoveryRepository.escapeLike(q)}%`))
+      .orderBy(asc(skills.labelEn), asc(skills.skillId))
+      .limit(limit);
+
+    return rows.map((r) => ({
+      skill_id: r.skillId,
+      label_en: r.labelEn,
+      status: r.status,
+      kind: r.kind,
+    }));
   }
 
   // ─── the one write ───────────────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ import {
   assertProvenanceIntact,
   candidateAliasTexts,
   canTransition,
+  groupFacts,
   reviewTierFrom,
   statusForDecision,
   validateCandidate,
@@ -43,6 +44,8 @@ import type {
   AdminSkillPhraseClassTierFacts,
 } from "./admin-skill-discovery.repository";
 import {
+  ADMIN_SKILL_GROUPS_MAX_CANDIDATES,
+  SKILL_GROUPS_ARE_DERIVED,
   SKILL_CANDIDATE_ACTIONS,
   SKILL_CANDIDATE_CONFIDENCE_BANDS,
   SKILL_CANDIDATE_SOURCE_TYPES,
@@ -57,6 +60,8 @@ import {
   SkillCorpusSkillId,
 } from "./admin-skill-discovery.dto";
 import type {
+  AdminCanonicalSkillSearch,
+  AdminSkillCandidateAudit,
   AdminSkillCandidateMatchRow,
   AdminSkillCandidateProvenance,
   AdminSkillCandidateSource,
@@ -66,11 +71,14 @@ import type {
   AdminSkillDecisionDto,
   AdminSkillDecisionResult,
   AdminSkillDiscoveryDetail,
+  AdminSkillDiscoveryGroups,
+  AdminSkillDiscoveryGroupsQueryDto,
   AdminSkillDiscoveryListItem,
   AdminSkillDiscoveryMetrics,
   AdminSkillDiscoveryMetricsQueryDto,
   AdminSkillDiscoveryPage,
   AdminSkillDiscoveryQueryDto,
+  AdminSkillsQueryDto,
   AdminSkillDiscoveryRow,
   AdminSkillMatchRelation,
   AdminSkillMatchStrength,
@@ -368,6 +376,185 @@ export class AdminSkillDiscoveryService {
       oldest_awaiting_created_at: facts.oldest_awaiting_created_at,
       tier_basis: SKILL_TIER_DERIVED_NOT_STORED,
     };
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════════════════
+  // GET /admin/skill-discovery/groups — the review BATCHES
+  // ═════════════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * The filtered population, batched by `groupFacts` — the SAME rule the pipeline and the
+   * coverage report use, not a second one.
+   *
+   * ── WHOLE SET, NEVER A PAGE ────────────────────────────────────────────────────────────
+   * The anchor a candidate is batched on is chosen from a token count taken across everything
+   * passed in, so grouping 50 rows and grouping 6,673 give the same candidate different batches.
+   * That is why this route has no cursor: a paged grouping would reshuffle on every page-turn and
+   * a group's promise — exhaustive for the applied filters — would be false.
+   *
+   * ── SO IT COUNTS FIRST AND REFUSES RATHER THAN TRUNCATING ─────────────────────────────
+   * An over-broad filter gets a 400 naming the number it matched. The alternative shapes are both
+   * worse: paging breaks the anchor, and silently capping returns a response that CLAIMS to be
+   * exhaustive while it is not. The bound is far above the real population (6,673 candidates;
+   * 6,074 in the largest sensible filter), so no legitimate console request meets it — it exists
+   * because the table grows with every run.
+   */
+  async groups(dto: AdminSkillDiscoveryGroupsQueryDto): Promise<AdminSkillDiscoveryGroups> {
+    const filter = AdminSkillDiscoveryService.groupFilterFor(dto);
+
+    const matching = await this.repo.countMatching(filter);
+    if (matching > ADMIN_SKILL_GROUPS_MAX_CANDIDATES) {
+      throw new BadRequestException(
+        `That filter matches ${matching} candidates and grouping is exhaustive, not paged ` +
+          `(the batch a candidate lands in depends on the whole set, so a page would give a ` +
+          `different answer each time). Narrow it — by tier, run or trade family — to at most ` +
+          `${ADMIN_SKILL_GROUPS_MAX_CANDIDATES}.`,
+      );
+    }
+
+    const groups = groupFacts(await this.repo.groupingFacts(filter));
+    return {
+      groups: groups.map((g) => ({
+        key: g.key,
+        tier: g.tier,
+        trade_family: g.trade_family,
+        anchor: g.anchor,
+        label: g.label,
+        candidate_ids: [...g.candidate_ids],
+        candidates: g.candidates,
+        undecided: g.undecided,
+        source_rows: g.source_rows,
+        source_domains: g.source_domains,
+        unanimous_action: g.unanimous_action,
+      })),
+      total_groups: groups.length,
+      // Summed FROM the groups, so the headline cannot disagree with its own breakdown.
+      total_candidates: groups.reduce((n, g) => n + g.candidates, 0),
+      total_undecided: groups.reduce((n, g) => n + g.undecided, 0),
+      tier_basis: SKILL_TIER_DERIVED_NOT_STORED,
+      grouping_basis: SKILL_GROUPS_ARE_DERIVED,
+    };
+  }
+
+  /** The grouping query's filters. No cursor and no sort — see {@link groups}. */
+  private static groupFilterFor(
+    dto: AdminSkillDiscoveryGroupsQueryDto,
+  ): AdminSkillDiscoveryFilter {
+    return {
+      ...(dto.status !== undefined ? { status: [...dto.status] } : {}),
+      ...(dto.tier !== undefined ? { tier: dto.tier } : {}),
+      ...(dto.band !== undefined ? { band: dto.band } : {}),
+      ...(dto.proposedAction !== undefined ? { proposedAction: dto.proposedAction } : {}),
+      ...(dto.tradeFamily !== undefined ? { tradeFamily: dto.tradeFamily } : {}),
+      ...(dto.sourceType !== undefined ? { sourceType: dto.sourceType } : {}),
+      ...(dto.runId !== undefined ? { runId: dto.runId } : {}),
+      ...(dto.clusterKey !== undefined ? { clusterKey: dto.clusterKey } : {}),
+      ...(dto.phrase !== undefined ? { phrase: dto.phrase } : {}),
+      ...(dto.createdFrom !== undefined ? { createdFrom: dto.createdFrom } : {}),
+      ...(dto.createdTo !== undefined ? { createdTo: dto.createdTo } : {}),
+    };
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════════════════
+  // GET /admin/skill-discovery/:id/audit — what happened to this candidate
+  // ═════════════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * The candidate's audit trail: the EVENT SPINE, plus the decision as the row currently holds it.
+   *
+   * BOTH HALVES, because either alone misleads. The spine is immutable and says what happened; the
+   * row says what the candidate NOW is. An auditor needs to see the two agree — and if they ever
+   * do not, that disagreement is the finding, which a response carrying only one of them could
+   * never surface.
+   *
+   * READ-ONLY, and it emits nothing itself. Reading an audit trail is not an auditable act here:
+   * the rows carry no identity (there is no `worker_id` column anywhere in migration 0093) and
+   * recording every read would need a new event name against a pinned `EVENT_NAMES` list, for a
+   * fact nobody has asked to know.
+   */
+  async audit(candidateId: string): Promise<AdminSkillCandidateAudit> {
+    const row = await this.repo.findCandidate(candidateId);
+    if (!row) throw new NotFoundException("Candidate not found");
+
+    const entries = await this.repo.listAuditEvents(candidateId);
+    return {
+      candidate_id: row.id,
+      entries: entries.map((e) => ({
+        event_id: e.event_id,
+        occurred_at: e.occurred_at,
+        action_code: e.action_code,
+        admin_id: e.admin_id,
+      })),
+      current: {
+        status: row.status,
+        reviewer_admin_id: row.reviewer_admin_id,
+        reviewed_at: row.reviewed_at,
+        review_reason: row.review_reason,
+        resulting_skill_id: row.resulting_skill_id,
+        approved_job_domain_ids: row.approved_job_domain_ids,
+        approved_requirement: row.approved_requirement,
+      },
+      corpus_effect: SKILL_DECISION_EFFECT_RECORDED_ONLY,
+    };
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════════════════
+  // GET /admin/skills — the MAP picker's lookup
+  // ═════════════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Search the canonical skills a MAP or MERGE decision could resolve onto.
+   *
+   * ── IT REPORTS ELIGIBILITY RATHER THAN FILTERING ──────────────────────────────────────
+   * A deprecated skill and a match skill both come back, flagged `mappable: false` with the
+   * reason. Filtering them out would leave a reviewer searching for a skill they remember and
+   * finding nothing, unable to tell "no such skill" from "deprecated" from "that one is match
+   * vocabulary" — three situations needing three different actions.
+   *
+   * The rule is the SAME one `assertMappableTarget` enforces on the write, so the picker cannot
+   * offer something the decision route would then refuse. That is the property worth having: two
+   * definitions of "mappable" would let the console present a choice that always 400s.
+   *
+   * ── AND IT CREATES NOTHING ────────────────────────────────────────────────────────────
+   * A search. No write exists behind it, and the decision route re-validates the id it is given
+   * regardless — this makes the picker usable, it does not make it the authority.
+   */
+  async searchSkills(dto: AdminSkillsQueryDto): Promise<AdminCanonicalSkillSearch> {
+    const rows = await this.repo.searchCorpusSkills(dto.q, dto.limit + 1);
+    const truncated = rows.length > dto.limit;
+    const kept = truncated ? rows.slice(0, dto.limit) : rows;
+    return {
+      skills: kept.map((r) => {
+        const reason = AdminSkillDiscoveryService.notMappableReason(r.status, r.kind);
+        return {
+          skill_id: r.skill_id,
+          label_en: r.label_en,
+          status: r.status,
+          kind: r.kind,
+          mappable: reason === null,
+          not_mappable_reason: reason,
+        };
+      }),
+      q: dto.q,
+      truncated,
+    };
+  }
+
+  /**
+   * Why this skill cannot be a mapping target, or null when it can.
+   *
+   * THE SAME TWO REFUSALS `assertMappableTarget` makes, in the same order, so the picker and the
+   * write agree. It does not repeat the "does it exist" check — a row that came back from the
+   * search exists by construction.
+   */
+  private static notMappableReason(status: string, kind: string): string | null {
+    if (kind === "match_skill") {
+      return "Match vocabulary — the closed set the ranking engine consumes. Nothing discovered may join it.";
+    }
+    if (status === "deprecated") {
+      return "Deprecated. Mapping a live phrase onto a withdrawn concept hides the phrase behind it.";
+    }
+    return null;
   }
 
   // ═════════════════════════════════════════════════════════════════════════════════════
@@ -1140,6 +1327,12 @@ export class AdminSkillDiscoveryService {
       related_skills: matches.map((m) => AdminSkillDiscoveryService.relatedSkill(m)),
       suggested_aliases: AdminSkillDiscoveryService.suggestedAliases(record),
       review_reason: row.review_reason,
+      // The SCOPE of a `create` decision, served beside the decision itself. Empty until one is
+      // recorded. A screen that showed the verdict without the trades would let a second reviewer
+      // see WHAT was approved and not WHAT FOR — and a wrong trade produces a skill on the wrong
+      // picker rather than an obviously broken one, so it is exactly the field worth re-checking.
+      approved_job_domain_ids: row.approved_job_domain_ids,
+      approved_requirement: row.approved_requirement,
       provenance,
     };
   }

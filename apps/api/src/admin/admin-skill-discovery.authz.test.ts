@@ -101,7 +101,27 @@ const guard = new AdminRolesGuard(new Reflector());
 const GET = 0;
 const POST = 1;
 
-const READ_ROUTES = ["list", "metrics", "detail"] as const;
+/**
+ * Every READ on this surface. Adding a route here enrols it in EVERY per-role assertion below —
+ * the capability check, the four-roles-pass check, the 401, the null-role refusal, and the
+ * separation from `reveal_pii` and from the entity actions. That is why the list is a constant
+ * rather than repeated per test: a new read that somebody remembers to declare but forgets to
+ * enrol is a route nothing checks.
+ *
+ * `groups`, `searchSkills` and `auditTrail` joined the original three when the console needed
+ * server-side batching (it cannot group client-side — the anchor is global to the population), a
+ * MAP picker that does not go through the internal service-to-service controller, and a
+ * decision history. All three are reads, all three sit on the same floor, and none of them
+ * discloses anything the queue does not.
+ */
+const READ_ROUTES = [
+  "list",
+  "metrics",
+  "detail",
+  "groups",
+  "searchSkills",
+  "auditTrail",
+] as const;
 const WRITE_ROUTE = "decide";
 
 /** Who may DECIDE. Read from the matrix rather than transcribed, so this file cannot disagree with it. */
@@ -141,22 +161,23 @@ describe("the reflection helpers are CAPABLE of failing (no assertion below is v
 
 describe("0093 review surface — the route inventory, pinned as an equality", () => {
   /**
-   * An EQUALITY, not a `toContain`. The point is to fail when a FIFTH route appears — an export,
-   * a batch decide, a re-open — because each of those goes around a control this surface depends
-   * on: a batch decide bypasses the per-row reviewer triple and `assertDryRunSafe`; a re-open
+   * An EQUALITY, not a `toContain`. The point is to fail when an UNDECLARED route appears — an
+   * export, a batch decide, a re-open — because each of those goes around a control this surface
+   * depends on: a batch decide bypasses the per-row reviewer triple and `assertDryRunSafe`; a re-open
    * contradicts "terminal means terminal" (the decision was recorded against a specific
    * `corpus_fingerprint`, and re-opening in place silently re-scopes it to a corpus the human
    * never saw); an export turns a review queue into a bulk egress surface with no `export`
-   * capability anywhere near it. Updating this list must be a deliberate act with its own
-   * allow/deny cases below.
+   * capability anywhere near it. Updating this list must be a deliberate act — and because
+   * `READ_ROUTES` drives every per-role assertion in this file, a route added here is a route
+   * that gets its own allow/deny cases automatically rather than by anyone remembering.
    */
-  it("declares EXACTLY three reads and ONE write — no export, no batch, no re-open", () => {
+  it("declares EXACTLY six reads and ONE write — no export, no batch, no re-open", () => {
     expect(routeMethods(AdminSkillDiscoveryController).sort()).toEqual(
       [...READ_ROUTES, WRITE_ROUTE].sort(),
     );
   });
 
-  it("the three reads are GETs and the decision is the ONLY non-GET on the surface", () => {
+  it("every read is a GET and the decision is the ONLY non-GET on the surface", () => {
     for (const route of READ_ROUTES) {
       expect(verbOf(AdminSkillDiscoveryController, route), `${route} must be a GET`).toBe(GET);
     }

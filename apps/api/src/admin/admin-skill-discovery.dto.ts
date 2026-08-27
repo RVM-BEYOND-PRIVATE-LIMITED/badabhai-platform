@@ -615,6 +615,13 @@ export const JobDomainId = z
  * one screen — the widest candidate in the measured corpus is attested in 37 domains, and
  * claiming a new skill belongs to all of them is a decision that deserves more than one click.
  */
+/**
+ * `job_domain_skill.default_requirement`, mirrored. CHECK-backed in 0093
+ * (`skill_candidate_requirement_chk`), so a union is a claim the column can honour.
+ */
+export const ADMIN_SKILL_REQUIREMENTS = ["required", "preferred"] as const;
+export type SkillRequirement = (typeof ADMIN_SKILL_REQUIREMENTS)[number];
+
 export const ADMIN_SKILL_APPROVED_DOMAINS_MAX = 20;
 
 /**
@@ -1417,6 +1424,30 @@ export interface AdminSkillDiscoveryDetail extends AdminSkillDiscoveryListItem {
   suggested_aliases: string[];
   /** The reviewer's own words, once decided. Admin-authored text, not worker text. */
   review_reason: string | null;
+  /**
+   * THE TRADES A `create` APPROVAL NAMED. Empty until one is recorded.
+   *
+   * SERVED BECAUSE A DECISION IS NOT ONLY A VERDICT. The reviewer chose a specific set of job
+   * domains, and that choice is what the offline chain turns into `job_domain_skill` edges with
+   * `source = 'curated'`. A detail screen that showed the decision but not the trades would let
+   * somebody re-open a decided candidate and see WHAT was approved without seeing WHAT FOR —
+   * and this is precisely the field a second reviewer would want to check, since a wrong trade
+   * produces a skill on the wrong picker rather than an obviously broken one.
+   *
+   * It is also what makes the record self-describing at audit time. The decision, the reason,
+   * the reviewer, the moment and the scope all read from one response.
+   *
+   * ⚠ NOT a request field on this route. It is set by the `create` decision and never edited
+   * afterwards; a terminal candidate cannot be re-decided.
+   */
+  approved_job_domain_ids: string[];
+  /**
+   * `required` or `preferred` for those trades — the reviewer's strength claim, or the
+   * conservative default when they did not make one.
+   *
+   * CHECK-backed (`skill_candidate_requirement_chk`), so the union is honest.
+   */
+  approved_requirement: SkillRequirement;
   /** The frozen block. See {@link AdminSkillCandidateProvenance}. */
   provenance: AdminSkillCandidateProvenance;
 }
@@ -1560,4 +1591,283 @@ export interface AdminSkillDiscoveryMetrics {
   oldest_awaiting_created_at: Date | null;
   /** Always the literal. `by_tier` is computed, not stored, and cannot be reconciled. */
   tier_basis: typeof SKILL_TIER_DERIVED_NOT_STORED;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// GET /admin/skill-discovery/groups — the review BATCHES
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The grouping query. THE SAME FILTERS AS THE QUEUE, minus the two that make no sense on a set.
+ *
+ * ── WHAT IS MISSING AND WHY ────────────────────────────────────────────────────────────
+ * NO `cursor` and NO `limit`. A group's contract is that it is EXHAUSTIVE for the applied
+ * filters — a reviewer opening a batch of 12 must find twelve rows — and a page cannot promise
+ * that. Worse, the anchor each candidate is batched on is chosen from a token count taken across
+ * the WHOLE input set, so grouping a page would hand the same candidate a different batch on
+ * every page-turn. The endpoint groups the filtered set or refuses; see
+ * {@link ADMIN_SKILL_GROUPS_MAX_CANDIDATES}.
+ *
+ * NO `sort` either: groups come back biggest-first, because a group of 35 saves 35 decisions and
+ * that is the whole ordering criterion.
+ */
+export const AdminSkillDiscoveryGroupsQuerySchema = z
+  .object({
+    status: statusFilter.optional(),
+    tier: AdminSkillReviewTierEnum.optional(),
+    band: SkillCandidateConfidenceBandEnum.optional(),
+    proposedAction: SkillCandidateActionEnum.optional(),
+    tradeFamily: z.string().trim().min(1).max(64).optional(),
+    sourceType: SkillCandidateSourceTypeEnum.optional(),
+    runId: z.string().trim().min(1).max(128).optional(),
+    clusterKey: z.string().trim().min(1).max(200).optional(),
+    phrase: z.string().trim().toLowerCase().min(1).max(ADMIN_SKILL_PHRASE_PREFIX_MAX).optional(),
+    createdFrom: z.coerce.date().optional(),
+    createdTo: z.coerce.date().optional(),
+  })
+  .strict();
+export type AdminSkillDiscoveryGroupsQueryDto = z.infer<
+  typeof AdminSkillDiscoveryGroupsQuerySchema
+>;
+
+/**
+ * The largest candidate population this route will group in one response.
+ *
+ * WHY A CAP RATHER THAN A PAGE. Grouping must see the whole set (the anchor is global to it), so
+ * the only two honest answers to "your filter matches everything" are *group it all* or *refuse
+ * and say how much*. Silently truncating is the third option and it is the one that produces a
+ * response claiming to be exhaustive while it is not.
+ *
+ * 20,000 is deliberately well above the real population — the full table is 6,673 candidates and
+ * the largest sensible filter (`tier=derived`) is 6,074 — so no legitimate console request meets
+ * it. It exists to stop the route becoming a full-table read on a table that will grow with every
+ * run, not to shape normal use.
+ */
+export const ADMIN_SKILL_GROUPS_MAX_CANDIDATES = 20_000;
+
+/**
+ * ONE REVIEW BATCH — candidates a reviewer can work through together.
+ *
+ * ── A GROUP IS A LENS, NOT A TAXONOMY OBJECT ──────────────────────────────────────────
+ * It has no id in any table, it is recomputed on every read, and it is persisted nowhere. There
+ * is no group-level decision and there must never be one: every member gets its own decision,
+ * its own reason and its own audit row. A console offering "decide all in this batch" must issue
+ * N individual calls.
+ *
+ * That is not a limitation to be engineered away. A batch is a claim that these candidates are
+ * worth judging TOGETHER; it is not a claim that they are the same thing. The moment a group
+ * could be decided as a unit, a single wrong judgement would create thirty-five wrong rows with
+ * one reason attached to all of them.
+ *
+ * ── NO SCORE, HERE EITHER ──────────────────────────────────────────────────────────────
+ * `source_rows` and `source_domains` are ATTESTATION — how much evidence sits behind the batch —
+ * and they are counts of rows, not measurements of similarity. There is no cosine on this
+ * response and no field that could carry one.
+ */
+export interface AdminSkillReviewGroup {
+  /** `<tier>|<family>|<anchor>` — derivable from the members, stable across identical requests. */
+  key: string;
+  tier: AdminSkillReviewTier;
+  /** `text` NULLABLE with no CHECK, so `string | null`. */
+  trade_family: string | null;
+  /** The shared evidence token this batch is built on, or null for a family-only batch. */
+  anchor: string | null;
+  /** A short header a reviewer can read. Display only; never parsed. */
+  label: string;
+  /** Members, ascending by id — sorted so identical requests render identically. */
+  candidate_ids: string[];
+  /** How big the batch is. */
+  candidates: number;
+  /**
+   * How much of it is still WORK — `pending` + `needs_review`.
+   *
+   * `deferred` counts as decided: somebody looked and could not settle it, which is a different
+   * fact from nobody having looked.
+   */
+  undecided: number;
+  /** Source rows behind the batch, summed. Evidence weight, never a threshold. */
+  source_rows: number;
+  /** DISTINCT job domains behind the batch — a union across members, never a sum of counts. */
+  source_domains: number;
+  /** The pipeline's suggestion when every member agrees; null when they do not. */
+  unanimous_action: string | null;
+}
+
+/**
+ * The grouped view of one filtered population.
+ *
+ * `total_candidates` and `total_undecided` are summed FROM the groups, so the headline cannot
+ * disagree with its own breakdown — the same discipline `AdminSkillDiscoveryMetrics.total` uses.
+ */
+export interface AdminSkillDiscoveryGroups {
+  groups: AdminSkillReviewGroup[];
+  /** How many batches the filtered population reduces to. The review-screen count. */
+  total_groups: number;
+  /** Candidates grouped. Summed from `groups`, never counted separately. */
+  total_candidates: number;
+  /** Of those, how many still await a human. */
+  total_undecided: number;
+  /** Always the literal — `tier` is derived, not stored. */
+  tier_basis: typeof SKILL_TIER_DERIVED_NOT_STORED;
+  /** Always the literal. A group is recomputed per read and has no row anywhere. */
+  grouping_basis: typeof SKILL_GROUPS_ARE_DERIVED;
+}
+
+/**
+ * The in-band marker saying a group is not a stored object.
+ *
+ * The `AI_COST_CAVEAT_SINCE_0077` device: a consumer that wants to store a group id, or reconcile
+ * these counts against a table, learns from the response itself that there is nothing to
+ * reconcile against.
+ */
+export const SKILL_GROUPS_ARE_DERIVED = "groups_are_derived_not_stored" as const;
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// GET /admin/skill-discovery/:id/audit — what happened to this candidate
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * ONE AUDIT ENTRY. Read-only, and assembled from rows that already exist — this route creates
+ * nothing and stores nothing of its own.
+ *
+ * ── WHERE THE ENTRIES COME FROM ────────────────────────────────────────────────────────
+ * The EVENT SPINE (`events`, `subject_type = 'skill_candidate'`), which is the immutable record.
+ * A decision writes one value-free `admin.action_performed` on the same transaction as the row,
+ * so the spine is the thing that cannot have been edited afterwards.
+ *
+ * ── WHY IT CARRIES NO VALUES ───────────────────────────────────────────────────────────
+ * Because the spine carries none. `admin.action_performed` is value-free by construction: the
+ * WHAT is an `action_code`, never the old/new values, and `FORBIDDEN_VALUE_FRAGMENTS` scans every
+ * payload leaf. So this response says WHO did WHAT and WHEN, and the reason and the label live on
+ * the candidate row where the detail read already serves them.
+ *
+ * That split is deliberate rather than awkward. The reason is admin-authored prose that can be
+ * long; the spine is a fixed-shape audit trail meant to survive being queried in bulk years
+ * later. Putting the prose on both would create two copies of one fact that could disagree.
+ */
+export interface AdminSkillCandidateAuditEntry {
+  /** The spine row's own id — stable, and what an auditor cites. */
+  event_id: string;
+  /** When it happened, from the spine. Not the row's `updated_at`. */
+  occurred_at: Date;
+  /**
+   * The action code — one of the five `skill_candidate_*` codes.
+   *
+   * Each is named for the SoR STATUS it records rather than the wire word the console sent, so
+   * reconciling this against `skill_candidate.status` needs no translation table.
+   */
+  action_code: string;
+  /** The admin who acted. An opaque id — never a name, never an email. */
+  admin_id: string | null;
+}
+
+/**
+ * THE AUDIT READ. The spine entries plus the decision as the row currently records it.
+ *
+ * BOTH HALVES, because either alone is misleading. The spine says what happened and cannot have
+ * been edited; the row says what the candidate NOW is. An auditor needs to see that they agree —
+ * and if they ever do not, that is the finding.
+ */
+export interface AdminSkillCandidateAudit {
+  candidate_id: string;
+  /** Oldest first — an audit trail reads forwards. */
+  entries: AdminSkillCandidateAuditEntry[];
+  /** The decision as the SoR holds it right now. Null on an undecided candidate. */
+  current: {
+    status: SkillCandidateStatus;
+    reviewer_admin_id: string | null;
+    reviewed_at: Date | null;
+    review_reason: string | null;
+    resulting_skill_id: string | null;
+    approved_job_domain_ids: string[];
+    approved_requirement: SkillRequirement;
+  };
+  /**
+   * Always the literal. A decision is RECORDED here; the corpus is written by the offline chain,
+   * so no entry in this list means a skill was created.
+   */
+  corpus_effect: typeof SKILL_DECISION_EFFECT_RECORDED_ONLY;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// GET /admin/skills — the MAP picker's lookup
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * The canonical-skill search behind the MAP/MERGE picker.
+ *
+ * ── WHY A NEW ROUTE AND NOT THE EXISTING SKILLS CONTROLLER ─────────────────────────────
+ * `apps/api/src/skills/skills.controller.ts` is `@Controller("internal/skills")` behind
+ * `SkillsInternalGuard` — the SERVICE-TO-SERVICE path. An admin console must not authenticate as
+ * a service: the guard it passes would be the wrong guard, the request would carry no admin
+ * identity, and nothing about the call would appear under the admin's session. Reusing it would
+ * also widen an internal surface to a browser, which is how an internal route quietly becomes a
+ * public one.
+ *
+ * ── IT SEARCHES. IT CANNOT CREATE. ─────────────────────────────────────────────────────
+ * There is no POST here and no write anywhere behind it. The route exists so a reviewer can find
+ * the skill they mean instead of typing an id, and typing an id is exactly what it removes: the
+ * decision route validates `resulting_skill_id` against `skill` regardless, so this makes the
+ * picker usable without becoming the authority on what is mappable.
+ */
+export const ADMIN_SKILLS_QUERY_MIN = 2;
+export const ADMIN_SKILLS_QUERY_MAX = 80;
+export const ADMIN_SKILLS_PAGE_MAX = 50;
+export const ADMIN_SKILLS_PAGE_DEFAULT = 20;
+
+export const AdminSkillsQuerySchema = z
+  .object({
+    /**
+     * The search term. A MINIMUM of two characters, because a one-character prefix over the whole
+     * corpus is a listing rather than a search.
+     *
+     * Matched as a case-insensitive CONTAINS over the label — not anchored, unlike the candidate
+     * queue's `phrase`. The difference is the corpus: `skill.label_en` is 165 rows of published,
+     * curated vocabulary with no worker-derived text in it, so there is no discovery surface to
+     * protect, and a reviewer looking for "arc welding" should find it by typing "weld".
+     */
+    q: z.string().trim().min(ADMIN_SKILLS_QUERY_MIN).max(ADMIN_SKILLS_QUERY_MAX),
+    limit: z.coerce
+      .number()
+      .int()
+      .positive()
+      .max(ADMIN_SKILLS_PAGE_MAX)
+      .optional()
+      .default(ADMIN_SKILLS_PAGE_DEFAULT),
+  })
+  .strict();
+export type AdminSkillsQueryDto = z.infer<typeof AdminSkillsQuerySchema>;
+
+/**
+ * ONE CANONICAL SKILL, as the picker needs it.
+ *
+ * `mappable` IS THE POINT OF THIS SHAPE. The route returns skills that MATCH the search and says
+ * which of them may actually be mapped onto, rather than filtering the others out silently — a
+ * reviewer searching for a skill they remember and getting nothing cannot tell "no such skill"
+ * from "deprecated" from "it is a match skill", and those need different actions. The reason is
+ * served with it.
+ *
+ * The eligibility rule is the SAME one `assertMappableTarget` enforces on the decision route, so
+ * the picker cannot offer something the write would then refuse.
+ */
+export interface AdminCanonicalSkill {
+  /** `skill_<slug>` — a text PK, never a uuid. */
+  skill_id: string;
+  label_en: string;
+  /** CHECK-backed. */
+  status: string;
+  /** CHECK-backed. `match_skill` is the closed 18-member vocabulary. */
+  kind: string;
+  /** Whether a MAP/MERGE decision may resolve onto this one. */
+  mappable: boolean;
+  /** Why not, when `mappable` is false. Null when it is true. */
+  not_mappable_reason: string | null;
+}
+
+export interface AdminCanonicalSkillSearch {
+  skills: AdminCanonicalSkill[];
+  /** Echoed so a stale response cannot be read as the answer to a newer keystroke. */
+  q: string;
+  /** True when the result was cut at `limit` — the console then asks for a longer term. */
+  truncated: boolean;
 }
