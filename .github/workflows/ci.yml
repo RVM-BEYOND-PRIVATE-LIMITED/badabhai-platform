@@ -1862,6 +1862,26 @@ jobs:
           # isolation, with the deployed behaviour byte-identical to before.
           DOMAIN_MATCH_ENABLED: ${{ secrets.DOMAIN_MATCH_ENABLED }}
           SKILL_CANONICALIZE_ENABLED: ${{ secrets.SKILL_CANONICALIZE_ENABLED }}
+          # #858 — THE FORK-B-1 SEAM AND THE TD67 BEARER, bridged for the first time.
+          #
+          # Both were previously unbridgeable for the SAME reason and it was not squeamishness:
+          # compose declares them as `${VAR:-}` pass-throughs, which set the variable to the
+          # EMPTY STRING when the secret is absent, and both were bare `.optional()` in the zod
+          # schema — which REJECTS "" and would have crashed every api boot on this box. They
+          # are `optionalSecret()` now, and the ai-service applies the same rule in
+          # `_empty_secret_means_unset`, so an absent secret reads as UNSET on both sides.
+          #
+          # INERT UNTIL THE SECRETS EXIST: neither is created, so both render empty here,
+          # export empty, and resolve to unset in the containers — NullSkillStore on the
+          # ai-service, deny-all on `SkillsInternalGuard`, and TD67's historical open posture.
+          # Landing the bridge before creating any secret is the same deliberate sequence
+          # DOMAIN_MATCH_ENABLED / SKILL_CANONICALIZE_ENABLED followed above: it proves the
+          # three hops in isolation with deployed behaviour byte-identical to before.
+          #
+          # NOT a flag. Creating SKILLS_INTERNAL_TOKEN makes the seam REACHABLE; it does not
+          # enable canonicalization, which stays behind SKILL_CANONICALIZE_ENABLED.
+          SKILLS_INTERNAL_TOKEN: ${{ secrets.SKILLS_INTERNAL_TOKEN }}
+          AI_INTERNAL_TOKEN: ${{ secrets.AI_INTERNAL_TOKEN }}
           ZEPTOMAIL_API_URL: ${{ secrets.ZEPTOMAIL_API_URL }}
           ZEPTOMAIL_API_TOKEN: ${{ secrets.ZEPTOMAIL_API_TOKEN }}
           ZEPTOMAIL_MAIL_AGENT: ${{ secrets.ZEPTOMAIL_MAIL_AGENT }}
@@ -1941,7 +1961,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN
           # #994 — THE BODY OF THIS DEPLOY LIVES IN scripts/deploy/staging-deploy.sh.
           #
           # It is not inlined here because GitHub Actions caps a single step input at

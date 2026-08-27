@@ -144,6 +144,21 @@ services:
       # inside the api container.
       AI_SERVICE_URL: http://ai-service:8000
 
+      # ---- #858 / FORK-B-1 + TD67: the api's half of the two service-to-service tokens ----
+      #
+      # SKILLS_INTERNAL_TOKEN is the SCOPED secret `SkillsInternalGuard` checks on
+      # POST /internal/skills/{nearest-aliases,unresolved} — deliberately NOT
+      # INTERNAL_SERVICE_TOKEN, which also opens the resume-PII and money routes. It must be
+      # the SAME value the ai-service holds; the two containers are the two ends of one seam.
+      # Unset => the guard denies every caller, which is the correct closed state.
+      #
+      # AI_INTERNAL_TOKEN is the REVERSE direction: the value the api SENDS as
+      # `x-ai-internal-token` on every outbound ai-service call. Both are `optionalSecret()`
+      # in the schema as of #858, so the `:-` empty string reads as unset rather than
+      # crashing the boot — which is what kept them out of this file.
+      SKILLS_INTERNAL_TOKEN: ${SKILLS_INTERNAL_TOKEN:-}
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:-}
+
       # ---- #798: THE API-SIDE HALF OF THE LLM-LED INTERVIEW. Arming the ai-service alone
       # does NOT produce the interview Divyanshu gets from the CLI, and that is the part
       # #798's diagnosis (`ai_posture: mock`) does not reach. Two INDEPENDENT gates stand
@@ -513,6 +528,37 @@ services:
       # than a step toward it.
       DOMAIN_MATCH_ENABLED: ${DOMAIN_MATCH_ENABLED:-false}
       SKILL_CANONICALIZE_ENABLED: ${SKILL_CANONICALIZE_ENABLED:-false}
+
+      # ---- #858 / FORK-B-1: THE SKILL-CANONICALIZATION SEAM, WIRED BUT NOT ARMED ----
+      #
+      # THE FLAG ABOVE IS ONLY HALF THE CHAIN. `get_skill_store()` hands the canonicalizer
+      # the inert `NullSkillStore` unless BOTH of the next two are set, and that store's
+      # `nearest_aliases` returns [] — so with the seam unwired, flipping the flag arms a
+      # route that resolves NOTHING while still paying for one embed per phrase. Wiring the
+      # seam does NOT enable canonicalization: the flag stays false and every call site is
+      # behind it.
+      #
+      # SKILLS_INTERNAL_TOKEN WAS ONE OF THE 14 UNBRIDGEABLE SECRETS NAMED BELOW, and it is
+      # bridged now because the blocker was removed rather than ignored: it is
+      # `optionalSecret()` in packages/config/src/server.ts as of #858, so the `:-` empty
+      # string it produces when unconfigured now reads as "unset" instead of failing the
+      # api's config parse at boot. Do not bridge the remaining 13 without the same change.
+      #
+      # UNSET IS THE SAFE STATE ON BOTH SIDES: the ai-service falls back to NullSkillStore,
+      # and `SkillsInternalGuard` DENIES every caller. There is no half-open posture.
+      BACKEND_API_URL: ${BACKEND_API_URL:-http://api:3001}
+      SKILLS_INTERNAL_TOKEN: ${SKILLS_INTERNAL_TOKEN:-}
+
+      # ---- TD67: the ai-service's OWN inbound bearer ----
+      #
+      # Absent from this file until now, which meant the deployed service ran the historical
+      # OPEN posture: every route except /health reachable unauthenticated from anywhere that
+      # could reach the container. The port is loopback-bound (CD-1a), so the blast radius was
+      # the box itself — but "internal-only by network topology" is not the same claim as
+      # "authenticated", and GET /internal/observability/canonicalization was designed around
+      # this bearer. Unset keeps today's behaviour exactly; setting it arms the gate on both
+      # sides (the api sends the header, the ai-service checks it).
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:-}
 
       # ---- V8 VOICE STORAGE — the change the previous revision of this block deferred.
       #

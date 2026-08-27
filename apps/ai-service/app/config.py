@@ -994,6 +994,42 @@ class Settings(BaseSettings):
     # that cannot be inherited by accident, carrying the operator's REASON.
     canonicalize_allow_local: str | None = None
 
+    @field_validator(
+        "ai_internal_token",
+        "skills_internal_token",
+        "backend_api_url",
+        mode="before",
+    )
+    @classmethod
+    def _empty_secret_means_unset(cls, value: object) -> object:
+        """An EMPTY pass-through means "unset", not "invalid". The Python half of #858.
+
+        =======================================================================
+        WHY THIS IS NOT A RELAXATION OF THE TD67 GATE
+        =======================================================================
+        `docker-compose*.yml` declares these as `${NAME:-}` pass-throughs so the box can arm
+        them with no code change, and that form sets the variable to the EMPTY STRING when
+        unconfigured — it does not omit it. `ai_internal_token` carries `min_length=16`, so a
+        declared-but-unarmed pass-through would fail `Settings()` and the container would not
+        boot. That is what kept AI_INTERNAL_TOKEN out of the deploy entirely, and it is why
+        the observability endpoint was not actually gated on the box.
+
+        THE PROPERTY THE min_length EXISTS TO PROTECT IS PRESERVED EXACTLY. Its purpose is
+        that an empty token must never ARM THE GATE VACUOUSLY: `compare_digest("", "")` is
+        True, so `token = ""` would pass every TOKENLESS request while `/health` claimed auth
+        was on and correctly-tokened callers got 401 (the TD67 review's HIGH). Mapping `""` to
+        `None` REMOVES that state rather than permitting it — `None` takes the documented open
+        posture, the middleware short-circuits, and `/health` honestly reports
+        `service_auth_enabled: false`. The service never claims a gate it does not have.
+
+        A SHORT NON-EMPTY TOKEN STILL FAILS AT STARTUP, unchanged. Only the empty string is
+        reclassified, which is precisely the rule `optionalSecret()` applies on the TypeScript
+        side (packages/config/src/server.ts) — the same convention, not a second one.
+        """
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
+
     @model_validator(mode="after")
     def _refuse_local_canonicalization_against_a_shared_api(self) -> Settings:
         """Refuse to BOOT when canonicalization is armed against a LOOPBACK api.
