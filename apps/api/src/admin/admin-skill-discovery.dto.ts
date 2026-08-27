@@ -1218,8 +1218,11 @@ export interface AdminSkillRelatedSkill {
  * feedback's, on three counts that are properties of the schema rather than promises:
  *
  *   1. IT CANNOT BE ATTRIBUTED. There is no `worker_id` column on ANY of the four tables in
- *      migration 0093 — deliberately, so this never becomes a per-worker DSAR surface. A response
- *      here cannot be joined back to a person because the join column does not exist.
+ *      migration 0093 — deliberately, so this never becomes a per-worker DSAR surface. The TEXT
+ *      cannot be joined back to a person because the join column does not exist.
+ *      ⚠ This is a claim about `original_text` and about the 0093 tables' own shape. It is NOT a
+ *      claim about {@link AdminSkillCandidateSource.source_id}, which is an id into another
+ *      table's space and carries its own, narrower guarantee — stated on that field.
  *   2. IT IS PSEUDONYMIZED UPSTREAM by contract for that source type.
  *   3. THE CLASSIFIER REFUSES THE SHAPES THAT CARRY IDENTIFIERS. `hasForbiddenAliasChars` /
  *      FORBIDDEN_CHARS is checked FIRST, before every taxonomy question, and rejects any phrase
@@ -1244,8 +1247,36 @@ export interface AdminSkillCandidateSource {
   /** CHECK-backed. `worker_phrase` is the one member that carries worker-derived wording. */
   source_type: SkillCandidateSourceType;
   /**
-   * `text`, deliberately NOT a typed FK: the six source types span four id spaces
+   * `text`, deliberately NOT a typed FK: the six declared source types span four id spaces
    * (schema/skill-discovery.ts:466). Opaque to this surface.
+   *
+   * ── WHAT IS GUARANTEED ABOUT IT, NARROWED TO WHAT IS ACTUALLY TRUE TODAY ───────────────
+   * This id is NOT covered by the "cannot be attributed" argument above. That argument is about
+   * `original_text`, and it rests on there being no `worker_id` column on any 0093 table. This
+   * column is different in kind: it is an id INTO the space its `source_type` names, so its
+   * safety is a property of WHICH source types exist, not of 0093's shape.
+   *
+   * Today exactly three types have a producer, all in `discover-skills.ts`, and all three point
+   * at rows that hold nobody:
+   *
+   *   `job_domain_alias`  → `job_domain_alias.id`       — catalogue row
+   *   `job_domain_label`  → `job_domain.job_domain_id`  — catalogue row
+   *   `unresolved_phrase` → `unresolved_phrase.id`      — an AGGREGATE row (phrase + count +
+   *                          first/last seen), with no `worker_id` and no `session_id`
+   *
+   * So on the shipped pipeline this is a catalogue id, and serving it discloses nothing about a
+   * person. That is the whole guarantee — no more.
+   *
+   * ⚠ `worker_phrase` and `job_text` are declared in the union and allowed by the 0093 CHECK, and
+   * they name per-worker and per-payer id spaces. Neither has a producer; if one is written, this
+   * field becomes a join key back to a person or a customer on a response whose privacy argument
+   * is that no such key exists. That is not left to a reader noticing:
+   * `skill-discovery-guardrails.test.ts` pins the producible set to the three above and fails on
+   * a fourth, so widening it is a decision somebody makes rather than a default that ships.
+   *
+   * It is served because the console keys its source list on it and nothing else here is unique
+   * per row. It is never rendered, never searched, and never widened to carry a second identifier
+   * because one exists in the database.
    */
   source_id: string;
   /** As it was written. See the privacy note above. */
@@ -1705,6 +1736,29 @@ export interface AdminSkillReviewGroup {
  * disagree with its own breakdown — the same discipline `AdminSkillDiscoveryMetrics.total` uses.
  */
 export interface AdminSkillDiscoveryGroups {
+  /**
+   * ORDERED BY THE SERVER, AND THE SERVER IS THE AUTHORITY. The console must not re-sort into a
+   * second ordering algorithm; the anchor a candidate is batched on is global to the population,
+   * so an order computed client-side over one response is not the same function.
+   *
+   * The semantics, exactly:
+   *
+   *   1. `candidates` DESCENDING — batch size. A group of 35 saves 35 decisions.
+   *   2. ties broken by `key` ASCENDING, compared by UTF-16 CODE UNIT.
+   *
+   * Step 2 is a code-unit comparison rather than `localeCompare` deliberately: `localeCompare` is
+   * neither total (it returns 0 for keys differing only by a collation-ignorable code point, and
+   * a stable sort then falls back to the grouping query's unordered rows) nor host-independent
+   * (Latin vs Devanagari flips sign between `en-*` and `hi`). Code units make the response
+   * byte-identical for identical input on every host — which is the property a reviewer returning
+   * to "the wood batch" depends on, since a group has no id in any table.
+   *
+   * ⚠ IT SORTS BY `candidates`, NOT `undecided`. So a 35-member batch that is fully decided
+   * outranks a 10-member batch nobody has opened. Whether the queue should lead with remaining
+   * WORK instead of batch SIZE is an open PRODUCT decision (see the lifecycle doc's open-decisions
+   * table) — it is not changed here, because changing an ordering quietly is how two clients end
+   * up disagreeing about what "the first batch" means.
+   */
   groups: AdminSkillReviewGroup[];
   /** How many batches the filtered population reduces to. The review-screen count. */
   total_groups: number;

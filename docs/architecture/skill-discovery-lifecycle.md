@@ -421,7 +421,34 @@ unlocked tables everywhere else.
 | 3 | The ADR-0025 §3.1 cell for `review_skill_candidates` | An authorization decision. The current allow-set is a reasoned default, and the tests say so. |
 | 4 | Applying migration 0093 | Production DDL. Authored, reviewed, **not applied**. |
 | 5 | Any paid embedding or extraction run | 8,762 of 8,819 phrases are already embedded; the 57 missing cost ≈ ₹0.034. Extraction is ≈ ₹0.47 for the direct tier. **₹0 has been spent.** |
+| 6 | Whether the grouped queue leads with `undecided` instead of `candidates` | An ordering is a statement about what a reviewer should do next. The server sorts by batch SIZE today; sorting by remaining WORK is defensible and is a product call, not a backend one. Recorded rather than changed — see below. |
+| 7 | Whether `source_id` stays on the detail response at all | It is a catalogue id on today's pipeline and safe to serve. Removing it anyway is the stricter option and costs a coordinated `apps/admin-web` change, because the console keys its source list on it. Not a backend decision alone (CLAUDE.md §6). |
 
 Tier sequencing is a product rule, not a preference: `direct` (82 candidates / 74 screens ≈ 1 hour)
 is reviewed and validated first. `derived` (6,074) stays closed until then, and the UI must make
 that visible — a banner or a disabled tab with a reason, never a silent default filter.
+
+### Group ordering, stated once so two clients cannot disagree
+
+**The server orders the batches and is the authority.** `GET /admin/skill-discovery/groups` returns
+`groups[]` sorted by:
+
+1. `candidates` **descending** — batch size;
+2. ties broken by `key` **ascending**, compared by **UTF-16 code unit**.
+
+Step 2 is a code-unit comparison and not `localeCompare`. `localeCompare` is neither total — it
+returns `0` for keys differing only by a collation-ignorable code point, after which a stable sort
+falls back to the grouping query's row order, and that query deliberately has no `ORDER BY` — nor
+host-independent: Latin versus Devanagari flips sign between an `en-*` and a `hi` ICU default, and
+Devanagari anchors are a supported case. Code units make the response byte-identical for identical
+input on every host, which is what a reviewer returning to "the wood batch" relies on, since a
+group has no id in any table and exists only as a recomputed lens.
+
+**The console must not add a second ordering.** The anchor a candidate is batched on is computed
+across the whole filtered population, so an order derived client-side from one response is a
+different function, not a re-application of the same one.
+
+**The open question is `undecided` versus `candidates`** (row 6 above). Sorting by size means a
+fully-decided 35-member batch outranks a 10-member batch nobody has opened. `undecided` is served
+per group precisely so that ordering is *possible* — but switching to it changes what "the first
+batch" means, so it is a decision to record, not a default to flip.

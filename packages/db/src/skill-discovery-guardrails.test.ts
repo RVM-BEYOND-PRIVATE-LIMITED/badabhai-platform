@@ -320,6 +320,48 @@ describe("no domain alias becomes a production skill", () => {
       expect(body.toUpperCase()).not.toContain(verb);
     }
   });
+
+  /**
+   * THE ONLY SOURCE TYPES A PRODUCER CAN EMIT, which is what makes `source_id` safe to serve.
+   *
+   * `SkillCandidateSourceType` declares six members and the 0093 CHECK allows all six, but only
+   * three are ever CONSTRUCTED — all in `discover-skills.ts`. That distinction is load-bearing
+   * for the admin API: `AdminSkillCandidateSource.source_id` is served on the detail response,
+   * and it is an id into whichever space its `source_type` names.
+   *
+   * For the three that exist today, that space holds nobody:
+   *
+   *   job_domain_alias  -> `job_domain_alias.id`   — catalogue row
+   *   job_domain_label  -> `job_domain.job_domain_id` — catalogue row
+   *   unresolved_phrase -> `unresolved_phrase.id`  — an AGGREGATE row (phrase + count +
+   *                        first/last seen) with no `worker_id` and no `session_id`
+   *
+   * `worker_phrase` and `job_text` are different: they name per-worker and per-payer id spaces,
+   * so a source row of either type would make `source_id` a join key back to a person or a
+   * customer — on a response whose privacy argument is that no such key exists.
+   *
+   * So this is a TRIPWIRE, not a style rule. The day somebody writes the `worker_phrase`
+   * producer, this fails, and serving `source_id` becomes a decision somebody makes on purpose
+   * rather than a default that ships. The narrowed claim in
+   * `admin-skill-discovery.dto.ts` is written against exactly this test.
+   */
+  it("only the three catalogue source types have a producer — worker_phrase and job_text do not", () => {
+    const src = readFileSync(join(__dirname, "discover-skills.ts"), "utf8");
+    const body = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    const emitted = [...body.matchAll(/source_type:\s*"([a-z_]+)"/g)].map((m) => m[1]);
+
+    expect(new Set(emitted)).toEqual(
+      new Set(["job_domain_alias", "job_domain_label", "unresolved_phrase"]),
+    );
+    // Stated in the negative too, so a NEW producer file that this test does not read cannot make
+    // the assertion above pass while the property is false — the union members that would need a
+    // ruling are named here by hand.
+    for (const personLinked of ["worker_phrase", "job_text"]) {
+      expect(emitted, `${personLinked} gained a producer — see the docblock above`).not.toContain(
+        personLinked,
+      );
+    }
+  });
 });
 
 // ===========================================================================
