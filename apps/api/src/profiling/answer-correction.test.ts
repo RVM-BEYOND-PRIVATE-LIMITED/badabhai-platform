@@ -75,6 +75,7 @@ function makeWorld(
 
   const saved: Record<string, unknown>[] = [];
   const inserted: Record<string, unknown>[][] = [];
+  const messagesInserted: Record<string, unknown>[][] = [];
   const chat = {
     findSession: vi.fn(async () => ({
       id: SESSION,
@@ -101,6 +102,10 @@ function makeWorld(
     insertPackAnswers: vi.fn(async (_tx: unknown, rows: Record<string, unknown>[]) => {
       inserted.push(rows);
     }),
+    insertMessages: vi.fn(async (_tx: unknown, rows: Record<string, unknown>[]) => {
+      messagesInserted.push(rows);
+      return rows;
+    }),
   };
   const registry = {
     loadUniversal: vi.fn(async () => pack("qp_universal", items)),
@@ -118,7 +123,7 @@ function makeWorld(
     // The correction path never takes a turn, so the LLM seam is unreachable from here.
     { leads: () => false } as never,
   );
-  return { orchestrator, chat, events, saved, inserted };
+  return { orchestrator, chat, events, saved, inserted, messagesInserted };
 }
 
 const correction = (over: Record<string, unknown> = {}) => ({
@@ -127,6 +132,7 @@ const correction = (over: Record<string, unknown> = {}) => ({
   questionKey: "current_city",
   text: "Pune",
   method: "text" as const,
+  voiceNoteId: null,
   profileAlreadyBuilt: false,
   now: new Date("2026-08-08T12:00:00Z"),
   ctx: CTX,
@@ -231,6 +237,65 @@ describe("both durable stores, in one transaction", () => {
       profile_already_built: false,
       correction_count: 1,
     });
+  });
+});
+
+describe("a SPOKEN correction reaches chat_messages too (#1272)", () => {
+  // Before this fix, `correctAnswer` wrote `conversation_state` and `worker_pack_answer` and
+  // emitted an event, but never touched the transcript — so a correction the worker SPOKE
+  // produced no `chat_messages` row on any path, and the words a worker actually said never
+  // reached profile extraction (which reads the transcript, not the answer map).
+  const VOICE_NOTE = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+  it("inserts an inbound chat_messages row with the corrected wording, in the SAME transaction", async () => {
+    const { orchestrator, chat, messagesInserted } = makeWorld();
+
+    await orchestrator.correctAnswer(
+      correction({ method: "spoken", text: "Pune", voiceNoteId: VOICE_NOTE }),
+    );
+
+    expect(messagesInserted).toHaveLength(1);
+    expect(messagesInserted[0]).toEqual([
+      expect.objectContaining({
+        sessionId: SESSION,
+        workerId: WORKER,
+        direction: "inbound",
+        // THE SAME PROVENANCE CONVENTION `toMessageRow` USES (#1244), not a hardcoded "text": a
+        // spoken correction is tagged `"voice"` with the clip's real FK, exactly like a
+        // first-time spoken answer is.
+        messageType: "voice",
+        voiceNoteId: VOICE_NOTE,
+        bodyText: "Pune",
+      }),
+    ]);
+    // SAME TRANSACTION as the pack answer and the event — `withTransaction` is called once for
+    // the whole correction, and `insertMessages` is one of the calls made with the same `tx`.
+    expect(chat.withTransaction).toHaveBeenCalledTimes(1);
+    expect(chat.insertMessages).toHaveBeenCalledWith({ tx: true }, expect.any(Array));
+  });
+
+  it("does NOT insert a chat_messages row for a typed/chip/boolean correction", async () => {
+    // Those methods already carry the worker's exact submitted value in `worker_pack_answer`;
+    // #1272 scopes the gap to spoken corrections specifically.
+    const { orchestrator, chat } = makeWorld();
+
+    await orchestrator.correctAnswer(correction({ method: "text" }));
+
+    expect(chat.insertMessages).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing at all — including no chat_messages row — when the words parse to no value", async () => {
+    const { orchestrator, chat } = makeWorld({
+      items: [item({ question_key: "experience_years", target_field: "experience_years" })],
+      answerMap: [answered("experience_years", 8)],
+    });
+
+    const outcome = await orchestrator.correctAnswer(
+      correction({ questionKey: "experience_years", text: "bakwaas", method: "spoken" }),
+    );
+
+    expect(outcome).toEqual({ kind: "unreadable" });
+    expect(chat.insertMessages).not.toHaveBeenCalled();
   });
 });
 

@@ -46,7 +46,9 @@ const sample = (over: Partial<TranscriptBuffer> = {}): TranscriptBuffer => ({
   turnCount: 2,
   captured: { trade: "VMC operator" },
   roleFamily: "cnc_vmc",
-  messages: [{ role: "worker", text: "VMC chalata hun", at: "2026-07-22T00:00:00.000Z" }],
+  messages: [
+    { role: "worker", text: "VMC chalata hun", at: "2026-07-22T00:00:00.000Z", voiceNoteId: null },
+  ],
   startedAt: "2026-07-22T00:00:00.000Z",
   ...over,
 });
@@ -125,7 +127,7 @@ describe("ChatTranscriptBuffer — fails closed", () => {
     try {
       const { buffer } = make({ throwOn: "set" });
       await buffer
-        .save(SESSION, sample({ messages: [{ role: "worker", text: "SECRET_WORDS", at: "x" }] }))
+        .save(SESSION, sample({ messages: [{ role: "worker", text: "SECRET_WORDS", at: "x", voiceNoteId: null }] }))
         .catch(() => undefined);
       const logged = JSON.stringify([...errSpy.mock.calls, ...warnSpy.mock.calls]);
       expect(logged).not.toContain("SECRET_WORDS");
@@ -207,6 +209,7 @@ describe("ChatTranscriptBuffer — the unbounded-growth backstop", () => {
         role: "worker" as const,
         text: `line ${i}`,
         at: "2026-07-22T00:00:00.000Z",
+        voiceNoteId: null,
       }));
       await buffer.save(SESSION, sample({ messages }));
       const loaded = await buffer.load(SESSION);
@@ -393,6 +396,7 @@ describe("the CAS — two concurrent writers, exactly one rev increment", () => 
       role: "worker" as const,
       text: `m${i}`,
       at: "2026-07-22T00:00:00.000Z",
+      voiceNoteId: null,
     }));
     await buffer.saveWithCas(SESSION, v2({ messages: many }), 0);
     expect((await buffer.load(SESSION))?.messages).toHaveLength(TRANSCRIPT_BUFFER_MAX_MESSAGES);

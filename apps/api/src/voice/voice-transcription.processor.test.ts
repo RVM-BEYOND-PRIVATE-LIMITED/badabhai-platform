@@ -56,6 +56,11 @@ function make(
     errorCode?: string;
     /** The per-call cost record the ai-service returns (#738). `null`/absent = the mock path. */
     aiMetadata?: Record<string, unknown> | null;
+    /**
+     * Whether the adapter's success result is a MOCK — the provider was never called and the
+     * transcript is the adapter's canned sentence (#1246). Defaults to `false` (a real call).
+     */
+    isMock?: boolean;
   } = {},
 ) {
   const voice = {
@@ -112,7 +117,12 @@ function make(
                 transcript_text: MOCK_TRANSCRIPT,
                 confidence: 0.9,
                 english_text: MOCK_ENGLISH,
-                is_mock: true,
+                // A REAL transcription by default (#1246). The constant is named MOCK_* because
+                // it borrows the adapter's canned string, but what these cases exercise is the
+                // SUCCESS path — and `transcribeNow` now refuses a provably synthetic transcript
+                // rather than storing it as a worker's answer. Cases that mean "the provider was
+                // never called" opt in with `isMock: true`.
+                is_mock: opts.isMock ?? false,
                 error_code: null,
                 ai_metadata: opts.aiMetadata ?? null,
               },
@@ -554,6 +564,44 @@ describe("transcribeNow — the voice form's synchronous leg", () => {
       text: MOCK_TRANSCRIPT,
       durationSeconds: 6,
     });
+  });
+
+  it("REFUSES a mock transcript rather than storing it as the worker's answer (#1246)", async () => {
+    // THE DEFECT THIS PINS. On the mock path the adapter returns a canned, plausible Hinglish
+    // sentence with `is_mock: true` and NO `error_code` — so the degraded-result check passes it
+    // and it was stored as the worker's words, copied into `chat_messages` at flush, and fed to
+    // extraction. Mock is the DEFAULT posture (`AI_ENABLE_REAL_CALLS=false`), so this gave every
+    // worker on this surface the same fabricated trade and the same four years of experience.
+    //
+    // It must NOT be reported as success-with-canned-text, and it must NOT be silently empty:
+    // the worker is told their answer did not arrive so they can record it again.
+    const { service, voice } = make({ isMock: true });
+    const pending = {
+      id: JOB.voiceNoteId,
+      workerId: JOB.workerId,
+      storagePath: JOB.storagePath,
+      durationSeconds: 6,
+      transcriptText: null,
+    };
+    voice.findById.mockResolvedValueOnce(pending).mockResolvedValueOnce(pending);
+
+    await expect(service.transcribeNow(now())).resolves.toEqual({
+      ok: false,
+      errorCode: "stt_mock_transcript",
+    });
+    // The fabrication never reaches the row, which is what every other reader sees.
+    expect(voice.setTranscript).not.toHaveBeenCalled();
+  });
+
+  it("still accepts a mock on the QUEUE path — that is the documented staging handset check", async () => {
+    // `rejectMock` is opt-in per caller. The chat voice-note route exercises the pipeline
+    // end-to-end without a provider on purpose (infra/supabase/storage-buckets.md), so a
+    // blanket refusal would break the G2 exit criteria rather than fix anything.
+    const { service, voice } = make({ isMock: true });
+    await expect(
+      service.transcribe(JOB, { terminal: true }),
+    ).resolves.toEqual({ voice_note_id: JOB.voiceNoteId });
+    expect(voice.setTranscript).toHaveBeenCalled();
   });
 });
 

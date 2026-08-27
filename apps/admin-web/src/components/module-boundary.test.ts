@@ -88,6 +88,8 @@ const CLIENT_COMPONENTS = [
   "../app/(portal)/workers/[id]/worker-detail-header.tsx",
   "../app/(portal)/admins/invite-admin-form.tsx",
   "../app/(portal)/admins/admin-row-actions.tsx",
+  "../app/(portal)/skills/discovery/filter-bar.tsx",
+  "../app/(portal)/skills/discovery/[id]/decision-panel.tsx",
 ];
 
 describe("interactive components stay on the client", () => {

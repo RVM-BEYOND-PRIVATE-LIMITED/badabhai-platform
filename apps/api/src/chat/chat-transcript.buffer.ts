@@ -9,6 +9,9 @@ import {
 } from "../profiling/conversation-state";
 import { PROFILE_EXTRACTION_QUEUE, type ProfileExtractionJobData } from "../queue/queue.constants";
 
+/** Canonical UUID shape, for narrowing a buffered `voiceNoteId` back into a real FK. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * The in-flight interview, held in Redis instead of Postgres.
  *
@@ -56,7 +59,37 @@ export interface BufferedMessage {
    */
   text: string;
   at: string;
+  /**
+   * The `voice_notes` row this line was SPOKEN into, or `null` when it was typed.
+   *
+   * REQUIRED AND NULLABLE, never optional — the same rule {@link TurnInput.submissionId}
+   * states and for the same reason. A line's provenance is decided once, where the line is
+   * appended; an optional field would let a future append site forget it and silently record
+   * a spoken answer as typed, which is precisely the defect this field closes. Assistant
+   * lines are always `null`: the platform does not speak into `voice_notes`.
+   *
+   * Carried here rather than derived at flush because the flush reads only the buffer — by
+   * then the turn that knew which clip produced these words is long gone.
+   */
+  voiceNoteId: string | null;
 }
+
+/**
+ * THE FIELD-DROP TRAP, closed for {@link BufferedMessage} the way `PROFILING_ENVELOPE_KEYS`
+ * closes it for the envelope.
+ *
+ * {@link ChatTranscriptBuffer.narrow} rebuilds every line field-by-field, so a key added to the
+ * interface but not to that loop is destroyed on the first Redis round trip — with no error, no
+ * failing test, and a `chat_messages` row that is simply missing the fact. `satisfies` makes the
+ * omission a TYPECHECK failure instead: add a field above, and this object stops compiling until
+ * you have named it here and copied it through `narrow`.
+ */
+export const BUFFERED_MESSAGE_KEYS = {
+  role: true,
+  text: true,
+  at: true,
+  voiceNoteId: true,
+} satisfies Record<keyof BufferedMessage, true>;
 
 /** The whole in-flight interview. Serialized to one Redis string per session. */
 export interface TranscriptBuffer {
@@ -371,6 +404,16 @@ export class ChatTranscriptBuffer {
         role: msg.role,
         text: msg.text,
         at: typeof msg.at === "string" ? msg.at : new Date(0).toISOString(),
+        // SHAPE-CHECKED, not merely type-checked. This value becomes a real FK on
+        // `chat_messages.voice_note_id` at flush, and a buffer is a Redis string that may
+        // predate this field entirely — a legacy line has no `voiceNoteId` at all, and must
+        // narrow to `null` (typed) rather than to `undefined`, which would then insert as a
+        // missing column rather than an explicit NULL. Anything that is not a UUID is
+        // discarded to `null`: an unparseable pointer is worse than an absent one, because
+        // the insert would fail and take the WHOLE transactional flush down with it.
+        voiceNoteId: typeof msg.voiceNoteId === "string" && UUID_RE.test(msg.voiceNoteId)
+          ? msg.voiceNoteId
+          : null,
       });
     }
 

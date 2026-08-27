@@ -253,7 +253,7 @@ describe("the server maps option keys to labels — never the client", () => {
     // every turn they drive reaches the reply gate as "no id" and is judged by the hash and the
     // time windows exactly as it was before that argument existed — which is the legacy path this
     // whole file already pins, now stated rather than implied.
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "Stainless steel", CTX, null);
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "Stainless steel", CTX, null, null);
   });
 
   it("carries the client submission id from the DTO through to the reply gate (#931)", async () => {
@@ -285,6 +285,7 @@ describe("the server maps option keys to labels — never the client", () => {
       "Stainless steel",
       CTX,
       "cccccccc-3333-4333-8333-cccccccccccc",
+      null,
     );
   });
 
@@ -298,6 +299,7 @@ describe("the server maps option keys to labels — never the client", () => {
       SESSION,
       "Mild steel, Stainless steel",
       CTX,
+      null,
       null,
     );
   });
@@ -351,7 +353,7 @@ describe("the server maps option keys to labels — never the client", () => {
         } as never,
         CTX,
       );
-      expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, expected, CTX, null);
+      expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, expected, CTX, null, null);
     }
   });
 
@@ -369,7 +371,7 @@ describe("the server maps option keys to labels — never the client", () => {
       CTX,
     );
 
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "Nahi pata", CTX, null);
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "Nahi pata", CTX, null, null);
   });
 });
 
@@ -925,7 +927,7 @@ describe("a spoken answer", () => {
     await service.answer(WORKER, spoken(), CTX);
 
     expect(transcription.transcribeNow).toHaveBeenCalledOnce();
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX, null);
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX, null, "55555555-5555-4555-8555-555555555555");
   });
 
   it("caps the clip at 30 seconds, which is what keeps it a single provider call", async () => {
@@ -1012,7 +1014,7 @@ describe("a spoken answer", () => {
 
     const { step } = await service.answer(WORKER, spoken(), CTX);
 
-    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX, null);
+    expect(chatService.runTurn).toHaveBeenCalledWith(WORKER, SESSION, "aath saal", CTX, null, "55555555-5555-4555-8555-555555555555");
     expect(step).toMatchObject({ kind: "question" });
   });
 
@@ -1341,7 +1343,7 @@ describe("correcting a settled answer", () => {
     // Deliberately UNLIKE the answer route, which degrades to `unavailable` against a question
     // still on screen. Here there is no question on screen to record against again, so a soft
     // failure would leave the review showing the old value with no sign the correction was lost.
-    const { service, orchestrator } = makeWorld({
+    const { service, orchestrator, voiceAnswers } = makeWorld({
       settled: settledWorld(),
       transcribed: { ok: false, errorCode: "stt_call_failed" },
     });
@@ -1350,5 +1352,72 @@ describe("correcting a settled answer", () => {
       service.correct(WORKER, { ...dto, answer: { kind: "spoken", voice_note_id: SESSION } }, CTX),
     ).rejects.toThrow(/could not be transcribed/i);
     expect(orchestrator.correctAnswer).not.toHaveBeenCalled();
+    // THE REGRESSION GUARD FOR THE THING THIS FIX MUST NOT TOUCH (#1272's own out-of-scope item
+    // 1, stated for the SIBLING answer route and equally true here): a failed transcription
+    // writes NOTHING — no correction, and no evidence row for a clip that never arrived.
+    expect(voiceAnswers.recordAnswer).not.toHaveBeenCalled();
+  });
+
+  describe("a spoken correction gets the same evidence row a first-time spoken answer gets (#1272)", () => {
+    it("records the profiling_voice_answer row on success, with the pack pinned per row", async () => {
+      const VOICE_NOTE = "66666666-6666-4666-8666-666666666666";
+      const { service, orchestrator, voiceAnswers } = makeWorld({
+        settled: settledWorld({
+          // TWO items, q_city SECOND — proves ordinal is the pack POSITION, not a count of
+          // "how many are behind the worker" (there is no live turn here to count against).
+          items: [item("q_years", "Kitne saal?"), item("q_city", "Aap kis sheher mein rehte hain?")],
+        }),
+        transcribed: { ok: true, text: "Pune", durationSeconds: 5 },
+      });
+
+      await service.correct(
+        WORKER,
+        { ...dto, answer: { kind: "spoken", voice_note_id: VOICE_NOTE } },
+        CTX,
+      );
+
+      expect(voiceAnswers.recordAnswer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workerId: WORKER,
+          sessionId: SESSION,
+          voiceNoteId: VOICE_NOTE,
+          packId: "qp_universal",
+          packVersion: 1,
+          questionKey: "q_city",
+          ordinal: 2,
+          durationSeconds: 5,
+          transcriptStatus: "succeeded",
+          transcriptErrorCode: null,
+        }),
+      );
+      // The words AND the clip id reach the engine's correction path tagged `spoken` — the two
+      // facts `orchestrator.correctAnswer` (the real implementation) uses to decide whether this
+      // correction also becomes a `chat_messages` row, and how it is tagged; see
+      // `answer-correction.test.ts`.
+      expect(orchestrator.correctAnswer).toHaveBeenCalledWith(
+        expect.objectContaining({ text: "Pune", method: "spoken", voiceNoteId: VOICE_NOTE }),
+      );
+    });
+
+    it("does NOT lose the correction when the evidence write fails", async () => {
+      // The row is an audit fact; the corrected answer is already durable in
+      // `worker_pack_answer` by the time this runs — same rule as `recordClip`.
+      const { service, orchestrator } = makeWorld({
+        settled: settledWorld(),
+        recordThrows: true,
+      });
+
+      const result = await service.correct(
+        WORKER,
+        {
+          ...dto,
+          answer: { kind: "spoken", voice_note_id: "66666666-6666-4666-8666-666666666666" },
+        },
+        CTX,
+      );
+
+      expect(orchestrator.correctAnswer).toHaveBeenCalled();
+      expect(result.row.display_value).toBe("Pune");
+    });
   });
 });

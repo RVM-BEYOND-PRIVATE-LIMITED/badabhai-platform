@@ -287,6 +287,19 @@ export interface TurnInput {
    */
   readonly submissionId: string | null;
   /**
+   * The `voice_notes` row these words were SPOKEN into, or `null` when the worker typed them.
+   *
+   * REQUIRED AND NULLABLE for the same reason {@link submissionId} is, and it is the same class
+   * of defect: the caller that knows a clip produced this turn is `ProfilingSessionService`,
+   * and if it can silently omit the id then a spoken answer is recorded as typed with nothing
+   * anywhere saying so. Required makes the omission a BUILD failure; every caller with no clip
+   * behind it — a typed turn, `openTurn`, the finalize re-drive — passes `null` in as many words.
+   *
+   * Threaded through the buffer rather than written at the turn, because `chat_messages` is
+   * written ONCE at flush and this is the only way the fact survives that far.
+   */
+  readonly voiceNoteId: string | null;
+  /**
    * Correlation for the two occupation events this turn may emit. Threaded through rather than
    * synthesised so a placement can be traced back to the HTTP request that produced it.
    */
@@ -356,6 +369,14 @@ export interface CorrectAnswerInput {
   readonly text: string;
   /** Which affordance produced it. Recorded on the event; never the value. */
   readonly method: "chips" | "boolean" | "text" | "spoken";
+  /**
+   * The `voice_notes` row these words were SPOKEN into, or `null` for every other method
+   * (#1272) — the same field `TurnInput.voiceNoteId` carries for an ordinary turn, so a
+   * corrected `chat_messages` row is tagged `"voice"` with a real FK exactly like a first-time
+   * spoken answer is (#1244), rather than the flush's provenance convention silently stopping
+   * at the correction path's door.
+   */
+  readonly voiceNoteId: string | null;
   readonly profileAlreadyBuilt: boolean;
   readonly now: Date;
   readonly ctx: RequestContext;
@@ -763,7 +784,12 @@ export class ProfilingOrchestrator {
       const at = input.now.toISOString();
       const opened: TranscriptBuffer = {
         ...buffer,
-        messages: [...buffer.messages, { role: "assistant" as const, text: reply, at }],
+        // The opening line is the platform's, so it carries no clip — see the worker/assistant
+        // split in `takeTurn`'s append.
+        messages: [
+          ...buffer.messages,
+          { role: "assistant" as const, text: reply, at, voiceNoteId: null },
+        ],
         profiling: next,
       };
 
@@ -777,6 +803,8 @@ export class ProfilingOrchestrator {
           // without a worker having sent anything, so there is no client id to carry and
           // inventing one would stamp a submission that never happened.
           submissionId: null,
+          // And no clip either, for the same reason: nothing was spoken to open the screen.
+          voiceNoteId: null,
           ctx: input.ctx,
         });
         return {
@@ -1665,6 +1693,44 @@ export class ProfilingOrchestrator {
 
     await this.chat.withTransaction(async (tx) => {
       await this.chat.saveConversationState(input.sessionId, patched, input.now, tx);
+      // A SPOKEN CORRECTION IS A TRANSCRIPT LINE TOO (#1272). `takeTurn` appends every turn's
+      // words to the buffer, which reaches `chat_messages` at flush — but a correction runs
+      // OUTSIDE the turn loop and, until now, never touched the buffer OR `chat_messages`, so a
+      // worker's corrected wording lived only as a captured value and never as conversation.
+      //
+      // WRITTEN HERE, NOT VIA THE BUFFER. `viewSettled` reads `chat_sessions` directly rather
+      // than Redis precisely because the buffer is GONE by the time a correction is reachable —
+      // it is dropped the instant the flush commits, which is the same instant the review screen
+      // (the correction's only entry point) becomes reachable; see `ChatRepository.listPackAnswers`
+      // and the `answer-correction.test.ts` proof that this path is built with no buffer at all.
+      // Appending to a buffer that will never flush again would durably lose the line at the next
+      // TTL sweep while looking like it had been saved. `insertMessages` is the SAME repository
+      // call and the SAME row shape `finalizeInterview`/`abandonInterview` use at flush time — the
+      // existing mechanism, reused, rather than a second way to write a `chat_messages` row.
+      //
+      // TEXT ONLY, NEVER TYPED/CHIP CORRECTIONS: those already have their exact submitted value in
+      // `worker_pack_answer`, and #1272 scopes this to the spoken gap specifically.
+      //
+      // NO NEW EVENT. `profile.answer_corrected` below already covers this state change (invariant
+      // #1: one event per change) — this row is a read-path fix for extraction and the audit
+      // transcript, not a second thing that happened.
+      //
+      // SAME PROVENANCE CONVENTION `toMessageRow` USES (#1244/#1272): `messageType` and
+      // `voiceNoteId` are derived from `input.voiceNoteId`, never hardcoded — a spoken correction
+      // is tagged `"voice"` with the clip's real FK, exactly like a first-time spoken answer.
+      if (input.method === "spoken") {
+        await this.chat.insertMessages(tx, [
+          {
+            sessionId: input.sessionId,
+            workerId: input.workerId,
+            direction: "inbound",
+            messageType: input.voiceNoteId === null ? "text" : "voice",
+            voiceNoteId: input.voiceNoteId,
+            bodyText: input.text,
+            createdAt: input.now,
+          },
+        ]);
+      }
       // Upsert on `(worker_id, pack_id, question_key)` — the same statement the flush uses, so a
       // correction updates the row the interview wrote rather than racing it.
       if (row) await this.chat.insertPackAnswers(tx, [row]);
@@ -2014,8 +2080,11 @@ export class ProfilingOrchestrator {
           // BOTH SIDES, VERBATIM — including an abusive turn. `excludeFromParse` keeps it away
           // from the model; it must still reach the audit, or the record of what a worker was
           // asked and answered has a hole in it exactly where a dispute would look.
-          { role: "worker" as const, text: input.text, at },
-          { role: "assistant" as const, text: result.reply, at },
+          // THE PROVENANCE LANDS ON THE WORKER LINE ONLY. `input.voiceNoteId` describes the
+          // clip the worker spoke; the reply below it is the platform's own text and can never
+          // have one, so it is `null` structurally rather than by omission.
+          { role: "worker" as const, text: input.text, at, voiceNoteId: input.voiceNoteId },
+          { role: "assistant" as const, text: result.reply, at, voiceNoteId: null },
         ],
         profiling: stamped,
         ...(result.complete ? { completedAt: at } : {}),
