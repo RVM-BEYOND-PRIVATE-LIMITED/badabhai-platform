@@ -128,6 +128,12 @@ const P_OTHER_STATE = uuid(9412); // different state entirely
 const P_FTS_PHRASE = uuid(9413); // reachable ONLY through a skill_phrase token (weight B)
 const P_FTS_TITLE = uuid(9414); // reachable through its role_title tokens (weight A)
 
+// #1240 fixtures — the empty-box PROFILE fallback (`reach_skill_ids ?| $ids::text[]`). Own
+// ids and own city token, for the same reason the 0089 block above has them: the closed-set
+// premises of every assertion written before this block must stay exactly as true.
+const P_REACH_MINE = uuid(9415); // reach set CONTAINS the worker's skill → he must see it
+const P_REACH_OTHER = uuid(9416); // same city, DISJOINT reach set → he must NOT see it
+
 /** The worker every search below runs as. He has already decided on two postings. */
 const WORKER_MAIN = uuid(9501);
 /** No decisions at all — the control that proves the anti-join is WORKER-scoped. */
@@ -152,6 +158,15 @@ const STATE = "Rajasthangate";
 const STATE_FOREIGN = "Gujaratgate";
 /** Isolation token for the 0089 FTS block — a city no seed and no sibling gate writes. */
 const CITY_FTS = "Nagpurgate";
+// #1240 — the profile-fallback block's own city, so a location-only search inside it sees
+// exactly two postings and the "did the reach filter narrow it?" claim cannot be satisfied
+// by an unrelated row drifting in from another block.
+const CITY_REACH = "Indoregate";
+// Opaque closed-vocabulary `mskill_*` ids. These do NOT need rows in `skill`: `reach_skill_ids`
+// is a denormalized jsonb array with no FK, which is exactly what makes the GIN probe a single
+// index lookup and what lets this fixture stay inside `job_postings`.
+const MSKILL_MINE = "mskill_jobsearchgate_mine";
+const MSKILL_THEIRS = "mskill_jobsearchgate_theirs";
 
 /** The term every `q` search uses. Lower case on purpose — the titles are not. */
 const TERM = "welderzz";
@@ -190,6 +205,8 @@ const POSTING_IDS = [
   P_OTHER_STATE,
   P_FTS_PHRASE,
   P_FTS_TITLE,
+  P_REACH_MINE,
+  P_REACH_OTHER,
 ];
 const FIXTURE_IDS = new Set(POSTING_IDS);
 
@@ -500,6 +517,35 @@ describe.skipIf(!RUN)("#982 — GET /jobs/search, executed against Postgres (#97
         state: STATE,
         publishedAt: PUB_SKILL_ONLY,
       },
+      // ── #1240 — two postings that differ ONLY in their reach set ──────────────────────
+      // Same city, same state, same published_at, and role titles that share no token with
+      // anything else here. The ONLY thing that can separate them is `reach_skill_ids`, so a
+      // fallback that silently matched everything (or nothing) cannot produce the expected
+      // one-row answer by luck.
+      {
+        id: P_REACH_MINE,
+        createdBy: OPS_ACTOR,
+        orgLabel: "Search Gate Fixture Co",
+        roleTitle: "Reachzz Alpha",
+        vacancyBand: "1" as const,
+        status: "open" as const,
+        reachSkillIds: [MSKILL_MINE],
+        city: CITY_REACH,
+        state: STATE,
+        publishedAt: PUB_SKILL_ONLY,
+      },
+      {
+        id: P_REACH_OTHER,
+        createdBy: OPS_ACTOR,
+        orgLabel: "Search Gate Fixture Co",
+        roleTitle: "Reachzz Beta",
+        vacancyBand: "1" as const,
+        status: "open" as const,
+        reachSkillIds: [MSKILL_THEIRS],
+        city: CITY_REACH,
+        state: STATE,
+        publishedAt: PUB_SKILL_ONLY,
+      },
     ]);
 
     // The two decisions. Keyed on `job_posting_id` — a V1 decision leaves `job_id` NULL, and
@@ -530,6 +576,9 @@ describe.skipIf(!RUN)("#982 — GET /jobs/search, executed against Postgres (#97
     return repo.searchOpenPostings({
       workerId: WORKER_MAIN,
       q: null,
+      // #1240 — default to the unprofiled worker, so every case written before the profile
+      // fallback existed keeps executing the statement it was written to execute.
+      profileSkillIds: [],
       city: null,
       state: null,
       limit: 50,
@@ -845,5 +894,73 @@ describe.skipIf(!RUN)("#982 — GET /jobs/search, executed against Postgres (#97
     // service formats this field; a string here would ship a wrong wire value.
     expect(row?.publishedAt).toBeInstanceOf(Date);
     expect(row?.publishedAt?.toISOString()).toBe(PUB_PREFIX.toISOString());
+  });
+
+  // ── #1240 — the empty-box PROFILE fallback, EXECUTED ────────────────────────────────────
+  //
+  // WHY THIS BELONGS IN THIS FILE AND NOT ONLY IN THE STATEMENT TEST. The fallback introduces
+  // an operator the repository had never emitted: `?|`, the jsonb key-existence-any operator,
+  // with an explicit `::text[]` cast on a bound parameter. `?` is also the placeholder
+  // character in several drivers' dialects, so "does this render" and "does this reach
+  // Postgres as an OPERATOR rather than as a parameter marker" are different questions, and
+  // only one of them is answerable by asserting on a compiled string. This file answers the
+  // other. The same argument the header makes about #974 applies verbatim.
+
+  it("EMPTY BOX + a profile — only the postings whose reach set contains the worker's skill", async () => {
+    const { rows } = await search({ profileSkillIds: [MSKILL_MINE], city: CITY_REACH });
+
+    // Two postings share this city, this state and this published_at, and neither is
+    // reachable by any term. `reach_skill_ids` is the ONLY thing that separates them, so a
+    // fallback that matched everything would return both and one that matched nothing would
+    // return neither — the expected answer is unreachable by accident.
+    expect(mine(rows)).toEqual([P_REACH_MINE]);
+  });
+
+  it("EMPTY BOX + NO profile — the whole city comes back, exactly as before #1240", async () => {
+    const { rows } = await search({ profileSkillIds: [], city: CITY_REACH });
+
+    // The owner ruling: an unprofiled worker keeps today's behaviour rather than being shown
+    // an empty page. This is the regression guard on that decision — and it is also what
+    // proves the test above is measuring the FILTER and not merely the fixture.
+    expect(mine(rows).sort()).toEqual([P_REACH_MINE, P_REACH_OTHER].sort());
+  });
+
+  it("EMPTY BOX + a profile matching NOTHING — an honest empty page, not a silent match-all", async () => {
+    const { rows } = await search({ profileSkillIds: ["mskill_jobsearchgate_absent"], city: CITY_REACH });
+
+    // The failure mode this pins is the dangerous one: if `?|` were mis-rendered such that the
+    // predicate collapsed to TRUE, every test above would still pass and search would quietly
+    // stop filtering. Only a query whose correct answer is EMPTY can catch that.
+    expect(mine(rows)).toEqual([]);
+  });
+
+  it("a TYPED q overrides the profile in the database, not just in the builder", async () => {
+    // The worker's profile says MSKILL_MINE, but he typed a term that only the OTHER posting
+    // answers to. He must get what he asked for: the profile is an override, never an
+    // additional AND that quietly narrows an explicit search.
+    const { rows } = await search({ q: "beta", profileSkillIds: [MSKILL_MINE], city: CITY_REACH });
+
+    expect(mine(rows)).toEqual([P_REACH_OTHER]);
+  });
+
+  it("the fallback still EXCLUDES what the worker already decided on", async () => {
+    // Every existing clause must survive the new one. The anti-join is the easiest to lose,
+    // because the fallback sits in the same conditions array it does.
+    const { rows } = await search({ profileSkillIds: [MSKILL_MINE] });
+
+    expect(mine(rows)).not.toContain(P_APPLIED);
+    expect(mine(rows)).not.toContain(P_SKIPPED);
+    // And the draft stays invisible — status='open' is unaffected too.
+    expect(mine(rows)).not.toContain(P_DRAFT);
+  });
+
+  it("ALL-INDIA — an empty location does not narrow the profile fallback", async () => {
+    // Scenario 1 of #1240: profile role, no location typed. The reach filter must apply
+    // WITHOUT a city predicate, which is the combination the feed cannot express at all
+    // (it is city-equality gated) and the reason search could not simply reuse `job_reach`.
+    const { rows } = await search({ profileSkillIds: [MSKILL_MINE] });
+
+    expect(mine(rows)).toContain(P_REACH_MINE);
+    expect(mine(rows)).not.toContain(P_REACH_OTHER);
   });
 });

@@ -976,6 +976,20 @@ export const JobSearchPerformedPayload = z.object({
   result_count: z.number().int().nonnegative().default(0),
   page: z.number().int().positive().default(1),
   limit: z.number().int().positive().default(20),
+  /**
+   * #1240 — did the empty role/skill box fall back to the worker's PROFILE? Booleans only,
+   * never which skills, so this stays as PII-free as the rest of the payload.
+   *
+   * ADDITIVE, NOT A VERSION BUMP, and the `.default(false)` is what earns that: every row
+   * already in `events` parses unchanged and reads `false`, which is also the TRUE statement
+   * about them — none of them could have used a fallback that did not exist yet. A field
+   * whose default silently mislabelled historical rows would need a new event version instead.
+   *
+   * It is NOT redundant with `has_query`. `has_query=false` now covers two different
+   * populations — profiled workers who got a narrowed list, and unprofiled workers who still
+   * got every open posting — and separating them is the entire measurement this feature needs.
+   */
+  used_profile_fallback: z.boolean().default(false),
 });
 
 /** A worker applied to a job (a tap or a voice note). */

@@ -205,6 +205,16 @@ export class JobsRepository {
   async searchOpenPostings(args: {
     workerId: string;
     q: string | null;
+    /**
+     * #1240 — the worker's OWN wanted `mskill_*` ids, used as the membership filter ONLY
+     * when `q` is absent. Empty array = "this worker has no profile to fall back to", which
+     * is a real and deliberate state, not a missing argument — see the branch below.
+     *
+     * The CALLER resolves these (JobsService), not this method: a repository reads the rows
+     * it is asked for, and making search silently issue a second worker-scoped query would
+     * hide a round trip inside a method whose whole contract is one statement.
+     */
+    profileSkillIds: readonly string[];
     city: string | null;
     state: string | null;
     limit: number;
@@ -244,7 +254,55 @@ export class JobsRepository {
           ))`,
         );
       }
+    } else if (args.profileSkillIds.length > 0) {
+      // ── #1240 — THE EMPTY BOX FALLS BACK TO THE WORKER'S PROFILE ──
+      //
+      // Until now an absent `q` meant NO membership filter at all, i.e. every open posting.
+      // For the location-only case that shipped on the Jobs tab ("Faridabad", role box empty)
+      // that returned every open job in Faridabad regardless of trade — a direct violation of
+      // product rule #2, never show an irrelevant candidate/posting.
+      //
+      // WHY `reach_skill_ids`, NOT A TSQUERY BUILT FROM THE PROFILE. The issue proposed
+      // probing `search_vec` with the worker's profile TEXT, and that would have been the
+      // wrong instrument twice over. First, matching is id-based here: `worker_skill.skill_id`
+      // is a CLOSED-VOCABULARY fk (schema/match.ts), so the worker side is already ids and
+      // re-deriving text from them to re-tokenize would launder a deterministic key through a
+      // lossy one. Second, `job_postings.skill_phrases` — the B-weighted half of `search_vec` —
+      // is ADR-0030 DESCRIPTIVE tagging that is explicitly never a match input, whereas
+      // `reach_skill_ids` is documented at schema/job.ts as exactly the opposite: a V1 MATCH
+      // input, deterministic, invariant #4. Filtering on the descriptive column would have
+      // been the one thing that ADR forbids.
+      //
+      // WHY NOT THE `job_reach` TABLE, the issue's other option: reach rows are capped,
+      // consumable and city-EQUALITY filtered — three properties a search box must not have,
+      // since it pages without limit and matches city partially. `reach_skill_ids` is a
+      // COLUMN on the posting carrying the same ids without any of that, which is why the
+      // feed and search can agree on "matches my profile" without sharing the feed's budget.
+      //
+      // `?|` is jsonb key-existence-any — ANY overlap, not all: a worker holding five skills
+      // must not be required to match a posting on all five. It is the operator
+      // `job_postings_reach_gin` (jsonb_path_ops) is built for, so this stays an index probe;
+      // the identical idiom is at match/worker-skills.repository.ts:439. The ids are bound as
+      // ONE text[] parameter — never interpolated — so this is not an injection surface, and
+      // they are opaque `mskill_*` vocabulary keys, so no PII crosses into the statement.
+      //
+      // ⚠️ `sql.param(...)` IS LOAD-BEARING, not ceremony. Drizzle's `sql` template expands a
+      // BARE JS array into a comma-separated placeholder list — a RECORD — so the tempting
+      // `${args.profileSkillIds}::text[]` fails at RUNTIME with `42846: cannot cast type
+      // record to text[]`, which no compile step and no statement-string assertion can catch.
+      // The same warning is written at match/worker-skills.repository.ts:193, where it was
+      // found against a live Postgres. The statement test pins the parameter as ONE array
+      // for exactly this reason; do not "simplify" it back.
+      conditions.push(
+        sql`${jobPostings.reachSkillIds} ?| ${sql.param([...args.profileSkillIds])}::text[]`,
+      );
     }
+    // NOTE the absent `else`: a worker with NO wanted skills keeps TODAY'S behaviour (every
+    // open posting), rather than being shown nothing. Owner ruling for #1240 — an unprofiled
+    // worker is the one cohort this feature cannot help, and returning them an empty page
+    // would make their results strictly WORSE than before the change. Broad-but-useful beats
+    // empty-but-principled here; the client already renders whatever comes back.
+    //
     // PARTIAL and case-insensitive, unlike the feed's exact equality — "pun" finds "Pune",
     // which is the whole point of a search box.
     if (args.city) conditions.push(sql`${jobPostings.city} ILIKE ${`%${args.city}%`}`);
