@@ -1,19 +1,25 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   ADMIN_SKILL_REVIEW_DECISIONS,
   ADMIN_SKILL_REVIEW_DECISION_LABELS,
   ADMIN_SKILL_REVIEW_REASON_MIN,
+  ADMIN_SKILLS_QUERY_MIN,
   SKILL_DECISION_CONFLICT_LABELS,
   skillDecisionClientErrors,
   type AdminSkillReviewDecision,
+  type CanonicalSkillOption,
   type SkillCandidateStatus,
   type SkillDecisionOutcome,
   type SkillDecisionRequest,
 } from "../../../../../lib/skill-discovery-vocabulary";
-import { submitSkillDecisionAction } from "./actions";
+import { searchCanonicalSkillsAction, submitSkillDecisionAction } from "./actions";
+
+/** How long to wait after the last keystroke before searching — long enough that a fast typist
+ * never fires one request per character, short enough to still feel live. */
+const SEARCH_DEBOUNCE_MS = 250;
 
 /**
  * The five-button decision form (#1260).
@@ -207,18 +213,15 @@ export function SkillDecisionPanel({
       )}
 
       {(selected === "alias" || selected === "merge") && (
-        <label className="field">
-          <span className="field__label">
-            {selected === "alias" ? "Existing skill this is another name for" : "Existing skill this merges into"}
-          </span>
-          <input
-            className="field__input mono"
-            type="text"
-            value={resultingSkillId}
-            onChange={(e) => setResultingSkillId(e.target.value)}
-            placeholder="skill_…"
-          />
-        </label>
+        <SkillPicker
+          label={
+            selected === "alias"
+              ? "Existing skill this is another name for"
+              : "Existing skill this merges into"
+          }
+          value={resultingSkillId}
+          onChange={setResultingSkillId}
+        />
       )}
 
       <label className="field">
@@ -262,6 +265,144 @@ export function SkillDecisionPanel({
 
       {outcome && <DecisionOutcomeNotice outcome={outcome} />}
     </section>
+  );
+}
+
+/**
+ * The MAP/MERGE target picker (#1280) — replaces free-typing a `skill_id` by hand with a search
+ * over `GET /admin/skills?q=`.
+ *
+ * ── ELIGIBILITY IS SHOWN, NEVER FILTERED ────────────────────────────────────────────────
+ * A deprecated skill and a `match_skill` both come back from the search, disabled, with their
+ * `not_mappable_reason` rendered — a reviewer who searches for a skill they remember and gets
+ * nothing back cannot tell "no such skill" from "deprecated" from "that's match vocabulary".
+ * Filtering client-side would undo exactly what the API's response shape exists to preserve.
+ *
+ * ── STALE RESPONSES ARE DISCARDED BY THE ECHOED `q`, NOT BY REQUEST ORDER ──────────────────
+ * `latestQueryRef` records the query a search was actually DISPATCHED for; a response is only
+ * rendered when its echoed `q` still matches that ref at the moment it resolves. Debouncing
+ * already prevents most races (a new keystroke cancels the pending timer), but it cannot order
+ * two REQUESTS already in flight — a slow response to an earlier keystroke can still resolve
+ * after a fast response to a later one. Comparing against the ref (updated the instant a search
+ * is dispatched, not when it resolves) is what keeps a stale result from ever overwriting a
+ * fresher one.
+ *
+ * ── THE SELECTED ID IS ALSO A FREE FIELD, NEVER HIDDEN ──────────────────────────────────
+ * `value` renders in a small mono confirmation line once chosen, with its own "Clear" — a
+ * reviewer must be able to see and undo exactly which id the decision will carry, the same
+ * transparency `resulting_skill_id` had as a raw text field before this replaced it.
+ */
+function SkillPicker({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (skillId: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<CanonicalSkillOption[] | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searching, startSearch] = useTransition();
+  const latestQueryRef = useRef("");
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (trimmed.length < ADMIN_SKILLS_QUERY_MIN) {
+      latestQueryRef.current = trimmed;
+      setResults(null);
+      setTruncated(false);
+      setSearchError(null);
+      return;
+    }
+    const handle = setTimeout(() => {
+      latestQueryRef.current = trimmed;
+      startSearch(async () => {
+        const outcome = await searchCanonicalSkillsAction(trimmed);
+        // A response for a query that is no longer the latest one dispatched — discard it
+        // rather than let a slow answer to an old keystroke overwrite a fresh one.
+        if (outcome.kind === "success" && outcome.q !== latestQueryRef.current) return;
+        if (outcome.kind === "error") {
+          setSearchError(outcome.message);
+          setResults(null);
+          return;
+        }
+        setSearchError(null);
+        setResults(outcome.skills);
+        setTruncated(outcome.truncated);
+      });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [query]);
+
+  return (
+    <div className="field">
+      <span className="field__label">{label}</span>
+      {value ? (
+        <div className="filters__actions">
+          <span className="chip mono">{value}</span>
+          <button
+            className="btn btn--ghost btn--sm"
+            type="button"
+            onClick={() => onChange("")}
+            aria-label="Clear selected skill"
+          >
+            Clear
+          </button>
+        </div>
+      ) : (
+        <>
+          <input
+            className="field__input"
+            type="text"
+            role="searchbox"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search the canonical skill catalogue…"
+            aria-describedby="skill-picker-help"
+          />
+          <span className="field__help" id="skill-picker-help">
+            {query.trim().length > 0 && query.trim().length < ADMIN_SKILLS_QUERY_MIN
+              ? `Type at least ${ADMIN_SKILLS_QUERY_MIN} characters to search.`
+              : "Case-insensitive, matches anywhere in the skill name."}
+          </span>
+          {searching && <p className="field__help">Searching…</p>}
+          {searchError && (
+            <p className="field__help" role="alert">
+              {searchError}
+            </p>
+          )}
+          {results && results.length === 0 && !searching && (
+            <p className="field__help">No skill matches that search.</p>
+          )}
+          {results && results.length > 0 && (
+            <ul className="chips" role="listbox" aria-label="Matching skills">
+              {results.map((s) => (
+                <li key={s.skill_id}>
+                  <button
+                    className="btn btn--ghost btn--sm"
+                    type="button"
+                    disabled={!s.mappable}
+                    title={s.not_mappable_reason ?? undefined}
+                    onClick={() => onChange(s.skill_id)}
+                  >
+                    <strong>{s.label_en}</strong> <span className="mono table__meta">{s.skill_id}</span>
+                    {!s.mappable && s.not_mappable_reason ? ` — ${s.not_mappable_reason}` : ""}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {truncated && (
+            <p className="field__help">
+              More than {results?.length ?? 0} matches — narrow the search to see the rest.
+            </p>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
