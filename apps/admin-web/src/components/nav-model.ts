@@ -65,6 +65,17 @@ export const NAV: NavSection[] = [
     ],
   },
   {
+    title: "Skills",
+    items: [
+      // `read_entities`, mirroring the three READS on `AdminSkillDiscoveryController` — the
+      // queue, the detail read and the metrics tiles all sit on the read floor. The write
+      // (`review_skill_candidates`) is a separate, narrower grant the detail screen checks
+      // for itself before offering the five decision buttons; the nav entry stays on the
+      // floor so an admin who can only READ the queue is not routed to a 403.
+      { href: "/skills/discovery", label: "Skill Discovery", capability: "read_entities" },
+    ],
+  },
+  {
     title: "Finance",
     items: [
       // `read_entities`, NOT `grant_credits`. Seeing the credit position and changing it are

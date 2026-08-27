@@ -4,6 +4,7 @@ import { NotFoundException } from "@nestjs/common";
 import { JobsService } from "./jobs.service";
 import type { JobsRepository, WorkerVisibleJobRow } from "./jobs.repository";
 import type { EventsService } from "../events/events.service";
+import type { WorkerSkillsRepository } from "../match/worker-skills.repository";
 import type { RequestContext } from "../common/request-context";
 import { JobSearchQuerySchema } from "./jobs.dto";
 
@@ -29,7 +30,13 @@ const FULL_ROW: WorkerVisibleJobRow = {
   requirements: ["Fanuc control", "ITI / Diploma"],
 };
 
-function setup(row: unknown, searchResult: { rows: unknown[]; hasMore: boolean } = { rows: [], hasMore: false }) {
+function setup(
+  row: unknown,
+  searchResult: { rows: unknown[]; hasMore: boolean } = { rows: [], hasMore: false },
+  // #1240 — what the worker's profile resolves to. DEFAULTS TO EMPTY (the unprofiled worker),
+  // so every case written before the fallback existed still describes the same worker it did.
+  profileSkillIds: string[] = [],
+) {
   const repo = {
     findWorkerVisibleJobById: vi.fn(async () => row),
     // The arg is DECLARED so `.mock.calls[0][0]` is typed — an argless `vi.fn` infers a
@@ -39,8 +46,17 @@ function setup(row: unknown, searchResult: { rows: unknown[]; hasMore: boolean }
   // #822 — search emits `job.search_performed`; the detail read still emits nothing, and the
   // existing tests below assert exactly that against this same double.
   const events = { emit: vi.fn(async (p: unknown) => p) };
-  const svc = new JobsService(repo as unknown as JobsRepository, events as unknown as EventsService);
-  return { svc, repo, events };
+  // #1240 — the profile lookup seam. Declared with its arg for the same typing reason as
+  // `searchOpenPostings` above: the tests assert WHETHER it was called, and with whose id.
+  const workerSkills = {
+    listWantedSkillIds: vi.fn(async (_workerId: string) => profileSkillIds),
+  };
+  const svc = new JobsService(
+    repo as unknown as JobsRepository,
+    events as unknown as EventsService,
+    workerSkills as unknown as WorkerSkillsRepository,
+  );
+  return { svc, repo, events, workerSkills };
 }
 
 describe("JobsService.getWorkerVisibleJob — neutral 404 (no oracle)", () => {
@@ -256,6 +272,10 @@ describe("JobsService.searchJobs", () => {
     expect(repo.searchOpenPostings).toHaveBeenCalledWith({
       workerId: WORKER_ID,
       q: "welder",
+      // #1240 — EXHAUSTIVE on purpose (toHaveBeenCalledWith, not toMatchObject): this case
+      // exists to catch a field being silently added to or dropped from the repository call.
+      // Empty here because a typed `q` overrides the profile and the lookup is skipped.
+      profileSkillIds: [],
       city: "pun",
       state: "MH",
       limit: 10,
@@ -312,6 +332,61 @@ describe("JobsService.searchJobs", () => {
   it("a null published_at serializes as null, not as an invented date", async () => {
     const { svc } = setup(undefined, { rows: [{ ...HIT, publishedAt: null }], hasMore: false });
     expect((await svc.searchJobs(WORKER_ID, q(), CTX)).jobs[0]!.published_at).toBeNull();
+  });
+
+  // ── #1240 — the empty role box resolves to the worker's profile ────────────────────────
+  const PROFILE = ["mskill_cnc_vmc_operator", "mskill_cnc_turner"];
+
+  it("resolves the BEARER's profile and hands it to the repository when no q is typed", async () => {
+    const { svc, repo, workerSkills } = setup(undefined, { rows: [HIT], hasMore: false }, PROFILE);
+    await svc.searchJobs(WORKER_ID, q({ city: "Faridabad" }), CTX);
+    // Keyed on the authenticated worker, never on anything the caller can shape.
+    expect(workerSkills.listWantedSkillIds).toHaveBeenCalledWith(WORKER_ID);
+    expect(repo.searchOpenPostings.mock.calls[0]![0]).toMatchObject({ profileSkillIds: PROFILE });
+  });
+
+  it("does NOT load the profile when a term was typed — no round trip for a discarded result", async () => {
+    // A typed `q` overrides the profile entirely, so this lookup would be pure latency on the
+    // COMMON path: every keystroke-driven search a worker performs.
+    const { svc, repo, workerSkills } = setup(undefined, { rows: [HIT], hasMore: false }, PROFILE);
+    await svc.searchJobs(WORKER_ID, q({ q: "fitter" }), CTX);
+    expect(workerSkills.listWantedSkillIds).not.toHaveBeenCalled();
+    expect(repo.searchOpenPostings.mock.calls[0]![0]).toMatchObject({ profileSkillIds: [] });
+  });
+
+  it("a BLANK box is the empty box — the DTO's trim decides, not a second rule here", async () => {
+    // `q: "   "` normalises to undefined in JobSearchQuerySchema, so it must take the profile
+    // path. A separate emptiness test in the service would be a second source of truth that
+    // could drift from the DTO's.
+    const { svc, workerSkills } = setup(undefined, { rows: [], hasMore: false }, PROFILE);
+    await svc.searchJobs(WORKER_ID, q({ q: "   " }), CTX);
+    expect(workerSkills.listWantedSkillIds).toHaveBeenCalledWith(WORKER_ID);
+  });
+
+  it("reports used_profile_fallback on the event, PII-free — the flag, never the skills", async () => {
+    const { svc, events } = setup(undefined, { rows: [HIT], hasMore: false }, PROFILE);
+    await svc.searchJobs(WORKER_ID, q({ city: "Faridabad" }), CTX);
+    const emitted = events.emit.mock.calls[0]![0] as { payload: Record<string, unknown> };
+    expect(emitted.payload).toMatchObject({ has_query: false, used_profile_fallback: true });
+    // The ids themselves are matching input, not analytics. They must never ride the event.
+    expect(JSON.stringify(emitted.payload)).not.toContain("mskill_");
+  });
+
+  it("an UNPROFILED worker gets today's behaviour, and the event says the fallback did NOT fire", async () => {
+    // The two populations behind `has_query: false` are exactly what this boolean separates:
+    // a profiled worker who got a narrowed list, and this one, who still gets everything.
+    const { svc, repo, events } = setup(undefined, { rows: [HIT], hasMore: false }, []);
+    await svc.searchJobs(WORKER_ID, q({ city: "Faridabad" }), CTX);
+    expect(repo.searchOpenPostings.mock.calls[0]![0]).toMatchObject({ profileSkillIds: [] });
+    const emitted = events.emit.mock.calls[0]![0] as { payload: Record<string, unknown> };
+    expect(emitted.payload).toMatchObject({ has_query: false, used_profile_fallback: false });
+  });
+
+  it("a typed q reports used_profile_fallback FALSE even for a profiled worker", async () => {
+    const { svc, events } = setup(undefined, { rows: [HIT], hasMore: false }, PROFILE);
+    await svc.searchJobs(WORKER_ID, q({ q: "fitter" }), CTX);
+    const emitted = events.emit.mock.calls[0]![0] as { payload: Record<string, unknown> };
+    expect(emitted.payload).toMatchObject({ has_query: true, used_profile_fallback: false });
   });
 });
 

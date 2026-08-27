@@ -260,6 +260,8 @@ const flushedRows = (chat: { insertMessages: ReturnType<typeof vi.fn> }) =>
     direction: string;
     bodyText: string;
     createdAt: Date;
+    messageType: string;
+    voiceNoteId: string | null;
   }[];
 
 const answerRows = (chat: { insertPackAnswers: ReturnType<typeof vi.fn> }) =>
@@ -290,8 +292,13 @@ const COMPLETED: Partial<TranscriptBuffer> = {
   completionReason: "fields_complete",
   captured: { trade: "silai" },
   messages: [
-    { role: "worker", text: "silai ka kaam karta hoon", at: T0 },
-    { role: "assistant", text: "Aap kis sheher mein rehte hain?", at: "2026-07-22T00:00:05.000Z" },
+    { role: "worker", text: "silai ka kaam karta hoon", at: T0, voiceNoteId: null },
+    {
+      role: "assistant",
+      text: "Aap kis sheher mein rehte hain?",
+      at: "2026-07-22T00:00:05.000Z",
+      voiceNoteId: null,
+    },
   ],
   profiling: envelope({ answerMap: [answer()] as never }),
 };
@@ -680,6 +687,43 @@ describe("ChatService — flush at end", () => {
   it("maps worker→inbound and assistant→outbound", async () => {
     const { chat } = await run({ buffer: {}, written: COMPLETED, turn: complete });
     expect(flushedRows(chat).map((r) => r.direction)).toEqual(["inbound", "outbound"]);
+  });
+
+  // ── #1244: a spoken answer must not be recorded as a typed one ───────────────────────────
+
+  it("writes message_type 'text' and a NULL clip for a typed turn", async () => {
+    const { chat } = await run({ buffer: {}, written: COMPLETED, turn: complete });
+    const rows = flushedRows(chat);
+    expect(rows.map((r) => r.messageType)).toEqual(["text", "text"]);
+    expect(rows.map((r) => r.voiceNoteId)).toEqual([null, null]);
+  });
+
+  it("writes message_type 'voice' and the CLIP ID for a spoken turn", async () => {
+    // THE DEFECT THIS PINS. `toMessageRow` used to hardcode `messageType: "text"` and never set
+    // `voiceNoteId` — so a spoken answer wrote a row that affirmatively DENIED it was spoken, on
+    // the table that is the audit spine. Both columns already existed and were dead.
+    const CLIP = "55555555-5555-4555-8555-555555555555";
+    // `written` is the buffer AS IT STANDS AFTER the turn — the one the flush actually reads.
+    const { chat } = await run({
+      buffer: {},
+      written: {
+        ...COMPLETED,
+        messages: [
+          { role: "worker", text: "aath saal", at: T0, voiceNoteId: CLIP },
+          {
+            role: "assistant",
+            text: "Aap kis sheher mein rehte hain?",
+            at: "2026-07-22T00:00:05.000Z",
+            voiceNoteId: null,
+          },
+        ],
+      },
+      turn: complete,
+    });
+    const rows = flushedRows(chat);
+    // The worker SPOKE; the platform's reply is text and carries no clip.
+    expect(rows.map((r) => r.messageType)).toEqual(["voice", "text"]);
+    expect(rows.map((r) => r.voiceNoteId)).toEqual([CLIP, null]);
   });
 
   it("emits one event per message plus the readiness signal and the interview record, all inside the tx", async () => {
@@ -1307,8 +1351,9 @@ describe("ChatService.listMessages — replayed questions read aloud too (#896)"
             role: "assistant",
             text: "Aapki baat poori ho chuki hai. Profile taiyaar ho rahi hai.",
             at: "2026-08-17T05:00:00.000Z",
+            voiceNoteId: null,
           },
-          { role: "worker", text: "haan", at: "2026-08-17T05:00:01.000Z" },
+          { role: "worker", text: "haan", at: "2026-08-17T05:00:01.000Z", voiceNoteId: null },
         ],
       },
     });

@@ -89,6 +89,34 @@ export class VoiceService {
       throw new BadRequestException("storage_path not owned by caller");
     }
 
+    // DORMANCY COVERS THE WHOLE SURFACE, NOT JUST THE MINT (#1245).
+    //
+    // `createUploadUrl` was the only method that read the bucket, so with VOICE_NOTES_BUCKET
+    // unset a client could still POST here and register rows — and drive transcriptions off
+    // them — describing audio that had nowhere to live. "Off" has to mean off at every door.
+    const bucket = this.config.VOICE_NOTES_BUCKET;
+    if (!bucket) {
+      throw new ServiceUnavailableException("voice uploads not enabled");
+    }
+
+    // REGISTRATION MUST MEAN THE AUDIO IS ACTUALLY THERE (#1245).
+    //
+    // The shape check above proves only that WE minted this key for THIS worker — never that
+    // anything was PUT to it. A client that took an upload URL and then failed, was killed, or
+    // simply skipped the PUT still reached this line, and we would insert a durable
+    // `voice_notes` row and emit `voice_note.uploaded` for an object that does not exist.
+    // Everything downstream then treats that as stored audio: the DSAR sweep iterates it, the
+    // retention count includes it, and transcription fails on a 404 it reports as a provider
+    // error. `objectExists` is a HEAD-equivalent metadata call — no bytes — and is already the
+    // pattern the photo and interview-kit paths use.
+    //
+    // 400 rather than 404: the request is what is wrong (it claims an upload that did not
+    // happen), and a 404 here would read as "your session is gone" on a route where that
+    // already means something else.
+    if (!(await this.storage.objectExists(dto.storage_path, bucket))) {
+      throw new BadRequestException("no audio stored at storage_path");
+    }
+
     const note = await this.voice.create({
       workerId: workerId,
       sessionId: dto.session_id,
@@ -131,6 +159,13 @@ export class VoiceService {
     // not-found and not-owner (no existence oracle for another worker's note).
     if (!note || note.workerId !== workerId) {
       throw new NotFoundException(`Voice note ${dto.voice_note_id} not found`);
+    }
+
+    // The third door (#1245). With the bucket unset the ai-service cannot fetch the clip, so
+    // this would enqueue work that can only fail — after emitting `transcription_requested`
+    // and spending a job row. Fail here instead, with the same 503 the other two routes give.
+    if (!this.config.VOICE_NOTES_BUCKET) {
+      throw new ServiceUnavailableException("voice uploads not enabled");
     }
 
     const job = await this.aiJobs.create({

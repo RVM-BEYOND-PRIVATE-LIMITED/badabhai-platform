@@ -1,6 +1,6 @@
 {
   "kind": "programme-graph",
-  "measured_at": "2026-08-27T05:53:29.228Z",
+  "measured_at": "2026-08-27T07:22:04.151Z",
   "source": "pnpm db:audit:programme-graph",
   "target": "repository-only (no database)",
   "read_only": true,
@@ -246,7 +246,7 @@
       "title": "The effective value of SKILL_CANONICALIZE_ENABLED in the running container",
       "status": "BLOCKED_ON_INFRA",
       "dependsOn": [],
-      "evidence": "deployed-flag-facts.md — the secret exists and its value was CHANGED on 2026-08-24 11:30:45 UTC; deploys run on every main push, so the change is live. GitHub never exposes a value. One command on the box settles it. canonicalize-flag-read-2026-08-27.md exhausts the alternatives and explains why none of them can substitute: /health deliberately omits the flag, /skills/canonicalize returns an IDENTICAL body whether disabled or unresolved (by design), Langfuse — the one route that would observe the branch the process actually took — returns 401 with the credentials available, and no SSH key or AWS CLI is present on the operator workstation. This is BLOCKED_ON_INFRA in the strict sense: not unknowable, just not knowable from here.",
+      "evidence": "deployed-flag-facts.md — the secret exists and its value was CHANGED on 2026-08-24 11:30:45 UTC; deploys run on every main push, so the change is live. GitHub never exposes a value. One command on the box settles it. canonicalize-flag-read-2026-08-27.md exhausts the alternatives and explains why none of them can substitute: /health deliberately omits the flag, /skills/canonicalize returns an IDENTICAL body whether disabled or unresolved (by design), Langfuse — the one route that would observe the branch the process actually took — returns 401 with the credentials available, and no SSH key or AWS CLI is present on the operator workstation. This is BLOCKED_ON_INFRA in the strict sense: not unknowable, just not knowable from here. activation-procedure-2026-08-27.md carries the full 16-step procedure, its five measured smoke cases and the rollback; every step before the flag is DONE and verified. Note that an ai-service DOES answer on localhost:8000 and is NOT the deployed one — its /health reports build=unknown, while the pipeline bakes and asserts a 7-char sha into every image.",
       "unblocks": [
         "CANONICALIZATION"
       ]
@@ -301,7 +301,7 @@
         "RESOLVABLE-28"
       ],
       "decision": "OWNER RULING 2026-08-27, OPTION B. Re-scope the promotion batch from 96 to the 62 that pass RESOLVABLE_ABOVE_FLOOR. The 34 must NOT be waived, deleted or promoted; they are recorded as HOLD / IMPROVEMENT QUEUE with their measured failure reasons so they can be improved and promoted later. Option A (--waive) was NOT taken: a waiver promotes a skill that failed, and the 34 would go live and unassignable. Option C stays available and is what empties the queue. WHAT MADE B SAFE TO IMPLEMENT: the fail-closed refusal objects to a subset that NOTHING DESCRIBES — \"no single description of what is retrievable\" — not to a subset as such. held-skills.json IS that description, so the runner now selects against it. Holding changes the SELECTION and never the JUDGEMENT: all 34 are still judged in full, still fail RESOLVABLE_ABOVE_FLOOR, still appear in the promotion report, and stay `provisional`. No criterion was waived, the 0.75 floor did not move, and CRITERIA is unchanged.",
-      "evidence": "packages/db/data/taxonomy/held-skills.json (34 entries, each measured from the recorded plan run, pinned id-for-id against it by test) · promotion-holds.ts, whose three properties stop the register becoming a silencer: a hold authorises exactly one criterion, a hold must still be true (RELEASABLE refuses on apply), and omission is self-correcting · promotion-holds.test.ts, 21 tests.",
+      "evidence": "packages/db/data/taxonomy/held-skills.json (34 entries, each measured from the recorded plan run, pinned id-for-id against it by test) · promotion-holds.ts, whose three properties stop the register becoming a silencer: a hold authorises exactly one criterion, a hold must still be true (RELEASABLE refuses on apply), and omission is self-correcting · promotion-holds.test.ts, 21 tests. RE-VALIDATED 2026-08-27 on COMPLETE evidence: the owner authorised INR 0.00563 to buy the 41 query vectors the sweep had never measured, and the fuller sweep (164 of 164 decided, 0 unmeasured) changed NOTHING — 0 of the 34 clear 0.75, 0 of the 30 scored ones moved by more than 0.0001, the same 4 remain unmeasured, and all 62 promoted still clear the floor. A ruling made on partial evidence, confirmed by complete evidence.",
       "unblocks": [
         "PROMOTION"
       ]

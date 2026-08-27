@@ -201,6 +201,11 @@ function makeSearchDb(rows: unknown[] = []) {
 const SEARCH_ARGS = {
   workerId: WORKER_ID,
   q: null as string | null,
+  // #1240 — the DEFAULT here is deliberately the unprofiled worker. Every pre-existing case
+  // below therefore keeps asserting the behaviour it always asserted, which is what makes
+  // them a regression guard on the fallback rather than casualties of it: adding a profile
+  // must change nothing for a worker who has none.
+  profileSkillIds: [] as readonly string[],
   city: null as string | null,
   state: null as string | null,
   limit: 20,
@@ -310,6 +315,89 @@ describe("searchOpenPostings — the filters #822 specifies", () => {
     expect(text).toMatch(/job_posting_id/);
     // Keyed on the BEARER's worker id — the exclusion must never be shapeable from a query param.
     expect(params).toContain(WORKER_ID);
+  });
+});
+
+describe("#1240 — an EMPTY role box falls back to the worker's profile", () => {
+  const MSKILL_A = "mskill_cnc_vmc_operator";
+  const MSKILL_B = "mskill_cnc_turner";
+
+  it("probes reach_skill_ids with the worker's OWN ids when no q is typed", async () => {
+    // The defect: with no `q` the membership filter was omitted entirely, so a location-only
+    // search ("Faridabad", role box empty) returned every open posting in Faridabad whatever
+    // the trade — product rule #2, never show an irrelevant posting.
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, profileSkillIds: [MSKILL_A, MSKILL_B] });
+    const { sql: text, params } = compile(queries[0]!.where);
+    expect(text).toMatch(/"reach_skill_ids" \?\| \$\d+::text\[\]/i);
+    // ONE bound text[] parameter, never interpolated — the ids reach Postgres as data.
+    expect(params).toContainEqual([MSKILL_A, MSKILL_B]);
+    expect(text).not.toContain(MSKILL_A);
+  });
+
+  it("matches on ANY skill (`?|`), never ALL of them (`?&`)", async () => {
+    // A worker holding five skills must not be required to match a posting on all five —
+    // `?&` would silently reduce a multi-skilled worker's results toward zero, and the two
+    // operators differ by one character.
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, profileSkillIds: [MSKILL_A, MSKILL_B] });
+    const text = compile(queries[0]!.where).sql;
+    expect(text).toContain("?|");
+    expect(text).not.toContain("?&");
+  });
+
+  it("uses the MATCH column, never the ADR-0030 descriptive one", async () => {
+    // `reach_skill_ids` is documented (schema/job.ts) as a V1 MATCH input, deterministic,
+    // invariant #4. `skill_ids` / `skill_phrases` beside it are the vector-canonicalizer's
+    // DESCRIPTIVE tagging and are explicitly never a match input — filtering on those would
+    // be the one thing ADR-0030 forbids, and they are one field name apart.
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, profileSkillIds: [MSKILL_A] });
+    const text = compile(queries[0]!.where).sql;
+    expect(text).toMatch(/"reach_skill_ids"/);
+    expect(text).not.toMatch(/"skill_phrases"/);
+    expect(text).not.toMatch(/"skill_ids"/);
+  });
+
+  it("a TYPED q still wins — the profile is an override, not an extra filter", async () => {
+    // The product rule is "empty box ⇒ profile", not "always intersect with the profile".
+    // ANDing the two would make a worker's explicit search return fewer results than they
+    // asked for, which reads as the search box being broken.
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({
+      ...SEARCH_ARGS,
+      q: "fitter",
+      profileSkillIds: [MSKILL_A, MSKILL_B],
+    });
+    const { sql: text, params } = compile(queries[0]!.where);
+    expect(text).toMatch(/@@ to_tsquery/i);
+    expect(text).not.toContain("?|");
+    expect(params).toContain("fitter:*");
+  });
+
+  it("a worker with NO profile keeps TODAY's behaviour — everything, not nothing", async () => {
+    // The owner ruling for #1240. An unprofiled worker is the one cohort this cannot help,
+    // and an empty page would make their results strictly WORSE than before the change.
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, profileSkillIds: [] });
+    const text = compile(queries[0]!.where).sql;
+    expect(text).not.toContain("?|");
+    expect(text).not.toMatch(/@@/);
+    // Still gated and still anti-joined — "no membership filter" is not "no filters".
+    expect(text).toMatch(/"status" = \$\d/);
+    expect(text).toMatch(/not exists/i);
+  });
+
+  it("the fallback does NOT reintroduce a relevance key — the #974 guard holds", async () => {
+    // There is still no TYPED term to rank by on this path, so the sort key must stay ABSENT.
+    // A bare integer here renders `ORDER BY 0, …`, which Postgres reads as an output-column
+    // ordinal and rejects — the exact 500 that killed every location-only search in #974.
+    const { repo, queries } = makeSearchDb();
+    await repo.searchOpenPostings({ ...SEARCH_ARGS, profileSkillIds: [MSKILL_A] });
+    const order = queries[0]!.orderBy!.map((o) => compile(o).sql);
+    expect(order).toHaveLength(2);
+    expect(order[0]).toMatch(/"published_at" DESC NULLS LAST/i);
+    expect(order.some((o) => /^\s*\d+\s*$/.test(o))).toBe(false);
   });
 });
 
