@@ -4,10 +4,14 @@ import { isAdminRequestError } from "../../../../lib/admin-http";
 import {
   getSkillDiscoveryMetrics,
   listSkillDiscovery,
+  listSkillDiscoveryGroups,
   type AdminSkillDiscoverySort,
-  type SkillDiscoveryFilters,
+  type SkillDiscoveryGroups,
+  type SkillDiscoveryGroupsFilters,
   type SkillDiscoveryListItem,
   type SkillDiscoveryMetrics,
+  type SkillDiscoveryPage,
+  type SkillReviewGroup,
 } from "../../../../lib/skill-discovery";
 import {
   ADMIN_SKILL_REVIEW_TIER_LABELS,
@@ -18,7 +22,7 @@ import {
   SKILL_CANDIDATE_TERMINAL_STATUSES,
   type AdminSkillReviewTier,
 } from "../../../../lib/skill-discovery-vocabulary";
-import { formatCount, formatRelative, formatTimestamp } from "../../../../lib/format";
+import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../../lib/format";
 import { StatusPill } from "../../../../components/status-pill";
 import { Pager } from "../../../../components/pager";
 import { SkillDiscoveryFilterBar } from "./filter-bar";
@@ -27,29 +31,42 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Skill Discovery" };
 
 /**
- * Skill Discovery — the review queue (#1260).
+ * Skill Discovery — the review queue (#1260, extended #1280).
  *
- * ── GROUPED IS THE DEFAULT, AND WHAT "GROUP" HONESTLY MEANS HERE ────────────────────────
- * The owner's brief describes a group as candidates sharing a trade family AND an anchor term
- * (`packages/db/src/skill-discovery-groups.ts`'s `anchorToken`) — but `anchorToken` needs a
- * GLOBAL count across the whole 6,673-row table to pick the highest-weight token, and none of
- * the four API routes exposes it (list rows carry `trade_family`, not `evidence_tokens`, and
- * there is no group-listing endpoint). Reimplementing that algorithm client-side, over a
- * single page, would silently drift from the real one and is exactly the "second copy of a
- * server authority" CLAUDE.md invariant #9 forbids — so this view groups by `trade_family`
- * alone, which `anchorToken`'s own module names as the CORRECT FALLBACK for a candidate with
- * no usable anchor token. It groups WITHIN one server page (never the whole table), which is
- * what keeps AC#2 honest: the page never claims a count this contract cannot support, and a
- * card's copy says explicitly that it is scoped to the page, not the corpus. Handed back to
- * Backend as a contract-gap finding — see the PR description.
+ * ── GROUPED IS THE DEFAULT, AND IT IS NOW THE REAL BATCHES ──────────────────────────────
+ * #1260 shipped this view grouping by `trade_family` ALONE, within one server page — its own
+ * header explained why: `anchorToken` needs a token count taken across the whole 6,673-row
+ * table, no route exposed it, and reimplementing that algorithm client-side over 50 rows would
+ * have been exactly the "second copy of a server authority" CLAUDE.md invariant #9 forbids.
+ * `GET /admin/skill-discovery/groups` (#1257) is what that finding was waiting for: it groups
+ * the WHOLE filtered population server-side and returns ~3,009 review batches over the full
+ * 6,673 candidates, never a family split within one page. This view now calls THAT route, not
+ * `listSkillDiscovery`, and takes NO `cursor`/`limit`/`sort` — a group's contract is that its
+ * member list is complete for the filters, and the anchor is computed over the whole matching
+ * set, so a page would hand the same candidate a different batch on every turn. An over-broad
+ * filter 400s naming the count instead of truncating; that message is rendered verbatim below,
+ * never folded into the generic error copy.
+ *
+ * A GROUP RESPONSE HAS NO PER-MEMBER SUMMARY — only `candidate_ids[]`, counts and a display-only
+ * `label`. So each card links every member id straight to its own decision screen rather than
+ * trying to re-render a phrase/status this response does not carry.
+ *
+ * ── SORT ORDER: THE SERVER'S, BY DEFAULT (contract correction #2) ──────────────────────────
+ * The server sorts `candidates` DESCENDING, tie-broken by group key — NOT by `undecided`. A
+ * 35-candidate, fully-decided batch outranks a 10-candidate, entirely-unreviewed one. Whether
+ * `undecided`-first is the better default is an OPEN PRODUCT QUESTION, not settled here — so
+ * this view does not silently assume the server already does it. It offers an explicit,
+ * labelled `?groupSort=undecided` toggle that re-orders the ALREADY-FETCHED groups client-side
+ * (a display re-order, not a re-computation of what a group IS — the grouping itself stays
+ * entirely server-side) and defaults to the server's own order.
  *
  * ── "FLAT" IS NOT A PRIORITY SORT ────────────────────────────────────────────────────────
  * `AdminSkillDiscoveryQuerySchema`'s own comment refuses a priority order outright: a computed
  * `reviewPriority` sorted within a single page "would be worse than not offering it" — a
  * priority queue that is only priority-ordered within an arbitrary time slice. The honest
  * substitute the DTO names is filtering by tier/band and reading newest/oldest — which is what
- * the tier tabs and the sort control below already are. This view is a flat, unbatched read of
- * the SAME rows the grouped view shows, nothing more.
+ * the tier tabs and the sort control below already are. This view is the ordinary keyset-paged
+ * queue, unaffected by the grouped view's own endpoint and filters identically.
  *
  * ── TIER SEQUENCING IS A NUDGE, NEVER A HARD BLOCK ───────────────────────────────────────
  * `derived` sits on the same `read_entities` floor as every other tier — nothing on the API
@@ -105,6 +122,7 @@ export default async function SkillDiscoveryPage({
   const createdTo = one(sp.createdTo);
   const sort = (one(sp.sort) === "oldest" ? "oldest" : "newest") as AdminSkillDiscoverySort;
   const cursor = one(sp.cursor);
+  const groupSort: "candidates" | "undecided" = one(sp.groupSort) === "undecided" ? "undecided" : "candidates";
 
   // ── status: an explicit scope, never a hidden server default ──────────────────────────
   const rawStatus = many(sp.status);
@@ -129,9 +147,10 @@ export default async function SkillDiscoveryPage({
       createdTo,
   );
 
-  const limit = view === "grouped" ? GROUPED_LIMIT : FLAT_LIMIT;
-
-  const query: SkillDiscoveryFilters = {
+  // The filters common to BOTH the queue and the groups route — everything but the queue's
+  // own paging concerns (`cursor`/`limit`/`sort`), which `AdminSkillDiscoveryGroupsQuerySchema`
+  // does not accept at all.
+  const sharedFilters: SkillDiscoveryGroupsFilters = {
     status: effectiveStatus,
     tier: effectiveTier,
     runId,
@@ -143,22 +162,35 @@ export default async function SkillDiscoveryPage({
     sourceType,
     createdFrom,
     createdTo,
-    sort,
-    cursor,
-    limit,
   };
 
-  const [pageRes, metricsRes] = await Promise.allSettled([
-    listSkillDiscovery(query),
+  const [primaryRes, metricsRes] = await Promise.allSettled([
+    view === "flat"
+      ? listSkillDiscovery({ ...sharedFilters, sort, cursor, limit: FLAT_LIMIT })
+      : listSkillDiscoveryGroups(sharedFilters),
     getSkillDiscoveryMetrics(),
   ]);
 
-  const badRequest =
-    pageRes.status === "rejected" &&
-    isAdminRequestError(pageRes.reason) &&
-    pageRes.reason.status === 400;
-  const page = pageRes.status === "fulfilled" ? pageRes.value : null;
+  const primaryError =
+    primaryRes.status === "rejected" && isAdminRequestError(primaryRes.reason)
+      ? primaryRes.reason
+      : null;
+  const badRequest = primaryError !== null && primaryError.status === 400;
+  // The GROUPS route's 400 names the exact count and how to narrow it — rendered verbatim
+  // rather than folded into the generic filter-refusal copy below, per the API's own contract:
+  // "render the message; it tells the reviewer what to narrow".
+  const badRequestMessage = primaryError?.status === 400 ? primaryError.message : null;
+
+  const page = view === "flat" && primaryRes.status === "fulfilled"
+    ? (primaryRes.value as SkillDiscoveryPage)
+    : null;
+  const groupsResult = view === "grouped" && primaryRes.status === "fulfilled"
+    ? (primaryRes.value as SkillDiscoveryGroups)
+    : null;
   const metrics = metricsRes.status === "fulfilled" ? metricsRes.value : null;
+
+  const primaryFailed = primaryRes.status === "rejected";
+  const itemCount = view === "flat" ? (page?.items.length ?? 0) : (groupsResult?.groups.length ?? 0);
 
   const activeTier = tierParam ?? "direct";
 
@@ -186,6 +218,7 @@ export default async function SkillDiscoveryPage({
     createdFrom,
     createdTo,
     sort: sort === "newest" ? undefined : sort,
+    groupSort: groupSort === "candidates" ? undefined : groupSort,
   };
   const queryString = (over: Record<string, string | undefined> = {}) => {
     const q = new URLSearchParams();
@@ -233,7 +266,7 @@ export default async function SkillDiscoveryPage({
             </h2>
             <p className="panel__sub">
               {view === "grouped"
-                ? "Grouped by trade family, within this page of the keyset-ordered queue — a lens, not a merge. Every member still gets its own decision."
+                ? "Real review batches over the full filtered population, exhaustive and server-computed — a lens, not a merge. Every member still gets its own decision."
                 : "One row per candidate, newest or oldest first within the selected tier and band — there is no computed priority order."}
             </p>
           </div>
@@ -304,6 +337,29 @@ export default async function SkillDiscoveryPage({
         </div>
         <p className="field__help">{DERIVED_TIER_SEQUENCING_REASON}</p>
 
+        {/* ── group sort — an explicit, labelled client re-order, never a silent one ──────
+            The server's real order (`candidates` descending) is the default; `undecided`-first
+            is offered because the issue's own rationale argued for it, but that argument is not
+            settled — see the page header. Only meaningful in the grouped view. */}
+        {view === "grouped" && (
+          <div className="filters--inline" role="group" aria-label="Batch order">
+            <Link
+              aria-current={groupSort === "candidates" ? "true" : undefined}
+              className={`btn btn--sm ${groupSort === "candidates" ? "btn--primary" : "btn--ghost"}`}
+              href={listHref({ groupSort: undefined })}
+            >
+              Biggest batch first (server order)
+            </Link>
+            <Link
+              aria-current={groupSort === "undecided" ? "true" : undefined}
+              className={`btn btn--sm ${groupSort === "undecided" ? "btn--primary" : "btn--ghost"}`}
+              href={listHref({ groupSort: "undecided" })}
+            >
+              Most work remaining first
+            </Link>
+          </div>
+        )}
+
         <SkillDiscoveryFilterBar
           basePath="/skills/discovery"
           carry={carry}
@@ -325,8 +381,9 @@ export default async function SkillDiscoveryPage({
           <div className="state state--error">
             <h3 className="state__title">The server rejected this request</h3>
             <p className="state__body">
-              Nothing was fetched. One of the filters, as it stands in the address bar, is not a
-              value this queue accepts — a hand-edited status, tier, band or run id.
+              {view === "grouped" && badRequestMessage
+                ? badRequestMessage
+                : "Nothing was fetched. One of the filters, as it stands in the address bar, is not a value this queue accepts — a hand-edited status, tier, band or run id."}
             </p>
             <div className="state__actions">
               <Link className="btn btn--ghost" href="/skills/discovery">
@@ -334,7 +391,7 @@ export default async function SkillDiscoveryPage({
               </Link>
             </div>
           </div>
-        ) : page === null ? (
+        ) : primaryFailed ? (
           <div className="state state--error">
             <h3 className="state__title">The queue is unavailable</h3>
             <p className="state__body">
@@ -346,25 +403,33 @@ export default async function SkillDiscoveryPage({
               </Link>
             </div>
           </div>
-        ) : page.items.length === 0 ? (
+        ) : itemCount === 0 ? (
           <EmptyQueueState
             filtered={filtered}
             noRunEver={metrics !== null && metrics.total === 0}
             statusScope={statusScope}
           />
-        ) : view === "grouped" ? (
-          <GroupedQueue items={page.items} />
-        ) : (
+        ) : view === "grouped" && groupsResult ? (
+          <GroupedQueue groups={groupsResult.groups} sort={groupSort} />
+        ) : view === "flat" && page ? (
           <FlatQueue items={page.items} />
-        )}
+        ) : null}
 
-        {page && (
+        {view === "flat" && page && (
           <Pager
             basePath="/skills/discovery"
             params={carry}
             nextCursor={page.nextCursor}
             note="Server-paged with a keyset cursor — this view never loads the whole queue at once."
           />
+        )}
+
+        {view === "grouped" && groupsResult && (
+          <p className="field__help">
+            {formatCount(groupsResult.total_groups)} batches over {formatCount(groupsResult.total_candidates)}{" "}
+            candidates, {formatCount(groupsResult.total_undecided)} still undecided — exhaustive for
+            these filters, no cursor, nothing more is hiding off-screen.
+          </p>
         )}
       </section>
     </div>
@@ -375,7 +440,6 @@ export default async function SkillDiscoveryPage({
 // constants + pure helpers
 // ---------------------------------------------------------------------------
 
-const GROUPED_LIMIT = 100; // ADMIN_SKILL_DISCOVERY_PAGE_MAX
 const FLAT_LIMIT = 50; // ADMIN_SKILL_DISCOVERY_PAGE_DEFAULT
 
 const STATUS_SCOPE_LABELS: Record<"awaiting" | "held" | "decided" | "all", string> = {
@@ -532,47 +596,65 @@ function EmptyQueueState({
 }
 
 // ---------------------------------------------------------------------------
-// grouped view — a lens over ONE page, grouped by trade_family (see page header)
+// grouped view — real review batches from GET /admin/skill-discovery/groups (#1280)
 // ---------------------------------------------------------------------------
 
-function GroupedQueue({ items }: { items: SkillDiscoveryListItem[] }) {
-  const groups = new Map<string, SkillDiscoveryListItem[]>();
-  for (const item of items) {
-    const key = item.trade_family ?? "Unspecified trade";
-    const bucket = groups.get(key);
-    if (bucket) bucket.push(item);
-    else groups.set(key, [item]);
-  }
-  const sorted = [...groups.entries()].sort((a, b) => b[1].length - a[1].length);
+/**
+ * Re-orders the ALREADY-FETCHED groups for display. The grouping itself — which candidates
+ * belong together, at all — stays entirely server-side; this only changes which batch a
+ * reviewer sees first. `"candidates"` returns the array unchanged (the server's own order,
+ * `candidates` descending tie-broken by key); `"undecided"` is a stable client sort by
+ * `undecided` descending, tie-broken by `candidates` then `key` so the order is deterministic.
+ */
+function sortedGroups(
+  groups: readonly SkillReviewGroup[],
+  sort: "candidates" | "undecided",
+): readonly SkillReviewGroup[] {
+  if (sort === "candidates") return groups;
+  return [...groups].sort(
+    (a, b) => b.undecided - a.undecided || b.candidates - a.candidates || a.key.localeCompare(b.key),
+  );
+}
 
+function GroupedQueue({
+  groups,
+  sort,
+}: {
+  groups: readonly SkillReviewGroup[];
+  sort: "candidates" | "undecided";
+}) {
+  const ordered = sortedGroups(groups, sort);
   return (
     <ul className="reviewgroups">
-      {sorted.map(([tradeFamily, members]) => (
-        <li key={tradeFamily} className="panel">
+      {ordered.map((g) => (
+        <li key={g.key} className="panel">
           <details className="reviewgroup">
             <summary>
-              <strong>{tradeFamily}</strong> · {members.length}{" "}
-              {members.length === 1 ? "candidate" : "candidates"} on this page
+              <strong>{g.label}</strong> · {formatCount(g.candidates)}{" "}
+              {g.candidates === 1 ? "candidate" : "candidates"} · {formatCount(g.undecided)} undecided
+              {g.trade_family && <> · {g.trade_family}</>}
             </summary>
-            <div className="tablewrap">
-              <table className="table">
-                <caption className="sr-only">{tradeFamily} candidates</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Phrase</th>
-                    <th scope="col">Proposed</th>
-                    <th scope="col">Suggested action</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Tier</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {members.map((m) => (
-                    <QueueRow key={m.id} item={m} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <p className="field__help">
+              {formatCount(g.source_rows)} source row{g.source_rows === 1 ? "" : "s"} across{" "}
+              {formatCount(g.source_domains)} job domain{g.source_domains === 1 ? "" : "s"}.{" "}
+              {g.unanimous_action
+                ? `Every member suggests the same action: ${
+                    SKILL_CANDIDATE_ACTION_LABELS[g.unanimous_action as keyof typeof SKILL_CANDIDATE_ACTION_LABELS] ??
+                    g.unanimous_action
+                  }.`
+                : "Members do not all suggest the same action."}
+            </p>
+            {/* A GROUP IS A LENS, NOT A MERGE — no group-level decide control exists, and never
+                will: every member gets its own decision, its own reason, its own audit row. */}
+            <ul className="chips">
+              {g.candidate_ids.map((id) => (
+                <li className="chip" key={id}>
+                  <Link className="mono link" href={`/skills/discovery/${id}`} title={id}>
+                    {shortId(id)}
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </details>
         </li>
       ))}
@@ -604,28 +686,6 @@ function FlatQueue({ items }: { items: SkillDiscoveryListItem[] }) {
         </tbody>
       </table>
     </div>
-  );
-}
-
-function QueueRow({ item }: { item: SkillDiscoveryListItem }) {
-  return (
-    <tr>
-      <td>
-        <Link className="link" href={`/skills/discovery/${item.id}`}>
-          {item.normalized_phrase}
-        </Link>
-      </td>
-      <td className="table__meta">{item.proposed_skill_name ?? "—"}</td>
-      <td className="table__meta">{SKILL_CANDIDATE_ACTION_LABELS[item.proposed_action]}</td>
-      <td>
-        <StatusPill
-          value={item.status}
-          label={SKILL_CANDIDATE_STATUS_LABELS[item.status]}
-          tone={SKILL_CANDIDATE_STATUS_TONE[item.status]}
-        />
-      </td>
-      <td className="table__meta">{ADMIN_SKILL_REVIEW_TIER_LABELS[item.review_tier]}</td>
-    </tr>
   );
 }
 

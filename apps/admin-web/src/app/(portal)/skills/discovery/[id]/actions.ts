@@ -3,12 +3,15 @@
 import { z } from "zod";
 import { adminFetch, isAdminRequestError } from "../../../../../lib/admin-http";
 import { describeAdminActionError } from "../../../../../lib/describe-admin-error";
+import { searchCanonicalSkills } from "../../../../../lib/skill-discovery";
 import {
+  ADMIN_SKILLS_QUERY_MIN,
   SKILL_CANDIDATE_STATUSES,
   parseSkillDecisionConflict,
   skillDecisionClientErrors,
   type SkillDecisionOutcome,
   type SkillDecisionRequest,
+  type SkillSearchOutcome,
 } from "../../../../../lib/skill-discovery-vocabulary";
 
 /**
@@ -77,6 +80,40 @@ export async function submitSkillDecisionAction(
       const info = parseSkillDecisionConflict(err.body);
       if (info) return { kind: "conflict", info };
     }
+    return { kind: "error", message: describeAdminActionError(err) };
+  }
+}
+
+/**
+ * GET /admin/skills?q= — the MAP/MERGE picker's search (#1280).
+ *
+ * ── WHY A SERVER ACTION AND NOT A CLIENT FETCH ──────────────────────────────────────────
+ * `adminFetch` is `import "server-only"` — it reads the admin JWT from an httpOnly cookie and
+ * that transport must never exist in a client bundle (CLAUDE.md: no server secret in a client
+ * bundle). `SkillDecisionPanel`'s picker is a client component, so this is its only path to the
+ * route, exactly the shape `submitSkillDecisionAction` above already establishes.
+ *
+ * ── WHAT THIS FUNCTION DOES NOT DO ───────────────────────────────────────────────────────
+ * It does not filter `skills` — deprecated and `match_skill` results are returned with their
+ * `mappable`/`not_mappable_reason` intact, exactly as the API served them. Filtering here would
+ * be the exact "second copy of a server judgement" CLAUDE.md invariant #9 refuses, and it would
+ * also defeat the reason the API returns them flagged rather than absent: a reviewer searching
+ * for a skill they remember must be able to tell "no such skill" from "deprecated" from "that's
+ * match vocabulary" apart.
+ *
+ * The `q.length < ADMIN_SKILLS_QUERY_MIN` short-circuit is a UX nicety (no network round trip
+ * for the still-typing case), never a substitute for the server's own `.min(2)` — a query that
+ * slips through short still earns the server's own 400, surfaced as `kind: "error"` below.
+ */
+export async function searchCanonicalSkillsAction(q: string): Promise<SkillSearchOutcome> {
+  const trimmed = q.trim();
+  if (trimmed.length < ADMIN_SKILLS_QUERY_MIN) {
+    return { kind: "success", skills: [], q: trimmed, truncated: false };
+  }
+  try {
+    const res = await searchCanonicalSkills(trimmed);
+    return { kind: "success", skills: res.skills, q: res.q, truncated: res.truncated };
+  } catch (err) {
     return { kind: "error", message: describeAdminActionError(err) };
   }
 }

@@ -23,14 +23,21 @@ vi.mock("./admin-http", () => ({
 }));
 
 const {
+  canonicalSkillSearchSchema,
+  getSkillDiscoveryAudit,
   getSkillDiscoveryCandidate,
   getSkillDiscoveryMetrics,
   listSkillDiscovery,
+  listSkillDiscoveryGroups,
+  searchCanonicalSkills,
+  skillCandidateAuditSchema,
   skillDiscoveryDetailSchema,
+  skillDiscoveryGroupsSchema,
   skillDiscoveryListItemSchema,
   skillDiscoveryMetricsSchema,
   skillDiscoveryPageSchema,
   skillDiscoveryQs,
+  skillReviewGroupSchema,
 } = await import("./skill-discovery");
 
 const LIST_ROW = {
@@ -102,6 +109,8 @@ const DETAIL_ROW = {
   ],
   suggested_aliases: ["sanitary fitting", "sanitary installer"],
   review_reason: null,
+  approved_job_domain_ids: [],
+  approved_requirement: "preferred",
   provenance: {
     run_id: LIST_ROW.run_id,
     cluster_key: LIST_ROW.cluster_key,
@@ -306,6 +315,228 @@ describe("getSkillDiscoveryCandidate — one request, no N+1", () => {
   it("rejects a detail body missing the provenance block", () => {
     const { provenance: _drop, ...rest } = DETAIL_ROW;
     expect(skillDiscoveryDetailSchema.safeParse(rest).success).toBe(false);
+  });
+
+  it("carries the approved scope (#1280) — the trades and requirement a create decision named", () => {
+    const detail = skillDiscoveryDetailSchema.parse({
+      ...DETAIL_ROW,
+      approved_job_domain_ids: ["jd_nco_7126_0100"],
+      approved_requirement: "required",
+    });
+    expect(detail.approved_job_domain_ids).toEqual(["jd_nco_7126_0100"]);
+    expect(detail.approved_requirement).toBe("required");
+  });
+
+  it("NEVER reads a top-level confidence, created_at_iso, or classifier_rule (contract correction #1)", () => {
+    // The pre-merge audit found the raw candidate score reaching the wire under a key no DTO
+    // declares. This schema must not accept — let alone rely on — any of the three retired
+    // top-level keys; parsing a body carrying them must silently drop them, not surface them.
+    const parsed = skillDiscoveryDetailSchema.parse({
+      ...DETAIL_ROW,
+      confidence: 0.87,
+      created_at_iso: "2026-08-26T09:00:00.000Z",
+      classifier_rule: "top_level_leak",
+    });
+    expect(parsed).not.toHaveProperty("confidence");
+    expect(parsed).not.toHaveProperty("created_at_iso");
+    // `classifier_rule` legitimately exists, but ONLY nested under `provenance` — a top-level
+    // one must not silently become the nested one.
+    expect(parsed.provenance.classifier_rule).toBe(DETAIL_ROW.provenance.classifier_rule);
+  });
+});
+
+describe("GET /admin/skill-discovery/groups — the review batches (#1280)", () => {
+  const GROUP = {
+    key: "direct|Plumbers and Pipe Fitters|sanitary fixture",
+    tier: "direct",
+    trade_family: "Plumbers and Pipe Fitters",
+    anchor: "sanitary fixture",
+    label: "Plumbers and Pipe Fitters · sanitary fixture",
+    candidate_ids: [LIST_ROW.id, "c0000000-0002-4a00-8000-000000000002"],
+    candidates: 2,
+    undecided: 1,
+    source_rows: 6,
+    source_domains: 3,
+    unanimous_action: "create",
+  };
+  const GROUPS_BODY = {
+    groups: [GROUP],
+    total_groups: 1,
+    total_candidates: 2,
+    total_undecided: 1,
+    tier_basis: "review_tier_is_derived_not_stored",
+    grouping_basis: "groups_are_derived_not_stored",
+  };
+
+  it("hits the groups route and forwards the shared filters — NO cursor, limit or sort", async () => {
+    transport.body = GROUPS_BODY;
+    await listSkillDiscoveryGroups({
+      status: ["pending", "needs_review"],
+      tier: "direct",
+      tradeFamily: "Plumbers and Pipe Fitters",
+    });
+    expect(lastPath()).toBe(
+      "/admin/skill-discovery/groups?status=pending&status=needs_review&tier=direct&tradeFamily=Plumbers+and+Pipe+Fitters",
+    );
+  });
+
+  it("asks for the bare route when nothing is filtered", async () => {
+    transport.body = GROUPS_BODY;
+    await listSkillDiscoveryGroups();
+    expect(lastPath()).toBe("/admin/skill-discovery/groups");
+  });
+
+  it("parses one group's full shape, including tier_basis/grouping_basis (contract correction #3)", () => {
+    const parsed = skillDiscoveryGroupsSchema.parse(GROUPS_BODY);
+    expect(parsed.groups[0]!.candidate_ids).toEqual(GROUP.candidate_ids);
+    expect(parsed.tier_basis).toBe("review_tier_is_derived_not_stored");
+    expect(parsed.grouping_basis).toBe("groups_are_derived_not_stored");
+  });
+
+  it("a group with a null anchor/trade_family and no unanimous action still parses", () => {
+    const parsed = skillReviewGroupSchema.parse({
+      ...GROUP,
+      trade_family: null,
+      anchor: null,
+      unanimous_action: null,
+    });
+    expect(parsed.trade_family).toBeNull();
+    expect(parsed.unanimous_action).toBeNull();
+  });
+
+  it("does NOT assume the server sorts by undecided (contract correction #2) — the schema has no opinion on order, it only parses what arrives", () => {
+    // A regression guard against silently re-introducing an undecided-first assumption into the
+    // mirror: the schema must accept groups in ANY order, biggest-candidates-first included.
+    const biggerButDecided = { ...GROUP, key: "g2", candidates: 40, undecided: 0 };
+    const parsed = skillDiscoveryGroupsSchema.parse({
+      ...GROUPS_BODY,
+      groups: [biggerButDecided, GROUP],
+      total_groups: 2,
+    });
+    expect(parsed.groups[0]!.key).toBe("g2"); // order preserved verbatim, not re-derived
+  });
+
+  it("a real response never carries a score, cosine, or embedding key", () => {
+    const parsed = skillDiscoveryGroupsSchema.parse(GROUPS_BODY);
+    expect(parsed.groups[0]).not.toHaveProperty("score");
+  });
+});
+
+describe("GET /admin/skills?q= — the MAP/MERGE picker's lookup (#1280)", () => {
+  const SKILLS_BODY = {
+    skills: [
+      {
+        skill_id: "skill_arc_welding",
+        label_en: "Arc Welding",
+        status: "active",
+        kind: "skill",
+        mappable: true,
+        not_mappable_reason: null,
+      },
+      {
+        skill_id: "skill_old_welding",
+        label_en: "Old Welding",
+        status: "deprecated",
+        kind: "skill",
+        mappable: false,
+        not_mappable_reason: "Deprecated. Mapping a live phrase onto a withdrawn concept hides the phrase behind it.",
+      },
+    ],
+    q: "weld",
+    truncated: false,
+  };
+
+  it("hits GET /admin/skills with the search term", async () => {
+    transport.body = SKILLS_BODY;
+    await searchCanonicalSkills("weld");
+    expect(lastPath()).toBe("/admin/skills?q=weld&limit=20");
+  });
+
+  it("forwards a custom limit", async () => {
+    transport.body = SKILLS_BODY;
+    await searchCanonicalSkills("weld", 5);
+    expect(lastPath()).toBe("/admin/skills?q=weld&limit=5");
+  });
+
+  it("renders the ineligible skill too — mappable/not_mappable_reason are not filtered here", () => {
+    const parsed = canonicalSkillSearchSchema.parse(SKILLS_BODY);
+    expect(parsed.skills).toHaveLength(2);
+    const ineligible = parsed.skills.find((s) => !s.mappable);
+    expect(ineligible?.not_mappable_reason).toContain("Deprecated");
+  });
+
+  it("echoes q and truncated", () => {
+    const parsed = canonicalSkillSearchSchema.parse(SKILLS_BODY);
+    expect(parsed.q).toBe("weld");
+    expect(parsed.truncated).toBe(false);
+  });
+});
+
+describe("GET /admin/skill-discovery/:id/audit — decision history (#1280)", () => {
+  const AUDIT_BODY = {
+    candidate_id: LIST_ROW.id,
+    entries: [
+      {
+        event_id: "evt-1",
+        occurred_at: "2026-08-20T09:00:00.000Z",
+        action_code: "skill_candidate_approved_create",
+        admin_id: "adm-1",
+      },
+    ],
+    current: {
+      status: "approved_create",
+      reviewer_admin_id: "adm-1",
+      reviewed_at: "2026-08-20T09:00:00.000Z",
+      review_reason: "clean occupation-with-skill-evidence case",
+      resulting_skill_id: null,
+      approved_job_domain_ids: ["jd_nco_7126_0100"],
+      approved_requirement: "preferred",
+    },
+    corpus_effect: "decision_recorded_no_corpus_write",
+  };
+
+  it("hits the audit route and encodes the id", async () => {
+    transport.body = AUDIT_BODY;
+    await getSkillDiscoveryAudit("has space");
+    expect(lastPath()).toBe("/admin/skill-discovery/has%20space/audit");
+  });
+
+  it("parses entries oldest-first, unchanged, plus current", async () => {
+    transport.body = AUDIT_BODY;
+    const audit = await getSkillDiscoveryAudit(LIST_ROW.id);
+    expect(audit.entries).toHaveLength(1);
+    expect(audit.entries[0]!.admin_id).toBe("adm-1");
+    expect(audit.current.status).toBe("approved_create");
+  });
+
+  it("`current` is NEVER modelled nullable (contract correction #4) — an undecided candidate still parses with null-valued fields inside a present `current`", () => {
+    const undecided = {
+      ...AUDIT_BODY,
+      entries: [],
+      current: {
+        status: "pending",
+        reviewer_admin_id: null,
+        reviewed_at: null,
+        review_reason: null,
+        resulting_skill_id: null,
+        approved_job_domain_ids: [],
+        approved_requirement: "preferred",
+      },
+    };
+    const audit = skillCandidateAuditSchema.parse(undecided);
+    expect(audit.current).not.toBeNull();
+    expect(audit.current.status).toBe("pending");
+    expect(audit.current.reviewer_admin_id).toBeNull();
+  });
+
+  it("rejects a body with `current` entirely absent — that would read as the row being gone, not undecided", () => {
+    const { current: _drop, ...rest } = AUDIT_BODY;
+    expect(skillCandidateAuditSchema.safeParse(rest).success).toBe(false);
+  });
+
+  it("admin_id is never coerced to a name — it stays whatever opaque string the wire sent", () => {
+    const audit = skillCandidateAuditSchema.parse(AUDIT_BODY);
+    expect(audit.entries[0]!.admin_id).toBe("adm-1");
   });
 });
 
