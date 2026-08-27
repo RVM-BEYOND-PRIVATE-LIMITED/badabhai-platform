@@ -1,6 +1,7 @@
 # The local `.env` hazard — smaller than it looks today, and worth fixing anyway
 
-**2026-08-27 · investigation only · the file was NOT edited, moved, or deleted**
+**2026-08-27 · investigated, then FIXED under owner authorisation**
+**Local flag set to `false` · boot guard added · production secret untouched**
 
 The developer `.env` at the repository root contains:
 
@@ -117,6 +118,64 @@ built here**, because it is outside this change's scope and ownership.
 
 Deleting or rewriting `.env` from tooling, or committing any variant of it. It holds live
 credentials, it is correctly gitignored, and it is the operator's file.
+
+---
+
+## RESOLVED, 2026-08-27 — and the hazard was smaller again than the section above says
+
+Two further facts, both measured after the analysis above was written, and both narrowing it:
+
+**1 - The ai-service never read that file in the first place.** `config.py` anchors its env file
+to its own package (`_AI_SERVICE_ROOT / ".env"`, the AI-ENV-1 fix), precisely so that running
+`uvicorn app.main:app` from the repository root cannot silently load the NestJS API's root file —
+the two define overlapping names with incompatible meanings. The ai-service's OWN file already
+had `SKILL_CANONICALIZE_ENABLED=false`.
+
+**2 - Nothing else consumes the root value either.** `apps/api` does not read
+`SKILL_CANONICALIZE_ENABLED` at runtime; the only references are a guard test asserting the
+deploy workflow wires it. So the root `true` was inert everywhere — a trap rather than a leak.
+
+Measured directly from the local service's own configuration:
+
+```
+skill_canonicalize_enabled   False
+backend_api_url set          False
+skills_internal_token set    False
+get_skill_store() ->         NullSkillStore
+```
+
+### What was done
+
+- **The local value is now `false`.** One line in the root developer file, under explicit owner
+  authorisation. 183 lines before, 183 after; nothing else touched. The ai-service's own file
+  already read `false` and was not modified. **No production secret was changed.**
+- **A boot guard now makes the dangerous combination impossible to reach by accident** — below.
+- The committed `.env.example`'s `LANGFUSE_BASE_URL` was corrected from the EU/global default to
+  the US region this project actually uses, with a comment explaining that a wrong region
+  presents as a *credential* error. Anyone copying the example was getting traces silently
+  rejected.
+
+### The boot guard — two signals plus a topology check
+
+`Settings._refuse_local_canonicalization_against_a_shared_api` refuses to start when **all** of:
+
+1. `skill_canonicalize_enabled` is true, **and**
+2. the FORK-B-1 seam is wired (`backend_api_url` **and** `skills_internal_token`), **and**
+3. `backend_api_url` is a **loopback** host,
+
+unless `CANONICALIZE_ALLOW_LOCAL=<reason>` is set — the same two-signal shape
+`packages/db/src/ops-guard.ts` uses, where the second signal cannot be inherited by accident and
+makes the operator write down why.
+
+**Why loopback is the discriminator, and why this cannot become an outage.** Production reaches
+the api over the compose network by service name (`http://api:3000`); a loopback
+`backend_api_url` is not a production topology and never has been. A guard that simply refused
+"both halves set" would refuse the intended production state — it would block the very
+activation it exists to protect. `test_it_CANNOT_fire_on_the_deployed_topology` pins that.
+
+The refusal names the variables and the remedy and echoes **neither the token nor the URL**; it
+raises `ConfigError`, not `ValueError`, so pydantic cannot wrap the input into a
+`ValidationError` that would record `backend_api_url` verbatim.
 
 ---
 

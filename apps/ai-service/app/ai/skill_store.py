@@ -186,11 +186,26 @@ class HttpSkillStore:
             )
 
 
+def skill_store_configured(settings: Settings) -> bool:
+    """Is the FORK-B-1 seam wired? THE SINGLE DEFINITION, deliberately.
+
+    Extracted so that anything reporting on the seam answers with the factory's own
+    predicate rather than a second copy of it. A drifted copy is worse than no report at
+    all: it would tell an operator the store is live while :func:`get_skill_store` hands
+    the canonicalizer the inert one. Never returns the values — only whether both are set.
+    """
+    return bool(settings.backend_api_url and settings.skills_internal_token)
+
+
 def get_skill_store(settings: Settings) -> SkillCanonicalStore:
     """The FORK-B-1 store factory. Returns the :class:`HttpSkillStore` only when the seam
     is fully configured (api url + the SCOPED skills token); otherwise the inert
     :class:`NullSkillStore` — so a half-configured deployment degrades to the status quo
     (raw phrase kept, nothing recorded) instead of erroring."""
-    if settings.backend_api_url and settings.skills_internal_token:
+    if skill_store_configured(settings):
+        # Narrowed for the type checker: `skill_store_configured` already proved both are
+        # non-empty, but it returns a bool rather than the values.
+        assert settings.backend_api_url is not None
+        assert settings.skills_internal_token is not None
         return HttpSkillStore(settings.backend_api_url, settings.skills_internal_token)
     return NullSkillStore()

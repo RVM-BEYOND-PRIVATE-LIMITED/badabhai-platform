@@ -142,7 +142,7 @@ so the secret's value governs and the `:-false` default applies only if it is em
 
 **Nothing else in this document requires approval. This one line is the whole ask.**
 
-### 5a ▸ The value must be READ first, and it cannot be read from here
+### 5a ▸ How to read the value — the observability endpoint, added 2026-08-27
 
 The instruction was explicit: not from the local `.env`, repository defaults, GitHub secrets,
 Langfuse, endpoint behaviour, or source code. Only the running container counts. Every route
@@ -155,14 +155,43 @@ from this workstation is closed — documented in
 > It is a local dev process, `docker ps` shows no `ai-service` container, and reading its
 > environment would answer a question nobody asked.
 
-**The one command an operator with Lightsail access must run:**
+**PREFERRED — one authenticated HTTP GET, from the box:**
+
+```bash
+curl -sS -H "x-ai-internal-token: $AI_INTERNAL_TOKEN"   http://127.0.0.1:8000/internal/observability/canonicalization
+```
+
+```json
+{ "canonicalizationEnabled": false, "storeConfigured": false, "buildSha": "unknown" }
+```
+
+| field | meaning |
+|---|---|
+| `canonicalizationEnabled` | The effective boolean **this process** holds — the same `get_settings().skill_canonicalize_enabled` the `/skills/canonicalize` route gates on. Not the secret, not the env var, not a second parsed copy. |
+| `storeConfigured` | Whether the FORK-B-1 skill store is wired (`BACKEND_API_URL` **and** `SKILLS_INTERNAL_TOKEN` both set), from the factory's own predicate. **`true` here is required for canonicalization to do anything at all** — see the warning below. |
+| `buildSha` | The `GIT_COMMIT_SHA` baked into this image, the same value `/health` reports as `build`. `"unknown"` means the build arg was never wired — the process is not a pipeline-built image. |
+
+**Reading the result:**
+
+- `canonicalizationEnabled: false` → the flag is off in the running process, whatever any config file says. Step 5 is required.
+- `canonicalizationEnabled: true, storeConfigured: false` → **the dangerous middle state.** The route is live, every phrase still resolves to `unresolved`, nothing is recorded, and each call still pays for an embed. Canonicalization is *on* and *useless*. Fix the seam before believing any smoke result.
+- `buildSha` not equal to the sha you just deployed → you are reading the previous image; the deploy did not take, and every other field describes the old build.
+- `401` → the bearer is wrong or absent. The endpoint is gated by the existing TD67 middleware; it is never open.
+- Connection refused → the port is loopback-bound (`127.0.0.1:8000`), by design. Run the curl **on the box**, or from the api container over the compose network at `http://ai-service:8000`.
+
+> **This endpoint reports state only. It does not enable, disable, mutate, promote, or
+> canonicalize anything.** It touches no database, makes no provider call, and has no write path.
+
+**FALLBACK — still valid, and the only option until this change is deployed:**
 
 ```bash
 docker compose exec ai-service env | grep SKILL_CANONICALIZE_ENABLED
 ```
 
-Report the value verbatim. If it is **absent** from the output, the variable is unset in the
-container and the effective value is `false`.
+If the variable is **absent** from that output, it is unset in the container and the effective
+value is `false`. Note the endpoint ships with this change, so the *first* read still requires
+either this fallback or a deploy of the commit that adds it — deploys run on every push to
+`main`, so merging is sufficient.
 
 ---
 
@@ -177,10 +206,14 @@ ledger fails closed), so nothing else needs restarting and the api must not be b
 
 ### 7 ▸ Verify the EFFECTIVE runtime value — the only step that establishes "active"
 ```bash
-docker compose exec ai-service env | grep SKILL_CANONICALIZE_ENABLED   # expect: true
-docker compose exec ai-service python -c "from app.config import get_settings; print(get_settings().skill_canonicalize_enabled, get_settings().skill_canonicalize_floor)"
-curl -s localhost:8000/health | jq -r .build    # must equal the deployed short sha, not "unknown"
+curl -sS -H "x-ai-internal-token: $AI_INTERNAL_TOKEN"   http://127.0.0.1:8000/internal/observability/canonicalization
+# expect: {"canonicalizationEnabled": true, "storeConfigured": true, "buildSha": "<deployed sha>"}
 ```
+
+All three facts in one call, from the running process. `buildSha` must equal the sha just
+deployed — if it does not, you are reading the previous image and steps 8–14 would measure the
+old build. `storeConfigured` must be `true`, or the smoke tests below cannot pass for a reason
+that has nothing to do with the flag.
 **Do not proceed past this step on the strength of the compose file, the secret, or a successful
 deploy.** If the process reports `False`, the deploy did not carry the value and steps 8–14 would
 measure the old build.
@@ -219,9 +252,26 @@ Langfuse must show `task_type=skill_canonicalization` traces for all five calls,
 carrying `status_message="skill_canonicalize_disabled"`. That string appearing after step 7
 means the running process still has the flag off.
 
-> Langfuse credentials in the local environment currently return **401** on both public
-> endpoints. Fix that before activation, or step 13 cannot be performed — it is the only route
-> that distinguishes "the flag is off" from "nothing matched", which return identical bodies.
+**The verification command** (the 401 reported earlier was a wrong-host probe, not a
+credential problem — see below):
+
+```bash
+curl -sS -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY"   "$LANGFUSE_BASE_URL/api/public/observations?name=skill_canonicalization&limit=20"
+```
+
+**Baseline, measured 2026-08-27: `totalItems = 0`.** Canonicalization has never produced a
+trace, which is what "never activated" looks like from the observability side. After step 8 this
+must return one observation per smoke call.
+
+> **If it returns 401**, the cause is almost certainly the **region**, not the credentials.
+> Langfuse answers a *valid* key presented to the *wrong* region with
+> `"Invalid credentials. Confirm that you've configured the correct host."` This project is on
+> **US** (`LANGFUSE_BASE_URL=https://us.cloud.langfuse.com`); the same keys return 200 there and
+> 401 on `cloud.langfuse.com`. Check `LANGFUSE_BASE_URL` before touching a key, and note the
+> variable is `LANGFUSE_BASE_URL` — there is no `LANGFUSE_HOST` in this codebase.
+> If the host is right and it still 401s, the keys have been rotated: that is an operator
+> action (issue a new key pair in the Langfuse project and update the deploy secrets). **Do not
+> work around it by removing authentication.**
 
 ### 14 ▸ Error-rate monitoring, first 24h
 - `worker_skill` / `job_posting_skill` row counts — **0 today**; non-zero is the first proof

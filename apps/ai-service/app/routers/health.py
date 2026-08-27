@@ -1,4 +1,5 @@
-"""Liveness + spend telemetry: GET /health, GET /ai/spend."""
+"""Liveness, spend telemetry and config posture: GET /health, GET /ai/spend,
+GET /internal/observability/canonicalization."""
 
 from __future__ import annotations
 
@@ -6,6 +7,7 @@ from fastapi import APIRouter
 
 from ..ai import cost_tracker
 from ..ai.langfuse_tracing import get_tracer
+from ..ai.skill_store import skill_store_configured
 from ..config import get_settings
 from ._shared import router, settings
 
@@ -63,6 +65,67 @@ async def health() -> dict:
         # PII-free cumulative spend / retry-budget usage-vs-cap (TD27). snapshot is
         # async (it may touch the Redis backend); await it.
         "spend": await cost_tracker.get_ledger().snapshot(settings),
+    }
+
+
+@api_router.get("/internal/observability/canonicalization")
+async def canonicalization_posture() -> dict:
+    """Is skill canonicalization actually on in THIS process, and which build is asking?
+
+    ===========================================================================
+    WHY THIS ENDPOINT EXISTS
+    ===========================================================================
+    Before it, the effective value of ``SKILL_CANONICALIZE_ENABLED`` was unknowable to
+    anyone without a shell on the box, and that is a worse problem AFTER activation than
+    before it: "did the deploy actually take?" is the first question anyone asks, and every
+    other way of answering it is unsound.
+
+      * ``/health`` omits the flag in both postures, deliberately (TD67).
+      * ``POST /skills/canonicalize`` returns an IDENTICAL body whether the flag is off or
+        nothing matched — by design — so behaviour cannot be probed for it. Task 17b
+        retracted a claim built on exactly that inference.
+      * A compose default, a GitHub secret and a local env file are all INPUTS to the
+        running value. None of them is the value. A config file saying ``true`` is not
+        evidence that this process believes it.
+
+    THIS ROUTE REPORTS STATE ONLY. It does not enable, disable, mutate, promote, or
+    canonicalize anything, it touches no database, and it makes no provider call.
+
+    ===========================================================================
+    WHAT IT DOES AND DOES NOT DISCLOSE
+    ===========================================================================
+    The EFFECTIVE booleans, never the material behind them: no token, no key, no URL, no
+    connection string, and not the raw environment variable either. A commit sha is already
+    public in the ghcr image tag (the same argument that put ``build`` on ``/health``).
+
+    It reads ``get_settings()`` — THE accessor ``routers/skills.py`` gates on and the one
+    ``get_skill_store`` is handed — so this cannot report a different answer from the one
+    canonicalization acts on. That is the whole point: a second parsed copy of the flag
+    would be an observability endpoint that can lie.
+
+    ===========================================================================
+    WHY `storeConfigured` IS HERE AND IS NOT PADDING
+    ===========================================================================
+    ``skill_canonicalize_enabled`` alone does NOT mean canonicalization works. TD65 is a
+    CHAIN — store AND flag. With the seam unwired, ``get_skill_store`` returns the inert
+    ``NullSkillStore``, whose ``nearest_aliases`` returns ``[]``: every phrase resolves to
+    UNRESOLVED, nothing is recorded, and the embed is still paid for. An operator reading
+    ``canonicalizationEnabled: true`` and nothing else would conclude the system is live
+    when it provably cannot assign a single skill. Reporting one half of a two-part gate is
+    how you get a green light over a dead path.
+
+    Gated by the existing TD67 middleware: every path except ``/health`` requires the exact
+    ``x-ai-internal-token`` once ``AI_INTERNAL_TOKEN`` is set. No new auth mechanism, and
+    nothing here is added to ``_AUTH_EXEMPT_PATHS``.
+    """
+    current = get_settings()
+    return {
+        # camelCase, matching the operator-facing contract this was specified against.
+        # The rest of this service answers snake_case; the deviation is deliberate and
+        # confined to this one route rather than half-applied across it.
+        "canonicalizationEnabled": current.skill_canonicalize_enabled,
+        "storeConfigured": skill_store_configured(current),
+        "buildSha": current.build_id,
     }
 
 
