@@ -8,6 +8,11 @@
  *   pnpm db:eval:taxonomy --run --experiment EXP-... [--push-langfuse]
  *                                              # ...and preserve it as an immutable record.
  *
+ *   --cache --offline        cached query vectors ONLY. A miss THROWS instead of calling the
+ *                            provider, so the run either costs exactly ZERO or fails loudly.
+ *                            The way to re-measure under a standing "no unauthorised spend"
+ *                            instruction without having to trust an estimate afterwards.
+ *
  * ---------------------------------------------------------------------------
  * EVALUATOR v2 (Phase 6) — THE NUMBERS ARE NOT COMPARABLE WITH v1 BY DEFAULT
  * ---------------------------------------------------------------------------
@@ -775,6 +780,9 @@ async function main(): Promise<void> {
       useCache && cacheModel !== null
         ? createEmbedCache({
             model: cacheModel,
+            // See the sweep: `--offline` makes a cache miss fail rather than spend, which is
+            // what lets a re-measurement be authorised as free BEFORE it runs.
+            offline: argv.includes("--offline"),
             fetchVector: async (text: string) => {
               const v = await embedViaProvider(text);
               // The cache stores only what it is given, so a failed miss must THROW rather

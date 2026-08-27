@@ -5,6 +5,10 @@
  *   pnpm db:promote:skills --batch <dir> --apply      # promote, writing an audit report
  *   pnpm db:promote:skills --revert <report.json>     # put them back
  *
+ *   --hold-register <path>   override data/taxonomy/held-skills.json (tests; a batch with its
+ *                            own ruling). The default register always applies — an exclusion
+ *                            you have to remember to pass is one you will forget to pass.
+ *
  * ===========================================================================
  * WHY PROMOTION IS A GATE AND NOT A FLAG FLIP
  * ===========================================================================
@@ -63,6 +67,13 @@
  * FAIL-CLOSED: `--apply` promotes NOTHING unless every selected skill passes every
  * non-waived criterion. A partial promotion is how a corpus ends up in a state nobody
  * described, and "it did most of them" is not a state you can reason about later.
+ *
+ * WHICH SKILLS ARE *SELECTED* IS A SEPARATE QUESTION, and `held-skills.json` answers it. The
+ * fail-closed rule objects to a subset that NOTHING DESCRIBES; the hold register is that
+ * description — a named set, a measured reason per member, and the ruling that authorised it,
+ * all in git. Holding is not waiving: a held skill is still judged in full, its failure is
+ * still a failure, and it stays `provisional`. A waiver promotes a skill that failed; a hold
+ * leaves it exactly where its failure says it belongs. See `promotion-holds.ts`.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -87,6 +98,14 @@ import {
   type FingerprintComponent,
 } from "./corpus-fingerprint";
 import { vocabularyCoverage, vocabularyTripwireError } from "./match-vocabulary-coverage";
+import { CRITERIA, isCriterion, type Criterion } from "./promotion-criteria";
+import {
+  DEFAULT_HOLD_REGISTER,
+  displayRegisterPath,
+  holdTripwireError,
+  loadHoldRegister,
+  reconcileHolds,
+} from "./promotion-holds";
 import { countsAsEvalCoverage, loadEvalFixture, type EvalFixture } from "./taxonomy-eval-fixture";
 import { DEFAULT_FIXTURE, MOCK_MODEL_TAG } from "./taxonomy-retrieval-eval";
 
@@ -112,17 +131,13 @@ export const PROMOTION_REPORT_DIR = join(
   "skill-promotions",
 );
 
-/** The closed set of promotion criteria. */
-export const CRITERIA = [
-  "GATE_ACCEPTED",
-  "IS_PROVISIONAL",
-  "ACTIVE_EDGE",
-  "FULLY_EMBEDDED",
-  "EVAL_COVERED",
-  "RESOLVABLE_ABOVE_FLOOR",
-  "NO_REGRESSION",
-] as const;
-export type Criterion = (typeof CRITERIA)[number];
+/**
+ * The closed set of promotion criteria — defined in `promotion-criteria.ts` and re-exported
+ * here, which is where every consumer has always imported it from. It moved so that
+ * `promotion-holds.ts` can validate a hold's criterion without a runtime import cycle back
+ * into this runner.
+ */
+export { CRITERIA, isCriterion, type Criterion } from "./promotion-criteria";
 
 /**
  * The canonicalization floor a candidate must be able to clear.
@@ -164,10 +179,6 @@ export const REGRESSION_BASELINE = {
   evaluator_version: 2,
   fixture_version: 2,
 } as const;
-
-export function isCriterion(v: string): v is Criterion {
-  return (CRITERIA as readonly string[]).includes(v);
-}
 
 /**
  * Best CORRECT resolution score per skill, read out of a Gate C floor-sweep record.
@@ -489,8 +500,31 @@ export interface PromotionReport {
     counts: Record<string, number>;
     blocking: readonly string[];
   };
+  /**
+   * The HOLD register applied to this batch — owner ruling PROMOTION-SCOPE option B.
+   *
+   * Recorded in the artifact and not only on stdout, because "what was deliberately NOT
+   * promoted, and why" is the question a partial promotion must be able to answer years
+   * later. The held ids appear here AND their full verdicts stay in `verdicts`: a hold changes
+   * the selection, never the judgement. See `promotion-holds.ts`.
+   */
+  holds: {
+    register: string;
+    ruling: string;
+    held: { skill_id: string; criterion: Criterion; category: string; blocking: Criterion[] }[];
+    releasable: string[];
+    unauthorised: { skill_id: string; authorised: Criterion; blocking: Criterion[] }[];
+    unknown: string[];
+  };
+  /** The whole batch, before the register is applied. */
   candidates: number;
+  /** Excluded by the hold register. Invariant: `candidates === held + selected`. */
+  held: number;
+  /** The set actually judged for promotion. Invariant: `selected === eligible + blocked`. */
+  selected: number;
+  /** Of the SELECTED set. */
   eligible: number;
+  /** Of the SELECTED set — and `--apply` still refuses outright unless this is zero. */
   blocked: number;
   /** Populated on APPLY only: the skills whose status actually moved. */
   promoted: string[];
@@ -765,9 +799,44 @@ async function main(): Promise<void> {
       );
     });
 
-    const eligible = verdicts.filter((v) => v.eligible);
-    const blocked = verdicts.filter((v) => !v.eligible);
+    // ── THE HOLD REGISTER ─────────────────────────────────────────────────
+    // Owner ruling PROMOTION-SCOPE option B, 2026-08-27. Applied AFTER every candidate has
+    // been judged in full, and deliberately so: the register decides what is IN THE BATCH, not
+    // what passes. Every held skill keeps its verdict, its failing criterion and its place in
+    // the report. See `promotion-holds.ts` for why this is a selection and not a waiver, and
+    // for the three properties that stop it becoming a way to silence failures.
+    const holdRegisterPath = requiredArg(argv, "--hold-register") ?? DEFAULT_HOLD_REGISTER;
+    // Resolved absolutely, RECORDED repo-relatively — see `displayRegisterPath`.
+    const holdRegisterName = displayRegisterPath(holdRegisterPath);
+    const holdRegister = loadHoldRegister(holdRegisterPath);
+    const holds = reconcileHolds(verdicts, holdRegister);
+    // Same PLAN/APPLY split as the match-vocabulary tripwire above, for the same reason: plan
+    // mode exists so an operator can see the whole gate report and learn what to fix, and the
+    // refusal belongs where the mutation is.
+    const holdTripwire = holdTripwireError(holds, SCRIPT, holdRegisterName);
+    if (holdTripwire !== null) {
+      if (hasFlag(argv, "--apply")) throw new Error(holdTripwire);
+      console.log(`${holdTripwire}\n\n[${SCRIPT}] PLAN mode: reported, not enforced. --apply would refuse.`);
+    }
+
+    // ELIGIBLE AND BLOCKED ARE NOW OVER THE SELECTED SET, and `candidates` still counts the
+    // whole batch, so the report states both facts: what the batch contains, and what this run
+    // is promoting out of it. The fail-closed rule below is UNCHANGED — it just applies to the
+    // set that was actually selected.
+    const eligible = holds.selected.filter((v) => v.eligible);
+    const blocked = holds.selected.filter((v) => !v.eligible);
     const apply = hasFlag(argv, "--apply");
+
+    // The counts are the thing a reader trusts, so they are asserted rather than assumed. If
+    // this ever fires, a partition is lying about what happened.
+    if (holds.held.length + holds.selected.length !== verdicts.length ||
+        eligible.length + blocked.length !== holds.selected.length) {
+      throw new Error(
+        `[${SCRIPT}] INTERNAL: partition does not account for every candidate ` +
+          `(${verdicts.length} candidates, ${holds.held.length} held, ${holds.selected.length} ` +
+          `selected, ${eligible.length} eligible, ${blocked.length} blocked).`,
+      );
+    }
 
     console.log(`[${SCRIPT}] ${apply ? "APPLY" : "PLAN"} — batch ${batchDir}`);
     console.log(`  fixture                  = ${fixturePath}`);
@@ -777,14 +846,22 @@ async function main(): Promise<void> {
     console.log(`  corpus fingerprint       = ${liveFingerprint ? JSON.stringify(liveFingerprint.counts) : "(unavailable)"}`);
     console.log(`  evidence freshness       = ${regression.stale || sweepStale ? "STALE (NOT WAIVABLE)" : "current"}`);
     console.log(`  regression verdict       = ${regression.passed ? "PASS" : "BLOCK"} — ${regression.detail}`);
-    console.log(`  candidates               = ${verdicts.length}`);
+    console.log(`  hold register            = ${holdRegisterName}`);
+    console.log(`  candidates (whole batch) = ${verdicts.length}`);
+    console.log(`  held (ruling, not waived)= ${holds.held.length}  ${JSON.stringify(blockingHistogram(holds.held))}`);
+    console.log(`  selected                 = ${holds.selected.length}`);
     console.log(`  eligible                 = ${eligible.length}`);
     console.log(`  blocked                  = ${blocked.length}`);
-    console.log(`  blocking criteria        = ${JSON.stringify(blockingHistogram(verdicts))}`);
+    console.log(`  blocking criteria        = ${JSON.stringify(blockingHistogram(holds.selected))}`);
     for (const v of blocked.slice(0, 15)) {
       console.log(`    ${v.skill_id.padEnd(52)} ${v.blocking.join(", ")}`);
     }
     if (blocked.length > 15) console.log(`    ... and ${blocked.length - 15} more`);
+    if (holds.unknown.length > 0) {
+      // Informational: a register may span batches, and an id that fails to match cannot cause
+      // an over-promotion — the real skill stays selected and the fail-closed rule catches it.
+      console.log(`  hold ids not in this batch = ${holds.unknown.length} (${holds.unknown.join(", ")})`);
+    }
 
     const stamp = new Date().toISOString();
     const report: PromotionReport = {
@@ -804,7 +881,26 @@ async function main(): Promise<void> {
         blocking: coverage.blocking,
       },
       eval_record: evalPath,
+      holds: {
+        register: holdRegisterName,
+        ruling: holdRegister.ruling,
+        held: holds.dispositions.map((d) => ({
+          skill_id: d.skill_id,
+          criterion: d.authorised,
+          category: d.category,
+          blocking: d.actually_blocking,
+        })),
+        releasable: holds.releasable.map((d) => d.skill_id),
+        unauthorised: holds.unauthorised.map((d) => ({
+          skill_id: d.skill_id,
+          authorised: d.authorised,
+          blocking: d.actually_blocking,
+        })),
+        unknown: holds.unknown,
+      },
       candidates: verdicts.length,
+      held: holds.held.length,
+      selected: holds.selected.length,
       eligible: eligible.length,
       blocked: blocked.length,
       promoted: [],
@@ -820,6 +916,11 @@ async function main(): Promise<void> {
           "retag-skills.ts).",
         "Reversible: `--revert <this file> --apply` sets the promoted ids back to " +
           "provisional, skipping any row that is no longer 'active'.",
+        `HELD, NOT WAIVED: ${holds.held.length} candidate(s) were excluded from this batch by ` +
+          `${holdRegisterName} under the ruling recorded there. They were judged in full and ` +
+          "their verdicts are in `verdicts`; they remain `provisional` and unretrievable, and " +
+          "each returns to the batch automatically when its entry is removed. No criterion was " +
+          "waived and the 0.75 floor did not move.",
       ],
     };
 
@@ -833,11 +934,14 @@ async function main(): Promise<void> {
     // FAIL-CLOSED. A partial promotion leaves a state nobody described.
     if (blocked.length > 0) {
       console.error(
-        `[${SCRIPT}] REFUSING TO PROMOTE. ${blocked.length} of ${verdicts.length} candidate(s) fail a ` +
-          `non-waived criterion (${JSON.stringify(blockingHistogram(verdicts))}). Promotion is ` +
-          `all-or-nothing for a batch: promoting the passing subset would leave the corpus half ` +
-          `live, with no single description of what is retrievable. Fix the blockers, or waive a ` +
-          `criterion explicitly with --waive and re-run so the waiver is recorded.`,
+        `[${SCRIPT}] REFUSING TO PROMOTE. ${blocked.length} of the ${holds.selected.length} SELECTED ` +
+          `candidate(s) fail a non-waived criterion (${JSON.stringify(blockingHistogram(holds.selected))}). ` +
+          `Promotion is all-or-nothing for the selected set: promoting the passing subset would ` +
+          `leave the corpus half live, with no single description of what is retrievable. Three ` +
+          `ways out, in order of preference: fix the blockers; record them in the hold register ` +
+          `(${holdRegisterName}) with the ruling that authorises it, which is the "single ` +
+          `description" this rule asks for; or waive a criterion explicitly with --waive so the ` +
+          `waiver is recorded. A hold leaves the skill provisional; a waiver makes it live anyway.`,
       );
       process.exitCode = 1;
       return;

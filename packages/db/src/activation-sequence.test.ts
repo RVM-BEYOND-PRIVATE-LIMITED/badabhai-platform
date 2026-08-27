@@ -153,14 +153,15 @@ describe("the real sequence", () => {
 });
 
 describe("where the sequence stops today", () => {
-  it("it stops at step 6 — everything up to and including the evidence is done", () => {
-    // Step 3 -> step 5 -> step 6 over one day. The corpus rulings released steps 3 and 4, the
-    // writes were applied, and the fingerprinted evidence was produced (the evaluation for
-    // nothing, the sweep for ₹0.0035). It stops at CLEAR-FLOOR-GATE, and NOT for want of
-    // evidence: 62 of 96 clear every gate, 34 do not, and the batch is all-or-nothing.
+  it("it stops at step 9 — the ACTIVATION, and nothing before it", () => {
+    // Step 3 -> 5 -> 6 -> 9 over two days. The corpus rulings released steps 3 and 4, the writes
+    // were applied, the fingerprinted evidence was produced (the evaluation for nothing, the
+    // sweep for ₹0.0035), the batch question was ruled option B, and the promotion ran: 62
+    // promoted, 34 held. What is left is the flag, which is the one thing this plan was always
+    // going to stop at. If this ever reads EARLIER than 9 again, something has come undone.
     const stop = stopsAt(ACTIVATION_SEQUENCE, PROGRAMME);
-    expect(stop?.id).toBe("CLEAR-FLOOR-GATE");
-    expect(stop?.order).toBe(6);
+    expect(stop?.id).toBe("ENABLE-CANONICALIZATION");
+    expect(stop?.order).toBe(9);
   });
 
   it("READY IS NOT PERMITTED — the steps already performed stay in the list, and PROMOTE is not in it", () => {
@@ -171,8 +172,11 @@ describe("where the sequence stops today", () => {
     expect(ready).toContain("ALIAS-CLEANUP");
     expect(ready).toContain("D7C-SEED");
     expect(ready).toContain("FRESH-EVIDENCE");
-    expect(ready).not.toContain("CLEAR-FLOOR-GATE");
-    expect(ready).not.toContain("PROMOTE");
+    // CLEAR-FLOOR-GATE and PROMOTE have BOTH moved into the ready list, and both have since
+    // been performed — the gate by ruling, the promotion by a guarded apply. The one that
+    // matters is now ENABLE-CANONICALIZATION's absence, and it is the last one left.
+    expect(ready).toContain("CLEAR-FLOOR-GATE");
+    expect(ready).toContain("PROMOTE");
     expect(ready).not.toContain("ENABLE-CANONICALIZATION");
 
     // Every ready step that writes still names both halves of a procedure and still runs
@@ -180,20 +184,19 @@ describe("where the sequence stops today", () => {
     const readyWrites = ready
       .map((id) => ACTIVATION_SEQUENCE.find((x) => x.id === id)!)
       .filter((s) => s.authorisation === "PRODUCTION_WRITE");
-    expect(readyWrites.map((s) => s.id)).toEqual(["ALIAS-CLEANUP", "D7C-SEED"]);
+    expect(readyWrites.map((s) => s.id)).toEqual(["ALIAS-CLEANUP", "D7C-SEED", "PROMOTE"]);
     for (const s of readyWrites) {
       expect(s.rollback, s.id).not.toBeNull();
       expect(s.runner, s.id).toMatch(/--i-am-authorised-to-write-to-production/);
     }
   });
 
-  it("and the ACTIVATION itself is still not ready — which is the whole point", () => {
-    // Six of nine steps are now reachable. The last two are not, and no amount of engineering
-    // moves them: CLEAR-FLOOR-GATE waits on the below-floor skills and ENABLE-CANONICALIZATION
-    // waits on a promotion that has not happened.
+  it("and the ACTIVATION itself is STILL not ready — which is the whole point", () => {
+    // Eight of nine steps are now reachable, and this assertion has survived every one of them
+    // unchanged. No amount of engineering moves the last: CANONICALIZATION is BLOCKED_ON_OWNER
+    // and the flag lives outside this repository.
     const ready = new Set(readyNow(ACTIVATION_SEQUENCE, PROGRAMME).map((s) => s.id));
-    expect(ready.has("CLEAR-FLOOR-GATE")).toBe(false);
-    expect(ready.has("PROMOTE")).toBe(false);
+    expect(ready.size).toBe(ACTIVATION_SEQUENCE.length - 1);
     expect(ready.has("ENABLE-CANONICALIZATION")).toBe(false);
   });
 });
