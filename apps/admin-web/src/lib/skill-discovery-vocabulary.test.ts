@@ -6,16 +6,21 @@ import {
   ADMIN_SKILL_REVIEW_REASON_MIN,
   ADMIN_SKILLS_QUERY_MIN,
   auditActionLabel,
+  basisMarkerLabel,
   isTerminalSkillStatus,
   parseSkillDecisionConflict,
   phraseClassLabel,
   relationLabel,
   skillDecisionClientErrors,
+  SKILL_AUDIT_CAP_NOTE,
+  SKILL_AUDIT_MAX_ENTRIES,
   SKILL_CANDIDATE_STATUSES,
   SKILL_CANDIDATE_STATUS_LABELS,
   SKILL_CANDIDATE_TERMINAL_STATUSES,
+  SKILL_DECISION_EFFECT_RECORDED_ONLY,
   SKILL_MATCH_RELATION_LABELS,
   SKILL_PHRASE_CLASS_LABELS,
+  SKILL_PROVENANCE_RUN_NOTE,
   type SkillDecisionRequest,
 } from "./skill-discovery-vocabulary";
 
@@ -222,5 +227,57 @@ describe("auditActionLabel — the decision-history action codes (#1280)", () =>
 describe("the MAP/MERGE picker's search bound (#1280)", () => {
   it("mirrors the server's two-character floor", () => {
     expect(ADMIN_SKILLS_QUERY_MIN).toBe(2);
+  });
+});
+
+describe("basisMarkerLabel — the in-band markers, rendered not paraphrased (#1280, correction 3)", () => {
+  it("translates each of the three markers the read routes carry", () => {
+    expect(basisMarkerLabel("groups_are_derived_not_stored")).toContain(
+      "worked out fresh on every read",
+    );
+    expect(basisMarkerLabel("review_tier_is_derived_not_stored")).toContain(
+      "not a stored column",
+    );
+    expect(basisMarkerLabel("decision_recorded_no_corpus_write")).toContain(
+      "does not change the taxonomy",
+    );
+  });
+
+  it("falls back to the raw marker, never a guessed sentence", () => {
+    // These markers exist so the surface cannot paraphrase what the server said about its own
+    // answer. Inventing a sentence for an unknown one would defeat the whole device.
+    expect(basisMarkerLabel("some_marker_added_later")).toBe("some_marker_added_later");
+  });
+
+  it("keys the corpus-effect entry off the mirrored literal, not a copy of the string", () => {
+    // If the server ever renames the literal, the mirror moves with it and this label follows —
+    // rather than silently degrading to the raw-code fallback on a decided candidate.
+    expect(basisMarkerLabel(SKILL_DECISION_EFFECT_RECORDED_ONLY)).not.toBe(
+      SKILL_DECISION_EFFECT_RECORDED_ONLY,
+    );
+  });
+});
+
+describe("the audit read's silent cap (#1280, correction 6)", () => {
+  it("mirrors the route's own LIMIT", () => {
+    expect(SKILL_AUDIT_MAX_ENTRIES).toBe(200);
+  });
+
+  it("the note names the number and refuses to claim completeness", () => {
+    expect(SKILL_AUDIT_CAP_NOTE).toContain("200");
+    expect(SKILL_AUDIT_CAP_NOTE).toContain("cannot be treated as the complete history");
+    // The response has no truncation flag, so the note must not imply the console detected a cut.
+    expect(SKILL_AUDIT_CAP_NOTE).toContain("no marker for whether anything was left out");
+  });
+});
+
+describe("the provenance run note (#1280, correction 5)", () => {
+  it("says what the model and prompt version are NOT, in the reviewer's own terms", () => {
+    expect(SKILL_PROVENANCE_RUN_NOTE).toContain("measures how good a match anything is");
+    expect(SKILL_PROVENANCE_RUN_NOTE).toContain("nothing here is a reason to approve or reject");
+  });
+
+  it("never teaches the vocabulary the surface exists to spare a reviewer", () => {
+    expect(SKILL_PROVENANCE_RUN_NOTE.toLowerCase()).not.toMatch(/cosine|vector|embedding/);
   });
 });

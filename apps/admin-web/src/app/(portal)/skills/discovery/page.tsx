@@ -20,6 +20,7 @@ import {
   SKILL_CANDIDATE_STATUS_LABELS,
   SKILL_CANDIDATE_STATUS_TONE,
   SKILL_CANDIDATE_TERMINAL_STATUSES,
+  basisMarkerLabel,
   type AdminSkillReviewTier,
 } from "../../../../lib/skill-discovery-vocabulary";
 import { formatCount, formatRelative, formatTimestamp, shortId } from "../../../../lib/format";
@@ -425,11 +426,20 @@ export default async function SkillDiscoveryPage({
         )}
 
         {view === "grouped" && groupsResult && (
-          <p className="field__help">
-            {formatCount(groupsResult.total_groups)} batches over {formatCount(groupsResult.total_candidates)}{" "}
-            candidates, {formatCount(groupsResult.total_undecided)} still undecided — exhaustive for
-            these filters, no cursor, nothing more is hiding off-screen.
-          </p>
+          <>
+            <p className="field__help">
+              {formatCount(groupsResult.total_groups)} batches over {formatCount(groupsResult.total_candidates)}{" "}
+              candidates, {formatCount(groupsResult.total_undecided)} still undecided — exhaustive for
+              these filters, no cursor, nothing more is hiding off-screen.
+            </p>
+            {/*
+             * `grouping_basis`, RENDERED rather than merely parsed (#1280, correction 3). The
+             * response has always carried it and the mirror has always typed it; nothing showed
+             * it, which left the console holding a disclaimer the reviewer never sees on a screen
+             * that otherwise looks like a list of records.
+             */}
+            <p className="field__help">{basisMarkerLabel(groupsResult.grouping_basis)}</p>
+          </>
         )}
       </section>
     </div>
@@ -539,6 +549,12 @@ function MetricsTiles({ metrics }: { metrics: SkillDiscoveryMetrics | null }) {
           ? `Oldest still awaiting a decision: ${formatRelative(metrics.oldest_awaiting_created_at)} (${formatTimestamp(metrics.oldest_awaiting_created_at)}).`
           : "Nothing is currently awaiting a decision."}
       </p>
+      {/*
+       * `tier_basis`, rendered beside the three tier counts it qualifies (#1280, correction 3).
+       * The tiles look like counts of a stored column and are not — the tier is recomputed on
+       * every read from the phrase class and whether a strong match exists.
+       */}
+      <p className="field__help">{basisMarkerLabel(metrics.tier_basis)}</p>
     </>
   );
 }
@@ -605,6 +621,27 @@ function EmptyQueueState({
  * reviewer sees first. `"candidates"` returns the array unchanged (the server's own order,
  * `candidates` descending tie-broken by key); `"undecided"` is a stable client sort by
  * `undecided` descending, tie-broken by `candidates` then `key` so the order is deterministic.
+ *
+ * ── THE FINAL TIE-BREAK IS A CODE-UNIT COMPARISON, NOT `localeCompare` ─────────────────
+ * It was `a.key.localeCompare(b.key)`, which is the exact comparator `packages/db` REMOVED from
+ * `groupFacts` in this same contract correction, for two failures its own docblock measures
+ * rather than assumes:
+ *
+ *   "direct|craft|weld".localeCompare("direct|craft|बढ़ई")   ->  -1 under en-US/en-IN/de/sv
+ *                                                           ->  +1 under hi/hi-IN
+ *   "direct|Craft|co\u200Bop".localeCompare("direct|Craft|coop")  ->  0   (escaped: it is invisible)
+ *
+ * The first makes the order depend on the HOST's ICU default locale — and Devanagari anchors are
+ * a supported case with a backend test of their own, so this is a live input, not a hypothetical.
+ * The second is worse: a 0 for two DISTINCT keys means the comparator abstained, and since
+ * `Array.prototype.sort` is stable the order then falls back to arrival order — which here is the
+ * server's `candidates` order, so two batches would silently swap places depending on a character
+ * nobody can see.
+ *
+ * Either way the docblock's promise above ("so the order is deterministic") was false on exactly
+ * the inputs the server had just been fixed for. `<`/`>` on strings is UTF-16 code-unit order:
+ * total, host-independent, and identical to the comparator the server now uses — so the toggled
+ * order is a re-ranking of the server's list rather than a second, differently-behaved one.
  */
 function sortedGroups(
   groups: readonly SkillReviewGroup[],
@@ -612,7 +649,10 @@ function sortedGroups(
 ): readonly SkillReviewGroup[] {
   if (sort === "candidates") return groups;
   return [...groups].sort(
-    (a, b) => b.undecided - a.undecided || b.candidates - a.candidates || a.key.localeCompare(b.key),
+    (a, b) =>
+      b.undecided - a.undecided ||
+      b.candidates - a.candidates ||
+      (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
   );
 }
 

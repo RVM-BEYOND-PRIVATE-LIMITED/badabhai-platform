@@ -200,6 +200,14 @@ describe("AC#1 — dashboard tiles render from one metrics request, no client ag
     expect(zeroCount).toBeGreaterThanOrEqual(4);
   });
 
+  it("renders `tier_basis` beside the three tier counts it qualifies", async () => {
+    // #1280 correction 3. The tiles look like counts of a stored column and are not — the tier is
+    // recomputed on every read from the phrase class and whether a strong match exists.
+    const out = await render();
+    expect(out).toContain("A tier is worked out from the phrase class");
+    expect(out).toContain("not a stored column, and nothing decides on it");
+  });
+
   it("degrades to an error tile without blanking the queue below when metrics fails", async () => {
     stub.metricsFailure = new TypeError("network down");
     stub.page = { items: [ROW], nextCursor: null };
@@ -271,6 +279,26 @@ describe("#1280 — the grouped view now calls the real GET /admin/skill-discove
   });
 });
 
+describe("#1280 correction 3 — the grouping route's in-band marker is rendered, not just parsed", () => {
+  it("renders `grouping_basis` — the server's own statement that a batch is stored nowhere", async () => {
+    stub.groups = { ...stub.groups, groups: [GROUP], total_groups: 1, total_candidates: 2 };
+    const out = await render();
+    expect(out).toContain("A batch is worked out fresh on every read");
+    expect(out).toContain("no decision is ever recorded against a batch");
+  });
+
+  it("an UNRECOGNISED basis marker renders itself rather than a guessed sentence", async () => {
+    stub.groups = {
+      ...stub.groups,
+      groups: [GROUP],
+      total_groups: 1,
+      grouping_basis: "some_marker_added_later",
+    };
+    const out = await render();
+    expect(out).toContain("some_marker_added_later");
+  });
+});
+
 describe("#1280 — group sort is an explicit, labelled client re-order, defaulting to the server's own order", () => {
   const SMALL_UNDECIDED = { ...GROUP, key: "g-small", candidates: 5, undecided: 4, label: "small-undecided" };
   const BIG_DECIDED = { ...GROUP, key: "g-big", candidates: 40, undecided: 0, label: "big-decided" };
@@ -289,6 +317,50 @@ describe("#1280 — group sort is an explicit, labelled client re-order, default
     // The re-order is a DISPLAY choice — the request itself never carries a `sort` field, since
     // the groups route does not accept one.
     expect(stub.groupsCalls[0]).not.toHaveProperty("sort");
+  });
+
+  /*
+   * ── THE TIE-BREAK IS A CODE-UNIT COMPARISON, NOT `localeCompare` ─────────────────────
+   * It WAS `a.key.localeCompare(b.key)` — the exact comparator `packages/db` removed from
+   * `groupFacts` in this same contract correction, and for two failures that comparator's own
+   * docblock measures rather than assumes. This re-sort reintroduced it one layer up, over the
+   * same keys, under a docblock promising the result was deterministic.
+   *
+   * Both cases below are live inputs, not hypotheticals: Devanagari anchors are a supported case
+   * with a backend test of their own, and a zero-width character survives normalization.
+   */
+  it("orders a Devanagari anchor the same way regardless of the host's ICU locale", async () => {
+    // MEASURED in this runtime, not assumed:
+    //   "direct|craft|weld".localeCompare("direct|craft|बढ़ई")  ->  -1 under en-US
+    //                                                          ->  +1 under hi-IN
+    // Code-unit order is -1 on every host, because 'w' (U+0077) < 'ब' (U+092C). This assertion
+    // therefore pins the SAME answer everywhere; under the old comparator it passed on an `en`
+    // host and failed on a `hi` one, which is the property being fixed rather than the symptom.
+    const latin = { ...GROUP, key: "direct|craft|weld", candidates: 3, undecided: 3, label: "latin-key" };
+    const deva = { ...GROUP, key: "direct|craft|बढ़ई", candidates: 3, undecided: 3, label: "devanagari-key" };
+    stub.groups = { ...stub.groups, groups: [deva, latin], total_groups: 2 };
+    const out = await render({ groupSort: "undecided" });
+    expect(out.indexOf("latin-key")).toBeLessThan(out.indexOf("devanagari-key"));
+  });
+
+  it("does not let an invisible character make two distinct batches swap places", async () => {
+    // MEASURED: `localeCompare` returns 0 for these two keys (they differ only by U+200B) while
+    // code-unit order returns 1. A 0 means the comparator ABSTAINED, and `Array.prototype.sort`
+    // is stable, so the order silently falls back to however the groups happened to arrive —
+    // which is the server's `candidates` order, not anything this tie-break chose. Unlike the
+    // Devanagari case above, this one fails on every host, `en` included.
+    const withZwsp = { ...GROUP, key: `direct|Craft|co\u200Bop`, candidates: 3, undecided: 3, label: "zwsp-key" };
+    const plain = { ...GROUP, key: "direct|Craft|coop", candidates: 3, undecided: 3, label: "plain-key" };
+
+    stub.groups = { ...stub.groups, groups: [withZwsp, plain], total_groups: 2 };
+    const first = await render({ groupSort: "undecided" });
+    stub.groups = { ...stub.groups, groups: [plain, withZwsp], total_groups: 2 };
+    const second = await render({ groupSort: "undecided" });
+
+    // Same set, two arrival orders, one rendered order — which is what "deterministic" has to
+    // mean for a comparator whose whole job is to be the final tie-break.
+    const order = (out: string) => out.indexOf("zwsp-key") < out.indexOf("plain-key");
+    expect(order(first)).toBe(order(second));
   });
 });
 
