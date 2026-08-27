@@ -352,7 +352,13 @@ export const PROGRAMME: readonly ProgrammeItem[] = [
     evidence:
       "deployed-flag-facts.md — the secret exists and its value was CHANGED on 2026-08-24 " +
       "11:30:45 UTC; deploys run on every main push, so the change is live. GitHub never " +
-      "exposes a value. One command on the box settles it.",
+      "exposes a value. One command on the box settles it. " +
+      "canonicalize-flag-read-2026-08-27.md exhausts the alternatives and explains why none of " +
+      "them can substitute: /health deliberately omits the flag, /skills/canonicalize returns " +
+      "an IDENTICAL body whether disabled or unresolved (by design), Langfuse — the one route " +
+      "that would observe the branch the process actually took — returns 401 with the " +
+      "credentials available, and no SSH key or AWS CLI is present on the operator workstation. " +
+      "This is BLOCKED_ON_INFRA in the strict sense: not unknowable, just not knowable from here.",
     unblocks: ["CANONICALIZATION"],
   },
   {
