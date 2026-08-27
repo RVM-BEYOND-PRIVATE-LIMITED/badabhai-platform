@@ -219,6 +219,91 @@ void main() {
           reason: 'cleared once the rotation is durably persisted');
     });
 
+    test('#1134: a persisted refresh key older than the grace → clean re-auth, '
+        'the used token is NEVER re-presented', () async {
+      int refreshCalls = 0;
+      final SecureTokenStore store = SecureTokenStore(FakeSecureStore());
+      await store.saveTokens(
+        refreshToken: 'refresh-old',
+        accessExpiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+        accessToken: 'access-expired',
+      );
+      // An unconfirmed rotation whose key was minted LONG ago (a resumed session):
+      // the server's 180s grace is long gone, so replaying it would trip reuse
+      // detection and revoke the family. Seed a 10-minute-old key.
+      await store.writeRefreshIdempotencyKey(
+        'stale-key-uuid',
+        DateTime.now().subtract(const Duration(minutes: 10)),
+      );
+
+      final ReauthSignal signal = ReauthSignal();
+      bool fired = false;
+      signal.stream.listen((_) => fired = true);
+
+      final AuthedClient client = _client(
+        MockClient((http.Request req) async {
+          if (req.url.path == '/auth/token/refresh') refreshCalls++;
+          return http.Response(jsonEncode(<String, dynamic>{'ok': true}), 200);
+        }),
+        tokenStore: store,
+        signal: signal,
+      );
+
+      await client.send(HttpMethod.get, '/protected', authed: true);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(refreshCalls, 0,
+          reason: 'the doomed used token is NEVER re-presented — no request');
+      expect(fired, isTrue, reason: 'a clean re-auth is forced instead');
+      expect(await store.readRefreshToken(), isNull, reason: 'store cleared');
+      expect(await store.readRefreshIdempotencyKey(), isNull,
+          reason: 'the stale key is dropped');
+    });
+
+    test('#1134: a persisted refresh key INSIDE the grace is still reused '
+        '(the #998 cache-hit path is preserved)', () async {
+      final List<String?> refreshKeys = <String?>[];
+      final SecureTokenStore store = SecureTokenStore(FakeSecureStore());
+      await store.saveTokens(
+        refreshToken: 'refresh-old',
+        accessExpiresAt: DateTime.now().subtract(const Duration(minutes: 1)),
+        accessToken: 'access-expired',
+      );
+      // A key minted seconds ago — well within the 180s grace, so it MUST be
+      // reused (this is the honest lost-response retry #998 protects).
+      await store.writeRefreshIdempotencyKey(
+        'fresh-key-uuid',
+        DateTime.now().subtract(const Duration(seconds: 5)),
+      );
+
+      final AuthedClient client = _client(
+        MockClient((http.Request req) async {
+          if (req.url.path == '/auth/token/refresh') {
+            refreshKeys.add(req.headers['Idempotency-Key']);
+            return http.Response(
+              jsonEncode(<String, dynamic>{
+                'access_token': 'access-new',
+                'refresh_token': 'refresh-new',
+                'expires_in_seconds': 900,
+              }),
+              200,
+            );
+          }
+          return http.Response(jsonEncode(<String, dynamic>{'ok': true}), 200);
+        }),
+        tokenStore: store,
+        signal: ReauthSignal(),
+      );
+
+      await client.send(HttpMethod.get, '/protected', authed: true);
+
+      expect(refreshKeys, <String>['fresh-key-uuid'],
+          reason: 'the in-grace key is reused, not discarded');
+      expect(await store.readRefreshToken(), 'refresh-new');
+      expect(await store.readRefreshIdempotencyKey(), isNull,
+          reason: 'cleared once the rotation lands');
+    });
+
     test('reactive 401 → refresh → original retried once with the new token',
         () async {
       int refreshCalls = 0;
