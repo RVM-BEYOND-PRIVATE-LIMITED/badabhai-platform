@@ -555,6 +555,23 @@ export class AuthController {
     // Flag OFF (the default) → neutral 404: the seam is invisible on a normal build.
     if (!this.config.TEST_IMMEDIATE_DELETE_ENABLED) throw new NotFoundException("Not found");
 
+    // #1264 — AND the caller must be on the allowlist, whenever one is configured.
+    //
+    // The SAME neutral 404 as the flag check above, deliberately: a worker who is not on the list
+    // must not be able to tell "this server has the seam and I am not permitted" from "this server
+    // has no such route". Distinguishing them would turn the endpoint into an oracle for who the
+    // developer accounts are, which is the one piece of information that makes targeting the
+    // allowlist worthwhile at all.
+    //
+    // AN EMPTY LIST IS UNRESTRICTED HERE, and that is not a fail-open: `assertAuthConfig` refuses
+    // to boot with an empty list anywhere except development/test/staging, so by the time this
+    // line runs an empty list can only mean a QA environment where the flag alone was always the
+    // whole gate. The permissive branch is unreachable in production by construction.
+    const allowlist = this.config.TEST_IMMEDIATE_DELETE_WORKER_IDS;
+    if (allowlist.length > 0 && !allowlist.includes(worker.id)) {
+      throw new NotFoundException("Not found");
+    }
+
     // The SAME complete erasure the graced DPDP flow runs — sessions + refresh families revoked,
     // every storage prefix swept, THEN the atomic DB delete (see the doc comment). Idempotent —
     // a re-run on an already-deleted worker is a clean no-op.

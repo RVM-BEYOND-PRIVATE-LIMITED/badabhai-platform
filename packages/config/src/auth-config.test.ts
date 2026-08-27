@@ -280,3 +280,96 @@ describe("assertAuthConfig — TEST_IMMEDIATE_DELETE_ENABLED (#1187)", () => {
     expect(() => assertAuthConfig(c, "production")).not.toThrow();
   });
 });
+
+// ===========================================================================
+// #1264 — TEST_IMMEDIATE_DELETE_WORKER_IDS: the SECOND NAME the seam was missing.
+//
+// #1187 made the gate structural because the boolean "left one env var between production and
+// permanent data loss", with a blast radius of every authenticated worker. The allowlist makes
+// that radius enumerable, which is what lets the seam exist on a production backend at all —
+// so production is permitted ONLY alongside a non-empty list, and the boolean alone still
+// refuses exactly as it did before. These tests pin both halves.
+// ===========================================================================
+describe("assertAuthConfig — TEST_IMMEDIATE_DELETE_WORKER_IDS (#1264)", () => {
+  const PROD = { JWT_SECRET: REAL_JWT, PIN_PEPPER: REAL_PIN_PEPPER };
+  const DEV_A = "11111111-1111-4111-8111-111111111111";
+  const DEV_B = "22222222-2222-4222-8222-222222222222";
+  const armedWith = (ids: string) =>
+    cfg({
+      ...FAST2SMS_CREDS,
+      ...PROD,
+      TEST_IMMEDIATE_DELETE_ENABLED: "true",
+      TEST_IMMEDIATE_DELETE_WORKER_IDS: ids,
+    });
+
+  it("defaults to an EMPTY list, and empty/whitespace parse to [] rather than throwing", () => {
+    // The 2026-08-25 crash-loop shape: compose's `${VAR:-}` passes VAR="" INTO the container, so
+    // a schema that threw on the empty string would take the API down on a variable nobody set.
+    expect(cfg().TEST_IMMEDIATE_DELETE_WORKER_IDS).toEqual([]);
+    expect(cfg({ TEST_IMMEDIATE_DELETE_WORKER_IDS: "" }).TEST_IMMEDIATE_DELETE_WORKER_IDS).toEqual(
+      [],
+    );
+    expect(
+      cfg({ TEST_IMMEDIATE_DELETE_WORKER_IDS: "   " }).TEST_IMMEDIATE_DELETE_WORKER_IDS,
+    ).toEqual([]);
+  });
+
+  it("parses a comma-separated list, tolerating spacing, and collapses duplicates", () => {
+    expect(
+      cfg({ TEST_IMMEDIATE_DELETE_WORKER_IDS: ` ${DEV_A} , ${DEV_B} ,${DEV_A}, ` })
+        .TEST_IMMEDIATE_DELETE_WORKER_IDS,
+    ).toEqual([DEV_A, DEV_B]);
+  });
+
+  it("a MALFORMED id is a parse error, never silently dropped", () => {
+    // Dropping would be fail-safe in the narrow sense (fewer ids permitted) but turns a typo
+    // into a silent 404 that gets debugged against the client. Fail at boot, name the value.
+    expect(() => cfg({ TEST_IMMEDIATE_DELETE_WORKER_IDS: "not-a-uuid" })).toThrow();
+    expect(() => cfg({ TEST_IMMEDIATE_DELETE_WORKER_IDS: `${DEV_A},nope` })).toThrow();
+  });
+
+  it("PRODUCTION + armed + a NON-EMPTY allowlist boots — this is the whole point of #1264", () => {
+    expect(() => assertAuthConfig(armedWith(DEV_A), "production")).not.toThrow();
+    expect(() => assertAuthConfig(armedWith(`${DEV_A},${DEV_B}`), "production")).not.toThrow();
+  });
+
+  it("PRODUCTION + armed + an EMPTY allowlist still REFUSES — #1187's invariant is intact", () => {
+    // The regression that would undo this change: an operator exports only the boolean onto a
+    // production box and gets a live seam armed for every authenticated worker. It must crash.
+    expect(() => assertAuthConfig(armedWith(""), "production")).toThrow(
+      /TEST_IMMEDIATE_DELETE/i,
+    );
+    expect(() => assertAuthConfig(armedWith("   "), "production")).toThrow(
+      /TEST_IMMEDIATE_DELETE/i,
+    );
+  });
+
+  it("an UNSET or mis-cased NODE_ENV with an empty list refuses, exactly as before", () => {
+    // "not production" is never inferred from the absence of the string "production".
+    for (const env of ["", "prod", "Production", "PRODUCTION", "Staging"]) {
+      expect(() => assertAuthConfig(armedWith(""), env), `${env} must refuse`).toThrow(
+        /TEST_IMMEDIATE_DELETE/i,
+      );
+    }
+  });
+
+  it("dev/test/staging keep booting with an EMPTY list — nothing that works today breaks", () => {
+    // The asymmetry is deliberate: the permissive reading of an empty list is confined to the
+    // environments where the boolean was ALREADY the whole gate, so this cannot widen anything.
+    for (const env of ["development", "test", "staging"]) {
+      expect(() => assertAuthConfig(armedWith(""), env), `${env} must still boot`).not.toThrow();
+    }
+  });
+
+  it("an allowlist WITHOUT the flag arms nothing, in any environment", () => {
+    // The list is not a second way to turn the seam on. Both names, or nothing.
+    const listOnly = cfg({
+      ...FAST2SMS_CREDS,
+      ...PROD,
+      TEST_IMMEDIATE_DELETE_ENABLED: "false",
+      TEST_IMMEDIATE_DELETE_WORKER_IDS: DEV_A,
+    });
+    expect(listOnly.TEST_IMMEDIATE_DELETE_ENABLED).toBe(false);
+    expect(() => assertAuthConfig(listOnly, "production")).not.toThrow();
+  });
+});

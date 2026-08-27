@@ -50,6 +50,33 @@ export const positiveIntFromString = (defaultValue: number) =>
     z.coerce.number().int().positive().default(defaultValue),
   );
 
+/**
+ * A comma-separated ALLOWLIST OF UUIDs read from the environment, empty when unset (#1264).
+ *
+ * EMPTY MEANS EMPTY, and never means "everyone". The consumer decides what an empty list
+ * permits, and for the seam this was written for ({@link ServerConfig.TEST_IMMEDIATE_DELETE_WORKER_IDS})
+ * an empty list in production REFUSES TO BOOT rather than falling open. Keeping that decision
+ * at the call site is deliberate: a parser that silently meant "unrestricted" would put the
+ * fail-open in the one place nobody reviews.
+ *
+ * WHITESPACE AND EMPTY STRING PARSE TO `[]`, for exactly the reason
+ * {@link positiveIntFromString} exists: compose's `${VAR:-}` idiom passes `VAR=""` INTO the
+ * container, and so does a blank `.env` line or a CI secret that resolved to nothing. A schema
+ * that threw on `""` would crash-loop the API on a variable nobody set — the 2026-08-25 outage.
+ *
+ * A MALFORMED ENTRY FAILS THE PARSE, it is not dropped. Dropping would be fail-SAFE in the
+ * narrow sense (fewer ids allowed), but it turns a typo into a silent 404 the developer then
+ * debugs against the wrong layer. Failing at boot names the bad value once, at the moment
+ * someone can still fix it. Duplicates are collapsed; order is not significant.
+ */
+export const uuidListFromString = z
+  .union([z.string(), z.array(z.string())])
+  .transform((v) => (Array.isArray(v) ? v : v.split(",")))
+  .transform((parts) => parts.map((p) => p.trim()).filter((p) => p.length > 0))
+  .pipe(z.array(z.string().uuid("must be a comma-separated list of UUIDs")))
+  .transform((ids) => [...new Set(ids)] as readonly string[])
+  .default("");
+
 export const NODE_ENVS = ["development", "test", "staging", "production"] as const;
 /**
  * FOOTGUN WARNING: this defaults to "development" when NODE_ENV is unset, so the

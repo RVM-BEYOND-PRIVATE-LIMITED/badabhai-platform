@@ -398,6 +398,22 @@ services:
       PACE_ENABLED: ${PACE_ENABLED:-false}
       TEST_LOGIN_ENABLED: ${TEST_LOGIN_ENABLED:-false}
       PAYER_TEST_LOGIN_ENABLED: ${PAYER_TEST_LOGIN_ENABLED:-false}
+      # #1264 — THE IMMEDIATE-DELETE SEAM, and it needs BOTH names for the same reason
+      # TEST_LOGIN_ENABLED does. Neither was declared here before, so `export
+      # TEST_IMMEDIATE_DELETE_ENABLED=true` on the box had no path into the container at all —
+      # the #872 / #794 / #798 / #813 class of gap, and the reason the button in the QA build
+      # could never have worked no matter what was set on the host.
+      #
+      # DECLARING THEM DOES NOT ARM ANYTHING. This service runs `NODE_ENV: production` (a literal,
+      # above), where `assertAuthConfig` REFUSES TO BOOT on the boolean alone — so a box that
+      # exports only `TEST_IMMEDIATE_DELETE_ENABLED=true` does not get a live seam, it gets a
+      # crash loop that names the missing allowlist. Both names must be set, and the second one
+      # enumerates exactly which accounts the seam can ever destroy.
+      #
+      # THE ID LIST IS NOT A SECRET — a worker id is opaque — so it belongs here as a plain
+      # value rather than in the secret bridge, where the parity check could not see it.
+      TEST_IMMEDIATE_DELETE_ENABLED: ${TEST_IMMEDIATE_DELETE_ENABLED:-false}
+      TEST_IMMEDIATE_DELETE_WORKER_IDS: ${TEST_IMMEDIATE_DELETE_WORKER_IDS:-}
       AUTH_ROLLING_TIERS_ENABLED: ${AUTH_ROLLING_TIERS_ENABLED:-false}
       AI_JOBS_RETENTION_DELETE_ENABLED: ${AI_JOBS_RETENTION_DELETE_ENABLED:-false}
       AI_ENABLE_REAL_CALLS: ${AI_ENABLE_REAL_CALLS:-false}

@@ -3,6 +3,7 @@ import {
   booleanFromString,
   portSchema,
   positiveIntFromString,
+  uuidListFromString,
   nodeEnvSchema,
   isDevEnv,
   formatEnvError,
@@ -482,6 +483,39 @@ export const serverEnvSchema = z.object({
   //     factor, and #872 (a stale MEMBER_INVITES_ENABLE_REAL=true sitting in the box env, inert
   //     until compose gave it a path in) is the precedent for why that matters.
   TEST_IMMEDIATE_DELETE_ENABLED: booleanFromString,
+
+  /**
+   * #1264 — THE SECOND NAME the comment above says this seam does not have.
+   *
+   * The worker ids permitted to call `POST /auth/account/delete/immediate`. Empty by default.
+   *
+   * WHY THIS EXISTS. The block above ends "THIS flag has no second name: the boolean alone is
+   * the whole gate", and that is what forced #1187 to make the gate structural — refuse to boot
+   * in production, full stop. The need that reopened it is real and narrow: developers want the
+   * seam against the PRODUCTION backend, because that is where their own test accounts live.
+   *
+   * WHY HIDING THE BUTTON IS NOT AN ANSWER, and why this list is. `kEnableTestDelete` is
+   * compiled out of the release APK, so a normal user never SEES the affordance — but the route
+   * is ordinary HTTP and the flag is SERVER-WIDE. Anyone holding a worker token can call it with
+   * curl. Arming the boolean alone on production therefore does not arm it "for developer
+   * devices"; it arms irreversible, OTP-less self-deletion for EVERY worker on the platform, and
+   * a single stolen token becomes permanent erasure of a real person's account. The step-up OTP
+   * on the real DPDP flow is precisely what otherwise stands in that path.
+   *
+   * An allowlist changes the blast radius from "every authenticated worker" to "these ids", and
+   * an enumerable blast radius is what makes the seam reviewable in production at all. It does
+   * NOT change WHAT the seam does — still the caller's own account and everything attached to it
+   * — only WHOSE request the server will accept.
+   *
+   * ENFORCED IN EVERY ENVIRONMENT WHEN NON-EMPTY. On a QA box an empty list keeps today's
+   * behaviour (any worker may self-delete), so nothing that works today breaks. In production
+   * `assertAuthConfig` REFUSES TO BOOT unless this list is non-empty — restoring #1187's actual
+   * invariant, that there is never ONE env var between production and permanent data loss.
+   *
+   * ROTATION: this is an allowlist, not a secret. It leaks nothing if read — a worker id is
+   * already opaque — so it belongs in compose as a plain value, NOT in a secrets store.
+   */
+  TEST_IMMEDIATE_DELETE_WORKER_IDS: uuidListFromString,
 
   // PERF-3 — ai_jobs retention window (days). OWNER DECISION (2026-07-21): TERMINAL
   // (completed/failed) rows older than 90 days are pruned. DPDP rationale is DATA
@@ -1846,13 +1880,36 @@ export function assertAuthConfig(
   // fail-OPEN (see the FOOTGUN WARNING on nodeEnvSchema). Staging IS allowed: it is the QA box this
   // seam exists to serve.
   //
-  // Unlike D-3 there is no token half to this gate — the seam takes no secret — so this is the
-  // single invariant.
+  // #1264 GAVE THIS GATE ITS SECOND HALF, so the sentence that used to end this comment — "there
+  // is no token half to this gate, so this is the single invariant" — no longer holds.
+  // TEST_IMMEDIATE_DELETE_WORKER_IDS is that half, and the rule is now:
+  //
+  //   development / test / staging : the flag alone still arms it (an empty list means
+  //                                  unrestricted, exactly as before — a QA box that works today
+  //                                  keeps working, and nothing about this change is a migration)
+  //   anything else (production)   : the flag arms it ONLY alongside a NON-EMPTY allowlist
+  //
+  // The production case is the new one, and it is permitted for a reason the boolean alone could
+  // never satisfy. #1187's objection was never "deleting in production is unthinkable" — it was
+  // that the boolean "left one env var between production and permanent data loss", with a blast
+  // radius of every authenticated worker. A non-empty allowlist makes that radius ENUMERABLE: the
+  // seam can only ever destroy accounts someone deliberately wrote down. Two names are required
+  // to arm it, "never arm vacuously" is restored, and — critically — an operator who exports only
+  // the boolean onto a production box gets a REFUSAL TO BOOT, not a live seam. That is the same
+  // shape as D-3's TEST_LOGIN_ENABLED + TEST_LOGIN_TOKEN pairing, which is what the block on the
+  // field itself points at as the discipline this flag was missing.
+  //
+  // NOTE THE ASYMMETRY, it is deliberate: an empty list is UNRESTRICTED in dev/test/staging and
+  // REFUSES in production. The permissive reading is confined to environments where the boolean
+  // was already sufficient, so this change cannot widen anything that exists today.
   if (config.TEST_IMMEDIATE_DELETE_ENABLED) {
     const immediateDeleteAllowedEnvs = ["development", "test", "staging"];
-    if (!immediateDeleteAllowedEnvs.includes(rawNodeEnv ?? "")) {
+    if (
+      !immediateDeleteAllowedEnvs.includes(rawNodeEnv ?? "") &&
+      config.TEST_IMMEDIATE_DELETE_WORKER_IDS.length === 0
+    ) {
       problems.push(
-        "TEST_IMMEDIATE_DELETE_ENABLED must be false in production (#1187): it hard-deletes the calling worker with no OTP and no grace, and is only permitted when NODE_ENV is explicitly development, test, or staging",
+        "TEST_IMMEDIATE_DELETE_ENABLED is true outside development/test/staging with an EMPTY TEST_IMMEDIATE_DELETE_WORKER_IDS (#1187/#1264): the seam hard-deletes the calling worker with no OTP and no grace, so outside those environments it may only be armed alongside an explicit allowlist of worker ids — arming it for every authenticated worker in production is what this refusal exists to prevent",
       );
     }
   }
