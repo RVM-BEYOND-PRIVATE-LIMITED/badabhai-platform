@@ -1817,6 +1817,31 @@ textarea.field__input {
  * announced and invisible, which is the mirror of the usual bug. Reuses the brand tokens
  * `.btn--primary` already carries — no new colour is introduced.
  * ================================================================== */
+/* ==================================================================
+ * #1260 · SKILL DISCOVERY — the grouped queue's review-group cards.
+ * A group is a LENS over one page of the queue, never a merge (there is no group id in any
+ * table) — `<details>` is the native disclosure widget, so expand/collapse needs no client JS
+ * and is keyboard- and screen-reader-accessible for free.
+ * ================================================================== */
+.reviewgroups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.reviewgroup > summary {
+  cursor: pointer;
+  font-weight: var(--weight-medium);
+}
+.reviewgroup > summary::-webkit-details-marker {
+  color: var(--text-muted);
+}
+.reviewgroup[open] > summary {
+  margin-block-end: var(--space-3);
+}
+
 .btn[aria-current="page"] {
   background: var(--brand-tint);
   color: var(--text-primary);

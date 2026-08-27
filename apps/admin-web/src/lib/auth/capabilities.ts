@@ -42,6 +42,12 @@ export const ADMIN_CAPABILITIES = [
   "grant_credits",
   "force_close_posting",
   "flag_worker",
+  // RECORD a human review decision on one skill_candidate row (migration 0093, #1260):
+  // approve it as a new canonical skill, an alias, a merge target, reject it, or hold it.
+  // `super_admin` + `ops_admin` on the server. Distinct from `read_entities`, which is what
+  // the queue/detail/metrics READS sit on — this gates only the write that turns a queue row
+  // into a recorded decision, mirroring the `read_ai_traces` vs list split one row up.
+  "review_skill_candidates",
   "toggle_kill_switch",
   "reveal_pii",
   "manage_admins",
@@ -74,6 +80,7 @@ export const CAPABILITY_LABELS: Record<AdminCapability, string> = {
   grant_credits: "Grant credits",
   force_close_posting: "Force-close postings",
   flag_worker: "Flag workers",
+  review_skill_candidates: "Decide skill-discovery candidates",
   toggle_kill_switch: "Toggle kill switch",
   reveal_pii: "Reveal contact details",
   manage_admins: "Manage admins",
