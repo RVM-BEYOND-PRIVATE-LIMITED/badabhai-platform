@@ -9,6 +9,7 @@ import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository } from "./ai-jobs.repository";
 import { WorkerAttributesRepository } from "./worker-attributes.repository";
 import { WorkerEmploymentRepository } from "./worker-employment.repository";
+import { WorkerTranscriptRepository } from "./worker-transcript.repository";
 import { WorkerEmploymentService } from "./worker-employment.service";
 import { WorkerEmploymentController } from "./worker-employment.controller";
 import { WorkerPreferencesService } from "./worker-preferences.service";
@@ -77,6 +78,11 @@ import {
     // a time later, with no cutover. `PiiCryptoService` comes from the @Global CryptoModule, so
     // this adds no module edge.
     WorkerEmploymentRepository,
+    // R8 §2/§4 — the worker's OWN chat turns, read only at render time. Two rules need the
+    // literal words rather than anything derived from them: §8.4's verbatim quotes and the
+    // over-claim veto. `DATABASE` is the same @Global handle every repository here uses, so
+    // this adds a provider and no module edge.
+    WorkerTranscriptRepository,
     WorkerEmploymentService,
     // R6 §4 — the finishing form's closed-set page. Writes `worker_attributes` through the
     // repository already provided above, so this adds a provider and no module edge.
@@ -92,6 +98,7 @@ import {
     ProfilesService,
     WorkerAttributesRepository,
     WorkerEmploymentRepository,
+    WorkerTranscriptRepository,
   ],
 })
 export class ProfilesModule {}

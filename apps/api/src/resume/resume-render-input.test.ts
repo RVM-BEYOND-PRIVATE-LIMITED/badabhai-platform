@@ -881,9 +881,15 @@ describe("buildResumeRenderInput — the résumé container", () => {
       });
       expect(input.canonicalRole).toBe("Fitter");
       expect(input.skills).toEqual([]);
-      expect(input.experienceYears).toBeNull();
       expect(input.educationLevel).toBeNull();
       expect(input.machines).toEqual([]);
+      // `experienceYears` IS THE ONE EXCEPTION TO "the container wins whole", and R8 §1 made it
+      // one deliberately. Every other slot above proves the legacy shape is not consulted; this
+      // one reads `experience.total_years` off the DRAFT because the container has no such field
+      // and never will — `ResumeProfileSchema` has nine keys and tenure is not among them.
+      // Leaving it null was not the container winning, it was the sheet printing "duration not
+      // stated" for a man who had answered the mandatory ask. See `renderedTotalYears`.
+      expect(input.experienceYears).toBe(LEGACY.experience.total_years);
     });
 
     it("renders a name-only résumé when there is genuinely nothing else", () => {
@@ -1062,5 +1068,112 @@ describe("Zone 5 on the résumé-container path (R5 §1.3)", () => {
     const input = container({ education_level: null, certifications: [] });
     expect(row(input, "Education")).toBeUndefined();
     expect(row(input, "Certificates")).toBeUndefined();
+  });
+});
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ * R8 §1 — the total that prints is the worker's own stated figure.
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ *
+ * MEASURED ON THE R7 PERSONA RUN, not reasoned about. Against workers who stated 2, 5, 8 and 12
+ * years, the container path's summed headline read "duration not stated", "1 yr 8 mo",
+ * "5 yrs 4 mo" and "9 yrs 11 mo". §5.1 ranks total experience third and the Verdict Line first.
+ */
+describe("R8 §1 — total years prefers the mandatory ask over the sum beneath it", () => {
+  const containerWith = (months: (number | null)[]) => ({
+    role_label: "CNC Setter cum Operator",
+    experiences: months.map((m, i) => ({
+      role_label: `Job ${i}`,
+      duration_text: "",
+      duration_months: m,
+      work_done: "turning",
+    })),
+  });
+
+  it("prints the STATED figure, not the sum of the model's months", () => {
+    const input = buildResumeRenderInput(
+      { experience: { total_years: 8 }, resume_profile: containerWith([36, 16, 12]) },
+      "Ramesh Yadav",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+    );
+    // The sum is 64 months = 5.3 years; he said eight.
+    expect(input.experienceYears).toBe(8);
+    expect(input.headlineLine).toContain("8 yrs");
+    expect(input.headlineLine).not.toContain("5 yrs");
+  });
+
+  it("prints the STATED figure even when NO employment carries months at all", () => {
+    // Persona 2's exact shape: `duration_months: null` on his only job, and the headline read
+    // "duration not stated" for a man whose second sentence was "Do saal ho gaye".
+    const input = buildResumeRenderInput(
+      { experience: { total_years: 2 }, resume_profile: containerWith([null]) },
+      "Vikas Chauhan",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+    );
+    expect(input.experienceYears).toBe(2);
+    expect(input.headlineLine).not.toContain("duration not stated");
+  });
+
+  it("falls back to the sum ONLY when nothing was stated", () => {
+    const input = buildResumeRenderInput(
+      { experience: {}, resume_profile: containerWith([36]) },
+      "Ramesh Yadav",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+    );
+    expect(input.experienceYears).toBe(3);
+  });
+
+  it("still says 'duration not stated' when there is genuinely no source", () => {
+    // §11 #3 survives intact. What is gone is the case where he answered and the sheet said
+    // nobody asked — not the case where nobody did.
+    const input = buildResumeRenderInput(
+      { experience: {}, resume_profile: containerWith([null]) },
+      "Ramesh Yadav",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+    );
+    expect(input.experienceYears).toBeNull();
+    expect(input.headlineLine).toContain("duration not stated");
+  });
+
+  it("does NOT let the sum raise a total above what the worker claimed", () => {
+    // §8.3's asymmetry rule cuts both ways. `Math.max` would satisfy the "never below" floor and
+    // print six years for a man who said five — resolving an ambiguity upward, which is the one
+    // direction the guideline forbids.
+    const input = buildResumeRenderInput(
+      { experience: { total_years: 5 }, resume_profile: containerWith([48, 24]) },
+      "Ramesh Yadav",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+    );
+    expect(input.experienceYears).toBe(5);
+  });
+
+  it("keeps the headline and the summary telling the SAME story", () => {
+    // Two call sites once computed the tenure independently. A sheet reading "8 yrs" at the top
+    // and "with 5 years of experience" three lines down is worse than either number alone.
+    const input = buildResumeRenderInput(
+      { experience: { total_years: 8 }, resume_profile: containerWith([36, 16, 12]) },
+      "Ramesh Yadav",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+    );
+    expect(input.summary).toContain("8 years");
   });
 });

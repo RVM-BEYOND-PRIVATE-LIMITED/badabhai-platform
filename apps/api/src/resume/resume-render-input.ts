@@ -4,9 +4,11 @@ import { looksLikePii } from "@badabhai/validators";
 import type { ResumeRenderInput } from "./resume-renderer.service";
 import { resolveTradeContent, type TradeContent } from "./trade-content";
 import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-resume-map";
-import { degradeToFit } from "./resume-degradation";
+import { degradeToFit, fitOwnWords } from "./resume-degradation";
 import { buildEmploymentBlock, type WorkerEmploymentRecord } from "./resume-employment-rows";
 import { readPreferenceFacts, type ResumePreferenceFacts } from "./resume-preference-facts";
+import { selectOwnWords } from "./resume-own-words";
+import { applyTranscriptVeto } from "./resume-transcript-veto";
 import {
   bareAvailability,
   bareAvailabilityLabel,
@@ -134,6 +136,21 @@ export interface TradeSheetContext {
    */
   readonly qualification?: ResumeQualificationFacts;
 
+  /**
+   * THE WORKER'S OWN STORED TURNS, verbatim, loaded by the caller — nothing the assistant said.
+   *
+   * SAME CONTRACT AS `employments` AND `phone`: the rows live in `chat_messages`, this function
+   * is pure, so the caller reads them and hands them in. Absent is the ordinary case for a
+   * profile whose interview predates the chat store, and it collapses the own-words block rather
+   * than failing the render.
+   *
+   * IT IS A VETO INPUT, NOT A CONTENT INPUT. Nothing here is printed because it is here — see
+   * `resume-own-words.ts`. The extraction proposes a phrase; this decides whether the worker
+   * actually said it. Raw transcript is the only thing that can answer that question, which is
+   * why it crosses this boundary at all.
+   */
+  readonly workerSaid?: readonly string[];
+
   /** Footer: a self-contained `data:` URI from `resume-qr.ts`. Never a URL. */
   readonly qrDataUri?: string | null;
   readonly qrCaption?: string | null;
@@ -176,6 +193,10 @@ type TradeCapabilitySlots = Pick<
   | "qrCaption"
   | "shortLink"
   | "footerMeta"
+  // Provenance rather than content, but it rides the shared slots for the same reason the rest
+  // do: both source branches must carry it, and a field set on only one of them is the shape
+  // that goes missing for exactly the workers nobody renders in a test.
+  | "transcriptVetoes"
 >;
 
 /**
@@ -205,9 +226,16 @@ export function buildResumeRenderInput(
     audience,
     tradeSheet,
   );
-  const { sheet, stage, dropped, trace } = degradeToFit(built);
+  // THE LADDER RUNS BLIND TO THE QUOTES, deliberately. If `built.ownWords` were in scope here,
+  // a worker with three quotes and one line of overflow would have the ladder drop his LANGUAGES
+  // row — a §5.1-ranked fact — to make room for a quote that ranks nowhere. Zeroed going in,
+  // re-fitted after: ranked content settles first and the quotes take what is left.
+  const { sheet, stage, dropped, trace } = degradeToFit({ ...built, ownWords: [] });
+  // §8.4's quotes go in LAST, into whatever room is left after the ranked content has settled —
+  // see `fitOwnWords`. `built.ownWords` holds everything that earned the right to print; this
+  // decides how much of it the page can afford, and a sheet already at the budget affords none.
   return {
-    ...sheet,
+    ...fitOwnWords(sheet, built.ownWords ?? []),
     degradationStage: stage,
     degradationDropped: dropped,
     degradationTrace: trace,
@@ -235,13 +263,21 @@ function buildUndegraded(
   // is trade information rather than identity or negotiating position, so it crosses to the
   // payer on the same reasoning `shift` and `nightShiftReady` already do. The three things this
   // function withholds from a payer stay exactly three: the real name, the photo, the salary.
-  const capability = buildTradeCapabilityRows(tradeSheet?.packId, tradeSheet?.attributes ?? {});
+  // THE TRANSCRIPT VETO RUNS BEFORE ANY ROW IS BUILT (R8 §4), so a withdrawn claim cannot reach
+  // the capability block, the headline tools, or the "already printed" set the quotes de-dupe
+  // against. Placing it here rather than at each read site is the same argument the name masking
+  // makes: one door, and no call site that can forget.
+  const { attributes: vettedAttributes, vetoes: transcriptVetoes } = applyTranscriptVeto({
+    attributes: tradeSheet?.attributes ?? {},
+    workerSaid: tradeSheet?.workerSaid ?? [],
+  });
+  const capability = buildTradeCapabilityRows(tradeSheet?.packId, vettedAttributes);
   // THE FINISHING FORM'S ANSWERS (R6 §4), off the SAME attribute bag the capability block reads.
   // Trade-independent, so they are read once here rather than per pack — and read above the
   // branch, because both the résumé container and the legacy shape need them and neither one
   // carries them. `languages` in particular has no draft column at all (`crosswalk.ts` records
   // `draftPath: null`), so this is the only source it will ever have.
-  const preferences = readPreferenceFacts(tradeSheet?.attributes ?? {});
+  const preferences = readPreferenceFacts(vettedAttributes);
   // ZONE 4 IS BUILT HERE FOR THE SAME REASON, and it also decides which of the two work-history
   // regions the template renders. `employments` is the designed two-level shape; `experiences`
   // is the flat, employer-less shape every profile in the database actually has today. The
@@ -275,6 +311,7 @@ function buildUndegraded(
     qrCaption: tradeSheet?.qrCaption ?? null,
     shortLink: tradeSheet?.shortLink ?? null,
     footerMeta: tradeSheet?.footerMeta ?? null,
+    transcriptVetoes,
   } as const;
 
   // ── THE RÉSUMÉ CONTAINER WINS OUTRIGHT WHEN IT EXISTS ────────────────────────────────
@@ -332,6 +369,11 @@ function buildUndegraded(
       hasEmployments,
       { educationHeadline, certifications: draft.certifications },
       preferences,
+      // THE MANDATORY UNIVERSAL ASK, reaching the container path for the first time. It rides
+      // the answer map onto the draft (`profile-extraction.processor.ts` → `experience`), which
+      // is why it is read here rather than inside the branch: the container has no such field.
+      draft.experience.total_years,
+      tradeSheet?.workerSaid ?? [],
     );
   }
 
@@ -554,6 +596,16 @@ function fromResumeProfile(
    * who answered only the languages page keeps the model's shift.
    */
   preferences: ResumePreferenceFacts,
+  /**
+   * `experience.total_years` — the MANDATORY universal ask, in the worker's own words.
+   *
+   * PASSED IN RATHER THAN READ HERE because `rp` is the résumé container and the container has
+   * no such field; the value lives one level up on the draft. See `renderedTotalYears` for why
+   * it outranks the sum this path used to print.
+   */
+  statedYears: number | null,
+  /** The worker's own stored turns — the veto input for §8.4's quotes. Never printed as-is. */
+  workerSaid: readonly string[],
 ): ResumeRenderInput {
   // CERTIFIED ONCE, AT THE TOP (#831). `role_label` and `domain_label` are each read TWICE —
   // as their own fields and again by `summaryFor` — and certifying at each read site is how the
@@ -572,17 +624,43 @@ function fromResumeProfile(
   // Verdict Line and the Terms row read this, and computing it twice is how they drift.
   const availabilityLabel = bareAvailabilityLabel(cleanScalar(rp.availability));
 
+  // ONE TOTAL, COMPUTED ONCE. The Verdict Line, the `experienceYears` slot and the summary all
+  // read it, and computing it at three call sites is how a sheet ends up saying "8 yrs" at the
+  // top and "with 5 years of experience" three lines down.
+  const totalYears = renderedTotalYears(statedYears, totalYearsFrom(rp.experiences));
+
+  // §8.4's verbatim quotes. THE MODEL PROPOSES — these are the sentences it recorded — AND THE
+  // TRANSCRIPT DISPOSES: `selectOwnWords` prints a phrase only when the worker's own stored turn
+  // contains it literally. `skills` and the capability values are passed as "already printed" so
+  // the block cannot re-quote a chip row back at the reader.
+  const skillChips = cleanList(rp.skills);
+  const ownWords = selectOwnWords({
+    // `work_done` ONLY, and NOT `duration_text`. The first run quoted persona 3's "June 2021 se
+    // January 2023 tak" — verbatim, his, and useless: the employer block three rows below prints
+    // the same span with its employer attached. A quote earns its line by saying something the
+    // sheet does not already say, and a date range never does.
+    candidates: rp.experiences.map((e) => e.work_done),
+    workerSaid,
+    alreadyPrinted: [
+      ...skillChips,
+      ...(capabilitySlots.capChipRows ?? []).flatMap((r) => r.values),
+      ...(capabilitySlots.capTickRows ?? []).flatMap((r) => r.values),
+      ...(capabilitySlots.employments ?? []).map((e) => e.work ?? ""),
+    ],
+  }).phrases;
+
   return {
     ...capabilitySlots,
+    ownWords,
     // THE VERDICT LINE — §5.1 ranks it first of eleven, and it was rendering EMPTY: the strip
     // has been on the layout since the design landed and nothing ever composed the two lines,
     // so the top 22% of the sheet carried the name and then a blank rule.
     ...buildVerdictLine({
       role: roleLabel,
-      years: totalYearsFrom(rp.experiences),
+      years: totalYears,
       // The pack's headline row (a turner's controllers) when the interview ran one, else the
       // model's free-text skills — never invented.
-      tools: headlineTools.length > 0 ? headlineTools : cleanList(rp.skills),
+      tools: headlineTools.length > 0 ? headlineTools : skillChips,
       city: cleanScalar(rp.current_city),
       availability: availabilityLabel,
       salary: salaryText,
@@ -627,11 +705,7 @@ function fromResumeProfile(
     // WHERE THEY ARE, not where they want to work. #423 split these for exactly this reason;
     // `preferred_locations` gets its own line rather than being conflated into this one.
     location: cleanScalar(rp.current_city),
-    // DERIVED FROM THE WORK HISTORY, because Phase C has no `experience_years` field and the
-    // answer map is not consulted here. The months the model recorded per job are the only
-    // statement about tenure that exists on this path — without this the résumé printed no
-    // years at all while the worker had plainly said "3.5 saal".
-    experienceYears: totalYearsFrom(rp.experiences),
+    experienceYears: totalYears,
     // `shift` IS THE ONE #831 CONFIRMED CROSSES PARTIES. This line is shared by the worker's own
     // PDF and the employer-facing masked disclosure (`buildResumeRenderInput(..., "employer")`),
     // with no audience distinction — so an uncertified value reached a payer's screen. It is
@@ -652,7 +726,7 @@ function fromResumeProfile(
       nightShiftReady,
     ),
     // The CLEANED labels, not `rp`'s raw ones — see the note at the top of this function.
-    summary: summaryFor({ ...rp, role_label: roleLabel, domain_label: domainLabel }),
+    summary: summaryFor({ role_label: roleLabel, domain_label: domainLabel, years: totalYears }),
     // VERBATIM APART FROM BLANKS. These are the labels the model produced; no taxonomy
     // resolution, because nothing here is a `skill_*` id — `toExtractionOutput` never writes
     // canonical ids on this path, and running `labelForTaxonomyId` over free text would be a
@@ -727,6 +801,48 @@ function cleanScalar(value: string | null): string | null {
 }
 
 /**
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ * THE TOTAL THAT PRINTS — the worker's OWN stated figure, never the sum beneath it.
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ *
+ * WHAT WAS WRONG, MEASURED ON FIVE REAL EXTRACTIONS. The container path printed
+ * `totalYearsFrom(rp.experiences)` — the sum of the model's per-employment `duration_months`.
+ * Against workers who stated 2, 5, 8 and 12 years, that headline read "duration not stated",
+ * "1 yr 8 mo", "5 yrs 4 mo" and "9 yrs 11 mo". §5.1 ranks total experience third and the Verdict
+ * Line first, so this was the second-most-scanned fact on the sheet and it was wrong on every
+ * worker who had one.
+ *
+ * WHY THE SUM UNDERCOUNTS AND ALWAYS WILL. `duration_months` is null whenever the model could
+ * not turn a phrase into a number ("kuch saal") and those entries are skipped; employments
+ * predating the ones he described are simply absent; and two jobs may overlap. Every one of
+ * those errors runs the same direction. `experience_years` is a MANDATORY universal ask
+ * (`qp_universal@2`, answer type `duration`, RFS number) whose answer is the worker's own
+ * sentence about his own career, and it was sitting on the draft unread.
+ *
+ * THE RULE: THE STATED FIGURE WINS OUTRIGHT, and the sum only fills its absence.
+ *
+ * NOT `Math.max` OF THE TWO, and that was the tempting version. Taking the larger would satisfy
+ * "never below his stated figure" too, but where the sum exceeds what he said it would print a
+ * tenure larger than the one he claimed — resolving a genuine ambiguity UPWARD, which is exactly
+ * what §8.3's asymmetry rule forbids: "a man under-described gets a trial and proves himself; a
+ * man over-described gets a trial and embarrasses everyone." Preferring the stated figure
+ * satisfies the floor by construction, because the figure and the floor are the same number.
+ *
+ * "DURATION NOT STATED" SURVIVES, FOR THE CASE IT WAS WRITTEN FOR. A worker with neither a
+ * stated total nor a datable job is a genuine unknown and §11 #3 requires the sheet to say so.
+ * What is gone is the case where he stated it plainly and the sheet said nobody asked.
+ *
+ * A STATED ZERO STILL READS AS "duration not stated", and that is a live question rather than a
+ * decision made here — `yearsPhrase` maps 0 to the unknown text, pinned by a test whose comment
+ * reserves "fresher" for a worker who SAID he has no experience. The fresh ITI pass-out is
+ * exactly that worker. Changing it is a wording ruling; recorded in the gap table, not taken.
+ */
+export function renderedTotalYears(stated: number | null, summed: number | null): number | null {
+  const usable = typeof stated === "number" && Number.isFinite(stated) && stated > 0;
+  return usable ? stated : summed;
+}
+
+/**
  * Total years across the work history, or null.
  *
  * SUMS ONLY WHAT THE MODEL CONVERTED. An entry whose `duration_months` is null contributed a
@@ -764,13 +880,14 @@ function monthsAsText(months: number | null): string {
 function summaryFor(rp: {
   role_label: string | null;
   domain_label: string | null;
-  experiences: readonly { duration_months: number | null }[];
+  /** The SETTLED total (see `renderedTotalYears`), never re-derived — one sheet, one number. */
+  years: number | null;
 }): string | null {
   const role = rp.role_label?.trim();
   const domain = rp.domain_label?.trim();
   if (!role && !domain) return null;
   const head = role ?? domain!;
-  const years = totalYearsFrom(rp.experiences);
+  const years = rp.years;
   const tenure =
     years && years > 0 ? ` with ${years} year${years === 1 ? "" : "s"} of experience` : "";
   // The trade only earns its own clause when it says something the role does not already —

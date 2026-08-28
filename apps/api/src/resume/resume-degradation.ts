@@ -139,6 +139,25 @@ export function nameLines(displayName: string | null | undefined): number {
  */
 const SECTION_CHROME_LINES = 9.1 / LINE_MM;
 
+/**
+ * The quotes block's cost, in lines.
+ *
+ * ONE LINE PER PHRASE, READ OFF THE SHIPPED TEMPLATE RATHER THAN ASSUMED. `.quotes > li` is
+ * `display: inline-block`, which reads as "these flow together in one row" — but the region is
+ * `{{#own_words}}<ul class="quotes">…</ul>{{/own_words}}`, so the `<ul>` REPEATS and each phrase
+ * gets its own block-level list. The inline-block only governs the single item inside it.
+ *
+ * The distinction is a factor of three on a three-quote sheet, and guessing it from the CSS
+ * property would have under-counted by exactly that. `bb_trade.v1` is shipped and therefore
+ * immutable, so the model matches the template rather than the other way round.
+ */
+function ownWordsLines(phrases: readonly string[] | undefined): number {
+  return (phrases ?? [])
+    .filter((p) => p.trim().length > 0)
+    // The rendered item carries a pair of curly quotes the phrase itself does not.
+    .reduce((n, p) => n + rowLines("", `“${p}”`), 0);
+}
+
 /** The shape the ladder operates on — every variable region of the sheet, and nothing else. */
 export interface DegradableSheet {
   displayName?: string | null;
@@ -153,6 +172,12 @@ export interface DegradableSheet {
   employments?: ResumeEmployment[];
   employmentsMore?: string | null;
   experiences?: { role: string; duration: string; work: string }[];
+  /**
+   * §8.4's verbatim quotes. MODELLED HERE EVEN THOUGH THE LADDER NEVER DROPS THEM — see
+   * `fitOwnWords`. Counting them is what stops a future author from populating this field
+   * before `degradeToFit` runs and silently spending a page the ladder thought it had.
+   */
+  ownWords?: string[];
 }
 
 /** Total rendered lines the page must find room for — masthead, section chrome and content. */
@@ -161,11 +186,13 @@ export function sheetContentLines(s: DegradableSheet): number {
     (s.capSectionTitle ? 1 : 0) +
     ((s.availFactRows ?? []).length > 0 ? 1 : 0) +
     ((s.employments ?? []).length > 0 || (s.experiences ?? []).length > 0 ? 1 : 0) +
-    ((s.qualFactRows ?? []).length + (s.qualTickRows ?? []).length > 0 ? 1 : 0);
+    ((s.qualFactRows ?? []).length + (s.qualTickRows ?? []).length > 0 ? 1 : 0) +
+    ((s.ownWords ?? []).length > 0 ? 1 : 0);
   return (
     nameLines(s.displayName) +
     (s.nameDevanagari ? 1 : 0) +
     sections * SECTION_CHROME_LINES +
+    ownWordsLines(s.ownWords) +
     listRowLines(s.capChipRows) +
     listRowLines(s.capTickRows) +
     factRowLines(s.capFactRows) +
@@ -436,4 +463,33 @@ export function degradeToFit<T extends DegradableSheet>(input: T): DegradationRe
     }
   }
   return { sheet: working, stage: dropped.length, dropped, trace };
+}
+
+/**
+ * Add §8.4's verbatim quotes into whatever room the sheet has LEFT, and no further.
+ *
+ * WHY IT RUNS AFTER THE LADDER RATHER THAN INSIDE IT. The drop order is a ruled artefact — it
+ * is reverse §5.1 decisiveness with the turner additions slotted per R1 §3, flagged for RVM
+ * redline as trade truth. Inserting a new item into it would be a change to that ruling, made
+ * by whoever happened to build this block. So the block never enters the competition: it takes
+ * the space nobody ranked, which is exactly the space a junior's sheet is made of.
+ *
+ * THE RESULT ON THE TWO ENDS OF THE LADDER, AND IT IS THE INTENDED ONE. The two-year operator's
+ * sheet measures 163 mm of a 297 mm page, so he gets every quote he earned — the case §8.4
+ * exists for, and the reason the guideline calls this what makes off-wedge résumés work on day
+ * one. The eight-year setter is already over budget before this runs, so he gets none, and the
+ * quotes cost his sheet nothing.
+ *
+ * NO PARTIAL PHRASE, EVER. It adds whole quotes while they fit and stops at the first that does
+ * not; a truncated quote with an ellipsis would be the renderer editing a worker's words, which
+ * is the one thing this block may not do.
+ */
+export function fitOwnWords<T extends DegradableSheet>(sheet: T, phrases: readonly string[]): T {
+  const kept: string[] = [];
+  for (const phrase of phrases) {
+    const next = [...kept, phrase];
+    if (sheetContentLines({ ...sheet, ownWords: next }) > SHEET_LINE_BUDGET) break;
+    kept.push(phrase);
+  }
+  return { ...sheet, ownWords: kept };
 }

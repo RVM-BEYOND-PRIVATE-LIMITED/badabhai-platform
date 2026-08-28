@@ -13,6 +13,7 @@ import type { ResumeRenderer } from "./resume-renderer.service";
 import type { StorageService } from "../storage/storage.service";
 import type { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import type { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
+import type { WorkerTranscriptRepository } from "../profiles/worker-transcript.repository";
 import type { WorkerEmploymentRecord } from "./resume-employment-rows";
 import type { ResumeRenderJobData } from "../queue/queue.constants";
 
@@ -85,6 +86,9 @@ function setup(
     // Zone 4 — seeded `worker_employment` rows, and the failure mode of reading them.
     employments?: WorkerEmploymentRecord[];
     empThrows?: boolean;
+    // R8 §2/§4 — the worker's own turns, and the failure mode of reading them.
+    workerSaid?: string[];
+    transcriptThrows?: boolean;
   } = {},
 ) {
   const resumeRow = opts.resume === undefined ? DEFAULT_ROW : (opts.resume ?? undefined);
@@ -132,6 +136,14 @@ function setup(
       return opts.employments ?? [];
     }),
   };
+  // R8 §2/§4. Same degrade contract as the two reads above: a failed transcript load must cost
+  // the quote block and the veto, never the PDF.
+  const transcript = {
+    loadWorkerTurns: vi.fn(async () => {
+      if (opts.transcriptThrows) throw new Error("transcript boom");
+      return opts.workerSaid ?? [];
+    }),
+  };
   const config = {
     RESUME_RENDER_ENABLED: opts.renderEnabled ?? true,
   } as ServerConfig;
@@ -144,9 +156,10 @@ function setup(
     storage as unknown as StorageService,
     attributes as unknown as WorkerAttributesRepository,
     employments as unknown as WorkerEmploymentRepository,
+    transcript as unknown as WorkerTranscriptRepository,
     config,
   );
-  return { proc, resumes, workers, pii, renderer, storage, attributes, employments };
+  return { proc, resumes, workers, pii, renderer, storage, attributes, employments, transcript };
 }
 
 /**
@@ -297,15 +310,18 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
   it("never references EventsService (no events.emit reachable from this processor)", () => {
     // Static guard: a future refactor that wires events into the render processor would break the
     // 'render emits no event' guarantee. The constructor arity must stay at exactly the
-    // NON-EVENT deps, currently seven:
-    //   resumes · workers · pii · renderer · storage · attributes · employments · config
+    // NON-EVENT deps, currently nine:
+    //   resumes · workers · pii · renderer · storage · attributes · employments · transcript
+    //   · config
     // `attributes` (WorkerAttributesRepository) joined in 2026-08-28 for the trade sheet's
-    // capability block, and `employments` (WorkerEmploymentRepository) the same day for Zone 4 —
-    // both read-only repositories, neither with an event surface.
+    // capability block, and `employments` (WorkerEmploymentRepository) the same day for Zone 4.
+    // `transcript` (WorkerTranscriptRepository) joined for R8 §2/§4 — the worker's own turns,
+    // which §8.4's quote block and the over-claim veto both read. All three are read-only
+    // repositories, none with an event surface.
     //
     // ARITY ALONE IS A PROXY, so the real property is asserted directly below it: a number can be
     // bumped to make this pass while wiring in exactly the dependency it exists to keep out.
-    expect(ResumeRenderProcessor.length).toBe(8);
+    expect(ResumeRenderProcessor.length).toBe(9);
     const source = readFileSync(join(__dirname, "resume-render.processor.ts"), "utf8");
     expect(source, "an events dependency reached the render processor").not.toMatch(
       /EventsService|events\.emit/,

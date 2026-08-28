@@ -7,6 +7,7 @@ import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
+import { WorkerTranscriptRepository } from "../profiles/worker-transcript.repository";
 import { StorageService } from "../storage/storage.service";
 import { ResumeRepository } from "./resume.repository";
 import { FontResolutionError } from "../common/pdf/font-resolution";
@@ -41,6 +42,7 @@ export class ResumeRenderProcessor extends WorkerHost {
     private readonly storage: StorageService,
     private readonly attributes: WorkerAttributesRepository,
     private readonly employments: WorkerEmploymentRepository,
+    private readonly transcript: WorkerTranscriptRepository,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {
     super();
@@ -173,6 +175,22 @@ export class ResumeRenderProcessor extends WorkerHost {
       );
     }
 
+    // THE WORKER'S OWN TURNS — a FIFTH independent load, on the same degrade as the four above.
+    // It feeds two rules and neither is worth a failed render: without it the quote block
+    // collapses (a sheet with one less section, which is what every sheet has today) and the
+    // veto withdraws nothing (a sheet exactly as honest as the chips the worker ticked).
+    //
+    // NEVER LOGGED. The rows are raw worker text; the catch below names the worker id and the
+    // failure, and nothing from the body ever reaches a log line, an event or a prompt.
+    let workerSaid: string[] = [];
+    try {
+      workerSaid = await this.transcript.loadWorkerTurns(workerId);
+    } catch {
+      this.logger.warn(
+        `could not load the transcript for worker ${workerId}; rendering without quotes or veto`,
+      );
+    }
+
     // ALWAYS A CONTEXT, never null. `packId`/`attributes` carry the empty defaults so a failed
     // attribute load collapses the capability section and costs exactly that.
     const tradeSheet: TradeSheetContext = {
@@ -180,6 +198,7 @@ export class ResumeRenderProcessor extends WorkerHost {
       attributes: {},
       ...(loaded ?? {}),
       employments,
+      workerSaid,
       // ONE CLOCK PER RENDER, shared with the footer below, so a sheet generated at midnight
       // cannot date its footer one day and compute a current job's tenure against the next.
       asOf: renderedAt,
@@ -223,6 +242,18 @@ export class ResumeRenderProcessor extends WorkerHost {
       "worker",
       tradeSheet,
     );
+
+    // EVERY WITHDRAWN CLAIM IS AUDITABLE, and this is the only place it is recorded. A veto
+    // removes something a worker ticked, so "which claim, and on the strength of which sentence"
+    // has to survive the render — a count alone would make a wrong gazetteer term undiagnosable.
+    //
+    // THE SLUG AND THE ATTRIBUTE KEY ONLY. The triggering phrase is raw transcript and does not
+    // go to a log; it rides the render input for a human reading the artifact, never a log sink.
+    for (const veto of input.transcriptVetoes ?? []) {
+      this.logger.log(
+        `resume ${resumeId}: transcript veto on ${veto.attributeKey}=${veto.slug}`,
+      );
+    }
 
     let pdf: Buffer | null = null;
     try {

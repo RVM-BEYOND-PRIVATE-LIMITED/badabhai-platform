@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { Injectable } from "@nestjs/common";
 import { PdfRenderer } from "../common/pdf/pdf-renderer.service";
 import type { DegradationStep } from "./resume-degradation";
+import type { TranscriptVeto } from "./resume-transcript-veto";
 import { RESUME_FONT_CONTRACT } from "./resume-fonts";
 import { getResumeTemplate } from "./templates/registry";
 
@@ -143,6 +144,17 @@ export interface ResumeRenderInput {
    * far more than the sheet was over took a whole block where a trim would have done.
    */
   degradationTrace?: readonly DegradationStep[];
+
+  /**
+   * Chip claims the worker's own transcript withdrew, each with the sentence that withdrew it.
+   *
+   * DIAGNOSTIC AND AUDITABLE, never rendered. A veto REMOVES a claim from a man's résumé, so
+   * every one has to be readable by a human after the fact — which is why the triggering phrase
+   * rides along rather than just a count. The render worker logs them; nothing on the page shows
+   * that anything was withdrawn, because the sheet's job is to state what is true, not to
+   * annotate what was corrected.
+   */
+  transcriptVetoes?: readonly TranscriptVeto[];
 
   // ==========================================================================
   // THE LOCKED TRADE SHEET (`bb_trade.v1`).
