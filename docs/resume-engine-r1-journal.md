@@ -710,9 +710,123 @@ heading, next to the right label, or on the right worker's sheet. Reading it as 
 correctness rather than of sourcing is the mistake it invites, and it is the mistake its own name
 encourages.
 
+**The SAST baseline hides almost nothing — one finding, tree-wide.** Scanned the full tracked
+tree with CI's four rulesets and no baseline: **2787 files, 1108 rules, 1 finding.** It is the same
+rule that surfaced by accident — `detect-non-literal-regexp` — at
+`packages/db/src/audit-deployed-flags.ts:169`, one more regex composed from a loop variable
+(`new RegExp(\`${f.name}: ...\`)`). Reported, not fixed: it is in `packages/db` and §4 asked for a
+report.
+
+So the answer to "discovery by accident is not a control" is reassuring rather than alarming:
+there is no backlog behind the baseline, and the accident found the only class of finding present.
+
+**With one qualification that matters, because it is the A7 class again.** Seven files did not
+fully parse: one outright syntax error (`bb-trade-template.test.ts` — semgrep read _none_ of it),
+five partial-parse failures (including `jobs.repository.ts` on a drizzle `sql<...>` generic and
+`sheet-shape-matrix.test.ts` on a regex literal), and one rule timeout on
+`packages/event-schema/src/payloads.ts`. Those files contribute zero findings because they were
+not read, not because they are clean — and semgrep reports that in `errors`, not in the finding
+count. **The honest statement is "1 finding among what parsed", and a file semgrep cannot parse is
+a file the SAST gate does not cover.** Nothing surfaces this today; the exit code is driven by
+findings alone.
+
 **Second instance of a file's own comment forbidding what its code did.** After `EMOJI_RE` (whose
 comment warned that a reflow would move the lint directive off the regex, which is exactly what
 happened), the render processor's employments block carried "a failure here must cost the work
 history and nothing else" one level below a `try` that took down the phone, the QR, the ref code
 and the footer. Both were found by acting on the comment rather than reading past it. A comment
 that states an invariant is a test that has not been written yet.
+
+---
+
+## §12 — R2 packet digest
+
+**Two PRs, stacked.** [#1292](https://github.com/RVM-BEYOND-PRIVATE-LIMITED/badabhai-platform/pull/1292)
+`feat/cnc-turner-role-track` carries R1 plus the §2 corrections and is **green on every CI job**.
+[#1294](https://github.com/RVM-BEYOND-PRIVATE-LIMITED/badabhai-platform/pull/1294)
+`feat/resume-degradation-stage` is stacked on it and carries R2.
+
+**#1294 gets no CI, and that is not a green check.** `ci.yml` triggers on
+`pull_request: branches: [main]`, so a PR based on another branch never fires it — confirmed
+empirically: the only check on #1294 is `Supabase Preview / skipping`. An empty check list means
+"nothing ran". Its gates were run locally and are recorded above.
+
+### The control (§1)
+
+The metric change is **provably neutral**. New metric on `origin/main`: 98.2%, 388 correct, 7
+wrong, `refined = 0`, and a byte-identical twelve-row failure list against both the old-metric
+baseline and the branch. The new code path executes **zero times** on main — not merely
+score-neutral there, structurally inert. The branch carries main's same seven real failures and
+nothing new.
+
+### The floor (§2.1)
+
+Binary fit replaced with a measured 5 mm headroom floor. Renderer version contributes **0.00 mm**
+of variance across WeasyPrint 63.1/66.0/69.0; font fallback contributes up to **3.64 mm**, in both
+directions. Reported but not floored against: losing both font packages resolves the stack's
+generic terminal to a **serif** and takes five sheets to two pages — a broken image rather than a
+fallback, but a latent trap in the declared stack.
+
+### The ladder (§3)
+
+|                                        | before             | after        |
+| -------------------------------------- | ------------------ | ------------ |
+| worst headroom, current sheets         | **0.00 mm**        | **11.42 mm** |
+| worst headroom, with Zone 4+5 injected | _3 would overflow_ | **17.44 mm** |
+| one-page                               | 28 / 28            | **56 / 56**  |
+
+Deterministic, minimal, ordered by reverse §5.1 with the turner-pack additions first. Six things
+are never droppable and that list is asserted positively. Two ladder steps are unreachable today
+because their fields do not exist yet, built in their correct positions and recorded as such.
+
+**The tests caught a real gap:** a hard-coded 12 rank-drop steps against a 14-row map, which would
+have returned a still-overflowing page while reporting a stage as though it had succeeded.
+
+### The three read-only findings (§4)
+
+- **Path filter: covered.** Eight paths gate the `e2e` job, and `packages/match-engine`,
+  `packages/db` and `packages/taxonomy` are all inside `packages/**`. Matching cannot break from a
+  package change with the DB gate silently skipped.
+- **SAST baseline: one finding, tree-wide.** 2787 files, 1108 rules, no baseline → **1** result,
+  and it is the same `detect-non-literal-regexp` rule at
+  `packages/db/src/audit-deployed-flags.ts:169`. No backlog hides behind the baseline. **But
+  seven files did not fully parse** — one total syntax error, five partial, one rule timeout — and
+  they contribute zero findings because they were not read. A file semgrep cannot parse is a file
+  the gate does not cover, and nothing surfaces that today.
+- **The fabrication gate proves provenance, not placement.** The regex defect would have spliced
+  one worker's list into another section with all 32 gate tests green, because every string
+  involved was legitimately sourced. Recorded so nobody reads it as a correctness guarantee.
+
+### Two corrections to my own reporting
+
+- I wrote that **three** sheets fail the new floor and named shape 5's employer copy. Measured, it
+  sits at 15.56 mm and passes; it is **two** — `shape-09-worker` (0.00 mm) and `shape-06-worker`
+  (3.76 mm). Corrected in #1292 with the correction left visible.
+- The harness was checked against its own negative control: over the pre-degradation sheets it
+  exits **1** and names exactly those two. Its green result is therefore worth something — and
+  note that those sheets are all still **28/28 one-page**, which is precisely how the binary
+  assertion hid a 0.00 mm margin.
+
+### What I could not do, and said so
+
+- **Q7 needs a photocopier.** The 0.5 mm module floor is from the printing literature, not from
+  the guideline, and validating it is a physical act — print, xerox, scan with a mid-range Android.
+  I have none of those. The protocol is written out; it needs five minutes of someone's hands.
+  It is also **coupled to B3**: the interim `sslip.io` origin is 45 characters against
+  `badabhai.ai`'s 19, taking the same payload from 0.720 mm to 0.545 mm per module.
+- **`AGENT_LOOP.md` did not exist** — not at the root, not under `docs/` or `.claude/`, never in
+  any commit. Created carrying only the §4 HALT trigger, labelled as a creation rather than an
+  amendment, sections 1–3 deliberately absent rather than invented (Q9).
+
+### The question queue
+
+Nine open, none of which blocked this work. Two are new and one was mis-filed:
+
+- **Q8 · Conflict B** — one spine versus a template per trade family. Raised as its own question
+  after I mapped the stale cost line onto the drop order by mistake. Its reversal cost has risen
+  because the work went well: 56 fixtures, a render block, three gates and a ladder now assume one
+  spine. That is the worst shape an open question can have.
+- **Q2 gains a sharper edge** — reverse §5.1 sheds a worker's entire credentials block before one
+  capability row. Right for an experienced turner, much less obviously right for a young worker
+  whose NCVT certificate is the signal.
+- **Q6, Q7, Q9** as above.
