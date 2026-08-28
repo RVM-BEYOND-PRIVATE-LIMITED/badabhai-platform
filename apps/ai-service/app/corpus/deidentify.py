@@ -7,7 +7,7 @@ is NEVER returned and NEVER logged — only counts leave this module.
 
 Two layers, both must pass:
   1. the request-time :func:`pseudonymize` gateway (PAN/Aadhaar/phone/employer/
-     name-cue/city → tokens; fails closed on residual digit runs); then
+     name-cue → tokens; fails closed on residual digit runs); then
   2. an INDEPENDENT corpus residual scan (defense in depth) that re-checks the
      cleaned text for phone/email/ID shapes and refuses any survivor.
 

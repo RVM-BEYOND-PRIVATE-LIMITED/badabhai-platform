@@ -558,15 +558,26 @@ def needs_rephrase(message: str) -> bool:
 
 # --- Draft-text safety -----------------------------------------------------
 # Placeholder classes that mean the payer typed IDENTITY-shaped content. The masked
-# text is used for the draft in that case, so a personal name, a phone number, a
-# credential id or a company name can never be carried into the persisted draft (and
-# from there into a published posting). CITY / STATE / AMOUNT are deliberately NOT
-# here: a job's city and its pay are the whole point of the posting, and the raw
-# value is what the payer must see.
+# text is used for the draft in that case, so a personal name, an email address, a
+# phone number, a credential id or a company name can never be carried into the
+# persisted draft (and from there into a published posting). CITY / STATE / AMOUNT
+# are deliberately NOT here: a job's city and its pay are the whole point of the
+# posting, and the raw value is what the payer must see.
+#
+# EMAIL WAS MISSING FROM THIS LIST AND THAT WAS AN OMISSION, NOT A DECISION — every
+# other class here is argued for or against by name in this comment and email was
+# simply absent. An email address is the same class as a phone: a direct contact
+# channel that routes around the unlock, and the one thing a published posting must
+# not carry. Found by the ai-engineer review of the leading-name city carve-out
+# (R6): masking a leading city used to mint a [PERSON_n] token INCIDENTALLY, which
+# armed this gate and masked the email beside it. That accident is gone, so the gap
+# it was hiding is now the only thing standing between a typed address and a
+# published posting. It was never a real mitigation — any message not starting
+# "Word," already drafted the address raw.
 #
 # This REUSES the shipped gateway's own classification rather than adding a second,
 # oppositely-tuned mask profile — which ADR-0035 §Decision 3 explicitly rejects.
-_IDENTITY_TOKEN_RE = re.compile(r"^\[(?:PHONE|PERSON|EMPLOYER|ID)_\d+\]$")
+_IDENTITY_TOKEN_RE = re.compile(r"^\[(?:PHONE|PERSON|EMPLOYER|EMAIL|ID)_\d+\]$")
 # Matches ANY placeholder token, used to tell the payer which field to retype.
 PLACEHOLDER_TOKEN_RE = re.compile(r"\[[A-Z]+_\d+\]")
 

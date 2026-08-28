@@ -892,17 +892,36 @@ def test_leading_city_before_a_comma_is_not_masked_as_a_person(city):
     assert result.blocked is False
 
 
-def test_every_canonical_city_survives_in_the_leading_position():
+def test_every_city_AND_ALIAS_survives_in_the_leading_position():
     # The parametrised trio is the named ask; this is the general property. A fix that
     # special-cased three strings would pass the test above and leave the other 33.
-    from app.pseudonymize import KNOWN_CITIES
+    #
+    # ALIASES ARE IN HERE BECAUSE AN ADVERSARIAL MUTATION FOUND THEY WERE NOT. Deleting
+    # `or candidate in CITY_ALIASES` from the carve-out was the one mutation of six that
+    # NOTHING caught - half the condition was untested. The seven alias-only strings
+    # (bombay, calcutta, poona, dilli, dilly, gudgaon, banglore) are among the likeliest
+    # leading forms a real worker types, so the untested half was the more used one.
+    from app.pseudonymize import CITY_ALIASES, KNOWN_CITIES
 
     masked = [
         c
-        for c in sorted(KNOWN_CITIES)
+        for c in sorted(set(KNOWN_CITIES) | set(CITY_ALIASES))
         if "[PERSON_" in pseudonymize(f"{c.title()}, Haryana").text
     ]
     assert masked == []
+
+
+def test_the_gazetteer_keys_are_lowercase_and_the_carve_out_depends_on_it():
+    # The carve-out lowercases the captured token before the lookup, so a single
+    # capitalised entry in cities.json would silently disarm it for that city - and would
+    # silently disarm `signals.py` detection too, which is a 20-point matching loss with no
+    # error anywhere. Fails in the SAFE direction for privacy, which is exactly why it
+    # needs asserting rather than noticing.
+    from app.pseudonymize import CITY_ALIASES, KNOWN_CITIES
+
+    assert [c for c in KNOWN_CITIES if c != c.lower()] == []
+    assert [a for a in CITY_ALIASES if a != a.lower()] == []
+    assert [v for v in CITY_ALIASES.values() if v != v.lower()] == []
 
 
 def test_a_leading_PERSON_NAME_is_still_masked():

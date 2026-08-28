@@ -1473,10 +1473,11 @@ class JobPostingDraft(BaseModel):
     invite a payer to type personal contact details next to it.
 
     Free-text fields carry the payer's own business copy. When a turn's
-    pseudonymization masked an IDENTITY-class entity (phone/person/employer/id) the
-    MASKED text is stored instead (answers.safe_draft_text), so a personal phone
-    number typed into a description cannot reach the stored draft or a published
-    posting; ``clarification_questions`` then asks the payer to retype that field.
+    pseudonymization masked an IDENTITY-class entity (phone/person/employer/email/id)
+    the MASKED text is stored instead (answers.safe_draft_text), so a personal phone
+    number or an email address typed into a description cannot reach the stored draft
+    or a published posting; ``clarification_questions`` then asks the payer to retype
+    that field.
     """
 
     role_title: str | None = Field(default=None, max_length=_JP_LABEL_MAX)
