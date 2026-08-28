@@ -90,6 +90,58 @@ run, not a unit test — cheap in effort, but it is no longer free and it is no 
 Still worth doing, and still the entry most likely to need it. It just wants doing in the same
 change rather than as a follow-up.
 
+### The default is REVISED — and it is now measured, not argued
+
+Prakash's ruling on the sharper version: reverse §5.1 is the wrong ordering to derive a drop
+order from, because §5.1 ranks by **decisiveness for the ₹40 unlock** — Job 1 of §1.1. Dropping
+strictly by it optimises Job 1 and destroys Job 3: the worker arrives at the gate and the sheet
+no longer says he has his documents, which at that gate is the whole point. It also strips the
+credential floor from exactly the ITI holder an MSME asks for.
+
+**What the ladder actually did, across the 56-sheet matrix** (this is the evidence, not an
+inference from the order):
+
+| shed                   | on how many of the 56 sheets |
+| ---------------------- | ---------------------------- |
+| languages              | 16                           |
+| documents ready        | 14                           |
+| certificates           | 10                           |
+| education              | 1                            |
+| **any capability row** | **0**                        |
+
+Sixteen sheets degraded. The ladder consumed the credentials block **entirely** and never once
+reached a capability row. `future-09-worker` lands at stage 4 with no education line at all
+while carrying every capability row it started with.
+
+**REVISED DEFAULT, in force from now, and still awaiting your ruling and RVM's redline:**
+
+> **Capability blocks compress before whole blocks drop.** A maxed-out turner carries 13
+> operations, 12 setting capabilities, 10 workholding entries and 14 instruments. §4.3 already
+> caps chips at 3–4 per row; the cascade extends that principle — exhaust compression inside
+> Zone 2 before dropping any Zone 5 block. A turner listing eight setting capabilities instead
+> of twelve loses almost nothing; a worker losing his ITI line loses the credential floor.
+
+**This is a PROPOSED default, not a settled one.** The drop order needs to be its own ratified
+list rather than derived from a ranking built for a different purpose — that is the actual ask,
+and it is larger than "reorder the ladder".
+
+**Reversal cost of the revision itself.** Lower than the reversal cost above, and worth stating
+because it is the reason for logging it rather than building it:
+
+- The ladder is a list of steps in one file with a per-step cost trace, so re-ordering steps is
+  mechanical.
+- Compression is NOT mechanical. Every step in the ladder today removes a whole element; a
+  compressing step needs a per-row cap, an ordering within the row, and a rule for what the
+  removed chips do to the row's meaning — none of which exists, and §4.3's caps are per-section,
+  not per-degradation-stage.
+- So the revision costs a re-measurement of 56 sheets (Docker WeasyPrint), and building
+  compression costs a new mechanism. Those are different sizes and only the first is cheap.
+
+**It is not urgent, and the measurement says why.** All 16 degrading sheets are the OVERFLOW
+fixtures plus their injected variants. No realistic profile in the matrix reaches a capability
+row. The revision changes nothing that renders today; it changes what happens the first time a
+real turner's full history lands.
+
 ---
 
 ## Q3 · Devanagari — confirming this is CLOSED, not parked
@@ -220,9 +272,27 @@ part of deciding the QR floor**, not a separate question: a long host spends mos
 before the photocopy has spent any of it.
 
 **Recommendation:** run the xerox test on the `sslip.io`-length payload, not the short one. If
-that scans, every shorter origin is safe and the question closes for good. **Cost of silence:**
-the floor holds against the literature but has never met a real photocopier, and the acquisition
-metric §12.2 rests on it.
+that scans, every shorter origin is safe and the question closes for good.
+
+**THE TWO UNCERTAINTIES COMPOUND, and that is the part worth reading twice.** The 0.545 mm the
+`sslip.io` origin produces is **9% above** a 0.5 mm floor that is itself an unratified
+engineering guess. So the sheet the acquisition thesis rests on carries two unresolved variables
+stacked on one element:
+
+| variable          | state                                                        | direction           |
+| ----------------- | ------------------------------------------------------------ | ------------------- |
+| the 0.5 mm floor  | from the printing literature, never met a photocopier        | unknown             |
+| the origin length | B3 open; interim host is 45 chars against `badabhai.ai`'s 19 | pushes modules DOWN |
+
+Neither alone is alarming. Together, a 9% margin against an unvalidated floor is not a margin —
+and nothing on the sheet or in the gate would look any different if it were already too small.
+The QR is the one element on the page whose failure is completely invisible until a worker holds
+a photocopy under a phone in a factory gate queue.
+
+**Cost of silence:** the floor holds against the literature but has never met a real
+photocopier, and the acquisition metric §12.2 rests on it. Running the test at the SHORT payload
+length would answer a question nobody is asking — the sheet in the field will carry whichever
+origin B3 settles on, and today that is the long one.
 
 ---
 
@@ -279,8 +349,31 @@ be somewhere I cannot see.
 Sections 1–3 are deliberately absent; I do not know what they say and inventing them would be
 worse than an incomplete file.
 
-**If the real one is elsewhere:** merge that §4 into it and delete the file I added. **If there
-was never one:** it now exists and wants its other sections written.
+**ANSWERED (R3 §5.2).** Prakash: the real file exists outside the repo and he will commit it.
+The stub stays exactly as it is and must not be reconstructed — sections 1–3 arrive with the
+canonical version. **This entry stays open only until that commit lands**, at which point the
+stub's §4 merges into it.
 
-**Cost of silence.** Two files claiming to be the agent loop, which is exactly the drift that
-makes an operating contract stop being read.
+**Cost of silence.** Now near zero, and bounded: two files claiming to be the agent loop, for as
+long as it takes one commit.
+
+### While looking: what the loop's state files actually are
+
+Asked in the same breath, and the answer is not the expected one. Measured against
+`git ls-files`, `origin/main` and `git log --all --diff-filter=A`:
+
+| file               | on disk    | on `origin/main` | ever added, any branch |
+| ------------------ | ---------- | ---------------- | ---------------------- |
+| `NEEDS_PRAKASH.md` | yes        | **no**           | once — on this stack   |
+| `ASSUMPTIONS.md`   | yes        | **no**           | once — on this stack   |
+| `AGENT_LOOP.md`    | yes (stub) | **no**           | once — on this stack   |
+| `LOOP_QUEUE.md`    | **no**     | no               | **never**              |
+| `LOOP_JOURNAL.md`  | **no**     | no               | **never**              |
+
+**Two are phantom.** `LOOP_QUEUE.md` and `LOOP_JOURNAL.md` have never existed here — not on
+disk, not on `main`, not in any commit on any branch. They were not created, per the directive.
+
+**And the other three are not on `main` either.** They exist only on the unmerged
+`feat/cnc-turner-role-track` stack. Every question in this file, every assumption in
+`ASSUMPTIONS.md`, and the HALT trigger itself live on a branch that has not landed. Worth saying
+plainly: if this stack is abandoned, the entire question queue goes with it.

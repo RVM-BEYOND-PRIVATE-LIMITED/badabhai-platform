@@ -89,6 +89,10 @@ describe.skipIf(!OUT_DIR)("emit the content-shape sheets for a real PDF render",
             variant: variant.prefix,
             stage: input.degradationStage ?? 0,
             dropped: input.degradationDropped ?? [],
+            // `over` and `gain` per step: what the sheet needed, and what the step actually took.
+            // Without them "stage 3" says a sheet degraded three times and nothing about whether
+            // any of the three was proportionate.
+            trace: input.degradationTrace ?? [],
             lines: Number(sheetContentLines(input).toFixed(2)),
           });
           written += 1;

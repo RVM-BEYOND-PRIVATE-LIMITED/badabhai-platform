@@ -830,3 +830,333 @@ Nine open, none of which blocked this work. Two are new and one was mis-filed:
   capability row. Right for an experienced turner, much less obviously right for a young worker
   whose NCVT certificate is the signal.
 - **Q6, Q7, Q9** as above.
+
+---
+
+## §13 — R3: closing out the render track
+
+### 13.1 — Where every shape lands, and whether the ladder is too coarse
+
+Owed from R2 and reported here as a table rather than a summary. Headroom in mm above the 5 mm
+floor, and the degradation stage that produced it, for all 14 shapes × 2 audiences × 2 content
+variants:
+
+| #   | shape                                            | today W       | today E       | +Zone 4/5 W   | +Zone 4/5 E   |
+| --- | ------------------------------------------------ | ------------- | ------------- | ------------- | ------------- |
+| 1   | ITI fresher, zero employment rows                | 133.14 st0    | 138.79 st0    | 44.80 st0     | 50.45 st0     |
+| 2   | Twelve years on the machine, no ITI              | 105.79 st0    | 111.43 st0    | 36.52 st0     | 42.29 st0     |
+| 3   | Duration unknown throughout                      | 139.92 st0    | 145.57 st0    | 50.57 st0     | 56.34 st0     |
+| 4   | Contract / thekedar work, no company name        | 125.49 st0    | 131.26 st0    | 50.57 st0     | 56.34 st0     |
+| 5   | OVERFLOW — employment gaps, pack fully answered  | 26.48 **st2** | 21.33 **st1** | 17.44 **st3** | 23.22 **st3** |
+| 6   | OVERFLOW — nine employers in four years          | 20.33 **st2** | 25.98 **st2** | 17.44 **st3** | 23.22 **st3** |
+| 7   | Promoted inside one employer                     | 102.02 st0    | 107.67 st0    | 42.42 st0     | 48.06 st0     |
+| 8   | OVERFLOW — every pack row answered, chips at cap | 32.00 st0     | 37.77 st0     | 17.44 **st3** | 23.22 **st3** |
+| 9   | OVERFLOW — very long name, five preferred cities | 16.56 **st2** | 11.42 **st1** | 25.47 **st4** | 16.82 **st3** |
+| 10  | Single name, no surname                          | 123.35 st0    | 129.00 st0    | 48.31 st0     | 53.96 st0     |
+| 11  | OVERFLOW — overseas history + full credentials   | 20.96 st0     | 26.73 st0     | 17.44 **st3** | 23.22 **st3** |
+| 12  | Two trades, the stronger by months leading       | 137.54 st0    | 143.31 st0    | 48.31 st0     | 53.96 st0     |
+| 13  | Off-pack trade — no capability map exists        | 162.51 st0    | 168.15 st0    | 73.16 st0     | 78.93 st0     |
+| 14  | Name only — everything else absent               | 231.53 st0    | 231.53 st0    | 231.53 st0    | 231.53 st0    |
+
+**16 of 56 sheets degrade; 40 land at stage 0.** The tightest sheet in the whole matrix is
+`shape-09-employer` at 11.42 mm, and it got there by dropping exactly one thing.
+
+**Is the ladder too coarse?** The question was raised by the injected matrix reporting a worst of
+17.44 mm against the uninjected 11.42 — more content, more headroom, which reads like a step
+overshooting. `degradeToFit` now returns a per-step trace of `over` (lines the sheet needed) and
+`gain` (lines the step took), so this is measurable rather than arguable.
+
+Worst overshoot across all 56 sheets: **2.93 lines** — `future-09-worker` dropping `education`
+(3.86 lines) to close a 0.93-line gap. Every other applied step overshoots by under 2 lines, and
+many undershoot. Post-degradation sheets land at **38.07–40.93 lines against a budget of 41**.
+
+So the overshoot is real but small, and it is not what produces the 17.44-vs-11.42 inversion.
+Two other things do:
+
+- **The budget is deliberately conservative.** 41 was rounded down from a fitted 41.7 because the
+  per-shape constant `C` spreads across 209–216 mm. A sheet sitting at exactly 41 lines therefore
+  has anywhere from 8.5 to 15.5 mm of headroom depending on which shape it is. That spread is
+  larger than the entire overshoot.
+- **The injected sheets degrade three steps instead of one**, so they land nearer 38 lines than 41. More content ends up with more headroom because it triggered more of the ladder.
+
+**The finding is not coarseness. It is what the ladder never reaches.** Across the 16 degrading
+sheets:
+
+| shed                   | on how many sheets |
+| ---------------------- | ------------------ |
+| languages              | 16                 |
+| documents ready        | 14                 |
+| certificates           | 10                 |
+| education              | 1                  |
+| **any capability row** | **0**              |
+
+The ladder consumed the credentials block **entirely** — languages, documents, certificates,
+education — and never once reached a capability row. `future-09-worker` prints no education line
+while carrying every capability row it started with. That is the Q2 defect, and it is now
+measured rather than inferred from the ordering. See §13.8.
+
+### 13.2 — What the control did NOT prove
+
+`refined = 0` on `origin/main` proves the new occupation metric is structurally inert on a corpus
+with no sub-unit family bindings: the new branch of code executes zero times there, so it cannot
+change any such corpus. That is a stronger claim than matching scores.
+
+**It is also a claim about one direction only.** A code path that never executed cannot have been
+tested by the run that never executed it. The control says nothing about whether the refinement
+logic is _correct_ when it does fire — and on the branch it fires ten times.
+
+Correctness of those ten still rests on two weaker things: reading them (all ten are a sub-unit
+family correctly bound under its ISCO unit, e.g. a turner family under 7223) and three unit tests
+pinning the rule, with `"darzi"` under 7223 as the negative control. That is reasonable evidence.
+It is not what the control proved, and stating it as though it were would be the same conflation
+the control existed to prevent. Same treatment as the fabrication gate's provenance-not-placement
+bound in §11.5.
+
+### 13.3 — The QR's two uncertainties compound
+
+Recorded against Q7 rather than repeated here. The short version: the measured 0.545 mm module on
+a 45-character `sslip.io` host sits **9% above** a 0.5 mm floor that is itself an unratified
+engineering guess awaiting the photocopier test. Two unresolved variables stacked on the one
+element §12.2 rests the acquisition thesis on, and the recommendation is now explicit — **run the
+xerox protocol at the `sslip.io` payload length, not the short one**, because that is the length
+the sheet in the field will carry until B3 is decided.
+
+### 13.4 — Font resolution now fails closed
+
+**This was the second silent font failure in this pipeline.** The first was the worker's
+Devanagari name line rendering as empty boxes with nothing failing — which is why
+`fonts-noto-core` is in the API image at all. The second was found in R2: with the sans faces
+gone, `sans-serif` at the end of the stack resolves to DejaVu **Serif**, and five of the 28
+shapes spill to a second page. Same class twice, and both times WeasyPrint exited 0.
+
+**What is actually observable.** Not the exit code, not the byte count, not the page count — the
+set of faces the PDF embeds. WeasyPrint writes `/BaseFont /XXXXXX+Noto-Sans` per face, inside
+Flate object streams. `embeddedFontFaces` scans the raw buffer and inflates every stream in it,
+so it reads compressed output and needs no `--uncompressed-pdf`: the probe takes the **same
+argv** as the render it is vouching for, which is asserted by a test.
+
+Measured on the shipped image, with the font files removed one tier at a time:
+
+| container                           | faces embedded                                        | what the worker gets            |
+| ----------------------------------- | ----------------------------------------------------- | ------------------------------- |
+| shipped                             | `Noto-Sans`, `Noto-Sans-Bold`, `Noto-Sans-Devanagari` | the locked design               |
+| minus `fonts-noto-core`             | `DejaVu-Sans`, `DejaVu-Sans-Bold`                     | his name in .notdef boxes       |
+| minus the DejaVu **sans** faces too | `DejaVu-Serif`, `DejaVu-Serif-Bold`                   | a serif sheet, 5 shapes 2 pages |
+
+All three PDFs are checked in as fixtures under `apps/api/src/resume/__fixtures__/font-probe/`,
+with the probe HTML beside them and a test asserting the HTML is byte-identical to the shipped
+constant — edit the probe without re-rendering and the fixtures become bytes from a document that
+no longer exists, still passing.
+
+**It refuses rather than degrades.** Everything else in `PdfRenderer` returns null on failure; a
+font violation throws. A missing PDF is a visible incident — the row is marked failed, the
+download 409s, and the processor now logs it at **error** level as an image defect rather than a
+per-résumé fault. A wrong PDF is invisible: it renders, uploads, downloads and gets forwarded on
+WhatsApp. Success is memoised for the process; **failures are not**, because "could not measure"
+(binary missing, timeout) must never harden into a verdict about fonts.
+
+**Removing both font packages entirely is not a fourth tier** — Pango segfaults, exit 139. Loud,
+and needs no guard.
+
+**Mutation-tested, five ways, each in isolation** (26 tests at baseline):
+
+| mutation                                      | tests failed |
+| --------------------------------------------- | ------------ |
+| allowlist disabled (`unexpected` always `[]`) | 4            |
+| inflate path removed                          | 10           |
+| guard stops throwing on a violation           | 2            |
+| unmeasurable probe treated as a pass          | 1            |
+| Devanagari dropped from the contract          | 2            |
+
+**A real bug the run surfaced in the test file itself.** `beforeEach(() => spawnMock.mockReset())`
+returns the mock — `mockReset` returns it for chaining, and an arrow with an expression body
+passes it on — and vitest treats a value returned from `beforeEach` as a **teardown function**, so
+it called the spawn mock a second time after the test, producing a child nobody was listening to
+and an unhandled `ENOENT`. The suite still reported all tests passing. Fixed with a block body and
+the reason written above it.
+
+### 13.5 — §4: the SAST parse gap, named and measured
+
+R2 reported "seven files did not fully parse". Re-run on this branch with `--json` and counted
+from the `errors` array: **10 distinct files, 19 error records** — 1 whole-file syntax error, 3
+rule timeouts across 2 files, 15 partial parses across 7 files. The earlier seven was an
+undercount and is corrected here.
+
+| file                                                      | kind              | scope                                   | sensitive surface? |
+| --------------------------------------------------------- | ----------------- | --------------------------------------- | ------------------ |
+| `apps/api/src/resume/templates/bb-trade-template.test.ts` | **Syntax error**  | **the entire 196-line file, unscanned** | no — a test        |
+| `packages/event-schema/src/payloads.ts`                   | Timeout ×2        | 2 rules skipped, rest ran               | no                 |
+| `packages/event-schema/src/event-schema.test.ts`          | Timeout           | 1 rule skipped, rest ran                | no — a test        |
+| `.github/workflows/ci.yml`                                | PartialParsing ×8 | bash snippets at L477/509/613/644       | CI, see below      |
+| `.github/workflows/cleanup-issues-prs.yml`                | PartialParsing ×2 | bash snippet at L396–397                | CI                 |
+| `apps/admin-web/src/app/layout.tsx`                       | PartialParsing    | L21 — a Google Fonts URL                | no                 |
+| `apps/api/src/jobs/jobs.repository.ts`                    | PartialParsing    | L172 — `sql<string[] \| null>` generic  | a DB repository    |
+| `apps/api/src/resume/sheet-shape-matrix.test.ts`          | PartialParsing    | L58                                     | no — a test        |
+| `apps/payer-web/Dockerfile`                               | PartialParsing    | L104–105                                | no                 |
+| `scripts/deploy/staging-deploy.sh`                        | PartialParsing    | L537                                    | a deploy script    |
+
+**None sits in auth, guards, crypto, unlocks, payments or the pseudonymisation boundary.** Two
+are adjacent enough to name: `jobs.repository.ts` is where SQL-injection rules would look, and
+`staging-deploy.sh` is where secret-handling rules would. In both the gap is one line, not the
+file.
+
+**The distinction the table is drawing matters more than the count.** Fifteen of the nineteen are
+partial parses of a _snippet inside a rule_ — semgrep parsed `ci.yml` as YAML fine and only failed
+to parse an embedded bash fragment for two GHA rules (`curl-eval`, `gha-curl-pipe-shell`). That
+is one rule missing one line. The whole-file syntax error is a different thing entirely: semgrep
+never read `bb-trade-template.test.ts` at all, so it could contain anything.
+
+**And the cause generalises.** It is the regex idiom `[^]` — an empty negated character class,
+valid JavaScript meaning "any character including newline" — which semgrep's TypeScript grammar
+mis-parses. `sheet-shape-matrix.test.ts:58` fails on the same construct. **Any file that adopts
+`[^]` drops out of SAST coverage**, and nothing anywhere says so. Today they are all test files.
+Nothing keeps it that way.
+
+**Can the step be made to fail on parse errors? Yes — `--strict`.** Documented as "return a
+nonzero exit code when WARN level errors are encountered". Measured in the pinned semgrep
+container across the four cases that matter, plus two controls:
+
+| scenario                                           | `--strict` | exit  |
+| -------------------------------------------------- | ---------- | ----- |
+| whole tree, existing parse errors                  | no         | **0** |
+| whole tree, existing parse errors                  | **yes**    | **3** |
+| a clean file                                       | yes        | 0     |
+| diff gate, parse error **already on the baseline** | yes        | **0** |
+| diff gate, PR **introduces** the unparseable file  | no         | **0** |
+| diff gate, PR **introduces** the unparseable file  | **yes**    | **3** |
+
+That composes correctly with the existing `--baseline-commit` design: it fails only PRs that
+introduce a file the scanner cannot read, and does not punish a PR for a pre-existing one. The
+weekly whole-tree run would go red on the ten above until they are fixed or ignored.
+
+**Not applied here, on purpose.** It is a `.github/` change, the last `ci.yml` edit produced
+churn, and turning the weekly job red is a decision rather than a commit. Written up so it is a
+ruling away, not a rediscovery away.
+
+### 13.6 — §5.1: what #1294 would need to get CI, and what it costs
+
+`ci.yml` triggers on `pull_request: branches: [main]`, and that filter matches the PR's **base**.
+So a PR targeting a feature branch fires nothing — confirmed on #1294, whose only check is
+`Supabase Preview / skipping`. Every R2 and R3 gate is therefore local-only, and local-versus-CI
+is exactly the gap that produced both the SAST finding and the eval finding on #1292.
+
+Two ways out, neither taken here:
+
+**A · Retarget #1294 at `main` once #1292 merges.** No workflow change; the gate that runs is the
+real one; #1294's diff collapses to just R2+R3 because #1292's commits are then on `main`. Costs a
+sequencing dependency — R2 and R3 stay ungated until #1292 lands — and a retarget needs a
+close/reopen to actually fire CI, which is a known trap in this repo.
+
+**B · Add the feature branch (or all branches) to `ci.yml`'s `pull_request.branches`.** Gets CI
+immediately, but it is a repo-wide trigger change: every PR to any base fires the full pipeline,
+`ci.yml` is the file with the ~20.5 KB per-step-input compile cliff, and the SAST baseline
+(`github.event.pull_request.base.sha`) would become the feature branch, which changes what
+"introduced" means for every stacked PR.
+
+**Recommendation: A.** B buys a few days of coverage at the price of a permanent change to how
+every PR in the repo is gated, and it changes the meaning of the one gate that already found real
+problems. **No third stack layer was opened**, per §8.
+
+### 13.7 — §5.2: which loop state files actually exist
+
+Two of the four named are phantom. Measured against `git ls-files`, `origin/main`, and
+`git log --all --diff-filter=A`:
+
+| file               | on disk    | on `origin/main` | ever added, any branch |
+| ------------------ | ---------- | ---------------- | ---------------------- |
+| `NEEDS_PRAKASH.md` | yes        | **no**           | once — on this stack   |
+| `ASSUMPTIONS.md`   | yes        | **no**           | once — on this stack   |
+| `AGENT_LOOP.md`    | yes (stub) | **no**           | once — on this stack   |
+| `LOOP_QUEUE.md`    | **no**     | no               | **never**              |
+| `LOOP_JOURNAL.md`  | **no**     | no               | **never**              |
+
+`LOOP_QUEUE.md` and `LOOP_JOURNAL.md` have never existed in this repository. Not created.
+
+**The sharper half:** the other three are not on `main` either. The whole question queue, every
+assumption, and the HALT trigger live on an unmerged stack. `AGENT_LOOP.md` stays exactly as it
+is — Prakash has the canonical version outside the repo and will commit it, so reconstructing
+§1–3 would create the second competing copy the entry warns about.
+
+### 13.8 — §6: the drop order's default is revised, and now measured
+
+Reverse §5.1 is the wrong ordering to derive a drop order from. §5.1 ranks by decisiveness for the
+₹40 unlock — Job 1 — so dropping strictly by it optimises Job 1 and destroys Job 3, surviving the
+gate, where documents-ready is the entire point. §13.1 shows it is not hypothetical: 16 sheets
+degraded, the credentials block absorbed all of it, and no capability row was ever touched.
+
+**Revised default, in force, awaiting ruling and RVM's redline:** capability blocks compress
+before whole blocks drop — exhaust compression inside Zone 2 before dropping any Zone 5 block,
+extending §4.3's existing per-row caps. Recorded in full at `NEEDS_PRAKASH.md` Q2 with its
+reversal cost, which splits: re-ordering the ladder is mechanical, but **compression is a
+mechanism that does not exist** — every step today removes a whole element, and a compressing step
+needs a per-row cap, an intra-row ordering, and a rule for what the removed chips do to the row's
+meaning. Logged as proposed, not built, per §8.
+
+---
+
+## §14 — R3 packet digest, and the render track stops here
+
+**One build item, four reports, no new render work opened.** Everything below lands on
+[#1294](https://github.com/RVM-BEYOND-PRIVATE-LIMITED/badabhai-platform/pull/1294)
+(`feat/resume-degradation-stage`), stacked on
+[#1292](https://github.com/RVM-BEYOND-PRIVATE-LIMITED/badabhai-platform/pull/1292), which is
+green on every CI job at `73b9e162`. **#1294 still gets no CI and that is still not a green
+check** — see §13.6 for what it would take and what each option costs.
+
+### The build item: font resolution fails closed (§3)
+
+The second silent font failure in this pipeline, closed by measuring what the renderer _did_
+rather than trusting that it ran. `PdfRenderer.assertFontsResolve` renders a fixed probe through
+the same `weasyprint` invocation as the real render, reads the faces the PDF embeds out of its
+Flate streams, and **throws** unless they match the sheet's contract. A missing PDF is a visible
+incident; a serif sheet in a worker's WhatsApp forward is not.
+
+Three real containers, three checked-in fixtures, five isolated mutations all killed, and a
+teardown-hook bug in the new test file found and fixed along the way (§13.4).
+
+### The three answers owed (§2)
+
+- **Per-shape landing, all 56 sheets** (§13.1). 16 degrade, 40 sit at stage 0. Worst overshoot
+  **2.93 lines** — the ladder is fine-grained. The real finding is what it never reaches:
+  **languages 16, documents 14, certificates 10, education 1, capability rows 0.**
+- **The control's bound** (§13.2). `refined = 0` proves the metric cannot change a corpus without
+  sub-unit bindings. It could not have caught a bug _inside_ the refinement path, which never
+  ran. The ten refinements rest on a read and three pinning tests — different evidence, stated as
+  such.
+- **The QR compounds** (§13.3). 0.545 mm is 9% above a 0.5 mm floor that is itself a guess. Run
+  the xerox at the `sslip.io` length.
+
+### The two read-only reports (§4, §5)
+
+- **SAST**: **10 files, 19 error records** — the R2 "seven" was an undercount and is corrected.
+  None in auth, guards, crypto, unlocks, payments or pseudonymisation. One file is unscanned
+  entirely, and the cause — the `[^]` regex idiom — generalises to any file that adopts it.
+  `--strict` fixes it and the six-case exit-code matrix is measured, including that it does _not_
+  punish a PR for a pre-existing parse error. Not applied: `.github/` needs a ruling.
+- **Loop state files**: `LOOP_QUEUE.md` and `LOOP_JOURNAL.md` **have never existed** here. The
+  other three exist only on this unmerged stack — the entire question queue is one abandoned
+  branch away from gone.
+
+### Where this leaves the product, stated plainly
+
+The render half is well built. It is not the critical path, and none of these has moved:
+
+- **Work-history capture has not moved.** `worker_employment` still has no writer —
+  `worker-employment.repository.ts` reads and never inserts. Every worker's Zone 4 still prints
+  the interim fallback, with no employer and no dates (Q1).
+- **Phase C extraction has not moved.** No `employments` in the extraction prompt, no
+  `EmploymentEntry` in `ai-contracts`. Nothing extracts a work history from a transcript.
+- **B0b has not moved.** `turner-reach.db.test.ts` is still `it.fails`, still gated behind
+  `RUN_DB_TESTS=1`, which CI does not set. A fully-answered turner still derives zero
+  `worker_skill` rows and appears in no posting's reach (Q4).
+- **A real interviewed turner is still not reachable.** Every sheet measured on this track — all
+  56 — is a fixture. No worker has walked the pack end to end and held the paper.
+
+### Nine open questions, and the track stops
+
+The queue on the render track is now dry: Q1, Q4 and Q8 are the ones with cost, and all three
+want a decision rather than more code. **Q8 is the alarm** — 56 fixtures, a render block, three
+gates and a degradation ladder now assume one spine, and its reversal cost rises with every
+commit. Continuing to build is how nine questions becomes fifteen.
+
+No further render item is opened.

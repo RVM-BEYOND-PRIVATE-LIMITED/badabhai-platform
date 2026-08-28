@@ -301,12 +301,31 @@ function collapseEmployments(s: DegradableSheet, keep: number): void {
   s.employmentsMore = `${total} earlier employers`;
 }
 
+/** One applied ladder step, with what it cost the sheet and what the sheet needed. */
+export interface DegradationStep {
+  readonly what: string;
+  /** Lines the sheet was OVER budget before this step ran. */
+  readonly over: number;
+  /** Lines this step removed. */
+  readonly gain: number;
+}
+
 export interface DegradationResult<T> {
   readonly sheet: T;
   /** 0 = nothing dropped. Stamped on the artifact so a PDF reproduces exactly (§7.4). */
   readonly stage: number;
   /** What each applied stage removed, for the provenance stamp and for the tests. */
   readonly dropped: readonly string[];
+  /**
+   * Per-step cost, for reading the ladder's GRANULARITY rather than just its order.
+   *
+   * The ladder always drops in decreasing order of what the guideline ranks, so it can never
+   * shed something more decisive while something less decisive was still available. What it CAN
+   * do is overshoot: a step whose `gain` far exceeds the `over` it was answering has taken a
+   * whole block off the sheet where trimming inside that block would have cleared the floor.
+   * That is a granularity finding, not a bug, and it is only visible if the numbers are kept.
+   */
+  readonly trace: readonly DegradationStep[];
 }
 
 /**
@@ -320,8 +339,9 @@ export interface DegradationResult<T> {
 export function degradeToFit<T extends DegradableSheet>(input: T): DegradationResult<T> {
   const working: T = { ...input };
   const dropped: string[] = [];
+  const trace: DegradationStep[] = [];
   if (sheetContentLines(working) <= SHEET_LINE_BUDGET) {
-    return { sheet: working, stage: 0, dropped };
+    return { sheet: working, stage: 0, dropped, trace };
   }
   for (let i = 0; i < LADDER.length; i += 1) {
     const before = sheetContentLines(working);
@@ -330,10 +350,17 @@ export function degradeToFit<T extends DegradableSheet>(input: T): DegradationRe
     // Only a step that actually removed something counts as a stage — steps 1 and 2 match
     // nothing today, and a stage number that moved without the page changing would be a lie on
     // the provenance stamp.
-    if (after < before) dropped.push(LADDER[i]!.what);
+    if (after < before) {
+      dropped.push(LADDER[i]!.what);
+      trace.push({
+        what: LADDER[i]!.what,
+        over: Number((before - SHEET_LINE_BUDGET).toFixed(2)),
+        gain: Number((before - after).toFixed(2)),
+      });
+    }
     if (after <= SHEET_LINE_BUDGET) {
-      return { sheet: working, stage: dropped.length, dropped };
+      return { sheet: working, stage: dropped.length, dropped, trace };
     }
   }
-  return { sheet: working, stage: dropped.length, dropped };
+  return { sheet: working, stage: dropped.length, dropped, trace };
 }

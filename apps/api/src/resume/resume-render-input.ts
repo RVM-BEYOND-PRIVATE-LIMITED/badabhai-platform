@@ -204,8 +204,13 @@ export function buildResumeRenderInput(
     audience,
     tradeSheet,
   );
-  const { sheet, stage, dropped } = degradeToFit(built);
-  return { ...sheet, degradationStage: stage, degradationDropped: dropped };
+  const { sheet, stage, dropped, trace } = degradeToFit(built);
+  return {
+    ...sheet,
+    degradationStage: stage,
+    degradationDropped: dropped,
+    degradationTrace: trace,
+  };
 }
 
 function buildUndegraded(

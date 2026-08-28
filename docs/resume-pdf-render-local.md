@@ -151,3 +151,19 @@ every sheet at once, with a binary assertion still green. The floor is measured:
 
 **Not wired into CI**, because the `e2e` job has no WeasyPrint. It is a local gate today; results
 are recorded in [resume-engine-r1-journal.md](./resume-engine-r1-journal.md).
+
+## Font resolution — the guard, and re-rendering its fixtures
+
+A missing font package does not fail this pipeline. WeasyPrint exits 0, produces a valid PDF, and
+prints the sheet in whatever face fontconfig fell through to — Devanagari as .notdef boxes without
+`fonts-noto-core`, and the whole sheet in DejaVu Serif once the sans faces go too.
+
+`PdfRenderer.assertFontsResolve` closes that by rendering a fixed probe through the same
+`weasyprint` invocation as a real render and reading the faces the PDF **actually embeds**. It
+throws rather than degrading: a missing PDF is a visible incident, a wrong one is not. Nothing
+about this needs a local run — the negative evidence is three checked-in PDFs from three
+containers.
+
+Regenerating those fixtures (only needed if `RESUME_FONT_PROBE_HTML` changes — a test enforces
+that they match) is documented beside them, in
+[`apps/api/src/resume/__fixtures__/font-probe/README.md`](../apps/api/src/resume/__fixtures__/font-probe/README.md).

@@ -9,6 +9,7 @@ import { WorkerAttributesRepository } from "../profiles/worker-attributes.reposi
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import { StorageService } from "../storage/storage.service";
 import { ResumeRepository } from "./resume.repository";
+import { FontResolutionError } from "../common/pdf/font-resolution";
 import { ResumeRenderer } from "./resume-renderer.service";
 import { buildResumeRenderInput, type TradeSheetContext } from "./resume-render-input";
 import { buildResumeQrDataUri } from "./resume-qr";
@@ -227,11 +228,20 @@ export class ResumeRenderProcessor extends WorkerHost {
     try {
       pdf = await this.renderer.renderPdf(input);
     } catch (err) {
-      // The renderer is designed to degrade to null, but guard anyway. Never log
-      // the input/name — only a generic reason.
-      this.logger.warn(
-        `resume ${resumeId} render threw (${err instanceof Error ? err.message : "unknown"}); treating as no-PDF`,
-      );
+      if (err instanceof FontResolutionError) {
+        // NOT a per-resume fault: the image cannot resolve the sheet's fonts, so every
+        // resume it renders would be wrong in the same way. Logged at error level
+        // because the correct response is to fix the image, and because the symptom it
+        // replaces — a sheet in the wrong font — produces no log line at all.
+        // `err.message` is constants only (contract name + PostScript face names).
+        this.logger.error(`resume render refused: ${err.message}`);
+      } else {
+        // The renderer is designed to degrade to null, but guard anyway. Never log
+        // the input/name — only a generic reason.
+        this.logger.warn(
+          `resume ${resumeId} render threw (${err instanceof Error ? err.message : "unknown"}); treating as no-PDF`,
+        );
+      }
       pdf = null;
     }
 

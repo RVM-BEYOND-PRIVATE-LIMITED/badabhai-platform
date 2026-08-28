@@ -196,17 +196,19 @@ one that is blocking does not look.
 FAILING, and every "X is clean / X is absent / X passed" claim is treated as unproven until it
 was produced by a run that could actually have said otherwise.
 
-**Why this is an entry and not a note.** It is now the fourth instance of one failure, and the
+**Why this is an entry and not a note.** It is now the SEVENTH instance of one failure, and the
 instances look nothing like each other, which is exactly why naming the instance never helped:
 
-| #   | The claim                             | Why it could not be observed                                                                                                                                                                         |
-| --- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `db:verify:match-v1` passes           | It ran against an EMPTY database, so it verified nothing and said so in the affirmative.                                                                                                             |
-| 2   | `/health` returns 200                 | It returned 200 with a dependency missing, so the check was insensitive to the thing it existed to detect.                                                                                           |
-| 3   | `main`'s `ci.yml` is prettier-clean   | I copied the file OUTSIDE the repo before checking, so prettier resolved no config and applied defaults. The answer described a file that does not exist.                                            |
-| 4   | No schema↔migration drift gate exists | Read off a stale TD note instead of the live workflow list. `supabase-checks.yml` is active and ran (see A6).                                                                                        |
-| 5   | "Migration drift ✓" on PR #1292       | Both assertion steps are `continue-on-error: true`, so the job reports success whether the assertion passed or failed — and neither job reads the journal `when` at all. A check that cannot go red. |
-| 6   | "28/28 sheets fit on one page"        | Every fixture carried `qrDataUri: null`, so the element §12.2 rests the acquisition thesis on had never rendered once. The sheets measured were not the sheets production prints.                    |
+| #   | The claim                             | Why it could not be observed                                                                                                                                                                                                |
+| --- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `db:verify:match-v1` passes           | It ran against an EMPTY database, so it verified nothing and said so in the affirmative.                                                                                                                                    |
+| 2   | `/health` returns 200                 | It returned 200 with a dependency missing, so the check was insensitive to the thing it existed to detect.                                                                                                                  |
+| 3   | `main`'s `ci.yml` is prettier-clean   | I copied the file OUTSIDE the repo before checking, so prettier resolved no config and applied defaults. The answer described a file that does not exist.                                                                   |
+| 4   | No schema↔migration drift gate exists | Read off a stale TD note instead of the live workflow list. `supabase-checks.yml` is active and ran (see A6).                                                                                                               |
+| 5   | "Migration drift ✓" on PR #1292       | Both assertion steps are `continue-on-error: true`, so the job reports success whether the assertion passed or failed — and neither job reads the journal `when` at all. A check that cannot go red.                        |
+| 6   | "28/28 sheets fit on one page"        | Every fixture carried `qrDataUri: null`, so the element §12.2 rests the acquisition thesis on had never rendered once. The sheets measured were not the sheets production prints.                                           |
+| 7   | "SAST: 1 finding, tree-wide"          | Semgrep reports files it could not parse in `errors`, never in the finding count. Ten files carry parse errors and one is unscanned ENTIRELY, so the honest statement is "1 finding among what parsed". Measured fix below. |
+| 8   | "the résumé rendered"                 | WeasyPrint exits 0 with the wrong font. Twice: Devanagari as .notdef boxes, then the whole sheet in DejaVu Serif. The exit code, the byte count and the page count are all identical to a correct render.                   |
 
 The shape they share is not carelessness. In every case a real command ran, exited 0, and
 printed something true — about a different question than the one being asked. A green result is
@@ -235,5 +237,51 @@ different claims and only one of them was true.
   it never touched. Check formatting IN the repo, on the files you actually changed.
 - **A `continue-on-error: true` step reports a green check.** Read step conclusions
   (`gh api .../actions/jobs/<id> --jq '.steps[]'`), not the check list, before believing a gate.
+- **Semgrep's finding count excludes what it could not read.** Ten files in this tree produce
+  `errors`, and `apps/api/src/resume/templates/bb-trade-template.test.ts` produces a whole-file
+  syntax error — semgrep never reads it, so it can contain anything. The cause is a regex idiom,
+  `[^]` (an empty negated class, valid JS, "any character including newline"), which semgrep's
+  TypeScript grammar mis-parses. **Any file that adopts `[^]` becomes invisible to the SAST
+  gate**, and nothing says so. `--strict` is the fix and it is measured in the R3 journal; it is
+  not applied here because `.github/` changes need a ruling, not a commit.
+- **A PDF that rendered is not a PDF that rendered correctly.** Font resolution degrades
+  silently at exit 0. `PdfRenderer.assertFontsResolve` now fails closed on it by measuring which
+  faces the produced bytes actually embed — see A8.
 
 **Cost of reversal.** None — it constrains how claims are made, not what the code does.
+
+---
+
+## A8 · The résumé's font contract is two faces, and bold is deliberately not one of them
+
+**Assumed.** `RESUME_FONT_CONTRACT` requires exactly `Noto-Sans` and `Noto-Sans-Devanagari` to be
+embedded in a probe render, and allows only faces whose name begins `Noto-Sans`. Anything else
+refuses the render.
+
+**Why each half.** The required list is not a wish-list — each entry maps to a container that
+produced a wrong sheet at exit 0, measured:
+
+| container                               | faces embedded                                        | what the worker gets            |
+| --------------------------------------- | ----------------------------------------------------- | ------------------------------- |
+| the shipped image                       | `Noto-Sans`, `Noto-Sans-Bold`, `Noto-Sans-Devanagari` | the locked design               |
+| minus `fonts-noto-core`                 | `DejaVu-Sans`, `DejaVu-Sans-Bold`                     | his name in empty boxes         |
+| minus the DejaVu **sans** faces as well | `DejaVu-Serif`, `DejaVu-Serif-Bold`                   | a serif sheet, 5 shapes 2 pages |
+
+The allowlist is stated as an allowlist rather than "not DejaVu", because DejaVu **Serif** is
+precisely the substitution nobody enumerated — a denylist can only ever exclude what someone
+already imagined. Same reasoning as the screen_context allowlist.
+
+**Bold is NOT required, on purpose.** `Noto-Sans-Bold` is present in the shipped image and shows
+up in the fixtures. It is left out of the contract because a synthesised bold is a small visual
+regression rather than a wrong artifact, and every extra required face is one more way for a
+font _upgrade_ — a variable-font Noto, a repackaged Debian font — to refuse a résumé that would
+have been fine. A fail-closed guard's false positives cost real résumés.
+
+**What this assumes that could be wrong.** That WeasyPrint keeps naming faces `Family-Weight` in
+`/BaseFont`. If a future release changes that convention the guard goes red on a healthy image
+and nobody gets a résumé until one constant is edited. That is the correct failure direction for
+this guard — loud, immediate, one-line fix — but it is a real cost and it is chosen, not
+overlooked.
+
+**Cost of reversal.** Low. Delete the `assertFontsResolve` call in `ResumeRenderer.renderPdf` and
+the guard is gone; the module and its fixtures are inert without that one line.

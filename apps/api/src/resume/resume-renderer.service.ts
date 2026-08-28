@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Injectable } from "@nestjs/common";
 import { PdfRenderer } from "../common/pdf/pdf-renderer.service";
+import type { DegradationStep } from "./resume-degradation";
+import { RESUME_FONT_CONTRACT } from "./resume-fonts";
 import { getResumeTemplate } from "./templates/registry";
 
 /**
@@ -135,6 +137,12 @@ export interface ResumeRenderInput {
    */
   degradationStage?: number;
   degradationDropped?: readonly string[];
+  /**
+   * Per-step cost of the ladder that produced this sheet. DIAGNOSTIC ONLY — nothing renders it.
+   * It exists so the ladder's granularity can be read off the emitted matrix: a step that gained
+   * far more than the sheet was over took a whole block where a trim would have done.
+   */
+  degradationTrace?: readonly DegradationStep[];
 
   // ==========================================================================
   // THE LOCKED TRADE SHEET (`bb_trade.v1`).
@@ -565,8 +573,15 @@ export class ResumeRenderer {
    * Render the PDF. Returns null (degraded) when the kill-switch is off, the
    * binary is missing, the process times out, the buffer guard trips, or it exits
    * non-zero — the shared {@link PdfRenderer} owns that. NEVER logs the HTML/name.
+   *
+   * THROWS, deliberately, when the image cannot resolve the sheet's fonts. That is
+   * the one failure this method refuses to degrade over, because degrading produces a
+   * PDF rather than withholding one: a Devanagari name line of empty boxes, or the
+   * whole sheet in DejaVu Serif, both at exit 0. The processor turns the throw into
+   * the same visible "no PDF this run" it already handles.
    */
   async renderPdf(input: ResumeRenderInput): Promise<Buffer | null> {
+    await this.pdf.assertFontsResolve(RESUME_FONT_CONTRACT);
     return this.pdf.renderHtmlToPdf(this.buildResumeHtml(input), "resume");
   }
 
