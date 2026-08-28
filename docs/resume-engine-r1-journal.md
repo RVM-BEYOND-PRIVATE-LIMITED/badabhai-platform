@@ -1489,3 +1489,101 @@ with none**, because a stacked PR's checks do not run on a non-main base. Everyt
 B0b before it, is unrun by CI until #1292 merges.
 
 The pseudonymisation change went to an ai-engineer review before merge, per the directive.
+
+---
+
+## §18 — R7: the model on, five personas, and what a real sheet looks like
+
+Mode change honoured: this packet stops hardening and runs the pipeline.
+
+### 18.1 — §2 was already true, and the blocker was somewhere else
+
+The directive's premise was that `AI_REAL_CALL_TASKS` is empty. **On this box it is not.** The
+local `apps/ai-service/.env` arms all six tasks with both provider keys present, and
+`real_calls_blocked_reason()` is `None`. R5/R6 reported the _code default_ and the _compose
+defaults_; the developer env file overrides both. So no flag had to be flipped to get a model.
+
+Two things did have to be found:
+
+**`gemini-2.5-pro` is RETIRED at the provider.** `404 — "no longer available to new users …
+use models/gemini-3.1-pro-preview"`. `ai_chat_model_tier` is `pro`, so **every chat turn fails
+twice on Gemini and falls through to `claude-haiku-4-5`**, which works. Nothing errors, nothing
+logs above a per-attempt warning, and the cost model prices Pro while Anthropic is billed. #1237
+raised the chat tier to Pro because "this is the model a worker actually meets" — it has been
+unreachable ever since. `gemini-2.5-flash` and `-flash-lite` both answer 200.
+
+**The extraction contract was discarding whole profiles.** Two of five personas returned
+`"work_done": null` on one employment; `ExperienceEntry.work_done` was a required `str` whose
+`default("")` only filled `undefined`, and `experiences` is the one list-of-objects in the
+contract — so one null failed the whole `model_validate`. p3 lost 22 skills and 2 employments,
+p5 lost 24 and 3. Silently, as `is_mock=true`, which downstream reads as _no interview happened_.
+
+Fixed twice over: the null coerced to `""` on both sides of the frozen contract (parity gate
+green), and an entry-tolerant retry so the next quirk in that position costs one job rather than
+the profile. All five extract afterwards.
+
+### 18.2 — §1, the synthetic seam, and why it is three barriers
+
+Pseudonymisation is off for synthetic personas only, and the capability is fenced rather than
+flagged:
+
+1. `AI_SYNTHETIC_PERSONA_MODE` is a **reason string**, not a bool — the `CANONICALIZE_ALLOW_LOCAL`
+   shape, uninheritable from a stray `true`;
+2. `main.py` registers `/synthetic/*` **only when it is set**, so an unarmed process has no such
+   route — verified both directions;
+3. `synthetic-persona-posture.guard.test.ts` asserts **neither compose file declares the
+   variable**, so it has no path into a deployed container (#794's lesson), plus a startup refusal
+   if `BACKEND_API_URL` is non-loopback.
+
+The masker is a function in the production tree, selected by ARGUMENT at the route rather than by
+a flag read inside the handler — so "which masker ran" is a property of the door the caller
+reached. One body, two doors: a second copy of Phase C would have drifted within a week and the
+harness would then be measuring something else.
+
+### 18.3 — §3, five sheets, and four findings a run produces and a review cannot
+
+Full table in `docs/profiling/persona-ladder-r7.md`. The four:
+
+- **Total years is wrong on every persona who has any.** The headline sums the model's
+  per-employment `duration_months`; a 5-year man prints "1 yr 8 mo", an 8-year man "5 yrs 4 mo",
+  a 2-year man "duration not stated". `experience_years` is a MANDATORY universal ask holding the
+  right answer and the container branch never looks at it.
+- **The one-page contract fails for the senior worker and the ladder does not notice.** p4 is
+  312 mm of content in a 273 mm page at `degradationStage: 0`. The estimator was fitted to the
+  three ratified samples; he exceeds them and nothing reports it.
+- **The 9-row capability cap drops `Tolerance held` for every senior persona** — ±0.01 mm is the
+  strongest pay signal a turner has.
+- **The own-words block fires for nobody**, and it is the cheapest win on the junior's page. p2's
+  sheet is 158 mm of 273 mm, and his own Hinglish is sitting unused in the extraction output.
+
+### 18.4 — §5, answered negatively, and I checked why
+
+The hazard is real and measurable: p2's transcript says _"khud se setting nahi karta"_ and the
+chip grid claims `Tool offset` **5 runs out of 5**. Four of his eight claims contradict or exceed
+his own words, deterministically. The R5 asymmetry property test cannot see any of it, because
+every tick is a literal claim.
+
+**Employer anchoring changed nothing** — 8 vs 8 for p2 across five runs per arm, unchanged when an
+explicit over-claim pressure was added, and 18 vs 18 for p4, who has three employers (which rules
+out the obvious "one employer, no constraint" explanation).
+
+The limit is stated rather than buried: a model reading a transcript is not a worker with an
+incentive, so this cannot measure human over-claim. What it does show is that the over-claims are
+**contradicted by text we already hold** — so the constraint that bites is a cross-check against
+the transcript, not a re-phrased question. Proposed, not built.
+
+### 18.5 — What is proposed and NOT applied
+
+Per §7: the function/years branch (`turning_function` as ask 1), the persona-2 skip list, the
+persona-4 additions, and a seniority-scaled budget (`16 + tier_bonus`, ceiling still 28 so the
+authoring guard still bounds it). Nothing in the packs changed.
+
+### 18.6 — State
+
+Three commits. `tsc` clean; `apps/api` resume+profiling **1206 passed**; ai-service green apart
+from the pre-existing `test_ai_observability` failure; ruff clean; contract parity green.
+
+Artifacts committed under `scripts/persona-harness/out/` — five PDFs, five HTMLs, the extraction
+records (each carrying `is_mock` and the model that answered) and the anchoring tallies. 176 KB.
+
+**#1292 still has not moved**, so #1294 continues to carry all of this with no CI.
