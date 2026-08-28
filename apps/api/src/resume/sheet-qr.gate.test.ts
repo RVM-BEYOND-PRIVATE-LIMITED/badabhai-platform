@@ -130,6 +130,16 @@ describe.each(WITH_CONTEXT)("shape $n — $name", (shape) => {
 });
 
 describe("the QR contract the layout and the generator have to keep together", () => {
+  it("still reserves the ratified 18 mm — the physical dimension, pinned on its own", () => {
+    // THE MODULE FLOOR ALONE WOULD NOT CATCH THIS CLEANLY. Shrinking the box to buy page space
+    // is the obvious move the next time a sheet overflows, and `RENDERED_MM` and the CSS would
+    // be changed together, so the drift test below stays green. The module floor does catch it
+    // eventually — 25 modules x 0.5 mm means anything under 12.5 mm fails — but "the design
+    // ratified an 18 mm square" is the actual constraint, and a rule should fail for its own
+    // reason rather than as a side effect of arithmetic that a shorter URL could change.
+    expect(RESUME_QR.RENDERED_MM).toBe(18);
+  });
+
   it("reserves in CSS exactly the size the generator is documented to print at", () => {
     // THE DRIFT THIS STOPS. `RENDERED_MM` is the number every margin above is computed from, and
     // it lives in resume-qr.ts while the box that actually prints lives in the template. Shrink
