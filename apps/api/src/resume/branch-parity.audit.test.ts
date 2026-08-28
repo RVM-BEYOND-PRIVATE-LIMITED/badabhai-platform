@@ -216,8 +216,8 @@ function builderParams(builder: SharedBuilder): Field[] {
   return fieldsOf(literalAt(ROWS_SOURCE, at));
 }
 
-const BRANCHES = { legacy: LEGACY_BODY, container: CONTAINER_BODY } as const;
-type Branch = keyof typeof BRANCHES;
+/** The two source paths, named once. The bodies are read through the constants above. */
+type Branch = "legacy" | "container";
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
 // The allowlist — every known asymmetry, each with the reason it is allowed to stand
