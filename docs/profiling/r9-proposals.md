@@ -51,8 +51,41 @@ already gated (the payer copy prints neither end).
 3. **The second ask is skippable.** If he answers only one, we have the current behaviour and
    have lost nothing.
 
-**If the ruling is no:** the point figure stays and Zone 3 stays one field short of parity. No
-other work is blocked.
+### The ruling has to settle a live defect at the same time
+
+`salary_expectation.amount_min` currently means **two different things** depending on which
+writer produced the snapshot:
+
+| writer                                                      | `amount_min`          | `amount_max`      | reached when                                              |
+| ----------------------------------------------------------- | --------------------- | ----------------- | --------------------------------------------------------- |
+| `profile_extractor.py:187` `_build_legacy`                  | **`current_salary`**  | `expected_salary` | the normal path — this is what `/profile/extract` returns |
+| `profile-extraction.processor.ts:1838` `toExtractionOutput` | **`expected_salary`** | —                 | only when the ai-service is unreachable                   |
+
+The résumé's legacy branch prints `amount_min` labelled **"expects"**, so on the live path a
+worker's CURRENT pay is printed as his asking price. Persona 2 said "abhi 14 hazaar mil rahe hain,
+16 chahiye"; his sheet would read `expects ₹14,000`. `amount_max` — the figure he actually asked
+for — is never read by the résumé at all.
+
+**This is the same failure class as R8 §1**: no fabrication, every number worker-stated, the
+fabrication gate passes, and the man is under-represented against his own words.
+
+I have not changed it, because the correct value depends on this ruling. Under the band proposal
+the fields become unambiguous:
+
+```
+  amount_min  the minimum he will accept   ("kam se kam")
+  amount_max  the figure he is asking for  ("zyada se zyada")
+```
+
+Under that reading, Python's `amount_min = current_salary` is wrong under either interpretation —
+current pay is neither the floor he will accept nor the figure he asks for — and the fix is one
+line plus a cross-language parity test pinning the two writers to one meaning. **Whichever way Q5
+goes, this needs a decision**, because leaving two writers with opposite meanings for one field is
+how the wrong one gets read next time.
+
+**If the ruling is no:** the point figure stays and Zone 3 stays one field short of parity — but
+**the `amount_min` disagreement still has to be settled**, because it is wrong today independently
+of whether we ever ask for a band.
 
 ---
 

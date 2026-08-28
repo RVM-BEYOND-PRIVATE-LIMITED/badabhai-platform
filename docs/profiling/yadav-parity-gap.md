@@ -74,6 +74,66 @@ layout gap.
 
 ---
 
+## 0.5 · Three findings the side-by-side did not show, and one is a live defect
+
+Surfaced by an eight-lane trace of every field to its capture surface, then verified by hand.
+
+### (a) `amount_min` means two different things, and the sheet prints the wrong one
+
+**Two writers disagree about what `salary_expectation.amount_min` holds:**
+
+| writer                                                                            | `amount_min`          | `amount_max`      |
+| --------------------------------------------------------------------------------- | --------------------- | ----------------- |
+| `apps/ai-service/app/profiling/profile_extractor.py:187` `_build_legacy`          | **`current_salary`**  | `expected_salary` |
+| `apps/api/src/profiles/profile-extraction.processor.ts:1838` `toExtractionOutput` | **`expected_salary`** | —                 |
+
+The résumé's legacy branch prints `formatMonthlySalary(draft.salary_expectation.amount_min)` into
+the Verdict Line labelled **`expects ₹X / month`**.
+
+The Python one is the live path: `/profile/extract` returns `profile=legacy`
+(`routers/profile.py:179`), `profile-extraction.processor.ts:350` takes `result.profile` and
+writes it to `raw_profile` (:404), `resume.service.ts:83` parses that into
+`sourceProfileSnapshot`, and the mapper prints it. The TypeScript projection is only reached when
+the ai-service is unreachable.
+
+**So on the legacy branch a worker's CURRENT pay is printed as his asking price.** For persona 2 —
+"Abhi 14 hazaar mil rahe hain, 16 chahiye" — the sheet would say `expects ₹14,000`, handing an
+employer a ₹2,000/month discount the worker never offered. `amount_max`, which holds the figure he
+actually asked for, is **never read by the résumé at all**.
+
+It is the same class as R8 §1's total-years bug: nothing fabricates anything, every number is
+worker-stated, the fabrication gate passes — and the man is under-represented against his own
+words. The container branch is unaffected (it reads `rp.expected_salary` directly).
+
+**Not fixed here.** Which meaning is canonical is a contract question across two languages, and
+Q5's proposal changes the same field's semantics. It belongs in that ruling — see
+`r9-proposals.md` §Q5.
+
+### (b) The phone prints unformatted, and every fixture hides it
+
+Yadav prints `+91 98765 43210`. Production passes `pii.decrypt(worker.phoneE164)` straight into
+`{{phone}}` with **no formatter anywhere in `apps/api/src/resume`**. E.164 storage means the real
+sheet prints `+919876543210`, unspaced.
+
+The grouped form exists in exactly one place: the test fixture at `__fixtures__/sheet-shapes.ts`.
+So every fixture-driven sheet — **including the turner parity sheet above** — shows a formatting
+the product cannot currently produce. A one-function fix, and it is on the second-most-scanned
+line of the page.
+
+### (c) There is no milling resume map at all
+
+`TRADE_RESUME_MAPS` contains exactly ONE entry: `qp_cnc_turning`. Yadav is a **VMC/milling**
+sheet, and the nearest milling pack (`qp_machining.json`) asks only machine type, programming,
+drawing reading, measuring tools, workplace and tools owned — **no controller ask and no axis
+ask**.
+
+So the ratified sample cannot be reproduced for a real milling worker today, and not because of
+any gap in this table: Zone 2 would render empty for him, and Zone 1's controllers segment could
+not populate either. Every "capturable" verdict below is scored against the TURNER pack, which is
+the only authored role track.
+
+---
+
 ## 1 · Zone 1 — masthead and Verdict Line
 
 | Field                 | Yadav                              | Verdict        | Where it breaks                                                                                                                                                                                                                   |

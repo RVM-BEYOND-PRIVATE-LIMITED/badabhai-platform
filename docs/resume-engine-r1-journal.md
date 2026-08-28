@@ -1775,3 +1775,125 @@ five render summaries carrying the estimator's own prediction, `manifest.json` a
 `tier-ladder.json`.
 
 **#1292 still has not moved**, so #1294 continues to carry all of this with no CI.
+
+---
+
+## §20 — R9: parity with the Yadav sheet, and what the side-by-side cost
+
+### 20.1 — The turner sheet fits. Density was never the problem.
+
+A fully-answered turner — every Zone 2 row the pack can produce, three employers, a promotion, a
+complete Zone 5 — renders through the shipped mapper and template at **275.67 mm of a 297 mm
+page: one page, 21.33 mm of headroom, `degradationStage: 0`**.
+
+Structurally the two sheets are the same document: six zones, same order, same headings, same
+typography, same tick and chip treatments, no empty section on either. **Eleven specific fields
+differ, and every one is a capture gap rather than a layout gap.**
+
+### 20.2 — The eight render rules are now executable, not described
+
+`yadav-parity.contract.test.ts` asserts each of §6's rules against the shipped mapper and
+template. Three hold outright: the promotion case, where the months sit, and the tick prefix
+surviving a wrap. Five are written as `it.fails` — the test RUNS, the assertion is real, the suite
+stays green, and the moment someone implements the rule it goes RED and forces the flip.
+
+That shape was chosen deliberately over `it.todo` and over a red suite: **a gap that is an
+assertion cannot rot into a stale doc row**, which is the failure this repo has recorded before.
+
+### 20.3 — The credential's four components, built
+
+The sheet prints "ITI — Machinist · NCVT · 2018 · Govt. ITI, Faridabad" and we held two of five
+segments. `education_council` (a closed set of eight), `education_year` (bounded 1950–2100) and
+`education_institute` now ride the finishing form.
+
+**Council is the one that mattered most.** §4.5 forbids collapsing NCVT and SCVT, and until this
+landed the rule was **unenforceable rather than unimplemented** — nothing in the pack corpus, the
+contract or the schema could represent the distinction at all, so there was no value to collapse.
+
+Routed to the form rather than the interview on §3's own rule: a council is a closed set, a year
+is a number, an institute is read off a certificate. None needs a model.
+
+**Two of §3's five "certainly missing" fields were not missing.** Languages and documents-ready
+shipped in R6. And the per-employer detail line is fully capturable today — `work_done`, 300
+characters, on the shipped work-history form, mapped by `workLine()` and rendered by `{{work}}`.
+Our turner sheet prints exactly that shape.
+
+### 20.4 — The re-fit recovers NOTHING, and it corrects my own R8 recommendation
+
+R9 §5 assumed the 56 positive residuals meant slack worth reclaiming. Measured, they do not.
+
+Each sheet yields its own fitted constant `C` in `headroom = C − LINE_MM × lines`. Across all 56:
+`C` runs **208.97 to 240.03**, median 218.03. The residual is arithmetically identical to
+`C_sheet − 200.49` — the prediction uses the worst-case `C` for every sheet, so a roomier sheet
+shows a bigger residual **by construction**. Every residual being positive means the worst case is
+correctly the worst case.
+
+Testing the budget directly: at **41** no sheet falls below the 5 mm floor; at **42** two do; at
+**43** nineteen do, two of them overflowing. **`SHEET_LINE_BUDGET = 41` is exactly right.** The
+shipped constant was fitted to 209.0 and the measured worst is 208.97 — correct to three
+significant figures before anyone measured 56 sheets.
+
+**This corrects R8 §3 directly.** I recorded there that "the measured constants run 217–249" and
+proposed a re-fit. That range was estimated rather than computed; the real minimum is _below_ the
+fitted constant. The measurements are now committed as
+`docs/profiling/sheet-headroom-measurements.json`, so the next person does not have to take my
+word for either version.
+
+**So §5's conflict cannot be dodged.** Fourteen turner rows against a budget of nine.
+
+### 20.5 — A live defect the field-by-field trace found, verified by hand
+
+`salary_expectation.amount_min` means **two different things**. `profile_extractor.py:187` writes
+`current_salary` into it; `profile-extraction.processor.ts:1838` writes `expected_salary`. The
+Python one is the live path — `/profile/extract` returns it, the processor stores it in
+`raw_profile`, `resume.service` snapshots it, and the mapper prints it into the Verdict Line
+labelled **"expects"**.
+
+So on the legacy branch **a worker's current pay is printed as his asking price.** Persona 2 said
+"abhi 14 hazaar mil rahe hain, 16 chahiye"; his sheet would read `expects ₹14,000`, handing an
+employer a discount he never offered. `amount_max`, holding the figure he did ask for, is never
+read by the résumé at all.
+
+Same class as R8 §1: no fabrication, every number worker-stated, the gate passes, the man is
+under-represented against his own words. **Not fixed here** — which meaning is canonical is a
+cross-language contract question and Q5 changes the same field's semantics, so it belongs in that
+ruling. It needs a decision either way: two writers with opposite meanings for one field is how
+the wrong one gets read next time.
+
+Two more from the same trace, both verified: **the phone has no formatter anywhere** (E.164 goes
+straight to the slot, so production prints `+919876543210` while every fixture — including the
+parity sheet — shows the grouped form), and **there is no milling resume map at all** —
+`TRADE_RESUME_MAPS` has one entry, `qp_cnc_turning`, so the ratified sample could not be
+reproduced for a real VMC worker regardless of any gap in the table.
+
+### 20.6 — What is proposed, and not applied
+
+Q5 (ask for a band, and settle `amount_min`), Q1 (the promotion ask — schema, mapper, template and
+ladder are all already built; only the question is missing), and the turner's nine rows with the
+structural option that makes the choice cheaper: **materials already appears inside every
+per-employer detail line**, exactly as it does on Yadav's own sheet, so dropping the Materials ROW
+costs a worker with any history nothing and frees the ninth slot for Tolerance held.
+
+A fourth option nobody had costed: the page has ~4 spare lines, so raising
+`CAPABILITY_ROW_BUDGET` from 9 to 11 for the turner pack would buy two rows without touching
+`SHEET_LINE_BUDGET`. That number is quoted from the ratified samples, so it is an owner call.
+
+**The drop order is unchanged. No rank was edited. Nothing in §8's out-of-scope list was touched.**
+
+### 20.7 — One conflict recorded rather than settled
+
+`KNOWN_EDUCATION_LEVELS` prints the pack's Hinglish chip label and argues the résumé should say
+back the words the worker tapped; #963 names "10th se kam" and the app shows the same string.
+`worker-preferences.vocabulary.ts` prints English because "this half of the sheet is read by a
+hiring supervisor". They now sit on the **same row**: `ITI ya diploma — Turner · NCVT · 2018 ·
+Govt. ITI, Faridabad`. The ratified sheet settles it in English; flipping it changes every
+existing résumé and makes the app and the PDF disagree. Asserted as a gap, not taken.
+
+### 20.8 — State
+
+`tsc` clean; `apps/api` resume + profiles + config **996 passed**; the parity contract 17 passed
+(5 of them recording gaps executably); the emit suite 3 passed. Artifacts:
+`scripts/persona-harness/out/turner-parity.{html,pdf,render.json}` and the 56-sheet measurement
+data.
+
+**#1292 still has not moved**, so #1294 continues to carry all of this with no CI.
