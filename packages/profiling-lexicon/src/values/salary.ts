@@ -44,6 +44,7 @@ interface SalaryFile {
   readonly annualCuesAfter: readonly PatternSpec[];
   readonly annualCuesBefore: readonly PatternSpec[];
   readonly monthlyCues: readonly PatternSpec[];
+  readonly subMonthlyCues: readonly PatternSpec[];
   readonly moneyCues: readonly PatternSpec[];
   readonly credentialBefore: PatternSpec;
 }
@@ -61,6 +62,9 @@ const compileAll = (specs: readonly PatternSpec[]): readonly RegExp[] =>
 const ANNUAL_AFTER = compileAll(SALARY.annualCuesAfter);
 const ANNUAL_BEFORE = compileAll(SALARY.annualCuesBefore);
 const MONTHLY = compileAll(SALARY.monthlyCues);
+// Daily and weekly. R14 2.1 — a period this detector cannot convert without inventing a
+// days-per-month figure, so the amount is dropped rather than defaulted to monthly.
+const SUB_MONTHLY = compileAll(SALARY.subMonthlyCues);
 const MONEY = compileAll(SALARY.moneyCues);
 
 const THOUSAND_UNITS = new Set(SALARY.thousandUnits);
@@ -162,6 +166,12 @@ function periodMonths(nearBefore: string, nearAfter: string): number | null {
     ANNUAL_BEFORE.some((cue) => cue.test(nearBefore));
   const monthly = MONTHLY.some((cue) => cue.test(nearBefore) || cue.test(nearAfter));
   if (annual && monthly) return null;
+  // R14 2.1 — a DAILY or WEEKLY wage is not a monthly one, and the `1` below is what made it
+  // one: '1200 daily milta hai' found neither an annual nor a monthly cue, defaulted, and
+  // recorded ₹1,200 a month for a worker on roughly ₹31,000. Suppressed rather than converted —
+  // see data/salary.json. Checked after the conflict rule so an explicit period still wins.
+  if (!annual && !monthly && SUB_MONTHLY.some((cue) => cue.test(nearBefore) || cue.test(nearAfter)))
+    return null;
   return annual ? 12 : 1;
 }
 
@@ -187,6 +197,41 @@ export interface SalaryReading {
  * `AnswerRecord.history`), not this function's — a normalizer that silently preferred the last
  * number would make a correction indistinguishable from a worker listing two figures.
  */
+/**
+ * Where the BACKWARD expectation window may begin. `signals._guarded_window_start` (R14 §2.2).
+ *
+ * The mirror of guards (a) and (b). `expectedWindowBefore` is 25 characters and nothing clamped
+ * it, so a worker who states his ask FIRST — "35000 chahiye, abhi 25000 milta hai" — had the
+ * ask's cue reach back over the clause boundary and mark his CURRENT pay as expected;
+ * first-writer-wins then dropped the current pay entirely. (a') stops at the previous number,
+ * (b') at the last clause end. No (c') is needed: after (a') no number remains inside the window
+ * for a cue to belong to.
+ */
+function guardedWindowStart(
+  lower: string,
+  matchStart: number,
+  digitsAt: number,
+  numbers: readonly (readonly [number, number])[],
+  lineStart: number,
+): number {
+  let start = Math.max(lineStart, matchStart - SALARY.expectedWindowBefore);
+  for (const [, end] of numbers) {
+    if (end <= digitsAt && end > start) start = end; // (a')
+  }
+  // The LAST terminator before the number, so a sentence with several clauses starts the window
+  // at the nearest boundary rather than the first one. A fresh global regex per call, because a
+  // shared one carries `lastIndex` between calls.
+  const region = lower.slice(start, digitsAt);
+  const scanner = new RegExp(CLAUSE_TERMINATOR.source, `${CLAUSE_TERMINATOR.flags}g`);
+  let last: RegExpExecArray | null = null;
+  for (let hit = scanner.exec(region); hit !== null; hit = scanner.exec(region)) {
+    last = hit;
+    if (scanner.lastIndex === hit.index) scanner.lastIndex += 1;
+  }
+  if (last !== null) start += last.index + last[0].length; // (b')
+  return start;
+}
+
 /**
  * Offset just past the FIRST period word following an amount, or null. `_period_phrase_end`.
  *
@@ -218,7 +263,7 @@ function periodPhraseEnd(nearAfter: string): number | null {
 function cueAfterThePeriodPhrase(
   lower: string,
   matchEnd: number,
-  numbers: readonly number[],
+  numbers: readonly (readonly [number, number])[],
   windowStart: number,
   baseEnd: number,
   lineEnd: number,
@@ -230,8 +275,8 @@ function cueAfterThePeriodPhrase(
   const anchored = matchEnd + phraseEnd;
   let limit = Math.min(lineEnd, anchored + SALARY.expectedWindowAfter);
 
-  const nextNumber = numbers.find((start) => start >= matchEnd);
-  if (nextNumber !== undefined) limit = Math.min(limit, nextNumber); // (a)
+  const nextNumber = numbers.find(([start]) => start >= matchEnd);
+  if (nextNumber !== undefined) limit = Math.min(limit, nextNumber[0]); // (a)
   const terminator = CLAUSE_TERMINATOR.exec(lower.slice(anchored, limit));
   if (terminator !== null) limit = anchored + terminator.index; // (b)
   limit = Math.max(baseEnd, limit);
@@ -244,7 +289,7 @@ function cueAfterThePeriodPhrase(
     if (at === -1) continue;
     const cueEnd = windowStart + at + cue.length;
     // (c) — and ON THIS LINE, for the same reason every other window here is line-clamped.
-    if (numbers.some((start) => start >= cueEnd && start < lineEnd)) continue;
+    if (numbers.some(([start]) => start >= cueEnd && start < lineEnd)) continue;
     return true;
   }
   return false;
@@ -259,10 +304,13 @@ export function detectSalaries(text: string): SalaryReading {
   // EVERY digit run the matcher can see, including ones rejected below as years, roll numbers
   // or bare two-digit counts. The guards ask "is another number standing here?", and a number
   // this pass declines to RECORD is still a number in the way.
-  const numbers: number[] = [];
+  // START AND END, mirroring `signals._iter_salaries`. Guard (a) asks where the next number
+  // BEGINS; guard (a') asks where the previous one ENDED, and the end is the whole match's —
+  // unit included — so a clamp cannot land inside "30 hazaar".
+  const numbers: [number, number][] = [];
   for (const m of message.matchAll(matcher())) {
     const digitSpan = m.indices?.[1];
-    if (digitSpan !== undefined) numbers.push(digitSpan[0]);
+    if (digitSpan !== undefined) numbers.push([digitSpan[0], m.index + m[0].length]);
   }
 
   for (const m of message.matchAll(matcher())) {
@@ -319,7 +367,14 @@ export function detectSalaries(text: string): SalaryReading {
 
     const windowStart = Math.max(lineStart, matchStart - SALARY.expectedWindowBefore);
     const baseEnd = Math.min(lineEnd, matchEnd + SALARY.expectedWindowAfter);
-    const base = lower.slice(windowStart, baseEnd);
+    // THE BACKWARD HALF IS GUARDED, THE FORWARD HALF IS NOT — two windows, two questions.
+    // `cueAfterThePeriodPhrase` still reads from the UNGUARDED start because it re-anchors the
+    // END and applies its own three guards there; narrowing its start as well is a change no
+    // measurement supports.
+    const base = lower.slice(
+      guardedWindowStart(lower, matchStart, digitsAt, numbers, lineStart),
+      baseEnd,
+    );
     const isExpected =
       SALARY.expectedCues.some((cue) => base.includes(cue)) ||
       cueAfterThePeriodPhrase(lower, matchEnd, numbers, windowStart, baseEnd, lineEnd);

@@ -21,8 +21,8 @@ import { buildResumeRenderInput } from "./resume-render-input";
  *
  * WHY SOME OF THESE ARE `it.fails` AND THAT IS DELIBERATE.
  *
- * Five of the eight rules do not hold today. Writing them as `it.todo` would make them a note
- * nothing enforces; deleting them would lose the specification; asserting them as `it` would
+ * THREE of the eight rules do not hold today (R14 §4). Writing them as `it.todo` would make them
+ * a note nothing enforces; deleting them would lose the specification; asserting them as `it` would
  * leave the suite red and unmergeable. `it.fails` is the honest third option: the test RUNS, the
  * assertion is real and executable, and the suite is green — but the moment someone implements
  * the rule the test goes RED and forces them to flip `it.fails` to `it`. The gap cannot rot into
@@ -30,6 +30,30 @@ import { buildResumeRenderInput } from "./resume-render-input";
  *
  * Each `it.fails` names exactly what is absent and where it would have to land. That list IS the
  * §2 gap table's executable half, and the two must agree — docs/profiling/yadav-parity-gap.md.
+ *
+ * THE COUNT ON THE LINE ABOVE WAS WRONG FROM THE DAY THIS FILE WAS WRITTEN, and correcting it is
+ * R14 §4. It said "Five" while the file it introduces has only ever had FOUR `it.fails` (commit
+ * `7f97b901`), and three since. Five is R9 §6's count of rules that did not hold BEFORE that
+ * packet — rule 3 was implemented in the same commit and landed as a passing `it`, so the number
+ * was stale before it was committed. A count that has to be maintained by hand beside a list the
+ * runner already enumerates is the stale doc row this file's own argument exists to prevent, one
+ * paragraph above where it makes it. Where the five stand, R14 §4:
+ *
+ *     rule 1  single-role on one line   OPEN   `it.fails` below. Implemented and REVERTED in R10:
+ *                                              the merged line wraps and takes the parity sheet
+ *                                              from degradationStage 0 to 2, shedding Languages
+ *                                              and two chips. Blocked on the Zone 2 row-budget
+ *                                              ruling (Q2), not on anyone implementing it.
+ *     rule 3  configuration appended     GREEN  R10. First shipped user is the milling map (R13).
+ *     rule 4  axis segment               GREEN as a unit — and UNREACHABLE: no mapper branch
+ *                                              passes `axes`. Pinned in
+ *                                              verdict-line-collapse.render.test.ts.
+ *     rule 5  structured certificates    OPEN   `it.fails` below. Needs a frozen-contract change.
+ *     rule 6  education, four components GREEN  R10 — and the `it.fails` it replaced was WRONGLY
+ *                                              SPECIFIED: it asked the sheet to print a city the
+ *                                              worker never gave, which §8 forbids.
+ *     rule 8  verification state         OPEN   `it.fails` below. Phase 2 by ruling 3; no column
+ *                                              exists and the spec forbids inventing the flag.
  *
  * VERBATIM FROM THE SAMPLE. Every expected string below is quoted from the extracted PDF text,
  * not paraphrased. Where the sample and our output differ, the difference is the finding.

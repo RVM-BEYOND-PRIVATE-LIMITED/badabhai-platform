@@ -873,6 +873,9 @@ def _compile_all(specs: list[dict[str, str]]) -> tuple[re.Pattern[str], ...]:
 _ANNUAL_CUES_AFTER = _compile_all(_SALARY["annualCuesAfter"])
 _ANNUAL_CUES_BEFORE = _compile_all(_SALARY["annualCuesBefore"])
 _MONTHLY_CUES = _compile_all(_SALARY["monthlyCues"])
+# Daily and weekly. R14 2.1 — a period this detector cannot convert, so the amount is dropped
+# rather than defaulted to monthly. See the rationale in data/salary.json.
+_SUB_MONTHLY_CUES = _compile_all(_SALARY["subMonthlyCues"])
 _MONEY_CUES = _compile_all(_SALARY["moneyCues"])
 # --- Relocation willingness (issue #437: STOP FABRICATING willing_to_relocate) ---
 #
@@ -2155,6 +2158,17 @@ def _period_months(near_before: str, near_after: str) -> int | None:
     monthly = any(cue.search(near_before) or cue.search(near_after) for cue in _MONTHLY_CUES)
     if annual and monthly:
         return None
+    # R14 2.1 — A DAILY OR WEEKLY WAGE IS NOT A MONTHLY ONE, and the default below is what made
+    # it one. '1200 daily milta hai' found no annual and no monthly cue, fell through to 1, and
+    # recorded a man on roughly ₹31,000 a month as earning ₹1,200. Suppressed rather than
+    # converted: 26, 30 and 24 days a month are all defensible and differ by a quarter, so any
+    # multiplier would print a number the worker never stated. Checked AFTER the conflict rule
+    # above so an explicit 'per month' still wins over a stray 'din' in the same window.
+    if not annual and not monthly:
+        if any(
+            cue.search(near_before) or cue.search(near_after) for cue in _SUB_MONTHLY_CUES
+        ):
+            return None
     return 12 if annual else 1
 
 
@@ -2171,6 +2185,42 @@ _CREDENTIAL_BEFORE_RE = lexicon.compile_pattern(_SALARY["credentialBefore"])
 # other clause. Includes the Devanagari danda, which is a sentence end and not a word
 # character — the lexicon carries the pattern so both engines terminate on the same set.
 _CLAUSE_TERMINATOR_RE = lexicon.compile_pattern(_SALARY["clauseTerminator"])
+
+
+def _guarded_window_start(
+    lower: str,
+    m: re.Match[str],
+    numbers: list[tuple[int, int]],
+    line_start: int,
+) -> int:
+    """Where the BACKWARD expectation window may begin (R14 2.2).
+
+    THE MIRROR OF GUARDS (a) AND (b), and the defect they were built for pointing the other way.
+    `expectedWindowBefore` is 25 characters — two and a half times the forward window — and
+    nothing clamped it, so a worker who states his ask FIRST has the ask's cue reach back over
+    the clause boundary and mark his CURRENT pay as expected. First-writer-wins then discards
+    the current pay outright: '35000 chahiye, abhi 25000 milta hai' recorded (None, 35000) and
+    his actual wage never reached the profile.
+
+    (a') never reach back across the PREVIOUS number, and (b') never reach back across a clause
+    end. There is no (c'): once the window starts after the last preceding number there is no
+    number left inside it for a cue to belong to, so cue ownership is already decided.
+
+    Measured on a 7,150-row sweep that states the ask first — the shape R13's grid structurally
+    could not generate — at +2,096 current-pay values recovered and zero regressions on either
+    sweep. The residual is the no-separator shape, which needs an adjacency rule and is pinned.
+    """
+    digits_at = m.start(1)
+    start = max(line_start, m.start() - _EXPECTED_WINDOW_BEFORE)
+    previous_number_end = max((end for _s, end in numbers if end <= digits_at), default=None)
+    if previous_number_end is not None:  # (a')
+        start = max(start, previous_number_end)
+    last_terminator = None
+    for terminator in _CLAUSE_TERMINATOR_RE.finditer(lower, start, digits_at):
+        last_terminator = terminator
+    if last_terminator is not None:  # (b')
+        start = last_terminator.end()
+    return start
 
 
 def _period_phrase_end(near_after: str) -> int | None:
@@ -2315,7 +2365,13 @@ def _iter_salaries(text: str, lower: str) -> Iterator[SalaryHit]:
             continue
         window_start = max(line_start, m.start() - _EXPECTED_WINDOW_BEFORE)
         base_end = min(line_end, m.end() + _EXPECTED_WINDOW_AFTER)
-        is_expected = any(cue in lower[window_start:base_end] for cue in _EXPECTED_CUES)
+        # THE BACKWARD HALF IS GUARDED, THE FORWARD HALF IS NOT — deliberately, and they are
+        # two different windows for two different questions. `_cue_after_the_period_phrase`
+        # still reads from the UNGUARDED start because it re-anchors the END and applies its own
+        # three guards there; handing it a clamped start would silently narrow the forward
+        # extension as well, which no measurement supports.
+        guarded_start = _guarded_window_start(lower, m, numbers, line_start)
+        is_expected = any(cue in lower[guarded_start:base_end] for cue in _EXPECTED_CUES)
         if not is_expected:
             is_expected = _cue_after_the_period_phrase(
                 lower, m, numbers, window_start, base_end, line_end

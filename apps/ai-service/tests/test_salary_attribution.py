@@ -336,30 +336,82 @@ CASES: list[tuple[str, str, Slots, Slots | None, str]] = [
         "job here is to record that the attribution itself is right, and to stop anyone "
         "'fixing' the veto by moving it into the wrong layer",
     ),
-    # ── two causes this table did not have, both found by looking ─────────────────────────
+    # ── two causes this table did not have, found by looking, CLOSED IN R14 §2 ────────────
+    #
+    # Both rows announced their own closure: they went RED the moment the fix landed, which is
+    # what a pin carrying its measured-wrong value is for.
     (
         "reversed_order",
         "35000 chahiye, abhi 25000 milta hai",
         (25000, 35000),
-        (None, 35000),
-        "MEASURED R13 §1.3 — THE WINDOW CLASS, POINTING BACKWARDS. §1.1 guarded the window's "
-        "END; nothing guards its START. `expectedWindowBefore` is 25 characters, so when the "
-        "ask is stated FIRST the current pay's backward window still reaches that ask's cue, "
-        "the current pay is marked expected, and first-writer-wins then discards it entirely. "
-        "The worker's actual pay vanishes from the profile. Same defect as the one just fixed, "
-        "same fix shape (anchor + guards), opposite direction",
+        None,
+        "CLOSED R14 §2.2 — the window's START is now guarded the way §1.1 guarded its END. "
+        "(a') never reach back across the previous NUMBER, (b') never across a clause end. "
+        "Measured on a second 7,150-utterance sweep that states the ASK FIRST — the shape R13's "
+        "grid structurally could not generate — at +2,096 current-pay values recovered and zero "
+        "regressions on either sweep",
+    ),
+    (
+        "reversed_no_separator",
+        "30k chahiye abhi 25000 mahina milta hai",
+        (25000, 30000),
+        (None, 30000),
+        "MEASURED R14 §2.2 — THE RESIDUAL OF THE FIX ABOVE, and the only shape left in its class: "
+        "992 of the reversed sweep's 4,400 monthly rows. Neither clamp can fire — there is no "
+        "punctuation between the two clauses and no number between the cue and this amount — so "
+        "the ask's 'chahiye' still reaches back and marks the current pay as expected. Closing it "
+        "needs an ADJACENCY rule (a cue belongs to the number it touches), which is a different "
+        "mechanism from a clamp and a wider change than §2.2 asked for",
+    ),
+    (
+        "cue_at_position_zero",
+        "chah raha hu 30000 mahina",
+        (None, 30000),
+        (30000, None),
+        "MEASURED R14 §2.2, AND IT PREDATES EVERY GUARD IN THIS FILE. `expectedCues` carries "
+        "' chah' with a LEADING SPACE so the stem cannot fire inside an unrelated word — and a "
+        "cue at offset 0 has no space before it, so an utterance that OPENS with the ask has no "
+        "expectation cue at all and the asking price is filed as current pay. 440 rows of the "
+        "reversed sweep. The fix is a boundary rather than a space, and `expectedCues` is a "
+        "substring list rather than a pattern list, so it is a shape change to the field",
     ),
     (
         "daily_wage",
         "1200 daily milta hai",
         (None, None),
-        (1200, None),
-        "MEASURED R13 §1.3 — A DAILY WAGE READ AS A MONTHLY ONE. There is no daily period, so "
-        "'1200 daily' is recorded as ₹1,200 A MONTH: a worker on ₹1,200/day (~₹31,000/month) "
-        "has a twenty-sixth of his wage printed on his resume. This file's whole premise is "
-        "'prefer NO number over a WRONG number' and here it does the opposite, because the "
-        "period defaulted rather than being consulted. `want` is therefore (None, None) — "
-        "recording nothing is correct until somebody rules on days-per-month",
+        None,
+        "CLOSED R14 §2.1 — `subMonthlyCues` suppresses the amount rather than defaulting its "
+        "period to monthly. SUPPRESSED, NOT CONVERTED: 26, 30 and 24 days a month are all "
+        "defensible and differ by a quarter, so any multiplier prints a number the worker never "
+        "stated. This is the same degrade the annual/monthly CONFLICT already took, and it is "
+        "what this row's `want` has said since it was written",
+    ),
+    (
+        "weekly_wage",
+        "8000 hafte ka milta hai",
+        (None, None),
+        None,
+        "R14 §2.1 — the same rule one period up. A weekly wage read as monthly under-states by a "
+        "factor of four; here it records nothing",
+    ),
+    (
+        "daily_cue_does_not_eat_an_explicit_month",
+        "25000 mahina milta hai, din bhar kaam",
+        (25000, None),
+        None,
+        "R14 §2.1's FALSE-POSITIVE GUARD, and the reason the sub-monthly test runs LAST. 'din' is "
+        "in the daily set and sits inside this amount's period window; an explicit 'mahina' is "
+        "also there. The rule only fires when NEITHER an annual nor a monthly cue was found, so "
+        "the stated period still wins and the wage is recorded",
+    ),
+    (
+        "rozgar_is_not_a_daily_wage",
+        "rozgar nahi mil raha, 25000 mahina chahiye",
+        (None, 25000),
+        None,
+        "R14 §2.1 — 'rozgar' is EMPLOYMENT and it genuinely appears in these transcripts. The "
+        "trailing word boundary on `ro[zj](?:ana|aana)?` is the whole reason this records the ask "
+        "instead of nothing at all",
     ),
     (
         "band_se_hazaar",
@@ -466,8 +518,8 @@ GAP_CLASS: dict[str, str] = {
     "sp_hajar": "gazetteer",
     "sp_hazzar": "gazetteer",
     "deva_cue": "gazetteer",
-    "reversed_order": "window",
-    "daily_wage": "period",
+    "reversed_no_separator": "window",
+    "cue_at_position_zero": "gazetteer",
 }
 
 
