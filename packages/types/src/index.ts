@@ -398,6 +398,11 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   "/voice", // Routes.voiceNote
   "/profiling", // Routes.profilePreview
   "/building", // Routes.building
+  // #1296's post-interview finishing form. Added here in R10 rather than with the screen,
+  // because that PR touched only `apps/worker-app` and the CI path filter therefore never ran
+  // the Node job that owns this contract — a green check on a suite that did not run. The first
+  // build to merge main into an api-touching branch caught it.
+  "/finishing", // Routes.finishing
   "/alerts", // Routes.alerts
   "/feedback", // Routes.feedback
   // The referral deep link. Declared inline in the route tree rather than as a `Routes`
