@@ -4,6 +4,7 @@ import { canonicalCity } from "@badabhai/profiling-lexicon";
 import {
   DOCUMENTS_READY,
   EDUCATION_COUNCILS,
+  EDUCATION_CREDENTIALS,
   JOB_TYPES,
   LANGUAGES,
   SHIFTS,
@@ -115,6 +116,15 @@ export const SetMyPreferencesSchema = z
     // documents here: a council is a closed set, a year is a number, and an institute name is
     // something the worker reads off a certificate. None needs a model, none can be misparsed,
     // and the engine's ask budget belongs to the questions where phrasing carries meaning.
+    /**
+     * ITI or Diploma — which of the two the merged pack option covers (R11 §3.1).
+     *
+     * A CLOSED SET OF EXACTLY TWO, and no "other". The question this answers is not "what is your
+     * highest qualification" — `education_level` already holds that — it is the narrower "the
+     * option you tapped names two credentials; which is yours". A third value would make it a
+     * competing answer to the first question rather than a refinement of it.
+     */
+    education_credential: z.enum(optionsOf(EDUCATION_CREDENTIALS)).nullable().optional(),
     education_council: z.enum(optionsOf(EDUCATION_COUNCILS)).nullable().optional(),
     /**
      * The year the credential was awarded.

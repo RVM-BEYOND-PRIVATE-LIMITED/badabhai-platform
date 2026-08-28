@@ -10,34 +10,38 @@ built around.
 
 ---
 
-## Status — Q1–Q9 ruled 2026-08-28 (R4); Q10–Q12 opened by R6
+## Status — Q1–Q9 ruled 2026-08-28 (R4); Q10–Q12 opened by R6; Q13 by R11
 
-Nothing on the **render** track is waiting on a decision. Three new questions are open, and they
-are a different kind: Q10 is a flag flip that no amount of engineering substitutes for, and Q11
-and Q12 are the two R6 §7 put to me directly.
+Nothing on the **render** track is waiting on a decision. Four questions are open, and they are a
+different kind: Q10 is a flag flip that no amount of engineering substitutes for, Q11 and Q12 are
+the two R6 §7 put to me directly, and Q13 is a CI gap that hid four packets of work and a defect
+in somebody else's merged PR.
 
-| #       | question                                             | what it blocks                                                      |
-| ------- | ---------------------------------------------------- | ------------------------------------------------------------------- |
-| **Q10** | Arm `profile_extraction` for free-form parsing?      | the per-employment detail line, promotions, the own-words block     |
-| **Q11** | Run the city backfill, or record it as zero rows?    | nothing — fixed forward; the count is unknown until someone runs it |
-| **Q12** | Profile Strength: replace the counter, or rename it? | §9.1, and with it the §9.3 enrichment loop                          |
+| #       | question                                                       | what it blocks                                                      |
+| ------- | -------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Q10** | Arm `profile_extraction` for free-form parsing?                | the per-employment detail line, promotions, the own-words block     |
+| **Q11** | Run the city backfill, or record it as zero rows?              | nothing — fixed forward; the count is unknown until someone runs it |
+| **Q12** | Profile Strength: replace the counter, or rename it?           | §9.1, and with it the §9.3 enrichment loop                          |
+| **Q13** | Stacked PRs run NO CI — widen the trigger, or forbid the base? | nothing today; every stacked PR merges unverified                   |
 
 The nine R4 rulings, kept because several of them are cited by code comments:
 
-| #      | ruling                                                               | leaves behind           |
-| ------ | -------------------------------------------------------------------- | ----------------------- |
-| **Q1** | Option A, simplified — form screen, 4 employers, **one role each**   | build item 2.2          |
-| **Q2** | One rider: the highest ITI/NCVT line is never dropped. Nothing else. | **built** — R4          |
-| **Q3** | Closed as framed.                                                    | nothing                 |
-| **Q4** | **Top item.** Build the bridge, turner-scoped.                       | build item 2.1          |
-| **Q5** | Defer. Point figure keeps rendering.                                 | revisit at payer-salary |
-| **Q6** | Defer with the Phase 3 deep link.                                    | nothing                 |
-| **Q7** | Prakash runs the xerox test at the `sslip.io` length.                | nothing waits           |
-| **Q8** | **One spine RATIFIED.** A decision now, not an assumption.           | nothing                 |
-| **Q9** | Prakash commits the canonical file. Stub untouched.                  | nothing                 |
+| #      | ruling                                                               | leaves behind       |
+| ------ | -------------------------------------------------------------------- | ------------------- |
+| **Q1** | Option A, simplified — form screen, 4 employers, **one role each**   | build item 2.2      |
+| **Q2** | One rider: the highest ITI/NCVT line is never dropped. Nothing else. | **built** — R4      |
+| **Q3** | Closed as framed.                                                    | nothing             |
+| **Q4** | **Top item.** Build the bridge, turner-scoped.                       | build item 2.1      |
+| **Q5** | **Superseded by R11 §4** — the band is asked on the finishing form.  | mobile form (issue) |
+| **Q6** | Defer with the Phase 3 deep link.                                    | nothing             |
+| **Q7** | Prakash runs the xerox test at the `sslip.io` length.                | nothing waits       |
+| **Q8** | **One spine RATIFIED.** A decision now, not an assumption.           | nothing             |
+| **Q9** | Prakash commits the canonical file. Stub untouched.                  | nothing             |
 
 Deferred by name, so nobody rediscovers them as findings: drop-order ratification, capability
-compression, semgrep `--strict`, the `ci.yml` trigger, the payer QR, salary bands.
+compression, semgrep `--strict`, the payer QR, salary bands. **The `ci.yml` trigger has left this
+list — R11 §2 promoted it to Q13, because it stopped being a theoretical gap and produced
+evidence.**
 
 ---
 
@@ -249,11 +253,59 @@ branch does not move this number at all.
 
 ## Q5 · Salary renders as a point figure; the guideline wants a band
 
-**RULED (R4): defer.** The point figure keeps rendering on the worker copy. Exposure is limited
-to sheets a worker hands over himself, and the fix is an upstream field rather than anything the
-renderer can do. **Revisit before any payer surface displays salary** — not before.
+**RULED (R11 §4): the band is asked on the FINISHING FORM, as built. Q5 is closed.**
 
-**Status:** deferred with a named trigger.
+Closed-set, no parse risk, and the worker is in a completing state. `salary_expected_max` ships on
+`SetMyPreferencesSchema`; the lower end stays `salary_expected`, the interview's existing ask,
+whose meaning is unchanged. Two riders came with the ruling, and one of them is not currently true.
+
+**Rider 1 — keep the cued interview path as a secondary capture.** "16 chahiye" is cued and should
+resolve to expected even without the form; only a bare uncued number falls through to current.
+
+> **MEASURED, AND THE RIDER'S PREMISE DOES NOT HOLD TODAY — 5 of 12 natural phrasings are wrong.**
+> Probing `signals._detect_salary` directly:
+>
+> | utterance                             | should be             | detected                                          |
+> | ------------------------------------- | --------------------- | ------------------------------------------------- |
+> | `abhi 14000 milta hai, 16000 chahiye` | cur 14000 / exp 16000 | correct                                           |
+> | `mujhe 35000 chahiye`                 | exp 35000             | correct                                           |
+> | `35000 mahina chahiye`                | exp 35000             | **cur 35000** — asking price filed as current pay |
+> | `35000 per month chahiye`             | exp 35000             | **cur 35000** — same                              |
+> | `salary 35000 mahine ki chahiye`      | exp 35000             | **cur 35000** — same                              |
+> | `abhi 14 hazaar …, 16 hazaar chahiye` | cur/exp               | **NOTHING PARSED**                                |
+> | `30 hazaar chahiye mahine ka`         | exp 30000             | **NOTHING PARSED**                                |
+>
+> **Two distinct causes, both in `packages/profiling-lexicon/data/salary.json`.**
+>
+> 1. `expectedWindowAfter` is **10 characters**. When a period word sits between the amount and
+>    the cue — which is the most natural way to say it — `chahiye` falls outside the window and
+>    the asking price is recorded as current pay. This is the same defect R10 R-1 closed at the
+>    projection layer, still live one layer upstream at detection.
+> 2. `thousandUnits` contains `hazar` but not **`hazaar`** or `hajar`. The `{WE}` word-end guard
+>    then fails on the second `a`, the unit group matches empty, and the bare two-digit number is
+>    dropped by `minDigitsWithoutUnit`. The salary is lost entirely — silently.
+>
+> **NOT FIXED IN R11, deliberately.** `salary.json` is cross-language (a byte-identical mirror in
+> `apps/ai-service/app/profiling/lexicon_data/`, plus a generated TS artifact) and its own
+> docstring says every window width was tuned against a real regression — specifically the one
+> where widening a window made two salary answers on one line poison each other. Widening
+> `expectedWindowAfter` blindly re-creates exactly that. The correct fix is to start the cue
+> window **after** the period phrase rather than after the digits, which needs the ai-engineer and
+> its own change with the differential corpus behind it. Reported, not shipped.
+
+**Rider 2 — measure form completion.** §4.4 calls expected salary mandatory, so a worker who skips
+the form has no asking price at all; if completion is low the field is mandatory in name only.
+
+> **Blocked, and not on analytics.** `finishing_models.dart:toUpdateBody()` sends **seven** keys:
+> `languages`, `documents_ready`, `preferred_cities`, `willing_to_relocate`,
+> `accommodation_needed`, `job_type`, `shift`. It sends **none** of `salary_expected_max`,
+> `education_council`, `education_year`, `education_institute` or the new `education_credential`.
+> Five backend fields have no mobile surface, so completion rate on them is structurally 0% and
+> the band cannot ship at all until the Flutter form carries it. Frontend/mobile work — raised as
+> a GitHub issue rather than crossed into, per the ownership contract.
+
+**Status:** **CLOSED as a ruling**, with one measured defect (rider 1) and one ownership handoff
+(rider 2) named above.
 
 §4.4 is explicit: _"Bands, never a point figure — a point figure invites anchoring against the
 worker."_ `resume_profile.expected_salary` is a single number, so a band could only be
@@ -625,3 +677,87 @@ and its tests, and one number is worth more than two.
 it is the surface Profile Strength exists to drive. While this is open the enrichment loop has no
 score to nudge against — so the loop R6 §5 identifies as the real answer to a long interview
 cannot be built.
+
+---
+
+## Q13 · A PR based on a feature branch runs NO CI at all — widen the trigger, or forbid the base?
+
+**Status:** open. Written up on instruction (R11 §2). **Nothing here is implemented, and no
+`.github/` file is touched** — a repo-wide trigger change needs a ruling, and `ci.yml` has a
+compile cliff that has taken the whole workflow down before.
+
+### The gap, in one line of YAML
+
+```yaml
+# .github/workflows/ci.yml:3-7
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+```
+
+For `pull_request`, `branches:` filters on the **base** — the branch being merged _into_. A PR
+whose base is a feature branch matches neither trigger, so **no workflow starts, no check is
+created, and the PR's checks list is empty rather than red**. GitHub reports "All checks have
+passed" for a PR on which nothing has ever run.
+
+### The evidence — it hid our work and someone else's, in the same week
+
+**Ours.** #1294 was stacked on #1292's branch. It went **four packets** with zero CI runs. Nothing
+in the PR view said so; the absence of checks reads identically to a PR whose checks are still
+queuing.
+
+**Theirs, and this is the stronger half.** When #1292 merged and #1294 was retargeted to `main`,
+CI fired for the first time — and failed on a bug that was **not in #1294 at all**. #1296 (already
+merged, by another author) added a `/finishing` route to the worker app without registering it in
+`WORKER_APP_SCREEN_TEMPLATES`. Feedback submitted from that screen would have failed its typed
+contract permanently. **#1296's own CI was green** because the `changes` path filter routed a
+Flutter-only diff past the Node job — so the green check meant _the suite never ran_, not that it
+passed.
+
+Two different mechanisms, one shape: **a check that is green because it did not execute.**
+
+### The two options
+
+**Option A — widen the trigger to `branches-ignore: []`, or drop the `branches:` filter from
+`pull_request` entirely.** Every PR runs CI regardless of base.
+
+- Buys: no PR can ever be silently unchecked. Stacked PRs — which this project uses routinely and
+  which `docs/` already documents as a pattern — become as safe as any other.
+- Costs: CI minutes on every intermediate stacked PR, and each push to a base branch re-runs the
+  dependent PRs.
+- **The catch, and it is the part that needs the ruling.** `ci.yml:674` passes
+  `baseline-ref: ${{ github.event.pull_request.base.sha }}` to the SAST job, and that is what
+  defines a finding as **introduced**. For a PR based on `main` the baseline is main — correct.
+  For a stacked PR the baseline becomes **the parent feature branch's head**, so every finding the
+  earlier PR in the stack introduced is already in the baseline and can never fail the child. The
+  diff gate would run, report green, and be structurally incapable of seeing the stack's own
+  findings. Widening the trigger without pinning the baseline buys a check that looks like the
+  main-based one and is weaker in a way nothing on the page says.
+  A ruling for Option A should say whether `baseline-ref` becomes
+  `merge-base(main, HEAD)` rather than `base.sha`. The weekly whole-tree scan in
+  `security-scan.yml` is unaffected either way.
+
+**Option B — forbid the base.** Keep the trigger as it is and add a rule that a PR must target
+`main`; stacked work is extracted as a delta onto `main` (the mechanics are already written up in
+`docs/` and were used to land #1294).
+
+- Buys: no CI-minute change, no SAST baseline question, and every PR that exists is a PR that runs.
+- Costs: extracting a stacked PR is manual, needs `--force-with-lease` against the _base_ SHA, and
+  requires a close/reopen to fire CI after a retarget. It is also unenforced by anything — it is a
+  habit, and #1294 is the evidence that the habit does not hold under a long packet.
+
+### Recommendation
+
+**Option A, with the baseline pinned to the merge-base in the same change.** Option B is the
+status quo plus a promise, and the status quo already failed twice this week — once silently for
+four packets, once by hiding a defect in a third party's merged PR. Option A is the only one of
+the two that makes the failure impossible rather than discouraged. But it must not ship without
+the baseline fix, or it trades a visibly-absent gate for an invisibly-weakened one, which is worse.
+
+### Cost of silence
+
+Every stacked PR continues to merge unverified, and its green check continues to be evidence of
+nothing. The specific exposure is not theoretical: the one time this was caught, it was caught by
+a retarget that happened for an unrelated reason, and what it caught was already on `main`.
