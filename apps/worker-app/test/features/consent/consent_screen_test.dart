@@ -79,6 +79,11 @@ void main() {
   }
 
   Future<void> agreeAndContinue(WidgetTester tester) async {
+    // The DPDP voice notice (#1270) is long enough that the checkbox now sits
+    // below the fold on the test surface — scroll it into view first, exactly
+    // what a real worker does before ticking it.
+    await tester.ensureVisible(find.byType(Checkbox));
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(Checkbox));
     await tester.pump();
     await tester.tap(find.text('Continue'));
@@ -102,7 +107,8 @@ void main() {
 
       expect(find.text('NAME STEP'), findsOneWidget);
       verify(() => repo.acceptConsent(
-          purposes: <String>['profiling', 'resume_generation'])).called(1);
+          purposes: <String>['profiling', 'resume_generation', 'voice_processing']))
+          .called(1);
     });
   });
 
@@ -135,7 +141,8 @@ void main() {
       // The consent itself is still recorded exactly once — the recovery path
       // changes where the worker LANDS, never whether consent was given.
       verify(() => repo.acceptConsent(
-          purposes: <String>['profiling', 'resume_generation'])).called(1);
+          purposes: <String>['profiling', 'resume_generation', 'voice_processing']))
+          .called(1);
       expect(find.text('NAME STEP'), findsNothing,
           reason: 'an onboarded worker must not be walked back through '
               'onboarding to send one piece of feedback');
