@@ -11,9 +11,19 @@ const CTX = { correlationId: "corr", requestId: "req" } as RequestContext;
 const EMPLOYER = "Sandhar Technologies Limited, Plant II";
 
 function setup() {
-  const replaceForWorker = vi.fn(async () => ({ replacedExisting: false }));
-  const emit = vi.fn(async () => undefined);
-  const add = vi.fn(async () => undefined);
+  // Typed explicitly. `vi.fn(async () => ...)` infers a ZERO-ARG signature, so `mock.calls[0][1]`
+  // is a type error even though the call happens at runtime - the tests passed and tsc did not.
+  type Row = {
+    employerNameEnc: string;
+    employerCity: string | null;
+    durationStated: boolean;
+    role: { roleLabel: string; startYm: string | null };
+  };
+  const replaceForWorker = vi.fn(async (_workerId: string, _rows: readonly Row[]) => ({
+    replacedExisting: false,
+  }));
+  const emit = vi.fn(async (_event: { event_name: string; payload: unknown }) => undefined);
+  const add = vi.fn(async (_name: string, _data: unknown) => undefined);
   // The fake ciphertext deliberately does NOT contain the plaintext. A stub like
   // `enc:${v}` would make the "no plaintext reaches the repository" assertion below pass
   // against a service that never encrypted at all.
@@ -49,7 +59,7 @@ describe("the work-history writer (R4 Q1)", () => {
 
   it("encrypts the employer name before it reaches the repository", async () => {
     await h.svc.replaceForWorker(WORKER, parse([entry()]), CTX);
-    const written = h.replaceForWorker.mock.calls[0]![1] as { employerNameEnc: string }[];
+    const written = h.replaceForWorker.mock.calls[0]![1];
     // The repository takes ciphertext and cannot encrypt. A repository that could encrypt is a
     // repository that could forget to.
     expect(h.encrypt).toHaveBeenCalledWith(EMPLOYER);
@@ -59,13 +69,13 @@ describe("the work-history writer (R4 Q1)", () => {
 
   it("keeps the city in PLAINTEXT — it prints on the sheet and is not an identifier", async () => {
     await h.svc.replaceForWorker(WORKER, parse([entry()]), CTX);
-    const written = h.replaceForWorker.mock.calls[0]![1] as { employerCity: string }[];
+    const written = h.replaceForWorker.mock.calls[0]![1];
     expect(written[0]!.employerCity).toBe("Manesar");
   });
 
   it("emits an event carrying NO employer name and NO city", async () => {
     await h.svc.replaceForWorker(WORKER, parse([entry(), entry({ start_ym: null })]), CTX);
-    const event = h.emit.mock.calls[0]![0] as { event_name: string; payload: unknown };
+    const event = h.emit.mock.calls[0]![0];
     expect(event.event_name).toBe("worker.employment_recorded");
     // The employer name IS the feature and is exactly what may not travel. The city does not
     // travel either: a city plus a worker id plus a date range narrows a person considerably.
@@ -86,15 +96,13 @@ describe("the work-history writer (R4 Q1)", () => {
     // stated" rather than estimating one. The DB check constraint refuses `true` without a
     // start, so deriving it is the only value that is both honest and legal.
     await h.svc.replaceForWorker(WORKER, parse([entry({ start_ym: null })]), CTX);
-    const written = h.replaceForWorker.mock.calls[0]![1] as { durationStated: boolean }[];
+    const written = h.replaceForWorker.mock.calls[0]![1];
     expect(written[0]!.durationStated).toBe(false);
   });
 
   it("gives the single role the employment's own dates (v1: one role each)", async () => {
     await h.svc.replaceForWorker(WORKER, parse([entry()]), CTX);
-    const written = h.replaceForWorker.mock.calls[0]![1] as {
-      role: { roleLabel: string; startYm: string | null };
-    }[];
+    const written = h.replaceForWorker.mock.calls[0]![1];
     expect(written[0]!.role).toMatchObject({ roleLabel: "CNC Turner", startYm: "2022-04" });
   });
 
