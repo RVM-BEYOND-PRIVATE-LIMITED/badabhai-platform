@@ -197,7 +197,69 @@ export const NEVER_DROPPED = [
   "expected_salary", // §5.1 rank 6 — the other one
   "trust_badge", // Part 10.2: absence must read as neutral, never as doubt
   "qr_footer", // Part 12.2: the acquisition loop
+  "top_qualification", // R4 ruling on Q2 — the credential floor, one line, never dropped
 ] as const;
+
+/**
+ * Indian trade-credential markers. A CLOSED vocabulary, matched as whole words.
+ *
+ * This is the whole definition of "a credential" for the protection below, and it is deliberately
+ * narrow: a worker whose education line reads "10th pass" has no ITI/NCVT credential to protect,
+ * so nothing is reserved for him and the rider costs his sheet nothing. Protecting any education
+ * text would be a different, larger promise than the one that was ruled.
+ */
+const CREDENTIAL_MARKERS = ["ITI", "NCVT", "SCVT", "NTC", "NSQF"] as const;
+
+const NON_WORD_RE = /[^A-Z0-9]+/;
+
+/** True when a segment names one of them as a WHOLE word, case-insensitively. */
+function namesACredential(segment: string): boolean {
+  const words = new Set(segment.toUpperCase().split(NON_WORD_RE));
+  return CREDENTIAL_MARKERS.some((marker) => words.has(marker));
+}
+
+/** How `buildQualificationRows` joins the parts of one row. */
+const QUAL_SEGMENT_SEP = " · ";
+
+/** The row the reserved line is re-inserted as, if its own row was dropped. */
+const PROTECTED_QUAL_LABEL = "Qualification";
+
+/**
+ * The one credential line the ladder may never take, per the Q2 ruling.
+ *
+ * EDUCATION IS SEARCHED FIRST, and that is not arbitrary: the Education row's leading segment is
+ * `humanizeEducationLevel(education_level)`, a single field holding the worker's HIGHEST stated
+ * qualification. So "first credential segment in Education" already means "his highest" without
+ * anyone inventing a seniority ordering across ITI, NCVT and NSQF — which would be a derived
+ * claim about his credentials rather than a restatement of one (§8).
+ *
+ * Returns null when there is no credential at all, in which case nothing is protected.
+ */
+export function topQualificationLine(s: DegradableSheet): string | null {
+  for (const label of ["Education", "Certificates", PROTECTED_QUAL_LABEL]) {
+    const row = (s.qualFactRows ?? []).find((r) => r.label === label);
+    if (!row) continue;
+    const segment = row.value
+      .split(QUAL_SEGMENT_SEP)
+      .map((part) => part.trim())
+      .find((part) => namesACredential(part));
+    if (segment) return segment;
+  }
+  return null;
+}
+
+/**
+ * Put the reserved credential line back if the step that just ran removed it.
+ *
+ * Runs after EVERY ladder step rather than only after the two that drop credential rows, so a
+ * step added later cannot quietly take it: the invariant is enforced by the loop, not by every
+ * future author remembering it.
+ */
+function preserveTopQualification(s: DegradableSheet, line: string): void {
+  const rows = s.qualFactRows ?? [];
+  if (rows.some((r) => r.value.includes(line))) return;
+  s.qualFactRows = [...rows, { label: PROTECTED_QUAL_LABEL, value: line }];
+}
 
 /**
  * THE LADDER. Index is the stage; stage 0 is "nothing dropped".
@@ -340,17 +402,28 @@ export function degradeToFit<T extends DegradableSheet>(input: T): DegradationRe
   const working: T = { ...input };
   const dropped: string[] = [];
   const trace: DegradationStep[] = [];
+  // Captured BEFORE the first step, because the step that drops the row is also the step that
+  // would destroy the evidence of what was in it.
+  const reservedQualification = topQualificationLine(working);
   if (sheetContentLines(working) <= SHEET_LINE_BUDGET) {
     return { sheet: working, stage: 0, dropped, trace };
   }
   for (let i = 0; i < LADDER.length; i += 1) {
     const before = sheetContentLines(working);
+    const shapeBefore = JSON.stringify(working);
     LADDER[i]!.apply(working);
+    if (reservedQualification) preserveTopQualification(working, reservedQualification);
     const after = sheetContentLines(working);
-    // Only a step that actually removed something counts as a stage — steps 1 and 2 match
-    // nothing today, and a stage number that moved without the page changing would be a lie on
-    // the provenance stamp.
-    if (after < before) {
+    // Only a step that actually CHANGED THE SHEET counts as a stage — steps 1 and 2 match nothing
+    // today, and a stage number that moved without the page changing would be a lie on the
+    // provenance stamp.
+    //
+    // The test used to be `after < before`, using the line count as a proxy for "did anything
+    // change". The credential rider broke that proxy: dropping an Education row and reserving its
+    // qualification line costs one line and returns one, so the count is unchanged while the row
+    // lost its issuer and year. Comparing the sheet itself asks the question directly, and a
+    // `gain` of 0 in the trace below is then the honest number rather than a missing stage.
+    if (JSON.stringify(working) !== shapeBefore) {
       dropped.push(LADDER[i]!.what);
       trace.push({
         what: LADDER[i]!.what,

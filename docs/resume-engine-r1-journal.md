@@ -1160,3 +1160,50 @@ gates and a degradation ladder now assume one spine, and its reversal cost rises
 commit. Continuing to build is how nine questions becomes fifteen.
 
 No further render item is opened.
+
+---
+
+## §15 — R4 rulings: the question queue is closed
+
+All nine ruled. `NEEDS_PRAKASH.md` carries each one inline with its consequence; the two that
+change the code or its description are here.
+
+**Q8 · ONE SPINE IS RATIFIED.** Not deferred — confirmed. §7.1 already forbids skins from varying
+field order, section order, column count or page count, which is most of what a per-family
+template would have existed to change, so this ratifies what the guideline implies rather than
+adding a constraint.
+
+What changes is how four files get described. The render block, the fabrication gate, the QR gate
+and the degradation ladder were all built on one spine. That is no longer "load-bearing on an
+open question" — it is four files implementing a ratified design, and varying the spine per trade
+family now needs a ruling to undo this one. `ASSUMPTIONS.md` should not be read as covering it any
+more.
+
+**Q2 · One rider, built.** The highest ITI/NCVT qualification line is never dropped, the way
+availability and expected salary are never dropped. `NEVER_DROPPED` gains `top_qualification`.
+
+- **What counts as a credential** is a closed five-token vocabulary — ITI, NCVT, SCVT, NTC, NSQF —
+  matched as whole words. A worker whose education line reads "10th pass" has no credential to
+  protect, so nothing is reserved and the rider costs his sheet nothing. Protecting any education
+  text would be a larger promise than the one that was ruled.
+- **Education is searched before Certificates**, and that is not arbitrary: the Education row's
+  leading segment is `humanizeEducationLevel(education_level)`, one field holding the worker's
+  highest stated qualification. So "the first credential segment in Education" already means "his
+  highest" without anyone inventing a seniority ordering across ITI, NCVT and NSQF — which would
+  be a derived claim about his credentials rather than a restatement of one (§8).
+- **Restoration runs after every ladder step**, not only after the two that drop credential rows,
+  so a step added later cannot quietly take it.
+
+**It cost 0.25 mm on the tightest sheet**, not the ~5 mm estimated: 56/56 still one-page, worst
+headroom **11.17 mm** against 11.42 before. The estimate was for sheets that actually shed
+credentials, and the tightest sheet degrades at stage 1 without reaching them.
+
+**A stale predicate the rider exposed.** A ladder step counted as a stage when
+`sheetContentLines` FELL — the line count standing in for "did anything change". Reserving a
+credential line costs one line and returns one, so dropping an Education row now leaves the count
+unchanged while the row loses its issuer and year: a real content change that would have been
+recorded as no stage at all, and a provenance stamp that understated what the sheet had lost. The
+predicate now compares the sheet itself.
+
+**Deferred by name**, so nobody rediscovers them as findings: drop-order ratification, capability
+compression, semgrep `--strict`, the `ci.yml` trigger, the payer QR, salary bands.

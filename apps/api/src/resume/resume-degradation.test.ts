@@ -10,6 +10,7 @@ import {
   rowLines,
   sheetContentLines,
   SHEET_LINE_BUDGET,
+  topQualificationLine,
   type DegradableSheet,
 } from "./resume-degradation";
 import { CAPABILITY_ROW_BUDGET, TRADE_RESUME_MAPS } from "./trade-resume-map";
@@ -214,6 +215,7 @@ describe("what may never be dropped", () => {
       "expected_salary",
       "trust_badge",
       "qr_footer",
+      "top_qualification",
     ]);
     const steps = LADDER.map((s) => s.what.toLowerCase()).join(" | ");
     for (const protectedKey of ["verdict", "salary", "badge", "qr"]) {
@@ -247,6 +249,79 @@ describe("what may never be dropped", () => {
     // ellipsis anywhere in this module, and that absence is asserted rather than assumed.
     const steps = LADDER.map((s) => s.what).join(" ");
     expect(steps).not.toMatch(/truncat|abbrev|shrink|font|ellipsis|smaller/i);
+  });
+});
+
+describe("the credential floor — one qualification line is never dropped (Q2 ruling)", () => {
+  /** A sheet that is far over budget, with the credential in the Education row. */
+  const credentialled = (educationValue: string) =>
+    sheet({
+      capFactRows: Array.from({ length: 60 }, (_, i) => ({
+        label: `f${i}`,
+        value: "x".repeat(100),
+        key: `f${i}`,
+        rank: 50,
+      })),
+      qualFactRows: [
+        { label: "Education", value: educationValue },
+        { label: "Certificates", value: "National Trade Certificate (NTC) — Turner — NCVT — 2015" },
+        { label: "Languages spoken", value: "Hindi · Haryanvi" },
+      ],
+      qualTickRows: [{ label: "Documents ready", values: ["Aadhaar", "PAN"] }],
+    });
+
+  it("keeps the highest ITI/NCVT line after the whole credentials block is shed", () => {
+    const r = degradeToFit(credentialled("ITI — Turner · NCVT, 2014 · Government ITI Faridabad"));
+    const values = (r.sheet.qualFactRows ?? []).map((row) => row.value);
+    // The block went; the credential floor did not. A young worker whose certificate IS the
+    // signal must not arrive at the gate with a sheet that no longer mentions it.
+    expect(r.dropped).toContain("education");
+    expect(values.join(" | ")).toContain("ITI — Turner");
+    // The Education ROW is gone; what survives is the reserved line under its own label.
+    expect((r.sheet.qualFactRows ?? []).map((row) => row.label)).toContain("Qualification");
+  });
+
+  it("reserves ONE line, not the row it came from", () => {
+    const r = degradeToFit(credentialled("ITI — Turner · NCVT, 2014 · Government ITI Faridabad"));
+    const values = (r.sheet.qualFactRows ?? []).map((row) => row.value).join(" | ");
+    // ~5mm was the costed price and one line is what that buys. The issuer and the year go.
+    expect(values).not.toContain("Government ITI Faridabad");
+    expect(values).not.toContain("NCVT, 2014");
+  });
+
+  it("protects NOTHING when there is no credential to protect", () => {
+    // "10th pass" is not a credential floor, and reserving it would be a larger promise than the
+    // one that was ruled — it would also cost a line on the sheets that can least afford one.
+    const r = degradeToFit(credentialled("10th pass · Government High School"));
+    const values = (r.sheet.qualFactRows ?? []).map((row) => row.value).join(" | ");
+    expect(r.dropped).toContain("education");
+    expect(values).not.toContain("10th pass");
+  });
+
+  it("falls back to the certificate when education carries no credential", () => {
+    const r = degradeToFit(credentialled("10th pass"));
+    const values = (r.sheet.qualFactRows ?? []).map((row) => row.value).join(" | ");
+    expect(values).toContain("NCVT");
+  });
+
+  it("survives the deepest stage, like availability and salary do", () => {
+    const s = credentialled("ITI — Turner · NCVT, 2014");
+    s.availFactRows = [{ label: "Salary expected", value: "₹24,000" }];
+    const r = degradeToFit(s);
+    expect(r.stage).toBeGreaterThan(4);
+    expect((r.sheet.qualFactRows ?? []).map((row) => row.value).join(" | ")).toContain("ITI");
+    expect(r.sheet.availFactRows).toEqual(s.availFactRows);
+  });
+
+  it("reads it as a whole word, so a random word containing the letters is not a credential", () => {
+    expect(
+      topQualificationLine(sheet({ qualFactRows: [{ label: "Education", value: "Kaviti" }] })),
+    ).toBeNull();
+    expect(
+      topQualificationLine(
+        sheet({ qualFactRows: [{ label: "Education", value: "iti — Turner" }] }),
+      ),
+    ).toBe("iti — Turner");
   });
 });
 
