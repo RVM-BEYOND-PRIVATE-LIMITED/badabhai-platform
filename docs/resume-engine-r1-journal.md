@@ -1897,3 +1897,78 @@ existing résumé and makes the app and the PDF disagree. Asserted as a gap, not
 data.
 
 **#1292 still has not moved**, so #1294 continues to carry all of this with no CI.
+
+---
+
+## §21 — R8 re-verified adversarially, and two of its deliverables were wrong
+
+Eight read-only audit lanes over the R8 packet, each re-deriving its claims from the repo rather
+than reading the report; every FALSE or UNVERIFIABLE verdict then handed to a refuter whose
+default was that the auditor had misread. **59 claims held, 6 problems survived refutation, 6 were
+refuted.** The two HIGH ones each broke a deliverable, and I verified both at source before acting.
+
+### 21.1 — The flag command misreported flags on its first use
+
+`resume_generation` is a first-class `TaskType` (`ai/model_config.py:17`) with its own tier row,
+its own Langfuse mapping and a gated call site at `routers/resume.py:159`. `effective-ai-flags.py`
+listed six task types and omitted it, so it appeared in neither the armed nor the unarmed line —
+and R8 reported **"five of six tasks are armed"** when the truth is **six of seven**.
+
+Worse than the number: the file's own docstring claimed the safety property it did not implement —
+"a task that exists in the router and NOT in this list shows up as a difference rather than
+silently going unreported." Nothing compared the list against `real_call_task_allowlist`. **The
+one command built to end three rounds of flag misreporting produced a fourth**, in exactly the way
+its comment promised it could not.
+
+Fixed: `resume_generation` added, and the difference check implemented — anything in the effective
+allowlist that the baseline does not know about now prints as `ARMED BUT UNKNOWN TO THIS SCRIPT`.
+
+### 21.2 — The discarded-interview query filtered on the wrong column
+
+`count-discarded-interviews.sql` gated on `ai_jobs.real_call IS TRUE`. That column is **false on
+precisely the rows the query exists to find**, and the chain is deterministic:
+
+1. `resume_profile` is written in one place — `toExtractionOutput` (processor:1888), reached only
+   from the OIE branch at :959;
+2. `toExtractionOutput` hardcodes `ai_metadata: null` (:1909);
+3. the job row's usage is `toAiJobUsage(aiMeta ?? parseMeta)` (:471), so with `aiMeta` null it
+   records the **/profile/parse** call's metadata instead;
+4. `profile_parse` is the one task type NOT armed, so its `real_call` is false;
+5. the interview-extract call — the one that produced the overlay and the one that FAILED — runs
+   under `profile_extraction`, and its metadata goes to `ai_cost_totals` and `ai_call_traces`
+   (:1466-1483). **It never reaches `ai_jobs` at all.**
+
+So the query would have returned ~0 and I would have reported "no interviews were discarded" — the
+confidently wrong answer to the one question §5.1 asked. It is the R8 §3 failure again in a
+different costume: a check that cannot observe what it claims.
+
+Fixed: the CTE now reads `ai_call_traces` (`task_type`, `real_call`, `worker_id` — the call that
+actually happened). Re-validated on the local database with a fixture that includes a
+`profile_parse` decoy row the old filter would have matched: the corrected query finds the
+discarded worker, excludes the healthy one, and is not fooled by the decoy.
+
+### 21.3 — Two factual corrections to the R8 report
+
+**p3's empty own-words block has a different cause than I wrote.** R8 §2 says the other four
+personas get no quotes because the model returned composed English prose. True for p4 and p5;
+**wrong for p3**, whose `work_done` values are 0 and 8 characters ("" and "job work") — both under
+`OWN_WORDS_MIN_CHARS = 18`. He has no candidates at all and the veto never runs on him.
+
+**The "candidates vetoed" column read 0 for p4 and p5 because it was never measured.**
+`notVerbatim` is computed by `selectOwnWords` and never written to `render.json`. Re-derived, it
+is **10 for p4 and 6 for p5**. That is the worse of the two errors: a zero reads as evidence the
+model quoted those workers faithfully, when in fact sixteen composed sentences were thrown away.
+Both corrections are now inline in `persona-ladder-r8.md` rather than silently patched.
+
+### 21.4 — What the verification did NOT overturn
+
+Six problems were refuted on re-derivation. The lane tallies: total-years 6/6 TRUE,
+scope-and-regressions 11/11 TRUE (compose files untouched, no flag changed, the LADDER array
+byte-identical, no event schema mutated, `transcriptVetoes` and `workerSaid` both optional, and no
+new Nest module edge — a provider addition only). The §1 rule, the veto's three tiers, the
+non-circular page gate and the 56-sheet measurements all held under attack.
+
+**The lesson worth keeping is not "run more agents".** It is that both HIGH findings were the same
+shape as the defect R8 itself was celebrating: a gate reading a column that cannot answer its
+question. I found that shape in the render path and shipped two more of it in the tooling I built
+to report on the render path.

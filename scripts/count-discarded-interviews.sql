@@ -21,7 +21,8 @@
 --
 --     a real extraction call, a substantive interview behind it, and no interview overlay stored.
 --
---   `ai_jobs.real_call = true`   the provider WAS reached — this was not a mocked environment
+--   `ai_call_traces.real_call`   the provider WAS reached, ON THE EXTRACTION CALL — see the long
+--                                note on that CTE for why `ai_jobs.real_call` is the wrong column
 --   inbound message count        the worker actually answered; separates a discarded interview
 --                                from a session nobody ever had
 --   `raw_profile -> resume_profile` IS NULL   the overlay landed empty and was stored as nothing
@@ -32,6 +33,12 @@
 -- the operator reads `ai_jobs.output_ref` / `error_message` on the sample to split them. It is a
 -- CANDIDATE COUNT, not a proven-defect count, and it is stated that way rather than presented as
 -- a number.
+--
+-- AND ONE FALSE-NEGATIVE CLASS THAT IS NOT OBVIOUS: a worker whose extraction ran while
+-- `profile_extraction` was UNARMED produced the same empty overlay for a different reason, and
+-- `real_call` is correctly false for him — so he is invisible to this query. That is the right
+-- behaviour (he had no real interview to discard) but it means the number is a floor, not a
+-- total.
 --
 -- ── HOW TO RUN IT ─────────────────────────────────────────────────────────────────────
 --
@@ -51,19 +58,38 @@ WITH interviewed AS (
     AND length(trim(body_text)) > 0
   GROUP BY worker_id
 ),
--- Extraction jobs where a provider was ACTUALLY reached.
+-- Extraction calls where a provider was ACTUALLY reached.
+--
+-- ── READ FROM `ai_call_traces`, NOT `ai_jobs`, AND THE DIFFERENCE IS THE WHOLE QUERY ──
+--
+-- The first version of this file gated on `ai_jobs.real_call IS TRUE`, and that filter is FALSE
+-- on precisely the rows it was written to find. Traced through the processor:
+--
+--   1. `resume_profile` is written in exactly one place — `toExtractionOutput`
+--      (profile-extraction.processor.ts:1888), reached only from the OIE branch at :959.
+--   2. `toExtractionOutput` hardcodes `ai_metadata: null` (:1909).
+--   3. The job row's usage is `toAiJobUsage(aiMeta ?? parseMeta)` (:471), so with `aiMeta` null
+--      it records the metadata of the /profile/PARSE call instead.
+--   4. `profile_parse` is the one task type NOT in the effective allowlist, so its `real_call`
+--      is false.
+--   5. The interview-extract call — the one that produces the overlay and the one that FAILED —
+--      runs under `profile_extraction` and its metadata goes to `ai_cost_totals` and
+--      `ai_call_traces` (processor :1466-1483). It never reaches `ai_jobs`.
+--
+-- So the old filter would have returned ~0 and been read as "no interviews were discarded",
+-- which is the confidently-wrong answer, not the safe one. `ai_call_traces` records
+-- `task_type`, `real_call` and `worker_id` for the call that actually happened.
 real_extractions AS (
-  SELECT DISTINCT ON (input_ref ->> 'worker_id')
-         (input_ref ->> 'worker_id')::uuid AS worker_id,
-         id   AS ai_job_id,
-         status,
+  SELECT DISTINCT ON (worker_id)
+         worker_id,
+         ai_job_id,
          model_name,
          created_at
-  FROM ai_jobs
-  WHERE job_type = 'profile_extraction'
+  FROM ai_call_traces
+  WHERE task_type = 'profile_extraction'
     AND real_call IS TRUE
-    AND input_ref ->> 'worker_id' IS NOT NULL
-  ORDER BY input_ref ->> 'worker_id', created_at DESC
+    AND worker_id IS NOT NULL
+  ORDER BY worker_id, created_at DESC
 ),
 profiles AS (
   SELECT DISTINCT ON (worker_id)
@@ -111,14 +137,13 @@ WITH interviewed AS (
   GROUP BY worker_id
 ),
 real_extractions AS (
-  SELECT DISTINCT ON (input_ref ->> 'worker_id')
-         (input_ref ->> 'worker_id')::uuid AS worker_id,
-         id AS ai_job_id, status, model_name, created_at
-  FROM ai_jobs
-  WHERE job_type = 'profile_extraction'
+  SELECT DISTINCT ON (worker_id)
+         worker_id, ai_job_id, model_name, created_at
+  FROM ai_call_traces
+  WHERE task_type = 'profile_extraction'
     AND real_call IS TRUE
-    AND input_ref ->> 'worker_id' IS NOT NULL
-  ORDER BY input_ref ->> 'worker_id', created_at DESC
+    AND worker_id IS NOT NULL
+  ORDER BY worker_id, created_at DESC
 ),
 profiles AS (
   SELECT DISTINCT ON (worker_id)

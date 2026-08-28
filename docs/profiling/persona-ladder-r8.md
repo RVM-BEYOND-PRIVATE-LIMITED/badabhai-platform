@@ -95,13 +95,13 @@ the job §8 licenses the model to do. The veto is the stored transcript: a phras
 it occurs verbatim inside something the worker actually said. That turns "verbatim" from a claim
 about the prompt into a property checked phrase by phrase against bytes the model never touched.
 
-| persona            | quotes printed | candidates vetoed                |
-| ------------------ | -------------- | -------------------------------- |
-| p1 fresh ITI       | 0              | — (no `experiences` at all)      |
-| p2 2-year operator | **3**          | 1                                |
-| p3 5-year → setter | 0              | 0 (nothing quotable — see below) |
-| p4 8-year setter   | 0              | 0                                |
-| p5 12-year, no ITI | 0              | 0                                |
+| persona            | quotes printed | candidates vetoed            |
+| ------------------ | -------------- | ---------------------------- |
+| p1 fresh ITI       | 0              | — (no `experiences` at all)  |
+| p2 2-year operator | **3**          | 1                            |
+| p3 5-year → setter | 0              | 0 — see the correction below |
+| p4 8-year setter   | 0              | 0                            |
+| p5 12-year, no ITI | 0              | 0                            |
 
 p2's sheet now carries, in his own Hinglish:
 
@@ -112,6 +112,17 @@ p2's sheet now carries, in his own Hinglish:
 literal fragments of his turns. One — _"Vernier aur micrometer, plug gauge use karta hoon"_ — is a
 fusion of two separate answers with a verb he never used. It reads perfectly and it is not his.
 Nothing else on the sheet could have caught it.
+
+> **CORRECTION (R9, from an adversarial re-verification of this packet).** The section below
+> generalises correctly for p4 and p5 and is WRONG for p3. His `work_done` values are 0 and 8
+> characters ("" and "job work") — both under `OWN_WORDS_MIN_CHARS = 18` — so he has no candidates
+> at all and the veto never runs on him. The cause is the length floor, not composition.
+>
+> And the "candidates vetoed" column above reads 0 for p4 and p5 because `notVerbatim` is computed
+> but never written to `render.json`. Re-derived, it is **10 for p4 and 6 for p5**. The column was
+> unmeasured rather than measured-as-zero, which is the worse of the two errors: it read as
+> evidence that the model quotes those workers faithfully, when in fact it composed sixteen
+> sentences the veto threw away.
 
 ### The finding underneath, and it is the reason the other four are empty
 

@@ -62,8 +62,18 @@ def resolve_settings() -> tuple[object, str | None]:
         os.environ["SKILL_CANONICALIZE_ENABLED"] = "false"
         return Settings(), str(err).split(". ")[0]
 
-#: Every task type the router gates. Listed here rather than derived, so a task that exists in
-#: the router and NOT in this list shows up as a difference rather than silently going unreported.
+#: Every task type the router gates.
+#:
+#: THE HAND-WRITTEN LIST WAS WRONG ON ITS FIRST USE, and the comment that used to sit here claimed
+#: the safety property it did not implement: "a task that exists in the router and NOT in this list
+#: shows up as a difference rather than silently going unreported." Nothing compared the two, so
+#: `resume_generation` — a first-class `TaskType` in `ai/model_config.py:17` with its own tier row
+#: and its own Langfuse mapping — was absent from BOTH the armed and the unarmed line, and the
+#: report said "five of six tasks are armed" when six of SEVEN are.
+#:
+#: That is the exact failure mode this file exists to end, produced by this file. So the list is
+#: now a declared BASELINE and the difference check below is real: anything in the effective
+#: allowlist that is not here is reported as UNKNOWN rather than dropped.
 TASKS = [
     "skill_embedding",
     "profile_parse",
@@ -71,6 +81,8 @@ TASKS = [
     "profile_extraction",
     "stt_transcription",
     "tts_synthesis",
+    # Gated at `routers/resume.py:159`; priced and tiered like the rest.
+    "resume_generation",
 ]
 
 #: The names whose effective value decides whether a model is reached, and by which tier.
@@ -123,6 +135,11 @@ def main() -> int:
     env_path = AI_SERVICE / ".env"
     declared = env_file_names(env_path)
     blocked = s.real_calls_blocked_reason()
+    # THE DIFFERENCE CHECK, implemented rather than described. `real_call_task_allowlist` is the
+    # set the box actually armed; anything in it that this file does not know about is reported
+    # instead of vanishing, which is what happened to `resume_generation`.
+    allowlist = set(s.real_call_task_allowlist)
+    unknown = sorted(allowlist - set(TASKS))
     armed = sorted(t for t in TASKS if s.real_call_enabled_for(t))
 
     report = {
@@ -131,6 +148,9 @@ def main() -> int:
             "real_calls_enabled": blocked is None,
             "armed_tasks": armed,
             "unarmed_tasks": sorted(set(TASKS) - set(armed)),
+            # Armed on the box, unknown to this file. NON-EMPTY IS A BUG IN THIS FILE, not in the
+            # box — it means the router grew a task type and nobody updated the baseline.
+            "armed_but_unknown_to_this_script": unknown,
             "chat_model_tier": s.ai_chat_model_tier,
             "synthetic_persona_mode": bool(s.synthetic_persona_mode),
         },
@@ -179,6 +199,9 @@ def main() -> int:
           f"{'' if e['real_calls_enabled'] else '  reason: ' + str(blocked)}")
     print(f"  armed tasks       : {', '.join(e['armed_tasks']) or '(none)'}")
     print(f"  unarmed tasks     : {', '.join(e['unarmed_tasks']) or '(none)'}")
+    if unknown:
+        print(f"  !! ARMED BUT UNKNOWN TO THIS SCRIPT: {', '.join(unknown)}")
+        print("     (the router gained a task type and TASKS was not updated — fix this file)")
     print(f"  chat model tier   : {e['chat_model_tier']}")
     print(f"  synthetic persona : {'ON' if e['synthetic_persona_mode'] else 'off'}")
     print("\nWHICH LAYER WON")
