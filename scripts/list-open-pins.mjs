@@ -1,0 +1,405 @@
+#!/usr/bin/env node
+// scripts/list-open-pins.mjs
+//
+// WHAT AN OPEN PIN IS. A gap this repository has already measured, written down as an
+// executable assertion, and left red-on-close: an `it.fails`, a `pytest.mark.xfail`, a
+// corpus row carrying its measured-wrong value, or a table row whose `gap` differs from
+// its `want`. Closing one is a required visible edit, never a silent improvement.
+//
+// WHY THIS SCRIPT EXISTS (R13 §4). `sal_004` pinned the missing `hazaar` spelling, wrote
+// down exactly what the detector did instead, and predicted that closing it would turn the
+// row red. Months later a packet "discovered" the same gap, closed it, watched the pinned
+// row go red — and reported the whole thing as a find. The record was correct, current, and
+// unconsulted. That is the failure mode of every ledger nobody reads, and the fix is not a
+// better ledger: it is a command that puts the relevant rows in front of you before you
+// start, filtered to the files you are about to change.
+//
+// USAGE
+//   node scripts/list-open-pins.mjs                  # pins gating this branch's changed files
+//   node scripts/list-open-pins.mjs apps/api/src/resume packages/profiling-lexicon
+//   node scripts/list-open-pins.mjs --all            # every open pin, unfiltered
+//   node scripts/list-open-pins.mjs --json           # machine-readable
+//
+// FAIL-CLOSED, AND THAT IS THE WHOLE DESIGN. A provider that cannot run reports UNAVAILABLE
+// and the process exits non-zero. An empty list must mean "there are no pins here", never
+// "the reader was broken" — the same rule the detectors themselves are held to: a fixture
+// must contain the thing the detector detects, and a zero must be capable of being non-zero.
+
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+/** Repo-relative, forward-slashed — the form `git diff --name-only` prints. */
+const rel = (abs) => relative(REPO, abs).split(sep).join("/");
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// Where each kind of pin's SUBJECT lives
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Corpus row id prefix -> the files that row is evidence about.
+ *
+ * The corpus is shared between two engines, so a pinned row gates FOUR files: the canonical
+ * lexicon JSON, the Python implementation, the TypeScript port, and the corpus itself. This
+ * table is the one hand-maintained thing in the script; a prefix missing from it degrades to
+ * the corpus file alone, which is why `--all` still lists the row rather than dropping it.
+ */
+const CORPUS_PREFIX_SUBJECTS = {
+  sal: [
+    "packages/profiling-lexicon/data/salary.json",
+    "packages/profiling-lexicon/src/values/salary.ts",
+    "apps/ai-service/app/profiling/signals.py",
+  ],
+  salp: [
+    "packages/profiling-lexicon/data/salary.json",
+    "packages/profiling-lexicon/src/values/salary.ts",
+    "apps/ai-service/app/profiling/signals.py",
+  ],
+  exp: [
+    "packages/profiling-lexicon/data/experience.json",
+    "packages/profiling-lexicon/src/values/experience.ts",
+    "apps/ai-service/app/profiling/signals.py",
+  ],
+  dev: [
+    "packages/profiling-lexicon/data/predicates.json",
+    "packages/profiling-lexicon/src/predicates",
+    "apps/ai-service/app/profiling/predicates.py",
+  ],
+};
+
+/** A corpus `note` that records an OPEN gap. `CLOSED` anywhere in the note retires it. */
+const PIN_NOTE = /\bpinned\b|\bmeasured gap\b|\bknown gap\b|\buncovered\b|\bdeliberately not\b/i;
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// Provider 1/2 — assertions that are red until the gap closes
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+const SKIP_DIRS = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  ".venv",
+  "__pycache__",
+  ".turbo",
+  "coverage",
+]);
+
+function* walk(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (SKIP_DIRS.has(entry.name)) continue;
+      yield* walk(join(dir, entry.name));
+    } else if (entry.isFile()) {
+      yield join(dir, entry.name);
+    }
+  }
+}
+
+/**
+ * The repo files a test file imports — its SUBJECT, derived rather than declared.
+ *
+ * A pin is filed against the thing it constrains, not the file it happens to live in, so
+ * `yadav-parity.contract.test.ts` gating `resume-render-input.ts` is what makes it surface
+ * when a packet edits the mapper. Relative TS imports are resolved against the extension
+ * conventions this repo actually uses (`.js` specifiers resolving to `.ts` sources);
+ * `app.x.y` Python imports map onto `apps/ai-service/app/x/y.py`.
+ */
+function importedSubjects(file, source) {
+  const subjects = new Set();
+  const here = dirname(file);
+  for (const m of source.matchAll(/from\s+["'](\.[^"']+)["']/g)) {
+    const spec = m[1].replace(/\.js$/, "");
+    for (const candidate of [`${spec}.ts`, `${spec}.tsx`, `${spec}/index.ts`, spec]) {
+      const abs = resolve(here, candidate);
+      if (existsSync(abs) && statSync(abs).isFile()) {
+        subjects.add(rel(abs));
+        break;
+      }
+    }
+  }
+  for (const m of source.matchAll(/^\s*from\s+(app(?:\.[a-z_]+)*)\s+import\s+/gm)) {
+    const base = `apps/ai-service/${m[1].split(".").join("/")}`;
+    for (const candidate of [`${base}.py`, `${base}/__init__.py`]) {
+      if (existsSync(join(REPO, candidate))) {
+        subjects.add(candidate);
+        break;
+      }
+    }
+  }
+  return [...subjects];
+}
+
+function lineOf(source, index) {
+  return source.slice(0, index).split("\n").length;
+}
+
+/** `it.fails(...)` / `it.todo(...)` — a TypeScript assertion that is red until built. */
+function providerVitest() {
+  const pins = [];
+  for (const abs of walk(join(REPO, "apps"))) {
+    if (!/\.test\.tsx?$/.test(abs)) continue;
+    const src = readFileSync(abs, "utf8");
+    if (!src.includes("it.fails(") && !src.includes("it.todo(")) continue;
+    const subjects = importedSubjects(abs, src);
+    for (const m of src.matchAll(/\bit\.(fails|todo)\(\s*(["'`])((?:\\.|(?!\2).)*)\2/g)) {
+      pins.push({
+        source: "vitest",
+        id: `${rel(abs)}:${lineOf(src, m.index)}`,
+        title: m[3],
+        why: `it.${m[1]} — passes only once the behaviour exists`,
+        gates: [rel(abs), ...subjects],
+      });
+    }
+  }
+  return pins;
+}
+
+/** `@pytest.mark.xfail(...)` — the same shape on the Python side. */
+function providerPytest() {
+  const pins = [];
+  for (const abs of walk(join(REPO, "apps", "ai-service", "tests"))) {
+    if (!abs.endsWith(".py")) continue;
+    const src = readFileSync(abs, "utf8");
+    if (!src.includes("@pytest.mark.xfail")) continue;
+    const subjects = importedSubjects(abs, src);
+    for (const m of src.matchAll(/@pytest\.mark\.xfail\(/g)) {
+      // Scan forward to the decorated `def`, rather than matching a bounded blob between the
+      // two. THE FIRST VERSION CAPPED THE DECORATOR AT 400 CHARACTERS AND FOUND NOTHING —
+      // the one xfail in this repo carries a 700-character reason, so the provider reported
+      // a clean zero on a file that had a pin in it. That is the vacuous detector again, in
+      // the tool built to stop people missing pins.
+      const defAt = src.indexOf("\ndef ", m.index);
+      if (defAt === -1) continue;
+      const decorator = src.slice(m.index, defAt);
+      const name = /^\ndef\s+(\w+)/.exec(src.slice(defAt))?.[1] ?? "(unnamed)";
+      // A `reason=` is routinely a parenthesised run of adjacent string literals; take them
+      // all, in order, or the reason truncates at the first line break.
+      const after = decorator.slice(decorator.indexOf("reason"));
+      const reason = [...after.matchAll(/"([^"]*)"|'([^']*)'/g)]
+        .map((lit) => lit[1] ?? lit[2])
+        .join("");
+      pins.push({
+        source: "pytest",
+        id: `${rel(abs)}:${lineOf(src, m.index)}`,
+        title: name,
+        why: reason.replace(/\s+/g, " ").slice(0, 200) || "xfail",
+        gates: [rel(abs), ...subjects],
+      });
+    }
+  }
+  return pins;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// Provider 3 — the shared corpus
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+function providerCorpus() {
+  const dir = join(REPO, "packages", "profiling-lexicon", "__fixtures__");
+  const pins = [];
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith(".jsonl")) continue;
+    const abs = join(dir, name);
+    const lines = readFileSync(abs, "utf8").split("\n");
+    lines.forEach((line, i) => {
+      if (!line.trim()) return;
+      const row = JSON.parse(line);
+      const note = row.note ?? "";
+      if (!PIN_NOTE.test(note) || /\bCLOSED\b/.test(note)) return;
+      const prefix = String(row.id ?? "").split("_")[0];
+      pins.push({
+        source: "corpus",
+        id: `${row.id} (${rel(abs)}:${i + 1})`,
+        title: row.text ?? "",
+        why: note.replace(/\s+/g, " ").slice(0, 200),
+        gates: [rel(abs), ...(CORPUS_PREFIX_SUBJECTS[prefix] ?? [])],
+      });
+    });
+  }
+  return pins;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// Provider 4 — table-driven gap suites
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Any Python test module exposing `pinned_gaps()` opts in by defining that function.
+ *
+ * Greppable on purpose: a new table suite joins by writing one function, and this script
+ * finds it without a registry that somebody has to remember to update — which is the exact
+ * failure this whole file is a response to.
+ */
+function pythonExe() {
+  const candidates = [
+    join(REPO, "apps", "ai-service", ".venv", "Scripts", "python.exe"),
+    join(REPO, "apps", "ai-service", ".venv", "bin", "python"),
+    join(REPO, ".venv", "Scripts", "python.exe"),
+    join(REPO, ".venv", "bin", "python"),
+  ];
+  return candidates.find((p) => existsSync(p)) ?? null;
+}
+
+function providerPythonTables() {
+  const testsDir = join(REPO, "apps", "ai-service", "tests");
+  const modules = [];
+  for (const abs of walk(testsDir)) {
+    if (!abs.endsWith(".py")) continue;
+    if (readFileSync(abs, "utf8").includes("def pinned_gaps(")) {
+      modules.push({
+        abs,
+        module: `tests.${abs
+          .slice(testsDir.length + 1, -3)
+          .split(sep)
+          .join(".")}`,
+      });
+    }
+  }
+  if (modules.length === 0) return [];
+
+  const exe = pythonExe();
+  if (exe === null) {
+    // Fail closed and say so. Reporting zero here would be the vacuous-detector bug this
+    // repo has now shipped five times: an absence that is indistinguishable from a break.
+    throw new Error(
+      "no ai-service virtualenv found, so table-driven gap suites could not be read " +
+        `(${modules.map((m) => m.module).join(", ")}). Create apps/ai-service/.venv or run ` +
+        "with --skip-python and treat the list as incomplete.",
+    );
+  }
+
+  const script = [
+    "import importlib, json, sys",
+    "out = []",
+    "for name in sys.argv[1:]:",
+    "    mod = importlib.import_module(name)",
+    "    for pin in mod.pinned_gaps():",
+    "        pin['module'] = name",
+    "        out.append(pin)",
+    "print(json.dumps(out))",
+  ].join("\n");
+
+  const stdout = execFileSync(exe, ["-c", script, ...modules.map((m) => m.module)], {
+    cwd: join(REPO, "apps", "ai-service"),
+    encoding: "utf8",
+    env: { ...process.env, PYTHONPATH: join(REPO, "apps", "ai-service"), PYTHONIOENCODING: "utf8" },
+  });
+
+  return JSON.parse(stdout).map((pin) => ({
+    source: "table",
+    id: `${pin.module}::${pin.id}`,
+    title: pin.title ?? "",
+    why: pin.why ?? "",
+    gates: pin.gates ?? [],
+  }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// Filtering and output
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** What this packet is about to touch: the branch's diff against main, plus the worktree. */
+function changedPaths() {
+  const run = (args) => {
+    try {
+      return execFileSync("git", args, { cwd: REPO, encoding: "utf8" });
+    } catch {
+      return "";
+    }
+  };
+  const paths = new Set();
+  for (const line of run(["diff", "--name-only", "origin/main...HEAD"]).split("\n")) {
+    if (line.trim()) paths.add(line.trim());
+  }
+  for (const line of run(["status", "--porcelain"]).split("\n")) {
+    const p = line.slice(3).trim();
+    if (p) paths.add(p.replace(/^.* -> /, ""));
+  }
+  return [...paths];
+}
+
+/** A pin matches when any file it gates sits under any of the given paths (or vice versa). */
+export function pinsTouching(pins, paths) {
+  if (paths.length === 0) return [];
+  return pins.filter((pin) =>
+    pin.gates.some((gate) =>
+      paths.some((p) => gate === p || gate.startsWith(`${p}/`) || p.startsWith(`${gate}/`)),
+    ),
+  );
+}
+
+export const PROVIDERS = {
+  vitest: providerVitest,
+  pytest: providerPytest,
+  corpus: providerCorpus,
+  table: providerPythonTables,
+};
+
+export function collectPins({ skipPython = false } = {}) {
+  const pins = [];
+  const unavailable = [];
+  for (const [name, provider] of Object.entries(PROVIDERS)) {
+    if (skipPython && name === "table") {
+      unavailable.push(`${name}: skipped by --skip-python`);
+      continue;
+    }
+    try {
+      pins.push(...provider());
+    } catch (error) {
+      unavailable.push(`${name}: ${error.message}`);
+    }
+  }
+  return { pins, unavailable };
+}
+
+function main(argv) {
+  const flags = new Set(argv.filter((a) => a.startsWith("--")));
+  const paths = argv.filter((a) => !a.startsWith("--"));
+  const { pins, unavailable } = collectPins({ skipPython: flags.has("--skip-python") });
+
+  const scope = flags.has("--all") ? null : paths.length > 0 ? paths : changedPaths();
+  const shown = scope === null ? pins : pinsTouching(pins, scope);
+
+  if (flags.has("--json")) {
+    process.stdout.write(
+      `${JSON.stringify({ pins: shown, total: pins.length, unavailable }, null, 2)}\n`,
+    );
+  } else {
+    const header =
+      scope === null
+        ? `${pins.length} open pins (all)`
+        : `${shown.length} of ${pins.length} open pins touch ${scope.length} path(s)`;
+    process.stdout.write(`\n${header}\n${"─".repeat(Math.max(header.length, 40))}\n`);
+    for (const group of ["table", "corpus", "vitest", "pytest"]) {
+      const rows = shown.filter((p) => p.source === group);
+      if (rows.length === 0) continue;
+      process.stdout.write(`\n[${group}]\n`);
+      for (const pin of rows) {
+        process.stdout.write(`  ${pin.id}\n`);
+        if (pin.title) process.stdout.write(`      ${pin.title}\n`);
+        if (pin.why) process.stdout.write(`      ${pin.why}\n`);
+      }
+    }
+    if (shown.length === 0) process.stdout.write("\n  (none)\n");
+    process.stdout.write("\n");
+  }
+
+  if (unavailable.length > 0) {
+    for (const line of unavailable) process.stderr.write(`UNAVAILABLE ${line}\n`);
+    process.stderr.write(
+      "The list above is INCOMPLETE — a provider could not run, and an absence it would " +
+        "have reported is indistinguishable from a break.\n",
+    );
+    return 1;
+  }
+  return 0;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
+  process.exit(main(process.argv.slice(2)));
+}

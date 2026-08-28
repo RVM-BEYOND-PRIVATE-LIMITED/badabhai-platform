@@ -2478,3 +2478,192 @@ directions mutation-verified.
 #1299 merged (`a9baddf7`, verified on `origin/main`). #1300 opened for §6 alone; its CI produced
 **10 jobs**, which is the check that matters for that file — a workflow that fails to compile
 produces zero.
+
+---
+
+## §25 — R13: the salary guards shipped, every collapse rule given its other half, and milling begun
+
+### 25.1 — §4 first, because the rule was earned by `sal_004`
+
+`pnpm pins` lists the open pins gating the files a packet is about to change, and **fails closed**
+when a provider cannot run — an empty list has to mean "no pins here", never "the reader broke".
+Four providers: `it.fails` / `it.todo`, `pytest.mark.xfail`, corpus rows carrying a measured-wrong
+value, and any Python test module that defines `pinned_gaps()`.
+
+**It found nothing on its first run against the one xfail in the repo.** The pytest reader capped
+the decorator at 400 characters and that xfail's `reason` is ~700, so it reported a clean zero on a
+file with a pin in it — the vacuous detector, inside the tool built to stop people missing pins.
+Reintroducing the cap now turns two tests red; verified.
+
+Run against this packet's paths: **20 of 21 open pins**. Two things worth the ten seconds it takes:
+
+- **`sal_018` / `sal_019` and `sp_hajar` / `sp_hazzar` are the same two gaps, pinned twice** — once
+  in the shared corpus and once in the slot table. Nobody would have noticed from either end.
+- **`exp_028` — "7-8 saal" records 8** — is the band class, in a different field. The salary band
+  gaps and the experience range gap are one missing concept, and only a cross-file listing shows it.
+
+### 25.2 — §1.1, and the correction is the owner's, restated
+
+I argued to the reviewer that anchoring the window past the period phrase "is not widening — it is
+the same width, anchored differently". The sweep refuted it, and the owner's framing is the right
+one: true narrowly, false consequentially, which is the worst thing to hand a reviewer because it
+survives scrutiny on its own terms and ships the failure the docstring exists to prevent.
+
+Shipped with the three guards. Every combination measured over the same 7,150-utterance sweep,
+because "this one is the important one" is exactly the claim that survives a 43-row probe list:
+
+| variant                    | regressions |
+| -------------------------- | ----------: |
+| today (shipped, pre-R13)   |           0 |
+| naked anchor               |        1776 |
+| (a) next-number clamp only |        1520 |
+| (b) clause-end clamp only  |         907 |
+| (c) cue ownership only     |         256 |
+| (a) + (b)                  |         835 |
+| **(a) + (b) + (c)**        |       **0** |
+
+**And then the sweep said guard (b) was redundant.** `(a)+(c)` also scores zero, and no adversarial
+row uniquely required (b). Read literally: ship two guards.
+
+It is wrong, and the sweep could not see why. Every utterance its grid generates ends in
+`<amount> <cue>` or `<cue> <amount>`, so **a cue with no number behind it never occurs** — and that
+is the only shape (b) is for. `abhi 25000 mahina hai. chahiye zyada` is an ordinary sentence, and
+without the clause clamp the worker's current pay is filed as his asking price. A generator's grid
+is a fixture like any other: it can only refute what it contains. Two adversarial rows and two
+corpus rows now carry that shape.
+
+**Cross-language.** All 527 existing corpus rows agree on a guarded and an unguarded
+implementation, so the parity suite was blind to the entire change — measured, not assumed. Six
+discriminating rows added; each guard is now mutation-verified red on **both** engines. Before
+those rows, deleting the TypeScript clause clamp left all 531 rows green.
+
+`salp_002` went red the moment the fix landed, exactly as its note predicted. That is the second
+time in two packets a pin has announced its own closure.
+
+### 25.3 — §1.2, the classification, and why it came before the coverage
+
+Nine failures, split by CAUSE before anything was built:
+
+| cause     |  n  | what it takes to close                                |
+| --------- | :-: | ----------------------------------------------------- |
+| window    |  5  | one algorithm change, two engines, a 7,150 sweep      |
+| band      |  2  | a range rule that does not exist — and a product call |
+| gazetteer |  2  | one word each, in `data/salary.json`                  |
+
+**The split is what said "five of these nine are one defect in five costumes"** before a line was
+written. A single percentage would have said nothing about which to work on. The window class is
+now empty.
+
+### 25.4 — §1.3, and two causes the table did not have
+
+**39/47.** Reported by cause, never as a bare percentage — the printout groups the eight remaining
+gaps under `band 3 · gazetteer 3 · period 1 · window 1`.
+
+Two of the eleven new rows are new classes, both found by looking rather than by guessing:
+
+- **`daily_wage` — a daily wage is recorded as a MONTHLY one.** `1200 daily milta hai` records
+  ₹1,200 per month for a man earning roughly ₹31,000. The file's whole premise is "prefer NO number
+  over a WRONG number" and here it does the opposite, at 26x, because the period defaulted instead
+  of being consulted. `want` is `(None, None)` — recording nothing is correct until somebody rules
+  on days per month.
+- **`reversed_order` — the window class, pointing backwards.** §1.1 guarded the window's END;
+  nothing guards its START. `35000 chahiye, abhi 25000 milta hai` marks the current pay as expected
+  through the 25-character backward window and then discards it. Same defect, same fix shape,
+  opposite direction.
+
+### 25.5 — §2, and the answer only appeared at the third attempt
+
+Silencing each segment inside `buildVerdictLine` is caught for all seven — a comfortable answer to
+the wrong question. The function was never the defect; **one call site passing a literal was**.
+
+Measured at that layer instead: twelve mutations, six segments × two mapper branches, against the
+resume suite without the new file.
+
+```
+survivors BEFORE:  7 of 12
+  legacy.role  legacy.years  legacy.tools  legacy.availability
+  container.role             container.tools  container.availability
+survivors AFTER:   0 of 12
+```
+
+**Four of six segments could be silenced on a branch with the whole suite green.** `legacy.years`
+is the salary defect's exact shape a second time — guarded on the container branch, invisible on
+the legacy one — and both surviving asymmetries are on the legacy path, the one the mapper's own
+comment calls "the path most existing profiles still take". Only `city` and `salary` were guarded
+on both, and `salary` only because R12 §1.4 had just been burned by it.
+
+**A fourth headline segment has never rendered for anybody.** `buildVerdictLine` takes `axes` and
+the slot contract has documented it since the sheet shipped; neither mapper branch passes it. Not
+the same class of bug — there is no turner source for it — but correctly empty today and
+incorrectly unreachable tomorrow, so it is pinned.
+
+### 25.6 — §3.1, milling, and what it forced outside its own pack
+
+`qp_vmc_milling.json` — **520 lines, 18 items, 89 options** (turner: 774 / 18 / 91) — plus a
+13-row `TRADE_RESUME_MAPS` entry, a family and four NCO bindings. On branch
+`feat/r13-milling-pack`, deliberately separate from this packet's other work.
+
+**Q8 holds for the sheet, and it held first try.** The ratified sample's nine capability rows
+render from the map, in the sample's order, with no change to the renderer, the template, the
+ladder or any contract — including `VMC · 3-axis  VMC · 4-axis  SPM`, the **first use of
+`configFrom` by any shipped map**. R10 built that seam for this entry and it fired without an edit.
+
+**What milling forced outside its own pack, in full:**
+
+| where                                          | what                                                | is it a code change?      |
+| ---------------------------------------------- | --------------------------------------------------- | ------------------------- |
+| `trade-resume-map.ts`                          | `MEASURING_TOOLS` → `TURNING_MEASURING_TOOLS`       | a rename; no behaviour    |
+| `trade-resume-map.test.ts`                     | three structural checks parametrised over every map | test infrastructure, once |
+| `pack-scoping.guard.test.ts`                   | collision lists 1 → 5 keys (veto), 2 → 6 (reach)    | expected values, no logic |
+| `pack-served-text.json`, `reply-closure.json`  | regenerated                                         | generated                 |
+| `_families.jsonl`, `_published-versions.jsonl` | 5 + 1 lines                                         | data                      |
+
+**Zero renderer, template, ladder, engine or contract lines.** The one entry that reads as a
+finding is the first: a constant named _"shared by every machining-family pack: the instruments do
+not change by role"_ — and the first time a second role was authored, they did. The ratified
+milling sheet prints a **snap gauge**; a turner's plug/ring gauge checks a bore he just bored.
+
+**The collision growth is the R12 §2 measurement, arriving late.** The veto gazetteer's collision
+set went from one key to five and the reach map's from two to six. Nothing broke, because those
+dictionaries were keyed by `pack_id` first. Written the other way round, a miller's `setting_operation`,
+`programming_level`, `quality_work` and `troubleshooting` answers would have been read through a
+turner's vocabulary and nothing would have said so.
+
+**Corrections to my own R11 estimate, both measured:**
+
+- TTS twins: estimated ~28 from a 1.83/question ratio. Measured **35 clips**, of which 13 compose
+  automatically from their halves — so the authoring burden is **22 strings** (11 prompts, 9 whys,
+  2 retries). Seven prompts need no twin at all because their text is byte-identical to the
+  turner's, which is a real dividend of a shared question vocabulary and was not in the estimate.
+- Pack size: estimated ~640 lines. Measured **520**.
+
+**Known red at the §3.1 stop, and it is §3.2's item:** `question-tts-text.test.ts` reports those 35
+untwinned clips. Everything else — 927 tests across the resume and profiling suites, the pack
+validator, the reachability characterization, `tsc`, lint, prettier — is green.
+
+### 25.7 — §5, the merges, and the two rulings routed
+
+#1304 (`06035482`) and #1300 (`838f3624`) merged and verified **on `origin/main` by artifact**, not
+by PR state. **Q14 → RVM**, `measuring_tools` scoping unchanged; §3.1 added evidence that cuts
+against half of my own read, and it is recorded rather than acted on. **Q2 → RVM**, now carrying a
+measured casualty: a miller who answers all thirteen questions loses **`Sector worked`** — which
+the ratified sheet prints — to `Workholding`, because rank 42 beats rank 81. One row, asserted in a
+test, and not fixed by bending a rank.
+
+### 25.8 — §3.4, and milling gave the corpus back the ability to see its own collision
+
+R12 wrote the pack-scoping probe against `qp_hypothetical_milling` — a pack that did not exist —
+because none that did could reach the veto gazetteer: `drawing_reading` was its only colliding key
+and `qp_machining` and `qp_toolmaking` both type it `boolean`, so `slugsOf` returned nothing and a
+deliberately broken build passed. The probe is now parametrised over two **real** pack ids.
+
+**Mutation-verified with the scoping removed** (`CAPABILITY_TERMS.qp_cnc_turning`,
+unconditionally): **three cases go red, not one.** The corpus-driven case fails on its own now,
+naming `qp_vmc_milling` and **21 withdrawn claims** — milling supplies real select values for four
+of the five colliding keys, where the other packs only ever had booleans.
+
+The synthetic probe stays anyway. It was the only thing that could see the class for one packet,
+and a guard that depends on the corpus continuing to hold its own counterexample has a silent
+expiry date. Its comment carries the §3.2 handover: once milling owns a gazetteer, that row must
+move to asserting the MILLING gazetteer reaches only milling — not be deleted, and not be left
+passing by accident.

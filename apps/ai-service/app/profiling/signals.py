@@ -2167,6 +2167,86 @@ def _period_months(near_before: str, near_after: str) -> int | None:
 _CREDENTIAL_BEFORE_RE = lexicon.compile_pattern(_SALARY["credentialBefore"])
 
 
+# A clause boundary. Guard (b): an expectation cue on the OTHER side of one belongs to the
+# other clause. Includes the Devanagari danda, which is a sentence end and not a word
+# character — the lexicon carries the pattern so both engines terminate on the same set.
+_CLAUSE_TERMINATOR_RE = lexicon.compile_pattern(_SALARY["clauseTerminator"])
+
+
+def _period_phrase_end(near_after: str) -> int | None:
+    """Offset just past the FIRST period word following an amount, or None if there is none.
+
+    First by END, not by start: 'har mahine' and 'mahine' can both match at the same place and
+    the shorter one must not truncate the anchor. Only the period cues are consulted — a money
+    cue like 'ki salary' is not what displaces the expectation cue.
+    """
+    best: int | None = None
+    for cue in (*_ANNUAL_CUES_AFTER, *_MONTHLY_CUES):
+        found = cue.search(near_after)
+        if found is not None and (best is None or found.end() < best):
+            best = found.end()
+    return best
+
+
+def _cue_after_the_period_phrase(
+    lower: str,
+    m: re.Match[str],
+    numbers: list[tuple[int, int]],
+    window_start: int,
+    base_end: int,
+    line_end: int,
+) -> bool:
+    """Is there an expectation cue just past this amount's PERIOD phrase? (R13 §1.1.)
+
+    "35000 mahina chahiye" is an asking price, and the shipped ten-character window never sees
+    the cue because ' mahina' spends eight of the ten. Re-anchoring the window's end after the
+    period phrase is the same width from a different origin — and on its own it re-creates,
+    1,776 times in a 7,150-utterance sweep, the very regression the line clamp exists to stop:
+    in "abhi 25000 mahina, 30k chahiye" the re-anchored window of the CURRENT pay reaches the
+    ASKING price's cue, files 25000 as expected, and first-writer-wins then drops the 30k.
+
+    Three guards take that to zero. Each is measured alone in data/salary.json; none is
+    redundant and none is sufficient:
+
+      (a) the extension never crosses the next NUMBER;
+      (b) it never crosses a clause terminator;
+      (c) a cue with a number standing behind it belongs to that number, not to this one.
+
+    The extension can only ever LENGTHEN the window (``max(base_end, …)``), so no phrasing that
+    is attributed correctly today can start failing through this path.
+    """
+    near_after = lower[m.end() : min(line_end, m.end() + _PERIOD_WINDOW_AFTER)]
+    phrase_end = _period_phrase_end(near_after)
+    if phrase_end is None:
+        return False
+
+    anchored = m.end() + phrase_end
+    limit = min(line_end, anchored + _EXPECTED_WINDOW_AFTER)
+
+    next_number = next((start for start, _end in numbers if start >= m.end()), None)
+    if next_number is not None:  # (a)
+        limit = min(limit, next_number)
+    terminator = _CLAUSE_TERMINATOR_RE.search(lower, anchored, limit)
+    if terminator is not None:  # (b)
+        limit = terminator.start()
+    limit = max(base_end, limit)
+
+    extension = lower[window_start:limit]
+    for cue in _EXPECTED_CUES:
+        # Only cues the BASE window could not already have seen — a cue inside it would have
+        # answered this question before we were called.
+        at = extension.find(cue, max(0, base_end - window_start - len(cue) + 1))
+        if at == -1:
+            continue
+        cue_end = window_start + at + len(cue)
+        # (c) — and ON THIS LINE. A number on the next line is a different utterance, the same
+        # reason every other window here is clamped to the line the amount sits on.
+        if any(cue_end <= start < line_end for start, _end in numbers):
+            continue
+        return True
+    return False
+
+
 class SalaryHit(NamedTuple):
     """One accepted salary: the MONTHLY amount, which slot it fills, and its evidence span.
 
@@ -2189,6 +2269,11 @@ def _iter_salaries(text: str, lower: str) -> Iterator[SalaryHit]:
     the SAME algorithm rather than a second copy of it. A duplicate would be free to drift, and
     the thing it would drift on is the twelve-times period decision.
     """
+    # EVERY digit run the matcher can see, including the ones rejected below as years, roll
+    # numbers or bare two-digit counts. The guards ask "is another number standing here?", and
+    # for that question a number this pass declines to RECORD is still a number in the way —
+    # "25000 mahina 30 chahiye" has its cue claimed by the 30, which never becomes a salary.
+    numbers = [(m.start(1), m.end()) for m in _SALARY_RE.finditer(text)]
     for m in _SALARY_RE.finditer(text):
         num, unit = m.group(1), m.group(2)
         if not unit and len(num.replace(",", "")) < _MIN_DIGITS_WITHOUT_UNIT:
@@ -2228,13 +2313,15 @@ def _iter_salaries(text: str, lower: str) -> Iterator[SalaryHit]:
         amount = _parse_amount(num, unit, months)
         if amount is None or amount < _MIN_AMOUNT_INR:
             continue
-        window = lower[
-            max(line_start, m.start() - _EXPECTED_WINDOW_BEFORE) : min(
-                line_end, m.end() + _EXPECTED_WINDOW_AFTER
+        window_start = max(line_start, m.start() - _EXPECTED_WINDOW_BEFORE)
+        base_end = min(line_end, m.end() + _EXPECTED_WINDOW_AFTER)
+        is_expected = any(cue in lower[window_start:base_end] for cue in _EXPECTED_CUES)
+        if not is_expected:
+            is_expected = _cue_after_the_period_phrase(
+                lower, m, numbers, window_start, base_end, line_end
             )
-        ]
         end = m.end(2) if unit else m.end(1)
-        yield SalaryHit(amount, any(cue in window for cue in _EXPECTED_CUES), digits_at, end)
+        yield SalaryHit(amount, is_expected, digits_at, end)
 
 
 def _detect_salary(text: str, lower: str, sig: Signals) -> None:

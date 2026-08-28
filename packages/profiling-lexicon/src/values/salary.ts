@@ -40,6 +40,7 @@ interface SalaryFile {
   readonly expectedWindowBefore: number;
   readonly expectedWindowAfter: number;
   readonly expectedCues: readonly string[];
+  readonly clauseTerminator: PatternSpec;
   readonly annualCuesAfter: readonly PatternSpec[];
   readonly annualCuesBefore: readonly PatternSpec[];
   readonly monthlyCues: readonly PatternSpec[];
@@ -64,6 +65,11 @@ const MONEY = compileAll(SALARY.moneyCues);
 
 const THOUSAND_UNITS = new Set(SALARY.thousandUnits);
 const LAKH_UNITS = new Set(SALARY.lakhUnits);
+
+// Guard (b) of the period-anchored extension. Includes the Devanagari danda, which ends a
+// sentence without being a word character — shared through the lexicon so both engines stop at
+// the same set rather than at whatever each language's punctuation class happens to hold.
+const CLAUSE_TERMINATOR = compilePattern(SALARY.clauseTerminator);
 
 /**
  * A fresh global+hasIndices matcher per call.
@@ -181,11 +187,83 @@ export interface SalaryReading {
  * `AnswerRecord.history`), not this function's — a normalizer that silently preferred the last
  * number would make a correction indistinguishable from a worker listing two figures.
  */
+/**
+ * Offset just past the FIRST period word following an amount, or null. `_period_phrase_end`.
+ *
+ * First by END, not by start: "har mahine" and "mahine" can match at the same place and the
+ * shorter one must not truncate the anchor.
+ */
+function periodPhraseEnd(nearAfter: string): number | null {
+  let best: number | null = null;
+  for (const cue of [...ANNUAL_AFTER, ...MONTHLY]) {
+    const found = cue.exec(nearAfter);
+    if (found !== null && (best === null || found.index + found[0].length < best)) {
+      best = found.index + found[0].length;
+    }
+  }
+  return best;
+}
+
+/**
+ * Is there an expectation cue just past this amount's PERIOD phrase? `_cue_after_the_period_phrase`.
+ *
+ * "35000 mahina chahiye" is an asking price, and the shipped ten-character window never sees the
+ * cue because " mahina" spends eight of the ten — so the figure lands in the CURRENT slot and a
+ * worker's asking price is printed as what he already earns. Re-anchoring the window's end after
+ * the period phrase is the same width from a different origin; on its own it re-creates the
+ * cross-amount regression the line clamp exists to prevent, 1,776 times in a 7,150-utterance
+ * sweep. The three guards below take that to zero, and `data/salary.json` carries each one's
+ * measured contribution.
+ */
+function cueAfterThePeriodPhrase(
+  lower: string,
+  matchEnd: number,
+  numbers: readonly number[],
+  windowStart: number,
+  baseEnd: number,
+  lineEnd: number,
+): boolean {
+  const nearAfter = lower.slice(matchEnd, Math.min(lineEnd, matchEnd + SALARY.periodWindowAfter));
+  const phraseEnd = periodPhraseEnd(nearAfter);
+  if (phraseEnd === null) return false;
+
+  const anchored = matchEnd + phraseEnd;
+  let limit = Math.min(lineEnd, anchored + SALARY.expectedWindowAfter);
+
+  const nextNumber = numbers.find((start) => start >= matchEnd);
+  if (nextNumber !== undefined) limit = Math.min(limit, nextNumber); // (a)
+  const terminator = CLAUSE_TERMINATOR.exec(lower.slice(anchored, limit));
+  if (terminator !== null) limit = anchored + terminator.index; // (b)
+  limit = Math.max(baseEnd, limit);
+
+  const extension = lower.slice(windowStart, limit);
+  for (const cue of SALARY.expectedCues) {
+    // Only cues the BASE window could not already have seen — one inside it would have answered
+    // this question before we were called.
+    const at = extension.indexOf(cue, Math.max(0, baseEnd - windowStart - cue.length + 1));
+    if (at === -1) continue;
+    const cueEnd = windowStart + at + cue.length;
+    // (c) — and ON THIS LINE, for the same reason every other window here is line-clamped.
+    if (numbers.some((start) => start >= cueEnd && start < lineEnd)) continue;
+    return true;
+  }
+  return false;
+}
+
 export function detectSalaries(text: string): SalaryReading {
   const message = text || "";
   const lower = message.toLowerCase();
   let expected: NormalizedValue<MonthlyInr> | null = null;
   let current: NormalizedValue<MonthlyInr> | null = null;
+
+  // EVERY digit run the matcher can see, including ones rejected below as years, roll numbers
+  // or bare two-digit counts. The guards ask "is another number standing here?", and a number
+  // this pass declines to RECORD is still a number in the way.
+  const numbers: number[] = [];
+  for (const m of message.matchAll(matcher())) {
+    const digitSpan = m.indices?.[1];
+    if (digitSpan !== undefined) numbers.push(digitSpan[0]);
+  }
 
   for (const m of message.matchAll(matcher())) {
     const indices = m.indices;
@@ -239,11 +317,14 @@ export function detectSalaries(text: string): SalaryReading {
       negationVetoed: applyNegation(message).spans.some(([s, e]) => s < span.end && span.start < e),
     };
 
-    const window = lower.slice(
-      Math.max(lineStart, matchStart - SALARY.expectedWindowBefore),
-      Math.min(lineEnd, matchEnd + SALARY.expectedWindowAfter),
-    );
-    if (SALARY.expectedCues.some((cue) => window.includes(cue))) {
+    const windowStart = Math.max(lineStart, matchStart - SALARY.expectedWindowBefore);
+    const baseEnd = Math.min(lineEnd, matchEnd + SALARY.expectedWindowAfter);
+    const base = lower.slice(windowStart, baseEnd);
+    const isExpected =
+      SALARY.expectedCues.some((cue) => base.includes(cue)) ||
+      cueAfterThePeriodPhrase(lower, matchEnd, numbers, windowStart, baseEnd, lineEnd);
+
+    if (isExpected) {
       if (expected === null) expected = reading;
     } else if (current === null) {
       current = reading;
