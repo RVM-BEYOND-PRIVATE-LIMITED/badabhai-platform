@@ -112,7 +112,7 @@ certificates") is a real answer and does not fall through.
 
 ---
 
-## A5 · Two prettier exclusions kept
+## A5 · Six files and one directory left unformatted, on purpose
 
 **Assumed.** Five `packages/db` files are left unformatted — `src/schema/index.ts`,
 `src/reencrypt-pii-backfill.ts`, and the three the occupation-eval fix touches
