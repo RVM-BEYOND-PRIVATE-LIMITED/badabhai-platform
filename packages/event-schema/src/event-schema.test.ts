@@ -3042,11 +3042,17 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 169 event names (168 prior + the work-history writer)", () => {
-    expect(EVENT_NAMES).toHaveLength(169);
+  it("exposes all 170 event names (169 prior + the finishing form)", () => {
+    expect(EVENT_NAMES).toHaveLength(170);
     // R5 1.2 — the worker recorded his own work history. PII-FREE by shape: counts and a
     // boolean, never the employer name the feature is about, and never the city.
     expect(isEventName("worker.employment_recorded")).toBe(true);
+    // R6 §4 — the finishing form's closed-set page. PII-FREE by shape AND deliberately by
+    // omission: it carries only how many keys were written and cleared. Each individual answer
+    // is a closed-vocabulary label and would be harmless alone; the SET of them — languages
+    // plus preferred cities plus a worker id — is a good deal of what it takes to pick a person
+    // out of a shop floor, and an audit trail needs to know that the form was answered.
+    expect(isEventName("worker.preferences_recorded")).toBe(true);
     // #997 — the worker addressing the platform in their own words. The only worker-authored
     // free text on the spine whose system-of-record row is deliberately allowed to hold the
     // worker's own PII; the EVENT carries the category, the length and the build, never the

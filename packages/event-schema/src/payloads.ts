@@ -83,6 +83,25 @@ export const WorkerEmploymentRecordedPayload = z
   })
   .strict();
 
+// R6 §4 — the worker answered the finishing form's closed-set page (languages, documents,
+// shift, job type, preferred cities, relocation, accommodation).
+//
+// PII-FREE, AND IT CARRIES NO ANSWER — only which keys were written and which were cleared.
+// The values themselves are closed-vocabulary labels and would be safe to carry, but the SET of
+// them is not: languages plus preferred cities plus a worker id is a good deal of what it takes
+// to pick a person out of a shop floor, and an audit trail needs to know that the form was
+// answered, not what was ticked. `keys_written` is a COUNT for the same reason the employment
+// event carries a count rather than a list.
+export const WorkerPreferencesRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** How many attribute keys this submission set. */
+    keys_written: z.number().int().min(0).max(16),
+    /** How many it explicitly CLEARED — a real edit, and distinguishable from "not answered". */
+    keys_cleared: z.number().int().min(0).max(16),
+  })
+  .strict();
+
 // The worker updated their resume display prefs on the "Aap control karte hain"
 // edit screen. PII-FREE: only worker_id + the two boolean flags — never the
 // name/phone/photo. Carries the RESULTING values (post-update) of both flags.
@@ -3469,9 +3488,7 @@ export const ProfileLlmInterviewFallbackPayload = z
     asks: z.number().int().nonnegative(),
   })
   .strict();
-export type ProfileLlmInterviewFallbackPayload = z.infer<
-  typeof ProfileLlmInterviewFallbackPayload
->;
+export type ProfileLlmInterviewFallbackPayload = z.infer<typeof ProfileLlmInterviewFallbackPayload>;
 
 /**
  * ONE PHYSICAL SUBMISSION ARRIVED TWICE and the second copy was served from the reply cache
@@ -3546,9 +3563,7 @@ export const ProfileSubmissionDuplicatedPayload = z
     elapsed_ms: z.number().int().nonnegative(),
   })
   .strict();
-export type ProfileSubmissionDuplicatedPayload = z.infer<
-  typeof ProfileSubmissionDuplicatedPayload
->;
+export type ProfileSubmissionDuplicatedPayload = z.infer<typeof ProfileSubmissionDuplicatedPayload>;
 
 // ---------------------------------------------------------------------------
 // feedback.* — the worker addressing the platform in their own words (#997).

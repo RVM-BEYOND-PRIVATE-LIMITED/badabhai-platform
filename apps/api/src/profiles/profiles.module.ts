@@ -11,6 +11,8 @@ import { WorkerAttributesRepository } from "./worker-attributes.repository";
 import { WorkerEmploymentRepository } from "./worker-employment.repository";
 import { WorkerEmploymentService } from "./worker-employment.service";
 import { WorkerEmploymentController } from "./worker-employment.controller";
+import { WorkerPreferencesService } from "./worker-preferences.service";
+import { WorkerPreferencesController } from "./worker-preferences.controller";
 import { WorkersModule } from "../workers/workers.module";
 import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { AiJobsController } from "./ai-jobs.controller";
@@ -61,6 +63,7 @@ import {
     AiJobsController,
     WorkerAiJobsController,
     WorkerEmploymentController,
+    WorkerPreferencesController,
   ],
   providers: [
     ProfilesService,
@@ -75,6 +78,9 @@ import {
     // this adds no module edge.
     WorkerEmploymentRepository,
     WorkerEmploymentService,
+    // R6 §4 — the finishing form's closed-set page. Writes `worker_attributes` through the
+    // repository already provided above, so this adds a provider and no module edge.
+    WorkerPreferencesService,
     ProfileExtractionProcessor,
     AiJobsRetentionSweepProcessor,
   ],

@@ -32,6 +32,11 @@ export const EVENT_REGISTRY = {
     domain: "worker",
     payload: p.WorkerEmploymentRecordedPayload,
   },
+  "worker.preferences_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerPreferencesRecordedPayload,
+  },
   "worker.resume_prefs_updated": {
     version: 1,
     domain: "worker",

@@ -6,6 +6,7 @@ import { resolveTradeContent, type TradeContent } from "./trade-content";
 import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-resume-map";
 import { degradeToFit } from "./resume-degradation";
 import { buildEmploymentBlock, type WorkerEmploymentRecord } from "./resume-employment-rows";
+import { readPreferenceFacts, type ResumePreferenceFacts } from "./resume-preference-facts";
 import {
   bareAvailability,
   bareAvailabilityLabel,
@@ -235,6 +236,12 @@ function buildUndegraded(
   // payer on the same reasoning `shift` and `nightShiftReady` already do. The three things this
   // function withholds from a payer stay exactly three: the real name, the photo, the salary.
   const capability = buildTradeCapabilityRows(tradeSheet?.packId, tradeSheet?.attributes ?? {});
+  // THE FINISHING FORM'S ANSWERS (R6 §4), off the SAME attribute bag the capability block reads.
+  // Trade-independent, so they are read once here rather than per pack — and read above the
+  // branch, because both the résumé container and the legacy shape need them and neither one
+  // carries them. `languages` in particular has no draft column at all (`crosswalk.ts` records
+  // `draftPath: null`), so this is the only source it will ever have.
+  const preferences = readPreferenceFacts(tradeSheet?.attributes ?? {});
   // ZONE 4 IS BUILT HERE FOR THE SAME REASON, and it also decides which of the two work-history
   // regions the template renders. `employments` is the designed two-level shape; `experiences`
   // is the flat, employer-less shape every profile in the database actually has today. The
@@ -252,7 +259,10 @@ function buildUndegraded(
     // Documents are a self-declared tick row and are audience-blind, exactly like the capability
     // block: "I hold an Aadhaar card and an ITI certificate" is what removes a walk-in failure
     // (§5.1 rank 9), it is not identity and it carries no number.
-    qualTickRows: buildDocumentRows(tradeSheet?.qualification?.documents ?? []),
+    // R6 §4: the caller-supplied block still wins where it has one, and the FORM is the source
+    // behind it for every real worker — nothing in the 143-pack corpus asks for a document, so
+    // before the finishing form this row could not render for anybody.
+    qualTickRows: buildDocumentRows(tradeSheet?.qualification?.documents ?? preferences.documents),
     employments: employmentBlock.employments,
     employmentsMore: employmentBlock.employmentsMore,
     phone: tradeSheet?.phone ?? null,
@@ -321,6 +331,7 @@ function buildUndegraded(
       tradeSheet?.qualification,
       hasEmployments,
       { educationHeadline, certifications: draft.certifications },
+      preferences,
     );
   }
 
@@ -331,6 +342,10 @@ function buildUndegraded(
     draft.location_preference.current_city ?? draft.location_preference.preferred_cities[0] ?? null;
   const legacyMachines = draft.machines.map(labelForTaxonomyId);
   const legacyAvailability = bareAvailability(draft.availability);
+  // AUDIENCE-GATED HERE, not at the row, so the payer copy cannot acquire the worker's asking
+  // price by someone adding a second call site. Same rule and same shape as the container path.
+  const legacySalary =
+    audience === "worker" ? formatMonthlySalary(draft.salary_expectation.amount_min) : null;
 
   return {
     ...capabilitySlots,
@@ -349,9 +364,23 @@ function buildUndegraded(
     }),
     availFactRows: buildAvailabilityRows({
       availability: legacyAvailability,
-      salary: null,
-      preferredLocations: draft.location_preference.preferred_cities,
-      shift: null,
+      // WAS HARD `null`, AND IT SHOULD NOT HAVE BEEN. `salary_expected` is a universal pack ask
+      // on every interview, the crosswalk carries it onto the draft, and the extraction
+      // projection scatters it into `salary_expectation.amount_min` — so the figure was captured,
+      // stored, and then dropped at the last step on the branch a deterministic worker actually
+      // takes. §5.1 makes salary one of the four things that reject a candidate outright.
+      //
+      // SUPPRESSED ON THE PAYER COPY, exactly as the container path suppresses it.
+      salary: legacySalary,
+      preferredLocations:
+        preferences.preferredLocations.length > 0
+          ? preferences.preferredLocations
+          : draft.location_preference.preferred_cities,
+      // WAS HARD `null` TOO, for the same class of reason: `shift_preference` is asked by
+      // `qp_universal` and lands in `worker_attributes`, and this branch never read it.
+      shift: preferences.shiftLine,
+      willingToRelocate: preferences.willingToRelocate,
+      accommodationNeeded: preferences.accommodationNeeded,
     }),
     // ZONE 5. The context WINS PER FIELD where it has one, because it is the worker's own
     // structured answer and the snapshot's is a taxonomy id the extractor guessed at. It is a
@@ -365,7 +394,7 @@ function buildUndegraded(
       education: tradeSheet?.qualification?.education ?? draft.education.map(labelForTaxonomyId),
       certifications:
         tradeSheet?.qualification?.certifications ?? draft.certifications.map(labelForTaxonomyId),
-      languages: tradeSheet?.qualification?.languages ?? [],
+      languages: tradeSheet?.qualification?.languages ?? preferences.languages,
     }),
     // UNCHANGED ON THE LEGACY PATH. These three are new render-input fields, and the old
     // container has nothing to put in them: no work history exists outside Phase C, and the
@@ -511,11 +540,20 @@ function fromResumeProfile(
    * The caller-supplied block still WINS where it exists: it is the worker's own structured
    * answer and never passes through the model. This only fills the gap beneath it.
    *
-   * Languages stay empty and that is not an oversight — `crosswalk.ts` records `draftPath: null`
-   * for them, so there is no column to fall back to. It needs a capture surface, not a mapper
-   * change.
+   * Languages have no draft column to fall back to — `crosswalk.ts` records `draftPath: null` —
+   * so they were empty for every worker until a capture surface existed. `preferences` below is
+   * that surface, and it is the only source they will ever have.
    */
   draftQualification: { educationHeadline: string | null; certifications: readonly string[] },
+  /**
+   * The finishing form's closed-set answers (R6 §4) — Zone 3's terms and Zone 5's languages.
+   *
+   * THE FORM WINS OVER THE MODEL wherever both spoke, which is the same precedence `qualification`
+   * already has and for the same reason: the worker tapped these chips himself, and `rp.shift` is
+   * the model's reading of a conversation. It is per-field rather than all-or-nothing, so a worker
+   * who answered only the languages page keeps the model's shift.
+   */
+  preferences: ResumePreferenceFacts,
 ): ResumeRenderInput {
   // CERTIFIED ONCE, AT THE TOP (#831). `role_label` and `domain_label` are each read TWICE —
   // as their own fields and again by `summaryFor` — and certifying at each read site is how the
@@ -555,8 +593,16 @@ function fromResumeProfile(
       // is a negotiating position handed away if a payer reads it before any conversation, and
       // moving it into a labelled row must not become a way around that.
       salary: salaryText,
-      preferredLocations: cleanList(rp.preferred_locations),
-      shift: humanizeShift(cleanScalar(rp.shift)),
+      preferredLocations:
+        preferences.preferredLocations.length > 0
+          ? preferences.preferredLocations
+          : cleanList(rp.preferred_locations),
+      // The form's own answer, else the model's reading of the conversation. The form's carries
+      // the employment type with it ("Rotational shifts · Permanent"), which the model has no
+      // field for at all.
+      shift: preferences.shiftLine ?? humanizeShift(cleanScalar(rp.shift)),
+      willingToRelocate: preferences.willingToRelocate,
+      accommodationNeeded: preferences.accommodationNeeded,
     }),
     // ZONE 5, FROM THE CONTEXT ONLY. Education, certifications and languages ride the answer
     // map's crosswalk fields, which Phase C does not return — so nothing on `rp` can fill them
@@ -568,7 +614,7 @@ function fromResumeProfile(
       educationHeadline: qualification?.educationHeadline ?? draftQualification.educationHeadline,
       education: qualification?.education ?? [],
       certifications: qualification?.certifications ?? [...draftQualification.certifications],
-      languages: qualification?.languages ?? [],
+      languages: qualification?.languages ?? preferences.languages,
     }),
     templateId,
     displayName,
