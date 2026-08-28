@@ -184,3 +184,48 @@ pack that defines more than nine rows hits the same forced choice the turner has
 version of that choice is the open **Q2** redline. A second trade does not create the problem; it
 doubles the surface on which an unresolved ruling is applied silently, because the budget drops by
 rank with no per-trade override.
+
+---
+
+## 4 · The estimate against the actual (R13 §3.1, measured 2026-08-28)
+
+§3.1 built the pack and the map entry. This section is the audit of the estimate above; where a
+figure was wrong the correction is stated, not overwritten.
+
+| item                         | estimated  | actual                        | source                                                                  |
+| ---------------------------- | ---------- | ----------------------------- | ----------------------------------------------------------------------- |
+| `qp_vmc_milling.json`        | ~640 lines | **520**, 18 items, 89 options | `wc -l`, parsed                                                         |
+| `TRADE_RESUME_MAPS` entry    | ~150 lines | **13 rows**                   | the entry                                                               |
+| Devanagari TTS twins         | ~28        | **35 clips, 22 to author**    | `question-tts-text.test.ts`; 13 clarifies compose from their halves     |
+| Renderer / template / ladder | none       | **none**                      | `git diff --name-only`                                                  |
+| Contract change              | none       | **none**                      | capability answers are `worker_attributes`, outside the frozen contract |
+
+**The twin figure was wrong in both directions and the second one matters.** 35 clips is more than
+28, but 13 of them are composed rather than authored, and **seven prompts needed no twin at all**
+because their Hinglish is byte-identical to the turner's ("Kya aap drawing padh lete hain?",
+"Trade test diya hai?", and five more). A shared question vocabulary pays a dividend the estimate
+did not model.
+
+### What §2 predicted, and what actually happened
+
+§2 above recommended keying the three pack-blind dictionaries by `pack_id` **before** a second
+entry, on the argument that doing it afterwards means auditing which shared attribute name was
+intended. R12 §2 did that. The measurement now available:
+
+| dictionary                | colliding keys before milling | after                                                                                    |
+| ------------------------- | ----------------------------: | ---------------------------------------------------------------------------------------- |
+| `CAPABILITY_TERMS` (veto) |         1 (`drawing_reading`) | **5** — adds `setting_operation`, `programming_level`, `quality_work`, `troubleshooting` |
+| `PACK_ATTRIBUTE_SKILLS`   |                             2 | **6** — adds `controller_brand`, `setting_operation`, `programming_level`, `workholding` |
+
+Nothing broke, and that is the whole point: written in the other order, a miller's setting,
+programming, quality and troubleshooting answers would have been read through a turner's gazetteer
+and no test would have said so. **The 143 lines §2 called "5% of the trade-specific volume and
+100% of its risk surface" now govern five times as many keys as when they were scoped.**
+
+### The one thing the estimate did not anticipate
+
+`MEASURING_TOOLS` was a shared constant documented as _"shared by every machining-family pack: the
+instruments do not change by role"_. The ratified milling sheet prints a **snap gauge** and the
+turner's dictionary carries a **plug / ring gauge**; a plug gauge checks a bore a turner just
+bored. The constant is now `TURNING_MEASURING_TOOLS` and milling authors its own. This is evidence
+for [Q14](../../NEEDS_PRAKASH.md) and it is recorded there rather than acted on.

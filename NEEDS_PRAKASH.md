@@ -10,7 +10,7 @@ built around.
 
 ---
 
-## Status — Q1–Q9 ruled 2026-08-28 (R4); Q10–Q12 opened by R6; Q13 by R11 (ruled R12); Q14 by R12
+## Status — Q1–Q9 ruled 2026-08-28 (R4); Q10–Q12 opened by R6; Q13 by R11 (ruled R12); Q14 by R12; Q2 + Q14 routed to RVM by R13
 
 Nothing on the **render** track is waiting on a decision. Four questions are open, and they are a
 different kind: Q10 is a flag flip that no amount of engineering substitutes for, Q11 and Q12 are
@@ -95,8 +95,31 @@ measurement is the reason it can wait — all 16 degrading sheets are overflow f
 injected variants, and no realistic profile reaches a capability row. The ratified list and the
 tolerance-versus-machine-capability question both go to RVM at their next redline.
 
-**Status:** the rider is closed and shipped. The two RVM items below are recorded for that
-redline, not for this track.
+**Status: the rider is closed and shipped. THE DROP ORDER ITSELF IS ROUTED TO RVM (R13 §5),
+alongside [Q14](#q14--should-a-machinists-measuring_tools-reach-through-the-turners-mapping--rvm),
+and it now carries a measured casualty list rather than a principle.**
+
+### The milling casualty, measured (R13 §3.1)
+
+The second trade makes this concrete in a way one trade could not. `qp_vmc_milling` declares 13
+capability rows against the same budget of 9, and the ratified BadaBhai sheet — which **is** a VMC
+sheet — prints these nine:
+
+> Machines · Controllers · Materials · Setting · Measuring instruments · Programming · Drawings ·
+> Tolerance held · **Sector worked**
+
+The sample's own worker answers exactly nine questions, so **all nine of his rows print** and the
+sheet reproduces. A miller who answers all thirteen goes over budget, and rank then drops
+`Operations → Quality → Troubleshooting → **Sector worked**` — so he keeps **Workholding**
+(rank 42) and loses the row the ratified sheet shows.
+
+**One row, and it is the whole question:** is `Sector worked` display-only §4.3 furniture that
+should drop first, as its rank says, or is it a fact the ratified sheet keeps deliberately?
+Bending the rank to make the page match would substitute a layout preference for the §5.1 order,
+which is what this item exists to prevent, so it is measured and left alone. Asserted in
+`trade-resume-map.test.ts` so the answer changes a test rather than a habit.
+
+The two RVM items below are recorded for that redline, not for this track.
 
 A fully-answered CNC turner produces 14 capability rows and the page holds 9. Five must go. The
 current order is derived from the guideline's §5.1 ranks, but which fact a hiring supervisor
@@ -766,9 +789,24 @@ a retarget that happened for an unrelated reason, and what it caught was already
 
 ## Q14 · Should a machinist's `measuring_tools` reach through the TURNER's mapping? (→ RVM)
 
-**Status:** open, and it is a **trade-truth question, not an engineering one**. The scoping is
-already built (R12 §2.1) — nothing is broken while this sits. What is open is whether the sharing
-that used to happen by accident should now happen **on purpose**.
+**Status: ROUTED TO RVM by the owner (R13 §5).** The scoping stays exactly as built until they
+answer, and it must not be widened on the reasoning that machining probably deserves the same
+mapping — that reasoning is what created the problem. Nothing is broken while this sits.
+
+### R13 §3.1 added evidence, and it cuts against half of my read below
+
+Milling was authored as the second `TRADE_RESUME_MAPS` entry, and its `measuring_tools` row is
+**not** the turner's. The ratified milling sheet prints a **snap gauge**; the turner's dictionary
+carries a **plug / ring gauge** and no snap gauge. A plug gauge checks a bore a turner just bored;
+a snap gauge checks an outside dimension a miller just cut. The constant they shared was literally
+named "shared by every machining-family pack: the instruments do not change by role" — and the
+first time a second role was authored, they did.
+
+That does **not** refute Q14a. "A vernier is a vernier" can still be true while "the instrument
+SET is the same across roles" is false, and the two are different claims. It does mean the
+question should be answered per instrument rather than per table: sharing `vernier` and
+`micrometer` with `qp_machining` is a much narrower proposition than sharing the turner's
+dictionary, and it is the narrow one worth ruling on.
 
 ### What changed, and why the question only exists now
 
