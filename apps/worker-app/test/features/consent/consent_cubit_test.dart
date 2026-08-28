@@ -50,7 +50,7 @@ void main() {
     ],
     verify: (_) => verify(
       () => repo.acceptConsent(
-        purposes: <String>['profiling', 'resume_generation'],
+        purposes: <String>['profiling', 'resume_generation', 'voice_processing'],
       ),
     ).called(1),
   );

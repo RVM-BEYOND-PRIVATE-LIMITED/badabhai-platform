@@ -93,7 +93,7 @@ export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
  *
  * Bump this when the NOTICE COPY changes, together with the client that renders it.
  */
-export const CURRENT_CONSENT_VERSION = "2026-06-01" as const;
+export const CURRENT_CONSENT_VERSION = "2026-08-28" as const;
 
 // ---- Chat ----
 /**
