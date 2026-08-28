@@ -181,7 +181,14 @@ void main() {
     cubit.handleLifecycle(AppLifecycleState.paused);
     await pumpEventQueue();
     cubit.handleLifecycle(AppLifecycleState.resumed); // fresh clip at 09:00:30
-    await pumpEventQueue();
+    // #1293 — handleLifecycle fires resumeSession() as `unawaited`, so the
+    // fresh-clip re-arm completes on a LATER microtask chain. A single
+    // pumpEventQueue() here occasionally returned BEFORE that arm settled: the
+    // answerBySpeaking() below then found no clip to stop, took the silent
+    // early-return path, and left `registered` EMPTY — so `.single` threw
+    // "Bad state: No element" on an unrelated PR's required check. Drain until
+    // the mic is genuinely re-armed, so the clip that starts at 09:00:30 exists.
+    await _pumpUntilMicArmed(cubit);
 
     now = now.add(const Duration(seconds: 3)); // 3s of actual answer
     await cubit.answerBySpeaking();
@@ -383,4 +390,23 @@ class _BlockingSubmitGateway implements VoiceFormGateway {
     VoiceAnswer answer, {
     required String questionKey,
   }) => throw UnimplementedError();
+}
+
+/// Pumps the event queue until [cubit] has finished re-arming its mic after a
+/// detached `resumeSession()` — i.e. it is back in [VoiceFormAsking] with a
+/// recording [MicPhase] ([MicPhase.listening] or [MicPhase.holding], both of
+/// which only follow a completed `_recorder.start()`). Guarantees the clip a
+/// following `answerBySpeaking()` stops actually exists. Bounded and fails
+/// loudly, so a genuine arm regression surfaces as a real failure, never a hang
+/// (#1293).
+Future<void> _pumpUntilMicArmed(VoiceFormCubit cubit) async {
+  for (int i = 0; i < 50; i++) {
+    final VoiceFormState s = cubit.state;
+    if (s is VoiceFormAsking &&
+        (s.micPhase == MicPhase.listening || s.micPhase == MicPhase.holding)) {
+      return;
+    }
+    await pumpEventQueue();
+  }
+  fail('mic did not re-arm within 50 event-queue drains after resume (#1293)');
 }
