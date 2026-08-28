@@ -569,6 +569,54 @@ class ApiClient {
     );
   }
 
+  /// GET /workers/me/work-preferences/options (#1296) — the chip vocabulary for
+  /// the post-interview finishing form. Each field is a `{ slug: "English label" }`
+  /// map; the English labels are what print on the résumé, so the client renders
+  /// chips from THIS rather than a hard-coded list that would drift from the
+  /// server enum. Worker from [authToken].
+  Future<WorkPrefOptionsDto> getWorkPreferenceOptions({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _get(
+      '/workers/me/work-preferences/options',
+      authToken: authToken,
+    );
+    return WorkPrefOptionsDto.fromJson(json);
+  }
+
+  /// PUT /workers/me/employment (#1296) — REPLACES the worker's whole work-history
+  /// list (sending `[]` clears it). [employments] are the already-wire-shaped
+  /// entry maps (the repository builds them from typed models, so this stays
+  /// HTTP-only). Worker from [authToken]; the response `{ ok, employer_count }`
+  /// echoes no employer name, so nothing is parsed back.
+  Future<void> updateEmployment({
+    required List<Map<String, dynamic>> employments,
+    required String authToken,
+  }) async {
+    await _put(
+      '/workers/me/employment',
+      <String, dynamic>{'employments': employments},
+      authToken: authToken,
+    );
+  }
+
+  /// PUT /workers/me/work-preferences (#1296) — the closed-set finishing pages.
+  /// [fields] is the already-built body: an ABSENT key leaves the stored value
+  /// alone, an empty list clears that row ("none of these"), and a `null` scalar
+  /// un-ticks it — the repository owns that three-state shaping. A city the
+  /// gazetteer cannot resolve is a 400 naming the value, surfaced as an
+  /// [ApiException] the caller shows rather than swallows. Worker from [authToken].
+  Future<void> updateWorkPreferences({
+    required Map<String, dynamic> fields,
+    required String authToken,
+  }) async {
+    await _put(
+      '/workers/me/work-preferences',
+      fields,
+      authToken: authToken,
+    );
+  }
+
   /// POST /workers/me/photo/upload-url (ADR-0032) — mints a signed slot for the
   /// profile-photo bytes. Worker from [authToken]; the body is empty JSON — the
   /// SERVER chooses the object key. The bytes are then PUT to `upload_url`
@@ -1280,6 +1328,23 @@ class ApiClient {
     final String encoded = jsonEncode(body);
     return _send(
       (String? token) => _client.patch(
+        uri,
+        headers: _headers(contentType: true, authToken: token),
+        body: encoded,
+      ),
+      authToken,
+    );
+  }
+
+  Future<Map<String, dynamic>> _put(
+    String path,
+    Map<String, dynamic> body, {
+    String? authToken,
+  }) {
+    final Uri uri = Uri.parse('$baseUrl$path');
+    final String encoded = jsonEncode(body);
+    return _send(
+      (String? token) => _client.put(
         uri,
         headers: _headers(contentType: true, authToken: token),
         body: encoded,

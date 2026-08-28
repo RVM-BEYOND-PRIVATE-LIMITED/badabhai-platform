@@ -42,9 +42,11 @@ class _ProfileView extends StatelessWidget {
           prev.confirmFailure != curr.confirmFailure,
       listener: (BuildContext context, ProfileState state) {
         if (state.status == ProfileStatus.confirmed) {
-          // Profile confirmed — generate the resume (Building) then enter the
-          // shell. context.go clears the onboarding stack (point of no return).
-          context.go(Routes.building);
+          // Profile confirmed — the finishing form (#1296) collects the closed-set
+          // work-history + preferences, THEN generates the resume (Building) and
+          // enters the shell. context.go clears the onboarding stack (point of no
+          // return); the finishing form carries on to Building on completion.
+          context.go(Routes.finishing);
           return;
         }
         final Failure? failed = state.confirmFailure;
