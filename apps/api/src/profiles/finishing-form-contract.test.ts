@@ -8,24 +8,31 @@ import { PREFERENCE_KEYS } from "./worker-preferences.vocabulary";
 /**
  * THE FINISHING FORM'S TWO HALVES, ASSERTED AGAINST EACH OTHER (R12 §1.5, issue #1298).
  *
- * THE FAILURE THIS EXISTS FOR IS NOT A BUG IN EITHER HALF. `SetMyPreferencesSchema` accepts
+ * THE FAILURE THIS EXISTED FOR WAS NOT A BUG IN EITHER HALF. `SetMyPreferencesSchema` accepted
  * twelve fields, every one validated, stored, read back and rendered, with tests on all of it.
- * `finishing_models.dart` sends seven. Nothing is broken; five fields are simply unreachable, so
- * their production population is not "low", it is **structurally zero** — and every report on
- * either side reads as though the other were covering it.
+ * `finishing_models.dart` sent seven. Nothing was broken; five fields were simply unreachable, so
+ * their production population was not "low", it was **structurally zero** — and every report on
+ * either side read as though the other were covering it.
  *
- * Two of the five are load-bearing. §4.4 calls expected salary MANDATORY and the band's upper end
- * (`salary_expected_max`) has no capture surface at all, so the sheet can only ever print a point
+ * Two of the five are load-bearing. §4.4 calls expected salary MANDATORY, and the band's upper end
+ * (`salary_expected_max`) had no capture surface at all, so the sheet could only ever print a point
  * figure — the anchoring §4.4 exists to prevent. The other three are three of the five segments in
  * the ratified sheet's `ITI — Machinist · NCVT · 2018 · Govt. ITI, Faridabad`.
  *
- * ── WHY THE MOBILE HALF IS AN `it.fails` AND NOT A FIX ────────────────────────────────────────
+ * ── CLOSED BY #1298, AND THE ASSERTION IS HOW I FOUND OUT ─────────────────────────────────────
  *
  * `apps/worker-app` is the mobile platform's, not the backend's, and the engineering contract
- * forbids crossing. So the backend asserts its side of the contract normally, and the mobile side
- * is written as the assertion that FAILS TODAY and passes the day Rishi's change lands — the same
- * `it.fails` shape that has now paid three times on this track (the fresher branch, the credential
- * split, the reachable verification state).
+ * forbids crossing. So the backend asserts its side normally, and the mobile side was written as
+ * an `it.fails` — the assertion that fails today and passes the day Rishi's change lands.
+ *
+ * It landed within the hour, on a branch cut before it. My working copy still had the old Dart
+ * file so the suite was green locally; CI tests the merge with `main`, saw the five keys, and
+ * reported "Expect test to fail". Nobody had to remember to check. That is the fourth time the
+ * pattern has paid on this track, after the fresher branch, the credential split and the
+ * reachable verification state — and the first time the gap closed itself.
+ *
+ * BOTH HALVES STAY ASSERTED. The seven-key case is not redundant now that all twelve are sent:
+ * it is what stops a mobile refactor quietly dropping one of the originals.
  *
  * It reads the Dart SOURCE rather than mocking it. A mock of a client cannot disagree with the
  * server, which is the whole lesson of the cross-language contract mocks that "accept anything":
@@ -120,8 +127,8 @@ describe("the finishing form's server contract", () => {
 
 describe("the finishing form's MOBILE contract (issue #1298 — Rishi)", () => {
   it("sends the seven keys it already carries", () => {
-    // The half that passes today. Asserted so a mobile change cannot REMOVE a field while the
-    // `it.fails` below is still red and nobody notices the regression underneath it.
+    // The seven the form has always sent. Kept as its own case so a mobile refactor that adds
+    // fields cannot quietly drop one of the originals — the assertion below would still pass.
     const body = toUpdateBodySource();
     for (const key of [
       "languages",
@@ -136,14 +143,19 @@ describe("the finishing form's MOBILE contract (issue #1298 — Rishi)", () => {
     }
   });
 
-  it.fails("sends the five fields the backend has accepted since R9/R10/R11", () => {
-    // FAILS UNTIL #1298 LANDS, and then fails again until this `it.fails` is turned into an
-    // `it` — which is the point: the day the form carries these, the test says so on its own
-    // rather than waiting for someone to remember.
+  it("sends the five fields the backend has accepted since R9/R10/R11", () => {
+    // CLOSED BY #1298, AND THE `it.fails` IS HOW I FOUND OUT.
     //
-    // `salary_expected_max` is the one that matters most. Without it §4.4's mandatory expected
-    // salary is mandatory in name only, and the ruling that closed Q5 asked specifically for
-    // completion rate on it — a number that cannot exist while the field cannot be answered.
+    // This was written as `it.fails` in the same hour #1298 was merged, on a branch cut before
+    // it landed. My working copy still had the old Dart file and the test passed locally; CI
+    // tests the merge with `main`, saw the five keys, and reported "Expect test to fail". The
+    // gap closed itself and the assertion said so — without anyone remembering to check, which
+    // is the entire argument for the pattern. Fourth time it has paid on this track.
+    //
+    // `salary_expected_max` is the one that mattered most. Without it §4.4's mandatory expected
+    // salary was mandatory in name only, and the ruling that closed Q5 asked specifically for
+    // completion rate on it — a number that could not exist while the field could not be
+    // answered. It can now.
     const body = toUpdateBodySource();
     for (const key of [
       "salary_expected_max",

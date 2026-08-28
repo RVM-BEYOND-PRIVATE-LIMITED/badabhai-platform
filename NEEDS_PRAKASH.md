@@ -297,13 +297,12 @@ resolve to expected even without the form; only a bare uncued number falls throu
 **Rider 2 — measure form completion.** §4.4 calls expected salary mandatory, so a worker who skips
 the form has no asking price at all; if completion is low the field is mandatory in name only.
 
-> **Blocked, and not on analytics.** `finishing_models.dart:toUpdateBody()` sends **seven** keys:
-> `languages`, `documents_ready`, `preferred_cities`, `willing_to_relocate`,
-> `accommodation_needed`, `job_type`, `shift`. It sends **none** of `salary_expected_max`,
-> `education_council`, `education_year`, `education_institute` or the new `education_credential`.
-> Five backend fields have no mobile surface, so completion rate on them is structurally 0% and
-> the band cannot ship at all until the Flutter form carries it. Frontend/mobile work — raised as
-> a GitHub issue rather than crossed into, per the ownership contract.
+> **UNBLOCKED — #1298 merged (`0acaea38`) while R12 was in flight**, and the `it.fails` written for
+> it is how I found out: my branch was cut before it landed, the suite was green locally against
+> the old Dart file, and CI — which tests the merge with `main` — reported "Expect test to fail".
+> `finishing_models.dart` now sends all twelve keys including `salary_expected_max` and the full
+> ITI credential, so the band can ship and completion rate on it is now a real number rather than
+> a structural zero. The assertion is flipped to a plain `it` and both halves stay asserted.
 
 **Status:** **CLOSED as a ruling**, with one measured defect (rider 1) and one ownership handoff
 (rider 2) named above.

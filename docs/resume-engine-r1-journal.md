@@ -2443,6 +2443,28 @@ about a caller in a different language's codebase.
 "scoped to X" earns a test that a non-X input reaches nothing. That catches all three, including the
 one no lint can, and it fails with a name rather than a warning.
 
+### 24.11 — And the `it.fails` closed itself, within the hour
+
+§1.5's mobile assertion was written as an `it.fails` on a branch cut before **#1298** landed. My
+working copy still held the old `finishing_models.dart`, so the suite was green locally. **CI tests
+the merge with `main`**, saw all five keys, and reported `Expect test to fail`.
+
+`0acaea38 feat(worker-app): finishing form sends the salary band + full ITI credential (#1298)` —
+merged while this packet was in flight. So the gap closed itself and the assertion said so, without
+anyone remembering to check. **Fourth time the pattern has paid on this track**, and the first time
+the closure came from someone else's work.
+
+Two consequences worth stating:
+
+- **Q5's rider 2 is unblocked.** `salary_expected_max` now has a capture surface, so the band can
+  ship and completion rate on it is a real number rather than a structural zero.
+- **A local green is not a merge green.** My branch and `main` disagreed about a file I did not
+  touch, and the only thing that noticed was CI running the merge. Worth remembering next to the
+  Q13 finding: the gap Q13 closes is exactly the case where that check never runs at all.
+
+The assertion is now a plain `it`, and the seven-key case stays beside it — it is what stops a
+mobile refactor quietly dropping one of the originals while the twelve-key case still passes.
+
 ### 24.10 — State
 
 `tsc` clean; **apps/api 6875 passed**, 16 skipped; `apps/ai-service` ruff clean and green except
