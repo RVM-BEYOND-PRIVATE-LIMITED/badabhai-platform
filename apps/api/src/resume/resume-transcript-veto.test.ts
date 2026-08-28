@@ -23,6 +23,7 @@ describe("applyTranscriptVeto — an explicit negation withdraws a chip claim", 
   it("withdraws a setting claim the worker explicitly denied", () => {
     // "par khud se setting nahi karta" — and `first_piece` has no positive anywhere.
     const { attributes, vetoes } = applyTranscriptVeto({
+      packId: "qp_cnc_turning",
       attributes: { setting_operation: ["first_piece", "jaw_change"] },
       workerSaid: P2_TURNS,
     });
@@ -32,6 +33,7 @@ describe("applyTranscriptVeto — an explicit negation withdraws a chip claim", 
 
   it("carries the triggering sentence VERBATIM, so every veto is auditable", () => {
     const { vetoes } = applyTranscriptVeto({
+      packId: "qp_cnc_turning",
       attributes: { setting_operation: ["first_piece"] },
       workerSaid: P2_TURNS,
     });
@@ -40,6 +42,7 @@ describe("applyTranscriptVeto — an explicit negation withdraws a chip claim", 
 
   it("withdraws a programming claim from 'Nahi sir, programme setter banata hai'", () => {
     const { attributes, vetoes } = applyTranscriptVeto({
+      packId: "qp_cnc_turning",
       attributes: { programming_level: ["write_program"] },
       workerSaid: P2_TURNS,
     });
@@ -54,6 +57,7 @@ describe("applyTranscriptVeto — what it must PERMIT", () => {
     // positive, and §8.3's own table maps "offset marta hoon" to a setting capability. An
     // attribute-wide negation must not reach a slug the worker separately supported.
     const { attributes, vetoes } = applyTranscriptVeto({
+      packId: "qp_cnc_turning",
       attributes: { setting_operation: ["tool_offset"] },
       workerSaid: P2_TURNS,
     });
@@ -65,12 +69,14 @@ describe("applyTranscriptVeto — what it must PERMIT", () => {
     // "Drawing dekh leta hoon" is "I do read drawings" — a claim. "Drawing dekha hai" would be
     // "I have seen a drawing". A stemmer collapses the two and deletes a true capability.
     const kept = applyTranscriptVeto({
+      packId: "qp_cnc_turning",
       attributes: { drawing_reading: ["basic_drawing"] },
       workerSaid: ["Drawing dekh leta hoon, simple wali."],
     });
     expect(kept.attributes.drawing_reading).toEqual(["basic_drawing"]);
 
     const withdrawn = applyTranscriptVeto({
+      packId: "qp_cnc_turning",
       attributes: { drawing_reading: ["basic_drawing"] },
       workerSaid: ["Drawing dekha hai, par khud padhta nahi."],
     });
@@ -81,8 +87,11 @@ describe("applyTranscriptVeto — what it must PERMIT", () => {
     // "do saal me ek bhi din bina batae nahi chhoda" is an attendance boast. A turn-scoped
     // matcher would let it reach every claim in the same message.
     const { attributes, vetoes } = applyTranscriptVeto({
+      packId: "qp_cnc_turning",
       attributes: { quality_work: ["in_process"], troubleshooting: ["alarm"] },
-      workerSaid: ["Sir attendance meri poori rehti hai, do saal me ek bhi din bina batae nahi chhoda."],
+      workerSaid: [
+        "Sir attendance meri poori rehti hai, do saal me ek bhi din bina batae nahi chhoda.",
+      ],
     });
     expect(attributes.quality_work).toEqual(["in_process"]);
     expect(attributes.troubleshooting).toEqual(["alarm"]);
@@ -93,6 +102,7 @@ describe("applyTranscriptVeto — what it must PERMIT", () => {
     // §8.4: "sab kar leta hoon" resolves to NOTHING, not to a claim — and not to a denial either.
     // A hedge is evidence in neither direction.
     const { vetoes } = applyTranscriptVeto({
+      packId: "qp_cnc_turning",
       attributes: { setting_operation: ["first_piece"], quality_work: ["spc"] },
       workerSaid: ["Sab kar leta hoon sir.", "Thoda bahut setting bhi dekh leta hoon."],
     });
@@ -106,6 +116,7 @@ describe("applyTranscriptVeto — what it must PERMIT", () => {
     // chip on the strength of a sentence that AFFIRMS it. "naya programme" names `write_program`,
     // so the clause is a statement about that slug and reaches no other.
     const { attributes, vetoes } = applyTranscriptVeto({
+      packId: "qp_cnc_turning",
       attributes: { programming_level: ["edit_program"] },
       workerSaid: [
         "Naya programme nahi likhta, par jo chal raha hai usme edit kar leta hoon. Feed speed badalna, tool number change karna, ye sab kar leta hoon.",
@@ -118,6 +129,7 @@ describe("applyTranscriptVeto — what it must PERMIT", () => {
   it("…and still withdraws the WRITE claim from that same sentence", () => {
     // The other half of the same rule: scoping the veto to the named slug must not turn it off.
     const { attributes, vetoes } = applyTranscriptVeto({
+      packId: "qp_cnc_turning",
       attributes: { programming_level: ["write_program"] },
       workerSaid: ["Naya programme nahi likhta, par jo chal raha hai usme edit kar leta hoon."],
     });
@@ -127,7 +139,11 @@ describe("applyTranscriptVeto — what it must PERMIT", () => {
 
   it("vetoes NOTHING when there is no transcript at all", () => {
     const attributes = { setting_operation: ["first_piece"], programming_level: ["cam"] };
-    const out = applyTranscriptVeto({ attributes, workerSaid: [] });
+    const out = applyTranscriptVeto({
+      packId: "qp_cnc_turning",
+      attributes,
+      workerSaid: [],
+    });
     expect(out.attributes).toEqual(attributes);
     expect(out.vetoes).toEqual([]);
   });
@@ -140,7 +156,11 @@ describe("applyTranscriptVeto — what it must PERMIT", () => {
       material_worked: ["mild_steel"],
       workholding: ["three_jaw"],
     };
-    const out = applyTranscriptVeto({ attributes, workerSaid: P2_TURNS });
+    const out = applyTranscriptVeto({
+      packId: "qp_cnc_turning",
+      attributes,
+      workerSaid: P2_TURNS,
+    });
     expect(out.attributes).toEqual(attributes);
     expect(out.vetoes).toEqual([]);
   });
@@ -149,7 +169,11 @@ describe("applyTranscriptVeto — what it must PERMIT", () => {
     // The same object is the worker's stored answers on the render path. A veto that edited it
     // in place would silently narrow his matching reach — which this explicitly does not do.
     const attributes = { setting_operation: ["first_piece"] };
-    applyTranscriptVeto({ attributes, workerSaid: P2_TURNS });
+    applyTranscriptVeto({
+      packId: "qp_cnc_turning",
+      attributes,
+      workerSaid: P2_TURNS,
+    });
     expect(attributes.setting_operation).toEqual(["first_piece"]);
   });
 });

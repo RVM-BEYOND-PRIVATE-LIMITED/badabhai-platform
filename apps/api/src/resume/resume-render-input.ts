@@ -270,7 +270,13 @@ function buildUndegraded(
   // the capability block, the headline tools, or the "already printed" set the quotes de-dupe
   // against. Placing it here rather than at each read site is the same argument the name masking
   // makes: one door, and no call site that can forget.
+  //
+  // SCOPED BY PACK (R12 §2.1), from the same `tradeSheet.packId` that already selects the row
+  // map one line below. The gazetteer is a trade's own Hinglish, so applying a turner's aliases
+  // to a worker who answered a different pack's `measuring_tools` was never intended — it was
+  // just what a pack-blind lookup did.
   const { attributes: vettedAttributes, vetoes: transcriptVetoes } = applyTranscriptVeto({
+    packId: tradeSheet?.packId ?? null,
     attributes: tradeSheet?.attributes ?? {},
     workerSaid: tradeSheet?.workerSaid ?? [],
   });
@@ -297,7 +303,9 @@ function buildUndegraded(
   // ONLY WHEN THERE IS NO REAL HISTORY. A worker with employment rows gets those; this is the
   // other branch of the one-or-the-other rule Zone 4 already follows, not a third source competing
   // with them.
-  const fresherRows = hasEmployments ? [] : buildFresherRows(vettedAttributes);
+  const fresherRows = hasEmployments
+    ? []
+    : buildFresherRows(tradeSheet?.packId ?? null, vettedAttributes);
   const capabilitySlots = {
     capSectionTitle: capability.sectionTitle,
     capChipRows: capability.chipRows,
@@ -446,7 +454,26 @@ function buildUndegraded(
       tools: capability.headlineTools.length > 0 ? capability.headlineTools : legacyMachines,
       city: legacyCity,
       availability: legacyAvailability,
-      salary: null,
+      // WAS HARD `null`, AND IT IS THE SAME MISS AS THE ROW BELOW — found by R12 §1.4, which
+      // set out to prove the segment COLLAPSES when there is no figure and found that it
+      // collapses when there IS one.
+      //
+      // The container path four hundred lines down passes `salaryText` to BOTH the Verdict Line
+      // and `buildAvailabilityRows`. This path passed `legacySalary` to the row and a literal
+      // `null` here, so a worker on the branch the comment above calls "the path most existing
+      // profiles still take" got his asking price in Zone 3 and a Verdict Line missing the third
+      // of its three subhead segments — the one §6.2 names as `expects {salary}` and §5.1 ranks
+      // first of eleven elements on the sheet.
+      //
+      // NOT A DELIBERATE SUPPRESSION, checked rather than assumed: `git log -S` puts the literal
+      // in #1292, when this branch's Verdict Line was first composed, and #1294 then fixed only
+      // the row beneath it. Nothing in either commit argues for the asymmetry.
+      //
+      // SAFE ONLY BECAUSE `legacySalary` IS ALREADY AUDIENCE-GATED — it is `null` for a payer, so
+      // this cannot move a worker's asking price onto the employer copy. That gate is one
+      // expression up rather than repeated here, which is why this reads the variable and never
+      // `draft.salary_expectation` directly.
+      salary: legacySalary,
     }),
     availFactRows: buildAvailabilityRows({
       availability: legacyAvailability,

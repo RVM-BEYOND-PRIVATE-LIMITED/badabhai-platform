@@ -89,7 +89,15 @@ export class WorkerSkillsRepository {
   }
 
   /**
-   * This worker's closed-set role-pack answers, as `attribute_key → [option_key, ...]`.
+   * This worker's closed-set role-pack answers, each carrying the pack it was answered under.
+   *
+   * CARRIES `pack_id` PER ROW (R12 §2.1). It used to return `attribute_key → [option_key]` and
+   * throw the provenance away, so `corpusSkillsForPackAttributes` had no way to tell a turner's
+   * `measuring_tools` from a machinist's and applied one dictionary to both. The column has been
+   * on `worker_attributes` all along; nothing here was reading it.
+   *
+   * PER ROW, NOT PER WORKER, because a worker's bag genuinely mixes provenances — `qp_universal`'s
+   * tail and a role pack are both in there, and a single "his pack" would be wrong for one of them.
    *
    * PURE DATA ACCESS, like everything else here. It returns the option keys the worker tapped and
    * decides nothing about what they mean — that is `pack-attribute-skills.ts`, and keeping the
@@ -103,26 +111,35 @@ export class WorkerSkillsRepository {
    * PRIVACY: option keys are closed-set enum values authored in the pack JSON. No free text, and
    * nothing a worker typed, ever reaches this path.
    */
-  async findPackAttributeOptions(workerId: string): Promise<Map<string, string[]>> {
+  async findPackAttributeOptions(
+    workerId: string,
+  ): Promise<{ packId: string | null; attributeKey: string; optionKeys: string[] }[]> {
     const rows = await this.db
       .select({
         attributeKey: workerAttributes.attributeKey,
         valueText: workerAttributes.valueText,
         valueTextList: workerAttributes.valueTextList,
+        packId: workerAttributes.packId,
       })
       .from(workerAttributes)
       .where(eq(workerAttributes.workerId, workerId));
 
-    const byKey = new Map<string, string[]>();
+    const answers: { packId: string | null; attributeKey: string; optionKeys: string[] }[] = [];
     for (const row of rows) {
       const values = Array.isArray(row.valueTextList)
         ? row.valueTextList.filter(isString)
         : isString(row.valueText)
           ? [row.valueText]
           : [];
-      if (values.length > 0) byKey.set(row.attributeKey, values);
+      if (values.length > 0) {
+        answers.push({
+          packId: row.packId,
+          attributeKey: row.attributeKey,
+          optionKeys: values,
+        });
+      }
     }
-    return byKey;
+    return answers;
   }
 
   /**

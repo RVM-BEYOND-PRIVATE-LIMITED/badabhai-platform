@@ -17,11 +17,27 @@ const TURNER = new Map<string, readonly string[]>([
   ["setting_operation", ["tool_offset", "work_offset", "first_piece"]],
 ]);
 
+/**
+ * A `Map` of the turner pack's answers as the repository now returns them (R12 §2.1).
+ *
+ * The existing cases were written before answers carried their `pack_id`, and they are all a
+ * turner's — so tagging them keeps every assertion below testing exactly what it tested, while
+ * the new pack dimension is exercised by the cases at the bottom of the file.
+ */
+const under = (
+  packId: string | null,
+  answers: ReadonlyMap<string, readonly string[]>,
+): { packId: string | null; attributeKey: string; optionKeys: readonly string[] }[] =>
+  [...answers].map(([attributeKey, optionKeys]) => ({ packId, attributeKey, optionKeys }));
+
+const turner = (answers: ReadonlyMap<string, readonly string[]>) =>
+  under("qp_cnc_turning", answers);
+
 /** The end-to-end product statement, without a database: chips in, match skills out. */
 const matchSkillsFor = (answers: ReadonlyMap<string, readonly string[]>): string[] =>
   deriveWorkerSkills({
     canonicalRoleId: null,
-    profileSkills: corpusSkillsForPackAttributes(answers),
+    profileSkills: corpusSkillsForPackAttributes(turner(answers)),
     totalYears: 8,
   })
     .map((row) => row.skillId)
@@ -42,10 +58,12 @@ describe("B0b — a role-pack turner becomes reachable", () => {
 
   it("is deterministic and order-independent", () => {
     const reversed = new Map([...TURNER].reverse());
-    expect(corpusSkillsForPackAttributes(TURNER)).toEqual(
-      corpusSkillsForPackAttributes(reversed).sort(),
+    expect(corpusSkillsForPackAttributes(turner(TURNER))).toEqual(
+      corpusSkillsForPackAttributes(turner(reversed)).sort(),
     );
-    expect(corpusSkillsForPackAttributes(TURNER)).toEqual(corpusSkillsForPackAttributes(TURNER));
+    expect(corpusSkillsForPackAttributes(turner(TURNER))).toEqual(
+      corpusSkillsForPackAttributes(turner(TURNER)),
+    );
   });
 
   it("ignores keys and options it does not know, rather than failing the rebuild", () => {
@@ -140,19 +158,21 @@ describe("§8.3 asymmetry, as a PROPERTY rather than a list of cases", () => {
     for (const [keyA, optA] of all.slice(0, 30)) {
       for (const [keyB, optB] of all.slice(30, 60)) {
         const combined = corpusSkillsForPackAttributes(
-          new Map(
-            keyA === keyB
-              ? [[keyA, [optA, optB]]]
-              : [
-                  [keyA, [optA]],
-                  [keyB, [optB]],
-                ],
+          turner(
+            new Map(
+              keyA === keyB
+                ? [[keyA, [optA, optB]]]
+                : [
+                    [keyA, [optA]],
+                    [keyB, [optB]],
+                  ],
+            ),
           ),
         );
         const union = [
           ...new Set([
-            ...corpusSkillsForPackAttributes(new Map([[keyA, [optA]]])),
-            ...corpusSkillsForPackAttributes(new Map([[keyB, [optB]]])),
+            ...corpusSkillsForPackAttributes(turner(new Map([[keyA, [optA]]]))),
+            ...corpusSkillsForPackAttributes(turner(new Map([[keyB, [optB]]]))),
           ]),
         ].sort();
         expect(combined).toEqual(union);
@@ -187,7 +207,7 @@ describe("§8.3 asymmetry, as a PROPERTY rather than a list of cases", () => {
     const setting = matchSkillsFor(new Map([["setting_operation", ["tool_offset", "jaw_change"]]]));
     expect(setting).toEqual([]);
     expect(
-      corpusSkillsForPackAttributes(new Map([["setting_operation", ["tool_offset"]]])),
+      corpusSkillsForPackAttributes(turner(new Map([["setting_operation", ["tool_offset"]]]))),
     ).toEqual(["skill_tool_offset_setting"]);
   });
 });

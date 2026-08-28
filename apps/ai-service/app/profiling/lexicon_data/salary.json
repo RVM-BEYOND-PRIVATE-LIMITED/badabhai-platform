@@ -14,7 +14,7 @@
   ],
 
   "matcher": {
-    "source": "(?:₹|rs\\.?|inr)?\\s*([0-9०-९]{1,3}(?:[,0-9०-९]*)(?:\\.[0-9०-९]+)?)\\s*((?:k|thousand|hazar|hzr|lakh|lac|l){WE})?",
+    "source": "(?:₹|rs\\.?|inr)?\\s*([0-9०-९]{1,3}(?:[,0-9०-९]*)(?:\\.[0-9०-९]+)?)\\s*((?:k|thousand|hazaar|hazar|hzr|lakh|lac|l){WE})?",
     "flags": "i"
   },
   "$comment_matcher": [
@@ -35,8 +35,26 @@
     "the lists below and this pattern cannot drift apart."
   ],
 
-  "thousandUnits": ["k", "thousand", "hazar", "hzr"],
+  "thousandUnits": ["k", "thousand", "hazaar", "hazar", "hzr"],
   "lakhUnits": ["lakh", "lac", "l"],
+  "$comment_thousandUnits": [
+    "'hazaar' BEFORE 'hazar', and the order is the whole fix (R12 1.1, measured 2026-08-28).",
+    "",
+    "The list held only 'hazar', so '22 hazaar' — the ordinary spelling — recorded NOTHING. The",
+    "mechanism is the {WE} word-end guard doing its job: 'hazar' matches the first five",
+    "characters, {WE} sees the second 'a' and refuses, the optional unit group settles for empty,",
+    "and minDigitsWithoutUnit then drops the bare two-digit number. A worker's whole salary",
+    "answer disappears and nothing logs a reason.",
+    "",
+    "Alternation is first-match-wins, so a longer spelling must precede the prefix it contains.",
+    "Backtracking would in fact recover here — the engine retries the remaining alternatives",
+    "after {WE} fails — but relying on that is relying on an optimisation detail across two",
+    "regex engines. Longest-first is the rule; keep it.",
+    "",
+    "STILL UNCOVERED and deliberately not added, because 1.1 ruled one spelling: 'hajar' (j for",
+    "z) and 'hazzar'. test_salary_attribution.py carries them as pinned gaps with their measured",
+    "behaviour, so adding either is a one-line change that a red test then confirms."
+  ],
 
   "minDigitsWithoutUnit": 3,
   "$comment_minDigitsWithoutUnit": [
