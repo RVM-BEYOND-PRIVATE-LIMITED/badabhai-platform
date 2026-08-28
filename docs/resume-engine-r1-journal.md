@@ -1312,3 +1312,146 @@ Three things behind that number:
 
 **#1292 has not moved** — still open, not merged. So B0b, a matching-path change, is running on a
 branch with no CI, along with everything above.
+
+---
+
+## §17 — R6: sample-parity capture
+
+The distinction that governed the packet: making a real turner's sheet look like the ratified
+Ramesh sample is a **capture** problem, not a generation one. §8 is untouched — the model still
+extracts, normalises and classifies, and every printed string still comes from a closed-vocabulary
+label, a number the worker stated, or his own words verbatim.
+
+### 17.1 — The blocker, written up rather than worked around (§2)
+
+`NEEDS_PRAKASH.md` **Q10**. R5 §1.7's finding is the whole story: richer free-form parsing was
+never a budget question, because on the shipped code defaults the chat turn calls no model at all.
+₹0.23 per profile is the cost of not doing the work.
+
+Three things Q10 pins down that were not written anywhere:
+
+- **The posture disagrees across three layers.** `Settings` defaults to `AI_REAL_CALL_TASKS=""`
+  (nothing armed); `docker-compose.yml` hard-literals the master flag off; the staging overlay
+  supplies `${AI_REAL_CALL_TASKS:-profiling_chat_turn}`; and the box is an operator export I
+  cannot read. `risks-register.md` records the owner setting the master flag true on 2026-08-01.
+- **`profile_extraction` is armed in neither compose file.** That is TD81 in one line: the
+  interview may talk to a real model while the extraction that turns it into a profile runs
+  mocked and returns `{}`. It is also why a real turner takes the LEGACY render branch — the
+  single fact that decided half of §3's table.
+- **The city fix does not move R32.** R32 is an un-cued personal name; the gazetteer approach to
+  it was measured dead at 348 leaks in 487 probes. This fix reduced OVER-masking. Worth stating
+  the direction plainly: before it, arming extraction would have been actively harmful for the
+  city field, because the model would have read `[PERSON_1], Haryana`.
+
+### 17.2 — The gap table (§3)
+
+`docs/profiling/sample-parity-gap.md`. Field by field against the ratified sheet.
+
+**Four fields were captured, stored, and never rendered.** Salary and shift on the legacy branch
+both passed a hard `null` to the row builder; relocation and accommodation are parameters
+`buildAvailabilityRows` accepts and nothing supplies. Zone 3 — the block §4.4 calls "the one every
+competitor omits" — rendered **one of its six rows**, and we omitted it too, by accident.
+
+**Zone 5 is capture, not rendering.** Every row already renders; five of its seven fields have no
+ask anywhere in 143 packs, and `languages` has no column either.
+
+**Three fields are structurally unreachable without a model** and no pack authoring changes that:
+the verdict line's function modifier (§8.3 forbids inferring it), the promotion case (Q1 ruled one
+role per employer in v1), and the own-words block — whose slot exists on `ResumeRenderInput` and
+is rendered, while `TradeSheetContext` has no field for it and no mapper sets it.
+
+One correction the table produced: **`qp_universal@2` is live**, and it asks `preferred_locations`
+where v1 asked `relocation`. So relocation is not merely unwired — it has no ask at all today.
+
+### 17.3 — The closed-set form (§4)
+
+`PUT /workers/me/work-preferences`, plus a `GET …/options` so the client renders chips from the
+server's own vocabulary rather than a second copy that drifts. Seven answers — languages,
+documents-ready, preferred cities, job type, shift, relocation, accommodation — for **zero** engine
+asks.
+
+Decisions worth recording:
+
+- **It writes `worker_attributes`, not a new table.** Two of the keys already exist there
+  (`shift_preference` is `qp_universal`'s; `relocation_willingness` was v1's), and
+  `wa_worker_key_uq` gives one live value per key — so the form is an ANSWER to the same question,
+  upserting over the interview, rather than a competing store the mapper would have to arbitrate.
+  It also means `loadTradeSheet` already returns these values with no change.
+- **`source: "answer_map"`, which looks like a lie and is not.** That column's axis is "did a model
+  contribute" — the form is worker chips, so `llm_parse` would be the lie. WHICH surface asked is
+  already queryable without widening `wa_source_chk`: a form write is the only `answer_map` row
+  with a null pack and a null session.
+- **Three states, not two.** An absent key changes nothing; an empty list means "none of these";
+  a null scalar means the worker un-ticked it. `wa_value_present_chk` makes absence the only legal
+  representation of "no answer", which is why clearing is a DELETE and got its own repository call
+  rather than a null branch on the hot interview-flush path.
+- **An unresolved city is rejected, not dropped.** Dropping is the silent-truncation shape: three
+  cities in, two on the sheet, no reason given.
+- **The event carries counts and no answers.** Each value alone is a harmless closed-vocabulary
+  label; the SET — languages plus preferred cities plus a worker id — narrows a person, and the
+  spine needs none of it.
+
+Mutation-checked: reverting the salary wiring and un-dropping an unknown slug each turn their own
+test red. The Flutter half is issue **#1296**, assigned to Rishi.
+
+### 17.4 — The cap, and what actually bounds it (§5)
+
+`MAX_ENGINE_ASKS` **24 → 28**, derived rather than round: 15 (`qp_cnc_turning`) + 8
+(`qp_universal@2`) + 3 (one retry each for the three mandatory questions) = **26 needed today**,
+plus 2 reserved for the Zone 5 credential pair §3 proposes and does not apply.
+
+**24 could not serve 26.** That is R5's "the margin was spent by detection, not by pack size" with
+a number on it — and what the overflow deletes is the TAIL, `shift_preference`, never the question
+that caused it.
+
+The authoring-time guard was genuinely absent, and the reason is worth keeping: the strongest
+assertion that existed, `asked.length <= MAX_ENGINE_ASKS`, is **vacuous** — the engine enforces
+that bound by construction, so it can never fail. `ask-budget.guard.test.ts` derives the
+requirement from the corpus, pins the worst case at 26 exactly so a pack that grows turns it red
+in the same commit, and holds the headroom DOWN.
+
+Because the binding constraint is **abandonment** rather than cost or tokens,
+`chat.session_abandoned` now carries `engine_asks`. `profile.interview_completed` already had
+`ask_count`, so the drop-off curve had a denominator and no numerator: you could see where workers
+finish and not where they leave. Nullable, and null is a real state — the sweep can run after the
+Redis buffer expired, and a `0` there would invent a spike at index zero.
+
+### 17.5 — The cost target (§6)
+
+Resolved in place, no threshold changed. `config.py` is authoritative at ₹15/₹20;
+`real-llm-flip-go-no-go.md` now marks its own ₹4 row superseded and records why ₹0.023/call cannot
+be carried forward (Flash-Lite, against a chat turn that is now Pro at roughly 4× on both legs).
+The `config.py:337` comment was not wrong so much as **unlocated** — true of the staging compose,
+false of the Settings default — and it now names the layer.
+
+### 17.6 — The two questions (§7)
+
+Both answered in `NEEDS_PRAKASH.md` rather than decided here.
+
+**Q11, the city backfill.** The population is bounded by the posture in Q10, and that is the good
+news: the mask never landed in a profile column, only in what the model READ. So on any box that
+followed the committed defaults it is **zero rows**, and the query that settles it is
+`SELECT count(*) FROM worker_profiles WHERE current_city LIKE '%[PERSON_%'`. I cannot run it.
+Repair, if needed, is a **deterministic re-derive** and not a re-ask: `chat_messages.body_text` is
+stored in plaintext, and `canonicalCity()` resolves against the same `cities.json` the fixed
+gateway now consults. No provider call, no worker contact, idempotent.
+
+**Q12, Profile Strength.** Recommendation: replace. Nothing consumes the shipped counter, so the
+cost is a rename in one service and its tests, and one number is worth more than two. Still not
+built — §9 scoped it out until the ruling.
+
+### 17.7 — State
+
+Seven commits. `tsc` clean; `apps/api` **6457 passed / 86 skipped**; `eslint src` 0 errors (one
+pre-existing warning); ai-service pytest green apart from the pre-existing
+`test_ai_observability` failure. Event count 169 → **170**.
+
+`feat/resume-degradation-stage` had gone **CONFLICTING** while this ran — `feat/cnc-turner-role-track`
+merged `origin/main` under it and #1295 landed a second copy of `NEEDS_PRAKASH.md`. Merged the base
+in and resolved; MERGEABLE again.
+
+**#1292 still has not moved.** It carries full green CI on a `main` base; **#1294 is the branch
+with none**, because a stacked PR's checks do not run on a non-main base. Everything in §17, and
+B0b before it, is unrun by CI until #1292 merges.
+
+The pseudonymisation change went to an ai-engineer review before merge, per the directive.
