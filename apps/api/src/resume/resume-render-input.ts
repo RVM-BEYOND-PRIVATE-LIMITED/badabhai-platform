@@ -298,6 +298,16 @@ function buildUndegraded(
   // BOTH CALLERS GET THIS AUTOMATICALLY — the worker's own render and the employer-facing
   // masked disclosure share this function, differing only by the `displayName` they pass. The
   // branch is inside, so masking cannot be forgotten on the new path.
+  // HOISTED ABOVE THE BRANCH so BOTH paths can use it. It is derived from `education_level` and
+  // `education_field`, which the answer-map crosswalk DOES carry onto the draft
+  // (`crosswalk.ts:45-46`) — so the container path had a real source for Zone 5's education row
+  // all along and was reading only the caller-supplied block, which no production caller sets.
+  const educationHeadline =
+    [humanizeEducationLevel(draft.education_level), draft.education_field]
+      .map((v) => v?.trim())
+      .filter((v): v is string => Boolean(v))
+      .join(" — ") || null;
+
   if (resumeProfileCarriesValues(draft.resume_profile)) {
     return fromResumeProfile(
       draft.resume_profile,
@@ -310,6 +320,7 @@ function buildUndegraded(
       capability.headlineTools,
       tradeSheet?.qualification,
       hasEmployments,
+      { educationHeadline, certifications: draft.certifications },
     );
   }
 
@@ -320,11 +331,6 @@ function buildUndegraded(
     draft.location_preference.current_city ?? draft.location_preference.preferred_cities[0] ?? null;
   const legacyMachines = draft.machines.map(labelForTaxonomyId);
   const legacyAvailability = bareAvailability(draft.availability);
-  const legacyEducationHeadline =
-    [humanizeEducationLevel(draft.education_level), draft.education_field]
-      .map((v) => v?.trim())
-      .filter((v): v is string => Boolean(v))
-      .join(" — ") || null;
 
   return {
     ...capabilitySlots,
@@ -355,7 +361,7 @@ function buildUndegraded(
     // fell. `??` and not `||` — an explicitly empty list is a real answer ("no certificates")
     // and must not fall through to the snapshot's.
     qualFactRows: buildQualificationRows({
-      educationHeadline: tradeSheet?.qualification?.educationHeadline ?? legacyEducationHeadline,
+      educationHeadline: tradeSheet?.qualification?.educationHeadline ?? educationHeadline,
       education: tradeSheet?.qualification?.education ?? draft.education.map(labelForTaxonomyId),
       certifications:
         tradeSheet?.qualification?.certifications ?? draft.certifications.map(labelForTaxonomyId),
@@ -484,9 +490,7 @@ function fromResumeProfile(
   /** The pack's headline row values, for the Verdict Line's third segment. */
   headlineTools: string[],
   /**
-   * Zone 5's values. THE ONLY SOURCE ON THIS PATH — Phase C returns nine keys and education,
-   * certificates and languages are not among them, which is why this section rendered empty for
-   * every worker whose interview ran.
+   * Zone 5's values from the caller. The worker's own structured answer, never through the model.
    */
   qualification: ResumeQualificationFacts | undefined,
   /**
@@ -498,6 +502,20 @@ function fromResumeProfile(
    * so the richer shape wins outright and the flat one is suppressed, never merged.
    */
   hasEmployments: boolean,
+  /**
+   * THE FALLBACK ZONE 5 NEVER HAD. This path read only `qualification`, which no production
+   * caller supplies, so education and certificates rendered empty for every worker whose
+   * interview ran — even though the answer-map crosswalk carries `education_level`,
+   * `education_field` and `certifications` straight onto the draft (`crosswalk.ts:45-47`).
+   *
+   * The caller-supplied block still WINS where it exists: it is the worker's own structured
+   * answer and never passes through the model. This only fills the gap beneath it.
+   *
+   * Languages stay empty and that is not an oversight — `crosswalk.ts` records `draftPath: null`
+   * for them, so there is no column to fall back to. It needs a capture surface, not a mapper
+   * change.
+   */
+  draftQualification: { educationHeadline: string | null; certifications: readonly string[] },
 ): ResumeRenderInput {
   // CERTIFIED ONCE, AT THE TOP (#831). `role_label` and `domain_label` are each read TWICE —
   // as their own fields and again by `summaryFor` — and certifying at each read site is how the
@@ -547,9 +565,9 @@ function fromResumeProfile(
     // it never passes through the model, and where it is absent the section still collapses
     // exactly as it does today.
     qualFactRows: buildQualificationRows({
-      educationHeadline: qualification?.educationHeadline ?? null,
+      educationHeadline: qualification?.educationHeadline ?? draftQualification.educationHeadline,
       education: qualification?.education ?? [],
-      certifications: qualification?.certifications ?? [],
+      certifications: qualification?.certifications ?? [...draftQualification.certifications],
       languages: qualification?.languages ?? [],
     }),
     templateId,

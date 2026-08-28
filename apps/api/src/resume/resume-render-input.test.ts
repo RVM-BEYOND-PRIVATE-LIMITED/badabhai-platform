@@ -34,12 +34,26 @@ describe("buildResumeRenderInput — skill_labels (Q14)", () => {
   });
 
   it("old snapshot without skill_labels resolves its ids to names", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { skills: ["skill_milling"] },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.skills).toEqual(["Milling"]);
   });
 
   it("labels-only snapshot (off-wedge welder) renders the labels", () => {
-    const input = buildResumeRenderInput({ skill_labels: ["MIG welding"] }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { skill_labels: ["MIG welding"] },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.skills).toEqual(["MIG welding"]);
   });
 });
@@ -78,7 +92,14 @@ describe("buildResumeRenderInput — education + certifications (#499)", () => {
   });
 
   it("old snapshot without the keys defaults both to [] (no fabrication)", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { skills: ["skill_milling"] },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.education).toEqual([]);
     expect(input.certifications).toEqual([]);
   });
@@ -129,7 +150,14 @@ describe("buildResumeRenderInput — machines", () => {
   });
 
   it("old snapshot without machines defaults to []", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { skills: ["skill_milling"] },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.machines).toEqual([]);
   });
 });
@@ -154,7 +182,14 @@ describe("buildResumeRenderInput — education_level + education_field", () => {
   });
 
   it("old snapshot without the keys defaults both to null (no fabrication)", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { skills: ["skill_milling"] },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.educationLevel).toBeNull();
     expect(input.educationField).toBeNull();
   });
@@ -263,7 +298,14 @@ describe("buildResumeRenderInput — education_level is humanised (#963)", () =>
  */
 describe("buildResumeRenderInput — the LLM-led labels", () => {
   it("prints role_label as the headline when the taxonomy resolved nothing", () => {
-    const input = buildResumeRenderInput({ role_label: "Tandoor Cook" }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { role_label: "Tandoor Cook" },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.canonicalRole).toBe("Tandoor Cook");
   });
 
@@ -293,7 +335,14 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
   it("still resolves the taxonomy role when no label was captured", () => {
     // Every deterministic-pack profile is this shape — an id and no label — so the id arms
     // carry all of them and their résumés stay byte-identical (invariant #8).
-    const input = buildResumeRenderInput({ canonical_role_id: "role_welder" }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { canonical_role_id: "role_welder" },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.canonicalRole).toBe("Welder");
   });
 
@@ -301,14 +350,28 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
     // `trade` was hardcoded null on this branch because the deterministic résumé never printed
     // a trade line and the old container had nothing to fill one with. `domain_label` is that
     // source, and it reaches the `{{trade}}` slot every shipped template already carries.
-    const input = buildResumeRenderInput({ domain_label: "Fabrication" }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { domain_label: "Fabrication" },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.trade).toBe("Fabrication");
   });
 
   it("leaves the trade null when no interview named one", () => {
     // Deterministic-pack profiles have no `domain_label`, so their trade line stays absent
     // exactly as it is today — no invented industry (§11), no changed output (invariant #8).
-    const input = buildResumeRenderInput({ canonical_role_id: "role_welder" }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { canonical_role_id: "role_welder" },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.trade).toBeNull();
   });
 
@@ -339,7 +402,14 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
   it("fabricates no summary when the model captured no labels", () => {
     // THE FAIL-CLOSED LEG. A sentence about a worker we know nothing about is worse than a
     // blank section — §11, and the same rule the trade branches already follow.
-    const input = buildResumeRenderInput({ experience: { total_years: 3 } }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { experience: { total_years: 3 } },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.summary).toBeNull();
   });
 
@@ -365,12 +435,26 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
   it("passes through a shift value outside the prompt's vocabulary", () => {
     // The wire type is a bare `str | None` with no Literal behind it. Dropping what we did not
     // anticipate is how the four keys got lost in the first place.
-    const input = buildResumeRenderInput({ shift: "rotational" }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { shift: "rotational" },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.availability).toBe("Rotational");
   });
 
   it("old snapshot without the keys renders exactly as before", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { skills: ["skill_milling"] },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.canonicalRole).toBeNull();
     expect(input.summary).toBeNull();
     expect(input.availability).toBeNull();
@@ -559,7 +643,13 @@ describe("buildResumeRenderInput — the worker's night-shift toggle (#947)", ()
     // version of that signal. The salary assertion is the contrast — the audience gate is still
     // withholding what it is meant to withhold on the very same call.
     const input = buildResumeRenderInput(
-      { resume_profile: { role_label: "VMC Operator", availability: "immediate", expected_salary: 40000 } },
+      {
+        resume_profile: {
+          role_label: "VMC Operator",
+          availability: "immediate",
+          expected_salary: 40000,
+        },
+      },
       "A. K.",
       "classic",
       null,
@@ -599,7 +689,14 @@ describe("buildResumeRenderInput — the résumé container", () => {
     expected_salary: 40000,
   };
   const build = (over: Record<string, unknown> = {}, audience: "worker" | "employer" = "worker") =>
-    buildResumeRenderInput({ resume_profile: { ...TRACE, ...over } }, "Asha Kumari", "classic", null, false, audience);
+    buildResumeRenderInput(
+      { resume_profile: { ...TRACE, ...over } },
+      "Asha Kumari",
+      "classic",
+      null,
+      false,
+      audience,
+    );
 
   it("renders every one of the nine keys the model produced", () => {
     const input = build();
@@ -636,7 +733,9 @@ describe("buildResumeRenderInput — the résumé container", () => {
     // `duration_months` is nullable precisely because "kuch saal" is a real answer. Guessing a
     // number from it is the fabrication the parse gates exist to stop.
     const input = build({
-      experiences: [{ role_label: "Helper", duration_text: "kuch saal", duration_months: null, work_done: "" }],
+      experiences: [
+        { role_label: "Helper", duration_text: "kuch saal", duration_months: null, work_done: "" },
+      ],
     });
     expect(input.experienceYears).toBeNull();
     expect(input.experiences[0]!.duration).toBe("kuch saal");
@@ -662,8 +761,12 @@ describe("buildResumeRenderInput — the résumé container", () => {
     // `extract_system_prompt` asks for 15_days / 1_month; `AvailabilitySchema.status` has
     // neither. The container keeps the model's words, so the humanising has to know them — else
     // the line silently collapsed for every worker who gave a notice period.
-    expect(build({ availability: "15_days", shift: null }).availability).toBe("Available in 15 days");
-    expect(build({ availability: "1_month", shift: null }).availability).toBe("Available in 1 month");
+    expect(build({ availability: "15_days", shift: null }).availability).toBe(
+      "Available in 15 days",
+    );
+    expect(build({ availability: "1_month", shift: null }).availability).toBe(
+      "Available in 1 month",
+    );
   });
 
   it("builds a summary from the labels", () => {
@@ -771,7 +874,11 @@ describe("buildResumeRenderInput — the résumé container", () => {
       // merge, no precedence, no field-by-field rescue from the legacy shape. `machines` here
       // is the proof: the legacy container has content the container path leaves empty, and it
       // stays empty.
-      const input = build({ ...LEGACY, machines: ["mach_vmc"], resume_profile: { ...HOLLOW, role_label: "Fitter" } });
+      const input = build({
+        ...LEGACY,
+        machines: ["mach_vmc"],
+        resume_profile: { ...HOLLOW, role_label: "Fitter" },
+      });
       expect(input.canonicalRole).toBe("Fitter");
       expect(input.skills).toEqual([]);
       expect(input.experienceYears).toBeNull();
@@ -889,5 +996,67 @@ describe("buildResumeRenderInput — uncertified scalars in a stored container (
     const input = build({ role_label: "Operator grade 3", current_city: "Sector 21" });
     expect(input.canonicalRole).toBe("Operator grade 3");
     expect(input.location).toBe("Sector 21");
+  });
+});
+
+describe("Zone 5 on the résumé-container path (R5 §1.3)", () => {
+  /** The path a worker whose interview ran actually takes. */
+  const container = (over: Record<string, unknown> = {}) =>
+    buildResumeRenderInput(
+      {
+        resume_profile: { role_label: "CNC Turner", availability: "immediate" },
+        education_level: "iti_diploma",
+        certifications: ["NCVT — Turner — 2015"],
+        ...over,
+      },
+      "Ramesh Kumar",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+    );
+
+  const row = (input: ReturnType<typeof buildResumeRenderInput>, label: string) =>
+    (input.qualFactRows ?? []).find((r) => r.label === label);
+
+  it("renders education from the draft the crosswalk already fills", () => {
+    // This section rendered EMPTY for every worker whose interview ran. Not because the data
+    // was missing — `education_level` rides the answer map onto the draft — but because this
+    // path read only a caller-supplied block that no production caller sets.
+    expect(row(container(), "Education")?.value).toContain("ITI");
+  });
+
+  it("renders certificates the same way", () => {
+    expect(row(container(), "Certificates")?.value).toContain("NCVT");
+  });
+
+  it("leaves languages empty, because there is no column to read", () => {
+    // Stated as a test so it reads as a known gap rather than a bug. `crosswalk.ts` records
+    // `draftPath: null` for languages — it needs a capture surface, not a mapper change.
+    expect(row(container(), "Languages spoken")).toBeUndefined();
+  });
+
+  it("lets a caller-supplied block WIN over the draft", () => {
+    // The caller block is the worker's own structured answer and never passes through the
+    // model, so it outranks anything derived. The fallback only fills the gap beneath it.
+    const input = buildResumeRenderInput(
+      {
+        resume_profile: { role_label: "CNC Turner", availability: "immediate" },
+        education_level: "iti_diploma",
+      },
+      "Ramesh Kumar",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+      { qualification: { educationHeadline: "ITI — Turner — NCVT" } },
+    );
+    expect(row(input, "Education")?.value).toBe("ITI — Turner — NCVT");
+  });
+
+  it("collapses the section when the worker declared nothing", () => {
+    const input = container({ education_level: null, certifications: [] });
+    expect(row(input, "Education")).toBeUndefined();
+    expect(row(input, "Certificates")).toBeUndefined();
   });
 });

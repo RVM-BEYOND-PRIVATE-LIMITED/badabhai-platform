@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { QuestionPackSchema, type QuestionPack } from "@badabhai/ai-contracts";
 
 import type { AnswerMap } from "./answer-map";
-import { nextQuestion, type Decision, type EngineState } from "./next-question";
+import { nextQuestion, type EngineState } from "./next-question";
 
 /**
  * EMITS the real transcript of a full CNC-turner interview, so cost per profile can be PRICED
