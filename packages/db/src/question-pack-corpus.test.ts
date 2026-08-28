@@ -17,12 +17,14 @@ import { describe, expect, it } from "vitest";
 import {
   bindingSpecificity,
   checkPromptPersona,
+  loadQuestionPackCorpus,
   summariseQuestionPackCorpus,
   validateQuestionPackCorpus,
   type FieldView,
   type PackOptionRecord,
   type QuestionPackCorpus,
 } from "./question-pack-corpus";
+import { RFS_FIELD_IDS, RFS_FIELD_TYPES } from "./rfs-vocabulary";
 
 function valid(): QuestionPackCorpus {
   return {
@@ -141,7 +143,12 @@ describe("families and bindings — each defect must be caught", () => {
 
   it("catches a binding with two targets", () => {
     const c = valid();
-    c.bindings[0] = { kind: "binding", family_id: "fam_welding", isco_unit_code: "7212", isco_major_code: "7" };
+    c.bindings[0] = {
+      kind: "binding",
+      family_id: "fam_welding",
+      isco_unit_code: "7212",
+      isco_major_code: "7",
+    };
     expect(fatal(c).join()).toContain("sets 2 targets");
   });
 
@@ -182,9 +189,15 @@ describe("families and bindings — each defect must be caught", () => {
 
   it("derives specificity from the target", () => {
     expect(bindingSpecificity({ kind: "binding", family_id: "f", job_domain_id: "jd_x" })).toBe(50);
-    expect(bindingSpecificity({ kind: "binding", family_id: "f", isco_unit_code: "7212" })).toBe(40);
-    expect(bindingSpecificity({ kind: "binding", family_id: "f", isco_minor_code: "721" })).toBe(30);
-    expect(bindingSpecificity({ kind: "binding", family_id: "f", isco_submajor_code: "72" })).toBe(20);
+    expect(bindingSpecificity({ kind: "binding", family_id: "f", isco_unit_code: "7212" })).toBe(
+      40,
+    );
+    expect(bindingSpecificity({ kind: "binding", family_id: "f", isco_minor_code: "721" })).toBe(
+      30,
+    );
+    expect(bindingSpecificity({ kind: "binding", family_id: "f", isco_submajor_code: "72" })).toBe(
+      20,
+    );
     expect(bindingSpecificity({ kind: "binding", family_id: "f", isco_major_code: "7" })).toBe(10);
     expect(bindingSpecificity({ kind: "binding", family_id: "f", is_universal: true })).toBe(0);
     expect(bindingSpecificity({ kind: "binding", family_id: "f" })).toBeNull();
@@ -334,7 +347,9 @@ describe("checkPromptPersona — the runtime guard promoted to build time", () =
   });
 
   it("requires exactly one question mark", () => {
-    expect(checkPromptPersona("Kya aap welder ho? Kitne saal?", "p").join()).toContain("2 question mark");
+    expect(checkPromptPersona("Kya aap welder ho? Kitne saal?", "p").join()).toContain(
+      "2 question mark",
+    );
     expect(checkPromptPersona("Aap welder ho.", "p").join()).toContain("0 question mark");
   });
 
@@ -358,7 +373,8 @@ describe("checkPromptPersona — the runtime guard promoted to build time", () =
 
   it("catches an off-persona prompt inside a real pack", () => {
     const c = valid();
-    c.packs[0]!.items[0]!.prompt_text = "Bahut badhiya! Gas welding karte ho ya arc? Aur kitne saal?";
+    c.packs[0]!.items[0]!.prompt_text =
+      "Bahut badhiya! Gas welding karte ho ya arc? Aur kitne saal?";
     const p = fatal(c).join();
     expect(p).toContain("exclamation");
     expect(p).toContain("question mark");
@@ -521,5 +537,49 @@ describe("a chip whose value its field cannot hold (#731)", () => {
     const c = withOptionValue({ value_text: "conditional" });
     c.packs[1]!.items[1]!.target_kind = "attribute";
     expect(typeProblems(c)).toEqual([]);
+  });
+});
+
+/**
+ * THE COMMITTED CORPUS ITSELF, validated by the SAME call the CI step makes (R14).
+ *
+ * WHY THIS FILE DID NOT ALREADY DO IT, AND WHAT THAT COST. Every case above builds a synthetic
+ * corpus to exercise one rule. Nothing here had ever read `data/question-packs/`, so the shipped
+ * files were checked by exactly one thing: a separate CI step running
+ * `pnpm --filter @badabhai/db db:verify:packs --corpus`. `pnpm --filter @badabhai/db test` —
+ * 2,333 assertions — was green on a corpus that the runtime schema REFUSES.
+ *
+ * Measured: the milling pack shipped `option_key: "en8"` and `"en31"`, digits in a field whose
+ * contract is `/^[a-z_]+$/`. Local gates green, CI red, and had it reached production the pack
+ * registry would have dropped the whole pack and every miller would have fallen through to the
+ * universal seven questions — the exact "green corpus, dead trade" failure `OPTION_KEY_RE`'s own
+ * docstring describes.
+ *
+ * SAME OPTIONS AS THE CLI, deliberately. `fieldIds` and `types` ARM rules that otherwise do not
+ * run at all; a copy of this call that omitted them would be green for a different and much
+ * quieter reason. If the two ever diverge, this file is testing a validator the product does not
+ * use.
+ */
+describe("the COMMITTED question-pack corpus", () => {
+  const corpus = loadQuestionPackCorpus();
+
+  it("actually loaded the shipped files — the vacuity check first", () => {
+    // Every assertion below is "no problems were found", and a loader that read nothing satisfies
+    // all of them. These floors are the shipped scale, not a guess: 144 packs, 647 items.
+    const summary = summariseQuestionPackCorpus(corpus);
+    expect(summary.packs, "no packs loaded — the validator below proves nothing").toBeGreaterThan(
+      100,
+    );
+    expect(summary.items).toBeGreaterThan(500);
+    expect(summary.options).toBeGreaterThan(900);
+  });
+
+  it("is VALID under the same call the CI step makes", () => {
+    const problems = validateQuestionPackCorpus(corpus, {
+      fields: { fieldIds: RFS_FIELD_IDS, types: RFS_FIELD_TYPES },
+    }).filter((p) => !p.includes("WARN"));
+    expect(problems, `${problems.length} committed pack(s) would be refused at runtime`).toEqual(
+      [],
+    );
   });
 });

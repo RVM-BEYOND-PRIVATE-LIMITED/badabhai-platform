@@ -398,7 +398,7 @@ describe("trade resume map — qp_vmc_milling against the ratified sample", () =
     milling_machine: ["vmc", "spm"],
     axis_capability: ["three_axis", "four_axis"],
     controller_brand: ["fanuc", "siemens", "mitsubishi"],
-    material_worked: ["en8", "en31", "mild_steel", "aluminium"],
+    material_worked: ["en_eight", "en_thirty_one", "mild_steel", "aluminium"],
     setting_operation: [
       "tool_offset",
       "work_offset",

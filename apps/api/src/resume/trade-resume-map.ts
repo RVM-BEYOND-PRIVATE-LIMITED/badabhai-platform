@@ -447,8 +447,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // them (there is no usage data to rank by, and inventing one would be inventing a fact
         // about the worker), so the alloys lead — which is what the ratified sample prints.
         values: {
-          en8: "EN8",
-          en31: "EN31",
+          en_eight: "EN8",
+          en_thirty_one: "EN31",
           mild_steel: "MS",
           stainless: "Stainless steel",
           aluminium: "Aluminium",

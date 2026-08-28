@@ -166,8 +166,8 @@
       "max_asks": 2,
       "options": [
         { "option_key": "mild_steel", "label_text": "MS, mild steel", "value_text": "mild_steel" },
-        { "option_key": "en8", "label_text": "EN8", "value_text": "en8" },
-        { "option_key": "en31", "label_text": "EN31", "value_text": "en31" },
+        { "option_key": "en_eight", "label_text": "EN8", "value_text": "en_eight" },
+        { "option_key": "en_thirty_one", "label_text": "EN31", "value_text": "en_thirty_one" },
         { "option_key": "stainless", "label_text": "Stainless steel", "value_text": "stainless" },
         { "option_key": "aluminium", "label_text": "Aluminium", "value_text": "aluminium" },
         { "option_key": "cast_iron", "label_text": "Cast iron", "value_text": "cast_iron" }
