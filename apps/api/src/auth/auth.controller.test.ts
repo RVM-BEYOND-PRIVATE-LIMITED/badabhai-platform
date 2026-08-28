@@ -286,112 +286,44 @@ describe("AuthController — token/refresh out-of-band deletion → 410 WORKER_A
 });
 
 describe("AuthController", () => {
-  it("requestOtp applies the sender cap FIRST, then the network cap, then delegates", async () => {
+  // ---- SEND IS PHONE-ONLY (owner ruling, 2026-08-27) ----
+  // The device (`X-Device-Id`) and network (`req.ip`) caps were REMOVED from /auth/otp/request:
+  // under CGNAT + shared wifi they keyed a whole NAT egress / a whole handset onto one bucket, so
+  // a FRESH phone number with zero per-phone usage still hit "OTP bhejne ki limit ho gayi" (429).
+  // The only send protection now is per-PHONE (OtpService: cooldown + hourly + daily) plus the
+  // global cost breaker — all inside `auth.requestOtp`. The verify-path caps below are UNCHANGED.
+
+  it("requestOtp applies NO device/IP cap and delegates straight to auth (phone-only send)", async () => {
     const { controller, auth, ipRateLimit } = make();
     await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX);
-    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
-      "otp_request",
-      { kind: "device", value: DEVICE },
-      20,
-    );
-    // Its OWN scope, so it cannot collide with the `otp_request` address bucket the
-    // no-device-header fallback still writes into.
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
-      "otp_request_net",
-      "1.2.3.4",
-      1000,
-    );
+    // Neither limiter is consulted on the send path — that is the whole point of the ruling.
+    expect(ipRateLimit.assertWithinHourlySenderCap).not.toHaveBeenCalled();
+    expect(ipRateLimit.assertWithinHourlyIpCap).not.toHaveBeenCalled();
+    // The per-phone caps + global breaker live behind this call, in OtpService.
     expect(auth.requestOtp).toHaveBeenCalledWith("+91999", CTX);
   });
 
-  it("#1035 — two handsets on ONE wifi do NOT share a bucket", async () => {
-    // THE REPORTED BUG, as an assertion. Keyed on `req.ip` these two requests landed in one
-    // bucket, so a handful of sign-ins on a factory wifi or a carrier CGNAT pool locked
-    // everybody else out — and changing your phone number did nothing, because the number
-    // was never the key. Same address, two device ids, two buckets.
-    const { controller, ipRateLimit } = make();
+  it("requestOtp caps nothing by device/IP even when the client sends X-Device-Id", async () => {
+    // The #1035-class outage came from keying the SEND on device/IP under CGNAT. With the send
+    // path phone-only, the presence of an X-Device-Id header changes nothing — no bucket is ever
+    // consulted, so two handsets on one wifi (and any fresh number) can never lock each other out.
+    const { controller, auth, ipRateLimit } = make();
     await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice("device-aaa1"), CTX);
     await controller.requestOtp({ phone: "+91888" } as never, reqWithDevice("device-bbb2"), CTX);
-    const senders = (
-      ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>
-    ).mock.calls.map((c) => c[1]);
-    expect(senders).toEqual([
-      { kind: "device", value: "device-aaa1" },
-      { kind: "device", value: "device-bbb2" },
-    ]);
-  });
-
-  it("#1035 — a client that sends no device id keeps the pre-change per-IP behaviour", async () => {
-    // NOT A LOOPHOLE. An older build, a browser or curl lands in the SAME address bucket at
-    // the SAME number as before this change; only clients that identify a handset get their
-    // own. Dropping the header moves a caller into the shared bucket, which is stricter.
-    const { controller, ipRateLimit, config } = make();
-    await controller.requestOtp({ phone: "+91999" } as never, reqWith(), CTX);
-    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
-      "otp_request",
-      { kind: "ip", value: "1.2.3.4" },
-      config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
-    );
-  });
-
-  it("#1035 — a device id too short to identify a handset falls back to the address", async () => {
-    const { controller, ipRateLimit } = make();
-    await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice("short"), CTX);
-    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
-      "otp_request",
-      { kind: "ip", value: "1.2.3.4" },
-      20,
-    );
-  });
-
-  it("each cap reads its OWN knob — never the per-phone SMS budget", async () => {
-    // THE REGRESSION THIS LOCKS. The controller passed OTP_MAX_SENDS_PER_HOUR (5) to the
-    // per-IP limiter: a per-PHONE budget sized against paid SMS spend, silently reused as a
-    // per-NETWORK one. With no reverse proxy in the shipped topology `req.ip` is the NAT
-    // egress address, so that made one office wifi — or one carrier CGNAT pool fronting
-    // thousands of Jio / Airtel subscribers — worth five sign-ins an hour IN TOTAL, and the
-    // 429 a locked-out worker saw was indistinguishable from the platform being down.
-    //
-    // #1035 adds the third number, and the same swap is available again: the sender gate must
-    // read the per-DEVICE knob and the flood ceiling the per-IP one, never each other's.
-    const { controller, ipRateLimit, config } = make();
-    await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX);
-    const senderCap = (ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>).mock
-      .calls[0]![2];
-    const netCap = (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mock
-      .calls[0]![2];
-    expect(senderCap).toBe(config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR);
-    expect(netCap).toBe(config.OTP_MAX_SENDS_PER_IP_PER_HOUR);
-    expect(senderCap).not.toBe(config.OTP_MAX_SENDS_PER_HOUR);
-    expect(netCap).not.toBe(config.OTP_MAX_SENDS_PER_HOUR);
-    // The flood ceiling must stay far ABOVE the sender gate, or it becomes the thing that
-    // trips for a shared network — the bug, restored under a new name.
-    expect(netCap).toBeGreaterThan(senderCap);
-  });
-
-  it("requestOtp sender-cap rejection blocks the send AND spares the shared bucket", async () => {
-    // Sender first is why the second assertion holds: a handset that has already spent its
-    // allowance must not also charge the ceiling its neighbours are counted against.
-    const { controller, auth, ipRateLimit } = make();
-    (ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new ConflictException("cap"),
-    );
-    await expect(
-      controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX),
-    ).rejects.toBeTruthy();
-    expect(auth.requestOtp).not.toHaveBeenCalled();
+    expect(ipRateLimit.assertWithinHourlySenderCap).not.toHaveBeenCalled();
     expect(ipRateLimit.assertWithinHourlyIpCap).not.toHaveBeenCalled();
+    expect(auth.requestOtp).toHaveBeenCalledTimes(2);
   });
 
-  it("requestOtp network-cap rejection blocks the send", async () => {
+  it("requestOtp does NOT cap by device/IP for a header-less caller either (no fallback bucket)", async () => {
+    // The pre-ruling fallback keyed a header-less caller onto the shared address bucket. That is
+    // gone too: a browser/curl/older build now also reaches the send unthrottled by device/IP,
+    // bounded only by the per-phone caps behind `auth.requestOtp`.
     const { controller, auth, ipRateLimit } = make();
-    (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new ConflictException("cap"),
-    );
-    await expect(
-      controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX),
-    ).rejects.toBeTruthy();
-    expect(auth.requestOtp).not.toHaveBeenCalled();
+    await controller.requestOtp({ phone: "+91999" } as never, reqWith(), CTX);
+    expect(ipRateLimit.assertWithinHourlySenderCap).not.toHaveBeenCalled();
+    expect(ipRateLimit.assertWithinHourlyIpCap).not.toHaveBeenCalled();
+    expect(auth.requestOtp).toHaveBeenCalledWith("+91999", CTX);
   });
 
   it("verifyOtp delegates phone + otp (+ optional device_info) and passes through pin_set", async () => {
@@ -1147,10 +1079,11 @@ describe("#1239 — accountDeleteImmediate with the REAL AccountDeletionService 
  * #1019 — the route wiring, with the REAL seam rather than a pass-through double.
  *
  * The seam's own semantics are covered in `otp-request-idempotency.service.test.ts`. What can
- * only be asserted HERE is placement: the per-IP cap has to run INSIDE the guarded work, not in
- * front of it. It is one of the four counters the retry ladder was burning, and under carrier
- * CGNAT its bucket is shared by thousands of workers — so a dedupe that started after it would
- * still let one worker's flaky connection eat a whole network's hourly budget.
+ * only be asserted HERE is that the SEND itself is deduped: three transport retries under one
+ * Idempotency-Key drive exactly one `auth.requestOtp` (one paid SMS, one set of per-phone counter
+ * moves), not three. The per-device/IP caps that this suite once also checked here are GONE — the
+ * send path is phone-only (owner ruling, 2026-08-27) — so these cases now assert the limiters are
+ * never touched on send.
  */
 describe("#1019 — POST /auth/otp/request honours Idempotency-Key", () => {
   function withRealSeam() {
@@ -1211,7 +1144,7 @@ describe("#1019 — POST /auth/otp/request honours Idempotency-Key", () => {
   const withKey = (key: string) =>
     reqWith({ header: ((k: string) => (k === "idempotency-key" ? key : undefined)) as never });
 
-  it("sends once and caps once across the client's three transport retries", async () => {
+  it("sends once across the client's three transport retries", async () => {
     const { controller, auth, ipRateLimit } = withRealSeam();
     const req = withKey("k-1");
 
@@ -1219,10 +1152,12 @@ describe("#1019 — POST /auth/otp/request honours Idempotency-Key", () => {
     const b = await controller.requestOtp({ phone: "+919876543210" } as never, req, CTX);
     const c = await controller.requestOtp({ phone: "+919876543210" } as never, req, CTX);
 
-    // The whole defect: this used to be 3 — three counted sends, three paid SMS.
+    // The whole defect: this used to be 3 — three counted sends, three paid SMS. The seam
+    // dedupes so exactly ONE reaches auth.requestOtp (and thus OtpService's per-phone counters).
     expect(auth.requestOtp).toHaveBeenCalledTimes(1);
-    // And the per-IP bucket — shared across a whole CGNAT egress — is charged once, not thrice.
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledTimes(1);
+    // The send path is phone-only now — the device/IP limiters are never consulted here at all.
+    expect(ipRateLimit.assertWithinHourlySenderCap).not.toHaveBeenCalled();
+    expect(ipRateLimit.assertWithinHourlyIpCap).not.toHaveBeenCalled();
     expect([a, b, c]).toEqual([
       { success: true, channel: "sms", resend_in_seconds: 30 },
       { success: true, channel: "sms", resend_in_seconds: 30 },
@@ -1245,8 +1180,11 @@ describe("#1019 — POST /auth/otp/request honours Idempotency-Key", () => {
     await controller.requestOtp({ phone: "+919876543210" } as never, reqWith(), CTX);
     await controller.requestOtp({ phone: "+919876543210" } as never, reqWith(), CTX);
 
+    // No Idempotency-Key ⇒ each call is a real send (two), and the send path caps nothing by
+    // device/IP regardless of the header — only the per-phone caps behind auth.requestOtp apply.
     expect(auth.requestOtp).toHaveBeenCalledTimes(2);
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledTimes(2);
+    expect(ipRateLimit.assertWithinHourlySenderCap).not.toHaveBeenCalled();
+    expect(ipRateLimit.assertWithinHourlyIpCap).not.toHaveBeenCalled();
   });
 });
 

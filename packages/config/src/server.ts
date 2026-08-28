@@ -578,7 +578,19 @@ export const serverEnvSchema = z.object({
   OTP_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(30),
-  OTP_MAX_SENDS_PER_HOUR: z.coerce.number().int().positive().default(5),
+  // Per-PHONE SEND cap per rolling UTC hour (enforced in OtpService). Since the SEND path is
+  // gated by PHONE NUMBER ONLY (owner ruling 2026-08-27 — the per-device/IP send caps were
+  // dropped from /auth/otp/request), this + OTP_MAX_SENDS_PER_DAY + the resend cooldown + the
+  // platform-wide OTP_GLOBAL_MAX_SENDS_PER_DAY breaker are the WHOLE protection on the send path.
+  // 50 (was 5) so a worker re-logging in over a session never trips it and the 50/day ceiling
+  // below is actually reachable. Still bounds paid Fast2SMS spend: the number is the key, so no
+  // single phone can be texted more than this an hour.
+  OTP_MAX_SENDS_PER_HOUR: z.coerce.number().int().positive().default(50),
+  // NO LONGER GATES /auth/otp/request (owner ruling, 2026-08-27): the SEND path is now phone-only
+  // and calls neither this knob nor OTP_MAX_SENDS_PER_IP_PER_HOUR. This knob is STILL LIVE for the
+  // test-login sender bucket (see auth.controller.ts `testLogin`); the rest of this note describes
+  // the send-gate role it USED to play and is kept for that history.
+  //
   // THE PRIMARY SENDER GATE on the unauthenticated worker OTP routes (#1035): how many sends
   // one HANDSET may ask for in a rolling UTC hour, keyed on the `X-Device-Id` the worker app
   // already puts on every request. A caller that sends no usable device id falls back to the
@@ -599,6 +611,10 @@ export const serverEnvSchema = z.object({
   // mints a new one) and that is bounded deliberately by the SPEND caps below rather than
   // here — see OTP_MAX_SENDS_PER_HOUR / _PER_DAY and the global breaker.
   OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // NO LONGER GATES /auth/otp/request (owner ruling, 2026-08-27): the SEND path is phone-only and
+  // does not call this knob. It is STILL LIVE for the test-login network bucket
+  // (auth.controller.ts `testLogin`); the rest of this note is the send-path history it once served.
+  //
   // THE CRUDE PER-NETWORK FLOOD CEILING ABOVE THAT SENDER GATE — no longer the limit a
   // legitimate worker can hit, and it must never become one again (#1035).
   //
@@ -619,11 +635,11 @@ export const serverEnvSchema = z.object({
   // ADMIN_AUTH_MAX_PER_IP_PER_HOUR — those gate portal logins from office networks, not
   // handsets behind carrier NAT. If a real shared network ever hits this, raise it.
   //
-  // THE PER-PHONE CAPS ARE UNCHANGED AND ARE WHAT BOUND SMS SPEND: OTP_MAX_SENDS_PER_HOUR
-  // (5/number/hour), OTP_MAX_SENDS_PER_DAY (10/number/day), the resend cooldown, and the
-  // platform-wide OTP_GLOBAL_MAX_SENDS_PER_DAY breaker. Raising the per-IP cap widens how
-  // many DISTINCT numbers may be tried from one network; it does not let any one number be
-  // texted more, so the spend ceiling is untouched.
+  // THE PER-PHONE CAPS ARE WHAT BOUND SMS SPEND: OTP_MAX_SENDS_PER_HOUR (50/number/hour),
+  // OTP_MAX_SENDS_PER_DAY (50/number/day), the resend cooldown, and the platform-wide
+  // OTP_GLOBAL_MAX_SENDS_PER_DAY breaker. The number is the key, so no single phone can be
+  // texted more than these regardless of network — which is exactly why the send path can be
+  // gated by phone alone (owner ruling, 2026-08-27).
   OTP_MAX_SENDS_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(1000),
   // THE SAME TWO-TIER SHAPE ON /auth/otp/verify (#1132), and its OWN pair of knobs rather
   // than a reuse of the send caps above — that reuse reads tidy and is a category error, the
@@ -657,9 +673,12 @@ export const serverEnvSchema = z.object({
   OTP_MAX_VERIFY_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(5000),
   // Per-phone DAILY send ceiling backstopping the hourly cap: an abuser pacing just
   // under OTP_MAX_SENDS_PER_HOUR could still burn paid SMS all day against one number.
-  // Generous default — a legit worker re-logging in stays far below it. Trips the SAME
-  // neutral 429 as the hourly cap (no new oracle); fail-closed like every OTP throttle.
-  OTP_MAX_SENDS_PER_DAY: z.coerce.number().int().positive().default(10),
+  // 50 (was 10) — the owner ruling (2026-08-27) sets the send path to phone-only and 50
+  // sends/day per number; a legit worker re-logging in stays well below it. Trips the SAME
+  // neutral 429 as the hourly cap (no new oracle); fail-closed like every OTP throttle. This
+  // per-phone ceiling + OTP_GLOBAL_MAX_SENDS_PER_DAY are what bound spend now that the send
+  // path no longer caps by device/IP.
+  OTP_MAX_SENDS_PER_DAY: z.coerce.number().int().positive().default(50),
   // GLOBAL daily send circuit-breaker for the worker SMS path (OTP-5 — the SPEND
   // ceiling). A backstop ABOVE the per-phone cooldown/cap + the per-IP cap: it bounds
   // the TOTAL number of REAL Fast2SMS sends platform-wide per UTC day, so a distributed

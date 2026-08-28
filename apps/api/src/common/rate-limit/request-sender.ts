@@ -69,11 +69,15 @@ export interface SenderSource {
  *
  * ROTATING DEVICE IDS IS THE REAL EVASION, and it is bounded elsewhere on purpose: a
  * reinstall mints a new id, so an abuser can too. What that buys them is more DISTINCT
- * buckets, never more SMS to one number — `OTP_MAX_SENDS_PER_HOUR` (5/number/hour),
- * `OTP_MAX_SENDS_PER_DAY` (10/number/day) and the platform-wide
+ * buckets, never more SMS to one number — `OTP_MAX_SENDS_PER_HOUR` (50/number/hour),
+ * `OTP_MAX_SENDS_PER_DAY` (50/number/day) and the platform-wide
  * `OTP_GLOBAL_MAX_SENDS_PER_DAY` breaker are what bound spend, and none of them is keyed on
  * the caller. Per-device is therefore strictly better than per-IP without weakening the
  * spend ceiling. The per-network ceiling above it stays as the crude flood backstop.
+ *
+ * NOTE (owner ruling, 2026-08-27): `senderOf` no longer runs on /auth/otp/request — the SEND
+ * path is phone-only. This resolver is still used by /auth/otp/verify and /auth/test-login, so
+ * the device-vs-address reasoning above still applies THERE, not on the send path.
  */
 export function senderOf(req: SenderSource): Sender {
   const raw = req.header(DEVICE_ID_HEADER);

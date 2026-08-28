@@ -82,14 +82,18 @@ export class AuthController {
   /**
    * Send a login code.
    *
-   * `Idempotency-Key` IS HONOURED HERE (#1019) and everything below it — the per-IP cap
-   * included — runs inside that guard. The client retries a transport failure up to three
-   * times under ONE key, and this route used to count every attempt as a fresh request: one
-   * tap could spend three of a per-phone hourly budget of five, send three paid SMS, and
-   * push the platform-wide daily breaker toward the ceiling that 429s every worker on every
-   * device until UTC midnight. The header is OPTIONAL — unlike `/auth/token/refresh`, which
-   * can require it because every caller is our own client; requiring it on the front door
-   * would break callers that never sent one (§3).
+   * GATED BY PHONE NUMBER ONLY (owner ruling, 2026-08-27). The send path applies NO per-device
+   * and NO per-IP cap — see the note in `work` below. Its whole protection is OtpService's
+   * per-phone limits (resend cooldown, OTP_MAX_SENDS_PER_HOUR, OTP_MAX_SENDS_PER_DAY) plus the
+   * platform-wide OTP_GLOBAL_MAX_SENDS_PER_DAY cost breaker.
+   *
+   * `Idempotency-Key` IS HONOURED HERE (#1019) and the whole send runs inside that guard. The
+   * client retries a transport failure up to three times under ONE key, and this route used to
+   * count every attempt as a fresh request: one tap could spend three of the per-phone hourly
+   * budget, send three paid SMS, and push the platform-wide daily breaker toward the ceiling
+   * that 429s every worker on every device until UTC midnight. The header is OPTIONAL — unlike
+   * `/auth/token/refresh`, which can require it because every caller is our own client;
+   * requiring it on the front door would break callers that never sent one (§3).
    */
   @Post("otp/request")
   @HttpCode(200)
@@ -111,31 +115,20 @@ export class AuthController {
         resend_in_seconds: this.config.OTP_RESEND_COOLDOWN_SECONDS,
       }),
       work: async () => {
-        // TWO CAPS BEFORE ISSUING, and the ORDER is deliberate (#1035).
+        // NO PER-DEVICE / PER-IP CAP HERE — the send path is gated by PHONE NUMBER ONLY (owner
+        // ruling, 2026-08-27). This route used to run TWO caps before issuing: a per-`X-Device-Id`
+        // sender gate and a per-`req.ip` network ceiling. With `TRUST_PROXY_HOP_COUNT`=0 and no
+        // reverse proxy, `req.ip` is the socket peer — i.e. the NAT egress address — and Indian
+        // carriers run large-scale CGNAT, so a whole factory wifi or a whole Jio/Airtel pool
+        // shared one bucket. A worker on a FRESH phone number with zero per-phone usage still hit
+        // "OTP bhejne ki limit ho gayi" (429) because the number was never the key. Both caps are
+        // removed on SEND.
         //
-        // FIRST, THE SENDER — the handset that asked, via `X-Device-Id`, falling back to the
-        // address for a client that sends none. This is the gate that is supposed to trip:
-        // it separates two workers standing on one factory wifi, which is the thing the
-        // address cannot do. Keyed on the address it was the NAT egress bucket, so a handful
-        // of legitimate sign-ins locked out everyone else behind the same CGNAT pool and
-        // changing your phone number did not help, because the number was never the key.
-        //
-        // SECOND, THE NETWORK — a crude flood ceiling, ~50× the sender cap, that a real
-        // shared wifi must never reach. Its own scope (`otp_request_net`) so it cannot
-        // collide with the address bucket the fallback above still writes.
-        //
-        // Sender first so a device that has already spent its allowance does NOT also charge
-        // the bucket its neighbours share. Both fail closed (429) if Redis is down.
-        await this.ipRateLimit.assertWithinHourlySenderCap(
-          "otp_request",
-          senderOf(req),
-          this.config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
-        );
-        await this.ipRateLimit.assertWithinHourlyIpCap(
-          "otp_request_net",
-          req.ip ?? "unknown",
-          this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
-        );
+        // WHAT STILL PROTECTS THIS PATH is per-PHONE and inside `auth.requestOtp` → OtpService:
+        // the resend cooldown, OTP_MAX_SENDS_PER_HOUR, OTP_MAX_SENDS_PER_DAY (50/day), and the
+        // platform-wide OTP_GLOBAL_MAX_SENDS_PER_DAY cost breaker — the number IS the key, and it
+        // is these that bound paid Fast2SMS spend. The device/IP caps stay on /auth/otp/verify
+        // (see verifyOtp below); this removal does not touch them.
         return this.auth.requestOtp(dto.phone, ctx);
       },
     });
