@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { deriveWorkerSkills } from "@badabhai/match-engine";
 import { ATTRIBUTE_TO_MATCH_SKILLS } from "@badabhai/taxonomy";
@@ -111,5 +113,81 @@ describe("the cross-package contract with the taxonomy", () => {
     // Not a restatement of the test above: that one checks the ids are KNOWN, this one checks
     // the one that matters still resolves to the match skill a turner vacancy publishes.
     expect(ATTRIBUTE_TO_MATCH_SKILLS.skill_turning).toContain("mskill_cnc_turner");
+  });
+});
+
+describe("§8.3 asymmetry, as a PROPERTY rather than a list of cases", () => {
+  /** Every option key the turner pack can produce, read from the pack itself. */
+  const packOptions = (): [string, string][] => {
+    const pack = JSON.parse(
+      readFileSync(
+        join(__dirname, "../../../../packages/db/data/question-packs/packs/qp_cnc_turning.json"),
+        "utf8",
+      ),
+    ) as { items: { target_field: string; options?: { option_key: string }[] }[] };
+    return pack.items.flatMap((item) =>
+      (item.options ?? []).map((o) => [item.target_field, o.option_key] as [string, string]),
+    );
+  };
+
+  it("decomposes over the union, so single answers determine EVERY combination", () => {
+    // This is what makes the next test exhaustive rather than a sample. If the mapping is a
+    // union over independent options, then the reachable set for any combination of answers is
+    // the union of the single-answer sets - so checking 81 singles checks all 2^81 combinations.
+    // A future edit that made one answer's meaning depend on another would break this and be
+    // caught here, not by whatever it silently promoted.
+    const all = packOptions();
+    for (const [keyA, optA] of all.slice(0, 30)) {
+      for (const [keyB, optB] of all.slice(30, 60)) {
+        const combined = corpusSkillsForPackAttributes(
+          new Map(
+            keyA === keyB
+              ? [[keyA, [optA, optB]]]
+              : [
+                  [keyA, [optA]],
+                  [keyB, [optB]],
+                ],
+          ),
+        );
+        const union = [
+          ...new Set([
+            ...corpusSkillsForPackAttributes(new Map([[keyA, [optA]]])),
+            ...corpusSkillsForPackAttributes(new Map([[keyB, [optB]]])),
+          ]),
+        ].sort();
+        expect(combined).toEqual(union);
+      }
+    }
+  });
+
+  it("cannot reach ANY match skill beyond the three the pack's chips actually claim", () => {
+    // The general form of "no combination produces a function modifier the worker did not
+    // claim". Enumerated over every option in the pack, which the property above extends to
+    // every combination of them.
+    const reachable = new Set<string>();
+    for (const [key, option] of packOptions()) {
+      for (const skill of matchSkillsFor(new Map([[key, [option]]]))) reachable.add(skill);
+    }
+    expect([...reachable].sort()).toEqual(
+      [
+        // He said which lathe he runs.
+        "mskill_cnc_turner",
+        // He said "CAM software se banata hoon".
+        "mskill_cam_programmer",
+        // He said "Naya programme likh leta hoon".
+        "mskill_cnc_programmer",
+      ].sort(),
+    );
+  });
+
+  it("names the permitted exception explicitly, so it cannot be widened by accident", () => {
+    // "machine set karta hoon" is the one phrase §8.3 allows to raise the modifier, and the
+    // pack's equivalent is the setting_operation row. It contributes SETTING attributes and
+    // reaches no setter vacancy - the upgrade stops at the attribute, which is the asymmetry.
+    const setting = matchSkillsFor(new Map([["setting_operation", ["tool_offset", "jaw_change"]]]));
+    expect(setting).toEqual([]);
+    expect(
+      corpusSkillsForPackAttributes(new Map([["setting_operation", ["tool_offset"]]])),
+    ).toEqual(["skill_tool_offset_setting"]);
   });
 });
