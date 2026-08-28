@@ -267,6 +267,23 @@ export class AccountDeletionService {
     // live in VOICE_NOTES_BUCKET (or under conversationWorkerPrefix) so this erases it. The raw
     // storage_path is itself PII-adjacent (worker-scoped path) — keep it OUT of logs (reason
     // class + opaque worker prefix only, exactly like the resume loop).
+    //
+    // #1271 — GATED ON WHETHER AUDIO WAS EVER STORED, NOT ON THE LIVE CONFIG VALUE. The
+    // documented rollback for this bucket (once armed) is to unset the env var, leaving already
+    // -stored objects in place. Gating purely on `this.config.VOICE_NOTES_BUCKET` conflated two
+    // different states that both read as "unset": "no worker has ever had audio stored" (the
+    // true dormant case — nothing to do, `skipped` is honest) and "audio WAS stored, then the
+    // bucket got rolled back" (the erasure can no longer reach it, and reporting `skipped` there
+    // renders as a false success — the failure this issue exists to fix). `voiceKeys` (read
+    // above, pre-cascade) is the source of truth for "did this worker ever have a `voice_notes`
+    // row": non-empty means audio was stored regardless of what the config says right now.
+    // `voice_notes` records NO per-row bucket name (`storage_path` is a bare object key/path,
+    // never a bucket) and there is no other column anywhere that pins a clip to the bucket it
+    // was written to — so once the live bucket no longer matches whatever held the object at
+    // upload time, there is no address to delete it from. Per CLAUDE.md §3 (fail closed): an
+    // erasure that cannot actually reach the data must not report success, so this leg is
+    // recorded FAILED, not skipped — the SAME mechanism every other storage error already uses
+    // to turn the erasure `INCOMPLETE` (verdict below) rather than silently `complete`.
     if (resumesFailed > 0)
       audit.failed("resume_objects", "by-row", resumeKeys.length, resumesDeleted);
     else audit.swept("resume_objects", "by-row", resumeKeys.length, resumesDeleted);
@@ -324,11 +341,25 @@ export class AccountDeletionService {
           })`,
         );
       }
+    } else if (voiceKeys.length > 0) {
+      // ROLLBACK STATE (#1271): this worker HAS `voice_notes` rows — audio was stored — but the
+      // CURRENT VOICE_NOTES_BUCKET is unset. There is no per-row bucket name to fall back to (see
+      // the comment above), so the delete cannot be attempted against anything. FAIL LOUD: both
+      // legs are recorded FAILED, which pushes the whole erasure to `outcome: "failed"` /
+      // `verdict: INCOMPLETE` — never a silent `skipped` that would read as an honoured request.
+      audit.failed("voice_objects", "by-row", voiceKeys.length, 0);
+      audit.failed("voice_prefix", `voice-notes/${workerId}/`, 1, 0);
+      this.logger.error(
+        `account deletion voice-object erase UNAVAILABLE worker=${idPrefix} (${voiceKeys.length} ` +
+          "stored voice_notes row(s) but VOICE_NOTES_BUCKET is unset — likely a post-rollback " +
+          "state; no bucket name is recorded per-row so the audio cannot be located; erasure " +
+          "reported INCOMPLETE)",
+      );
     } else {
-      // NEVER RAN, and the record says so rather than reporting an empty sweep. While
-      // VOICE_NOTES_BUCKET is unset no audio can have been stored, so this is not a gap — but
-      // "we looked and found nothing" and "we never looked" are different claims, and only the
-      // first is evidence a DSAR request was honoured.
+      // TRUE DORMANT (unchanged): no `voice_notes` rows for this worker AND the bucket is
+      // unset — nothing was ever stored, so there is nothing to look for. "We looked and found
+      // nothing" and "we never looked" are different claims; this is neither — it is "there was
+      // never anything to look for", which `skipped` still honestly represents.
       audit.skipped("voice_objects", "by-row");
       audit.skipped("voice_prefix", `voice-notes/${workerId}/`);
     }
