@@ -40,6 +40,7 @@ interface Harness {
   svc: WorkerSkillsService;
   repo: {
     findLatestProfileSignals: ReturnType<typeof vi.fn>;
+    findPackAttributeOptions: ReturnType<typeof vi.fn>;
     replaceDerivedSkillsAndTenure: ReturnType<typeof vi.fn>;
     listWantedSkillIds: ReturnType<typeof vi.fn>;
     reconcileReachForWorker: ReturnType<typeof vi.fn>;
@@ -65,6 +66,10 @@ function setup(opts: {
   let derivedIds: string[] = [];
 
   const repo = {
+    // B0b: the role-pack bridge. Empty here on purpose — these cases are about the PROFILE
+    // signals, and a stub that returned pack answers would change what every one of them
+    // derives. `pack-attribute-skills.test.ts` covers the bridge itself.
+    findPackAttributeOptions: vi.fn(async () => new Map<string, string[]>()),
     findLatestProfileSignals: vi.fn(async () => {
       order.push("find");
       return opts.signals;
@@ -103,7 +108,9 @@ function setup(opts: {
     events,
     order,
     writtenSkills: () =>
-      (repo.replaceDerivedSkillsAndTenure.mock.calls[0] as unknown[])?.[1] as DerivedWorkerSkillRow[],
+      (
+        repo.replaceDerivedSkillsAndTenure.mock.calls[0] as unknown[]
+      )?.[1] as DerivedWorkerSkillRow[],
     writtenTenure: () =>
       (repo.replaceDerivedSkillsAndTenure.mock.calls[0] as unknown[])?.[2] as WorkerTenureRow[],
     emittedPayload: () =>

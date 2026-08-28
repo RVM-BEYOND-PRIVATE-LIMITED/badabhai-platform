@@ -4,6 +4,7 @@ import {
   CURRENT_PROFILE_ORDER,
   type Database,
   jobPostings,
+  workerAttributes,
   workerIndustryTenure,
   workerProfiles,
   workerSkills,
@@ -74,7 +75,8 @@ export class WorkerSkillsRepository {
 
     const experience = asRecord(row.experience);
     const totalYears =
-      experience && typeof experience.total_years === "number" &&
+      experience &&
+      typeof experience.total_years === "number" &&
       Number.isFinite(experience.total_years)
         ? experience.total_years
         : null;
@@ -84,6 +86,43 @@ export class WorkerSkillsRepository {
       profileSkills: Array.isArray(row.skills) ? row.skills.filter(isString) : [],
       totalYears,
     };
+  }
+
+  /**
+   * This worker's closed-set role-pack answers, as `attribute_key → [option_key, ...]`.
+   *
+   * PURE DATA ACCESS, like everything else here. It returns the option keys the worker tapped and
+   * decides nothing about what they mean — that is `pack-attribute-skills.ts`, and keeping the
+   * two apart is why a taxonomy retag is a one-file change rather than a query rewrite.
+   *
+   * Reads BOTH value columns because the pack mixes answer types: a `multi_select` lands in
+   * `value_text_list` and a `single_select` in `value_text`, and reading only the first silently
+   * drops `programming_level` and `drawing_reading` — the two questions that carry the only chips
+   * able to reach a vacancy other than a turner's.
+   *
+   * PRIVACY: option keys are closed-set enum values authored in the pack JSON. No free text, and
+   * nothing a worker typed, ever reaches this path.
+   */
+  async findPackAttributeOptions(workerId: string): Promise<Map<string, string[]>> {
+    const rows = await this.db
+      .select({
+        attributeKey: workerAttributes.attributeKey,
+        valueText: workerAttributes.valueText,
+        valueTextList: workerAttributes.valueTextList,
+      })
+      .from(workerAttributes)
+      .where(eq(workerAttributes.workerId, workerId));
+
+    const byKey = new Map<string, string[]>();
+    for (const row of rows) {
+      const values = Array.isArray(row.valueTextList)
+        ? row.valueTextList.filter(isString)
+        : isString(row.valueText)
+          ? [row.valueText]
+          : [];
+      if (values.length > 0) byKey.set(row.attributeKey, values);
+    }
+    return byKey;
   }
 
   /**
@@ -136,13 +175,15 @@ export class WorkerSkillsRepository {
       // Prune the derived rows whose skill left the set. Scoped to this worker AND to
       // `derived_coarse` — an `interview`/`ops` row survives a re-derivation forever.
       const keep = rows.map((r) => r.skillId);
-      await tx.delete(workerSkills).where(
-        and(
-          eq(workerSkills.workerId, workerId),
-          eq(workerSkills.source, "derived_coarse"),
-          keep.length > 0 ? notInArray(workerSkills.skillId, keep) : undefined,
-        ),
-      );
+      await tx
+        .delete(workerSkills)
+        .where(
+          and(
+            eq(workerSkills.workerId, workerId),
+            eq(workerSkills.source, "derived_coarse"),
+            keep.length > 0 ? notInArray(workerSkills.skillId, keep) : undefined,
+          ),
+        );
 
       // Rebuild tenure. Delete-then-insert rather than upsert-then-prune: the row count
       // is at most a handful per worker and the PK is (worker_id, industry_id), so this
@@ -195,7 +236,10 @@ export class WorkerSkillsRepository {
    * runtime with `42846: cannot cast type record to text[]`. Verified in
    * `materialize-job-reach.ts` against a live Postgres; do not "simplify" it back.
    */
-  async reconcileReachForWorker(workerId: string, wantedSkillIds: readonly string[]): Promise<void> {
+  async reconcileReachForWorker(
+    workerId: string,
+    wantedSkillIds: readonly string[],
+  ): Promise<void> {
     await this.db.transaction(async (tx) => {
       // 1. Clear his rows on every LIVE posting. `paused` is included because a pause is
       //    reversible (B1) and a resumed posting must not carry a stale reach set.
@@ -398,9 +442,9 @@ export class WorkerSkillsRepository {
   }
 
   /** Every skill row for a worker — the input to `skillMonthsFor` at apply time. */
-  async listSkillRows(workerId: string): Promise<
-    { skillId: string; industryId: string; monthsBucketed: number; wants: boolean }[]
-  > {
+  async listSkillRows(
+    workerId: string,
+  ): Promise<{ skillId: string; industryId: string; monthsBucketed: number; wants: boolean }[]> {
     return this.db
       .select({
         skillId: workerSkills.skillId,

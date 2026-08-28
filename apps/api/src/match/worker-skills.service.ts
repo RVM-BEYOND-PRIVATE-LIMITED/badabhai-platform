@@ -9,6 +9,7 @@ import type { PayloadInputOf } from "@badabhai/event-schema";
 import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { MatchConfigService } from "./match-config.service";
+import { corpusSkillsForPackAttributes } from "./pack-attribute-skills";
 import { WorkerSkillsRepository } from "./worker-skills.repository";
 
 /** What a rebuild actually changed — PII-free counts, safe to log and to event. */
@@ -73,13 +74,27 @@ export class WorkerSkillsService {
     const signals = await this.repo.findLatestProfileSignals(workerId);
     if (!signals) return null;
 
+    // ⓪ B0b — the role pack's answers join the profile's own attribute ids.
+    //
+    // The pack's fourteen answers live in `worker_attributes` and used to reach nothing, so the
+    // most completely-profiled worker on the platform derived zero skills. `corpusSkillsForPack-
+    // Attributes` is a closed-set lookup over option keys the worker TAPPED — no inference, so
+    // invariant #4 is untouched and the engine below is still the only thing deciding reach.
+    //
+    // UNION, never replace: a worker can have both an extracted profile and a completed pack, and
+    // whichever arrived second must not silently delete the other's evidence.
+    const packSkills = corpusSkillsForPackAttributes(
+      await this.repo.findPackAttributeOptions(workerId),
+    );
+    const profileSkills = [...new Set([...signals.profileSkills, ...packSkills])].sort();
+
     // ① The set: role bridge ∪ attribute bridge. EMPTY is a legitimate answer — a worker
     //    whose role and attributes imply no postable skill reaches nothing, and we never
     //    fabricate a skill to give a man a feed.
     const derived: WorkerSkillRow[] = deriveWorkerSkills(
       {
         canonicalRoleId: signals.canonicalRoleId,
-        profileSkills: signals.profileSkills,
+        profileSkills,
         totalYears: signals.totalYears,
       },
       cfg,
