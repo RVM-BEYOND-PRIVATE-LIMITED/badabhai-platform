@@ -55,6 +55,23 @@ worked.
 **Machine capability** (live tooling, bar feeder, sub-spindle) survives. Both are strong pay
 signals for a turner and I do not know which one a supervisor scans for first.
 
+**A SECOND, SHARPER VERSION OF THE SAME QUESTION, surfaced by building the degradation ladder.**
+Reverse §5.1 puts languages (rank 10), documents (9) and certificates/education (8) BELOW every
+capability row (ranks 2–7). Measured on the ladder against realistic Zone 5 content, that means a
+credentialled worker sheds his **entire credentials block — ITI, NCVT certificate, NSQF Level 4,
+languages, documents — before he sheds one capability row.** `future-09-worker` lands at stage 4
+and prints no education at all.
+
+That is what the guideline's own ordering mandates, and it may well be right for an experienced
+turner whose machines are the signal. It is much less obviously right for a young worker whose
+NCVT certificate IS the signal. Today the question is latent — a fresher's sheet is nowhere near
+the budget, so it never degrades — but it becomes live the moment work-history capture lands.
+
+**The specific ask:** should the ladder protect ONE credential line (the highest ITI/NCVT
+qualification) the way it protects availability and expected salary? One line, never dropped,
+would cost about 5 mm on the tightest sheets and is trivially implementable — but it is a
+shop-floor judgement about what an employer scans for, and that is yours.
+
 **Cost of silence — REVISED UPWARD, and the earlier estimate is left visible rather than edited
 away.** It said "low and fully reversible: one number per row in one file, no stored data, no
 re-render obligation." The mechanical part is still true. The window it assumed has closed, and
@@ -168,26 +185,102 @@ is recorded in the journal rather than quietly fixed.
 
 ---
 
-## Q7 · The QR module-size floor is an engineering number, not yours yet
+## Q7 · The QR module floor is EMPIRICAL — it needs a xerox, not a ruling
 
-**Status:** open, **not blocking** — a default is in force and the sheets pass it with room.
+**Status:** open. **I cannot close this one myself, and that is the finding.**
 
-`sheet-qr.gate.test.ts` now asserts a floor of **0.5 mm per QR module** on all 28 sheets. That
-number is from the QR printing literature (ISO/IEC 18004 and the GS1 print specifications land
-there for codes scanned off paper by a consumer phone), **not** from the Resume Engine guideline —
-§6.3's photocopy clause governs fills and hairline rules and says nothing about a symbol.
+`sheet-qr.gate.test.ts` asserts a floor of **0.5 mm per module** on every sheet. That number is
+from the QR printing literature (ISO/IEC 18004 and the GS1 print specifications), **not** from the
+Resume Engine guideline — §6.3's photocopy clause governs fills and hairline rules and says
+nothing about a symbol. So it is a plausible engineering default standing in for a measurement.
 
-Measured today: the bare origin needs 25 modules, so **0.720 mm** per module inside the 18 mm box.
-Comfortable. The reason to write the floor down now is the change that is already scheduled:
+**The measurement is a physical act and I have no printer, no photocopier and no phone.** What it
+needs is five minutes and a shop-floor-realistic setup:
 
-| QR target                        | modules | module size |
-| -------------------------------- | ------- | ----------- |
-| `badabhai.ai` (today)            | 25      | 0.720 mm    |
-| `badabhai.ai/w/rk8m2q` (Phase 3) | 29      | 0.621 mm    |
-| `badabhai.ai/w/rk8m2q?s=resume`  | 33      | 0.545 mm    |
+1. Print `future-09-worker.pdf` (the tightest sheet) on ordinary paper at 100%, no scaling.
+2. Photocopy it once on a ₹2 machine — the real one, not a good office copier.
+3. Scan the QR off the **photocopy** with a mid-range Android at arm's length, indoor light.
+4. Repeat with a photocopy of the photocopy, because sheets get re-copied.
 
-The box never changes size, so a longer URL shrinks the modules underneath it and the sheet keeps
-looking perfect. All three are above the floor and the gate asserts the first two directly.
+Pass or fail on step 3 is the answer. If it fails, the floor is too low and the fix is a bigger
+box, not a longer URL.
 
-**What would help:** if RVM has ever tested a printed BadaBhai QR off a shop-floor photocopy, that
-measurement beats the literature. **Cost of silence:** none today; the floor holds with margin.
+**It is coupled to B3 and only one of the two has been decided.** The 0.621 mm figure I reported
+for the deep link assumes a SHORT host. Today's interim origin is not short:
+
+| QR payload                                                                    | chars | modules | module size  |
+| ----------------------------------------------------------------------------- | ----- | ------- | ------------ |
+| `badabhai.ai` (what the sheet prints today)                                   | 19    | 25      | **0.720 mm** |
+| `badabhai.ai/w/rk8m2q` (Phase 3, short host)                                  | 28    | 29      | **0.621 mm** |
+| `payer.43-204-36-199.sslip.io/w/rk8m2q` (the interim origin, if it were used) | 45    | 33      | **0.545 mm** |
+
+Same payload, denser code, smaller modules — and the box never changes size, so the sheet keeps
+looking perfect while the modules shrink underneath it. **Deciding the final origin is therefore
+part of deciding the QR floor**, not a separate question: a long host spends most of the margin
+before the photocopy has spent any of it.
+
+**Recommendation:** run the xerox test on the `sslip.io`-length payload, not the short one. If
+that scans, every shorter origin is safe and the question closes for good. **Cost of silence:**
+the floor holds against the literature but has never met a real photocopier, and the acquisition
+metric §12.2 rests on it.
+
+---
+
+## Q8 · Conflict B — one spine, or a template per trade family?
+
+**Status:** open, and **its reversal cost has risen sharply since it was last estimated**. Raised
+as its own question here because it was previously folded into the drop-order discussion, which
+is a different decision.
+
+**The question.** Does every trade render through ONE spine — the layout `bb_trade.v1` fixes, with
+the trade only supplying its capability vocabulary — or does each trade family eventually get its
+own template, so a welder's sheet can be shaped differently from a turner's?
+
+**The stale estimate, quoted so the change is visible.** It previously read that reversal was
+cheap now and would get expensive "once a second template has fixtures." That was true when it
+was written and the window has closed — because the work went well, not because it was ignored:
+
+- **28 rendered sheets** exist, plus 28 more with the queued Zone 4/Zone 5 content in them.
+- A render block, a fabrication gate, a QR gate and a degradation ladder all now assume **one
+  spine**: the ladder's drop order is expressed in §5.1 ranks against a single section layout, and
+  the headroom budget is fitted to that layout's chrome.
+- Every one of those was built as though one spine were already ratified. That was the right way
+  to build them — the alternative was building nothing while the question sat open — but it means
+  the assumption is now load-bearing across four files rather than one.
+
+**What a per-family template would now cost**: a second set of fixtures, a re-fitted line budget
+(the chrome term is layout-specific), and a drop order per family rather than one. Not
+catastrophic; no longer free.
+
+**Recommendation: ratify one spine.** §7.1 already forbids skins from varying field order, section
+order, column count or page count, which is most of what a per-family template would exist to
+change. If that reading is right, this is a confirmation rather than a decision — and confirming
+it explicitly costs nothing, while leaving it open keeps four files resting on an assumption.
+
+**Cost of silence.** Everything keeps being built to one spine, so the cost keeps rising at the
+rate the work goes well. That is the worst possible shape for an open question.
+
+---
+
+## Q9 · `AGENT_LOOP.md` does not exist — where is the real one?
+
+**Status:** open, **low stakes, thirty seconds to answer**, and it blocks nothing.
+
+R2 §5 asked for one line added to `AGENT_LOOP.md` §4. There is no such file: not at the repo root,
+not under `docs/`, not under `.claude/`, and `git log --all --name-only` shows it has never
+existed in any commit in this repository.
+
+There is precedent for the canonical copy living outside the repo — the Resume Engine Design
+Guideline is a `.docx` in a local Downloads folder rather than a tracked file — so it may simply
+be somewhere I cannot see.
+
+**What I did instead of dropping the rule:** created `AGENT_LOOP.md` at the root containing ONLY
+§4 with the requested HALT trigger, with a header saying it was created rather than amended.
+Sections 1–3 are deliberately absent; I do not know what they say and inventing them would be
+worse than an incomplete file.
+
+**If the real one is elsewhere:** merge that §4 into it and delete the file I added. **If there
+was never one:** it now exists and wants its other sections written.
+
+**Cost of silence.** Two files claiming to be the agent loop, which is exactly the drift that
+makes an operating contract stop being read.

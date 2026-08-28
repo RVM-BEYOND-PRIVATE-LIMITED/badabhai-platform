@@ -160,11 +160,16 @@ migrate` from an empty database records 95 migrations with `max(created_at) = 17
 **Cost of reversal.** There is no safe reversal while any database has 0094 applied. Un-pinning
 breaks the deploy.
 
-**WHAT CI ACTUALLY DOES, corrected.** I wrote that `supabase-checks.yml` is `disabled_manually`
-(TD97) and that no schema↔migration drift gate exists. **That is wrong** — the workflow is
-`active` and both its jobs ran on PR #1292. The claim came from a stale note rather than from
-the live workflow state, which is the same class of error as A7 below: a fact asserted from a
-source that could not observe the thing it described.
+**WHAT CI ACTUALLY DOES — and this is a FIFTH INSTANCE of A7, not a footnote to it.** I wrote
+that `supabase-checks.yml` is `disabled_manually` (TD97) and that no schema↔migration drift gate
+exists. The workflow is `active` and both its jobs ran on PR #1292.
+
+But the interesting half is what "active" buys, which is nothing: **both assertion steps carry
+`continue-on-error: true`, so neither job can ever report failure.** That is WORSE than disabled,
+and the difference matters. A disabled workflow is visibly absent and someone eventually asks
+why. A permanently-green one accrues trust it has not earned — TD97 gets closed on its strength,
+a reviewer sees "Migration drift ✓" and stops looking, and the gate is cited in exactly the
+situation it cannot detect.
 
 The corrected picture is more useful than either version:
 
@@ -194,16 +199,24 @@ was produced by a run that could actually have said otherwise.
 **Why this is an entry and not a note.** It is now the fourth instance of one failure, and the
 instances look nothing like each other, which is exactly why naming the instance never helped:
 
-| #   | The claim                             | Why it could not be observed                                                                                                                              |
-| --- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `db:verify:match-v1` passes           | It ran against an EMPTY database, so it verified nothing and said so in the affirmative.                                                                  |
-| 2   | `/health` returns 200                 | It returned 200 with a dependency missing, so the check was insensitive to the thing it existed to detect.                                                |
-| 3   | `main`'s `ci.yml` is prettier-clean   | I copied the file OUTSIDE the repo before checking, so prettier resolved no config and applied defaults. The answer described a file that does not exist. |
-| 4   | No schema↔migration drift gate exists | Read off a stale TD note instead of the live workflow list. `supabase-checks.yml` is active and ran (see A6).                                             |
+| #   | The claim                             | Why it could not be observed                                                                                                                                                                         |
+| --- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `db:verify:match-v1` passes           | It ran against an EMPTY database, so it verified nothing and said so in the affirmative.                                                                                                             |
+| 2   | `/health` returns 200                 | It returned 200 with a dependency missing, so the check was insensitive to the thing it existed to detect.                                                                                           |
+| 3   | `main`'s `ci.yml` is prettier-clean   | I copied the file OUTSIDE the repo before checking, so prettier resolved no config and applied defaults. The answer described a file that does not exist.                                            |
+| 4   | No schema↔migration drift gate exists | Read off a stale TD note instead of the live workflow list. `supabase-checks.yml` is active and ran (see A6).                                                                                        |
+| 5   | "Migration drift ✓" on PR #1292       | Both assertion steps are `continue-on-error: true`, so the job reports success whether the assertion passed or failed — and neither job reads the journal `when` at all. A check that cannot go red. |
+| 6   | "28/28 sheets fit on one page"        | Every fixture carried `qrDataUri: null`, so the element §12.2 rests the acquisition thesis on had never rendered once. The sheets measured were not the sheets production prints.                    |
 
 The shape they share is not carelessness. In every case a real command ran, exited 0, and
 printed something true — about a different question than the one being asked. A green result is
 evidence only when you can state what a red one would have required.
+
+**Instance 5 is the one to remember**, because it inverts the intuition: a permanently-green gate
+is more dangerous than a missing one. Absence eventually prompts the question. A green check
+accrues trust, gets cited as coverage, and closes the tech-debt item that would have fixed it.
+Before citing any gate, grep its workflow for `continue-on-error` and read the STEP conclusion —
+`gh api repos/:owner/:repo/actions/jobs/<id> --jq '.steps[]'` — never the check list.
 
 **The two that were caught the same way** are worth recording because they are the method: the
 QR fixture (`qrDataUri: null`, so all 28 page-fit measurements were taken on a footer production
