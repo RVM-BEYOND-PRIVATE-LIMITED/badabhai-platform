@@ -422,12 +422,16 @@ export function buildTradeCapabilityRows(
 
     if (spec.inHeadline) headlineTools.push(...values);
 
+    // `key`/`rank` ride along for the degradation ladder (resume-degradation.ts), which needs to
+    // shed the least decisive row first and must not re-derive the map to find out which that is.
+    // The renderer ignores both.
+    const provenance = { key: spec.from, rank: spec.rank };
     if (spec.kind === "fact") {
-      factRows.push({ label: spec.label, value: values.join(spec.join ?? " · ") });
+      factRows.push({ label: spec.label, value: values.join(spec.join ?? " · "), ...provenance });
     } else if (spec.kind === "chips") {
-      chipRows.push({ label: spec.label, values });
+      chipRows.push({ label: spec.label, values, ...provenance });
     } else {
-      tickRows.push({ label: spec.label, values });
+      tickRows.push({ label: spec.label, values, ...provenance });
     }
   }
   // The heading is suppressed when the trade produced no rows at all: the template collapses the

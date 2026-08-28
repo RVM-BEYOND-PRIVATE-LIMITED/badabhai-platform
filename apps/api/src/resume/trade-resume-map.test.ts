@@ -76,7 +76,9 @@ describe("trade resume map — qp_cnc_turning", () => {
     const rows = buildTradeCapabilityRows("qp_cnc_turning", { drawing_reading: "none" });
     expect(rows.factRows).toEqual([]);
     const yes = buildTradeCapabilityRows("qp_cnc_turning", { drawing_reading: "gdt" });
-    expect(yes.factRows).toEqual([{ label: "Drawings", value: "Reads 2D drawings and GD&T" }]);
+    expect(yes.factRows).toEqual([
+      { label: "Drawings", value: "Reads 2D drawings and GD&T", key: "drawing_reading", rank: 44 },
+    ]);
   });
 
   it("emits no row at all for an attribute the worker never answered", () => {
@@ -89,9 +91,18 @@ describe("trade resume map — qp_cnc_turning", () => {
   it("handles BOTH captured shapes — a bare string and an array", () => {
     // `answer-capture.ts` wraps a multi_select and leaves a single_select bare, so both arrive.
     const bare = buildTradeCapabilityRows("qp_cnc_turning", { tolerance_band: "0.02" });
-    expect(bare.factRows).toEqual([{ label: "Tolerance held", value: "±0.02 mm" }]);
+    expect(bare.factRows).toEqual([
+      { label: "Tolerance held", value: "±0.02 mm", key: "tolerance_band", rank: 62 },
+    ]);
     const arr = buildTradeCapabilityRows("qp_cnc_turning", { turning_machine: ["cnc_lathe"] });
-    expect(arr.chipRows).toEqual([{ label: "Machines", values: ["CNC lathe / turning centre"] }]);
+    expect(arr.chipRows).toEqual([
+      {
+        label: "Machines",
+        values: ["CNC lathe / turning centre"],
+        key: "turning_machine",
+        rank: 21,
+      },
+    ]);
   });
 
   it("orders values by the DICTIONARY, so the same profile always renders identically", () => {
@@ -160,9 +171,19 @@ describe("trade resume map — qp_cnc_turning", () => {
       "Measuring instruments",
     ]);
     expect(rows.factRows).toEqual([
-      { label: "Programming", value: "Edits programs (G-code / M-code)" },
-      { label: "Drawings", value: "Reads 2D drawings and GD&T" },
-      { label: "Machine capability", value: "Live tooling · Bar feeder" },
+      {
+        label: "Programming",
+        value: "Edits programs (G-code / M-code)",
+        key: "programming_level",
+        rank: 43,
+      },
+      { label: "Drawings", value: "Reads 2D drawings and GD&T", key: "drawing_reading", rank: 44 },
+      {
+        label: "Machine capability",
+        value: "Live tooling · Bar feeder",
+        key: "advanced_capability",
+        rank: 23,
+      },
     ]);
     // Nothing anywhere is a raw slug.
     const printed = [

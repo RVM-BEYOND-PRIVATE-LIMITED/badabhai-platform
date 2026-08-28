@@ -1,12 +1,18 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { primeSheetQr, SHEET_SHAPES, withSheetQr } from "./__fixtures__/sheet-shapes";
+import {
+  primeSheetQr,
+  SHEET_SHAPES,
+  withFutureContent,
+  withSheetQr,
+} from "./__fixtures__/sheet-shapes";
 
 // The emitted HTML is what gets rendered to PDF and measured; without this the footer it
 // measures is 18 mm shorter than the one production prints.
 beforeAll(primeSheetQr);
 import { buildResumeRenderInput } from "./resume-render-input";
+import { sheetContentLines } from "./resume-degradation";
 import { ResumeRenderer } from "./resume-renderer.service";
 
 /**
@@ -32,24 +38,69 @@ describe.skipIf(!OUT_DIR)("emit the content-shape sheets for a real PDF render",
     const renderer = new ResumeRenderer({} as never);
     mkdirSync(OUT_DIR!, { recursive: true });
     let written = 0;
-    for (const shape of SHEET_SHAPES) {
-      for (const audience of ["worker", "employer"] as const) {
-        const html = renderer.buildResumeHtml(
-          buildResumeRenderInput(
+    // THE MANIFEST IS PART OF THE EVIDENCE, not a convenience. It records which degradation stage
+    // each sheet was produced at and what that stage removed, so the millimetre measurement can be
+    // read against the decision that produced it — "shape 9 fits" and "shape 9 fits because it
+    // dropped two rows" are different claims, and only the second is checkable.
+    const manifest: Record<string, unknown>[] = [];
+    // TWO VARIANTS PER SHAPE, and the second is the one that matters. `shape-*` is the content
+    // that exists today; `future-*` is the same worker once work-history capture and Phase C have
+    // landed, at the length real records actually run to. The degradation ladder is verified
+    // against both, because a ladder tuned only to today's seeded lengths would pass here and
+    // fail on the first real certificate string.
+    const variants = [
+      { prefix: "shape", ctx: (s: (typeof SHEET_SHAPES)[number]) => withSheetQr(s.tradeSheet) },
+      {
+        prefix: "future",
+        ctx: (s: (typeof SHEET_SHAPES)[number]) => withFutureContent(withSheetQr(s.tradeSheet)),
+      },
+    ];
+    for (const variant of variants) {
+      for (const shape of SHEET_SHAPES) {
+        for (const audience of ["worker", "employer"] as const) {
+          const html = renderer.buildResumeHtml(
+            buildResumeRenderInput(
+              shape.snapshot,
+              shape.displayName,
+              "bb_trade",
+              null,
+              false,
+              audience,
+              variant.ctx(shape),
+            ),
+          );
+          const tag = `${String(shape.n).padStart(2, "0")}-${audience}`;
+          const file = `${variant.prefix}-${tag}.html`;
+          writeFileSync(`${OUT_DIR}/${file}`, html, "utf8");
+          const input = buildResumeRenderInput(
             shape.snapshot,
             shape.displayName,
             "bb_trade",
             null,
             false,
             audience,
-            withSheetQr(shape.tradeSheet),
-          ),
-        );
-        const tag = `${String(shape.n).padStart(2, "0")}-${audience}`;
-        writeFileSync(`${OUT_DIR}/shape-${tag}.html`, html, "utf8");
-        written += 1;
+            variant.ctx(shape),
+          );
+          manifest.push({
+            file,
+            shape: shape.n,
+            name: shape.name,
+            audience,
+            variant: variant.prefix,
+            stage: input.degradationStage ?? 0,
+            dropped: input.degradationDropped ?? [],
+            lines: Number(sheetContentLines(input).toFixed(2)),
+          });
+          written += 1;
+        }
       }
     }
-    expect(written).toBe(SHEET_SHAPES.length * 2);
+    writeFileSync(
+      `${OUT_DIR}/manifest.json`,
+      `${JSON.stringify(manifest, null, 2)}
+`,
+      "utf8",
+    );
+    expect(written).toBe(SHEET_SHAPES.length * 2 * variants.length);
   });
 });

@@ -201,8 +201,13 @@ describe("ResumeRenderProcessor — the trade capability block", () => {
     const input = renderer.renderPdf.mock.calls[0]![0];
     expect(input.capSectionTitle).toBe("Machines, controllers & capability");
     expect(input.capChipRows).toEqual([
-      { label: "Machines", values: ["CNC lathe / turning centre"] },
-      { label: "Controllers", values: ["Fanuc"] },
+      {
+        label: "Machines",
+        values: ["CNC lathe / turning centre"],
+        key: "turning_machine",
+        rank: 21,
+      },
+      { label: "Controllers", values: ["Fanuc"], key: "controller_brand", rank: 22 },
     ]);
   });
 

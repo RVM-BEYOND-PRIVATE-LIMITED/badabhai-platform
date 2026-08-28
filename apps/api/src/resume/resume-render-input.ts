@@ -4,6 +4,7 @@ import { looksLikePii } from "@badabhai/validators";
 import type { ResumeRenderInput } from "./resume-renderer.service";
 import { resolveTradeContent, type TradeContent } from "./trade-content";
 import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-resume-map";
+import { degradeToFit } from "./resume-degradation";
 import { buildEmploymentBlock, type WorkerEmploymentRecord } from "./resume-employment-rows";
 import {
   bareAvailability,
@@ -176,7 +177,38 @@ type TradeCapabilitySlots = Pick<
   | "footerMeta"
 >;
 
+/**
+ * Build the render input, then SHED WHATEVER WILL NOT FIT ON ONE PAGE.
+ *
+ * THE WRAPPER IS THE POINT. `buildUndegraded` below has two return paths — the résumé container
+ * and the legacy answer-map shape — and every caller (the worker's own render worker and the
+ * payer disclosure) goes through this one door. Applying the ladder at each `return` instead
+ * would be two places to forget it, and the one that got forgotten would ship two-page PDFs for
+ * exactly the profiles nobody tests.
+ */
 export function buildResumeRenderInput(
+  snapshot: unknown,
+  displayName: string | null,
+  templateId: string | null,
+  photoDataUri: string | null,
+  nightShiftReady: boolean,
+  audience: ResumeAudience,
+  tradeSheet?: TradeSheetContext | null,
+): ResumeRenderInput {
+  const built = buildUndegraded(
+    snapshot,
+    displayName,
+    templateId,
+    photoDataUri,
+    nightShiftReady,
+    audience,
+    tradeSheet,
+  );
+  const { sheet, stage, dropped } = degradeToFit(built);
+  return { ...sheet, degradationStage: stage, degradationDropped: dropped };
+}
+
+function buildUndegraded(
   snapshot: unknown,
   displayName: string | null,
   templateId: string | null,

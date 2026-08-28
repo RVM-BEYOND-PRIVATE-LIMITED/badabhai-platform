@@ -124,6 +124,18 @@ export interface ResumeRenderInput {
    */
   photoDataUri?: string | null;
 
+  /**
+   * PROVENANCE (§7.4): which degradation stage produced this sheet, and what it removed.
+   *
+   * 0 means nothing was dropped. Stamped so a produced PDF reproduces exactly — the same
+   * snapshot at a different stage is a different artifact, and without this the difference is
+   * invisible. It belongs beside `skin`, `template_version` and `taxonomy_version`; none of
+   * those columns exists yet, so today this rides on the render input and into the HTML's
+   * `<meta>` rather than into a table. Recorded in the journal as the follow-up it is.
+   */
+  degradationStage?: number;
+  degradationDropped?: readonly string[];
+
   // ==========================================================================
   // THE LOCKED TRADE SHEET (`bb_trade.v1`).
   //
@@ -238,14 +250,26 @@ function nameFitClass(displayName: string | null | undefined): string {
 }
 
 /** A labelled list row — `{{label}}` plus a `{{#values}}` region of plain strings. */
+/**
+ * `key` and `rank` are PROVENANCE, not content: the renderer never reads either.
+ *
+ * They exist so the degradation ladder can order rows by §5.1 decisiveness without re-deriving
+ * the trade map, and they are optional because rows built outside a trade map (the legacy
+ * qualification path) have neither. Anything that reached the template through them would be a
+ * bug — `bb-trade-template.test.ts` pins the slot list.
+ */
 export type ResumeListRow = {
   label: string;
   values: string[];
+  key?: string;
+  rank?: number;
 };
 /** A labelled single-value row. */
 export type ResumeFactRow = {
   label: string;
   value: string;
+  key?: string;
+  rank?: number;
 };
 /** One role stint inside an employment. `when` is its OWN date range, never the employer's. */
 export type ResumeRoleStint = {

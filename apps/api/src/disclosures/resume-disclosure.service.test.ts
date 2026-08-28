@@ -255,10 +255,15 @@ describe("ResumeDisclosureService — happy path (B-G masked render + B-E fact-o
     expect(t.attributes.loadTradeSheet).toHaveBeenCalledWith(WORKER);
     expect(t.getRenderInput()?.capSectionTitle).toBe("Machines, controllers & capability");
     expect(t.getRenderInput()?.capChipRows).toEqual([
-      { label: "Machines", values: ["CNC lathe / turning centre"] },
+      {
+        label: "Machines",
+        values: ["CNC lathe / turning centre"],
+        key: "turning_machine",
+        rank: 21,
+      },
     ]);
     expect(t.getRenderInput()?.capFactRows).toEqual([
-      { label: "Tolerance held", value: "±0.02 mm" },
+      { label: "Tolerance held", value: "±0.02 mm", key: "tolerance_band", rank: 62 },
     ]);
     // The three withheld things are still withheld — the capability block is not a hole in the gate.
     expect(t.getRenderInput()?.displayName).toBe(MASKED);
