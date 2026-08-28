@@ -196,6 +196,60 @@ class MockApiClient extends ApiClient {
     await _delay();
   }
 
+  @override
+  Future<WorkPrefOptionsDto> getWorkPreferenceOptions({
+    required String authToken,
+  }) async {
+    // Canned chip vocabulary so the finishing form renders in mock mode (#1296).
+    await _delay();
+    return const WorkPrefOptionsDto(
+      languages: <String, String>{
+        'hindi': 'Hindi',
+        'haryanvi': 'Haryanvi',
+        'punjabi': 'Punjabi',
+        'english': 'English',
+        'bhojpuri': 'Bhojpuri',
+      },
+      documentsReady: <String, String>{
+        'aadhaar': 'Aadhaar',
+        'pan': 'PAN card',
+        'bank_account': 'Bank account',
+        'uan_pf': 'UAN / PF',
+        'iti_certificate': 'ITI certificate',
+        'driving_licence': 'Driving licence',
+      },
+      jobType: <String, String>{
+        'permanent': 'Permanent',
+        'contract': 'Contract',
+        'temporary': 'Temporary',
+      },
+      shift: <String, String>{
+        'day': 'Day',
+        'night': 'Night',
+        'rotational': 'Rotational',
+        'any': 'Any',
+      },
+    );
+  }
+
+  @override
+  Future<void> updateEmployment({
+    required List<Map<String, dynamic>> employments,
+    required String authToken,
+  }) async {
+    // No-op: nothing is persisted in mock mode.
+    await _delay();
+  }
+
+  @override
+  Future<void> updateWorkPreferences({
+    required Map<String, dynamic> fields,
+    required String authToken,
+  }) async {
+    // No-op: nothing is persisted in mock mode.
+    await _delay();
+  }
+
   /// ADR-0032 mock photo state — session-local, no network, no bytes stored.
   bool _mockHasPhoto = false;
 

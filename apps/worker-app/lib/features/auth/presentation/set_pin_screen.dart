@@ -222,7 +222,17 @@ class _SetPinViewState extends State<_SetPinView> {
       listenWhen: (SetPinState p, SetPinState c) => p.status != c.status,
       listener: (BuildContext context, SetPinState state) {
         if (state.status == SetPinStatus.done) {
-          // New user → continue onboarding at consent; reset → back to the shell.
+          // Reset → confirm it landed with a toast, then back to the shell. New
+          // user → continue onboarding at consent (no toast; onboarding speaks
+          // for itself). The messenger is the app-level one (above the router's
+          // Navigator), so the SnackBar survives the `go` and shows on the shell.
+          if (widget.isReset) {
+            ScaffoldMessenger.of(context)
+              ..clearSnackBars()
+              ..showSnackBar(
+                const SnackBar(content: Text('PIN reset kar diya gaya hai')),
+              );
+          }
           context.go(widget.isReset ? Routes.resume : Routes.consent);
         } else if (state.status == SetPinStatus.failure) {
           _showFailureAlert(state.message);

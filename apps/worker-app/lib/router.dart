@@ -25,6 +25,7 @@ import 'features/kit/presentation/kit_detail_screen.dart';
 import 'features/kit/presentation/kit_screen.dart';
 import 'features/notifications/presentation/notifications_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
+import 'features/finishing/presentation/finishing_screen.dart';
 import 'features/feedback/presentation/feedback_screen.dart';
 import 'features/invite/presentation/invite_screen.dart';
 import 'features/job_search/presentation/job_search_screen.dart';
@@ -72,6 +73,11 @@ class Routes {
 
   /// The profiling *preview/confirm* (distinct from the Profile tab at /profile).
   static const String profilePreview = '/profiling';
+
+  /// The post-interview finishing form (#1296) — closed-set work-history + prefs
+  /// pages. Sits AFTER the profile confirm and BEFORE [building], so the rows it
+  /// fills are present in the first résumé generate.
+  static const String finishing = '/finishing';
   static const String building = '/building';
 
   // --- Shell branch roots (persistent bottom nav) ---
@@ -431,6 +437,10 @@ GoRouter _buildRouter() {
       GoRoute(
         path: Routes.profilePreview,
         builder: (_, __) => const ProfilePreviewScreen(),
+      ),
+      GoRoute(
+        path: Routes.finishing,
+        builder: (_, __) => const FinishingScreen(),
       ),
       GoRoute(
         path: Routes.building,

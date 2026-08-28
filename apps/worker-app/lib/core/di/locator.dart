@@ -71,6 +71,9 @@ import '../../features/feedback/data/image_picker_feedback_image_picker.dart';
 import '../../features/feedback/domain/feedback_attachment_uploader.dart';
 import '../../features/feedback/domain/feedback_image_picker.dart';
 import '../../features/feedback/domain/feedback_repository.dart';
+import '../../features/finishing/data/finishing_repository_impl.dart';
+import '../../features/finishing/domain/finishing_repository.dart';
+import '../../features/finishing/presentation/cubit/finishing_cubit.dart';
 import '../../features/name/data/name_repository_impl.dart';
 import '../../features/name/domain/name_repository.dart';
 import '../../features/name/presentation/cubit/name_cubit.dart';
@@ -266,6 +269,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerLazySingleton<ResumeRepository>(
     () => ResumeRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  locator.registerLazySingleton<FinishingRepository>(
+    () => FinishingRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
   );
   locator.registerLazySingleton<SwipeRepository>(
     () => SwipeRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
@@ -467,6 +474,9 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerFactory<NameCubit>(
     () => NameCubit(locator<NameRepository>()),
+  );
+  locator.registerFactory<FinishingCubit>(
+    () => FinishingCubit(locator<FinishingRepository>()),
   );
   locator.registerFactory<ChatBloc>(
     () => ChatBloc(locator<ChatRepository>()),

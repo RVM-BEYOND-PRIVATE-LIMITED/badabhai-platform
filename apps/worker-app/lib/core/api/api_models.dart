@@ -1220,6 +1220,49 @@ class ResumeFieldsDto extends Equatable {
   List<Object?> get props => <Object?>[fullName, showPhoto, nightShiftReady, hasPhoto];
 }
 
+/// GET /workers/me/work-preferences/options (#1296) — the closed-set chip
+/// vocabulary for the post-interview finishing form. Each map is `slug → English
+/// label`; the label is what prints on the résumé, the Hinglish chip text the
+/// worker reads is the client's. Rendering chips from THIS (never a hard-coded
+/// list) is what keeps the client and the server enum from drifting into a chip
+/// the server then rejects with nothing naming the cause.
+class WorkPrefOptionsDto extends Equatable {
+  const WorkPrefOptionsDto({
+    required this.languages,
+    required this.documentsReady,
+    required this.jobType,
+    required this.shift,
+  });
+
+  final Map<String, String> languages;
+  final Map<String, String> documentsReady;
+  final Map<String, String> jobType;
+  final Map<String, String> shift;
+
+  static Map<String, String> _labelMap(dynamic raw) {
+    if (raw is! Map) return const <String, String>{};
+    // Preserve insertion order (the server's intended chip order) and coerce
+    // every value to a String, skipping any malformed non-string label.
+    final Map<String, String> out = <String, String>{};
+    raw.forEach((dynamic k, dynamic v) {
+      if (k is String && v is String) out[k] = v;
+    });
+    return out;
+  }
+
+  factory WorkPrefOptionsDto.fromJson(Map<String, dynamic> json) =>
+      WorkPrefOptionsDto(
+        languages: _labelMap(json['languages']),
+        documentsReady: _labelMap(json['documents_ready']),
+        jobType: _labelMap(json['job_type']),
+        shift: _labelMap(json['shift']),
+      );
+
+  @override
+  List<Object?> get props =>
+      <Object?>[languages, documentsReady, jobType, shift];
+}
+
 /// Result of POST /workers/me/photo/upload-url (ADR-0032) — a signed slot for the
 /// profile-photo bytes. Mirrors [VoiceUploadTicket].
 ///
