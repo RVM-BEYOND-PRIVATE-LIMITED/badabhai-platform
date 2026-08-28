@@ -20,10 +20,10 @@
     "Available from: 15 days",
     "Salary expected: ₹16,000 / month",
     "Preferred locations: Rajkot, Ahmedabad",
-    "Shift: Any shift"
+    "Shift: Night shift"
   ],
   "qualFactRows": [
-    "Education: ITI ya diploma"
+    "Education: ITI / Diploma"
   ],
   "qualTickRows": [],
   "employments": [
@@ -37,28 +37,31 @@
   ],
   "employmentsMore": null,
   "ownWords": [
-    "CNC lathe chalata hoon",
     "Programme load karke part banata hoon",
     "Pump ka housing aur shaft banate hain hum, MS aur EN8 me"
   ],
   "experiences": [],
   "skills": [
-    "CNC lathe operation",
+    "CNC lathe",
     "Fanuc control",
-    "part production",
-    "facing",
-    "turning",
-    "drilling",
-    "grooving",
-    "offset adjustment",
-    "vernier caliper",
-    "micrometer",
-    "plug gauge",
-    "drawing reading"
+    "Programme load",
+    "Facing",
+    "Turning",
+    "Drilling",
+    "Grooving",
+    "Pump ka housing banana",
+    "Shaft banana",
+    "MS material",
+    "EN8 material",
+    "Offset adjustment",
+    "Vernier caliper",
+    "Micrometer",
+    "Plug gauge",
+    "Drawing reading"
   ],
   "degradationStage": 0,
   "degradationDropped": [],
   "transcriptVetoes": [],
-  "contentLines": 29.05,
-  "predictedHeadroomMm": 58.44
+  "contentLines": 28.05,
+  "predictedHeadroomMm": 63.33
 }

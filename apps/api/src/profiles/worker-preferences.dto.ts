@@ -93,6 +93,19 @@ export const SetMyPreferencesSchema = z
     willing_to_relocate: z.boolean().nullable().optional(),
     accommodation_needed: z.boolean().nullable().optional(),
 
+    /**
+     * The upper end of the expected-salary BAND (R10 R-1).
+     *
+     * §4.4 is explicit that a point figure invites anchoring against the worker, and the ratified
+     * sheet prints a range. Deriving one from a stated number is the claim §8 forbids — so the
+     * band is ASKED, and a worker who gives only the lower end still prints a point figure rather
+     * than a manufactured range.
+     *
+     * BOUNDED to the same range the interview's own salary gate uses, because a typo printed as a
+     * worker's asking price costs him money in the direction nothing else in the system guards.
+     */
+    salary_expected_max: z.number().int().min(1000).max(500000).nullable().optional(),
+
     // ── THE CREDENTIAL'S THREE MISSING COMPONENTS (R9 §3) ────────────────────────────
     //
     // The ratified sheet prints "ITI — Machinist · NCVT · 2018 · Govt. ITI, Faridabad". We held

@@ -184,9 +184,33 @@ def _build_legacy(sig: Signals) -> DraftProfile:
         skills=sig.skill_ids,
         machines=sig.machine_ids,
         experience=Experience(total_years=sig.experience_years),
+        # ── R10 R-1: ONE NAME, ONE MEANING, ACROSS THE LANGUAGE BOUNDARY ────────────────
+        #
+        # This block used to read `amount_min=current_salary, amount_max=expected_salary`, and the
+        # TypeScript projection (`profile-extraction.processor.ts:toExtractionOutput`) wrote
+        # `amount_min=expected_salary`. One field name meant two different things depending on
+        # which side produced the row.
+        #
+        # The résumé prints `amount_min` under the label "expects" — so on every profile this
+        # function produced, the sheet advertised the worker's CURRENT wage as his asking price. A
+        # man saying "abhi 14 hazaar mil rahe hain, 16 chahiye" got a résumé reading "expects
+        # ₹14,000", handing an employer a ₹2,000/month discount he never offered. Nothing was
+        # fabricated and every number was worker-stated, which is exactly why no gate caught it.
+        #
+        # THE CANONICAL MEANING, now shared by both writers:
+        #   amount_min  what he is asking for — the figure he will not go below
+        #   amount_max  the upper end of the band, when he stated one
+        #
+        # CURRENT PAY IS NOT LOST. `salary_current` is already an RFS optional field and the rich
+        # draft below carries `current_salary=sig.current_salary`, which is its correct home: it is
+        # a real fact about the worker and simply not the one this row is labelled with.
+        #
+        # `amount_max` STAYS NONE HERE. This is the heuristic extractor over free text; it has no
+        # band ask behind it, and putting the expected figure in both ends would print
+        # "₹16,000 – ₹16,000". The band is captured by the finishing form.
         salary_expectation=SalaryExpectation(
-            amount_min=float(sig.current_salary) if sig.current_salary else None,
-            amount_max=float(sig.expected_salary) if sig.expected_salary else None,
+            amount_min=float(sig.expected_salary) if sig.expected_salary else None,
+            amount_max=None,
         ),
         location_preference=LocationPreference(
             current_city=sig.current_city,

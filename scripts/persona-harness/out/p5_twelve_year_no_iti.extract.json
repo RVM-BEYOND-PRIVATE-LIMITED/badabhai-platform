@@ -3,68 +3,67 @@
   "run": {
     "is_mock": false,
     "real_call": true,
-    "model_name": "gemini-2.5-flash",
-    "provider": "google",
+    "model_name": "claude-haiku-4-5",
+    "provider": "anthropic",
     "candidates_tried": [
-      "gemini-2.5-flash"
+      "claude-haiku-4-5"
     ],
-    "input_tokens": 1030,
-    "output_tokens": 557,
-    "cost_inr": 0.1427,
-    "latency_ms": 4321,
+    "input_tokens": 1446,
+    "output_tokens": 470,
+    "cost_inr": 0.3151,
+    "latency_ms": 3416,
     "error_code": null
   },
   "extract": {
-    "domain_label": "Manufacturing",
-    "role_label": "CNC Machinist",
+    "domain_label": "Machine tool operation",
+    "role_label": "CNC lathe operator, senior machinist",
     "skills": [
-      "Lathe operation",
-      "CNC Lathe (Fanuc control)",
-      "CNC Lathe (Haas control)",
+      "CNC lathe Fanuc control",
+      "CNC lathe Haas control",
       "VTL operation",
-      "Conventional Lathe operation",
+      "Conventional lathe",
       "Machine setting",
-      "Offset adjustment",
-      "Jaw changing",
-      "Tailstock adjustment",
+      "Offset setting",
+      "Jaw change",
+      "Tailstock setting",
       "First piece inspection",
-      "Program editing",
-      "Pump body manufacturing",
-      "Valve body manufacturing",
+      "Programme editing",
+      "Pump body machining",
+      "Valve body machining",
       "Cast iron machining",
-      "Mild steel machining",
+      "MS machining",
       "Brass machining",
-      "Dimensional accuracy (±0.02mm)",
+      "Tolerance holding plus minus 0.02",
       "Vernier caliper",
       "Micrometer",
       "Bore gauge",
       "Height gauge",
       "Dial indicator",
-      "Troubleshooting machining issues (chatter, size variation)",
-      "Training new machinists"
+      "Chatter detection",
+      "Training junior operators"
     ],
     "experiences": [
       {
         "role_label": "Helper",
-        "duration_text": "June 2014 to February 2016",
+        "duration_text": "June 2014 se February 2016",
         "duration_months": 20,
-        "work_done": "Learned lathe operation and machining skills."
+        "work_done": ""
       },
       {
         "role_label": "Machinist",
-        "duration_text": "March 2016 to December 2018",
+        "duration_text": "March 2016 se December 2018",
         "duration_months": 34,
         "work_done": ""
       },
       {
-        "role_label": "Senior Machinist",
-        "duration_text": "January 2019 to present",
-        "duration_months": 65,
-        "work_done": "Operating CNC lathe (Fanuc and Haas control), VTL, conventional lathe. Performing machine setting, offset, jaw change, tailstock, first piece inspection. Editing programs. Machining pump body, valve body, cast iron, MS, brass to ±0.02mm accuracy. Using vernier, micrometer, bore gauge, height gauge, dial indicator. Training new machinists and troubleshooting machining issues."
+        "role_label": "Senior machinist",
+        "duration_text": "January 2019 se",
+        "duration_months": null,
+        "work_done": ""
       }
     ],
     "shift": "day",
-    "current_city": null,
+    "current_city": "Kolhapur",
     "preferred_locations": [
       "Kolhapur",
       "Pune"

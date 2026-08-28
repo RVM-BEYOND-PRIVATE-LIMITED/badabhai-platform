@@ -100,10 +100,18 @@ describe("qp_cnc_turning depth ladder", () => {
     expect(tier2).toHaveLength(4);
   });
 
-  it("a worker under 1 year gets ONLY the 8 base questions", () => {
+  it("a worker under 1 year gets the 8 base questions PLUS the 3 fresher items", () => {
+    // R10 §2.6 — the FRESHER branch. §11 #1 puts training, trade test, workshop machines and
+    // project work in a fresher's Zone 4, and nothing in the corpus asked any of it: persona 1
+    // measured 125 mm of blank page. The three items are gated `lte 0`, so they are DISJOINT from
+    // tiers 1 and 2 and cost a senior nothing — which is why the ask budget's worst case is
+    // unchanged at 26.
     const asked = askedFor(0);
-    expect(asked).toHaveLength(8);
+    expect(asked).toHaveLength(11);
     for (const k of [...tier1, ...tier2]) expect(asked).not.toContain(k);
+    for (const k of ["iti_workshop_machines", "trade_test_status", "iti_project_work"]) {
+      expect(asked).toContain(k);
+    }
   });
 
   it("a 1-3 year worker gets base + tier 1, and never tier 2", () => {
@@ -113,7 +121,7 @@ describe("qp_cnc_turning depth ladder", () => {
     for (const k of tier2) expect(asked).not.toContain(k);
   });
 
-  it("a 7+ year worker gets all 15, and still fits the engine ask budget", () => {
+  it("a 7+ year worker gets all 15 non-fresher items, and still fits the ask budget", () => {
     const asked = askedFor(10);
     expect(asked).toHaveLength(15);
     expect(asked.length + UNIVERSAL_ASKS).toBeLessThanOrEqual(ENGINE_ASK_BUDGET);

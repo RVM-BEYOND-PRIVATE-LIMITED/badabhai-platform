@@ -1,6 +1,6 @@
 {
   "persona": "p4_eight_year_setter",
-  "headlineLine": "CNC Setter cum Operator · 8 yrs · Fanuc, Siemens, Mitsubishi",
+  "headlineLine": "CNC turning setter cum operator · 8 yrs · Fanuc, Siemens, Mitsubishi",
   "subheadLine": "Faridabad · available in 1 month · expects ₹32,000 / month",
   "capSectionTitle": "Machines, controllers & capability",
   "capChipRows": [
@@ -25,7 +25,7 @@
     "Shift: Any shift"
   ],
   "qualFactRows": [
-    "Education: ITI ya diploma"
+    "Education: ITI / Diploma"
   ],
   "qualTickRows": [],
   "employments": [
@@ -52,13 +52,13 @@
     }
   ],
   "employmentsMore": null,
-  "ownWords": [],
+  "ownWords": [
+    "Pehle operator laga tha, ek saal baad setter bana diya"
+  ],
   "experiences": [],
   "skills": [
-    "CNC turning",
-    "CNC lathe",
-    "Fanuc controller",
-    "Siemens controller",
+    "CNC lathe Fanuc",
+    "CNC lathe Siemens",
     "VTL Mitsubishi",
     "conventional kharad",
     "bar feeder",
@@ -68,37 +68,33 @@
     "work offset",
     "nose radius compensation",
     "jaw change",
-    "tailstock setting",
+    "tailstock set karna",
     "first piece approval",
-    "new job setup",
-    "G-code programming",
-    "M-code programming",
-    "canned cycle programming",
+    "G-code M-code",
     "G71 rough turning",
     "G76 threading",
     "G74 peck drilling",
-    "manual programming on machine",
-    "tolerance control (+/- 0.01mm)",
-    "GD&T interpretation",
-    "runout measurement",
-    "concentricity measurement",
-    "flatness measurement",
-    "surface finish Ra 0.8",
-    "machining EN8",
-    "machining EN31",
-    "machining SS316",
-    "machining cast iron",
-    "oil and gas fittings manufacturing",
-    "automotive shaft manufacturing",
-    "first piece inspection",
+    "canned cycle",
+    "tolerance plus minus 0.01",
+    "GD and T",
+    "runout",
+    "concentricity",
+    "flatness",
+    "Surface finish Ra 0.8",
+    "EN8",
+    "EN31",
+    "SS316",
+    "cast iron",
+    "first piece check",
     "in-process inspection",
-    "SPC chart filling",
-    "chatter correction (speed/feed adjustment)",
-    "tool wear compensation (offset correction)"
+    "SPC chart",
+    "chatter troubleshooting",
+    "speed feed adjustment",
+    "tool wear compensation"
   ],
   "degradationStage": 0,
   "degradationDropped": [],
   "transcriptVetoes": [],
-  "contentLines": 35.19,
-  "predictedHeadroomMm": 28.42
+  "contentLines": 38.05,
+  "predictedHeadroomMm": 14.43
 }

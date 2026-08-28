@@ -8,38 +8,42 @@
     "candidates_tried": [
       "gemini-2.5-flash"
     ],
-    "input_tokens": 921,
-    "output_tokens": 307,
-    "cost_inr": 0.0875,
-    "latency_ms": 3038,
+    "input_tokens": 1170,
+    "output_tokens": 313,
+    "cost_inr": 0.095,
+    "latency_ms": 3829,
     "error_code": null
   },
   "extract": {
     "domain_label": "Manufacturing",
     "role_label": "CNC Lathe Operator",
     "skills": [
-      "CNC lathe operation",
+      "CNC lathe",
       "Fanuc control",
-      "part production",
-      "facing",
-      "turning",
-      "drilling",
-      "grooving",
-      "offset adjustment",
-      "vernier caliper",
-      "micrometer",
-      "plug gauge",
-      "drawing reading"
+      "Programme load",
+      "Facing",
+      "Turning",
+      "Drilling",
+      "Grooving",
+      "Pump ka housing banana",
+      "Shaft banana",
+      "MS material",
+      "EN8 material",
+      "Offset adjustment",
+      "Vernier caliper",
+      "Micrometer",
+      "Plug gauge",
+      "Drawing reading"
     ],
     "experiences": [
       {
         "role_label": "CNC Lathe Operator",
-        "duration_text": "Do saal ho gaye. July 2024 se hoon",
+        "duration_text": "Do saal ho gaye. July 2024 se hoon, wahi meri pehli naukri hai.",
         "duration_months": null,
-        "work_done": "CNC lathe chalata hoon. Programme load karke part banata hoon. Facing, turning, drilling, grooving. Pump ka housing aur shaft banate hain hum, MS aur EN8 me. Offset thoda bahut dekh leta hoon. Vernier aur micrometer, plug gauge use karta hoon. Drawing dekh leta hoon."
+        "work_done": "Programme load karke part banata hoon. Facing, turning, drilling, grooving. Pump ka housing aur shaft banate hain hum, MS aur EN8 me."
       }
     ],
-    "shift": "any",
+    "shift": "night",
     "current_city": "Rajkot",
     "preferred_locations": [
       "Rajkot",

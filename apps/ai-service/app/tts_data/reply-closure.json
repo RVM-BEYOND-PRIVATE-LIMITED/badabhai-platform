@@ -1,18 +1,23 @@
 {
   "schema_version": 1,
-  "clip_count": 481,
+  "clip_count": 496,
   "producers": {
-    "clarify": 167,
-    "why": 158,
-    "prompt": 142,
+    "clarify": 173,
+    "prompt": 145,
+    "why": 161,
     "constant": 8,
-    "retry": 6
+    "retry": 9
   },
   "clips": [
     {
       "id": "002b632ca4de7f21",
       "text": "Chip level wale ka rate zyada hai. Kya aap chip level ka kaam karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "00326923ff727ed3",
+      "text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "producer": "prompt"
     },
     {
       "id": "016bf496584744a4",
@@ -128,6 +133,11 @@
       "id": "0bcd570c3c5c9da6",
       "text": "Aap kitni tolerance tak kaam kar lete hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "0c14cc0ee3a6b2c4",
+      "text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain. ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "producer": "clarify"
     },
     {
       "id": "0c158b3abbe3294c",
@@ -265,6 +275,11 @@
       "producer": "why"
     },
     {
+      "id": "1617feacdd7a66ba",
+      "text": "Trade test pass hona certificate jitna hi mayne rakhta hai. Trade test ka kya status hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "1633b3d24e524ebe",
       "text": "Lambi duri ka paisa alag hota hai. Kya aap lambi duri ja sakte hain?",
       "producer": "clarify"
@@ -343,6 +358,11 @@
       "id": "1f89f2dab925eaeb",
       "text": "Isse hum aapke kaam ke hisaab se sahi naukri dhoondh sakte hain. Aap kaunsa kaam karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "1fd66ae9f93c86e6",
+      "text": "Trade test diya hai?",
+      "producer": "prompt"
     },
     {
       "id": "1ffb78ea33c4d7a3",
@@ -760,6 +780,16 @@
       "producer": "clarify"
     },
     {
+      "id": "4a473ba1bb0cb405",
+      "text": "Trade test ka kya status hai?",
+      "producer": "retry"
+    },
+    {
+      "id": "4b3d94dd81fadc18",
+      "text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "producer": "why"
+    },
+    {
       "id": "4b4483662f2d19dd",
       "text": "Fitting ke kai tarah hote hain.",
       "producer": "why"
@@ -928,6 +958,11 @@
       "id": "5ae5ac265bfadb5b",
       "text": "Kya aap machine se silai karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "5b20c7095b7f527a",
+      "text": "Trade test pass hona certificate jitna hi mayne rakhta hai. Trade test diya hai?",
+      "producer": "clarify"
     },
     {
       "id": "5bbb3afdfd3faff4",
@@ -1375,6 +1410,11 @@
       "producer": "clarify"
     },
     {
+      "id": "8a16b4be0371b36f",
+      "text": "Banaya hua job dikhata hai ki aap kya kar sakte hain. ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "producer": "clarify"
+    },
+    {
       "id": "8ae77cc90d8f82b8",
       "text": "Har jagah ki duty alag hoti hai.",
       "producer": "why"
@@ -1478,6 +1518,11 @@
       "id": "948919d86bb594ae",
       "text": "Har machine ka kaam alag hota hai.",
       "producer": "why"
+    },
+    {
+      "id": "9522b90c24b1ec06",
+      "text": "Workshop me kaunsa job ya project banaya tha?",
+      "producer": "retry"
     },
     {
       "id": "968d415276e0c358",
@@ -1725,6 +1770,11 @@
       "producer": "why"
     },
     {
+      "id": "af455221eda218e6",
+      "text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "producer": "why"
+    },
+    {
       "id": "afaa06fffab6a425",
       "text": "Hath aur machine packing alag hai.",
       "producer": "why"
@@ -1753,6 +1803,11 @@
       "id": "b1ebb0a46df70fe5",
       "text": "Employer ko pata hona chahiye ki aap kab mil sakte hain.",
       "producer": "why"
+    },
+    {
+      "id": "b2d715c3368f87e1",
+      "text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain. Workshop me kaunsi machine chalayi thi?",
+      "producer": "clarify"
     },
     {
       "id": "b4c68d0d6c6205d8",
@@ -1798,6 +1853,11 @@
       "id": "b6e8f8ba035818f4",
       "text": "Taul wale ko store me kaam milta hai. Kya aap taul ka kaam karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "b8764c8dedd0d67d",
+      "text": "Workshop me kaunsi machine chalayi thi?",
+      "producer": "retry"
     },
     {
       "id": "b9e1a2f562ef46d4",
@@ -2095,6 +2155,11 @@
       "producer": "prompt"
     },
     {
+      "id": "d44611fbde8afa5d",
+      "text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "producer": "why"
+    },
+    {
       "id": "d45622b7bb53b8b6",
       "text": "Aap kis tarah ka bijli kaam karte hain?",
       "producer": "prompt"
@@ -2160,6 +2225,11 @@
       "producer": "clarify"
     },
     {
+      "id": "de39e14666341012",
+      "text": "Banaya hua job dikhata hai ki aap kya kar sakte hain. Workshop me kaunsa job ya project banaya tha?",
+      "producer": "clarify"
+    },
+    {
       "id": "debddcf585f0bec3",
       "text": "Drawing padhna kai jagah zaroori hota hai. Kya aap drawing padh lete hain?",
       "producer": "clarify"
@@ -2188,6 +2258,11 @@
       "id": "e23487511a448209",
       "text": "Masala banane wale ki alag maang hai.",
       "producer": "why"
+    },
+    {
+      "id": "e2c5aa56d4a9952f",
+      "text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "producer": "prompt"
     },
     {
       "id": "e2d62d452a00f168",

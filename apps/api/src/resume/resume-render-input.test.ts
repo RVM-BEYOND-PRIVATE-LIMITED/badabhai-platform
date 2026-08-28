@@ -216,27 +216,27 @@ describe("buildResumeRenderInput — education_level + education_field", () => {
  * which this change feeds a humanised string instead of a raw one. The shipped layouts
  * already. This changes only what is bound into it.
  */
-describe("buildResumeRenderInput — education_level is humanised (#963)", () => {
+describe("buildResumeRenderInput — education_level is humanised (#963, English per R10 R-3)", () => {
   const levelOf = (education_level: string) =>
     buildResumeRenderInput({ education_level }, null, null, null, false, "worker").educationLevel;
 
   it("renders the known token as the label the app already shows", () => {
     // THE REPORTED DEFECT, exactly. "below_10" is what the PDF printed.
-    expect(levelOf("below_10")).toBe("10th se kam");
+    expect(levelOf("below_10")).toBe("Below 10th");
   });
 
   it("maps the other spelling of the same level", () => {
     // `below_10th` is the same answer out of the same free-text field. The app's map carries
     // both; a port that carried one would humanise a worker's level or not depending on which
     // way the model happened to spell it that day.
-    expect(levelOf("below_10th")).toBe("10th se kam");
+    expect(levelOf("below_10th")).toBe("Below 10th");
   });
 
   it("matches the token whatever case the model emitted it in", () => {
     // Nothing constrains the case of a free-text scalar, and a token that missed the map by a
     // capital letter would fall through to the prettifier and print "Below 10" — still not a
     // sentence anyone says.
-    expect(levelOf("BELOW_10")).toBe("10th se kam");
+    expect(levelOf("BELOW_10")).toBe("Below 10th");
   });
 
   it("prettifies a snake_case token nobody has mapped", () => {
@@ -279,7 +279,7 @@ describe("buildResumeRenderInput — education_level is humanised (#963)", () =>
       false,
       "worker",
     );
-    expect(input.educationLevel).toBe("10th se kam");
+    expect(input.educationLevel).toBe("Below 10th");
     expect(input.educationField).toBe("Electronics");
   });
 });
@@ -504,11 +504,11 @@ describe("buildResumeRenderInput — the worker's night-shift toggle (#947)", ()
     // and `graduate` printed raw, and it title-cased `iti_diploma` into "Iti Diploma" — the
     // acronym-wrecking its own rule 3 exists to prevent.
     const expected: ReadonlyArray<readonly [string, string]> = [
-      ["below_10", "10th se kam"],
-      ["10", "Dasvi paas"],
-      ["12", "Barhvi paas"],
-      ["iti_diploma", "ITI ya diploma"],
-      ["graduate", "Graduation"],
+      ["below_10", "Below 10th"],
+      ["10", "10th pass"],
+      ["12", "12th pass"],
+      ["iti_diploma", "ITI / Diploma"],
+      ["graduate", "Graduate"],
     ];
     for (const [raw, label] of expected) {
       const input = buildResumeRenderInput(

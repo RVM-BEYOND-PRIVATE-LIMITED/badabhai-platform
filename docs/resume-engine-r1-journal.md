@@ -1972,3 +1972,124 @@ non-circular page gate and the 56-sheet measurements all held under attack.
 shape as the defect R8 itself was celebrating: a gate reading a column that cannot answer its
 question. I found that shape in the render path and shipped two more of it in the tooling I built
 to report on the render path.
+
+---
+
+## §22 — R10: four rulings, a live defect closed, and a rule measured back out
+
+### 22.1 — R-1: the salary defect, root and symptom
+
+`salary_expectation.amount_min` meant two things. `profile_extractor.py:_build_legacy` wrote
+CURRENT pay into it; the TypeScript projection wrote EXPECTED pay. The résumé prints `amount_min`
+under the label **"expects"**, and the Python one is the live path — so a man saying _"abhi 14
+hazaar mil rahe hain, 16 chahiye"_ got a sheet advertising ₹14,000.
+
+Fixed at the root: `amount_min` is now the figure he is asking for on BOTH sides, `amount_max` is
+the band's upper end, and current pay goes to `current_salary`, which is already an RFS field and
+already on the rich draft. **Two tests had to change, and both were pinning the defect** —
+`test_adjacent_salary_answers_do_not_poison_each_other` asserted `amount_min == 25000` for a
+worker who earns 25 and asks 35. Their intent (both figures detected, not confused) is preserved.
+
+**The band is asked, never derived.** §4.4 rules against a point figure; manufacturing a range
+around a stated number is the derived claim §8 forbids. `salary_expected_max` rides the finishing
+form, NOT the interview — the pack's own `_v2` note records an owner ruling that "the template
+tail is SIX questions", and a seventh would have broken it silently. Flagged rather than taken: if
+it belongs in the interview, that is a pack change plus a ruling on the tail.
+
+**One measured coverage cost, reported not hidden.** A bare uncued "salary 22k" is filed by
+`signals.detect` as CURRENT pay, so on the free-text parse route that worker now gets NO salary
+row rather than a mislabelled one. That is R-1's own instruction ("print nothing rather than the
+wrong number") and it is a real loss; the fix belongs in the detector's cue handling.
+
+### 22.2 — R-2: the gate that points the other way
+
+Built, and asserted against all three instances plus a 200-case sweep. The invariant: _where the
+worker stated a scalar and the sheet prints a derived one, the printed value may never be lower
+than the stated one._
+
+Verified capable of failing — reverting `renderedTotalYears` to the sum turns five of its
+assertions red. The reason it had to exist is worth keeping: **every other guard here watches for
+over-claim.** The asymmetry rule, the fabrication gate and the transcript veto all protect the
+employer from a worker claiming too much. Both live defects landed in the blind spot on the other
+side, and both passed set-membership because every number involved was worker-stated. Provenance
+is not placement.
+
+### 22.3 — R-3 and R-4
+
+**R-3 recorded and implemented.** The education row prints English on the PDF; the app stays
+Hinglish. §11 #17's audience split, not a new exception. One remainder pinned as an executable
+gap: `qp_universal` offers ONE option for "ITI ya diploma", so we print "ITI / Diploma" where the
+sample prints "ITI". They are different credentials and nothing in the corpus can tell them apart.
+
+**R-4 recorded, not acted on** — it is a staging/prod flag and §5 keeps those out of scope. The
+measurement stands: ~1.9 s per turn of pure retry waste, isolated with the answering model held
+constant.
+
+### 22.4 — What §2.5 turned green, and the one it turned back
+
+Three rules implemented: the axis segment with shared-suffix compression (the renderer's slot
+contract had documented a fourth segment since the sheet shipped and nothing composed it),
+configuration appended to a machine chip, and the English education row.
+
+**Rule 1 was implemented, measured, and reverted.** Merging the role into the detail line matches
+the sample and keeps the same line COUNT — but the line is longer, and on a fully-answered turner
+it wraps: the parity sheet went from `degradationStage: 0` to **stage 2**, shedding the Languages
+row and two materials chips. Under R-2's own principle that is a worse sheet, and R9 §5 measured
+`SHEET_LINE_BUDGET = 41` as un-raiseable. It is blocked on the Zone 2 row-budget ruling, not on
+anyone implementing it.
+
+**And one `it.fails` was wrongly specified by me.** Rule 6 expected "Govt. ITI" to render as
+"Govt. ITI, Faridabad" — i.e. it asked the sheet to invent a city. That is the inference §8
+forbids. Corrected to assert what the rule actually is: the institute prints verbatim.
+
+Two remain: structured certificates (a frozen-contract change) and a reachable verification state
+(no column, no product concept — Phase 2 by ruling 3, and `worker-profile-summary-spec.md` forbids
+inventing the flag).
+
+### 22.5 — R-2.3: the extraction stopped composing
+
+**26 of 33 phrases composed → 1 of 11.** The fix was PROMPT-LEVEL: the extraction prompt said
+"extract only what the worker actually said" and marked `duration_text` as "their own words", and
+said nothing at all about `work_done`. It now requires the worker's own sentences in his own
+language, forbids translation, merging and summarising, and says an empty field beats a fluent
+English summary.
+
+The CONTRACT half is `extraction-verbatim.contract.test.ts`, which runs the own-words veto over
+every phrase field of the committed artifacts. The one residual is pinned as a literal —
+p3's "Kharad chalayi hai" against his "Kharad bhi chalayi hai shuru me", a near-quote with two
+interior words dropped. **Pinned rather than tolerated by a subsequence rule**, because "every word
+in order" would also pass a sentence assembled from four different turns.
+
+**§2.3's premise was wrong for one persona and I said so before acting.** p3 was not composing —
+his `work_done` was 0 and 8 characters. That is a different defect: the extraction returned almost
+nothing for a five-year, two-employer transcript.
+
+### 22.6 — R-2.6: the fresher's Zone 4
+
+§11 #1 names four things — training, trade test, workshop machines, project work — and nothing in
+143 packs asked any of them. Three gated asks (`lte 0`) plus `resume-fresher-rows.ts`. Persona 1's
+hole closed: **124.99 mm → 100.89 mm of headroom**, with a non-empty History section.
+
+**The ask-budget guard fired at 29 against a budget of 28, and it was right to.** The guard summed
+every item in the pack, which was correct while every gate pointed the same way — tiers 1 and 2
+are `gte 2` and `gte 5` and a senior sees both. A FRESHER branch is `lte 0`, disjoint, so the sum
+modelled a worker simultaneously under one year and over five. `worstCaseAsks` is now tier-aware
+and reports **26 — exactly what it reported before this change**, which is the evidence that the
+budget was not weakened to fit.
+
+**And the tier-aware version was wrong first.** It passed a `Map` where `resolveOperand` reads a
+plain object, so every gate resolved false and it reported 19 — under-reporting, the one direction
+a budget guard must never fail in. Caught because 19 was implausibly lower than 26, not because
+anything failed.
+
+### 22.7 — State
+
+Six sheets, all one page: p1 100.89, p2 71.53, p3 75.17, p4 28.61, p5 54.09, turner-parity 21.33
+mm. `tsc` clean; profiling + resume + profiles + config **1742 passed**; ai-service ruff clean.
+Golden records regenerated deliberately (`UPDATE_PACK_SERVED_TEXT`, `UPDATE_REPLY_CLOSURE`), nine
+Devanagari twins authored, and the three why-texts filed in `WHY_TTS_TEXT` rather than the
+question table — a distinction that silently costs the clarify twin when it is got wrong.
+
+§3.1's estimate: `docs/profiling/milling-map-estimate.md`. **Two days of authoring, no
+engineering** — and the one-spine claim holds _because_ R10 built the three missing mechanisms
+(chip configuration, the axis segment, the fresher block), not because it was already true.

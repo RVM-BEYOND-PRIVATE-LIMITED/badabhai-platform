@@ -1,7 +1,7 @@
 {
   "persona": "p5_twelve_year_no_iti",
-  "headlineLine": "CNC Machinist · 12 yrs · Fanuc, Haas",
-  "subheadLine": "available in 15 days · expects ₹26,000 / month",
+  "headlineLine": "CNC lathe operator, senior machinist · 12 yrs · Fanuc, Haas",
+  "subheadLine": "Kolhapur · available in 15 days · expects ₹26,000 / month",
   "capSectionTitle": "Machines, controllers & capability",
   "capChipRows": [
     "Machines: CNC lathe / turning centre, Conventional lathe, VTL",
@@ -24,7 +24,7 @@
     "Shift: Day shift"
   ],
   "qualFactRows": [
-    "Education: Dasvi paas"
+    "Education: 10th pass"
   ],
   "qualTickRows": [],
   "employments": [
@@ -54,30 +54,29 @@
   "ownWords": [],
   "experiences": [],
   "skills": [
-    "Lathe operation",
-    "CNC Lathe (Fanuc control)",
-    "CNC Lathe (Haas control)",
+    "CNC lathe Fanuc control",
+    "CNC lathe Haas control",
     "VTL operation",
-    "Conventional Lathe operation",
+    "Conventional lathe",
     "Machine setting",
-    "Offset adjustment",
-    "Jaw changing",
-    "Tailstock adjustment",
+    "Offset setting",
+    "Jaw change",
+    "Tailstock setting",
     "First piece inspection",
-    "Program editing",
-    "Pump body manufacturing",
-    "Valve body manufacturing",
+    "Programme editing",
+    "Pump body machining",
+    "Valve body machining",
     "Cast iron machining",
-    "Mild steel machining",
+    "MS machining",
     "Brass machining",
-    "Dimensional accuracy (±0.02mm)",
+    "Tolerance holding plus minus 0.02",
     "Vernier caliper",
     "Micrometer",
     "Bore gauge",
     "Height gauge",
     "Dial indicator",
-    "Troubleshooting machining issues (chatter, size variation)",
-    "Training new machinists"
+    "Chatter detection",
+    "Training junior operators"
   ],
   "degradationStage": 0,
   "degradationDropped": [],

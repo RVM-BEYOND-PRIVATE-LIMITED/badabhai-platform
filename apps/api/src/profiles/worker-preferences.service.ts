@@ -95,6 +95,7 @@ export class WorkerPreferencesService {
     flag("accommodation_needed", dto.accommodation_needed);
     // R9 §3 — the credential's three missing components. Same three-state contract as everything
     // above: absent leaves the stored value alone, null clears the row.
+    number("salary_expected_max", dto.salary_expected_max);
     scalar("education_council", dto.education_council);
     number("education_year", dto.education_year);
     scalar("education_institute", dto.education_institute);

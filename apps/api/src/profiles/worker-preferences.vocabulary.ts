@@ -142,6 +142,17 @@ export const PREFERENCE_KEYS = {
   // TRADE is not here: `education_field` already holds it, it rides the answer-map crosswalk onto
   // the draft, and adding a second key for the same fact is how two sources start disagreeing
   // about one worker's ITI.
+  // R10 R-1 — the BAND's upper end. The lower end stays `salary_expected`, the interview's
+  // existing ask, whose stored meaning is unchanged: it is the figure the worker said he wants,
+  // and it is the number he will not go below.
+  //
+  // ON THE FORM RATHER THAN IN THE INTERVIEW, DELIBERATELY. This pack's own `_v2` note records an
+  // owner ruling dated 2026-08-11: "the template tail is SIX questions." A seventh would break it
+  // silently. It also fails R9 section 3's routing rule — a salary figure needs no language, so it
+  // does not earn an engine ask when abandonment is the binding constraint (R-4's own reasoning).
+  // If the ruling is that it belongs in the interview instead, that is a pack-data change plus a
+  // ruling on the six-question tail.
+  salary_expected_max: "number",
   education_council: "text",
   education_year: "number",
   education_institute: "text",

@@ -2,7 +2,7 @@
   "_why": "Role track for TURNING, the first pack authored under docs/profiling/role-pack-authoring-guide.md. fam_machining stays the generic machining interview bound at ISCO unit 7223; this pack binds the four NCO turning occupations directly (job_domain specificity 50 beats unit 40), so a turner gets turning depth and every other machining worker is untouched.",
   "_scope": "CNC AND CONVENTIONAL, by owner ruling 2026-08-28. Binding only the two CNC codes (7223.6001/6002) made the pack reachable by exactly ONE alias phrase, 'cnc turning' — every natural Hinglish word for the trade (kharad, kharaad, खराद, lathe, लेथ, turning ka kaam) routes to 7223.0701 'Lathe Machinist' and would have fallen to the six generic machining questions. Adding 7223.0701 and 7223.0601 takes reach from one phrase to six WITHOUT touching the alias corpus. That is why the gate question says 'Turning', not 'CNC turning': a khraad operator must be able to answer it honestly. The machine question offers 'Khraad ya conventional lathe', and controller / advanced_capability both carry an escape chip, so nothing here forces a conventional turner to claim CNC skills. Pinned by packages/db/src/question-pack-reachability.test.ts.",
   "_depth": "THE TIER GATE IS turning_experience, and it is asked FIRST. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber ?? valueBool, so adding a value_text would make the answer a STRING; every gte below would then compare a string to a number, compare() returns null, and the predicate is false forever. A permanently-false ask_if is a question that is never asked, silently -- the #776 defect that sat in qp_welding for the life of the pack.",
-  "_budget": "MAX_ENGINE_ASKS is 24 and qp_universal spends 8. Tier 0 is 8 items (16 total), tier 1 adds 3 (19), tier 2 adds 4 (23). One more tier-2 item would truncate the conversation of a senior worker before it closes.",
+  "_budget": "MAX_ENGINE_ASKS is 28 (raised in R6 section 5) and qp_universal spends 8. Tier 0 is 8 items (16 total), tier 1 adds 3 (19), tier 2 adds 4 (23). R10 section 2.6 adds THREE FRESHER items gated on turning_experience <= 0, which a senior worker never sees: a fresher skips tiers 1 and 2 entirely (7 items), so his worst case is 16 + 3 = 19, well inside the budget, while the senior's 23 is unchanged. The tiers are mutually exclusive by construction, which is why this costs the senior nothing.",
   "pack_id": "qp_cnc_turning",
   "version": 1,
   "family_id": "fam_cnc_turning",
@@ -22,10 +22,26 @@
       "is_mandatory": true,
       "max_asks": 2,
       "options": [
-        { "option_key": "under_one", "label_text": "1 saal se kam", "value_number": 0 },
-        { "option_key": "one_to_three", "label_text": "1 se 3 saal", "value_number": 2 },
-        { "option_key": "three_to_seven", "label_text": "3 se 7 saal", "value_number": 5 },
-        { "option_key": "over_seven", "label_text": "7 saal se zyada", "value_number": 10 }
+        {
+          "option_key": "under_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_seven",
+          "label_text": "3 se 7 saal",
+          "value_number": 5
+        },
+        {
+          "option_key": "over_seven",
+          "label_text": "7 saal se zyada",
+          "value_number": 10
+        }
       ]
     },
     {
@@ -48,13 +64,21 @@
           "label_text": "Khraad ya conventional lathe",
           "value_text": "conventional_lathe"
         },
-        { "option_key": "vtl", "label_text": "VTL, vertical lathe", "value_text": "vtl" },
+        {
+          "option_key": "vtl",
+          "label_text": "VTL, vertical lathe",
+          "value_text": "vtl"
+        },
         {
           "option_key": "sliding_head",
           "label_text": "Sliding head, Swiss type",
           "value_text": "sliding_head"
         },
-        { "option_key": "spm", "label_text": "SPM machine", "value_text": "spm" },
+        {
+          "option_key": "spm",
+          "label_text": "SPM machine",
+          "value_text": "spm"
+        },
         {
           "option_key": "other_machine",
           "label_text": "Koi aur machine",
@@ -73,11 +97,31 @@
       "is_core": true,
       "max_asks": 2,
       "options": [
-        { "option_key": "fanuc", "label_text": "Fanuc", "value_text": "fanuc" },
-        { "option_key": "siemens", "label_text": "Siemens", "value_text": "siemens" },
-        { "option_key": "mitsubishi", "label_text": "Mitsubishi", "value_text": "mitsubishi" },
-        { "option_key": "haas", "label_text": "Haas", "value_text": "haas" },
-        { "option_key": "mazak", "label_text": "Mazak", "value_text": "mazak" },
+        {
+          "option_key": "fanuc",
+          "label_text": "Fanuc",
+          "value_text": "fanuc"
+        },
+        {
+          "option_key": "siemens",
+          "label_text": "Siemens",
+          "value_text": "siemens"
+        },
+        {
+          "option_key": "mitsubishi",
+          "label_text": "Mitsubishi",
+          "value_text": "mitsubishi"
+        },
+        {
+          "option_key": "haas",
+          "label_text": "Haas",
+          "value_text": "haas"
+        },
+        {
+          "option_key": "mazak",
+          "label_text": "Mazak",
+          "value_text": "mazak"
+        },
         {
           "option_key": "unknown_controller",
           "label_text": "Pata nahi",
@@ -101,8 +145,16 @@
           "label_text": "Facing aur OD turning",
           "value_text": "facing_od"
         },
-        { "option_key": "boring", "label_text": "Boring, ID turning", "value_text": "boring" },
-        { "option_key": "threading", "label_text": "Threading", "value_text": "threading" },
+        {
+          "option_key": "boring",
+          "label_text": "Boring, ID turning",
+          "value_text": "boring"
+        },
+        {
+          "option_key": "threading",
+          "label_text": "Threading",
+          "value_text": "threading"
+        },
         {
           "option_key": "grooving",
           "label_text": "Grooving aur parting",
@@ -113,7 +165,11 @@
           "label_text": "Drilling aur tapping",
           "value_text": "drilling"
         },
-        { "option_key": "knurling", "label_text": "Knurling aur taper", "value_text": "knurling" }
+        {
+          "option_key": "knurling",
+          "label_text": "Knurling aur taper",
+          "value_text": "knurling"
+        }
       ]
     },
     {
@@ -125,16 +181,36 @@
       "answer_type": "multi_select",
       "max_asks": 1,
       "options": [
-        { "option_key": "three_jaw", "label_text": "Teen jaw chuck", "value_text": "three_jaw" },
-        { "option_key": "four_jaw", "label_text": "Chaar jaw chuck", "value_text": "four_jaw" },
-        { "option_key": "collet", "label_text": "Collet", "value_text": "collet" },
-        { "option_key": "soft_jaw", "label_text": "Soft jaw", "value_text": "soft_jaw" },
+        {
+          "option_key": "three_jaw",
+          "label_text": "Teen jaw chuck",
+          "value_text": "three_jaw"
+        },
+        {
+          "option_key": "four_jaw",
+          "label_text": "Chaar jaw chuck",
+          "value_text": "four_jaw"
+        },
+        {
+          "option_key": "collet",
+          "label_text": "Collet",
+          "value_text": "collet"
+        },
+        {
+          "option_key": "soft_jaw",
+          "label_text": "Soft jaw",
+          "value_text": "soft_jaw"
+        },
         {
           "option_key": "tailstock",
           "label_text": "Tailstock ya centre",
           "value_text": "tailstock"
         },
-        { "option_key": "steady_rest", "label_text": "Steady rest", "value_text": "steady_rest" }
+        {
+          "option_key": "steady_rest",
+          "label_text": "Steady rest",
+          "value_text": "steady_rest"
+        }
       ]
     },
     {
@@ -146,16 +222,36 @@
       "answer_type": "multi_select",
       "max_asks": 1,
       "options": [
-        { "option_key": "mild_steel", "label_text": "MS, mild steel", "value_text": "mild_steel" },
+        {
+          "option_key": "mild_steel",
+          "label_text": "MS, mild steel",
+          "value_text": "mild_steel"
+        },
         {
           "option_key": "alloy_steel",
           "label_text": "EN8, EN31 alloy steel",
           "value_text": "alloy_steel"
         },
-        { "option_key": "stainless", "label_text": "Stainless steel", "value_text": "stainless" },
-        { "option_key": "aluminium", "label_text": "Aluminium", "value_text": "aluminium" },
-        { "option_key": "brass", "label_text": "Brass ya copper", "value_text": "brass" },
-        { "option_key": "cast_iron", "label_text": "Cast iron", "value_text": "cast_iron" }
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "brass",
+          "label_text": "Brass ya copper",
+          "value_text": "brass"
+        },
+        {
+          "option_key": "cast_iron",
+          "label_text": "Cast iron",
+          "value_text": "cast_iron"
+        }
       ]
     },
     {
@@ -167,9 +263,21 @@
       "answer_type": "multi_select",
       "max_asks": 1,
       "options": [
-        { "option_key": "vernier", "label_text": "Vernier caliper", "value_text": "vernier" },
-        { "option_key": "micrometer", "label_text": "Micrometer", "value_text": "micrometer" },
-        { "option_key": "bore_gauge", "label_text": "Bore dial gauge", "value_text": "bore_gauge" },
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "micrometer",
+          "label_text": "Micrometer",
+          "value_text": "micrometer"
+        },
+        {
+          "option_key": "bore_gauge",
+          "label_text": "Bore dial gauge",
+          "value_text": "bore_gauge"
+        },
         {
           "option_key": "height_gauge",
           "label_text": "Height gauge",
@@ -196,16 +304,23 @@
       "answer_type": "single_select",
       "max_asks": 1,
       "options": [
-        { "option_key": "no_drawing", "label_text": "Nahi padh pata", "value_text": "none" },
+        {
+          "option_key": "no_drawing",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
         {
           "option_key": "basic_drawing",
           "label_text": "Basic 2D drawing padh leta hoon",
           "value_text": "basic_drawing"
         },
-        { "option_key": "gdt", "label_text": "GD aur T bhi samajhta hoon", "value_text": "gdt" }
+        {
+          "option_key": "gdt",
+          "label_text": "GD aur T bhi samajhta hoon",
+          "value_text": "gdt"
+        }
       ]
     },
-
     {
       "question_key": "setting_operation",
       "prompt_text": "Setting mein aap kya kya karte hain?",
@@ -214,10 +329,26 @@
       "target_field": "setting_operation",
       "answer_type": "multi_select",
       "max_asks": 1,
-      "ask_if": { "op": "gte", "left": { "field": "turning_experience" }, "right": { "const": 2 } },
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "turning_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
       "options": [
-        { "option_key": "tool_offset", "label_text": "Tool offset", "value_text": "tool_offset" },
-        { "option_key": "work_offset", "label_text": "Work offset", "value_text": "work_offset" },
+        {
+          "option_key": "tool_offset",
+          "label_text": "Tool offset",
+          "value_text": "tool_offset"
+        },
+        {
+          "option_key": "work_offset",
+          "label_text": "Work offset",
+          "value_text": "work_offset"
+        },
         {
           "option_key": "nose_radius",
           "label_text": "Tool nose radius compensation",
@@ -248,11 +379,31 @@
       "target_field": "tolerance_band",
       "answer_type": "single_select",
       "max_asks": 1,
-      "ask_if": { "op": "gte", "left": { "field": "turning_experience" }, "right": { "const": 2 } },
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "turning_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
       "options": [
-        { "option_key": "point_one", "label_text": "0.10 mm tak", "value_text": "0.10" },
-        { "option_key": "point_zero_five", "label_text": "0.05 mm tak", "value_text": "0.05" },
-        { "option_key": "point_zero_two", "label_text": "0.02 mm tak", "value_text": "0.02" },
+        {
+          "option_key": "point_one",
+          "label_text": "0.10 mm tak",
+          "value_text": "0.10"
+        },
+        {
+          "option_key": "point_zero_five",
+          "label_text": "0.05 mm tak",
+          "value_text": "0.05"
+        },
+        {
+          "option_key": "point_zero_two",
+          "label_text": "0.02 mm tak",
+          "value_text": "0.02"
+        },
         {
           "option_key": "point_zero_one",
           "label_text": "0.01 mm ya usse kam",
@@ -274,7 +425,15 @@
       "target_field": "sector_worked",
       "answer_type": "multi_select",
       "max_asks": 1,
-      "ask_if": { "op": "gte", "left": { "field": "turning_experience" }, "right": { "const": 2 } },
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "turning_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
       "options": [
         {
           "option_key": "automotive",
@@ -286,13 +445,28 @@
           "label_text": "General engineering, job shop",
           "value_text": "general_engg"
         },
-        { "option_key": "pump_valve", "label_text": "Pump aur valve", "value_text": "pump_valve" },
-        { "option_key": "oil_gas", "label_text": "Oil aur gas", "value_text": "oil_gas" },
-        { "option_key": "defence", "label_text": "Defence ya aerospace", "value_text": "defence" },
-        { "option_key": "agri", "label_text": "Agriculture parts", "value_text": "agri" }
+        {
+          "option_key": "pump_valve",
+          "label_text": "Pump aur valve",
+          "value_text": "pump_valve"
+        },
+        {
+          "option_key": "oil_gas",
+          "label_text": "Oil aur gas",
+          "value_text": "oil_gas"
+        },
+        {
+          "option_key": "defence",
+          "label_text": "Defence ya aerospace",
+          "value_text": "defence"
+        },
+        {
+          "option_key": "agri",
+          "label_text": "Agriculture parts",
+          "value_text": "agri"
+        }
       ]
     },
-
     {
       "question_key": "programming_level",
       "prompt_text": "Programme ke saath aap kitna kaam karte hain?",
@@ -301,7 +475,15 @@
       "target_field": "programming_level",
       "answer_type": "single_select",
       "max_asks": 1,
-      "ask_if": { "op": "gte", "left": { "field": "turning_experience" }, "right": { "const": 5 } },
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "turning_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
       "options": [
         {
           "option_key": "offset_only",
@@ -318,7 +500,11 @@
           "label_text": "Naya programme likh leta hoon",
           "value_text": "write_program"
         },
-        { "option_key": "cam", "label_text": "CAM software se banata hoon", "value_text": "cam" }
+        {
+          "option_key": "cam",
+          "label_text": "CAM software se banata hoon",
+          "value_text": "cam"
+        }
       ]
     },
     {
@@ -329,17 +515,41 @@
       "target_field": "advanced_capability",
       "answer_type": "multi_select",
       "max_asks": 1,
-      "ask_if": { "op": "gte", "left": { "field": "turning_experience" }, "right": { "const": 5 } },
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "turning_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
       "options": [
         {
           "option_key": "live_tooling",
           "label_text": "Live tooling",
           "value_text": "live_tooling"
         },
-        { "option_key": "bar_feeder", "label_text": "Bar feeder", "value_text": "bar_feeder" },
-        { "option_key": "sub_spindle", "label_text": "Sub spindle", "value_text": "sub_spindle" },
-        { "option_key": "c_axis", "label_text": "C axis", "value_text": "c_axis" },
-        { "option_key": "y_axis", "label_text": "Y axis", "value_text": "y_axis" },
+        {
+          "option_key": "bar_feeder",
+          "label_text": "Bar feeder",
+          "value_text": "bar_feeder"
+        },
+        {
+          "option_key": "sub_spindle",
+          "label_text": "Sub spindle",
+          "value_text": "sub_spindle"
+        },
+        {
+          "option_key": "c_axis",
+          "label_text": "C axis",
+          "value_text": "c_axis"
+        },
+        {
+          "option_key": "y_axis",
+          "label_text": "Y axis",
+          "value_text": "y_axis"
+        },
         {
           "option_key": "no_advanced",
           "label_text": "Inme se koi nahi",
@@ -356,7 +566,15 @@
       "target_field": "quality_work",
       "answer_type": "multi_select",
       "max_asks": 1,
-      "ask_if": { "op": "gte", "left": { "field": "turning_experience" }, "right": { "const": 5 } },
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "turning_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
       "options": [
         {
           "option_key": "first_piece_check",
@@ -368,7 +586,11 @@
           "label_text": "Beech beech mein checking",
           "value_text": "in_process"
         },
-        { "option_key": "spc", "label_text": "SPC chart bharna", "value_text": "spc" },
+        {
+          "option_key": "spc",
+          "label_text": "SPC chart bharna",
+          "value_text": "spc"
+        },
         {
           "option_key": "rejection",
           "label_text": "Rejection analysis",
@@ -390,14 +612,26 @@
       "target_field": "troubleshooting",
       "answer_type": "multi_select",
       "max_asks": 1,
-      "ask_if": { "op": "gte", "left": { "field": "turning_experience" }, "right": { "const": 5 } },
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "turning_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
       "options": [
         {
           "option_key": "tool_wear",
           "label_text": "Tool ghisna ya tootna",
           "value_text": "tool_wear"
         },
-        { "option_key": "chatter", "label_text": "Chatter aur vibration", "value_text": "chatter" },
+        {
+          "option_key": "chatter",
+          "label_text": "Chatter aur vibration",
+          "value_text": "chatter"
+        },
         {
           "option_key": "size_variation",
           "label_text": "Size ka farak",
@@ -408,7 +642,11 @@
           "label_text": "Surface finish kharab",
           "value_text": "surface_finish"
         },
-        { "option_key": "alarm", "label_text": "Alarm clear karna", "value_text": "alarm" },
+        {
+          "option_key": "alarm",
+          "label_text": "Alarm clear karna",
+          "value_text": "alarm"
+        },
         {
           "option_key": "no_trouble",
           "label_text": "Koi nahi",
@@ -416,6 +654,122 @@
           "is_none_of_above": true
         }
       ]
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "retry_text": "Workshop me kaunsi machine chalayi thi?",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "turning_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "conventional_lathe",
+          "label_text": "Khraad ya conventional lathe",
+          "value_text": "conventional_lathe"
+        },
+        {
+          "option_key": "cnc_lathe",
+          "label_text": "CNC lathe ya turning centre",
+          "value_text": "cnc_lathe"
+        },
+        {
+          "option_key": "milling",
+          "label_text": "Milling machine",
+          "value_text": "milling"
+        },
+        {
+          "option_key": "drilling",
+          "label_text": "Drilling machine",
+          "value_text": "drilling"
+        },
+        {
+          "option_key": "grinding",
+          "label_text": "Grinding machine",
+          "value_text": "grinding"
+        },
+        {
+          "option_key": "shaper",
+          "label_text": "Shaper ya planer",
+          "value_text": "shaper"
+        },
+        {
+          "option_key": "unknown",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "trade_test_status",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "retry_text": "Trade test ka kya status hai?",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "turning_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ]
+    },
+    {
+      "question_key": "iti_project_work",
+      "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "retry_text": "Workshop me kaunsa job ya project banaya tha?",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": false,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "turning_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      }
     }
-  ]
+  ],
+  "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. Nothing in the corpus asked any of it, so an ITI pass-out rendered with 125 mm of blank page - measured on persona 1. These three items are the ask half; resume-fresher-rows.ts is the render half."
 }

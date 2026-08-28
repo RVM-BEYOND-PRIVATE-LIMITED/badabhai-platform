@@ -8,8 +8,8 @@
     "stage": 0,
     "dropped": [],
     "trace": [],
-    "lines": 17.33,
-    "predictedHeadroomMm": 115.76
+    "lines": 22.19,
+    "predictedHeadroomMm": 91.99
   },
   {
     "file": "p2_two_year_operator.html",
@@ -20,8 +20,8 @@
     "stage": 0,
     "dropped": [],
     "trace": [],
-    "lines": 29.05,
-    "predictedHeadroomMm": 58.44
+    "lines": 28.05,
+    "predictedHeadroomMm": 63.33
   },
   {
     "file": "p3_five_year_to_setter.html",
@@ -44,8 +44,8 @@
     "stage": 0,
     "dropped": [],
     "trace": [],
-    "lines": 35.19,
-    "predictedHeadroomMm": 28.42
+    "lines": 38.05,
+    "predictedHeadroomMm": 14.43
   },
   {
     "file": "p5_twelve_year_no_iti.html",

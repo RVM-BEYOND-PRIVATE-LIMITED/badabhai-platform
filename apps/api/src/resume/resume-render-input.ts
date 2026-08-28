@@ -1,13 +1,15 @@
 import { DraftProfileSchema, resumeProfileCarriesValues } from "@badabhai/ai-contracts";
 import { labelForTaxonomyId } from "@badabhai/taxonomy";
 import { looksLikePii } from "@badabhai/validators";
-import type { ResumeRenderInput } from "./resume-renderer.service";
+import type { ResumeExperienceLine, ResumeRenderInput } from "./resume-renderer.service";
 import { resolveTradeContent, type TradeContent } from "./trade-content";
 import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-resume-map";
 import { degradeToFit, fitOwnWords } from "./resume-degradation";
 import { buildEmploymentBlock, type WorkerEmploymentRecord } from "./resume-employment-rows";
 import { readPreferenceFacts, type ResumePreferenceFacts } from "./resume-preference-facts";
 import { selectOwnWords } from "./resume-own-words";
+import { formatWorkerPhone } from "./resume-phone";
+import { buildFresherRows } from "./resume-fresher-rows";
 import { applyTranscriptVeto } from "./resume-transcript-veto";
 import {
   bareAvailability,
@@ -16,7 +18,7 @@ import {
   buildDocumentRows,
   buildQualificationRows,
   buildVerdictLine,
-  formatMonthlySalary,
+  formatSalaryBand,
 } from "./resume-sheet-rows";
 
 /**
@@ -287,6 +289,14 @@ function buildUndegraded(
     asOf: tradeSheet?.asOf ?? null,
   });
   const hasEmployments = employmentBlock.employments.length > 0;
+  // ZONE 4 FOR A FRESHER (R10 §2.6). §11 #1 puts training, trade test, workshop machines and
+  // project work here and forbids an empty History heading — and persona 1, an ITI pass-out,
+  // measured 125 mm of blank page because nothing in the corpus asked a fresher any of it.
+  //
+  // ONLY WHEN THERE IS NO REAL HISTORY. A worker with employment rows gets those; this is the
+  // other branch of the one-or-the-other rule Zone 4 already follows, not a third source competing
+  // with them.
+  const fresherRows = hasEmployments ? [] : buildFresherRows(vettedAttributes);
   const capabilitySlots = {
     capSectionTitle: capability.sectionTitle,
     capChipRows: capability.chipRows,
@@ -301,7 +311,9 @@ function buildUndegraded(
     qualTickRows: buildDocumentRows(tradeSheet?.qualification?.documents ?? preferences.documents),
     employments: employmentBlock.employments,
     employmentsMore: employmentBlock.employmentsMore,
-    phone: tradeSheet?.phone ?? null,
+    // FORMATTED HERE, INSIDE THE MAPPER, so no call site can print an unformatted number and
+    // no fixture can show a grouping the product does not produce (R10 §2.4).
+    phone: formatWorkerPhone(tradeSheet?.phone),
     // §11 #17 — LATIN ONLY ON THE EMPLOYER ARTIFACT. Structural, like the photo: a caller
     // cannot put the Devanagari line on a payer-facing sheet by passing it, because the rule
     // lives here rather than at the call site.
@@ -388,6 +400,7 @@ function buildUndegraded(
       // is why it is read here rather than inside the branch: the container has no such field.
       draft.experience.total_years,
       tradeSheet?.workerSaid ?? [],
+      fresherRows,
     );
   }
 
@@ -400,8 +413,21 @@ function buildUndegraded(
   const legacyAvailability = bareAvailability(draft.availability);
   // AUDIENCE-GATED HERE, not at the row, so the payer copy cannot acquire the worker's asking
   // price by someone adding a second call site. Same rule and same shape as the container path.
+  // R10 R-1 — THE LIVE DEFECT THIS FIXES. `amount_min` was written by TWO writers with OPPOSITE
+  // meanings: `profile_extractor.py:_build_legacy` put the worker's CURRENT pay in it while the
+  // TypeScript projection put his EXPECTED pay there. This line prints it under the label
+  // "expects", so on every profile written by the ai-service the sheet advertised a man's current
+  // wage as his asking price — persona 2 saying "abhi 14 hazaar mil rahe hain, 16 chahiye" would
+  // have printed `expects ₹14,000`, negotiating against him on his own résumé.
+  //
+  // The Python writer is corrected in the same packet (`amount_min` is now the expected figure and
+  // current pay goes to `current_salary`, its own field on the rich draft). This side reads the
+  // band, so a worker who answered both ends gets a range and one who answered neither gets no row
+  // — §8.4's "a field with no value collapses", never a wrong number.
   const legacySalary =
-    audience === "worker" ? formatMonthlySalary(draft.salary_expectation.amount_min) : null;
+    audience === "worker"
+      ? formatSalaryBand(draft.salary_expectation.amount_min, draft.salary_expectation.amount_max)
+      : null;
 
   return {
     ...capabilitySlots,
@@ -464,7 +490,9 @@ function buildUndegraded(
     // unchanged; it fires for a profile whose interview ran but whose container came back
     // empty, which is the case that reaches this branch with labels in hand.
     trade: draft.domain_label,
-    experiences: [],
+    // R10 §2.6 — the fresher's Zone 4 reaches BOTH branches. A pass-out whose interview never ran
+    // is exactly the worker most likely to be on this path.
+    experiences: fresherRows,
     preferredLocations: [],
     expectedSalary: null,
     templateId,
@@ -620,6 +648,13 @@ function fromResumeProfile(
   statedYears: number | null,
   /** The worker's own stored turns — the veto input for §8.4's quotes. Never printed as-is. */
   workerSaid: readonly string[],
+  /**
+   * Zone 4 for a worker with no employment rows (R10 §2.6, §11 #1).
+   *
+   * BUILT BY THE CALLER, like the capability block and for the same reason: it reads the attribute
+   * bag, which this function does not have, and both branches need the identical rows.
+   */
+  fresherRows: readonly ResumeExperienceLine[],
 ): ResumeRenderInput {
   // CERTIFIED ONCE, AT THE TOP (#831). `role_label` and `domain_label` are each read TWICE —
   // as their own fields and again by `summaryFor` — and certifying at each read site is how the
@@ -632,7 +667,13 @@ function fromResumeProfile(
   const roleLabel = cleanScalar(rp.role_label);
   const domainLabel = cleanScalar(rp.domain_label);
 
-  const salaryText = audience === "worker" ? formatMonthlySalary(rp.expected_salary) : null;
+  // THE BAND (R10 R-1). The container carries one figure — `ResumeProfileSchema.expected_salary`
+  // is a single number and widening it is a frozen-contract change — so the upper end rides the
+  // finishing form's attribute, exactly as `shift`, `languages` and the credential components do.
+  // The precedence is the same one R6 established and for the same reason: the worker tapped it
+  // himself, and the model has no field for it at all.
+  const salaryText =
+    audience === "worker" ? formatSalaryBand(rp.expected_salary, preferences.salaryMax) : null;
   // HUMANISED ONCE, HERE. The container stores the model's own token ("immediate",
   // "notice_period") so it stays diffable against its trace; the sheet prints a label. Both the
   // Verdict Line and the Terms row read this, and computing it twice is how they drift.
@@ -759,7 +800,9 @@ function fromResumeProfile(
     // for a duration.
     experiences: hasEmployments
       ? []
-      : rp.experiences.map((e) => ({
+      : fresherRows.length > 0
+        ? [...fresherRows]
+        : rp.experiences.map((e) => ({
           role: e.role_label,
           // The worker's OWN words first. `duration_months` is a normalization of it, and
           // printing "42 months" when they said "3.5 saal" trades their voice for a number they
@@ -1245,31 +1288,26 @@ function humanizeEducationLevel(raw: string | null): string | null {
 const NIGHT_SHIFT_TOKENS = /^night(\s*shift)?s?$/;
 
 const KNOWN_EDUCATION_LEVELS: Readonly<Record<string, string>> = {
-  // The FIVE values `qp_universal`'s education question can actually store, not the one that
-  // happened to be noticed. `education` is target_field `education_level` and its options carry
-  // `value_text` below_10 | 10 | 12 | iti_diploma | graduate; `answer-capture` stores the
-  // value_text and `profile-extraction.processor` copies it onto the draft verbatim. So all five
-  // reach this function, and before this only `below_10` was mapped: a worker who tapped
-  // "ITI ya diploma" downloaded a résumé reading "Iti Diploma — Electronics", one who tapped
-  // "Graduation" got a lowercase "graduate", and "Dasvi paas" / "Barhvi paas" printed as a naked
-  // "10" and "12". The prettifier could not save any of them: rule 3 leaves underscore-free
-  // values alone (so "10", "12" and "graduate" pass straight through) and title-casing wrecks
-  // the acronym in `iti_diploma` — the exact outcome rule 3 exists to prevent.
+  // ── ENGLISH ON THE PDF (R10 R-3, owner ruling) ──────────────────────────────────────
   //
-  // NOTHING HERE IS INVENTED WORDING. Each label is the pack's own authored `label_text` — the
-  // words printed on the chip the worker tapped — so the résumé says back to them what they
-  // chose. That is the answer to the objection the previous comment raised against widening this
-  // map: mapping a token the pipeline emits is not guessing when the copy already exists.
+  // These were the pack's own Hinglish chip labels — "ITI ya diploma", "Dasvi paas", "Barhvi
+  // paas" — on the argument that the résumé should say back to the worker the words he tapped.
+  // R9 measured the consequence: the education row read "ITI ya diploma — Turner · NCVT · 2018 ·
+  // Govt. ITI, Faridabad", one Hinglish segment inside a line whose other four are English, on a
+  // sheet whose entire Zone 5 vocabulary (`worker-preferences.vocabulary.ts`) prints English
+  // because "this half of the sheet is read by a hiring supervisor".
   //
-  // `below_10` KEEPS "10th se kam" rather than the pack's "Dasvi se kam", because #963 names
-  // that string explicitly and it is what `education_label.dart` already shows in the app. The
-  // two vocabularies disagree only on this one value, and converging them is the frontend parity
-  // issue's job (CLAUDE.md §6) — silently changing it here would make the app and the PDF differ
-  // for the one worker population that currently agrees.
-  below_10: "10th se kam",
-  below_10th: "10th se kam",
-  "10": "Dasvi paas",
-  "12": "Barhvi paas",
-  iti_diploma: "ITI ya diploma",
-  graduate: "Graduation",
+  // THE RULING. Decision 4 rules English content because the employer's advertisement is in
+  // English, and the PDF is the employer-facing artifact. The app stays Hinglish per #963 — and
+  // §11 #17 already establishes these two surfaces differing by audience (Latin on the employer
+  // copy, both scripts on the worker's own), so this is that pattern rather than a new exception.
+  //
+  // WHAT THIS DOES NOT DO. It does not touch `education_label.dart`, the pack's `label_text`, or
+  // any stored value. The worker still taps "ITI ya diploma"; only the printed artifact changes.
+  below_10: "Below 10th",
+  below_10th: "Below 10th",
+  "10": "10th pass",
+  "12": "12th pass",
+  iti_diploma: "ITI / Diploma",
+  graduate: "Graduate",
 };

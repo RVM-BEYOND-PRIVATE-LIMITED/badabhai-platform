@@ -38,9 +38,28 @@ export function buildVerdictLine(facts: {
   availability: string | null;
   /** Already formatted with its currency, e.g. "₹24,000 – ₹28,000 / month". */
   salary: string | null;
+  /**
+   * Machine AXES, as printed labels ("3-axis", "4-axis") — R10 §2.5, rule 4.
+   *
+   * A FOURTH SEGMENT, and the renderer's slot contract has documented it since the sheet shipped
+   * ("role · years · controllers · axis") while `buildVerdictLine` composed only three. Anyone
+   * reading that contract would have believed axes already printed.
+   *
+   * NO TURNER SOURCE TODAY, and that is not a gap in this function. `qp_cnc_turning` has no axis
+   * question — axes are a MILLING fact, and the ratified sample is a milling sheet. Building the
+   * segment now is what makes a milling `TRADE_RESUME_MAPS` entry a data change rather than a
+   * code change (see the §3.1 estimate). For a turner it stays empty and takes its separator with
+   * it, exactly like every other absent segment here.
+   */
+  axes?: readonly string[];
 }): { headlineLine: string | null; subheadLine: string | null } {
   return {
-    headlineLine: joinSegments([facts.role, yearsPhrase(facts.years), toolsPhrase(facts.tools)]),
+    headlineLine: joinSegments([
+      facts.role,
+      yearsPhrase(facts.years),
+      toolsPhrase(facts.tools),
+      axesPhrase(facts.axes ?? []),
+    ]),
     subheadLine: joinSegments([
       facts.city,
       availabilityPhrase(facts.availability),
@@ -66,6 +85,32 @@ function yearsPhrase(years: number | null): string {
   const y = whole > 0 ? `${whole} ${whole === 1 ? "yr" : "yrs"}` : null;
   const m = months > 0 ? `${months} mo` : null;
   return joinSegments([y, m], " ") ?? "duration not stated";
+}
+
+/**
+ * "3 & 4-axis" — the ratified sheet's compression, and it is not cosmetic.
+ *
+ * ADJACENT AXIS COUNTS SHARE THE WORD. A miller who runs both prints "3 & 4-axis" rather than
+ * "3-axis, 4-axis": the second reads as two separate capabilities and costs a third of the
+ * segment's width to say the same thing on a line that has four segments to fit.
+ *
+ * COMPRESSION IS BY SHARED SUFFIX, not by arithmetic. "3-axis" and "5-axis" compress to
+ * "3 & 5-axis" too — they are not adjacent, and inventing an "adjacency" rule would mean deciding
+ * that a 4-axis capability is implied, which is a claim the worker never made. Anything that does
+ * not share a suffix is joined plainly.
+ */
+function axesPhrase(axes: readonly string[]): string | null {
+  const kept = axes.map((a) => a.trim()).filter(Boolean);
+  if (kept.length === 0) return null;
+  if (kept.length === 1) return kept[0]!;
+  // The shared tail after the leading count, e.g. "-axis" in "3-axis".
+  const suffixOf = (v: string) => /^(\d+)(\D.*)$/.exec(v);
+  const parsed = kept.map(suffixOf);
+  const first = parsed[0];
+  if (first && parsed.every((p) => p !== null && p[2] === first[2])) {
+    return `${parsed.map((p) => p![1]).join(" & ")}${first[2]}`;
+  }
+  return kept.join(", ");
 }
 
 /** Up to three, guideline §4.3 (controllers max 3). More than three stops being scannable. */
@@ -168,6 +213,36 @@ export function bareAvailabilityLabel(token: string | null | undefined): string 
 export function formatMonthlySalary(amount: number | null | undefined): string | null {
   if (amount == null || !Number.isFinite(amount) || amount <= 0) return null;
   return `₹${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(amount)} / month`;
+}
+
+/** Just the rupee figure, for the lower end of a band where "/ month" prints once at the end. */
+function rupees(amount: number): string {
+  return `₹${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(amount)}`;
+}
+
+/**
+ * "₹24,000 – ₹28,000 / month", or "₹24,000 / month" when only one end was stated (R10 R-1).
+ *
+ * §4.4 IS EXPLICIT THAT A POINT FIGURE INVITES ANCHORING against the worker, and the ratified
+ * sheet prints a range. But a range cannot be DERIVED: manufacturing "x − 10% to x + 10%" around
+ * a stated number puts two figures on a man's résumé that he never said, which is the derived
+ * claim §8 forbids. So the band is ASKED, and this prints exactly what was asked — a band when
+ * both ends exist, a point figure when only one does, and nothing when neither does.
+ *
+ * A MAX AT OR BELOW THE MIN COLLAPSES TO THE MIN rather than printing "₹20,000 – ₹18,000". That
+ * is a data error, not a negotiating position, and the honest rendering of a contradictory pair is
+ * the half the worker is certain about — which is the lower end, the figure he said he wants.
+ * Printing the max alone would be the one direction R-2's gate forbids.
+ */
+export function formatSalaryBand(
+  min: number | null | undefined,
+  max: number | null | undefined,
+): string | null {
+  const lo = typeof min === "number" && Number.isFinite(min) && min > 0 ? min : null;
+  const hi = typeof max === "number" && Number.isFinite(max) && max > 0 ? max : null;
+  if (lo === null) return formatMonthlySalary(hi);
+  if (hi === null || hi <= lo) return formatMonthlySalary(lo);
+  return `${rupees(lo)} – ${rupees(hi)} / month`;
 }
 
 /**

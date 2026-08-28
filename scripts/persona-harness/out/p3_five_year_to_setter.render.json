@@ -1,6 +1,6 @@
 {
   "persona": "p3_five_year_to_setter",
-  "headlineLine": "CNC Operator · 5 yrs · Fanuc, Siemens",
+  "headlineLine": "CNC lathe operator · 5 yrs · Fanuc, Siemens",
   "subheadLine": "Pune · available in 1 month · expects ₹22,000 / month",
   "capSectionTitle": "Machines, controllers & capability",
   "capChipRows": [
@@ -24,7 +24,7 @@
     "Shift: Any shift"
   ],
   "qualFactRows": [
-    "Education: ITI ya diploma"
+    "Education: ITI / Diploma"
   ],
   "qualTickRows": [],
   "employments": [
@@ -47,28 +47,26 @@
   "ownWords": [],
   "experiences": [],
   "skills": [
-    "CNC turning",
-    "conventional lathe operation",
-    "machine setting",
-    "tool offset",
-    "work offset",
-    "first piece inspection",
-    "soft jaw boring",
-    "program editing",
-    "feed speed adjustment",
-    "tool number change",
-    "working with EN8",
-    "working with SS304",
-    "working with MS",
-    "automotive parts manufacturing",
-    "tolerance of +/- 0.05",
-    "vernier caliper",
-    "micrometer",
-    "bore dial gauge",
-    "dial indicator",
-    "ID checking with bore gauge",
-    "Fanuc controller",
-    "Siemens controller"
+    "CNC lathe Fanuc chalayi hai",
+    "CNC lathe Siemens chalayi hai",
+    "Conventional lathe",
+    "Tool offset le leta hoon",
+    "Work offset le leta hoon",
+    "First piece check karta hoon",
+    "Soft jaw boring",
+    "Machine set karta hoon",
+    "Programme edit kar leta hoon",
+    "Feed speed badalna",
+    "Tool number change karna",
+    "EN8 material",
+    "SS304 material",
+    "MS material",
+    "Plus minus 0.05 tak comfortable hoon",
+    "Vernier",
+    "Micrometer",
+    "Bore dial gauge",
+    "Dial indicator",
+    "Bore gauge se ID check karta hoon"
   ],
   "degradationStage": 0,
   "degradationDropped": [],

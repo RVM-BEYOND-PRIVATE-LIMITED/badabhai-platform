@@ -8,24 +8,25 @@
     "candidates_tried": [
       "gemini-2.5-flash"
     ],
-    "input_tokens": 846,
-    "output_tokens": 152,
-    "cost_inr": 0.0531,
-    "latency_ms": 2624,
+    "input_tokens": 1095,
+    "output_tokens": 160,
+    "cost_inr": 0.061,
+    "latency_ms": 3498,
     "error_code": null
   },
   "extract": {
     "domain_label": "Manufacturing",
     "role_label": "Turner",
     "skills": [
-      "Lathe machine operation",
-      "Facing",
-      "Turning",
-      "Threading",
-      "Stepped shaft creation",
-      "Nut-bolt set creation",
-      "Vernier caliper",
-      "Micrometer"
+      "lathe machine operation",
+      "kharad machine operation",
+      "facing",
+      "turning",
+      "threading",
+      "stepped shaft making",
+      "nut-bolt set making",
+      "vernier caliper",
+      "micrometer"
     ],
     "experiences": [],
     "shift": null,

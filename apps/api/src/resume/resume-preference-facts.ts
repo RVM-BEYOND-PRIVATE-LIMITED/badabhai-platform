@@ -46,6 +46,11 @@ export interface ResumePreferenceFacts {
    * already decides which source wins.
    */
   readonly educationDetail: string | null;
+  /**
+   * The upper end of the expected-salary band (R10 R-1), or null when the worker gave only one
+   * figure. NEVER derived — see `formatSalaryBand`.
+   */
+  readonly salaryMax: number | null;
 }
 
 export const NO_PREFERENCES: ResumePreferenceFacts = {
@@ -56,6 +61,7 @@ export const NO_PREFERENCES: ResumePreferenceFacts = {
   willingToRelocate: undefined,
   accommodationNeeded: undefined,
   educationDetail: null,
+  salaryMax: null,
 };
 
 function stringList(value: unknown): string[] {
@@ -75,8 +81,20 @@ function scalar(value: unknown): string | null {
  * "2018", never "2018.0000", which is what the 14,4 column would otherwise give.
  */
 function year(value: unknown): string | null {
+  const n = numeric(value);
+  return n !== null && Number.isInteger(n) ? String(n) : null;
+}
+
+/**
+ * A stored `numeric` attribute as a JS number.
+ *
+ * BOTH SHAPES ACCEPTED. `worker-attributes.repository.ts` converts the column on read, but pg
+ * returns `numeric` as a STRING and a row written by any other path can still arrive that way.
+ * Anything that is not a finite positive number yields null rather than NaN reaching a formatter.
+ */
+function numeric(value: unknown): number | null {
   const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
-  return Number.isInteger(n) && n > 0 ? String(n) : null;
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function flag(value: unknown): boolean | undefined {
@@ -108,6 +126,7 @@ export function readPreferenceFacts(
     accommodationNeeded: flag(attributes.accommodation_needed),
     // COUNCIL, YEAR, INSTITUTE - in the order the ratified sheet prints them, each dropping its
     // own separator when absent. A worker who gave only the year gets "2018", not "· 2018 ·".
+    salaryMax: numeric(attributes.salary_expected_max),
     educationDetail:
       [
         labelFor(EDUCATION_COUNCILS, scalar(attributes.education_council) ?? ""),

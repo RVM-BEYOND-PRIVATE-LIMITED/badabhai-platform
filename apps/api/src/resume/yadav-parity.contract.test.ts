@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildEmploymentBlock, type WorkerEmploymentRecord } from "./resume-employment-rows";
 import { buildQualificationRows, buildVerdictLine } from "./resume-sheet-rows";
 import { buildSheetFooterMeta } from "./resume-sheet-footer";
-import { buildTradeCapabilityRows } from "./trade-resume-map";
+import { appendConfiguration, buildTradeCapabilityRows } from "./trade-resume-map";
 import { ResumeRenderer } from "./resume-renderer.service";
 import { buildResumeRenderInput } from "./resume-render-input";
 
@@ -101,14 +101,14 @@ describe("R9 §6 rule 1 — role and detail placement", () => {
     //   Amtek Auto Components Ltd · Faridabad, Haryana      Sep 2020 – Dec 2022 · 2 yrs
     //       VMC Operator  ·  VMC 3-axis Siemens, SPM · MS, aluminium
     //
-    // OURS: the role is appended to the EMPLOYER line as `role_inline` (" — VMC Operator") and
-    // the detail gets its own line. Same line count, same information, different placement.
-    //
-    // AND THE DIFFERENCE WAS MEASURED, NOT CARELESS. `toEmployment`'s comment records that with
-    // one role line per employment, content shapes 5, 6 and 9 rendered TWO PAGES — the content
-    // fit and the FOOTER did not. Moving the lone role onto the employer line is what bought the
-    // millimetre back. So this is not a bug to fix in isolation: it is coupled to the line
-    // budget, and R9 §5's re-fit is what decides whether the sample's shape is affordable.
+    // TRIED IN R10 §2.5 AND MEASURED BACK OUT — which is the assertion working, not a decision to
+    // skip it. Merging the role into the detail line keeps the same LINE COUNT but lengthens that
+    // line, and on a fully-answered turner it wraps: the parity sheet moved from
+    // `degradationStage: 0` to STAGE 2, shedding the Languages row and two materials chips. Under
+    // R-2's own principle that is a worse sheet — it drops §5.1-ranked content to gain a
+    // placement — and R9 §5 measured `SHEET_LINE_BUDGET = 41` as un-raiseable (42 puts two fixture
+    // sheets below the floor). So this rule is blocked on the Zone 2 row-budget ruling, not on
+    // anyone implementing it.
     const { employments } = buildEmploymentBlock([SINGLE_ROLE], { asOf: AS_OF });
     const emp = employments[0]!;
     expect(emp.role_inline).toBe("");
@@ -159,32 +159,51 @@ describe("R9 §6 rule 2 — where the months sit", () => {
 });
 
 describe("R9 §6 rule 3 — configuration appends to the machine chip", () => {
-  it.fails('renders "VMC · 3-axis", not "VMC" and a separate axis row', () => {
-    // THE SAMPLE:  Machines    VMC · 3-axis | VMC · 4-axis | SPM
-    //
-    // MISSING LINK: `buildTradeCapabilityRows` iterates ONE attribute's `values` dictionary per
-    // row (trade-resume-map.ts). There is no mechanism for a row to append a SECOND attribute's
-    // value to each of its chips, so the axis capability — which the turner pack captures as its
-    // own key — can only ever be its own row or nothing.
-    //
-    // WHERE IT WOULD LAND: a `configFrom` field on `TradeRowSpec`, read inside the chip loop.
+  // R10 §2.5. `TradeRowSpec.configFrom` names a SECOND attribute whose values append to the row's
+  // first chip. Asserted on the composition helper directly, because no SHIPPED map wires it yet:
+  // `qp_cnc_turning` has no configuration question, since axes and spindle configurations are
+  // milling facts. The mechanism is what makes a milling map a data change rather than a code
+  // change (see the §3.1 estimate) — so the helper is the honest unit to pin.
+  const AXES = { three: "3-axis", four: "4-axis" };
+
+  it('appends with a middot — "VMC · 3-axis", not a separate axis row', () => {
+    expect(appendConfiguration(["VMC", "SPM"], ["three", "four"], AXES)).toEqual([
+      "VMC · 3-axis",
+      "VMC · 4-axis",
+      "SPM",
+    ]);
+  });
+
+  it("does NOT build a cross product — the config qualifies the machine it was asked about", () => {
+    // "SPM · 4-axis" for a man who runs a 4-axis VMC and a separate SPM is a claim he never made.
+    const rows = appendConfiguration(["VMC", "SPM", "VTL"], ["four"], AXES);
+    expect(rows).toEqual(["VMC · 4-axis", "SPM", "VTL"]);
+    expect(rows.join(" ")).not.toContain("SPM · 4-axis");
+  });
+
+  it("leaves the row untouched when the worker answered no configuration", () => {
+    expect(appendConfiguration(["VMC"], [], AXES)).toEqual(["VMC"]);
+  });
+
+  it("drops a configuration slug the dictionary does not know, like every other value here", () => {
+    expect(appendConfiguration(["VMC"], ["five"], AXES)).toEqual(["VMC"]);
+  });
+
+  it("is inert for the shipped turner map, which has no configuration question", () => {
     const rows = buildTradeCapabilityRows("qp_cnc_turning", {
-      turning_machine: ["cnc_lathe"],
-      turning_configuration: ["bar_fed"],
+      turning_machine: ["cnc_lathe", "vtl"],
     });
-    const machines = rows.chipRows.find((r) => r.label === "Machines");
-    expect(machines?.values.some((v) => v.includes(" · "))).toBe(true);
+    expect(rows.chipRows.find((r) => r.label === "Machines")?.values).toEqual([
+      "CNC lathe / turning centre",
+      "VTL",
+    ]);
   });
 });
 
 describe("R9 §6 rule 4 — the Verdict Line compresses adjacent axes", () => {
-  it.fails('appends "3 & 4-axis" as a fourth segment', () => {
-    // THE SAMPLE:
-    //   VMC Setter-cum-Operator · 8 yrs · Fanuc, Siemens, Mitsubishi · 3 & 4-axis
-    //
-    // MISSING LINK: `buildVerdictLine` composes exactly three segments — role, years, tools —
-    // and has no axis parameter at all. The compression ("3-axis" + "4-axis" → "3 & 4-axis") has
-    // no implementation anywhere either.
+  it('appends "3 & 4-axis" as a fourth segment', () => {
+    // R10 §2.5. The renderer's slot contract has documented a fourth segment since the sheet
+    // shipped ("role · years · controllers · axis") while `buildVerdictLine` composed only three.
     const line = buildVerdictLine({
       role: "VMC Setter-cum-Operator",
       years: 8,
@@ -192,10 +211,44 @@ describe("R9 §6 rule 4 — the Verdict Line compresses adjacent axes", () => {
       city: "Faridabad",
       availability: "15 days",
       salary: null,
+      axes: ["3-axis", "4-axis"],
     });
     expect(line.headlineLine).toBe(
       "VMC Setter-cum-Operator · 8 yrs · Fanuc, Siemens, Mitsubishi · 3 & 4-axis",
     );
+  });
+
+  it("compresses by SHARED SUFFIX, not by arithmetic adjacency", () => {
+    // "3 & 5-axis" is correct: treating 3 and 5 as implying 4 would put a capability on the sheet
+    // the worker never claimed.
+    const of = (axes: string[]) =>
+      buildVerdictLine({
+        role: "R",
+        years: 8,
+        tools: [],
+        city: null,
+        availability: null,
+        salary: null,
+        axes,
+      }).headlineLine;
+    expect(of(["3-axis", "5-axis"])).toContain("3 & 5-axis");
+    expect(of(["3-axis"])).toContain("3-axis");
+    // Nothing to share: joined plainly rather than mangled.
+    expect(of(["3-axis", "twin-spindle"])).toContain("3-axis, twin-spindle");
+  });
+
+  it("takes its separator with it when the trade has no axis ask", () => {
+    // The turner case. `qp_cnc_turning` has no axis question, so the segment is absent and the
+    // line must not end with a dangling middot.
+    const line = buildVerdictLine({
+      role: "CNC Setter-cum-Operator",
+      years: 8,
+      tools: ["Fanuc"],
+      city: null,
+      availability: null,
+      salary: null,
+    });
+    expect(line.headlineLine).toBe("CNC Setter-cum-Operator · 8 yrs · Fanuc");
   });
 
   it("does cap the controllers at three, which the sample also does", () => {
@@ -258,11 +311,11 @@ describe("R9 §6 rule 6 — education is four components plus the institute's ci
         },
       },
     );
-    // NOTE THE LEVEL LABEL: "ITI ya diploma", not "ITI". See the language-conflict test below —
-    // this assertion pins what the code ACTUALLY prints, so the conflict is visible rather than
-    // hidden behind an expectation nobody reads.
+    // ENGLISH, per R10 R-3. The level was "ITI ya diploma" until the owner ruled: the PDF is the
+    // employer-facing artifact and follows Decision 4's English content; the app stays Hinglish
+    // per #963, which is §11 #17's audience-split pattern rather than a new exception.
     expect(input.qualFactRows?.find((r) => r.label === "Education")?.value).toBe(
-      "ITI ya diploma — Machinist · NCVT · 2018 · Govt. ITI, Faridabad",
+      "ITI / Diploma — Machinist · NCVT · 2018 · Govt. ITI, Faridabad",
     );
   });
 
@@ -278,7 +331,7 @@ describe("R9 §6 rule 6 — education is four components plus the institute's ci
       { packId: "qp_cnc_turning", attributes: { education_council: "scvt" } },
     );
     const value = input.qualFactRows?.find((r) => r.label === "Education")?.value;
-    expect(value).toBe("ITI ya diploma · SCVT");
+    expect(value).toBe("ITI / Diploma · SCVT");
     expect(value).not.toMatch(/·\s*·/);
   });
 
@@ -293,56 +346,78 @@ describe("R9 §6 rule 6 — education is four components plus the institute's ci
     expect(of("ncvt")).not.toBe(of("scvt"));
   });
 
-  it.fails("prints the education LEVEL in English, as the rest of Zone 5 does", () => {
-    // A REAL CONFLICT BETWEEN TWO REASONED DECISIONS, sitting on one row of the sheet.
+  it("prints the education LEVEL in English (R10 R-3, ruled)", () => {
+    // THE CONFLICT R9 LOGGED, NOW RULED. `KNOWN_EDUCATION_LEVELS` printed the pack's Hinglish chip
+    // labels ("ITI ya diploma", "Dasvi paas") on the argument that the résumé should say back the
+    // words the worker tapped; #963 names "10th se kam" and the app shows it. But Zone 5's other
+    // vocabulary prints English "because this half of the sheet is read by a hiring supervisor",
+    // and the two sat on the SAME ROW.
     //
-    //   `KNOWN_EDUCATION_LEVELS` prints the pack's own Hinglish chip label — "ITI ya diploma",
-    //   "Dasvi paas", "Barhvi paas" — and its comment argues the résumé should say back to the
-    //   worker the words he tapped. #963 names "10th se kam" explicitly and `education_label.dart`
-    //   shows the same string in the app.
+    // R-3: Decision 4 rules English content because the employer's advertisement is in English,
+    // and the PDF is the employer-facing artifact. The app stays Hinglish — §11 #17 already
+    // establishes these two surfaces differing by audience, so this is that pattern.
+    const of = (level: string) =>
+      buildResumeRenderInput({ education_level: level }, "R", "bb_trade", null, false, "worker", {
+        packId: "qp_cnc_turning",
+        attributes: {},
+      }).qualFactRows?.find((r) => r.label === "Education")?.value;
+
+    expect(of("iti_diploma")).toBe("ITI / Diploma");
+    expect(of("10")).toBe("10th pass");
+    expect(of("12")).toBe("12th pass");
+    expect(of("graduate")).toBe("Graduate");
+    expect(of("below_10")).toBe("Below 10th");
+    // Nothing Hinglish survives on this row.
+    for (const level of ["iti_diploma", "10", "12", "graduate", "below_10"]) {
+      expect(of(level)).not.toMatch(/paas|ya diploma|se kam|Graduation/);
+    }
+  });
+
+  it.fails("distinguishes an ITI from a Diploma, which the sample does", () => {
+    // THE REMAINING HALF OF THE SAME ROW. Yadav prints "ITI — Machinist"; we print
+    // "ITI / Diploma — Machinist", because `qp_universal`'s education question offers ONE option
+    // covering both ("ITI ya diploma", value_text `iti_diploma`). They are different credentials —
+    // a two-year ITI trade certificate and a three-year polytechnic diploma are not
+    // interchangeable for a job that names one — and nothing in the corpus can tell them apart.
     //
-    //   `worker-preferences.vocabulary.ts` prints ENGLISH and says why: "this half of the sheet is
-    //   read by a hiring supervisor".
-    //
-    // Both are on the SAME LINE: "ITI ya diploma — Machinist · NCVT · 2018 · Govt. ITI". The
-    // ratified sheet settles it in English ("ITI — Machinist · NCVT · 2018 · Govt. ITI,
-    // Faridabad") — but flipping it changes every existing résumé, contradicts a named issue, and
-    // would make the app and the PDF disagree for the one population that currently agrees. It is
-    // an owner ruling, not an edit, and it is recorded here rather than taken.
-    const input = buildResumeRenderInput(
+    // Splitting the option is a pack-data change plus a decision about the stored value for every
+    // worker who already answered it. Recorded, not taken.
+    const value = buildResumeRenderInput(
       { education_level: "iti_diploma", education_field: "Machinist" },
       "R",
       "bb_trade",
       null,
       false,
       "worker",
-      { packId: "qp_cnc_turning", attributes: { education_council: "ncvt" } },
-    );
-    expect(input.qualFactRows?.find((r) => r.label === "Education")?.value).toBe(
-      "ITI — Machinist · NCVT",
-    );
+      { packId: "qp_cnc_turning", attributes: {} },
+    ).qualFactRows?.find((r) => r.label === "Education")?.value;
+    expect(value).toBe("ITI — Machinist");
   });
 
-  it.fails("prints the institute's CITY as its own trailing segment", () => {
-    // THE SAMPLE: "Govt. ITI, Faridabad" — institute and city. Ours stores ONE free-text
-    // institute field, so a worker who types only "Govt. ITI" gets no city and nothing can
-    // supply one. Splitting it into two fields is a form change with no owner ruling behind it,
-    // and guessing a city from an institute name would be the derived claim §8 forbids.
-    const input = buildResumeRenderInput(
-      { education_level: "iti_diploma" },
-      "R",
-      "bb_trade",
-      null,
-      false,
-      "worker",
-      {
-        packId: "qp_cnc_turning",
-        attributes: { education_council: "ncvt", education_institute: "Govt. ITI" },
-      },
-    );
-    expect(input.qualFactRows?.find((r) => r.label === "Education")?.value).toContain(
-      "Govt. ITI, Faridabad",
-    );
+  it("prints the institute exactly as the worker gave it, city and all", () => {
+    // R10 §2.5 — AND A CORRECTION TO THIS TEST'S OWN SPECIFICATION. It was written as an
+    // `it.fails` expecting "Govt. ITI" to render as "Govt. ITI, Faridabad", i.e. expecting the
+    // sheet to SUPPLY a city the worker never typed. That is the derived claim §8 forbids, and
+    // deriving a city from an institute name is exactly the kind of inference the fabrication
+    // gate exists to stop. The rule the sample actually shows is that the institute prints
+    // verbatim — and Yadav's worker typed the city himself.
+    const of = (institute: string) =>
+      buildResumeRenderInput(
+        { education_level: "iti_diploma" },
+        "R",
+        "bb_trade",
+        null,
+        false,
+        "worker",
+        {
+          packId: "qp_cnc_turning",
+          attributes: { education_council: "ncvt", education_institute: institute },
+        },
+      ).qualFactRows?.find((r) => r.label === "Education")?.value;
+
+    expect(of("Govt. ITI, Faridabad")).toBe("ITI / Diploma · NCVT · Govt. ITI, Faridabad");
+    // And a worker who gave no city gets no city. The segment is his string, not ours.
+    expect(of("Govt. ITI")).toBe("ITI / Diploma · NCVT · Govt. ITI");
   });
 });
 
