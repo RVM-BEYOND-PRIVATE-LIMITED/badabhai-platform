@@ -2667,3 +2667,210 @@ and a guard that depends on the corpus continuing to hold its own counterexample
 expiry date. Its comment carries the §3.2 handover: once milling owns a gazetteer, that row must
 move to asserting the MILLING gazetteer reaches only milling — not be deleted, and not be left
 passing by accident.
+
+---
+
+## §26 — R14: the mapper seam audited whole, the salary window guarded in both directions, and milling given a voice
+
+### 26.1 — §0's new rule, earned twice more in the same packet
+
+R13 nearly shipped two guards instead of three because a 7,150-row sweep scored guard (b) as
+redundant. The sweep is a generator, its template is `abhi 25000 <period><sep> <tail>`, and the one
+shape (b) exists for — a cue with no number behind it — cannot occur in it.
+
+**The same instrument was wrong again in R14, in the same direction, and this time I looked first.**
+Every row of that grid states the CURRENT pay first. So it could not see the reversed shape either,
+and `reversed_order` was pinned as a gap rather than measured as a population. §2.2 built a second
+sweep of the same size that states the ASK first, and the two together are what the numbers below
+rest on.
+
+> A generated corpus tests the generator's assumptions. Before concluding anything from a zero,
+> write the sentence the guard is FOR and check the generator can produce it.
+
+### 26.2 — §1, the seam, enumerated instead of sampled
+
+Three defects had been found on the boundary between the résumé container and the legacy
+answer-map shape, one per packet, each by a different question. `branch-parity.audit.test.ts`
+parses both return literals and the argument object of every builder they share and requires the
+field sets to be identical, modulo an allowlist that carries a reason per row **and fails when a
+row goes stale**. Four mutations verified, each naming the right case.
+
+**Eleven asymmetries. Three were known.**
+
+| slot                                                                          | starved branch | measured on `classic.v3`, the template `resume.service.ts` names for every production render |
+| ----------------------------------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------- |
+| `preferredLocations`                                                          | legacy         | `[]` while `availFactRows` prints "Gurugram, Noida" from the same draft                      |
+| `expectedSalary`                                                              | legacy         | `null` while `subheadLine` prints "expects ₹24,000 – ₹28,000 / month"                        |
+| `ownWords`, `ownWordsRejected`                                                | legacy         | absent; no candidate source exists on that shape                                             |
+| `experiences`                                                                 | legacy         | reads `fresherRows` and never `draft.experiences`                                            |
+| `machines`, `education`, `certifications`, `educationLevel`, `educationField` | container      | all empty — owner ruling 2026-08-12                                                          |
+| `responsibilities`                                                            | container      | trade copy keyed by a canonical id the OIE path never writes                                 |
+| `axes`                                                                        | both           | accepted by `buildVerdictLine`, passed by nobody                                             |
+
+**The asymmetry runs BOTH ways, which the framing "the legacy branch is behind" would have hidden.**
+Five slots are starved on the _newer_ path, and their loss is bigger: on `classic.v3` an
+interview-led worker's whole Education & Certifications section collapses. It is owner-ruled
+(2026-08-12, "an accepted, temporary loss"), and worth re-reading now because R9's `qualFactRows`
+has already unwound it piecemeal — Zone 5 of `bb_trade` prints the certificates that `classic.v3`'s
+scalar slot two lines below does not. One source, two answers.
+
+**`preferredLocations` and `expectedSalary` are the salary defect a third and fourth time**: a
+source in scope, hard-coded, on the branch the mapper's own comment calls "the path most existing
+profiles still take". Both are one line. **Reported and not fixed**, per §1's instruction, and
+pinned as `it.fails` naming the exact expression — the second of which must carry the audience gate
+with it, which is precisely why it is not a mechanical change.
+
+**And the gate is honest about what it cannot see.** Three shapes are catchable statically: absent,
+stubbed to a literal, and accepted-but-never-passed. The fourth — present and derived on both
+branches from DIFFERENT sources, one thinner — is not, and `experiences` is exactly that. The
+staleness check refused my allowlist row for it, correctly, and that shape is held by a runtime
+probe and by nothing else. A green static half is not a claim that the seam is whole.
+
+`draft.experiences` is unreachable today only because of a coupling two files away: the processor
+writes `experiences: interview?.experiences ?? []` and `resume_profile: overlayCarriesValues(…)`,
+and `resumeProfileCarriesValues` returns true when `experiences.length > 0`. Nothing states that,
+and it is one `??` from being false.
+
+### 26.3 — §2.1, and why the gate that exists for this could not fire
+
+`1200 daily milta hai` recorded ₹1,200 a month for a worker on roughly ₹31,000. R-2 is the one
+guard in the system pointing at UNDER-representation, and it was silent.
+
+**Its invariant needs two numbers and there is only one.** "Where the worker stated a scalar and
+the sheet prints a derived one, the printed value may never be lower than the stated one" — here
+both are 1200, because the sheet prints the stated number unchanged. The error is in the UNIT, the
+unit is consumed and discarded inside `_period_months`, and no writer anywhere produces the ₹31,000
+the inequality would need on its other side. Provenance is not placement, and placement is not
+scale.
+
+That limit is now asserted rather than described, in the gate's own file: the same predicate passes
+the correct reading and the 26×-wrong one, which is what "blind" means here.
+
+**Closed at the layer that can see a period word.** `subMonthlyCues` suppresses the amount instead
+of multiplying it: 26, 30 and 24 days a month are all defensible and differ by a quarter, so any
+multiplier prints a figure the worker never stated. Suppression is the degrade the annual/monthly
+conflict already takes, and it is what the pinned row's `want` has said since it was written — so
+no ruling was needed to implement it, only to go further.
+
+### 26.4 — §2.2, the window's START
+
+| variant, 4,400 monthly rows of the reversed sweep |        current pay correct |
+| ------------------------------------------------- | -------------------------: |
+| shipped, no start guard                           |                        872 |
+| (a') clamp at the previous NUMBER                 |    +1248 on the full 7,150 |
+| (b') clamp at the last clause end                 |                      +1360 |
+| **(a') + (b')**                                   | **2968 — +2096 recovered** |
+
+**Zero regressions on both sweeps**, and the expected-salary slot is byte-identical across all
+14,300 rows: this can move a number out of the wrong slot, never out of a right one. There is no
+(c') because (a') subsumes it — after clamping at the previous number's end, no number remains
+inside the backward window for a cue to belong to.
+
+**The residual is 992 rows of one shape** and it is pinned: no separator at all between the two
+clauses. Neither clamp can fire, and closing it needs an adjacency rule — a cue belongs to the
+number it touches — which is a different mechanism from a clamp.
+
+**A gap older than every guard in the file, found while measuring.** `expectedCues` carries
+`' chah'` with a LEADING SPACE so the stem cannot fire inside a word. A cue at offset 0 has no
+space before it, so an utterance that OPENS with the ask has no expectation cue at all and the
+asking price is filed as current pay. 440 rows. Pinned; the fix is a boundary rather than a space,
+and `expectedCues` is a substring list rather than a pattern list, so it is a shape change to the
+field.
+
+**§2.3 — 44/52**, by cause: band 3, gazetteer 4, window 1. The `period` class is empty.
+
+**Cross-language.** All 533 corpus rows agreed on a guarded and an unguarded build — the same
+blindness R13 measured, in the same file, one packet later. Four discriminating rows added; each
+new guard is mutation-verified red on **both** engines by **exactly one** row.
+
+### 26.5 — the generator that would have deleted its own evidence
+
+Running `build_lexicon_corpus.py` — the command that file's own docstring tells you to run —
+**silently dropped eight committed rows**, six of them R13's guard-discriminating rows and two the
+pinned `hajar`/`hazzar` gaps. R13 appended them to the artifact instead of to `FAMILIES`, and every
+suite stays green afterwards precisely because the rows that could have gone red no longer exist.
+
+They are in `FAMILIES` now, and the generator refuses to write when a committed case exists in no
+family. **Keyed on the TEXT, not the id** — ids are positional, so `sal_018` survives a family
+shrinking in the middle and points at a different utterance. Both directions mutation-verified: a
+deleted family entry and a text replaced in place are each caught and named.
+
+### 26.6 — §4, three R10 items, and a stale count inside the file that argues against stale counts
+
+**§2.4 the phone formatter — DONE**, `7f97b901`. `+919876543210` was printing where the ratified
+sample prints `+91 98765 43210`, and every fixture carried the grouped form by hand. Formatted
+inside the mapper, at the one door.
+
+**§2.6 the fresher's Zone 4 — DONE**, same commit, and the asks are real: `iti_workshop_machines`,
+`trade_test_status` and `iti_project_work` are in `qp_cnc_turning.json`, gated `lte 0`. Checked
+rather than assumed — a rendering path fed by questions nobody asks is a seam that looks shipped.
+
+**§2.5 the five render rules.** Rule 1 (single-role on one line) is implemented-and-reverted and
+blocked on Q2; rule 3 (config append) is green and its first shipped user is the milling map; rule
+4 (axes) is green as a unit and unreachable through either mapper branch; rule 5 (structured
+certificates) needs a frozen-contract change; rule 6 is green and the `it.fails` it replaced was
+**wrongly specified by me** — it asked the sheet to print a city the worker never gave; rule 8
+awaits Phase 2.
+
+**And the header said "Five of the eight rules do not hold today" while the file has only ever had
+FOUR `it.fails`, three today.** The number was stale before it was committed — rule 3 was
+implemented in the same commit and landed as a passing `it` — and it sits one paragraph above the
+argument that a gap must be an assertion rather than a doc row. A count maintained by hand beside a
+list the runner already enumerates is exactly the thing that file exists to prevent.
+
+### 26.7 — §5, one gap, one line
+
+`sp_hajar`/`sal_018` and `sp_hazzar`/`sal_019` are one gap each. `SAME GAP AS` folds the corpus row
+into the table pin and carries its gated files with it; `SEE ALSO` links `exp_028` — "7-8 saal"
+records 8 — to the salary band class, because a worker stating a range and losing one end is one
+defect in two fields. **Twenty pins, not twenty-two.**
+
+A dangling alias fails closed AND leaves the pin listed, which is the more important half: a fold
+whose target has been closed and deleted would silently shorten the list, and a shorter list reads
+as progress.
+
+**The first alias did not work, and the reason is this packet's own lesson.** `why` is truncated to
+200 characters for display and the marker sat at character 340, so the fold quietly did not happen
+and the duplicate it was written to remove stayed on the page. Aliases are read from the
+untruncated note now, and that is a named test.
+
+### 26.8 — §3, milling's voice, and the claim its rename exposed
+
+**35 untwinned clips → 13 compose → 22 authored**: 11 prompts, 9 why-texts, 2 retries. **Seven of
+the pack's prompts needed nothing at all**, because their Hinglish is byte-identical to the
+turner's and the table is keyed by that text; a tenth why-text is shared for the same reason. That
+is a real dividend of a shared question vocabulary and it is what the R11 estimate missed — it
+projected ~28 from a flat 1.83-per-question ratio.
+
+**§3.3 — the rename, properly.** `MEASURING_TOOLS` was documented _"shared by every
+machining-family pack: the instruments do not change by role"_. The ratified milling sheet prints a
+**snap gauge**; a turner's plug / ring gauge checks a bore he just bored. The claim was about the
+world and rested on one pack.
+
+It was not careless. It was **unchallengeable** — with a single map in the file, no test, no review
+and no amount of care could have contradicted it, and that is the property worth guarding rather
+than the instance worth fixing. The map test now fails when a value dictionary is reachable from
+two packs without a written reason. Not a ban on sharing: controllers may genuinely not change by
+role, and copying Fanuc/Siemens/Mitsubishi into every future map would be its own defect. The
+requirement is that sharing be a DECISION, recorded at the moment a second pack makes it testable
+for the first time. **The allowlist is empty**, which is the answer to "does any other constant
+carry a similar claim": inside `TRADE_RESUME_MAPS`, after the rename, none does.
+
+The nearest neighbour is `resume-preference-facts.ts`, whose seven fields are documented
+"trade-independent". That claim is a different kind and survives the audit: those values come from
+the universal finishing form rather than from any role pack, so their generality is a property of
+their SOURCE, not an induction from one sample. `WORKSHOP_MACHINES` and `TRADE_TEST` are the
+opposite case — correctly pack-keyed, still holding one trade's vocabulary, and the reason a
+milling fresher gets no Zone 4 rows today.
+
+### 26.9 — state
+
+**PR #1308** — §1, §2, §4, §5. **PR #1309** — the milling pack, its map, its 22 twins and the real
+pack-scoping probe. Both green; neither merged, because §9 asks for the digest and a stop.
+
+Open with RVM: **Q14** (`measuring_tools` scoping — do not widen) and **Q2** (drop order, carrying
+the miller's measured casualty: `Sector worked`, which the ratified sheet prints, lost to
+`Workholding`).
+
+Awaiting a word from the owner: the two legacy scalars §1 found and did not fix, and whether the
+2026-08-12 narrow-field-set ruling still holds now that Zone 5 has already unwound half of it.
