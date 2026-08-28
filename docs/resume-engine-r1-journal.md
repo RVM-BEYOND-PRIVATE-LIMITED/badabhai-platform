@@ -2863,6 +2863,34 @@ their SOURCE, not an induction from one sample. `WORKSHOP_MACHINES` and `TRADE_T
 opposite case — correctly pack-keyed, still holding one trade's vocabulary, and the reason a
 milling fresher gets no Zone 4 rows today.
 
+### 26.85 — the gate that only CI could run, and the near-miss it caught
+
+CI turned the milling PR red on something four local gates and 9,267 local assertions had all
+passed: two `option_key`s carrying digits, in a field contracted `/^[a-z_]+$/`.
+
+**It is not a style rule.** That regex was tightened once already, and its docstring records why:
+the looser build-time version PERMITTED what the runtime schema refuses, so a pack could pass
+`db:verify:packs` and then fail `QuestionPackSchema.parse` inside the registry — the whole pack
+unavailable, every worker in that trade silently falling through to the universal seven questions.
+Green corpus, dead trade. `en8`/`en31` are now `en_eight`/`en_thirty_one`, matching the convention
+the rest of the pack already used (`three_axis`, `point_zero_two`); the printed labels are
+unchanged, so the ratified sheet still reads EN8, EN31.
+
+**The interesting half is why it was not reachable locally.** Every one of `packages/db`'s 2,333
+assertions builds a SYNTHETIC corpus to exercise one rule. Nothing in the suite had ever read
+`data/question-packs/`. The committed files were checked by exactly one thing: a separate CI step
+running `db:verify:packs --corpus`. So `pnpm --filter @badabhai/db test` was green on a corpus the
+runtime refuses, and would have stayed green.
+
+The suite now loads the shipped files and makes the same call the CI step makes — with the same
+`fieldIds` and `types` options, because those ARM rules that otherwise do not run at all and a copy
+that omitted them would be green for a much quieter reason — behind a vacuity check on the loaded
+counts. Restoring the digit turns it red and names the pack.
+
+**And the lint gate has the same shape.** `oxlint` passed a `const` used only as a type; `eslint`
+is what CI runs and it is an error there. Two gates, two names, and the one I reached for was not
+the one that decides.
+
 ### 26.9 — state
 
 **PR #1308** — §1, §2, §4, §5. **PR #1309** — the milling pack, its map, its 22 twins and the real
