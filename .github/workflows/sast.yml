@@ -77,13 +77,28 @@ jobs:
         run: |
           set -euo pipefail
 
-          # The merge-base, not the base branch tip. `github.event.pull_request.base.sha`
-          # is main's tip when the PR was last synced, so diffing against it would also
-          # surface findings from commits that landed on main in the meantime — someone
-          # else's finding, failing your PR.
+          # The merge-base, not the ref's tip. Diffing against a tip would also surface
+          # findings from commits that landed on it in the meantime — someone else's
+          # finding, failing your PR.
+          #
+          # WHAT THE CALLER MUST PASS, AND WHY THIS COMMENT USED TO NAME THE WRONG THING.
+          # It previously said `github.event.pull_request.base.sha`, which is what ci.yml
+          # passed. That is the branch a PR merges INTO, so on a STACKED PR it is the parent
+          # feature branch's tip — and `merge-base(parent_tip, HEAD)` IS that tip, so every
+          # finding the earlier PR in the stack introduced sat inside the child's baseline
+          # and could never fail it. Taking the merge-base was always right; the ref being
+          # handed to it was not. ci.yml now passes the DEFAULT BRANCH (Q13), so this
+          # resolves to the fork point of the whole stack from main.
+          #
+          # FAIL-CLOSED ON AN UNRESOLVABLE REF. `set -euo pipefail` is above, so a ref this
+          # checkout does not have exits the job non-zero. It must never fall through to a
+          # baseline-less scan, which would look like a pass on the PR path.
           if [ -n "${BASELINE_REF}" ]; then
             git config --global --add safe.directory "${GITHUB_WORKSPACE}"
-            BASE="$(git merge-base "${BASELINE_REF}" HEAD)"
+            if ! BASE="$(git merge-base "${BASELINE_REF}" HEAD)"; then
+              echo "::error::baseline ref '${BASELINE_REF}' does not resolve in this checkout"
+              exit 1
+            fi
             echo "Scanning findings introduced since ${BASE} (merge-base with ${BASELINE_REF})"
             semgrep scan \
               --config p/default \
