@@ -2649,3 +2649,21 @@ against half of my own read, and it is recorded rather than acted on. **Q2 → R
 measured casualty: a miller who answers all thirteen questions loses **`Sector worked`** — which
 the ratified sheet prints — to `Workholding`, because rank 42 beats rank 81. One row, asserted in a
 test, and not fixed by bending a rank.
+
+### 25.8 — §3.4, and milling gave the corpus back the ability to see its own collision
+
+R12 wrote the pack-scoping probe against `qp_hypothetical_milling` — a pack that did not exist —
+because none that did could reach the veto gazetteer: `drawing_reading` was its only colliding key
+and `qp_machining` and `qp_toolmaking` both type it `boolean`, so `slugsOf` returned nothing and a
+deliberately broken build passed. The probe is now parametrised over two **real** pack ids.
+
+**Mutation-verified with the scoping removed** (`CAPABILITY_TERMS.qp_cnc_turning`,
+unconditionally): **three cases go red, not one.** The corpus-driven case fails on its own now,
+naming `qp_vmc_milling` and **21 withdrawn claims** — milling supplies real select values for four
+of the five colliding keys, where the other packs only ever had booleans.
+
+The synthetic probe stays anyway. It was the only thing that could see the class for one packet,
+and a guard that depends on the corpus continuing to hold its own counterexample has a silent
+expiry date. Its comment carries the §3.2 handover: once milling owns a gazetteer, that row must
+move to asserting the MILLING gazetteer reaches only milling — not be deleted, and not be left
+passing by accident.
