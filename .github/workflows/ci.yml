@@ -3,8 +3,24 @@ name: CI
 on:
   push:
     branches: [main]
+  # NO `branches:` FILTER, DELIBERATELY (Q13, owner ruling 2026-08-28).
+  #
+  # For `pull_request`, `branches:` matches the BASE — the branch being merged INTO — so
+  # `branches: [main]` meant a PR based on a feature branch matched no trigger at all. No
+  # workflow started, no check was created, and GitHub reported "All checks have passed" on a
+  # PR that had never run anything. An absent check list is visually identical to one that is
+  # still queuing.
+  #
+  # MEASURED, TWICE, IN ONE WEEK. #1294 was stacked on #1292's branch and went four packets
+  # with zero CI runs. When #1292 merged and #1294 was retargeted, CI fired for the first time
+  # and immediately failed on a defect that was not in #1294 at all: #1296 (already merged) had
+  # added a `/finishing` route without registering it in `WORKER_APP_SCREEN_TEMPLATES`, and
+  # #1296's own check was green because its path filter had skipped the Node job. Two
+  # mechanisms, one shape — a check that is green because it did not execute.
+  #
+  # Cost: CI minutes on intermediate stacked PRs, and a push to a base branch re-runs its
+  # dependants. That is the price of the gate being real.
   pull_request:
-    branches: [main]
 
 # A PR run is SUPERSEDABLE. A `main` run is a DEPLOY.
 #
@@ -666,12 +682,30 @@ jobs:
   # `baseline-ref` makes this the DIFF gate: only findings the PR introduces fail it. The
   # whole-tree scan still happens weekly from security-scan.yml, so the strong guarantee is
   # kept, just off the critical path (#774). Cost of this edge: ~1m30s on every code PR.
+  #
+  # THE DEFAULT BRANCH, NOT `pull_request.base.sha` (Q13, owner ruling 2026-08-28). This is
+  # the half of the ruling that matters, and it is REQUIRED by the trigger widening above
+  # rather than merely tidy alongside it.
+  #
+  # `sast.yml` already resolves whatever it is given through `git merge-base <ref> HEAD`, so
+  # the merge-base was never the missing piece — WHICH REF is. With `base.sha` the input is
+  # the branch a PR is merging into, and for a stacked PR that is the PARENT FEATURE BRANCH's
+  # tip. `merge-base(parent_tip, HEAD)` is the parent tip, so every finding the earlier PR in
+  # the stack introduced is already in the child's baseline and can never fail it. Widening
+  # the trigger without this would have started running SAST on exactly the PRs it is
+  # structurally incapable of judging — a gate that runs, reports green, and reads as
+  # coverage. That is worse than the absent check it replaces.
+  #
+  # Pointed at the default branch, `merge-base(origin/main, HEAD)` is the fork point of the
+  # WHOLE STACK from main, so the diff is "what does merging this eventually add to main".
+  # An unresolvable ref makes `git merge-base` exit non-zero under `set -euo pipefail`, so
+  # this fails the job rather than silently scanning nothing.
   sast:
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.sast == 'true'
     uses: ./.github/workflows/sast.yml
     with:
-      baseline-ref: ${{ github.event.pull_request.base.sha }}
+      baseline-ref: origin/${{ github.event.repository.default_branch }}
 
   # ---- Dependency audit, INSIDE the aggregator (#788, #792) ----
   #
