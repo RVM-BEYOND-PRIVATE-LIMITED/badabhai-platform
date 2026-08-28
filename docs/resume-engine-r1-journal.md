@@ -487,3 +487,73 @@ apps/api      tsc --noEmit                                                    ex
 db:eval:occupation   hit rate 97.0% >= 95.0% · family precision 98.2% >= 97.0%  exit 0
 WeasyPrint    28 sheets / 28 one-page / 0 over · worst headroom 0.00 mm
 ```
+
+---
+
+## §10 — Packet digest
+
+**Landed.** Branch `feat/cnc-turner-role-track` pushed and PR **#1292** open against `main`,
+parked for the owner: it touches `packages/db`, `packages/taxonomy` and `packages/validators`.
+Three commits — the R1 body, the SAST fix, and the three-gap close.
+
+**What the work was at risk of, and no longer is.** The whole packet sat uncommitted on a
+working tree containing an APPLIED migration. 0094 existed in a live database and in no version
+control. That is closed first and confirmed four ways: `HEAD` equals the remote, the tree is
+clean, 95 `.sql` files reconcile with 95 journal entries, and the pinned `when` (`1787749973672`,
+still the `MAX`) plus both restored comment blocks are present in the committed blob.
+
+**CI found two things the local run structurally could not, and the QR gate found a third.**
+
+1. **SAST — `detect-non-literal-regexp`.** Pre-existing on `main`; my refactor re-fingerprinted
+   it so the baseline diff read it as introduced. Fixed rather than suppressed: a slot name
+   carrying regex metacharacters stops being a name and becomes a pattern, and would splice one
+   worker's list into another section of the sheet. Semgrep runs in no local gate.
+2. **`db:eval:occupation` — 95.7% against a 97.0% floor.** Not a regression. The gold set is
+   labelled at ISCO-unit granularity, so a family bound BELOW unit level is unrepresentable and
+   scores wrong by construction; all ten were turning utterances and the retrieval was righter
+   than the label. Fixed in the metric, floor untouched, back to **98.2% — exactly main's
+   baseline, with main's same seven genuine failures.**
+3. **One `try` cost the sheet its phone, QR, ref code and footer.** A throw from
+   `loadTradeSheet` left the render context null and took down four things that read no trade
+   attribute. The file's own comment one level down forbids exactly this.
+
+**The three verification gaps.**
+
+- **§3.1 Page fit.** Worst case is **0.00 mm** — shape 9's worker copy fits at exactly 297 mm and
+  spills at 296.75. Only five of fourteen shapes are under 20 mm and they are precisely the five
+  built to overflow; every shape resembling the design's own samples sits above 100 mm. **The
+  reserve does not survive what is queued:** one Zone 5 row OR one Zone 4 block takes that sheet
+  to two pages. Work-history capture and Phase C each break the one-page contract on their first
+  row, so whichever lands first must bring a degradation stage with it.
+- **§3.2 QR.** Now asserted on every sheet — one inline SVG, a legal module count (which also
+  proves no baked-in quiet zone), module size ≥ 0.5 mm (today 0.720), the ratified 18 mm pinned
+  on its own terms, and level Q proven against what L/M/Q/H actually produce. The scheduled
+  `/w/<code>` deep link is measured too: 0.621 mm, still above the floor.
+- **§3.3 Gating.** The DB step is unconditional inside a job gated only by a `dorny/paths-filter`
+  covering `apps/api/**` and seven more paths. No runner, no label, no `continue-on-error`. B0b
+  lands in `apps/api`, so the XFAIL cannot flip while the gate sits skipped. Verified on the run,
+  not reasoned: the `DB-backed gates (… + turner reach)` step conclusion is `success`.
+
+**One correction to my own record.** I wrote that `supabase-checks.yml` is `disabled_manually`
+(TD97) and that no drift gate exists. It is **active**, and its drift assertion genuinely
+succeeded here — `drizzle-kit generate` produced no diff, which independently confirms schema.ts
+↔ 0094 are in sync and that the hand-edited journal survives a regenerate. But both its assertion
+steps are `continue-on-error: true`, so the check is green either way, and neither job reads
+`when`. The pin conclusion stands for a different reason than I gave. `ASSUMPTIONS.md` A7 records
+the class: four claims now that ran, exited 0, and answered a different question than the one
+being asked.
+
+**Final CI state — run `33130115614` on `7502027c`: `ci-required` SUCCESS, every job green.**
+`Node`, `E2E` (including the nine-file DB-gated step), `SAST`, both image gates, both Flutter
+apps, deps-audit and the two `supabase-checks` jobs all pass. Five `skipped` entries are named
+in §9.5 rather than left to read as green; all five are main-only or vendor.
+
+One failure on the way there was **not** this branch: `worker-app` failed on
+`voice_form_interruptions_test.dart:191` with `Bad state: No element`. Measured rather than
+waved off — this branch changes ZERO files under `apps/worker-app`, the identical tree passed on
+the previous run, and re-running the job with no change passed. Filed as **#1293** for the owner
+rather than fixed here, because `apps/worker-app` is not backend's to touch.
+
+**Still not bought, and still the whole gap:** work-history capture (Q1), Phase C, and B0b. The
+sheet is verified; the turner is not reachable. None of those is on this branch and none is fixed
+by merging it.
