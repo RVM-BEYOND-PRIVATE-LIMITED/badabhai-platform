@@ -92,8 +92,9 @@ change rather than as a follow-up.
 
 ### The default is REVISED — and it is now measured, not argued
 
-Prakash's ruling on the sharper version: reverse §5.1 is the wrong ordering to derive a drop
-order from, because §5.1 ranks by **decisiveness for the ₹40 unlock** — Job 1 of §1.1. Dropping
+Prakash's reasoning on the sharper version — given in the R3 directive, and explicitly NOT a
+ruling; he asked for it logged as a proposed default. Reverse §5.1 is the wrong ordering to
+derive a drop order from, because §5.1 ranks by **decisiveness for the ₹40 unlock** — Job 1 of §1.1. Dropping
 strictly by it optimises Job 1 and destroys Job 3: the worker arrives at the gate and the sheet
 no longer says he has his documents, which at that gate is the whole point. It also strips the
 credential floor from exactly the ITI holder an MSME asks for.
