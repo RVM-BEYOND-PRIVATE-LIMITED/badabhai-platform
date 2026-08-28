@@ -137,6 +137,41 @@ void main() {
     verifyNever(() => repo.saveWorkPreferences(any()));
   });
 
+  test('#1298 salary + education setters flow into the submitted body',
+      () async {
+    final FinishingCubit cubit = build();
+    await cubit.load();
+    cubit.setSalaryMax(25000);
+    cubit.selectCredential('iti');
+    cubit.selectCouncil('ncvt');
+    cubit.setEducationYear(2018);
+    cubit.setInstitute('  Govt. ITI, Faridabad  ');
+    expect(cubit.state.prefs.educationInstitute, 'Govt. ITI, Faridabad'); // trimmed
+
+    await cubit.submit();
+
+    final WorkPreferences prefs =
+        verify(() => repo.saveWorkPreferences(captureAny())).captured.single
+            as WorkPreferences;
+    final Map<String, dynamic> body = prefs.toUpdateBody();
+    expect(body['salary_expected_max'], 25000);
+    expect(body['education_credential'], 'iti');
+    expect(body['education_council'], 'ncvt');
+    expect(body['education_year'], 2018);
+    expect(body['education_institute'], 'Govt. ITI, Faridabad');
+  });
+
+  test('#1298 credential re-tap clears it; a blank institute becomes null',
+      () async {
+    final FinishingCubit cubit = build();
+    await cubit.load();
+    cubit.selectCredential('iti');
+    cubit.selectCredential('iti'); // re-tap clears
+    expect(cubit.state.prefs.educationCredential, isNull);
+    cubit.setInstitute('   ');
+    expect(cubit.state.prefs.educationInstitute, isNull);
+  });
+
   test('a bad-city 400 keeps the worker on the form with the reason', () async {
     when(() => repo.saveWorkPreferences(any()))
         .thenThrow(const InvalidRequestFailure('Gurgram nahi mila'));

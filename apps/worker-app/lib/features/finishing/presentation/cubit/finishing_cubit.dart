@@ -6,9 +6,17 @@ import '../../../../core/error/failure.dart';
 import '../../domain/finishing_models.dart';
 import '../../domain/finishing_repository.dart';
 
-/// The five ordered pages of the finishing form (#1296), roughly ascending
-/// effort — chips first, the only page with typing (work history) last.
-enum FinishingPage { languages, documents, shiftAndType, cities, history }
+/// The ordered pages of the finishing form (#1296, extended #1298), roughly
+/// ascending effort — chips first, the typing pages (salary/education, then work
+/// history) last.
+enum FinishingPage {
+  languages,
+  documents,
+  shiftAndType,
+  cities,
+  salaryEducation,
+  history,
+}
 
 enum FinishingStatus { loadingOptions, ready, submitting, done, loadError }
 
@@ -155,6 +163,30 @@ class FinishingCubit extends Cubit<FinishingState> {
 
   void setAccommodation(bool value) =>
       _emitPrefs(state.prefs.copyWith(accommodationNeeded: value));
+
+  // --- Salary band + education credential (#1298) -----------------------
+
+  /// The salary band max, already parsed + range-guarded by the input edge
+  /// (null clears it / an out-of-range value is dropped before it reaches here).
+  void setSalaryMax(int? value) =>
+      _emitPrefs(state.prefs.copyWith(salaryExpectedMax: value));
+
+  /// Single-select: re-tapping the chosen credential clears it.
+  void selectCredential(String slug) => _emitPrefs(state.prefs.copyWith(
+      educationCredential:
+          state.prefs.educationCredential == slug ? null : slug));
+
+  void selectCouncil(String slug) => _emitPrefs(state.prefs.copyWith(
+      educationCouncil: state.prefs.educationCouncil == slug ? null : slug));
+
+  void setEducationYear(int? value) =>
+      _emitPrefs(state.prefs.copyWith(educationYear: value));
+
+  void setInstitute(String value) {
+    final String trimmed = value.trim();
+    _emitPrefs(state.prefs
+        .copyWith(educationInstitute: trimmed.isEmpty ? null : trimmed));
+  }
 
   // --- Work history ------------------------------------------------------
 
