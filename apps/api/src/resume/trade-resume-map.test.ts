@@ -326,6 +326,63 @@ describe("trade resume map — qp_cnc_turning", () => {
       expect(map.section_title).not.toBe(map.section_title.toUpperCase());
     }
   });
+
+  it("no VOCABULARY crosses a pack boundary without a stated reason (R14 §3.3)", () => {
+    /**
+     * THE CLASS THE `MEASURING_TOOLS` RENAME EXPOSED, not the instance.
+     *
+     * That constant's docstring read "shared by every machining-family pack: the instruments do
+     * not change by role" — a claim about the WORLD, made on the evidence of ONE pack, and false
+     * the first time a second role was authored: the ratified milling sheet prints a SNAP GAUGE,
+     * and a turner's plug / ring gauge checks a bore he just bored. It was not a careless claim.
+     * It was an UNCHALLENGEABLE one, and that is the property worth a guard: with a single map in
+     * the file, no test, no review and no amount of care could have contradicted it.
+     *
+     * So the rule is not "never share a dictionary" — controllers really may not change by role,
+     * and copying Fanuc/Siemens/Mitsubishi into every future map would be its own defect. The
+     * rule is that sharing must be a DECISION, recorded here with the reason, at the moment a
+     * second pack makes the claim testable for the first time.
+     *
+     * IDENTITY, NOT EQUALITY. Two maps that happen to list the same labels have each made their
+     * own decision; one `values` object reachable from two packs is a single vocabulary asserted
+     * to be role-independent. The second is the claim this catches.
+     */
+    const SHARED_ON_PURPOSE: Readonly<Record<string, string>> = {
+      // Empty, and that is the finding: after the rename, nothing in this file claims to be
+      // role-independent. A row added here must say WHICH two trades were compared and why the
+      // vocabulary genuinely does not change between them.
+    };
+
+    const owners = new Map<object, string[]>();
+    for (const map of TRADE_RESUME_MAPS) {
+      for (const row of map.capability) {
+        for (const dictionary of [row.values, row.configValues]) {
+          if (!dictionary) continue;
+          const seen = owners.get(dictionary) ?? [];
+          if (!seen.includes(map.pack_id)) seen.push(map.pack_id);
+          owners.set(dictionary, seen);
+        }
+      }
+    }
+
+    // The fixture must contain the thing the detector detects: two maps, or this passes because
+    // there is nothing that COULD cross a boundary — which is precisely the state that let the
+    // original claim stand.
+    expect(TRADE_RESUME_MAPS.length, "one map cannot challenge a cross-pack claim").toBeGreaterThan(
+      1,
+    );
+    expect(owners.size, "no dictionaries were collected — the walk is broken").toBeGreaterThan(5);
+
+    const crossing = [...owners.values()]
+      .filter((packs) => packs.length > 1)
+      .map((packs) => packs.sort().join(" + "))
+      .filter((key) => SHARED_ON_PURPOSE[key] === undefined);
+    expect(
+      crossing,
+      "a value dictionary is reachable from two packs — say why the vocabulary does not change " +
+        "between those trades, in SHARED_ON_PURPOSE above",
+    ).toEqual([]);
+  });
 });
 
 /**
