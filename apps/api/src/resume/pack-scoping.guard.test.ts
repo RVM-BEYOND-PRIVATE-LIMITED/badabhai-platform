@@ -188,66 +188,86 @@ describe("R12 §2.3 — a trade dictionary is reachable ONLY from its own pack",
     }
   });
 
-  it("A HYPOTHETICAL PACK THAT REUSES EVERY TURNER KEY still reaches nothing", () => {
-    // THE PROBE THE CORPUS CANNOT PROVIDE TODAY, AND ITS ABSENCE WAS A REAL HOLE.
-    //
-    // Removing the veto's scoping and re-running the corpus-driven cases above left them GREEN.
-    // The reason is the §0 sub-pattern in person: `drawing_reading` is the veto gazetteer's only
-    // colliding key, it is `boolean` in `qp_machining` and `qp_toolmaking`, and a boolean answer
-    // yields `[]` from `slugsOf` — so no shipped pack can currently supply a value that reaches
-    // the gazetteer at all. The probe could not express the thing the guard detects, and a
-    // deliberately broken build passed it.
-    //
-    // So this case supplies what the corpus cannot: a pack that reuses EVERY turner attribute
-    // key with turner-shaped values. That is not a contrivance — it is the milling pack, which
-    // §1.1's estimate says will naturally reuse six of the turner's fourteen keys, arriving a
-    // packet early as a test fixture. This is the case that goes red when the scoping is
-    // removed, and it names the attribute when it does.
-    const turnerKeys = {
-      ...CAPABILITY_TERMS.qp_cnc_turning,
-    };
-    const bag: Record<string, string[]> = {};
-    for (const [attributeKey, spec] of Object.entries(turnerKeys)) {
-      bag[attributeKey] = Object.keys(spec.slugs);
-    }
-    // Every turner slug, claimed, and a transcript denying all of it.
-    const { attributes, vetoes } = applyTranscriptVeto({
-      packId: "qp_hypothetical_milling",
-      attributes: bag,
-      workerSaid: [
-        "Nahi sir, setting nahi karta.",
-        "Naya programme nahi likhta.",
-        "Drawing dekha hai par padhta nahi.",
-        "Quality checking nahi karta.",
-        "Troubleshoot nahi kar pata.",
-      ],
-    });
-    expect(
-      vetoes.map((v) => `${v.attributeKey}.${v.slug}`),
-      "a turner's gazetteer withdrew a claim from a worker who never answered the turner pack",
-    ).toEqual([]);
-    // The attribute map must come back UNTOUCHED, not merely un-vetoed — an identity check, so a
-    // silent rewrite that happens to withdraw nothing still fails.
-    expect(attributes).toBe(bag);
+  it.each(["qp_machining", "qp_vmc_milling"])(
+    "a REAL pack that reuses every turner key — %s — still reaches nothing",
+    (foreignPackId) => {
+      // THE PROBE THE CORPUS COULD NOT PROVIDE, AND ITS ABSENCE WAS A REAL HOLE.
+      //
+      // Removing the veto's scoping and re-running the corpus-driven cases above left them GREEN.
+      // The reason is the §0 sub-pattern in person: `drawing_reading` was the veto gazetteer's only
+      // colliding key, it is `boolean` in `qp_machining` and `qp_toolmaking`, and a boolean answer
+      // yields `[]` from `slugsOf` — so no shipped pack could supply a value that reached the
+      // gazetteer at all. The probe could not express the thing the guard detects, and a
+      // deliberately broken build passed it.
+      //
+      // R12 WROTE THIS AS `qp_hypothetical_milling`, A PACK THAT DID NOT EXIST. R13 §3.4 makes it
+      // real: `qp_vmc_milling` now ships, shares TEN attribute names with the turner, and owns no
+      // veto gazetteer of its own yet — so it is precisely the worker this scoping protects, and
+      // the case now names a pack a reader can open. `qp_machining` runs beside it because it has
+      // been real the whole time and is the collision that was already live.
+      //
+      // AND THE COMPLAINT ABOVE IS NOW OBSOLETE, MEASURED. Re-running the pack-blind mutation with
+      // milling shipped fails THREE cases, not one: the corpus-driven case above goes red on its
+      // own, naming `qp_vmc_milling` and 21 withdrawn claims, because milling supplies real
+      // select values for four of the five colliding keys where `qp_machining` and
+      // `qp_toolmaking` only ever had booleans. The corpus can express the collision now.
+      //
+      // This synthetic probe stays anyway. It was the only thing that could see the class for one
+      // packet, and a guard that depends on the corpus continuing to contain its own
+      // counterexample is a guard with a silent expiry date.
+      //
+      // WHEN §3.2 AUTHORS A MILLING GAZETTEER THIS CHANGES MEANING for the milling row: the bag
+      // below is turner slugs, and a milling gazetteer would be entitled to act on the names the
+      // two packs share. At that point the milling row must move to asserting that the MILLING
+      // gazetteer reaches only milling — not be deleted, and not be left passing by accident.
+      const turnerKeys = {
+        ...CAPABILITY_TERMS.qp_cnc_turning,
+      };
+      const bag: Record<string, string[]> = {};
+      for (const [attributeKey, spec] of Object.entries(turnerKeys)) {
+        bag[attributeKey] = Object.keys(spec.slugs);
+      }
+      // Every turner slug, claimed, and a transcript denying all of it.
+      const { attributes, vetoes } = applyTranscriptVeto({
+        packId: foreignPackId,
+        attributes: bag,
+        workerSaid: [
+          "Nahi sir, setting nahi karta.",
+          "Naya programme nahi likhta.",
+          "Drawing dekha hai par padhta nahi.",
+          "Quality checking nahi karta.",
+          "Troubleshoot nahi kar pata.",
+        ],
+      });
+      expect(
+        vetoes.map((v) => `${v.attributeKey}.${v.slug}`),
+        "a turner's gazetteer withdrew a claim from a worker who never answered the turner pack",
+      ).toEqual([]);
+      // The attribute map must come back UNTOUCHED, not merely un-vetoed — an identity check, so a
+      // silent rewrite that happens to withdraw nothing still fails.
+      expect(attributes).toBe(bag);
 
-    // The same hypothetical pack against the other two dictionaries.
-    expect(
-      buildFresherRows("qp_hypothetical_milling", {
-        iti_workshop_machines: ["conventional_lathe", "milling"],
-        trade_test_status: "passed",
-      }),
-    ).toEqual([]);
-    expect(
-      corpusSkillsForPackAttributes(
-        Object.entries(PACK_ATTRIBUTE_SKILLS.qp_cnc_turning ?? {}).map(([attributeKey, opts]) => ({
-          packId: "qp_hypothetical_milling",
-          attributeKey,
-          optionKeys: Object.keys(opts),
-        })),
-      ),
-      "a turner's reach map gave skills to a worker who never answered the turner pack",
-    ).toEqual([]);
-  });
+      // The same foreign pack against the other two dictionaries.
+      expect(
+        buildFresherRows(foreignPackId, {
+          iti_workshop_machines: ["conventional_lathe", "milling"],
+          trade_test_status: "passed",
+        }),
+      ).toEqual([]);
+      expect(
+        corpusSkillsForPackAttributes(
+          Object.entries(PACK_ATTRIBUTE_SKILLS.qp_cnc_turning ?? {}).map(
+            ([attributeKey, opts]) => ({
+              packId: foreignPackId,
+              attributeKey,
+              optionKeys: Object.keys(opts),
+            }),
+          ),
+        ),
+        "a turner's reach map gave skills to a worker who never answered the turner pack",
+      ).toEqual([]);
+    },
+  );
 
   it("a null pack — a worker whose answers came only from the finishing form — reaches nothing", () => {
     // The form writes `worker_attributes` rows with no `pack_id`. Those keys are all
