@@ -1049,7 +1049,11 @@ describe("Zone 5 on the résumé-container path (R5 §1.3)", () => {
       null,
       false,
       "worker",
-      { qualification: { educationHeadline: "ITI — Turner — NCVT" } },
+      {
+        packId: "qp_cnc_turning",
+        attributes: {},
+        qualification: { educationHeadline: "ITI — Turner — NCVT" },
+      },
     );
     expect(row(input, "Education")?.value).toBe("ITI — Turner — NCVT");
   });

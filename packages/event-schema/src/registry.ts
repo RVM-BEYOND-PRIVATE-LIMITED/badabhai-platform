@@ -27,6 +27,11 @@ export const EVENT_REGISTRY = {
   // from worker.otp_verified so a test mint is always distinguishable on the spine.
   "worker.test_login": { version: 1, domain: "worker", payload: p.WorkerTestLoginPayload },
   "worker.name_recorded": { version: 1, domain: "worker", payload: p.WorkerNameRecordedPayload },
+  "worker.employment_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerEmploymentRecordedPayload,
+  },
   "worker.resume_prefs_updated": {
     version: 1,
     domain: "worker",

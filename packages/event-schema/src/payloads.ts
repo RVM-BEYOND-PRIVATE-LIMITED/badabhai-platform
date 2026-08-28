@@ -61,6 +61,28 @@ export const WorkerNameRecordedPayload = z.object({
   worker_id: uuidSchema,
 });
 
+// The worker recorded their work history on the post-interview form.
+//
+// PII-FREE, AND THIS ONE TOOK A DECISION RATHER THAN A CONVENTION. The employer name IS the
+// feature here and it is exactly what may not travel: it is encrypted at rest in
+// `worker_employment.employer_name_enc` and it never appears on the spine, in a log or in an
+// analytics row. The city does not travel either — it is not an identifier, but a city plus a
+// worker id plus a date range narrows a person considerably and the event needs none of it.
+//
+// What DOES travel is the shape of what was recorded, which is what an audit trail is for:
+// how many employers, how many of them stated dates, and whether the worker was editing or
+// filling the form for the first time.
+export const WorkerEmploymentRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    employer_count: z.number().int().min(0).max(4),
+    /** How many of those carry a real start month (§11 #3's "duration not stated" split). */
+    durations_stated: z.number().int().min(0).max(4),
+    /** True when this replaced an existing history rather than creating the first one. */
+    replaced_existing: z.boolean(),
+  })
+  .strict();
+
 // The worker updated their resume display prefs on the "Aap control karte hain"
 // edit screen. PII-FREE: only worker_id + the two boolean flags — never the
 // name/phone/photo. Carries the RESULTING values (post-update) of both flags.

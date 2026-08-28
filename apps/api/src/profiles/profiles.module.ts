@@ -9,6 +9,10 @@ import { ProfilesRepository } from "./profiles.repository";
 import { AiJobsRepository } from "./ai-jobs.repository";
 import { WorkerAttributesRepository } from "./worker-attributes.repository";
 import { WorkerEmploymentRepository } from "./worker-employment.repository";
+import { WorkerEmploymentService } from "./worker-employment.service";
+import { WorkerEmploymentController } from "./worker-employment.controller";
+import { WorkersModule } from "../workers/workers.module";
+import { RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { AiJobsController } from "./ai-jobs.controller";
 import { WorkerAiJobsController } from "./worker-ai-jobs.controller";
 import { ProfileExtractionProcessor } from "./profile-extraction.processor";
@@ -26,12 +30,19 @@ import {
     // extraction on the readiness flip), so the two modules reference each other.
     forwardRef(() => ChatModule), // for ChatRepository (transcript)
     AuthModule, // WorkerAuthGuard + ConsentGuard for the worker AI routes (inv. 4/6)
+    // `WorkersRepository`, for the work-history writer's résumé re-render (it needs the
+    // worker's latest résumé id). ACYCLIC: WorkersModule imports Auth/Storage/RateLimit and
+    // never `profiles`, so this edge only goes one way.
+    WorkersModule,
     // SkillsRepository — the extraction processor re-validates the RAG-matched
     // job_domain_id against the catalog before persisting it (see resolveJobDomain).
     SkillsModule,
     BullModule.registerQueue({ name: PROFILE_EXTRACTION_QUEUE }),
     // Auto-enqueue a resume render once a profile is confirmed (TD5).
     BullModule.registerQueue({ name: RESUME_GENERATE_QUEUE }),
+    // Re-render IN PLACE when the worker edits his history — a different queue from the
+    // generate above, and the one `WorkersService` already uses for the same reason.
+    BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
     // §X.6 — leg 1 of the ₹20 activation-bonus rule fires on confirm. PRODUCER ONLY: the
     // processor lives in ReferralAttributionModule, so this stays a queue registration and
     // NOT a module import (no dependency from `profiles` into `referrals`).
@@ -45,7 +56,12 @@ import {
   // guards union class-level with method-level, so a worker route on the ops controller
   // would inherit InternalServiceGuard and break the prod-canary contract. See its
   // docstring. AuthModule (already imported above) supplies WorkerAuthGuard/ConsentGuard.
-  controllers: [ProfilesController, AiJobsController, WorkerAiJobsController],
+  controllers: [
+    ProfilesController,
+    AiJobsController,
+    WorkerAiJobsController,
+    WorkerEmploymentController,
+  ],
   providers: [
     ProfilesService,
     ProfilesRepository,
@@ -58,6 +74,7 @@ import {
     // a time later, with no cutover. `PiiCryptoService` comes from the @Global CryptoModule, so
     // this adds no module edge.
     WorkerEmploymentRepository,
+    WorkerEmploymentService,
     ProfileExtractionProcessor,
     AiJobsRetentionSweepProcessor,
   ],

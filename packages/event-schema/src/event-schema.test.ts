@@ -3042,8 +3042,11 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 168 event names (167 prior + the Policy 27 widen-expiry event)", () => {
-    expect(EVENT_NAMES).toHaveLength(168);
+  it("exposes all 169 event names (168 prior + the work-history writer)", () => {
+    expect(EVENT_NAMES).toHaveLength(169);
+    // R5 1.2 — the worker recorded his own work history. PII-FREE by shape: counts and a
+    // boolean, never the employer name the feature is about, and never the city.
+    expect(isEventName("worker.employment_recorded")).toBe(true);
     // #997 — the worker addressing the platform in their own words. The only worker-authored
     // free text on the spine whose system-of-record row is deliberately allowed to hold the
     // worker's own PII; the EVENT carries the category, the length and the build, never the
