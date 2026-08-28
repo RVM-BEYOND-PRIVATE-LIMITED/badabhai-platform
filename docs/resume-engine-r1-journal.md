@@ -1440,6 +1440,40 @@ gateway now consults. No provider call, no worker contact, idempotent.
 cost is a rename in one service and its tests, and one number is worth more than two. Still not
 built — §9 scoped it out until the ruling.
 
+### 17.8 — The ai-engineer review, and what it turned up
+
+**APPROVE WITH FOLLOW-UPS.** The core privacy claim held under a 5,500-input differential
+(47 leads × 5 separators × 22 tails): **zero blocking diffs**, and the entire new egress surface
+is 40 strings, all gazetteer members. Rule order verified — everything after step 4 is digit-only,
+so deferring a letters-only capture could neither create nor break a residual digit run. Fail-closed
+verified on five gazetteer failure modes: over-mask or a loud boot failure, never pass-through.
+
+Four follow-ups, all acted on:
+
+- **An email was not identity-class.** `_IDENTITY_TOKEN_RE` listed PHONE/PERSON/EMPLOYER/ID and
+  not EMAIL, so a typed address reached a payer's persisted draft and a published posting. It had
+  been masked _by accident_ — a leading city minted `[PERSON_n]`, which armed the gate and masked
+  the address standing beside it. Removing the accident exposed the gap it covered. Fixed, with
+  the gate's first test, written to check what it PERMITS as well as what it catches.
+- **That test found a second thing.** A pay range typed `18000-22000` is ten digits joined by a
+  separator, so R30's phone rule masks it and the payer's own figure vanishes from their own
+  draft. Pinned as observed behaviour rather than asserted correct — narrowing R30 is the
+  pseudonymisation owner's call.
+- **Two test gaps, from the reviewer's own mutation run.** Deleting the `CITY_ALIASES` half of the
+  carve-out was caught by **nothing** — half the condition was untested, and the seven alias-only
+  strings (`bombay`, `calcutta`, `poona`…) are the likelier leading forms. Closed; that mutation
+  now fails and names all seven. The gazetteer's lowercase invariant is also pinned.
+- **The one I checked myself, and it is worse than "stale documentation".** `chat.service.ts`
+  claimed `redactKnownName` strips the worker's name from everything crossing the ai-service
+  boundary. It does not, and that file does not import it — the only production call site is the
+  extraction processor. `LlmTurnService.take` sends `message_text` and the whole history
+  unredacted, and **`profiling_chat_turn` is the one task the staging compose arms**. So the armed
+  task has no upstream mitigation and the mitigated task is armed nowhere; any assessment of the
+  `Surat`/`Sanand` name collisions that credits `redactKnownName` is reasoning about the wrong
+  path. Withdrawn in place and recorded against **R32** with a recommendation. Not fixed —
+  changing what crosses the boundary on the live task is an owner decision, not a side effect of
+  correcting a comment.
+
 ### 17.7 — State
 
 Seven commits. `tsc` clean; `apps/api` **6457 passed / 86 skipped**; `eslint src` 0 errors (one
