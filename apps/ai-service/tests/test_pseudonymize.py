@@ -865,3 +865,56 @@ def test_greeting_is_not_masked_as_person():
     result = pseudonymize("Hello, I run a VMC machine")
     assert "[PERSON_1]" not in result.text
     assert "Hello" in result.text
+
+
+# --- R5 §1.5: a city at the START of a message is still a city ----------------
+#
+# The ruling above says cities are never redacted. The LEADING-NAME heuristic was
+# redacting them anyway: `^\s*([A-Z][a-z]+)\s*,` is a good guess at "Ramesh, main
+# welder hoon" and an equally good match for "Faridabad, Haryana mein...", which came
+# out as "[PERSON_1], Haryana mein...". Measured before the fix: 33 of the 36 canonical
+# cities were masked this way, the three survivors ("greater noida", "navi mumbai",
+# "new delhi") only because the pattern cannot span a space.
+#
+# It is not a harmless over-mask. `city_current` and `cities_preferred` are Required
+# fields and distance is one of the four filters that actually reject a candidate, so
+# the worker silently lost the signal deciding whether he is reachable at all.
+#
+# Every probe in the block above places the city MID-sentence, which is why the suite
+# was green while this was broken.
+
+
+@pytest.mark.parametrize("city", ["Faridabad", "Gurugram", "Manesar"])
+def test_leading_city_before_a_comma_is_not_masked_as_a_person(city):
+    result = pseudonymize(f"{city}, Haryana mein kaam karta hoon")
+    assert city in result.text
+    assert "[PERSON_" not in result.text
+    assert result.blocked is False
+
+
+def test_every_canonical_city_survives_in_the_leading_position():
+    # The parametrised trio is the named ask; this is the general property. A fix that
+    # special-cased three strings would pass the test above and leave the other 33.
+    from app.pseudonymize import KNOWN_CITIES
+
+    masked = [
+        c
+        for c in sorted(KNOWN_CITIES)
+        if "[PERSON_" in pseudonymize(f"{c.title()}, Haryana").text
+    ]
+    assert masked == []
+
+
+def test_a_leading_PERSON_NAME_is_still_masked():
+    # The half that matters more. A carve-out for cities is only safe if the heuristic
+    # it sits inside still does its job - this is the guard tested for what it PERMITS.
+    result = pseudonymize("Ramesh, main welder hoon")
+    assert "[PERSON_1]" in result.text
+    assert "Ramesh" not in result.text
+
+
+def test_the_name_CUE_rule_is_untouched_by_the_city_carve_out():
+    # "Mera naam X" is explicit evidence of a name whatever X is. Only the no-cue guess
+    # defers to the gazetteer; a worker who says his name is Nagpur still gets masked.
+    assert "[PERSON_1]" in pseudonymize("Mera naam Ramesh Kumar hai").text
+    assert "[PERSON_1]" in pseudonymize("Mera naam Nagpur hai").text
