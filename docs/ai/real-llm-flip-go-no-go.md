@@ -12,23 +12,28 @@
   itself change any prod env — the flip remains the maintainer's manual, human-gated action.
 - **Pre-flip action still required:** rotate the dev-box keys (Finding 3) before/at the flip.
 - **Runbook + threshold:** [enable-real-llm-extraction.md](enable-real-llm-extraction.md)
-  (canonicalization ≥90%, per-field ≥90%, cost/profile ≤ target ₹4, cap-never-breached,
+  (canonicalization ≥90%, per-field ≥90%, cost/profile ≤ target, cap-never-breached,
   no mock-fallback contamination).
+- **⚠️ THE ₹4 TARGET IN THIS DOCUMENT IS SUPERSEDED — see "The cost target, reconciled" below.**
+  The shipped target is **₹15** with a **₹20** alert (`ai_target_profile_cost_inr`,
+  `ai_cost_alert_profile_inr`). This document was written against ₹4 and its measured figure was
+  taken on a model the chat turn no longer uses. Every threshold is left exactly as it was
+  measured; only the reading of it is corrected.
 
 ## Measured vs threshold
 
-| Criterion | Threshold | Measured | Result |
-|-----------|-----------|----------|--------|
-| Controls: pseudonymization fail-closed upstream | must hold | suite green; blocked input never reaches LLM | ✅ |
-| Controls: TD27 caps fire **before** network | must hold | daily/total/per-user (₹6) unit tests pass | ✅ |
-| Controls: kill-switch hard-disables independently | must hold | `error_code=kill_switch_engaged` | ✅ |
-| Cap-never-breached (live) | spend < cap | ₹0.276 of ₹200 daily / ₹1000 total | ✅ |
-| PII-free spend snapshots + error codes | must hold | asserted by tests | ✅ |
-| Cost / profile | ≤ ₹4 target | **₹0.023 / call** (Gemini 2.5 Flash-Lite) | ✅ (well under) |
-| Latency / call | sane | **~2.2–3.8 s** | ✅ |
-| Canonicalization (role) accuracy | ≥ 90% | **PASS on staging** (clean full run, TD27); the contaminated free-tier local re-run is superseded | ✅ (maintainer-confirmed 2026-06-17) |
-| Per-field aggregate accuracy | ≥ 90% | **PASS on staging** — per-field aggregate ≥ 90% (TD27 record) | ✅ (maintainer-confirmed 2026-06-17) |
-| No mock-fallback contamination | 0 fallbacks | clean `N/N succeeded` on the staging key (the free-tier 46/68→mock run is superseded) | ✅ (staging) |
+| Criterion                                         | Threshold                                | Measured                                                                                          | Result                                                |
+| ------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Controls: pseudonymization fail-closed upstream   | must hold                                | suite green; blocked input never reaches LLM                                                      | ✅                                                    |
+| Controls: TD27 caps fire **before** network       | must hold                                | daily/total/per-user (₹6) unit tests pass                                                         | ✅                                                    |
+| Controls: kill-switch hard-disables independently | must hold                                | `error_code=kill_switch_engaged`                                                                  | ✅                                                    |
+| Cap-never-breached (live)                         | spend < cap                              | ₹0.276 of ₹200 daily / ₹1000 total                                                                | ✅                                                    |
+| PII-free spend snapshots + error codes            | must hold                                | asserted by tests                                                                                 | ✅                                                    |
+| Cost / profile                                    | ≤ ₹4 target **(superseded — see below)** | **₹0.023 / call** on **Gemini 2.5 Flash-Lite**, which is no longer the chat model                 | ✅ as measured, against a target that has since moved |
+| Latency / call                                    | sane                                     | **~2.2–3.8 s**                                                                                    | ✅                                                    |
+| Canonicalization (role) accuracy                  | ≥ 90%                                    | **PASS on staging** (clean full run, TD27); the contaminated free-tier local re-run is superseded | ✅ (maintainer-confirmed 2026-06-17)                  |
+| Per-field aggregate accuracy                      | ≥ 90%                                    | **PASS on staging** — per-field aggregate ≥ 90% (TD27 record)                                     | ✅ (maintainer-confirmed 2026-06-17)                  |
+| No mock-fallback contamination                    | 0 fallbacks                              | clean `N/N succeeded` on the staging key (the free-tier 46/68→mock run is superseded)             | ✅ (staging)                                          |
 
 ## Resolution — GO (2026-06-17)
 
@@ -48,11 +53,11 @@ machinery never needed re-architecting — only the clean accuracy evidence, whi
 
 1. **✅ RESOLVED (2026-06-23) — dead Haiku FALLBACK no longer wastes attempts + the TD27 retry
    budget.**
-   *Was (2026-06-16):* "**Configured primary `claude-haiku-4-5` fails 100%** (RuntimeError every
+   _Was (2026-06-16):_ "**Configured primary `claude-haiku-4-5` fails 100%** (RuntimeError every
    call) — extraction only works via Gemini fallback, wasting 3 attempts/call and risking the
    retry budget under load. Fix the Anthropic key/config or drop it; the runbook intends **Gemini
    primary**."
-   *Reconciliation:* the "Haiku **primary**" wording described a since-fixed dev-box `.env`
+   _Reconciliation:_ the "Haiku **primary**" wording described a since-fixed dev-box `.env`
    misconfig (`DEFAULT_CAPABLE_MODEL=claude-haiku-4-5`) — **Gemini primary is already the
    committed default**: `default_capable_model = "gemini-2.5-flash"`
    ([`app/config.py:48`](../../apps/ai-service/app/config.py)) is the capable tier for
@@ -79,7 +84,7 @@ machinery never needed re-architecting — only the clean accuracy evidence, whi
    the prod model. **RESOLVED (config half):** the prod extraction model is now **PINNED to
    `gemini-2.5-flash`** — `default_capable_model` in
    [`app/config.py`](../../apps/ai-service/app/config.py) changed `gemini-2.5-flash-lite →
-   gemini-2.5-flash` to MATCH the runbook (`DEFAULT_CAPABLE_MODEL=gemini-2.5-flash`) + ADR-0008's
+gemini-2.5-flash` to MATCH the runbook (`DEFAULT_CAPABLE_MODEL=gemini-2.5-flash`) + ADR-0008's
    "capable" tier (`AI_REAL_CALL_TASKS=profile_extraction` at flip). The **three models collapse to
    one**: validation-model must now equal flip-model = **`gemini-2.5-flash`**.
    **STILL OWED before the flip (human-gated — real paid calls, §7):** a clean **56/56 gold-set run
@@ -98,7 +103,7 @@ machinery never needed re-architecting — only the clean accuracy evidence, whi
    funded `gemini-2.5-flash` staging key, then record role %, per-field %, `N/N succeeded`, the p95
    number, and cost/call here. **If <90% on `gemini-2.5-flash`, STOP — do not ship a model the
    numbers don't cover.** Owner: **ai-engineer + devops**.
-   *Also per Q3:* p95 latency on the pinned model · ≥2 more staging runs · ~~shared-store (Redis)
+   _Also per Q3:_ p95 latency on the pinned model · ≥2 more staging runs · ~~shared-store (Redis)
    spend ledger~~ **✅ MET (2026-06-19)** · secrets manager.
 
 5. **✅ Shared-store (Redis) spend ledger — MET (2026-06-19, TD27 final sub-item).** The spend
@@ -125,7 +130,7 @@ machinery never needed re-architecting — only the clean accuracy evidence, whi
 
 - **Prod env diff:** `AI_ENABLE_REAL_CALLS=true`, `AI_REAL_CALL_TASKS=profile_extraction`,
   `GEMINI_FLASH_API_KEY=<staging-validated paid key>`, `DEFAULT_CAPABLE_MODEL=<pinned
-  Gemini>`; keep `AI_REAL_CALLS_KILL_SWITCH=false`, caps at policy. Staging first.
+Gemini>`; keep `AI_REAL_CALLS_KILL_SWITCH=false`, caps at policy. Staging first.
 - **Rollback (instant, no deploy):** set `AI_ENABLE_REAL_CALLS=false` **or** clear
   `AI_REAL_CALL_TASKS` **or** `AI_REAL_CALLS_KILL_SWITCH=true` → extraction returns to mock.
 - **Kill-switch runbook:** flip `AI_REAL_CALLS_KILL_SWITCH=true` to hard-stop all real calls
@@ -146,3 +151,54 @@ machinery never needed re-architecting — only the clean accuracy evidence, whi
   run on a paid/staging key meeting ≥90% role + per-field with zero fallbacks.~~ **DONE
   (2026-06-17)** — that run passed on staging (TD27); verdict is now **GO**. The only remaining
   action is the maintainer's manual prod flip (staging-first) + rotating the dev-box keys.
+
+---
+
+## The cost target, reconciled (R6 §6)
+
+Three sources gave three different numbers for one threshold. **No threshold was changed** —
+this section states which one is authoritative and why the other two read the way they do.
+
+| source                                 | says                                         | status                                                   |
+| -------------------------------------- | -------------------------------------------- | -------------------------------------------------------- |
+| `apps/ai-service/app/config.py`        | target **₹15**, alert **₹20**                | **authoritative — the shipped value**                    |
+| this document, above                   | target ₹4, measured ₹0.023/call              | superseded, and the measurement was on a different model |
+| `docs/resume-engine-r1-journal.md` §16 | records the discrepancy without resolving it | resolved by this section                                 |
+
+### Why ₹4 stopped being the number, in the code's own words
+
+`config.py` states it plainly, and the reasoning is the part worth keeping:
+
+> The old numbers were sized for a chat that spent ZERO output tokens on the straight-line path
+> — the engine served its templated question and the LLM was never called. Every turn is now a
+> real call… **Rs 4 was not a budget for that shape of work; it was a budget for not doing it.**
+
+So ₹4 was never beaten by an optimisation. It described an interview in which the chat turn made
+no call at all, and it stopped applying the moment the LLM-led interview became the design.
+
+### Why the ₹0.023 figure cannot be carried forward
+
+It was measured on **Gemini 2.5 Flash-Lite**. The chat turn now resolves through
+`ai_chat_model_tier` to `default_pro_model` — **Gemini 2.5 Pro** (#1237) — which is priced in
+`model_config._MODEL_RATES_INR` at roughly **4× the input and 4× the output** of Flash-Lite. A
+per-call figure taken on the cheaper model is not a bound on the more expensive one, and quoting
+it as a green tick against a live target is how a stale number keeps a gate looking met.
+
+`default_capable_model` deliberately stayed at `gemini-2.5-flash` for exactly this reason:
+`profile_extraction` and `profile_parse` resolve through it, and Finding 4 below requires the
+validation model to equal the flip model until the 56-case re-validation is funded and re-run.
+
+### What was actually measured, against the shipped target
+
+R5 §1.7 priced a full interview with `apps/api/src/profiling/interview-cost.report.test.ts`,
+driving the real `nextQuestion` engine over the shipped packs:
+
+| scenario                                                      | cost per profile |
+| ------------------------------------------------------------- | ---------------- |
+| shipped defaults (`AI_REAL_CALL_TASKS` empty, templated asks) | **₹0.23**        |
+| worst realistic interview, chat turn on Pro                   | **₹1.99**        |
+| shipped target                                                | ₹15              |
+| alert                                                         | ₹20              |
+
+Both are far under both. Nothing here argues for re-tiering any model — that call is the owner's,
+and R5 §1.7 stopped rather than making it.

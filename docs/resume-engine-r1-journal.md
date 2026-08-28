@@ -1286,13 +1286,19 @@ Three things behind that number:
 - **The shipped default spends nothing on the chat turn.** `AI_REAL_CALL_TASKS` defaults to empty
   (fail-closed, owner-ruled), and COST-4 serves the templated question directly on the
   straight-line path — which is every chip-tapping turner.
-- **A stale comment says otherwise.** `config.py:337` claims the allowlist "defaults to that task
-  alone"; the field default is `""`. Cost-relevant, and wrong.
+- **A stale comment says otherwise.** `config.py:337` claimed the allowlist "defaults to that task
+  alone"; the field default is `""`. **RESOLVED (R6 §6)** — the claim was true of
+  `docker-compose.staging.yml`, which supplies `${AI_REAL_CALL_TASKS:-profiling_chat_turn}`, and
+  false of the Settings default. The comment now names the layer.
 - **The ₹4/₹6 target was deliberately superseded in code** — `ai_target_profile_cost_inr` is
   **15.0** and the alert **20.0**, with the rationale in `config.py`: "Rs 4 was not a budget for
   that shape of work; it was a budget for not doing it." Meanwhile `real-llm-flip-go-no-go.md`
   still asserts "≤ ₹4 target ✅", validated at **₹0.023/call on Flash-Lite** — a model the chat
   turn no longer uses. Three sources, three different numbers. Reported, not re-tiered.
+  **RESOLVED (R6 §6)** — `real-llm-flip-go-no-go.md` now carries a "cost target, reconciled"
+  section naming `config.py` authoritative, marking its own ₹4 row superseded, and recording why
+  the ₹0.023 figure cannot be carried forward (it was Flash-Lite; the chat turn is Pro, ~4× on
+  both legs). No threshold was changed.
 
 ### 16.6 — Scorecard (§2)
 

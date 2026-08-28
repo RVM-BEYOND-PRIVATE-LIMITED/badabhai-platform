@@ -333,9 +333,19 @@ class Settings(BaseSettings):
     # the CHAT turn would have silently moved two extraction paths onto a model that
     # re-validation never covered.
     #
-    # Only `profiling_chat_turn` points here (`ai_chat_model_tier`), and it is the only task with
-    # real calls armed — `AI_REAL_CALL_TASKS` defaults to that task alone, fail-closed when
-    # empty — so this is the model a worker actually meets and the only one this raise reaches.
+    # Only `profiling_chat_turn` points here (`ai_chat_model_tier`), so this is the model a worker
+    # actually meets and the only one this raise reaches.
+    #
+    # WHICH LAYER "DEFAULTS TO THAT TASK ALONE" IS TRUE OF, because this comment used to say it
+    # without saying where and the two layers disagree (R6 §6):
+    #   - `ai_real_call_tasks` below defaults to `""`, which arms NOTHING. That is the
+    #     fail-closed Settings default and it is what a bare process reads.
+    #   - `docker-compose.staging.yml` supplies `${AI_REAL_CALL_TASKS:-profiling_chat_turn}`,
+    #     which is where the "that task alone" default actually lives, pinned by
+    #     `apps/api/src/config/real-call-posture-compose.guard.test.ts`.
+    # Read as a claim about the Settings default the old wording was simply wrong, and it is the
+    # kind of wrong that makes a reader believe a task is armed when the process arming it is a
+    # compose file they are not looking at.
     #
     # PRICED IN `model_config._MODEL_RATES_INR`, which is not optional bookkeeping: the spend
     # guardrails are computed from that estimate, and an unpriced id falls back to a rate that
