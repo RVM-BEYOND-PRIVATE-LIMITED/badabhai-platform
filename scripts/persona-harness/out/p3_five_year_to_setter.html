@@ -1,0 +1,299 @@
+<!doctype html>
+<!--
+  Resume template — id: "bb_trade", version: 1.   THE LOCKED BADABHAI TRADE SHEET.
+
+  One A4 page, one column, built for a supervisor reading a stack of these at a factory
+  gate. Unlike classic/modern/minimal — generic Western resume chrome — this layout is the
+  product's own identity and its section ORDER is fixed by the Resume Engine Design
+  Guideline v1.0, not by data availability.
+
+  WHY TERMS SITS ABOVE WORK HISTORY. It inverts every resume convention, deliberately.
+  Availability and expected pay are two of the four things that actually reject a
+  blue-collar candidate; an employer who cannot afford a man or cannot wait for him should
+  learn that before he reads about the man's last three employers. Do not "fix" this.
+
+  WHAT IS DIFFERENT FROM EVERY EARLIER TEMPLATE, and why the rules below changed:
+
+  1. PHONE IS ON THE PAGE. Owner ruling 2026-08-28, on BOTH the worker copy and the
+     employer disclosure. Every earlier template's header comment says no contact PII may
+     ever appear; that rule is now scoped to those templates. See templates/README.md.
+     Address and email are still absent and must stay absent. (The prohibition that IS
+     still absolute is an unmasked number on the PUBLIC web profile — a different surface.)
+  2. EMPLOYER NAMES ARE ON THE PAGE. Also owner-ruled. The value is captured by a
+     worker-typed question and written straight to Postgres — it NEVER passes through the
+     AI service, whose pseudonymisation gateway still masks employers on every call.
+  3. WORK HISTORY IS TWO LEVEL. An employment carries nested role stints, so a promotion
+     inside one company reads as a promotion instead of two unrelated jobs.
+  4. THE FIRST SECTION'S TITLE IS DATA. A turner's sheet says MACHINES, CONTROLLERS &
+     CAPABILITY; a welder's says PROCESSES, POSITIONS & CAPABILITY; a mechanic's says
+     VEHICLES, SYSTEMS & TOOLS. It arrives as an attribute (see the :empty note below).
+
+  TYPE SIZES ARE IN POINTS, AND THAT IS NOT A STYLE CHOICE. The guideline sets hard
+  floors — body 10.5pt, name 18pt, section label 9pt, margins 12mm, rules no finer than
+  0.5pt — and a printed page is measured in points, so expressing them in px would hide
+  every one of those floors behind a 0.75 conversion. An earlier draft of this file was
+  authored in px and sat at 7.6pt body / 16.5pt name: below two floors at once, and
+  invisible as such. If you change a size here, check it against the floor in the comment
+  beside it.
+
+  COLOUR CARRIES NO INFORMATION. Every skin must survive a greyscale photocopy at a shop
+  outside the plant gate, so nothing is distinguished by hue alone — ticks, labels and
+  dates all read from weight and glyph. The accent is decoration.
+
+  SKINS. The guideline specifies one HTML + one CSS + a custom-property set per skin.
+  :root below is skin "Neela" (the house style: navy bar, navy section labels, light
+  filled chips). Adding Saada / Kaagaz / Loha is a replacement token block and nothing
+  else — no new markup, no new template id. Do not hard-code a colour outside :root.
+
+  NOTE FOR EDITORS: never write mustache syntax in this comment or in the CSS. The
+  renderer substitutes over raw text and does not skip comments — a lone opening region
+  tag in prose would pair with the real closing tag far below and repeat half the page,
+  and a scalar token would interpolate real data into the served HTML source.
+
+  HOW SECTIONS COLLAPSE — the same discipline as classic.v3, and for the same reason:
+  a sparse profile is the common case, not the exception.
+    * A region-backed section's heading is GENERATED CONTENT on the container, which sits
+      OUTSIDE the repeat. Put a heading inside a region and a worker with six chips gets
+      six headings. The role-specific title in point 4 above is therefore delivered as a
+      data-* ATTRIBUTE read back by attr() — an element carrying attributes but no child
+      nodes still matches :empty, whereas a text slot would defeat the collapse entirely.
+    * A COLLAPSIBLE CONTAINER MUST CONTAIN NO WHITESPACE. `:empty` does not match an
+      element holding a single space or a newline, so every such container and the region
+      inside it are written on ONE line, flush against the tags. Whitespace INSIDE a
+      region is safe — it leaves with the region.
+    * Label-carrying rows use `.row:empty` so an absent value takes its own label with it.
+      There is no such thing as a "Tolerance held" line with nothing after it.
+
+  ONE PAGE IS THE PRODUCT. Nothing here scales type to fit; overflow is handled by the
+  truncation rules in resume-render-input.ts (four employers in full, the remainder
+  collapsed to one counted line), where they can be documented and tested. If a sheet
+  overflows, the mapper is wrong, not the CSS.
+
+  Rendering is WeasyPrint, offline: inline <style> only, no JS, no external fonts /
+  images / stylesheets / network references of any kind. The QR arrives as a `data:` URI.
+  Devanagari needs a Devanagari font present in the API image, or the name line renders
+  as empty boxes — the guideline requires Latin and Devanagari from the SAME family.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Imran Shaikh — BadaBhai</title>
+    <style>
+      /* ================= SKIN: Neela (house style) =========================
+         Sampled from the ratified sheet, not from the web palette: the print navy
+         is #0f3d6e, a shade deeper than payer-web's --blue-700, because it has to
+         hold contrast through a photocopier. Chip tint is 15%+ grey-equivalent —
+         the guideline's floor for a fill that must survive xerography. */
+      :root {
+        --navy: #0f3d6e;
+        --ink: #14181d;
+        --muted: #3a424b;
+        --chip-bg: #bcd2ea;
+        --chip-ink: #0f3d6e;
+        --rule: #0f3d6e;
+        --bar-bg: #0f3d6e;
+        --bar-ink: #ffffff;
+        --paper: #ffffff;
+        --rule-w: 0.75pt; /* floor is 0.5pt — printers drop anything finer */
+        --hair-w: 0.6pt;
+      }
+      * { box-sizing: border-box; }
+      /* 12mm on every edge is a floor, not a preference: these sheets are photocopied
+         and gate-desk printers clip. The masthead therefore sits INSIDE the margin —
+         it is a content-width bar, never full-bleed. */
+      @page { size: A4; margin: 12mm; }
+      body {
+        font-family: "Noto Sans", "DejaVu Sans", Arial, sans-serif;
+        color: var(--ink); background: var(--paper); margin: 0;
+        font-size: 10.5pt; /* FLOOR: 10.5pt. Never smaller to fit more. */
+        line-height: 1.32; orphans: 2; widows: 2;
+      }
+
+      /* ---- masthead ----------------------------------------------------- */
+      .bar {
+        background: var(--bar-bg); color: var(--bar-ink); padding: 1.4mm 2.4mm;
+        display: flex; align-items: baseline; justify-content: space-between;
+        font-size: 8.6pt; font-weight: 700;
+      }
+      /* Uppercasing belongs to the WORDMARK, not to the bar. Put it on the bar and the
+         trust tier is shouted back as "RVM-ATTESTED" / "DOCUMENT-VERIFIED", which reads as
+         a stamp rather than a statement of fact and mangles any tier whose casing is
+         meaningful. The tier string renders exactly as the mapper wrote it. */
+      .wordmark { letter-spacing: 0.09em; text-transform: uppercase; }
+      /* The trust badge is a plain string slot so the tier vocabulary lives in the mapper,
+         never here. An absent badge collapses rather than printing a placeholder — the
+         unverified state must read as neutral, never as a warning. */
+      .badge { font-weight: 600; }
+      .badge:empty { display: none; }
+
+      .idrow { display: flex; align-items: baseline; justify-content: space-between;
+               gap: 8mm; margin-top: 2.6mm; }
+      /* §11 #9 — "Auto-fit down to the 18pt floor, then wrap to two lines. Never truncate a
+         person's name." Two sizes, and the MAPPER picks: CSS cannot measure text, and a
+         JavaScript fitter is impossible here (WeasyPrint runs no JS). `h1.fit` is the floor
+         exactly — there is no third, smaller step, and there must never be one.
+         The class rides an ATTRIBUTE, so `h1:empty` still collapses a name-less render. */
+      h1 { font-size: 20pt; line-height: 1.12; margin: 0; font-weight: 700; }
+      h1.fit { font-size: 18pt; } /* FLOOR: 18pt. Never lower, for any name. */
+      h1:empty { display: none; }
+      .phone { font-size: 12pt; font-weight: 700; white-space: nowrap; }
+      .phone:empty { display: none; }
+      /* Devanagari renders on the worker's own copy; the employer copy gets Latin only. */
+      .deva { font-size: 12pt; margin-top: 2.4mm; }
+      .deva:empty { display: none; }
+
+      /* ---- the Verdict Line ----------------------------------------------
+         Two lines, ruled above and below, that must resolve the fit question inside a
+         four-second scan. Empty segments are dropped WITH their separator by the mapper;
+         nothing here can rescue a dangling dot. */
+      .verdict { margin-top: 1.8mm; padding: 1.6mm 0; border-top: var(--hair-w) solid var(--rule);
+                 border-bottom: var(--hair-w) solid var(--rule); }
+      .verdict:empty { display: none; }
+      .headline { font-size: 11.5pt; font-weight: 700; }
+      .headline:empty { display: none; }
+      .subhead { font-size: 10.5pt; margin-top: 0.7mm; }
+      .subhead:empty { display: none; }
+
+      /* ---- sections ------------------------------------------------------
+         The heading is generated content on the container, emitted once because the
+         container sits outside the repeat. `.sec:empty` removes container, heading and
+         rule together — a display:none element renders no ::before. */
+      .sec { margin: 2.6mm 0 0 0; padding: 0; }
+      .sec:empty { display: none; }
+      .sec::before {
+        display: block; font-size: 9pt; /* FLOOR: 9pt, uppercase, letter-spaced */
+        font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+        color: var(--navy);
+        border-bottom: var(--rule-w) solid var(--rule);
+        padding-bottom: 0.9mm; margin-bottom: 1.4mm;
+      }
+      /* Section 1's title is per-trade, so it is read back from the attribute. The rest are
+         fixed by the guideline's zone map and are literals on purpose — they are not
+         content, and a mapper must not be able to rename them. */
+      .sec-cap::before  { content: attr(data-title); }
+      .sec-words::before{ content: "In the worker's own words"; }
+      .sec-avail::before{ content: "Availability & terms"; }
+      .sec-work::before { content: "Work history"; }
+      .sec-qual::before { content: "Qualification, documents & languages"; }
+
+      /* ---- label / value rows -------------------------------------------- */
+      .row { margin: 0 0 0.8mm 0; }
+      .row:empty { display: none; }
+      .row > .lab { font-weight: 700; margin-right: 2.4mm; }
+      .lab:empty { display: none; }
+
+      /* ---- chips ---------------------------------------------------------- */
+      .chips { display: inline; margin: 0; padding: 0; list-style: none; }
+      .chips:empty { display: none; }
+      .chips > li {
+        display: inline-block; background: var(--chip-bg); color: var(--chip-ink);
+        border-radius: 1mm; font-weight: 600;
+        padding: 0.7mm 1.8mm; margin: 0 1.1mm 1.1mm 0; font-size: 10.5pt;
+      }
+      /* ---- tick lists ------------------------------------------------------
+         The tick is a glyph, not a colour: it reads identically in greyscale. */
+      .ticks { display: inline; margin: 0; padding: 0; list-style: none; }
+      .ticks:empty { display: none; }
+      .ticks > li { display: inline-block; margin: 0 3.4mm 0 0; }
+      .ticks > li::before { content: "\2713\00a0"; font-weight: 700; }
+
+      /* ---- worker's own words ----------------------------------------------
+         Verbatim Hinglish, quoted. Never paraphrased, never translated, never composed —
+         the renderer is deterministic template-fill and this is the one place the
+         worker's actual voice reaches the page. */
+      .quotes { margin: 0; padding: 0; list-style: none; }
+      .quotes:empty { display: none; }
+      .quotes > li { display: inline-block; margin: 0 4mm 0.6mm 0; }
+
+      /* ---- work history ---------------------------------------------------- */
+      .emp { margin: 0 0 1.3mm 0; }
+      .emp-head { display: flex; justify-content: space-between; gap: 6mm; align-items: baseline; }
+      .emp-name { font-weight: 700; }
+      .emp-where { color: var(--muted); }
+      /* The lone-role case: the title rides the employer line rather than taking one of its
+         own. See the note in resume-employment-rows.ts — this is what keeps a four-employer
+         sheet on one page, and it is what the zone map asks for. A promotion still gets dated
+         function lines below. */
+      .emp-role { font-weight: 600; }
+      .emp-when { font-weight: 700; white-space: nowrap; }
+      /* Role stints sit under their employer so a promotion reads as one continuous tenure
+         rather than as two unrelated jobs.
+         DELIBERATELY NOT space-between. The EMPLOYER's span is right-aligned to the page
+         edge because that column is what the eye runs down to read tenure shape; a stint's
+         dates belong next to the stint they qualify, and flinging them to the same right
+         edge makes a promotion look like a second employer. The current role sits flush and
+         earlier ones step in, so the progression reads top-down at a glance. */
+      .role { padding-left: 0; }
+      .role ~ .role { padding-left: 3.4mm; }
+      .role-when { white-space: nowrap; font-weight: 700; margin-left: 1.6mm; }
+      .emp-work { color: var(--muted); }
+      .emp-work:empty { display: none; }
+      /* The overflow tail: "2 earlier employers · 22 months total · 2015–2017". Never a
+         second page, never a silent drop.
+         IT IS A 0-OR-1 REGION, NOT A SCALAR SLOT, and that is §11 #1 doing real work. As a
+         plain `<div class="emp-more"></div>` this element sits INSIDE `.sec-work` and
+         outside both repeats, so the container held a child on every render and `.sec:empty`
+         could never match — an ITI fresher with no employment rows got the WORK HISTORY heading
+         with nothing under it, which is the one outcome the ruling forbids by name. A hidden
+         empty child does not help: `display:none` removes the box, not the child node. */
+      .emp-more { color: var(--muted); margin-top: 0.6mm; }
+
+      /* ---- footer ---------------------------------------------------------- */
+      .foot { display: flex; gap: 3.6mm; align-items: flex-start;
+              margin-top: 2.6mm; padding-top: 1.8mm; border-top: var(--hair-w) solid var(--rule); }
+      .qr { width: 18mm; height: 18mm; flex: 0 0 auto; }
+      .foot-txt { font-size: 8.6pt; color: var(--muted); line-height: 1.43; }
+      .foot-mark { font-weight: 700; color: var(--ink); letter-spacing: 0.09em;
+                   text-transform: uppercase; }
+      .foot-lead { color: var(--ink); font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <div class="bar"><span class="wordmark">BadaBhai</span><span class="badge"></span></div>
+
+    <div class="idrow">
+      <h1 class="">Imran Shaikh</h1>
+      <div class="phone">+91 96431 78820</div>
+    </div>
+    <div class="deva"></div>
+
+    <div class="verdict"><div class="headline">CNC Operator · 5 yrs · Fanuc, Siemens</div><div class="subhead">Pune · available in 1 month · expects ₹22,000 / month</div></div>
+
+    <!-- EVERY SECTION IS DATA-DRIVEN ROWS, and that is deliberate.
+         An earlier draft hard-coded "Machines" / "Controllers" / "Materials" as literal
+         labels next to their chip lists. A worker with no materials recorded then got the
+         word "Materials" followed by nothing: `.chips:empty` hides the list, but the row
+         still holds a child node so `.row:empty` never matches and the orphan label
+         survives. Making the ROW the unit of repetition moves "does this row exist at all"
+         into resume-render-input.ts, where it is one testable decision per row instead of
+         a CSS trick that has to work in WeasyPrint. It is also what lets ONE template
+         serve a turner, a welder and a car mechanic without a branch. -->
+
+    <!-- SECTION 1 — per-trade title, per-trade rows -->
+    <div class="sec sec-cap" data-title="Machines, controllers &amp; capability"><div class="row"><span class="lab">Machines</span><ul class="chips"><li>CNC lathe / turning centre</li><li>Conventional lathe</li></ul></div><div class="row"><span class="lab">Controllers</span><ul class="chips"><li>Fanuc</li><li>Siemens</li></ul></div><div class="row"><span class="lab">Materials</span><ul class="chips"><li>MS</li><li>EN8 / EN31</li><li>Stainless steel</li></ul></div><div class="row"><span class="lab">Workholding</span><ul class="ticks"><li>3-jaw chuck</li><li>Collet</li><li>Soft jaws</li></ul></div><div class="row"><span class="lab">Setting</span><ul class="ticks"><li>Tool offset</li><li>Work offset</li><li>First-piece setup</li></ul></div><div class="row"><span class="lab">Measuring instruments</span><ul class="ticks"><li>Vernier</li><li>Micrometer</li><li>Bore dial gauge</li><li>Dial indicator</li></ul></div><div class="row"><span class="lab">Programming</span>Edits programs (G-code / M-code)</div><div class="row"><span class="lab">Drawings</span>Reads 2D drawings</div></div>
+
+    <!-- IN THE WORKER'S OWN WORDS — optional, verbatim, never composed -->
+    <div class="sec sec-words"></div>
+
+    <!-- AVAILABILITY & TERMS -->
+    <div class="sec sec-avail"><div class="row"><span class="lab">Available from</span>1 month</div><div class="row"><span class="lab">Salary expected</span>₹22,000 / month</div><div class="row"><span class="lab">Preferred locations</span>Pune, Nashik</div><div class="row"><span class="lab">Shift</span>Any shift</div></div>
+
+    <!-- WORK HISTORY — TWO REGIONS, and both are load-bearing.
+
+         `employments` is the rich two-level shape this sheet was designed for: an employer,
+         its city, its span, and the role stints held there.
+
+         `experiences` is the FLAT shape every profile in the database actually has today —
+         role, the worker's own words for duration, what they did — produced by the LLM-led
+         interview and carrying no employer by contract. Dropping it would have rendered an
+         empty work history for every existing worker on the day this template shipped, which
+         is precisely what the cross-template contract test in resume-renderer.service.test.ts
+         caught. The mapper populates ONE of the two; a profile is never both. -->
+    <div class="sec sec-work"><div class="emp"><div class="emp-head"><span><span class="emp-name">Deccan Auto Turned Parts</span><span class="emp-where"> · Pune, Maharashtra</span><span class="emp-role"> — CNC Turner</span></span><span class="emp-when">Feb 2023 – Present · 3 yrs 7 mo</span></div><div class="emp-work">CNC lathe, Fanuc and Siemens · EN8, SS304 · automotive turned parts</div></div><div class="emp"><div class="emp-head"><span><span class="emp-name">Sai Engineering Works</span><span class="emp-where"> · Pune, Maharashtra</span><span class="emp-role"> — Lathe Operator</span></span><span class="emp-when">Jun 2021 – Jan 2023 · 1 yr 8 mo</span></div><div class="emp-work">Conventional lathe and CNC · MS · job work</div></div></div>
+
+    <!-- QUALIFICATION, DOCUMENTS & LANGUAGES -->
+    <div class="sec sec-qual"><div class="row"><span class="lab">Education</span>ITI ya diploma</div></div>
+
+    <div class="foot"><div class="foot-txt"><div class="foot-mark">BadaBhai</div><div class="foot-lead">Scan to open this worker&#39;s live profile</div><div>badabhai.ai</div><div>Generated 28 August 2026 · Self-declared · Ref P3_FIV</div><div>Details as stated by the worker. BadaBhai does not guarantee hiring.</div></div></div>
+  </body>
+</html>

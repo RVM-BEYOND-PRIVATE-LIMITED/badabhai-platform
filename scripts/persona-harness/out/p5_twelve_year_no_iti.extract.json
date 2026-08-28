@@ -1,0 +1,77 @@
+{
+  "persona_id": "p5_twelve_year_no_iti",
+  "run": {
+    "is_mock": false,
+    "real_call": true,
+    "model_name": "gemini-2.5-flash",
+    "provider": "google",
+    "candidates_tried": [
+      "gemini-2.5-flash"
+    ],
+    "input_tokens": 1030,
+    "output_tokens": 557,
+    "cost_inr": 0.1427,
+    "latency_ms": 4321,
+    "error_code": null
+  },
+  "extract": {
+    "domain_label": "Manufacturing",
+    "role_label": "CNC Machinist",
+    "skills": [
+      "Lathe operation",
+      "CNC Lathe (Fanuc control)",
+      "CNC Lathe (Haas control)",
+      "VTL operation",
+      "Conventional Lathe operation",
+      "Machine setting",
+      "Offset adjustment",
+      "Jaw changing",
+      "Tailstock adjustment",
+      "First piece inspection",
+      "Program editing",
+      "Pump body manufacturing",
+      "Valve body manufacturing",
+      "Cast iron machining",
+      "Mild steel machining",
+      "Brass machining",
+      "Dimensional accuracy (±0.02mm)",
+      "Vernier caliper",
+      "Micrometer",
+      "Bore gauge",
+      "Height gauge",
+      "Dial indicator",
+      "Troubleshooting machining issues (chatter, size variation)",
+      "Training new machinists"
+    ],
+    "experiences": [
+      {
+        "role_label": "Helper",
+        "duration_text": "June 2014 to February 2016",
+        "duration_months": 20,
+        "work_done": "Learned lathe operation and machining skills."
+      },
+      {
+        "role_label": "Machinist",
+        "duration_text": "March 2016 to December 2018",
+        "duration_months": 34,
+        "work_done": ""
+      },
+      {
+        "role_label": "Senior Machinist",
+        "duration_text": "January 2019 to present",
+        "duration_months": 65,
+        "work_done": "Operating CNC lathe (Fanuc and Haas control), VTL, conventional lathe. Performing machine setting, offset, jaw change, tailstock, first piece inspection. Editing programs. Machining pump body, valve body, cast iron, MS, brass to ±0.02mm accuracy. Using vernier, micrometer, bore gauge, height gauge, dial indicator. Training new machinists and troubleshooting machining issues."
+      }
+    ],
+    "shift": "day",
+    "current_city": null,
+    "preferred_locations": [
+      "Kolhapur",
+      "Pune"
+    ],
+    "availability": "15_days",
+    "expected_salary": 26000.0,
+    "blocked": false,
+    "is_mock": false
+  }
+}

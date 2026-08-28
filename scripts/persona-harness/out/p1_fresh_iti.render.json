@@ -1,0 +1,46 @@
+{
+  "persona": "p1_fresh_iti",
+  "headlineLine": "Turner · duration not stated · Lathe machine operation, Facing, Turning",
+  "subheadLine": "available immediately · expects ₹12,000 / month",
+  "capSectionTitle": "Machines, controllers & capability",
+  "capChipRows": [
+    "Machines: Conventional lathe",
+    "Materials: MS"
+  ],
+  "capTickRows": [
+    "Operations: Facing / OD turning, Threading, Drilling / tapping",
+    "Workholding: 3-jaw chuck, Tailstock / centre",
+    "Measuring instruments: Vernier, Micrometer"
+  ],
+  "capFactRows": [
+    "Drawings: Reads 2D drawings"
+  ],
+  "availFactRows": [
+    "Available from: Immediate",
+    "Salary expected: ₹12,000 / month",
+    "Preferred locations: Ludhiana, Chandigarh"
+  ],
+  "qualFactRows": [
+    "Education: ITI ya diploma"
+  ],
+  "qualTickRows": [],
+  "employments": [],
+  "employmentsMore": null,
+  "ownWords": [],
+  "experiences": [],
+  "skills": [
+    "Lathe machine operation",
+    "Facing",
+    "Turning",
+    "Threading",
+    "Stepped shaft creation",
+    "Nut-bolt set creation",
+    "Vernier caliper",
+    "Micrometer"
+  ],
+  "degradationStage": 0,
+  "degradationDropped": [],
+  "transcriptVetoes": [],
+  "contentLines": 17.33,
+  "predictedHeadroomMm": 115.76
+}

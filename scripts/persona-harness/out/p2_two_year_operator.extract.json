@@ -1,0 +1,53 @@
+{
+  "persona_id": "p2_two_year_operator",
+  "run": {
+    "is_mock": false,
+    "real_call": true,
+    "model_name": "gemini-2.5-flash",
+    "provider": "google",
+    "candidates_tried": [
+      "gemini-2.5-flash"
+    ],
+    "input_tokens": 921,
+    "output_tokens": 307,
+    "cost_inr": 0.0875,
+    "latency_ms": 3038,
+    "error_code": null
+  },
+  "extract": {
+    "domain_label": "Manufacturing",
+    "role_label": "CNC Lathe Operator",
+    "skills": [
+      "CNC lathe operation",
+      "Fanuc control",
+      "part production",
+      "facing",
+      "turning",
+      "drilling",
+      "grooving",
+      "offset adjustment",
+      "vernier caliper",
+      "micrometer",
+      "plug gauge",
+      "drawing reading"
+    ],
+    "experiences": [
+      {
+        "role_label": "CNC Lathe Operator",
+        "duration_text": "Do saal ho gaye. July 2024 se hoon",
+        "duration_months": null,
+        "work_done": "CNC lathe chalata hoon. Programme load karke part banata hoon. Facing, turning, drilling, grooving. Pump ka housing aur shaft banate hain hum, MS aur EN8 me. Offset thoda bahut dekh leta hoon. Vernier aur micrometer, plug gauge use karta hoon. Drawing dekh leta hoon."
+      }
+    ],
+    "shift": "any",
+    "current_city": "Rajkot",
+    "preferred_locations": [
+      "Rajkot",
+      "Ahmedabad"
+    ],
+    "availability": "15_days",
+    "expected_salary": 16000.0,
+    "blocked": false,
+    "is_mock": false
+  }
+}

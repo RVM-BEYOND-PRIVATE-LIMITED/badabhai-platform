@@ -1586,4 +1586,192 @@ from the pre-existing `test_ai_observability` failure; ruff clean; contract pari
 Artifacts committed under `scripts/persona-harness/out/` — five PDFs, five HTMLs, the extraction
 records (each carrying `is_mock` and the model that answered) and the anchoring tallies. 176 KB.
 
+> **CORRECTION (R8).** They were not committed. `.gitignore` carries a bare `out/` under its
+> Next.js section, which swallowed the whole directory — `git ls-files scripts/persona-harness/out`
+> returned nothing, and `git status` never showed them, so `git add -A` silently skipped them and
+> the claim above went unchallenged. A reviewer following this line would have found an empty
+> directory. Un-ignored in R8 with a scoped negation, and the artifacts are committed there now.
+
+**#1292 still has not moved**, so #1294 continues to carry all of this with no CI.
+
+---
+
+## §19 — R8: fixing what the live render found, and the render that was not what it claimed
+
+### 19.1 — The correction that has to come first
+
+**The five R7 PDFs were rendered on the wrong template.** The persona harness passed
+`"bb_trade.v1"` as the template id; the registry id is `bb_trade` and `bb_trade.v1.html` is the
+FILE. `getResumeTemplate` resolves an unknown id to the generic fallback rather than throwing —
+correctly, so a bad id degrades a résumé instead of failing it — so all five sheets were
+`fallback.v3`, and they were measured, reported and delivered as trade sheets.
+
+The harness's two assertions were "the HTML contains the worker's name" and "the HTML is longer
+than 2000 characters". Both are true of either layout. It is the fourth recorded instance of the
+same class: **a verification that cannot observe what it claims.** It now asserts two markers that
+exist only in `bb_trade.v1.html`, one of them read from the STYLESHEET so it holds for a worker
+whose every section collapsed.
+
+What R7 got wrong as a result, stated plainly rather than folded into the new numbers:
+
+- "p4 is 312 mm in a 273 mm page at `degradationStage: 0`" — **wrong**. On the real sheet p4 needs
+  253.74 mm and has **43.26 mm of headroom**.
+- "the one-page contract broke and the degradation ladder never fired" — **wrong**. All five
+  personas are one page at stage 0.
+- "all six tasks are armed by the local env file" — **wrong in detail**. Five of six;
+  `profile_parse` is not armed.
+- "artifacts committed under `scripts/persona-harness/out/`" — **wrong**. `.gitignore`'s bare
+  `out/` rule swallowed the directory, `git status` never showed it, and `git add -A` skipped it
+  in silence. Three claims, three layers, one habit: reporting the intent rather than checking
+  the artifact.
+
+R8 §3 was written on the strength of the first two. The gate it asked for was still worth building
+and is built; the defect it was built to catch did not exist.
+
+### 19.2 — §1, and the gate the asymmetry rule does not cover
+
+The container branch printed the sum of the model's `duration_months`. Workers who stated 2, 5, 8
+and 12 years got "duration not stated", "1 yr 8 mo", "5 yrs 4 mo" and "9 yrs 11 mo". They now get
+2, 5, 8 and 12.
+
+The rule is **the stated figure wins outright**, not `Math.max` of the two. Taking the larger
+satisfies the "never below his stated figure" floor and still prints a tenure larger than the one
+he claimed — resolving a genuine ambiguity upward, which §8.3 forbids in exactly those words.
+Preferring the stated figure satisfies the floor by construction, because the figure and the floor
+are the same number.
+
+**Why nothing caught it, and it is the provenance-not-placement bound biting for real.** Every
+term in the sum is worker-stated, so set-membership passes and the fabrication gate sails through.
+The gate can tell you a number came from the worker; it cannot tell you the number answers the
+question its label asks.
+
+**And §8.3 only guards over-claim.** That is right for a capability — a man under-described gets a
+trial and proves himself. It is wrong for a TOTAL, because a total is not testable at a trial: it
+is a filter an employer applies _before_ there is one. A senior man printed as junior is screened
+out and never learns why. Recommended, narrow, and NOT built: _where the worker stated a scalar
+and the sheet prints a derived one, the printed value may not be lower than the stated one._ Three
+instances today (years, salary, tolerance); it would have failed on four of five personas the day
+the container branch shipped.
+
+### 19.3 — §2, and why the block is empty for four of five
+
+**The model proposes, the transcript disposes.** Candidates are the extraction's sentences —
+choosing which of a worker's sentences is about his trade is exactly what §8 licenses a model to
+do. The veto is the stored transcript: a phrase prints only when it appears verbatim in something
+the worker actually said. That turns "verbatim" from a claim about the prompt into a property
+checked against bytes the model never touched — which is what the slot's own docstring demanded
+and what nothing could satisfy before.
+
+It earned its place on the first run. The model returned seven sentences for persona 2; six are
+literal fragments of his turns and one — _"Vernier aur micrometer, plug gauge use karta hoon"_ — is
+a fusion of two separate answers with a verb he never used. It reads perfectly, it is not his, and
+nothing else on the sheet could have caught it.
+
+**The finding underneath: the extraction only keeps the worker's voice for the shortest
+transcript.** Personas 3, 4 and 5 come back as English prose the model composed — p4's is 600
+characters with one Devanagari verb stranded in it. So the veto giving them nothing is correct:
+none of it is what those men said. The block is wired; the extraction is what produces no
+quotable material past a short interview.
+
+**Persona 1 is the sharper gap.** The fresh ITI pass-out has the emptiest page in the set (125 mm
+spare) and cannot get a quote at all, because candidates come from `experiences[]` and he has
+none. He is exactly the worker §8.4's "off-wedge résumés on day one" is about. Raised, not
+guessed: _which_ sentence to print from a transcript is a design decision.
+
+### 19.4 — §3, non-circular at last, and the floor holds
+
+The old check was `sheetContentLines(sheet) <= SHEET_LINE_BUDGET` — the estimator marking its own
+homework. The emit test now writes the estimator's PREDICTED headroom beside each sheet and
+`measure-sheet-headroom.py` compares it against the millimetres WeasyPrint produced, failing when
+the prediction is optimistic by more than 2 mm — the one direction that ships a two-page résumé.
+Verified by tampering a manifest entry: exit 1, sheet named. The personas write the same manifest
+shape, so one gate covers both sets.
+
+**56 fixture sheets: 56 one-page, worst headroom 11.17 mm — the R2 number unchanged — and every
+residual POSITIVE**, +8.47 to +39.57 mm. The estimator never believes it has room it lacks.
+
+**Five personas: 5 one-page, stage 0, worst headroom 43.42 mm.**
+
+It is also OVER-conservative, and that has a cost: `shape-09-worker` degrades to stage 3, dropping
+materials chips, languages AND documents-ready, on a sheet with 16.56 mm of real headroom. Three
+§5.1-ranked rows off a page that could hold them. The budget is fitted to a worst-case constant of
+209 mm while the measured constants run 217–249. Re-fitting is proposed, not done — it changes
+every worker's sheet, and the residual data now exists in one place for the first time.
+
+`Tolerance held` is confirmed dropped for both senior personas (±0.01 and ±0.02 mm) by the 9-row
+cap: `tolerance_band` is rank 62 and the nine survivors are ranks 21–51. Recorded against Q2. The
+drop order is unchanged.
+
+### 19.5 — §4, and the false veto it produced first
+
+**0 vetoes and 0 false vetoes across all five personas** — their authored chip sets are honest,
+which is the correct outcome and the more important half of the measurement. A veto DELETES a
+claim, so what the rule PERMITS matters more than what it catches.
+
+The first version fired once and was **wrong**. Persona 3: _"Naya programme nahi likhta, par jo
+chal raha hai usme edit kar leta hoon"_ — I don't WRITE new programmes, but I EDIT the running one
+— and it withdrew his `edit_program` chip, the claim that sentence affirms. The negated clause
+carries the attribute-wide term "programme". That is §1's failure pointed the other way: a true
+claim deleted from a man's résumé by his own honest qualification of it.
+
+The fix is that _"naya programme"_ is a `write_program` term, so **a clause that names one slug is
+a statement about that slug and the attribute-wide reach does not apply to any other**. Three
+tiers: a slug-named negation is final; an attribute-wide negation reaches only slugs the clause
+does not name; a slug affirmed by name survives an attribute-wide denial. The third is what keeps
+persona 2's `Tool offset` — he says _"khud se setting nahi karta"_ two clauses after _"Offset
+thoda bahut dekh leta hoon"_, and §8.3's own table maps that phrase to a setting capability.
+
+Deliberately narrow: clause scope not turn scope; `"dekha hai"` is a marker and `"dekh leta
+hoon"` is not; no hedge is a marker (§8.4: "sab kar leta hoon" resolves to nothing); only the CNC
+turning pack has a gazetteer; and it changes what PRINTS, never the stored attributes the match
+engine reads.
+
+### 19.6 — §5, and the layer question answered once
+
+**`is_mock` is not stored anywhere** — the processor documents at length why it is deliberately
+not persisted (it is a reachability probe, true for every good deterministic extraction while
+real calls are off). So the question is asked structurally instead: a real extraction
+(`ai_jobs.real_call IS TRUE`), a real interview (≥ 4 inbound turns), and no overlay stored
+(`raw_profile -> 'resume_profile' IS NULL`). `scripts/count-discarded-interviews.sql` is that
+query, **validated against the real schema on a local database with a three-worker fixture** —
+discarded, healthy, abandoned — and it discriminates all three. Read-only, ids and counts only.
+
+**Not run against production, and not without a decision.** The root env file's `DATABASE_URL`
+points at production; that is why the TD65 guard exists. What is needed is a read-only production
+connection string, or someone running the file and pasting back the six-column summary.
+
+`scripts/effective-ai-flags.py` resolves the whole chain — code default → ai-service env file →
+process env — names which layer won, prints the compose literals separately and labelled as a
+CONTAINER's environment, and never prints a secret value. It corrected R7 in its own first output
+(five armed tasks, not six) and surfaced something no report had mentioned: **the ai-service will
+not boot as configured on this machine** — the TD65 guard refuses, and every AI result produced
+here came from a process that stepped around it.
+
+### 19.7 — §6, measured, and what it changes about earlier conclusions
+
+`gemini-2.5-pro` is retired; every chat turn 404s twice before falling to `claude-haiku-4-5`.
+
+Two runs. **Run A** (tier comparison): `capable`/`gemini-2.5-flash` 1963 ms median vs
+`pro`/Haiku 3306 ms. **Run B** landed under a provider cooldown so both arms were answered by
+Haiku — worthless as a tier comparison, and the script now errors on exactly that — but with the
+answering model held constant it isolates the retries cleanly: **4306 ms vs 2410 ms, ~1.9 s per
+turn of pure waste**, on every message, on a mid-range Android.
+
+**Every quality judgement made about the CHAT TURN since #1237 has been about Haiku, unknowingly.**
+#1237's stated purpose was "this is the model a worker actually meets"; that has not been true
+since it merged, and no turn in R5–R8 ever reached `gemini-2.5-pro`. The EXTRACTIONS are
+unaffected — they route through `default_capable_model` = `gemini-2.5-flash`, which every persona
+artifact records as the model that answered — so §1–§4 stand.
+
+### 19.8 — State
+
+`tsc` clean; `apps/api` resume + profiles + config **977 passed**; ai-service ruff clean after
+fixing an unsorted import block that shipped in `1bb6b450` and would have failed CI; contract
+parity green. The `scripts/` tree is not in CI's ruff scope, and the new files match the existing
+printf style there rather than diverging from it.
+
+Artifacts under `scripts/persona-harness/out/` — five PDFs on the correct template, five HTMLs,
+five render summaries carrying the estimator's own prediction, `manifest.json` and
+`tier-ladder.json`.
+
 **#1292 still has not moved**, so #1294 continues to carry all of this with no CI.

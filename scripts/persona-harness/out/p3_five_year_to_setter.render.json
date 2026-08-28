@@ -1,0 +1,78 @@
+{
+  "persona": "p3_five_year_to_setter",
+  "headlineLine": "CNC Operator · 5 yrs · Fanuc, Siemens",
+  "subheadLine": "Pune · available in 1 month · expects ₹22,000 / month",
+  "capSectionTitle": "Machines, controllers & capability",
+  "capChipRows": [
+    "Machines: CNC lathe / turning centre, Conventional lathe",
+    "Controllers: Fanuc, Siemens",
+    "Materials: MS, EN8 / EN31, Stainless steel"
+  ],
+  "capTickRows": [
+    "Workholding: 3-jaw chuck, Collet, Soft jaws",
+    "Setting: Tool offset, Work offset, First-piece setup",
+    "Measuring instruments: Vernier, Micrometer, Bore dial gauge, Dial indicator"
+  ],
+  "capFactRows": [
+    "Programming: Edits programs (G-code / M-code)",
+    "Drawings: Reads 2D drawings"
+  ],
+  "availFactRows": [
+    "Available from: 1 month",
+    "Salary expected: ₹22,000 / month",
+    "Preferred locations: Pune, Nashik",
+    "Shift: Any shift"
+  ],
+  "qualFactRows": [
+    "Education: ITI ya diploma"
+  ],
+  "qualTickRows": [],
+  "employments": [
+    {
+      "employer": "Deccan Auto Turned Parts · Pune, Maharashtra",
+      "when": "Feb 2023 – Present · 3 yrs 7 mo",
+      "roles": [],
+      "roleInline": " — CNC Turner",
+      "work": "CNC lathe, Fanuc and Siemens · EN8, SS304 · automotive turned parts"
+    },
+    {
+      "employer": "Sai Engineering Works · Pune, Maharashtra",
+      "when": "Jun 2021 – Jan 2023 · 1 yr 8 mo",
+      "roles": [],
+      "roleInline": " — Lathe Operator",
+      "work": "Conventional lathe and CNC · MS · job work"
+    }
+  ],
+  "employmentsMore": null,
+  "ownWords": [],
+  "experiences": [],
+  "skills": [
+    "CNC turning",
+    "conventional lathe operation",
+    "machine setting",
+    "tool offset",
+    "work offset",
+    "first piece inspection",
+    "soft jaw boring",
+    "program editing",
+    "feed speed adjustment",
+    "tool number change",
+    "working with EN8",
+    "working with SS304",
+    "working with MS",
+    "automotive parts manufacturing",
+    "tolerance of +/- 0.05",
+    "vernier caliper",
+    "micrometer",
+    "bore dial gauge",
+    "dial indicator",
+    "ID checking with bore gauge",
+    "Fanuc controller",
+    "Siemens controller"
+  ],
+  "degradationStage": 0,
+  "degradationDropped": [],
+  "transcriptVetoes": [],
+  "contentLines": 28.19,
+  "predictedHeadroomMm": 62.65
+}

@@ -29,7 +29,6 @@ from pydantic import ValidationError
 from app.contracts import ExperienceEntry, InterviewExtractOutput
 from app.routers.profiling import _without_bad_experiences
 
-
 # ---------------------------------------------------------------------------
 # (1) the coercion
 # ---------------------------------------------------------------------------

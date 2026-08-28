@@ -1,0 +1,69 @@
+{
+  "persona_id": "p3_five_year_to_setter",
+  "run": {
+    "is_mock": false,
+    "real_call": true,
+    "model_name": "gemini-2.5-flash",
+    "provider": "google",
+    "candidates_tried": [
+      "gemini-2.5-flash"
+    ],
+    "input_tokens": 936,
+    "output_tokens": 376,
+    "cost_inr": 0.1024,
+    "latency_ms": 3734,
+    "error_code": null
+  },
+  "extract": {
+    "domain_label": "Manufacturing",
+    "role_label": "CNC Operator",
+    "skills": [
+      "CNC turning",
+      "conventional lathe operation",
+      "machine setting",
+      "tool offset",
+      "work offset",
+      "first piece inspection",
+      "soft jaw boring",
+      "program editing",
+      "feed speed adjustment",
+      "tool number change",
+      "working with EN8",
+      "working with SS304",
+      "working with MS",
+      "automotive parts manufacturing",
+      "tolerance of +/- 0.05",
+      "vernier caliper",
+      "micrometer",
+      "bore dial gauge",
+      "dial indicator",
+      "ID checking with bore gauge",
+      "Fanuc controller",
+      "Siemens controller"
+    ],
+    "experiences": [
+      {
+        "role_label": "CNC Operator",
+        "duration_text": "February 2023 se",
+        "duration_months": null,
+        "work_done": ""
+      },
+      {
+        "role_label": "CNC Operator",
+        "duration_text": "June 2021 se January 2023 tak",
+        "duration_months": 20,
+        "work_done": "job work"
+      }
+    ],
+    "shift": "any",
+    "current_city": "Pune",
+    "preferred_locations": [
+      "Pune",
+      "Nashik"
+    ],
+    "availability": "1_month",
+    "expected_salary": 22000.0,
+    "blocked": false,
+    "is_mock": false
+  }
+}

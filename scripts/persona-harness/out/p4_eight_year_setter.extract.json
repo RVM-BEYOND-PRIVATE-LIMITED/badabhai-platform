@@ -1,0 +1,100 @@
+{
+  "persona_id": "p4_eight_year_setter",
+  "run": {
+    "is_mock": false,
+    "real_call": true,
+    "model_name": "gemini-2.5-flash",
+    "provider": "google",
+    "candidates_tried": [
+      "gemini-2.5-flash"
+    ],
+    "input_tokens": 1124,
+    "output_tokens": 869,
+    "cost_inr": 0.2106,
+    "latency_ms": 5691,
+    "error_code": null
+  },
+  "extract": {
+    "domain_label": "Manufacturing",
+    "role_label": "CNC Setter cum Operator",
+    "skills": [
+      "CNC turning",
+      "CNC lathe",
+      "Fanuc controller",
+      "Siemens controller",
+      "VTL Mitsubishi",
+      "conventional kharad",
+      "bar feeder",
+      "live tooling",
+      "sub-spindle",
+      "tool offset",
+      "work offset",
+      "nose radius compensation",
+      "jaw change",
+      "tailstock setting",
+      "first piece approval",
+      "new job setup",
+      "G-code programming",
+      "M-code programming",
+      "canned cycle programming",
+      "G71 rough turning",
+      "G76 threading",
+      "G74 peck drilling",
+      "manual programming on machine",
+      "tolerance control (+/- 0.01mm)",
+      "GD&T interpretation",
+      "runout measurement",
+      "concentricity measurement",
+      "flatness measurement",
+      "surface finish Ra 0.8",
+      "machining EN8",
+      "machining EN31",
+      "machining SS316",
+      "machining cast iron",
+      "oil and gas fittings manufacturing",
+      "automotive shaft manufacturing",
+      "first piece inspection",
+      "in-process inspection",
+      "SPC chart filling",
+      "chatter correction (speed/feed adjustment)",
+      "tool wear compensation (offset correction)"
+    ],
+    "experiences": [
+      {
+        "role_label": "Setter",
+        "duration_text": "September 2023 to present",
+        "duration_months": null,
+        "work_done": "Full setting including tool offset, work offset, nose radius compensation, jaw change, tailstock set करना, first piece approval. Setting up new jobs. Operating CNC lathe with Fanuc and Siemens controllers, bar feeder, live tooling, sub-spindle. Programming in G-code and M-code, using canned cycles like G71, G76, G74. Holding +/- 0.01mm tolerance, reading GD&T, achieving Ra 0.8 surface finish. Working with EN8, EN31, SS316, cast iron for oil and gas fittings. Performing first piece check, in-process inspection, SPC chart filling, and problem solving for chatter and size variation."
+      },
+      {
+        "role_label": "Operator",
+        "duration_text": "September 2022 to August 2023",
+        "duration_months": 12,
+        "work_done": "Operating CNC lathe with Fanuc and Siemens controllers, bar feeder, live tooling, sub-spindle. Working with EN8, EN31, SS316, cast iron for oil and gas fittings."
+      },
+      {
+        "role_label": "CNC Operator",
+        "duration_text": "April 2020 to August 2022",
+        "duration_months": 29,
+        "work_done": "Operated CNC machines, including VTL Mitsubishi. Worked on automotive shafts."
+      },
+      {
+        "role_label": "CNC Operator",
+        "duration_text": "May 2018 to March 2020",
+        "duration_months": 23,
+        "work_done": "Operated CNC machines and conventional kharad."
+      }
+    ],
+    "shift": "any",
+    "current_city": "Faridabad",
+    "preferred_locations": [
+      "Faridabad",
+      "Gurugram",
+      "Manesar"
+    ],
+    "availability": "1_month",
+    "expected_salary": 32000.0,
+    "blocked": false,
+    "is_mock": false
+  }
+}

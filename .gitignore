@@ -18,6 +18,12 @@ out/
 next-env.d.ts
 # Keep the committed web next-env.d.ts so CI typecheck works without a prior build.
 !apps/web/next-env.d.ts
+# The persona harness's rendered sheets ARE the evidence, not build output. `out/` above is a
+# Next.js export rule and it silently swallowed them: R7 reported "artifacts committed under
+# scripts/persona-harness/out/" and `git ls-files` on that path returned nothing. A reviewer
+# following the digest would have found an empty directory.
+!scripts/persona-harness/out/
+!scripts/persona-harness/out/**
 
 # ---- Environment & secrets (NEVER commit real values) ----
 .env
