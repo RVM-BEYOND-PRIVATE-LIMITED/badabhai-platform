@@ -557,3 +557,162 @@ rather than fixed here, because `apps/worker-app` is not backend's to touch.
 **Still not bought, and still the whole gap:** work-history capture (Q1), Phase C, and B0b. The
 sheet is verified; the turner is not reachable. None of those is on this branch and none is fixed
 by merging it.
+
+---
+
+## §11 — R2: the degradation stage, and the control run behind the metric change
+
+### 11.1 — The control the metric change needed
+
+The R1 case for changing `db:eval:occupation` was: the gold set is labelled at ISCO-unit
+granularity, so a family bound below unit level is unrepresentable and scores wrong by
+construction; the floor was untouched; three tests pinned the rule; `"darzi"` under 7223 was the
+negative control. All true. It also compared **new metric on the branch** against **old metric on
+main** — two variables at once — and no amount of internal consistency fixes that. A change that
+edits the measurement cannot be validated from inside itself.
+
+Run properly: a detached worktree at `origin/main` (`f33736c5`), with **only** the two metric files
+copied in and `node_modules` junctioned from the main checkout (`packages/profiling-lexicon` is
+byte-identical across the branch, so nothing else could differ).
+
+| run         | data   | metric  | precision | correct / wrong | refined | failures |
+| ----------- | ------ | ------- | --------- | --------------- | ------- | -------- |
+| baseline    | main   | main    | 98.2%     | 388 / 7         | —       | 12 rows  |
+| **control** | main   | **new** | **98.2%** | **388 / 7**     | **0**   | 12 rows  |
+| branch      | branch | new     | 98.2%     | 378 + 10 / 7    | 10      | 12 rows  |
+
+All three failure lists are **byte-identical** — `diff` clean, twelve rows each. The decisive
+number is the control's `refined = 0`: `main` has no sub-unit family bindings, so the new branch of
+code executes **zero times** there. The change is not merely score-neutral on main, it is
+structurally inert, and the branch sits at genuine parity carrying main's same seven real failures.
+
+Recorded as a HALT trigger in `AGENT_LOOP.md` §4 so the next one gets a control before the argument
+gets made, not after.
+
+### 11.2 — The floor, measured across renderers and fonts
+
+"28/28 on one page" is a binary and it hid a knife edge: the worst sheet fit at exactly 297.00 mm
+and spilled at 296.75. `scripts/measure-sheet-headroom.py` replaces it with a millimetre floor.
+
+**The floor is measured, not chosen.** Rendering the matrix across three WeasyPrint versions and
+two font-fallback tiers:
+
+| configuration                            | max spread vs shipped | effect                   |
+| ---------------------------------------- | --------------------- | ------------------------ |
+| WeasyPrint 63.1 / 66.0 / 69.0            | **0.00 mm**           | version is not the risk  |
+| `fonts-noto-core` absent → DejaVu Sans   | **3.64 mm**           | both directions          |
+| both font packages absent → DejaVu Serif | 15.18 mm              | five sheets to two pages |
+
+**5 mm** sits above the realistic tier and is within a rounding error of one 4.89 mm text line —
+the smallest unit this page can shed. The third row is reported rather than floored against: the
+API image installs both packages, so that is a broken image, not a fallback. But the declared stack
+is `"Noto Sans", "DejaVu Sans", Arial, sans-serif` and in the shipped image `Arial` does not exist
+while generic `sans-serif` resolves to a **serif** — the last link of the chain is a latent trap.
+
+### 11.3 — R2: what comes off the sheet, and in what order
+
+Built as its own item, ahead of both features that need it. Handing the §5.1 drop order to whoever
+happens to land first would design it under an unrelated feature's schedule pressure, and the loser
+of the race would inherit a contract it did not write.
+
+**The model.** The mapper is pure and WeasyPrint is out of process, so "does this fit" is answered
+by counting rendered lines against a budget, calibrated from real renders:
+
+- `LINE_MM = 4.89` — the atomic unit, straight off WeasyPrint's box tree. Every `.emp-when`,
+  `.lab`, `.ticks` and `.chips` line lays out at exactly this, and each extra wrapped line in a
+  `.row` adds exactly this (10.58 → 15.47 → 20.36 across a widening row).
+- `CHARS_PER_LINE = 88` — measured by widening one row until it broke: 90 chars stayed on one line,
+  107 went to two, 223 to three, 307 to four. Pinned below the observed ~91 on purpose:
+  over-estimating costs a row, under-estimating costs a second page.
+- `SHEET_LINE_BUDGET = 41` — fitted. Solving `headroom = C − 4.89 × lines` per shape clusters `C`
+  at **209–216 mm**; taking the worst and requiring the floor gives `(209.0 − 5) / 4.89 = 41.7`,
+  rounded **down** because the residual spread is ~7 mm and a budget fitted to the average puts the
+  tightest shapes under the floor.
+
+**The masthead term is why the first model was wrong.** Counting only content sections predicted the
+long-name sheet as roomier than one that measured 9.87 mm, while it measured 0.00. The whole
+difference is a name past the one-line limit auto-fitting to 18 pt (§11 #9) and then wrapping — an
+18 pt line is 8.53 mm against the body's 4.89. Before that term, `C` ranged 156–232 and the model
+was fitting noise.
+
+**The ladder** is reverse §5.1 with the turner-pack additions slotted per the R1 §3 default:
+optional volunteered fields → production mode → sector tag → materials beyond two → languages →
+documents → certificates → education → employers beyond three/two/one → capability rows by
+descending rank. **Two steps are unreachable today and that is stated rather than hidden:**
+`surface_finish_ra`, `fit_class_held`, `bar_diameter_range_mm` and `production_mode` exist in
+neither the pack nor the map, so steps 1 and 2 match nothing. They are built in their correct
+positions anyway — when those fields land they must drop FIRST, and a ladder that acquired them
+later would acquire them at the end.
+
+**Never droppable**, stated positively rather than as an absence, and asserted: the Verdict Line
+(§5.1 rank 1), the name, availability and expected salary (rank 6 — two of the four things that
+actually reject a candidate), the verification badge, and the QR footer. Nothing shrinks type or
+truncates; the ladder only removes whole elements.
+
+**A real gap the tests caught:** the ladder had a hard-coded 12 rank-drop steps and the turner map
+has 14 rows, so a maxed-out worker would have run out of ladder two rows before running out of
+sheet — returning a still-overflowing page while reporting a stage as though it had succeeded. The
+count is now derived from the widest map.
+
+### 11.4 — Acceptance: verified against the content that is coming
+
+A ladder tuned to seeded fixtures passes its own tests and breaks on real data — which is exactly
+what the `qrDataUri: null` fixture already demonstrated. So the acceptance run injects **realistic**
+Zone 4 and Zone 5 content at the length real records have: registered company names with their
+suffixes and plant qualifiers ("Sandhar Technologies Limited, Plant II", "Endurance Technologies
+Private Limited"), full NCVT/NSQF certificate strings with issuer and year, three languages and
+seven documents. 56 sheets: 28 as they render today, 28 as they will render once work-history
+capture and Phase C land.
+
+**Where every shape lands.** Headroom and applied stage, both audiences, both variants:
+
+| #   | shape                                                            | today (worker / payer)          | with Zone 4+5 (worker / payer)  |
+| --- | ---------------------------------------------------------------- | ------------------------------- | ------------------------------- |
+| 1   | ITI fresher, zero employment rows                                | 133.14 mm st.0 / 138.79 mm st.0 | 44.80 mm st.0 / 50.45 mm st.0   |
+| 2   | Twelve years on the machine, no ITI                              | 105.79 mm st.0 / 111.43 mm st.0 | 36.52 mm st.0 / 42.29 mm st.0   |
+| 3   | Duration unknown throughout                                      | 139.92 mm st.0 / 145.57 mm st.0 | 50.57 mm st.0 / 56.34 mm st.0   |
+| 4   | Contract / thekedar work, no company name                        | 125.49 mm st.0 / 131.26 mm st.0 | 50.57 mm st.0 / 56.34 mm st.0   |
+| 5   | OVERFLOW — employment gaps beside a fully-answered pack          | 26.48 mm st.2 / 21.33 mm st.1   | 17.44 mm st.3 / 23.22 mm st.3   |
+| 6   | OVERFLOW — nine employers in four years                          | 20.33 mm st.2 / 25.98 mm st.2   | 17.44 mm st.3 / 23.22 mm st.3   |
+| 7   | Promoted inside one employer                                     | 102.02 mm st.0 / 107.67 mm st.0 | 42.42 mm st.0 / 48.06 mm st.0   |
+| 8   | OVERFLOW — every pack row answered, every chip at its cap        | 32.00 mm st.0 / 37.77 mm st.0   | 17.44 mm st.3 / 23.22 mm st.3   |
+| 9   | OVERFLOW — very long name, long employers, five preferred cities | 16.56 mm st.2 / 11.42 mm st.1   | 25.47 mm st.4 / 16.82 mm st.3   |
+| 10  | Single name, no surname                                          | 123.35 mm st.0 / 129.00 mm st.0 | 48.31 mm st.0 / 53.96 mm st.0   |
+| 11  | OVERFLOW — overseas history plus a full credentials block        | 20.96 mm st.0 / 26.73 mm st.0   | 17.44 mm st.3 / 23.22 mm st.3   |
+| 12  | Two trades, the stronger by months leading                       | 137.54 mm st.0 / 143.31 mm st.0 | 48.31 mm st.0 / 53.96 mm st.0   |
+| 13  | Off-pack trade — no capability map exists                        | 162.51 mm st.0 / 168.15 mm st.0 | 73.16 mm st.0 / 78.93 mm st.0   |
+| 14  | Name only — everything else absent                               | 231.53 mm st.0 / 231.53 mm st.0 | 231.53 mm st.0 / 231.53 mm st.0 |
+
+Stage 0 is nine of the fourteen shapes today. The five that degrade are exactly the five built to
+overflow. With the queued content injected, eight shapes degrade and the deepest is
+`future-09-worker` at stage 4 — the very long name, a full employment history and a full
+credentials block on one sheet.
+
+**56 sheets / 56 one-page / 0 over / worst headroom 11.42 mm** against the 5 mm floor.
+
+### 11.5 — §4: three findings, reported not fixed
+
+**The path filter covers everything it needs to.** Eight paths gate the `e2e` job: `apps/api/**`,
+`packages/**`, `tests/**`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `turbo.json`,
+`apps/ai-service/**`, `.github/workflows/ci.yml`. `packages/match-engine`, `packages/db` and
+`packages/taxonomy` all exist and are **all covered** by the `packages/**` glob — matching cannot
+break from a package change with the DB gate silently not running. The glob is doing real work
+here; naming the three packages explicitly would be no stronger, but a future narrowing of
+`packages/**` to specific packages would be exactly the silent-skip trap, and there is nothing
+asserting against it.
+
+**The fabrication gate proves provenance, not placement — and that limit is now written down.**
+The `detect-non-literal-regexp` defect would have spliced one worker's list into a different
+section of the sheet. Every string involved is legitimate: a closed-vocabulary label or a verbatim
+worker phrase. All 32 gate tests pass while the sheet is wrong. The gate answers "did every printed
+string come from a permitted source" and says nothing about whether it is printed under the right
+heading, next to the right label, or on the right worker's sheet. Reading it as a guarantee of
+correctness rather than of sourcing is the mistake it invites, and it is the mistake its own name
+encourages.
+
+**Second instance of a file's own comment forbidding what its code did.** After `EMOJI_RE` (whose
+comment warned that a reflow would move the lint directive off the regex, which is exactly what
+happened), the render processor's employments block carried "a failure here must cost the work
+history and nothing else" one level below a `try` that took down the phone, the QR, the ref code
+and the footer. Both were found by acting on the comment rather than reading past it. A comment
+that states an invariant is a test that has not been written yet.
