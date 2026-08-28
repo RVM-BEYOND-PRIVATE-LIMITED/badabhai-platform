@@ -221,6 +221,21 @@ void main() {
     await _pumpUntil(tester, find.text('Haan, sahi hai'));
     await tester.tap(find.text('Haan, sahi hai'));
 
+    // ── 6b. FINISHING FORM (#1296) — the five closed-set pages now sit between
+    //     the profile confirm and the résumé generate. Every field is optional,
+    //     so walk straight through: the chip vocabulary loads from MockApiClient
+    //     (wait for page one), then advance the four chip pages and finish on the
+    //     work-history page. "Aage badhein" advances; the last page's CTA is
+    //     "Ho gaya", which persists the (empty) writes and continues to Building.
+    await _pumpUntil(tester, find.text('Aage badhein'));
+    for (int i = 0; i < 4; i++) {
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pump();
+      await tester.pump();
+    }
+    await _pumpUntil(tester, find.text('Ho gaya'));
+    await tester.tap(find.text('Ho gaya'));
+
     // ── 7. SHELL — landed on the Resume tab; onboarding stack cleared. ──
     await _pumpUntil(tester, find.text('Your resume'));
     expect(find.text('Your resume'), findsOneWidget);
