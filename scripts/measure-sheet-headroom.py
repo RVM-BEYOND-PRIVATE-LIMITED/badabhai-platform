@@ -44,6 +44,20 @@ A4_MM = 297.0
 SEARCH_STEP_MM = 0.25
 DEFAULT_FLOOR_MM = 5.0
 
+# How optimistic the LINE ESTIMATOR is allowed to be against the millimetres WeasyPrint produced.
+#
+# WHY THIS EXISTS (R8 §3). The one-page contract had two checks and neither could observe it. The
+# TS suite asserted `sheetContentLines(sheet) <= SHEET_LINE_BUDGET` — the estimator marking its own
+# homework, which a model that under-counts a term passes on every shape while the PDF runs to two
+# pages. This script measured reality but never compared it to what the ladder BELIEVED, so a
+# predictor drifting toward optimism was invisible until a sheet actually spilled.
+#
+# ONLY ONE DIRECTION FAILS. `predicted > measured` means the ladder thinks it has room it does not
+# have, and that is the error that ships a two-page résumé. `predicted < measured` means it drops a
+# row slightly early — a cost, not a defect, and the direction `SHEET_LINE_BUDGET` was deliberately
+# rounded toward.
+DEFAULT_OPTIMISM_TOLERANCE_MM = 2.0
+
 # The template writes `@page { size: A4; margin: 12mm; }`. Substituting the height is how the
 # search asks "would this still fit if the page were shorter?" without touching the content.
 PAGE_RE = re.compile(r"@page\s*\{\s*size:\s*A4;")
@@ -79,6 +93,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("sheet_dir")
     ap.add_argument("--floor-mm", type=float, default=DEFAULT_FLOOR_MM)
+    ap.add_argument("--optimism-mm", type=float, default=DEFAULT_OPTIMISM_TOLERANCE_MM)
     args = ap.parse_args()
 
     files = sorted(glob.glob(os.path.join(args.sheet_dir, "*.html")))
@@ -100,13 +115,27 @@ def main() -> int:
               flush=True)
 
     results.sort(key=lambda r: (r[0] is not None, r[0]))
-    print("\n%-28s %10s %6s  %s" % ("sheet", "headroom", "stage", "dropped"))
+    print("\n%-28s %10s %10s %9s %6s  %s"
+          % ("sheet", "measured", "predicted", "residual", "stage", "dropped"))
+    # `residual = measured - predicted`. NEGATIVE IS THE DANGEROUS SIGN: the ladder believed it
+    # had more room than the page gave it.
+    optimistic = []
+    residuals = []
     for h, name in results:
         row = stages.get(name, {})
         dropped = ", ".join(row.get("dropped", [])) or "-"
-        print("%-28s %10s %6s  %s" % (
+        pred = row.get("predictedHeadroomMm")
+        residual = None
+        if h is not None and isinstance(pred, (int, float)):
+            residual = h - pred
+            residuals.append((residual, name))
+            if residual < -args.optimism_mm:
+                optimistic.append((residual, name, pred, h))
+        print("%-28s %10s %10s %9s %6s  %s" % (
             name.replace(".html", ""),
-            "OVERFLOW" if h is None else "%.2f mm" % h,
+            "OVERFLOW" if h is None else "%.2f" % h,
+            "-" if pred is None else "%.2f" % pred,
+            "-" if residual is None else "%+.2f" % residual,
             row.get("stage", "?"),
             dropped,
         ))
@@ -119,14 +148,28 @@ def main() -> int:
         len(results), len(fits), len(over), args.floor_mm))
     if fits:
         print("worst headroom: %.2f mm" % min(fits))
+    if residuals:
+        worst = min(residuals)
+        best = max(residuals)
+        print("estimator residual (measured - predicted): worst %+.2f mm (%s), "
+              "best %+.2f mm (%s), tolerance %.2f mm"
+              % (worst[0], worst[1], best[0], best[1], args.optimism_mm))
+    else:
+        # A manifest without predictions turns the whole comparison into a silent no-op, which is
+        # exactly the shape of gate this change exists to remove.
+        print("::warning::no predictedHeadroomMm in the manifest — the estimator was NOT checked")
 
     for name in over:
         print("::error::%s renders on more than one page" % name)
     for h, name in under:
         print("::error::%s has %.2f mm headroom, below the %.2f mm floor"
               % (name, h, args.floor_mm))
+    for residual, name, pred, measured in optimistic:
+        print("::error::%s: the line estimator predicted %.2f mm of headroom and the render gave "
+              "%.2f mm (%+.2f mm optimistic) — the ladder is deciding on a wrong number"
+              % (name, pred, measured, residual))
 
-    return 1 if (over or under) else 0
+    return 1 if (over or under or optimistic) else 0
 
 
 if __name__ == "__main__":

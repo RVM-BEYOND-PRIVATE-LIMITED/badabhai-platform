@@ -12,7 +12,7 @@ import {
 // measures is 18 mm shorter than the one production prints.
 beforeAll(primeSheetQr);
 import { buildResumeRenderInput } from "./resume-render-input";
-import { sheetContentLines } from "./resume-degradation";
+import { LINE_MM, sheetContentLines, SHEET_LINE_BUDGET } from "./resume-degradation";
 import { ResumeRenderer } from "./resume-renderer.service";
 
 /**
@@ -94,6 +94,17 @@ describe.skipIf(!OUT_DIR)("emit the content-shape sheets for a real PDF render",
             // any of the three was proportionate.
             trace: input.degradationTrace ?? [],
             lines: Number(sheetContentLines(input).toFixed(2)),
+            // R8 §3 — THE ESTIMATOR'S OWN PREDICTION, written beside the sheet it predicts.
+            //
+            // The one-page contract used to be checked by asserting `sheetContentLines(sheet) <=
+            // SHEET_LINE_BUDGET`, i.e. by measuring the estimator with the estimator: a model
+            // that under-counts a term passes its own test on every shape and the PDF is two
+            // pages. Emitting the prediction is what lets `measure-sheet-headroom.py` compare it
+            // against the millimetres WeasyPrint actually produced and fail on the direction that
+            // ships a two-page sheet — a prediction OPTIMISTIC against reality.
+            predictedHeadroomMm: Number(
+              ((SHEET_LINE_BUDGET - sheetContentLines(input)) * LINE_MM).toFixed(2),
+            ),
           });
           written += 1;
         }

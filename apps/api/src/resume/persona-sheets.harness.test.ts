@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { buildResumeRenderInput, type TradeSheetContext } from "./resume-render-input";
+import { LINE_MM, sheetContentLines, SHEET_LINE_BUDGET } from "./resume-degradation";
 import { ResumeRenderer } from "./resume-renderer.service";
 import type { WorkerEmploymentRecord } from "./resume-employment-rows";
 
@@ -48,6 +49,7 @@ interface Persona {
   phone: string;
   city: string;
   chips: Record<string, unknown>;
+  transcript: [string, string][];
   employments: {
     employer_name: string;
     employer_city: string | null;
@@ -153,6 +155,15 @@ describe.skipIf(!ENABLED)("persona sheets — five synthetic turners, rendered (
   const renderer = new ResumeRenderer(null as never);
   mkdirSync(OUT_DIR, { recursive: true });
 
+  /**
+   * THE SAME MANIFEST SHAPE `sheet-shape-emit` WRITES, so `measure-sheet-headroom.py` runs over
+   * this directory unchanged and holds the personas to the SAME non-circular contract as the 56
+   * fixtures: real page count, the 5 mm floor, and the estimator's prediction checked against
+   * the millimetres WeasyPrint produced. Five real extractions are the only senior profiles in
+   * the repo that nobody fitted the estimator to.
+   */
+  const manifest: Record<string, unknown>[] = [];
+
   it("has a REAL extraction artifact for every persona", () => {
     // THE HONESTY GATE, AND IT RUNS FIRST. A mock extraction produces a plausible-looking
     // profile out of nothing, and a sheet rendered from one would be indistinguishable from a
@@ -173,6 +184,11 @@ describe.skipIf(!ENABLED)("persona sheets — five synthetic turners, rendered (
         attributes: attributesOf(persona),
         phone: persona.phone,
         employments: employmentsOf(persona),
+        // R8 §2/§4 — his own turns, verbatim, exactly as `WorkerTranscriptRepository` returns
+        // them. The quote block and the over-claim veto both read this and nothing else.
+        workerSaid: persona.transcript
+          .filter(([role]) => role === "worker")
+          .map(([, text]) => text),
         // A FIXED CLOCK. "Jan 2023 – Present · 3 yrs 6 mo" is computed against this, so a
         // harness without it would produce a different sheet every day and the diffs between
         // runs would be noise rather than signal.
@@ -188,7 +204,13 @@ describe.skipIf(!ENABLED)("persona sheets — five synthetic turners, rendered (
       const input = buildResumeRenderInput(
         snapshotOf(artifact.extract, persona),
         persona.full_name,
-        "bb_trade.v1",
+        // `bb_trade`, NOT `bb_trade.v1`. THE REGISTRY ID IS THE FORMER AND THE FILE IS THE
+        // LATTER, and `getResumeTemplate` resolves an unknown id to the GENERIC FALLBACK rather
+        // than throwing — deliberately, so a bad id degrades a résumé instead of failing it. The
+        // R7 run passed the file name, so all five persona PDFs were rendered on `fallback.v3`
+        // and reported as trade sheets. The assertions below could not see it: a name and a
+        // length are true of both layouts. See the marker assertion in the render body.
+        "bb_trade",
         null,
         false,
         "worker",
@@ -226,6 +248,14 @@ describe.skipIf(!ENABLED)("persona sheets — five synthetic turners, rendered (
             skills: input.skills,
             degradationStage: input.degradationStage,
             degradationDropped: input.degradationDropped,
+            transcriptVetoes: input.transcriptVetoes,
+            // R8 §3 — the ESTIMATOR'S OWN PREDICTION, written beside the sheet so the Docker
+            // measurement can be read against it. Without this the two numbers live in two
+            // places and "the ladder said stage 0" and "the PDF is two pages" never meet.
+            contentLines: Number(sheetContentLines(input).toFixed(2)),
+            predictedHeadroomMm: Number(
+              ((SHEET_LINE_BUDGET - sheetContentLines(input)) * LINE_MM).toFixed(2),
+            ),
           },
           null,
           2,
@@ -234,7 +264,32 @@ describe.skipIf(!ENABLED)("persona sheets — five synthetic turners, rendered (
       );
 
       expect(html).toContain(persona.full_name);
-      expect(html.length).toBeGreaterThan(2000);
+      // THE LAYOUT IS PART OF THE CLAIM, and asserting it is what R7 was missing. "The sheet
+      // renders" was true of the fallback layout too, so five PDFs were produced, measured,
+      // reported and delivered against the wrong template. These two markers exist only in
+      // `bb_trade.v1.html`: the trade sheet's zone heading and its masthead wordmark.
+      // Both are static text in `bb_trade.v1.html` and in no other layout: the quote block's
+      // class, and the Work-history zone heading the stylesheet writes with `::before`. Read
+      // from the STYLESHEET rather than from a rendered value, so the assertion holds for a
+      // sparse worker whose every section collapsed.
+      expect(html, "this is not the bb_trade sheet").toContain("sec-words");
+      expect(html).toContain('.sec-work::before { content: "Work history"; }');
+
+      manifest.push({
+        file: `${persona.id}.html`,
+        shape: persona.id,
+        name: persona.label,
+        audience: "worker",
+        variant: "persona",
+        stage: input.degradationStage ?? 0,
+        dropped: input.degradationDropped ?? [],
+        trace: input.degradationTrace ?? [],
+        lines: Number(sheetContentLines(input).toFixed(2)),
+        predictedHeadroomMm: Number(
+          ((SHEET_LINE_BUDGET - sheetContentLines(input)) * LINE_MM).toFixed(2),
+        ),
+      });
+      writeFileSync(join(OUT_DIR, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
     });
   }
 });
