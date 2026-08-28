@@ -53,3 +53,19 @@ packages/db/migrations/**
 # have rewritten the whole directory. `bb-trade-template.test.ts` asserts the
 # no-whitespace discipline independently, so a formatter run still fails CI.
 apps/api/src/resume/templates/**
+
+# ---------------------------------------------------------------------------
+# THE LEXICON'S TYPESCRIPT EMBEDDING — generator output, and the two disagree.
+#
+# `packages/profiling-lexicon/src/internal/data.generated.ts` is written by
+# `scripts/sync-mirror.mjs`, which embeds each canonical JSON file as a string
+# literal. Prettier re-quotes those literals, and `sync-mirror.mjs --check`
+# then compares its own output against the reformatted file and reports the
+# canonical data as STALE — which is a hard failure in two CI jobs.
+#
+# Hit for real on 2026-08-28: a blanket `prettier --write` over the changed-file
+# list reformatted this file, `pnpm --filter @badabhai/profiling-lexicon test`
+# went red with "data.generated.ts: stale — does not match .../data", and the
+# only actual difference was single quotes becoming double. The generator is
+# the formatter for this file; nothing else may be.
+packages/profiling-lexicon/src/internal/data.generated.ts

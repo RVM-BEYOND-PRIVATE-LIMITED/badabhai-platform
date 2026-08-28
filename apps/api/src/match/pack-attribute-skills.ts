@@ -34,89 +34,108 @@
  * and that decision belongs there rather than here.
  */
 
-/** `attribute_key` → `option_key` → the corpus attribute ids that option genuinely implies. */
+/**
+ * `pack_id` → `attribute_key` → `option_key` → the corpus attribute ids that option implies.
+ *
+ * PACK-KEYED AT THE TOP (R12 §2.1), and the outer key is not decoration. This map used to be
+ * keyed by attribute alone, so every entry applied to any worker whose attribute bag held that
+ * key regardless of which pack he answered. Measured across all 143 packs, three keys already
+ * collide: `drawing_reading` (three packs), `measuring_tools` (two) and `material_worked` (two).
+ * `measuring_tools` is the live one — a `qp_machining` worker's `vernier`/`micrometer` answers
+ * were mapped to reach through a table authored for turners. Probably right; entirely
+ * unreviewed; and nobody decided it. Whether machining SHOULD share the turner mapping is an
+ * owner ruling, not a code decision — see NEEDS_PRAKASH Q14.
+ *
+ * An unknown pack contributes NOTHING, which is the same fail-quiet default as before and the
+ * safe direction: a worker whose pack has no entry reaches through his profile skills alone,
+ * rather than through a mapping somebody else's trade authored.
+ */
 export const PACK_ATTRIBUTE_SKILLS: Readonly<
-  Record<string, Readonly<Record<string, readonly string[]>>>
+  Record<string, Readonly<Record<string, Readonly<Record<string, readonly string[]>>>>>
 > = {
-  // "Aap kaunsi turning machine chalate hain?" — the question stem scopes every answer to
-  // turning, which is what makes `spm` safe to map. `other_machine` names nothing and is left out.
-  turning_machine: {
-    cnc_lathe: ["skill_turning"],
-    conventional_lathe: ["skill_turning"],
-    vtl: ["skill_turning"],
-    sliding_head: ["skill_turning"],
-    spm: ["skill_turning"],
+  qp_cnc_turning: {
+    // "Aap kaunsi turning machine chalate hain?" — the question stem scopes every answer to
+    // turning, which is what makes `spm` safe to map. `other_machine` names nothing and is left out.
+    turning_machine: {
+      cnc_lathe: ["skill_turning"],
+      conventional_lathe: ["skill_turning"],
+      vtl: ["skill_turning"],
+      sliding_head: ["skill_turning"],
+      spm: ["skill_turning"],
+    },
+    // Operations. Facing/OD, grooving and knurling are turning; the other three are their own
+    // corpus ids, all of which the taxonomy treats as attributes rather than postable skills.
+    turning_operation: {
+      facing_od: ["skill_turning"],
+      grooving: ["skill_turning"],
+      knurling: ["skill_turning"],
+      boring: ["skill_boring"],
+      drilling: ["skill_drilling"],
+      threading: ["skill_tapping_threading"],
+    },
+    // Controllers. `haas`, `mazak` and `unknown_controller` have no corpus id, so they map to
+    // nothing rather than to the nearest one.
+    controller_brand: {
+      fanuc: ["skill_fanuc"],
+      siemens: ["skill_siemens"],
+      mitsubishi: ["skill_mitsubishi"],
+    },
+    workholding: {
+      three_jaw: ["skill_fixture_setup"],
+      four_jaw: ["skill_fixture_setup"],
+      collet: ["skill_fixture_setup"],
+      soft_jaw: ["skill_fixture_setup"],
+      tailstock: ["skill_fixture_setup"],
+      steady_rest: ["skill_fixture_setup"],
+    },
+    setting_operation: {
+      tool_offset: ["skill_tool_offset_setting"],
+      work_offset: ["skill_tool_offset_setting"],
+      nose_radius: ["skill_tool_offset_setting"],
+      jaw_change: ["skill_fixture_setup"],
+      tailstock_set: ["skill_fixture_setup"],
+      // `first_piece` here is "setting the first piece", not approving it. Nothing.
+    },
+    measuring_tools: {
+      vernier: ["skill_measuring_instruments"],
+      micrometer: ["skill_measuring_instruments"],
+      bore_gauge: ["skill_measuring_instruments"],
+      height_gauge: ["skill_measuring_instruments"],
+      plug_gauge: ["skill_measuring_instruments"],
+      dial_indicator: ["skill_measuring_instruments"],
+    },
+    drawing_reading: {
+      basic_drawing: ["skill_drawing_reading"],
+      gdt: ["skill_drawing_reading"],
+      // `no_drawing` is an honest "nahi padh pata". It is an answer, not a skill.
+    },
+    programming_level: {
+      offset_only: ["skill_tool_offset_setting"],
+      edit_program: ["skill_program_editing"],
+      // "Naya programme likh leta hoon" and "CAM software se banata hoon" are the posting-level
+      // claims, in the worker's own words. These two are the only chips in the pack that reach a
+      // vacancy other than a turner's.
+      write_program: ["skill_cnc_programming"],
+      cam: ["skill_cam_software"],
+    },
+    // DELIBERATELY ABSENT, each for a stated reason rather than by omission:
+    //   turning_experience  a duration, already read from experience.total_years
+    //   material_worked     what he cut, not what he can do
+    //   tolerance_band      a precision claim, not a skill; §4.3 display-only
+    //   sector_worked       §4.3 "Display only. Never a matching input — locked"
+    //   advanced_capability live tooling / bar feeder / sub-spindle have no corpus ids
+    //   quality_work        see the header: none of it claims a quality inspector's chair
+    //   troubleshooting     symptoms he has handled, with no corpus id to carry them
   },
-  // Operations. Facing/OD, grooving and knurling are turning; the other three are their own
-  // corpus ids, all of which the taxonomy treats as attributes rather than postable skills.
-  turning_operation: {
-    facing_od: ["skill_turning"],
-    grooving: ["skill_turning"],
-    knurling: ["skill_turning"],
-    boring: ["skill_boring"],
-    drilling: ["skill_drilling"],
-    threading: ["skill_tapping_threading"],
-  },
-  // Controllers. `haas`, `mazak` and `unknown_controller` have no corpus id, so they map to
-  // nothing rather than to the nearest one.
-  controller_brand: {
-    fanuc: ["skill_fanuc"],
-    siemens: ["skill_siemens"],
-    mitsubishi: ["skill_mitsubishi"],
-  },
-  workholding: {
-    three_jaw: ["skill_fixture_setup"],
-    four_jaw: ["skill_fixture_setup"],
-    collet: ["skill_fixture_setup"],
-    soft_jaw: ["skill_fixture_setup"],
-    tailstock: ["skill_fixture_setup"],
-    steady_rest: ["skill_fixture_setup"],
-  },
-  setting_operation: {
-    tool_offset: ["skill_tool_offset_setting"],
-    work_offset: ["skill_tool_offset_setting"],
-    nose_radius: ["skill_tool_offset_setting"],
-    jaw_change: ["skill_fixture_setup"],
-    tailstock_set: ["skill_fixture_setup"],
-    // `first_piece` here is "setting the first piece", not approving it. Nothing.
-  },
-  measuring_tools: {
-    vernier: ["skill_measuring_instruments"],
-    micrometer: ["skill_measuring_instruments"],
-    bore_gauge: ["skill_measuring_instruments"],
-    height_gauge: ["skill_measuring_instruments"],
-    plug_gauge: ["skill_measuring_instruments"],
-    dial_indicator: ["skill_measuring_instruments"],
-  },
-  drawing_reading: {
-    basic_drawing: ["skill_drawing_reading"],
-    gdt: ["skill_drawing_reading"],
-    // `no_drawing` is an honest "nahi padh pata". It is an answer, not a skill.
-  },
-  programming_level: {
-    offset_only: ["skill_tool_offset_setting"],
-    edit_program: ["skill_program_editing"],
-    // "Naya programme likh leta hoon" and "CAM software se banata hoon" are the posting-level
-    // claims, in the worker's own words. These two are the only chips in the pack that reach a
-    // vacancy other than a turner's.
-    write_program: ["skill_cnc_programming"],
-    cam: ["skill_cam_software"],
-  },
-  // DELIBERATELY ABSENT, each for a stated reason rather than by omission:
-  //   turning_experience  a duration, already read from experience.total_years
-  //   material_worked     what he cut, not what he can do
-  //   tolerance_band      a precision claim, not a skill; §4.3 display-only
-  //   sector_worked       §4.3 "Display only. Never a matching input — locked"
-  //   advanced_capability live tooling / bar feeder / sub-spindle have no corpus ids
-  //   quality_work        see the header: none of it claims a quality inspector's chair
-  //   troubleshooting     symptoms he has handled, with no corpus id to carry them
 };
 
 /** Every corpus id this map can emit — the surface a taxonomy retag has to keep covering. */
 export function corpusSkillsEmitted(): string[] {
   const ids = new Set<string>();
-  for (const options of Object.values(PACK_ATTRIBUTE_SKILLS)) {
-    for (const skills of Object.values(options)) for (const id of skills) ids.add(id);
+  for (const attributes of Object.values(PACK_ATTRIBUTE_SKILLS)) {
+    for (const options of Object.values(attributes)) {
+      for (const skills of Object.values(options)) for (const id of skills) ids.add(id);
+    }
   }
   return [...ids].sort();
 }
@@ -132,11 +151,28 @@ export function corpusSkillsEmitted(): string[] {
  * Deterministic: sorted, deduped, same input → same output.
  */
 export function corpusSkillsForPackAttributes(
-  answers: ReadonlyMap<string, readonly string[]>,
+  /**
+   * One entry per stored attribute, carrying the `pack_id` OFF ITS OWN ROW.
+   *
+   * PER-ROW RATHER THAN ONE PACK PER WORKER, and that is the correct granularity rather than
+   * extra precision: a worker answers `qp_universal`'s tail AND a role pack, so his attribute
+   * bag genuinely mixes provenances. Collapsing to a single pack id would either lose the role
+   * pack's answers or apply the role pack's dictionary to the universal tail's — the same class
+   * of error, one level up.
+   *
+   * A row with a null `pack_id` (the finishing form writes these) matches no entry and
+   * contributes nothing, which is correct: no dictionary here covers form-written keys.
+   */
+  answers: readonly {
+    packId: string | null;
+    attributeKey: string;
+    optionKeys: readonly string[];
+  }[],
 ): string[] {
   const ids = new Set<string>();
-  for (const [attributeKey, optionKeys] of answers) {
-    const options = PACK_ATTRIBUTE_SKILLS[attributeKey];
+  for (const { packId, attributeKey, optionKeys } of answers) {
+    if (packId === null) continue;
+    const options = PACK_ATTRIBUTE_SKILLS[packId]?.[attributeKey];
     if (!options) continue;
     for (const optionKey of optionKeys) {
       for (const id of options[optionKey] ?? []) ids.add(id);

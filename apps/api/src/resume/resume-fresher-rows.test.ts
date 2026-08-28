@@ -16,7 +16,7 @@ describe("buildFresherRows", () => {
   };
 
   it("fills Zone 4 from the four things §11 #1 names", () => {
-    const rows = buildFresherRows(FULL);
+    const rows = buildFresherRows("qp_cnc_turning", FULL);
     expect(rows).toHaveLength(1);
     expect(rows[0]!.role).toBe("ITI workshop training");
     expect(rows[0]!.work).toBe(
@@ -27,33 +27,37 @@ describe("buildFresherRows", () => {
 
   it("prints the project in the worker's OWN words, untranslated", () => {
     // §8's third permitted source. Nothing here passes through a model.
-    expect(buildFresherRows(FULL)[0]!.work).toContain("Stepped shaft aur bush banaya tha");
+    expect(buildFresherRows("qp_cnc_turning", FULL)[0]!.work).toContain(
+      "Stepped shaft aur bush banaya tha",
+    );
   });
 
   it("says nothing about a trade test not yet taken", () => {
     // §8.3's asymmetry rule applied to a credential: "has not yet taken it" is true, costs the
     // worker the interview, and tells the employer nothing he would not already assume.
-    const rows = buildFresherRows({ ...FULL, trade_test_status: "not_yet" });
+    const rows = buildFresherRows("qp_cnc_turning", { ...FULL, trade_test_status: "not_yet" });
     expect(rows[0]!.work).not.toContain("Trade test");
     // …but a test SAT and awaiting a result is a real thing he did.
-    const waiting = buildFresherRows({ ...FULL, trade_test_status: "appeared" });
+    const waiting = buildFresherRows("qp_cnc_turning", { ...FULL, trade_test_status: "appeared" });
     expect(waiting[0]!.work).toContain("Trade test taken, result awaited");
   });
 
   it("drops a machine slug the dictionary does not know", () => {
-    const rows = buildFresherRows({ iti_workshop_machines: ["conventional_lathe", "spaceship"] });
+    const rows = buildFresherRows("qp_cnc_turning", {
+      iti_workshop_machines: ["conventional_lathe", "spaceship"],
+    });
     expect(rows[0]!.work).toBe("Conventional lathe");
   });
 
   it("returns NOTHING when the fresher questions were never answered", () => {
     // A non-fresher who simply has not filled the work-history form must not get an invented
     // training block. The History heading collapses exactly as it does today.
-    expect(buildFresherRows({})).toEqual([]);
-    expect(buildFresherRows({ turning_machine: ["cnc_lathe"] })).toEqual([]);
+    expect(buildFresherRows("qp_cnc_turning", {})).toEqual([]);
+    expect(buildFresherRows("qp_cnc_turning", { turning_machine: ["cnc_lathe"] })).toEqual([]);
   });
 
   it("caps the machine list so one row cannot wrap into three", () => {
-    const rows = buildFresherRows({
+    const rows = buildFresherRows("qp_cnc_turning", {
       iti_workshop_machines: [
         "conventional_lathe",
         "cnc_lathe",

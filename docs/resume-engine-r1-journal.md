@@ -2275,3 +2275,206 @@ failed**. Six sheets, all one page, worst headroom 21.33 mm — unchanged, which
 result. One incidental formatting fix: `resume-render-input.ts` was already prettier-dirty on
 `main` (verified by stashing), so running the formatter corrected an indentation block I did not
 otherwise touch.
+
+---
+
+## §24 — R12: salary, pack-blindness, and three corrections I had to make to myself
+
+### 24.1 — §0's new sub-pattern, earned twice more in this packet
+
+**A detector's fixture must contain the thing the detector detects.** R12 added it because both R8
+HIGH findings were inside instruments. It fired three times here, on my own work:
+
+1. **The pack-scoping guard passed with the veto deliberately broken.** Its corpus-driven probe
+   builds an answer bag from each pack's options — and `drawing_reading`, the veto gazetteer's only
+   colliding key, is `boolean` in the other two packs, so it has no options and the probe could not
+   express the collision. Fixed with an explicit hypothetical-pack case.
+2. **The flag-list coverage test passed with the derivation deliberately broken.** It scanned only
+   `AIRouter.run` call sites, found five tasks, and both the correct and the sabotaged list covered
+   all five.
+3. **The SQL structural check matched the COMMENT explaining the old defect**, not the defect. It
+   went red on a correct file. A detector matching a description of the thing instead of the thing
+   is the same shape one level up, and it failed safe only by luck.
+
+### 24.2 — §1.1, and the gap was already pinned
+
+`hazaar` into `thousandUnits`, ahead of `hazar` because alternation is first-match-wins.
+**7/12 → 9/12** on the R11 phrasings.
+
+Worth recording: the shared corpus **already carried this gap as `sal_004`**, with a note saying
+"pinned so adding the spelling is a visible one-line diff with a corpus change attached". Closing it
+turned that row red, exactly as designed. My R11 report presented the gap as a discovery; it had
+been measured and pinned by an earlier packet, and I did not check before claiming it.
+
+### 24.3 — §1.2, routed, and the review refuted my framing
+
+I asked the reviewer to be precise that **anchoring is not widening** — same width, different
+origin. That is true in the narrow sense and **false in the consequential one**, and the review
+built the case I asked for:
+
+```
+abhi 25000 mahina, 30k chahiye
+  today     -> (current 25000, expected 30000)   correct
+  anchored  -> (current None,  expected 25000)   the documented regression, verbatim
+```
+
+`25000`'s period phrase ends at 17, `17 + 10 = 27`, and `" chah"` lands inside. A 7,150-utterance
+sweep measured **1,776 regressions** for the anchor alone; with a next-number clamp and a
+clause-terminator clamp, 835; with a third guard — a number after the cue owns the cue — zero.
+
+**Verdict: do-not-ship as proposed; ship-with-changes as the three-guard variant.** Two further
+findings I would not have got: the plain anchor appears to fix `band_dash` and does so _by the
+misattribution mechanism producing the right answer by luck_; and across all 527 corpus rows the
+safe and unsafe variants **disagree on zero**, so the cross-language parity suite is currently blind
+to the difference. Not implemented — the review's own pre-merge list is five items including a
+regenerated shared corpus and a TypeScript change.
+
+The five adversarial utterances are now pinned in `test_salary_attribution.py` as rows that pass
+today, so whoever implements the guarded version has a red test if any guard is missing.
+
+### 24.4 — §1.4 set out to prove a collapse and found the opposite
+
+The absent case was fine on both branches. The PRESENT case was not: the legacy branch passed a
+literal `null` for the Verdict Line's salary while handing the same figure to its Zone 3 row, so
+`expects ₹24,000` never rendered for any worker on the branch the mapper itself calls "the path
+most existing profiles still take" — the third of three subhead segments, on the element §5.1 ranks
+first of eleven. `git log -S` puts the literal in #1292 and shows #1294 fixing only the row beneath
+it; nothing argues for the asymmetry.
+
+**Proving a segment collapses when empty is half a test.** The other half is that it appears when
+full, and that is the half that was failing.
+
+### 24.5 — §2, and the docstring was mine
+
+Three dictionaries — 143 lines — are now keyed by `pack_id`, and `applyTranscriptVeto` /
+`buildFresherRows` take a **required** pack id rather than an optional one, so the pack-blind
+behaviour cannot be recovered by forgetting an argument. `worker_attributes.pack_id` has existed
+all along and nothing was reading it.
+
+`resume-transcript-veto.ts` claimed in its own docstring to be "SCOPED TO THE CNC TURNING PACK".
+I wrote that line, and the code never had a pack id. R12 §2.2's instruction was right: make the
+code match the docstring, not the reverse.
+
+**The guard's first run corrected the R11 report.** Per dictionary the collisions are narrower than
+I reported: `drawing_reading` for the veto; `drawing_reading` + `measuring_tools` for reach; none
+for the fresher block. `material_worked` collides in the corpus but appears in no dictionary and was
+never reachable. R11 characterised a set instead of computing it — the rule §0 exists for.
+
+### 24.6 — §3, the rejection split, and only one of the three is a veto problem
+
+Per persona, over the committed artifacts:
+
+| persona | employments | empty `work_done` | candidates | printed | vetoed | filtered |
+| ------- | ----------- | ----------------- | ---------- | ------- | ------ | -------- |
+| p1      | 0           | —                 | 0          | 0       | 0      | 0        |
+| p2      | 1           | 0                 | 3          | 2       | 0      | 1        |
+| p3      | 3           | 1                 | 2          | 0       | 1      | 1        |
+| p4      | 3           | 2                 | 1          | 1       | 0      | 0        |
+| p5      | 3           | 3                 | 0          | 0       | 0      | 0        |
+
+Allocated to the three causes R12 §3 names:
+
+- **proposed-then-vetoed — 1.** p3's `Kharad chalayi hai`, and the veto is right: the phrase is not
+  in his transcript. **Veto tuning would fix nothing.**
+- **proposed-nothing — 6 of 7 employments.** p5 all three, p4 two of three, p3 one of three came
+  back with an empty `work_done`. This is the whole story, and it is prompt over-constraint, not
+  the veto.
+- **empty-at-source — p1 only**, who is a fresher with no employer. Correct by design.
+
+Plus a fourth the three categories do not name: **2 filtered by the block's own rules** — p2's
+`Facing, turning, drilling, grooving` (the chips already print it) and p3's 17-character `Job work
+hota tha` (under the 18-char floor). Both are the design working.
+
+**Not tuned, per instruction.** But the number that matters is 6 of 7, and no gate watches it.
+
+### 24.7 — §4, and the derivation was wrong before it was right
+
+`effective-ai-flags.py` now derives its task list instead of holding one. Getting there took three
+attempts and all three are in the file:
+
+- **R8**: `resume_generation` absent → "five of six armed" when six of seven were.
+- **R11**: the correction still omitted `domain_match`, `voice_transcription`,
+  `skill_canonicalization`, `skill_canonicalization_batch`.
+- **R12, mine**: deriving from the router's two registries **dropped `stt_transcription` and
+  `tts_synthesis`** — which I had, in the same edit, called invented names on the evidence that they
+  appear in admin-web display code. They are real: `stt.py:151` and `tts.py:57`, gated through
+  `real_call_enabled_for`, and they never touch `AIRouter` at all.
+
+The source of truth is **the gate**, not a registry, so the list is now the union of three sources
+and the report covers **11 tasks, not 7**. Mutation-verified both ways: dropping the direct-gate
+source names STT and TTS; dropping the trace registry names the three canonicalisation/voice tasks.
+
+The discarded-interview query has a committed fixture that contains a discarded interview, a healthy
+contrast, the `profile_parse` decoy the old filter matched, and a three-turn worker for the
+`inbound_turns >= 4` floor.
+
+### 24.8 — §5.1, two of four `it.fails` encode a plan
+
+Four survive. Audited one by one:
+
+| assertion                                   | verdict                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| single-role on one line                     | **requirement.** Asserts the sample's rendered shape; blocked on the Q2 ruling, not on a route.                                                                                                                                                                                                                       |
+| certificates as `Name (Issuer, City, Year)` | **PLAN.** It calls `buildQualificationRows` with `certifications: string[]` and expects issuer, city and year the input does not contain — so as written it can only pass if the function fabricates. The fix is a contract change; when it lands the signature changes and this test must be rewritten, not flipped. |
+| verification is reachable                   | **PLAN, and the worst kind.** It asserts `String(buildSheetFooterMeta)` contains the literal `VERIFICATION_IS_REACHABLE`. Verified by probe: `String(fn)` includes comments, so **writing that token in a comment turns it green with nothing built.**                                                                |
+| finishing form sends five fields            | **requirement** — reads the shipped Dart for the wire keys.                                                                                                                                                                                                                                                           |
+
+Both plan-shaped ones are recorded rather than rewritten: rewriting them means choosing the
+requirement's exact shape, and for certificates that is the frozen-contract change itself.
+
+### 24.9 — §5.2, and the honest answer is "not worth a lint"
+
+**Partially detectable, and I would not ship it.**
+
+Prototyped the narrow rule — a docstring making a scope claim (`SCOPED TO`, `ONLY FOR`, `KEYED BY`,
+`FILTERED BY`) that names a backticked identifier absent from the declaration it documents — and ran
+it over 537 source files: **23 candidate findings**, almost all of them the prototype attaching a
+docstring to the wrong declaration (`can`, `of`, `rows`, `keep`, `pack` — local `const`s, not the
+documented function). The signal is dominated by parser error; a real version needs an AST on both
+TypeScript and Python.
+
+And even correct, its recall is **2 of the 3 known instances**. It catches the veto docstring (claims
+a pack scope, no pack identifier in the function) and the `redactKnownName` one (names a function
+that lives in another file). It cannot catch `profile.py`'s `job_domain_id`: the identifier IS
+present and used, and the false part was "nothing populates it" — a whole-program reachability fact
+about a caller in a different language's codebase.
+
+**The cheaper control is the one §2.3 already used: make the claim executable.** A docstring saying
+"scoped to X" earns a test that a non-X input reaches nothing. That catches all three, including the
+one no lint can, and it fails with a name rather than a warning.
+
+### 24.11 — And the `it.fails` closed itself, within the hour
+
+§1.5's mobile assertion was written as an `it.fails` on a branch cut before **#1298** landed. My
+working copy still held the old `finishing_models.dart`, so the suite was green locally. **CI tests
+the merge with `main`**, saw all five keys, and reported `Expect test to fail`.
+
+`0acaea38 feat(worker-app): finishing form sends the salary band + full ITI credential (#1298)` —
+merged while this packet was in flight. So the gap closed itself and the assertion said so, without
+anyone remembering to check. **Fourth time the pattern has paid on this track**, and the first time
+the closure came from someone else's work.
+
+Two consequences worth stating:
+
+- **Q5's rider 2 is unblocked.** `salary_expected_max` now has a capture surface, so the band can
+  ship and completion rate on it is a real number rather than a structural zero.
+- **A local green is not a merge green.** My branch and `main` disagreed about a file I did not
+  touch, and the only thing that noticed was CI running the merge. Worth remembering next to the
+  Q13 finding: the gap Q13 closes is exactly the case where that check never runs at all.
+
+The assertion is now a plain `it`, and the seven-key case stays beside it — it is what stops a
+mobile refactor quietly dropping one of the originals while the twelve-key case still passes.
+
+### 24.10 — State
+
+`tsc` clean; **apps/api 6875 passed**, 16 skipped; `apps/ai-service` ruff clean and green except
+`test_ai_observability.py::test_the_wrapper_calls_names_the_real_sdk_actually_exposes`, which
+**fails identically on `main`** (SDK surface drift, verified by stashing). `scripts/` carries the
+same 16 ruff findings as `main` in a file this packet did not touch.
+
+Salary slot attribution: **25/34 (73%)**, nine gaps pinned with their measured behaviour, both
+directions mutation-verified.
+
+#1299 merged (`a9baddf7`, verified on `origin/main`). #1300 opened for §6 alone; its CI produced
+**10 jobs**, which is the check that matters for that file — a workflow that fails to compile
+produces zero.

@@ -87,7 +87,10 @@ const CLAUSE_SPLIT_RE = /[.!?;।॥\n\r]+|\s+(?:par|lekin|magar|but)\s+/giu;
 
 /** Normalised, space-padded clause: script-agnostic word boundaries without `\b`. */
 function padded(text: string): string {
-  return ` ${text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim()} `;
+  return ` ${text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()} `;
 }
 
 function clausesOf(turns: readonly string[]): { raw: string; key: string }[] {
@@ -112,67 +115,84 @@ interface TermSpec {
 }
 
 /**
- * THE GAZETTEER — how a turner names each capability in his own Hinglish.
+ * THE GAZETTEER — how a worker in a given trade names each capability in his own Hinglish.
  *
- * SCOPED TO THE CNC TURNING PACK, which is the only authored role track. A pack with no entry
- * here is not vetoed at all, which is the correct default: the cost of no veto is an over-claim
- * that reaches a trial, and the cost of a guessed veto is a true claim deleted from a man's
- * résumé by a term list nobody in that trade reviewed.
+ * KEYED BY `pack_id` FIRST, AND THAT OUTER KEY IS THE WHOLE POINT (R12 §2.1).
+ *
+ * This map used to be keyed by attribute name alone, and the docstring above it claimed it was
+ * "SCOPED TO THE CNC TURNING PACK". It was not. `applyTranscriptVeto` had never seen a pack id,
+ * so every entry applied to every worker on the platform whose attribute bag happened to contain
+ * that key — the scoping was an intention recorded in prose, not a property the code had. It is
+ * the third instance of that class on this track, after `chat.service.ts` on `redactKnownName`
+ * and `profile.py` on `job_domain_id`.
+ *
+ * NOT HYPOTHETICAL. Scanning all 143 packs: `drawing_reading` appears in `qp_cnc_turning`,
+ * `qp_machining` and `qp_toolmaking`; `measuring_tools` in two; `material_worked` in two. Today
+ * the reach is bounded — `drawing_reading` is `boolean` in the other packs, so `slugsOf` yields
+ * `[]` — but a milling pack shares far more attribute names with turning than machining does,
+ * and the collision widens in exactly the dimension nothing guarded.
+ *
+ * A PACK WITH NO ENTRY IS NOT VETOED AT ALL, which remains the correct default: the cost of no
+ * veto is an over-claim that reaches a trial, and the cost of a guessed veto is a true claim
+ * deleted from a man's résumé by a term list nobody in that trade reviewed. Scoping makes that
+ * default REAL rather than aspirational.
  *
  * THE ALIASES ARE THE MOAT, and this is the same asset §8.2 describes: "no model maps 'kharad'
  * to 'lathe operation' without a hand-seeded alias". Every term below is a phrase a turner
  * actually uses, not a translation of the English label.
  */
-const CAPABILITY_TERMS: Readonly<Record<string, TermSpec>> = {
-  setting_operation: {
-    attribute: ["setting", "set karta", "set karta hoon", "setting karta", "seting"],
-    slugs: {
-      tool_offset: ["offset", "tool offset"],
-      work_offset: ["work offset", "zero setting", "g54"],
-      nose_radius: ["nose radius", "radius compensation"],
-      jaw_change: ["jaw", "chuck change", "jaw change"],
-      tailstock_set: ["tailstock", "centre set"],
-      first_piece: ["first piece", "pehla piece", "first pc"],
+export const CAPABILITY_TERMS: Readonly<Record<string, Readonly<Record<string, TermSpec>>>> = {
+  qp_cnc_turning: {
+    setting_operation: {
+      attribute: ["setting", "set karta", "set karta hoon", "setting karta", "seting"],
+      slugs: {
+        tool_offset: ["offset", "tool offset"],
+        work_offset: ["work offset", "zero setting", "g54"],
+        nose_radius: ["nose radius", "radius compensation"],
+        jaw_change: ["jaw", "chuck change", "jaw change"],
+        tailstock_set: ["tailstock", "centre set"],
+        first_piece: ["first piece", "pehla piece", "first pc"],
+      },
     },
-  },
-  programming_level: {
-    attribute: ["programme", "program", "programming", "programing", "g code", "m code"],
-    slugs: {
-      // "edit kar leta hoon" is how persona 3 actually says it, and "edit karta" alone missed
-      // it. The affirmation list has to carry a worker's real phrasing or the rescue never fires.
-      edit_program: ["programme edit", "program edit", "edit karta", "edit kar", "edit kar leta"],
-      write_program: ["programme banata", "program banata", "programme likhta", "naya programme"],
-      cam: ["cam", "mastercam", "cam software"],
+    programming_level: {
+      attribute: ["programme", "program", "programming", "programing", "g code", "m code"],
+      slugs: {
+        // "edit kar leta hoon" is how persona 3 actually says it, and "edit karta" alone missed
+        // it. The affirmation list has to carry a worker's real phrasing or the rescue never fires.
+        edit_program: ["programme edit", "program edit", "edit karta", "edit kar", "edit kar leta"],
+        write_program: ["programme banata", "program banata", "programme likhta", "naya programme"],
+        cam: ["cam", "mastercam", "cam software"],
+      },
     },
-  },
-  drawing_reading: {
-    attribute: ["drawing", "drwaing", "naksha", "blueprint"],
-    slugs: { gdt: ["gd t", "gdt", "geometric tolerance", "geometrical tolerance"] },
-  },
-  quality_work: {
-    attribute: ["quality", "inspection", "checking"],
-    slugs: {
-      spc: ["spc", "spc chart"],
-      rejection: ["rejection", "rejection analysis"],
-      first_piece_check: ["first piece check", "first piece inspection"],
+    drawing_reading: {
+      attribute: ["drawing", "drwaing", "naksha", "blueprint"],
+      slugs: { gdt: ["gd t", "gdt", "geometric tolerance", "geometrical tolerance"] },
     },
-  },
-  troubleshooting: {
-    attribute: ["troubleshoot", "troubleshooting", "problem solve"],
-    slugs: {
-      alarm: ["alarm", "alarm clear"],
-      chatter: ["chatter", "vibration"],
-      tool_wear: ["tool wear", "tool break", "tool breakage"],
+    quality_work: {
+      attribute: ["quality", "inspection", "checking"],
+      slugs: {
+        spc: ["spc", "spc chart"],
+        rejection: ["rejection", "rejection analysis"],
+        first_piece_check: ["first piece check", "first piece inspection"],
+      },
     },
-  },
-  advanced_capability: {
-    attribute: [],
-    slugs: {
-      live_tooling: ["live tooling", "live tool"],
-      bar_feeder: ["bar feeder", "barfeeder"],
-      sub_spindle: ["sub spindle", "subspindle"],
-      c_axis: ["c axis"],
-      y_axis: ["y axis"],
+    troubleshooting: {
+      attribute: ["troubleshoot", "troubleshooting", "problem solve"],
+      slugs: {
+        alarm: ["alarm", "alarm clear"],
+        chatter: ["chatter", "vibration"],
+        tool_wear: ["tool wear", "tool break", "tool breakage"],
+      },
+    },
+    advanced_capability: {
+      attribute: [],
+      slugs: {
+        live_tooling: ["live tooling", "live tool"],
+        bar_feeder: ["bar feeder", "barfeeder"],
+        sub_spindle: ["sub spindle", "subspindle"],
+        c_axis: ["c axis"],
+        y_axis: ["y axis"],
+      },
     },
   },
 };
@@ -191,9 +211,22 @@ function slugsOf(value: unknown): string[] {
  * the form rather than the chat.
  */
 export function applyTranscriptVeto(args: {
+  /**
+   * The pack the interview ran. A pack this gazetteer has no entry for is NOT VETOED, which is
+   * the safe direction — see the map's own docstring. `null` (a worker whose answers came only
+   * from the finishing form) likewise vetoes nothing.
+   *
+   * REQUIRED, not optional-with-a-default. An optional pack id would let a caller silently get
+   * the old pack-blind behaviour back by forgetting to pass it, which is the precise bug this
+   * argument exists to make impossible.
+   */
+  readonly packId: string | null;
   readonly attributes: WorkerAttributeValues;
   readonly workerSaid: readonly string[];
 }): { attributes: WorkerAttributeValues; vetoes: TranscriptVeto[] } {
+  const terms = args.packId === null ? undefined : CAPABILITY_TERMS[args.packId];
+  if (terms === undefined) return { attributes: args.attributes, vetoes: [] };
+
   const clauses = clausesOf(args.workerSaid);
   if (clauses.length === 0) return { attributes: args.attributes, vetoes: [] };
 
@@ -207,7 +240,7 @@ export function applyTranscriptVeto(args: {
   const attributes: Record<string, unknown> = { ...args.attributes };
   const vetoes: TranscriptVeto[] = [];
 
-  for (const [attributeKey, spec] of Object.entries(CAPABILITY_TERMS)) {
+  for (const [attributeKey, spec] of Object.entries(terms)) {
     const claimed = slugsOf(attributes[attributeKey]);
     if (claimed.length === 0) continue;
 

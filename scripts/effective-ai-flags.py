@@ -62,28 +62,52 @@ def resolve_settings() -> tuple[object, str | None]:
         os.environ["SKILL_CANONICALIZE_ENABLED"] = "false"
         return Settings(), str(err).split(". ")[0]
 
-#: Every task type the router gates.
+
+#: Every task type whose armed state this report must cover — DERIVED, never hand-written.
 #:
-#: THE HAND-WRITTEN LIST WAS WRONG ON ITS FIRST USE, and the comment that used to sit here claimed
-#: the safety property it did not implement: "a task that exists in the router and NOT in this list
-#: shows up as a difference rather than silently going unreported." Nothing compared the two, so
-#: `resume_generation` — a first-class `TaskType` in `ai/model_config.py:17` with its own tier row
-#: and its own Langfuse mapping — was absent from BOTH the armed and the unarmed line, and the
-#: report said "five of six tasks are armed" when six of SEVEN are.
+#: THE HAND-WRITTEN LIST WAS WRONG, THEN THE FIRST DERIVATION WAS WRONG THE OTHER WAY.
 #:
-#: That is the exact failure mode this file exists to end, produced by this file. So the list is
-#: now a declared BASELINE and the difference check below is real: anything in the effective
-#: allowlist that is not here is reported as UNKNOWN rather than dropped.
-TASKS = [
-    "skill_embedding",
-    "profile_parse",
-    "profiling_chat_turn",
-    "profile_extraction",
-    "stt_transcription",
-    "tts_synthesis",
-    # Gated at `routers/resume.py:159`; priced and tiered like the rest.
-    "resume_generation",
-]
+#:   Round 1 (R8):  `resume_generation` was absent, so it appeared in neither the armed nor the
+#:                  unarmed line and the report said "five of six armed" when six of seven were.
+#:   Round 2 (R11): the correction still omitted `domain_match`, `voice_transcription`,
+#:                  `skill_canonicalization` and `skill_canonicalization_batch`.
+#:   Round 3 (R12): deriving from the router's two registries alone DROPPED `stt_transcription`
+#:                  and `tts_synthesis` — which I had just called invented names. They are real:
+#:                  `stt.py:151` and `tts.py:57`, both gated through `real_call_enabled_for`.
+#:                  They are absent from `_ROUTE_SHAPES` and `_TASK_TRACE` because they never go
+#:                  through `AIRouter` at all. A derivation is only as good as its source, and
+#:                  two registries were the wrong source for a question about a THIRD gate.
+#:
+#: THE GATE IS THE SOURCE OF TRUTH, and the gate is `Settings.real_call_enabled_for`. A task is
+#: in scope for this report if and only if something asks that function about it. Three shapes
+#: reach it, so the derivation is the union of three:
+#:
+#:   _ROUTE_SHAPES   tasks the router tiers, all of which pass through `real_call_enabled_for`
+#:   _TASK_TRACE     tasks the router traces (the two registries disagree; each holds tasks the
+#:                   other does not, so neither alone is sufficient)
+#:   _GATED_DIRECTLY the non-router providers, which call the gate themselves
+#:
+#: `test_ai_instruments.py` asserts this against every `real_call_enabled_for` call site in the
+#: service — including the ones that pass a module constant.
+
+
+#: Tasks gated OUTSIDE the router, read from their own modules so a rename moves them here too.
+def _directly_gated() -> set[str]:
+    from app.ai.embeddings import EMBEDDING_TASK_TYPE
+    from app.stt import STT_TASK_TYPE
+    from app.tts import TTS_TASK_TYPE
+
+    return {EMBEDDING_TASK_TYPE, STT_TASK_TYPE, TTS_TASK_TYPE}
+
+
+def _known_tasks() -> list[str]:
+    from app.ai.langfuse_tracing import _TASK_TRACE
+    from app.ai.model_config import _ROUTE_SHAPES
+
+    return sorted(set(_ROUTE_SHAPES) | set(_TASK_TRACE) | _directly_gated())
+
+
+TASKS = _known_tasks()
 
 #: The names whose effective value decides whether a model is reached, and by which tier.
 TRACKED = [
@@ -195,13 +219,23 @@ def main() -> int:
         print(f"  {boot_refusal}.")
         print("  Everything below was resolved with SKILL_CANONICALIZE_ENABLED=false.\n")
     print("EFFECTIVE ON THIS MACHINE (what the next call will actually do)")
-    print(f"  real calls        : {'ENABLED' if e['real_calls_enabled'] else 'BLOCKED'}"
-          f"{'' if e['real_calls_enabled'] else '  reason: ' + str(blocked)}")
+    print(
+        f"  real calls        : {'ENABLED' if e['real_calls_enabled'] else 'BLOCKED'}"
+        f"{'' if e['real_calls_enabled'] else '  reason: ' + str(blocked)}"
+    )
     print(f"  armed tasks       : {', '.join(e['armed_tasks']) or '(none)'}")
     print(f"  unarmed tasks     : {', '.join(e['unarmed_tasks']) or '(none)'}")
     if unknown:
-        print(f"  !! ARMED BUT UNKNOWN TO THIS SCRIPT: {', '.join(unknown)}")
-        print("     (the router gained a task type and TASKS was not updated — fix this file)")
+        print(f"  !! ARMED BUT NOT A ROUTER TASK: {', '.join(unknown)}")
+        # BOTH DIRECTIONS, because the first version of this message named only one and the
+        # measured cause was the other. `TASKS` is now derived from the router's own registries,
+        # so a name here means the ALLOWLIST holds something the router does not — either a task
+        # added to the router without a tier or a trace entry, or (as measured on this box) a name
+        # in `AI_REAL_CALL_TASKS` that was never a task type at all. `stt_transcription` and
+        # `tts_synthesis` are the live example: they exist only in admin-web's display code, for a
+        # voice cost breakdown that has never been built, and arming them gates nothing.
+        print("     (either the router gained a task with no tier/trace entry, or the allowlist")
+        print("      names something that is not a task type — both are silent today)")
     print(f"  chat model tier   : {e['chat_model_tier']}")
     print(f"  synthetic persona : {'ON' if e['synthetic_persona_mode'] else 'off'}")
     print("\nWHICH LAYER WON")

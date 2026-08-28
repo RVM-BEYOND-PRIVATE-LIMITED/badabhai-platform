@@ -33,14 +33,25 @@ import type { WorkerAttributeValues } from "./trade-resume-map";
  * being empty by the same mechanism that fills it for everyone else.
  */
 
-/** The ITI workshop's machine vocabulary — slug → the English printed on the sheet. */
-const WORKSHOP_MACHINES: Readonly<Record<string, string>> = {
-  conventional_lathe: "Conventional lathe",
-  cnc_lathe: "CNC lathe / turning centre",
-  milling: "Milling machine",
-  drilling: "Drilling machine",
-  grinding: "Grinding machine",
-  shaper: "Shaper / planer",
+/**
+ * The ITI workshop's machine vocabulary — slug → the English printed on the sheet.
+ *
+ * PACK-KEYED (R12 §2.1). The MECHANISM here — a fresher has training rather than employment —
+ * is trade-independent, and `buildFresherRows` stays generic. The VOCABULARY is not: a turner's
+ * `iti_workshop_machines` options are lathes and shapers, a welder's would be welding sets, and
+ * a slug list authored for one trade silently mislabelling another's answers is exactly the
+ * failure this scoping exists to prevent. A pack with no entry gets no fresher block, which is
+ * the same drop-the-unknown rule every dictionary on this sheet follows.
+ */
+const WORKSHOP_MACHINES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  qp_cnc_turning: {
+    conventional_lathe: "Conventional lathe",
+    cnc_lathe: "CNC lathe / turning centre",
+    milling: "Milling machine",
+    drilling: "Drilling machine",
+    grinding: "Grinding machine",
+    shaper: "Shaper / planer",
+  },
 };
 
 /**
@@ -51,9 +62,11 @@ const WORKSHOP_MACHINES: Readonly<Record<string, string>> = {
  * employer nothing he would not assume. `appeared` DOES print — a man who sat the test and is
  * waiting has done something, and saying so is the honest version of the same fact.
  */
-const TRADE_TEST: Readonly<Record<string, string>> = {
-  passed: "Trade test passed",
-  appeared: "Trade test taken, result awaited",
+const TRADE_TEST: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  qp_cnc_turning: {
+    passed: "Trade test passed",
+    appeared: "Trade test taken, result awaited",
+  },
 };
 
 /** The most machines a fresher's line prints, so one row cannot wrap into three. */
@@ -79,12 +92,24 @@ function scalar(value: unknown): string | null {
  * THE CALLER DECIDES WHEN TO USE IT. This does not know whether `worker_employment` rows exist;
  * `resume-render-input.ts` does, and it already owns the one-or-the-other rule for Zone 4.
  */
-export function buildFresherRows(attributes: WorkerAttributeValues): ResumeExperienceLine[] {
+export function buildFresherRows(
+  /**
+   * The pack the interview ran. REQUIRED — an optional pack id would let a caller get the
+   * pack-blind behaviour back by forgetting to pass it, which is the bug this argument exists
+   * to make impossible. A pack with no vocabulary entry yields no rows.
+   */
+  packId: string | null,
+  attributes: WorkerAttributeValues,
+): ResumeExperienceLine[] {
+  const workshopMachines = packId === null ? undefined : WORKSHOP_MACHINES[packId];
+  const tradeTests = packId === null ? undefined : TRADE_TEST[packId];
+  if (workshopMachines === undefined && tradeTests === undefined) return [];
+
   const machines = slugsOf(attributes.iti_workshop_machines)
-    .map((slug) => WORKSHOP_MACHINES[slug])
+    .map((slug) => workshopMachines?.[slug])
     .filter((v): v is string => Boolean(v))
     .slice(0, MAX_WORKSHOP_MACHINES);
-  const tradeTest = TRADE_TEST[scalar(attributes.trade_test_status) ?? ""] ?? null;
+  const tradeTest = tradeTests?.[scalar(attributes.trade_test_status) ?? ""] ?? null;
   const project = scalar(attributes.iti_project_work);
 
   // The whole block, as one entry. A fresher has one training period, not several, and giving
