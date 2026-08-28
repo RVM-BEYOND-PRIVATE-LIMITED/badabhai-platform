@@ -244,6 +244,12 @@ describe.skipIf(!ENABLED)("persona sheets — five synthetic turners, rendered (
             })),
             employmentsMore: input.employmentsMore,
             ownWords: input.ownWords,
+            // R11 §3.2 — WHAT WAS THROWN AWAY, beside what was kept. An empty own-words block has
+            // two completely different causes: the model composed prose the transcript would not
+            // vouch for (rejected is non-empty) or it returned nothing at all (rejected is empty
+            // AND there were no candidates). The R8 table could not tell them apart and read the
+            // second as the first.
+            ownWordsRejected: input.ownWordsRejected,
             experiences: input.experiences?.map((e) => `${e.role} · ${e.duration} · ${e.work}`),
             skills: input.skills,
             degradationStage: input.degradationStage,

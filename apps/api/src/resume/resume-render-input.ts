@@ -199,6 +199,7 @@ type TradeCapabilitySlots = Pick<
   // do: both source branches must carry it, and a field set on only one of them is the shape
   // that goes missing for exactly the workers nobody renders in a test.
   | "transcriptVetoes"
+  | "ownWordsRejected"
 >;
 
 /**
@@ -372,7 +373,10 @@ function buildUndegraded(
   // so a worker who answered only the level still gets "ITI" and nothing else.
   const educationHeadline =
     [
-      [humanizeEducationLevel(draft.education_level), draft.education_field]
+      [
+        educationLevelText(draft.education_level, preferences.educationCredential),
+        draft.education_field,
+      ]
         .map((v) => v?.trim())
         .filter((v): v is string => Boolean(v))
         .join(" — ") || null,
@@ -689,7 +693,7 @@ function fromResumeProfile(
   // contains it literally. `skills` and the capability values are passed as "already printed" so
   // the block cannot re-quote a chip row back at the reader.
   const skillChips = cleanList(rp.skills);
-  const ownWords = selectOwnWords({
+  const ownWordsSelection = selectOwnWords({
     // `work_done` ONLY, and NOT `duration_text`. The first run quoted persona 3's "June 2021 se
     // January 2023 tak" — verbatim, his, and useless: the employer block three rows below prints
     // the same span with its employer attached. A quote earns its line by saying something the
@@ -702,11 +706,15 @@ function fromResumeProfile(
       ...(capabilitySlots.capTickRows ?? []).flatMap((r) => r.values),
       ...(capabilitySlots.employments ?? []).map((e) => e.work ?? ""),
     ],
-  }).phrases;
+  });
+  const ownWords = ownWordsSelection.phrases;
 
   return {
     ...capabilitySlots,
     ownWords,
+    // BOTH HALVES CARRIED. See `ownWordsRejected` on `ResumeRenderInput`: taking `.phrases` and
+    // discarding the rest is what made "0 vetoed" unfalsifiable in the R8 report.
+    ownWordsRejected: ownWordsSelection.notVerbatim,
     // THE VERDICT LINE — §5.1 ranks it first of eleven, and it was rendering EMPTY: the strip
     // has been on the layout since the design landed and nothing ever composed the two lines,
     // so the top 22% of the sheet carried the name and then a blank rule.
@@ -803,13 +811,13 @@ function fromResumeProfile(
       : fresherRows.length > 0
         ? [...fresherRows]
         : rp.experiences.map((e) => ({
-          role: e.role_label,
-          // The worker's OWN words first. `duration_months` is a normalization of it, and
-          // printing "42 months" when they said "3.5 saal" trades their voice for a number they
-          // never used.
-          duration: e.duration_text.trim() || monthsAsText(e.duration_months),
-          work: e.work_done,
-        })),
+            role: e.role_label,
+            // The worker's OWN words first. `duration_months` is a normalization of it, and
+            // printing "42 months" when they said "3.5 saal" trades their voice for a number they
+            // never used.
+            duration: e.duration_text.trim() || monthsAsText(e.duration_months),
+            work: e.work_done,
+          })),
     preferredLocations: cleanList(rp.preferred_locations),
     // THE WORKER'S OWN COPY ONLY. Their asking price is useful on the résumé they carry and is
     // a negotiating position handed away if a payer reads it before any conversation. Same
@@ -1206,6 +1214,30 @@ function humanizeShift(shift: string | null): string | null {
     default:
       return value.charAt(0).toUpperCase() + value.slice(1);
   }
+}
+
+/**
+ * The level a worker holds, narrowed by the credential he named on the finishing form (R11 §3.1).
+ *
+ * THE ONE LEVEL THIS NARROWS IS `iti_diploma`, AND THAT BOUND IS THE WHOLE DESIGN. The form's
+ * question is not "what is your highest qualification" — the interview already asked that — it is
+ * "the option you tapped names two credentials; which is yours". Letting the answer override any
+ * other level would let a graduate who also holds a diploma print "Diploma", i.e. demote him on
+ * the strength of a question that was never about his highest qualification. A narrower fact may
+ * refine the value it narrows and nothing else.
+ *
+ * ABSENT, UNKNOWN OR A DIFFERENT LEVEL ALL FALL THROUGH to the merged label, which is the honest
+ * default: "ITI / Diploma" is less specific than the sample's "ITI", and less specific is not the
+ * same as wrong. Guessing between the two would be — and it would be guessing on the line an
+ * employer checks hardest.
+ *
+ * BACKWARD COMPATIBLE: every worker who answered before this existed has no
+ * `education_credential` row, so his sheet renders byte-for-byte as it did (invariant #8).
+ */
+function educationLevelText(raw: string | null, credential: string | null): string | null {
+  const level = humanizeEducationLevel(raw);
+  const merged = KNOWN_EDUCATION_LEVELS.iti_diploma;
+  return level === merged && credential ? credential : level;
 }
 
 /**

@@ -1,6 +1,7 @@
 import {
   DOCUMENTS_READY,
   EDUCATION_COUNCILS,
+  EDUCATION_CREDENTIALS,
   JOB_TYPES,
   LANGUAGES,
   SHIFTS,
@@ -47,6 +48,15 @@ export interface ResumePreferenceFacts {
    */
   readonly educationDetail: string | null;
   /**
+   * "ITI" or "Diploma" — which credential the merged `iti_diploma` level covers (R11 §3.1), or
+   * null when the worker has not said.
+   *
+   * SEPARATE FROM {@link educationDetail} BECAUSE IT REPLACES A SEGMENT RATHER THAN ADDING ONE.
+   * The other three components append after the em-dash; this one narrows the value in front of
+   * it, and the caller is where the sheet already decides which source wins for that segment.
+   */
+  readonly educationCredential: string | null;
+  /**
    * The upper end of the expected-salary band (R10 R-1), or null when the worker gave only one
    * figure. NEVER derived — see `formatSalaryBand`.
    */
@@ -61,6 +71,7 @@ export const NO_PREFERENCES: ResumePreferenceFacts = {
   willingToRelocate: undefined,
   accommodationNeeded: undefined,
   educationDetail: null,
+  educationCredential: null,
   salaryMax: null,
 };
 
@@ -127,6 +138,14 @@ export function readPreferenceFacts(
     // COUNCIL, YEAR, INSTITUTE - in the order the ratified sheet prints them, each dropping its
     // own separator when absent. A worker who gave only the year gets "2018", not "· 2018 ·".
     salaryMax: numeric(attributes.salary_expected_max),
+    // R11 §3.1 — an UNKNOWN slug yields null and the caller falls back to the merged label, which
+    // is the same drop-the-unknown rule every dictionary here follows. Falling back to
+    // "ITI / Diploma" is not a degradation: it is the less specific truth, and printing a slug or
+    // guessing between the two would both be worse.
+    educationCredential: labelFor(
+      EDUCATION_CREDENTIALS,
+      scalar(attributes.education_credential) ?? "",
+    ),
     educationDetail:
       [
         labelFor(EDUCATION_COUNCILS, scalar(attributes.education_council) ?? ""),

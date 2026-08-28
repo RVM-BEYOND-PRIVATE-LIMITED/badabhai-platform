@@ -96,6 +96,10 @@ export class WorkerPreferencesService {
     // R9 §3 — the credential's three missing components. Same three-state contract as everything
     // above: absent leaves the stored value alone, null clears the row.
     number("salary_expected_max", dto.salary_expected_max);
+    // R11 §3.1 — which credential the merged `iti_diploma` option covers. Written BESIDE
+    // `education_level`, never over it: the level is the interview's answer and stays exactly as
+    // the worker gave it.
+    scalar("education_credential", dto.education_credential);
     scalar("education_council", dto.education_council);
     number("education_year", dto.education_year);
     scalar("education_institute", dto.education_institute);

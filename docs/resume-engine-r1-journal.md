@@ -2093,3 +2093,185 @@ question table — a distinction that silently costs the clarify twin when it is
 §3.1's estimate: `docs/profiling/milling-map-estimate.md`. **Two days of authoring, no
 engineering** — and the one-spine claim holds _because_ R10 built the three missing mechanisms
 (chip configuration, the axis segment, the fresher block), not because it was already true.
+
+---
+
+## §23 — R11: the milling fork measured, and a rider that was not true
+
+### 23.1 — §1.1, and the answer to Q8 is not the one the last estimate gave
+
+The R9/R10 estimate said "two days of authoring, no engineering" and I stand by the shape of it,
+but it was written from recollection and two of its numbers were wrong. Both corrections are now
+inline in `milling-map-estimate.md` rather than overwritten.
+
+**Corrected: the TTS twins.** It said "R10 added nine for three fresher questions; a
+fifteen-question pack needs roughly forty-five." Measured, the turner pack's 18 questions carry
+**33** twins in 50 lines (19 in `QUESTION_TTS_TEXT`, 14 in `WHY_TTS_TEXT`) — 1.83 per question, so
+a 15-question milling pack needs about **28**. The item is still the one most likely to be
+forgotten in an estimate; it is 40% smaller than I claimed.
+
+**Corrected: "no engineering" is true of the sheet and false of the vocabulary.** Splitting the
+whole track by what a second trade reuses:
+
+- **Properly pack-keyed — ~970 lines.** `qp_cnc_turning.json` (775 lines, 18 items, 91 options)
+  and the `TRADE_RESUME_MAPS` entry (lines 157–349: **187 code lines, 6 comment**). A second entry
+  changes no rendering code. The template, the ladder, the renderer and the mapper are untouched.
+- **Trade-specific behaviour sitting in pack-BLIND modules — 143 lines.** `CAPABILITY_TERMS` in
+  `resume-transcript-veto.ts` (53), `PACK_ATTRIBUTE_SKILLS` in `match/pack-attribute-skills.ts`
+  (76), `WORKSHOP_MACHINES`/`TRADE_TEST` in `resume-fresher-rows.ts` (14). All three are keyed by
+  **attribute name**, and neither `applyTranscriptVeto` nor `buildFresherRows` has ever seen a
+  pack id.
+
+`resume-transcript-veto.ts` states in its own docstring that it is "SCOPED TO THE CNC TURNING
+PACK". It is not, and I wrote that line. The scoping is an intention recorded in prose, not a
+property the code has — which is the same failure class as every other finding in this journal.
+
+**The collision is already live.** Scanning all 143 packs: `drawing_reading` appears in three
+packs, `measuring_tools` in two, `material_worked` in two. Bounded honestly: `drawing_reading` is
+`boolean` in the other two so `slugsOf` yields `[]` and the veto cannot reach it; `material_worked`
+has no entry in either dictionary. **`measuring_tools` does** — a `qp_machining` worker's
+`vernier`/`micrometer` answers are already mapped to match skills by a table authored for turners.
+Probably right, entirely unreviewed, and nobody decided it.
+
+So Q8 stands as ratified — the _layout_ does not have to vary per trade, and nothing here reopens
+that. What the first entry proved is a different thing: **143 lines of the trade's vocabulary
+escaped the map.** 5% of the trade-specific volume and 100% of the risk surface, because it is the
+only part that can be applied to the wrong worker. Recommendation recorded, not applied: key those
+three dictionaries by `pack_id` **before** a second entry exists, while "which of six shared
+attribute names did we mean" is still a question with one answer.
+
+Milling itself: **three to four days**, not two — the two-day figure omitted the veto gazetteer and
+the match-skill rows entirely. `TRADE_CONTENT` already carries `vmc_operator`, `cnc_vmc_setter` and
+`vmc_programmer`, so the bullet copy is written. The long pole is a practising-miller review, which
+is the review this project has not yet completed once (Q2).
+
+### 23.2 — §1.2, reported: eight lanes, two HIGH, and nothing that contradicts R9 or R10
+
+The R8 adversarial re-verification is §21 of this journal and its findings were never surfaced in a
+report. **59 claims held, 6 problems survived refutation, 6 were refuted.** The two HIGH ones:
+`effective-ai-flags.py` omitted `resume_generation` and made R8 report "five of six armed" when the
+truth is six of seven; `count-discarded-interviews.sql` filtered on `ai_jobs.real_call`, which is
+false on precisely the rows the query exists to find. Both fixed and re-validated at the time.
+
+**No lane contradicts R9 or R10.** The two factual corrections it produced — p3's empty block
+being a length-floor case rather than a composition case, and `notVerbatim` reading 0 because it
+was never measured — were both consumed by R10 before it acted. The second one is finally closed
+in code by §23.4 below.
+
+### 23.3 — §3.1, and the split is not where the `it.fails` said it would be
+
+The `it.fails` proposed splitting `qp_universal`'s merged `iti_diploma` option. That route is not
+available: `question-pack-corpus.ts` documents that versions sit beside each other and a session
+pins `(pack_id, version)` for its whole length, so editing @2 in place is forbidden and publishing
+@3 would leave every worker mid-interview on @2 still answering the merged option — and could never
+reach a worker who has already finished.
+
+Built instead as `education_credential` on the finishing form, the same closed-set shape as
+NCVT/SCVT one row above, which R11 §3.1 named as the precedent. `education_level` keeps its stored
+value and its meaning; the new key **narrows** it. Two properties matter more than the feature:
+
+1. **It narrows only `iti_diploma`.** A graduate who also holds a diploma answers `graduate` in
+   the interview; a credential-keyed override would print "Diploma" and cost him the qualification
+   he leads with — the under-representation failure R10 R-2 built a gate for, arriving by another
+   door.
+2. **A worker who never answers still prints "ITI / Diploma"**, byte-for-byte as before. Less
+   specific is not wrong.
+
+Mutation bar met on both: `return level` (ignore the credential) reds the first test, `credential
+?? level` (ignore the bound) reds the third. Neither is vacuous.
+
+### 23.4 — §3.2, and the binding constraint moved
+
+Re-rendered all six sheets and re-measured in the container. **6 of 6 one page**, floor 5 mm:
+p1 100.89, p2 71.53, p3 75.17, p4 28.61, p5 54.09, turner-parity 21.33 mm — byte-identical to R10,
+which is the right answer, since §3.1 only fires for a worker who has answered a form nothing yet
+writes.
+
+Own-words, and the honest version is not the headline number:
+
+| persona | work_done candidates | quotes printed | rejected as not-verbatim |
+| ------- | -------------------- | -------------- | ------------------------ |
+| p1      | 0                    | 0              | 0                        |
+| p2      | 1                    | **2**          | 0                        |
+| p3      | 2                    | 0              | 1 (`Kharad chalayi hai`) |
+| p4      | 1                    | **1**          | 0                        |
+| p5      | 0                    | 0              | 0                        |
+
+**Two of five carry quotes, up from one — p4 is the one the composing fix unblocked**, as R11 §3.2
+predicted. But three separate things happened and only one of them is the prediction:
+
+- The fix worked completely. `extraction-verbatim.contract.test.ts` reports **10/11 phrases
+  vouched for by a stored turn (1 composed)**, against 26-of-33 composed before it.
+- **p2 went from 3 quotes to 2**, and that is the fix too: his extracted `work_done` went from 267
+  characters / 7 sentences to **133 / 3**. Four of the seven were composed and are gone; the third
+  survivor is "Facing, turning, drilling, grooving", dropped because the chips already print it.
+- **p5 went from six composed sentences to nothing at all** — all three of his employments now
+  carry an empty `work_done`.
+
+So the corpus prints the same number of quotes as before (3) and every one of them is now the
+worker's. The binding constraint has moved from _the model composes_ to _the model returns
+nothing_, and no gate currently watches the second one.
+
+**And `notVerbatim` is finally written down.** §21.3 found that the R8 table's "candidates vetoed:
+0" was never measured — `selectOwnWords` computes it and the call site took `.phrases` and dropped
+the rest. `ownWordsRejected` now rides the render input as a diagnostic and the harness writes it,
+so an empty block can no longer read as "the model quoted him faithfully" when it means "sixteen
+sentences were thrown away".
+
+### 23.5 — §4 recorded, and the rider is measured false
+
+The ruling — the band is asked on the finishing form — is recorded in Q5, which is now closed
+rather than deferred. Both riders were verified rather than accepted, and one of them does not hold.
+
+**Rider 1 is not true today. 5 of 12 natural phrasings are wrong**, probing
+`signals._detect_salary` directly:
+
+- `35000 mahina chahiye`, `35000 per month chahiye`, `salary 35000 mahine ki chahiye` — all three
+  record **current pay**. `expectedWindowAfter` is 10 characters, so a period word between the
+  amount and the cue pushes `chahiye` outside the window. This is the R10 R-1 defect one layer
+  upstream, still live at detection.
+- `abhi 14 hazaar …, 16 hazaar chahiye` and `30 hazaar chahiye mahine ka` — **nothing parsed at
+  all**. `thousandUnits` has `hazar` but not `hazaar` or `hajar`; the word-end guard fails on the
+  second `a`, the unit group matches empty, and `minDigitsWithoutUnit` drops the bare two-digit
+  number. Silent total loss.
+
+**A correction to my own R10 report**, which used `abhi 14 hazaar mil rahe hain, 16 chahiye` as the
+illustrating example. That utterance was never parseable — the defect I described was real and the
+sentence I chose to describe it with does not reach the detector.
+
+**Not fixed here, and the reason is not caution for its own sake.** `salary.json` is cross-language
+(a byte-identical mirror under `apps/ai-service/app/profiling/lexicon_data/` plus a generated TS
+artifact) and its own docstring says every window width was tuned against a real regression —
+specifically the one where a wider window made two salary answers on one line poison each other.
+Widening `expectedWindowAfter` blindly re-creates exactly that. The correct fix starts the cue
+window _after_ the period phrase rather than after the digits, and that needs the ai-engineer and
+the differential corpus behind it.
+
+**Rider 2 is blocked on something other than analytics.**
+`finishing_models.dart` `toUpdateBody()` sends seven keys and none of `salary_expected_max`,
+`education_council`, `education_year`, `education_institute` or the new `education_credential`.
+Five backend fields have no mobile surface, so completion rate on them is structurally 0% and the
+band cannot ship at all. Issue **#1298** raised rather than crossed into.
+
+### 23.6 — §2 written up as Q13
+
+The `ci.yml` trigger has left the "deferred by name" list and become a question with evidence
+behind it. A `pull_request` trigger filtered on `branches: [main]` filters on the **base**, so a PR
+based on a feature branch starts no workflow, creates no check, and reports "All checks have
+passed" having run nothing. #1294 went four packets that way; retargeting it caught a defect in
+#1296, already merged, whose own green check meant its path filter had skipped the Node job.
+
+The half worth the ruling is the SAST baseline. The workflow passes the pull request's base SHA as
+`baseline-ref`, which is what defines a finding as _introduced_. Widen the trigger without pinning
+that to the merge-base and every finding an earlier PR in a stack introduced is already in the
+child's baseline — a diff gate that runs, reports green, and is structurally incapable of seeing
+the stack's own findings. That trades a visibly-absent gate for an invisibly-weakened one. Nothing
+under the workflows directory was touched.
+
+### 23.7 — State
+
+`tsc` clean. resume + profiles **865 passed**; with profiling + config + match, **2070 passed, 0
+failed**. Six sheets, all one page, worst headroom 21.33 mm — unchanged, which is the expected
+result. One incidental formatting fix: `resume-render-input.ts` was already prettier-dirty on
+`main` (verified by stashing), so running the formatter corrected an indentation block I did not
+otherwise touch.

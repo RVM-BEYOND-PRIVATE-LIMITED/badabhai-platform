@@ -337,10 +337,18 @@ describe("R9 §6 rule 6 — education is four components plus the institute's ci
 
   it("keeps NCVT and SCVT distinct, which §4.5 requires and nothing could do before", () => {
     const of = (council: string) =>
-      buildResumeRenderInput({ education_level: "iti_diploma" }, "R", "bb_trade", null, false, "worker", {
-        packId: "qp_cnc_turning",
-        attributes: { education_council: council },
-      }).qualFactRows?.find((r) => r.label === "Education")?.value;
+      buildResumeRenderInput(
+        { education_level: "iti_diploma" },
+        "R",
+        "bb_trade",
+        null,
+        false,
+        "worker",
+        {
+          packId: "qp_cnc_turning",
+          attributes: { education_council: council },
+        },
+      ).qualFactRows?.find((r) => r.label === "Education")?.value;
     expect(of("ncvt")).toContain("NCVT");
     expect(of("scvt")).toContain("SCVT");
     expect(of("ncvt")).not.toBe(of("scvt"));
@@ -373,15 +381,39 @@ describe("R9 §6 rule 6 — education is four components plus the institute's ci
     }
   });
 
-  it.fails("distinguishes an ITI from a Diploma, which the sample does", () => {
-    // THE REMAINING HALF OF THE SAME ROW. Yadav prints "ITI — Machinist"; we print
-    // "ITI / Diploma — Machinist", because `qp_universal`'s education question offers ONE option
-    // covering both ("ITI ya diploma", value_text `iti_diploma`). They are different credentials —
-    // a two-year ITI trade certificate and a three-year polytechnic diploma are not
-    // interchangeable for a job that names one — and nothing in the corpus can tell them apart.
+  it("distinguishes an ITI from a Diploma, which the sample does", () => {
+    // R11 §3.1 — CLOSED, AND THE FIX IS NOT WHERE THIS TEST ORIGINALLY SAID IT WOULD BE.
     //
-    // Splitting the option is a pack-data change plus a decision about the stored value for every
-    // worker who already answered it. Recorded, not taken.
+    // The `it.fails` this replaces described the gap correctly — Yadav prints "ITI — Machinist" and
+    // we printed "ITI / Diploma — Machinist", because `qp_universal`'s education question offers
+    // ONE option covering both ("ITI ya diploma", value_text `iti_diploma`) — but it proposed
+    // splitting the pack option, and that turned out to be the one route not available. A
+    // published pack version is IMMUTABLE and a session pins `(pack_id, version)` for its whole
+    // length: editing @2 in place is forbidden, and publishing @3 would still leave every worker
+    // mid-interview on @2 answering the merged option, and could never reach a worker who has
+    // already finished.
+    //
+    // So the credential is captured on the finishing form, the same routing and the same closed-set
+    // shape as NCVT/SCVT one row above — which reaches finished workers too.
+    const of = (attributes: Record<string, unknown>) =>
+      buildResumeRenderInput(
+        { education_level: "iti_diploma", education_field: "Machinist" },
+        "R",
+        "bb_trade",
+        null,
+        false,
+        "worker",
+        { packId: "qp_cnc_turning", attributes },
+      ).qualFactRows?.find((r) => r.label === "Education")?.value;
+
+    expect(of({ education_credential: "iti" })).toBe("ITI — Machinist");
+    expect(of({ education_credential: "diploma" })).toBe("Diploma — Machinist");
+  });
+
+  it("still prints the merged label for a worker who never answered the form", () => {
+    // THE HALF THAT MATTERS MORE, and the reason this is additive rather than a migration.
+    // Every worker who finished before R11 has no `education_credential` row. His sheet must
+    // render exactly as it did — unspecific, not wrong, and certainly not guessed at.
     const value = buildResumeRenderInput(
       { education_level: "iti_diploma", education_field: "Machinist" },
       "R",
@@ -391,7 +423,40 @@ describe("R9 §6 rule 6 — education is four components plus the institute's ci
       "worker",
       { packId: "qp_cnc_turning", attributes: {} },
     ).qualFactRows?.find((r) => r.label === "Education")?.value;
-    expect(value).toBe("ITI — Machinist");
+    expect(value).toBe("ITI / Diploma — Machinist");
+  });
+
+  it("NARROWS ONLY THE MERGED LEVEL — a graduate is never demoted to his diploma", () => {
+    // THE PROPERTY THIS FEATURE IS REALLY ABOUT, and the direction it must never fail in. A man
+    // who holds a polytechnic diploma AND a degree answers `graduate` in the interview; if he
+    // also ticks "Diploma" on the form, an override keyed on the credential alone would print
+    // "Diploma" and cost him the qualification he actually leads with. That is the
+    // under-representation failure R10 R-2 built a gate for, arriving by a different door.
+    const of = (level: string) =>
+      buildResumeRenderInput({ education_level: level }, "R", "bb_trade", null, false, "worker", {
+        packId: "qp_cnc_turning",
+        attributes: { education_credential: "diploma" },
+      }).qualFactRows?.find((r) => r.label === "Education")?.value;
+
+    expect(of("graduate")).toBe("Graduate");
+    expect(of("12")).toBe("12th pass");
+    expect(of("10")).toBe("10th pass");
+    expect(of("below_10")).toBe("Below 10th");
+  });
+
+  it("drops an unknown credential slug rather than printing it", () => {
+    // The same drop-the-unknown rule every dictionary on this sheet follows. A slug that stops
+    // being a legal option must stop appearing, not start appearing raw.
+    const value = buildResumeRenderInput(
+      { education_level: "iti_diploma" },
+      "R",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+      { packId: "qp_cnc_turning", attributes: { education_credential: "polytechnic" } },
+    ).qualFactRows?.find((r) => r.label === "Education")?.value;
+    expect(value).toBe("ITI / Diploma");
   });
 
   it("prints the institute exactly as the worker gave it, city and all", () => {

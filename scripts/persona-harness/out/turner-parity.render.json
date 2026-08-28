@@ -3,32 +3,19 @@
   "capChipRows": [
     {
       "label": "Machines",
-      "values": [
-        "CNC lathe / turning centre",
-        "Conventional lathe",
-        "VTL"
-      ],
+      "values": ["CNC lathe / turning centre", "Conventional lathe", "VTL"],
       "key": "turning_machine",
       "rank": 21
     },
     {
       "label": "Controllers",
-      "values": [
-        "Fanuc",
-        "Siemens",
-        "Mitsubishi"
-      ],
+      "values": ["Fanuc", "Siemens", "Mitsubishi"],
       "key": "controller_brand",
       "rank": 22
     },
     {
       "label": "Materials",
-      "values": [
-        "MS",
-        "EN8 / EN31",
-        "Stainless steel",
-        "Cast iron"
-      ],
+      "values": ["MS", "EN8 / EN31", "Stainless steel", "Cast iron"],
       "key": "material_worked",
       "rank": 61
     }
@@ -36,13 +23,7 @@
   "capTickRows": [
     {
       "label": "Workholding",
-      "values": [
-        "3-jaw chuck",
-        "4-jaw chuck",
-        "Collet",
-        "Soft jaws",
-        "Steady rest"
-      ],
+      "values": ["3-jaw chuck", "4-jaw chuck", "Collet", "Soft jaws", "Steady rest"],
       "key": "workholding",
       "rank": 42
     },
@@ -60,12 +41,7 @@
     },
     {
       "label": "Measuring instruments",
-      "values": [
-        "Vernier",
-        "Micrometer",
-        "Bore dial gauge",
-        "Height gauge"
-      ],
+      "values": ["Vernier", "Micrometer", "Bore dial gauge", "Height gauge"],
       "key": "measuring_tools",
       "rank": 51
     }
@@ -149,6 +125,7 @@
   "footerMeta": "Generated 27 August 2026 · Self-declared · Ref RK8M2Q",
   "transcriptVetoes": [],
   "ownWords": [],
+  "ownWordsRejected": [],
   "headlineLine": "CNC Setter-cum-Operator · 8 yrs · Fanuc, Siemens, Mitsubishi",
   "subheadLine": "Faridabad · available in 15 days · expects ₹32,000 / month",
   "availFactRows": [
@@ -192,11 +169,7 @@
   "experienceYears": 8,
   "availability": "Available in 15 days",
   "summary": "CNC Setter-cum-Operator with 8 years of experience in Manufacturing.",
-  "skills": [
-    "CNC turning",
-    "canned cycles",
-    "GD&T"
-  ],
+  "skills": ["CNC turning", "canned cycles", "GD&T"],
   "experiences": [],
   "preferredLocations": [],
   "expectedSalary": 32000,

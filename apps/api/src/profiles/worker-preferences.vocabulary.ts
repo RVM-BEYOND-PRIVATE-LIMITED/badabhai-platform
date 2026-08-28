@@ -123,6 +123,38 @@ export const EDUCATION_COUNCILS: PreferenceVocabulary = {
 };
 
 /**
+ * WHICH trade credential the worker holds — an ITI trade certificate or a polytechnic diploma
+ * (R11 §3.1).
+ *
+ * THE SAME SHAPE AS {@link EDUCATION_COUNCILS} AND FOR THE SAME REASON. `qp_universal`'s
+ * education question offers ONE option covering both ("ITI ya diploma", `value_text`
+ * `iti_diploma`), so the distinction has no representation anywhere in the corpus and Zone 5's
+ * most-checked line prints "ITI / Diploma" where the ratified sheet prints "ITI". Like the
+ * council, this is not a rule that was implemented badly — until this dictionary existed there
+ * was no value to collapse.
+ *
+ * WHY IT MATTERS TO A SUPERVISOR. A two-year ITI trade certificate and a three-year polytechnic
+ * diploma are different credentials with different entry routes and different pay bands, and a
+ * job advertisement that says "ITI Turner" means the first one. A slash tells the reader we do
+ * not know which — on the one line an employer checks hardest.
+ *
+ * ON THE FORM, NOT IN A NEW PACK VERSION, and that is a deliberate routing call rather than the
+ * cheap option. Pack versions are IMMUTABLE and sit beside each other: a session pins
+ * `(pack_id, version)` for its whole length, so splitting the option in place is not available
+ * and publishing `qp_universal@3` would leave every worker mid-interview on @2 still answering
+ * the merged option. The form reaches those workers too, and it reaches the ones who already
+ * finished — which a new pack version never can.
+ *
+ * BACKWARD COMPATIBLE BY CONSTRUCTION. `education_level` keeps its stored `iti_diploma` value and
+ * its meaning; this is an ADDITIONAL, narrower fact. A worker who never answers the form still
+ * prints "ITI / Diploma", which is true of him — it is unspecific, not wrong.
+ */
+export const EDUCATION_CREDENTIALS: PreferenceVocabulary = {
+  iti: "ITI",
+  diploma: "Diploma",
+};
+
+/**
  * Every attribute key this form writes, and the storage kind each one takes.
  *
  * KEYS MATCH `wa_attribute_key_chk` (`^[a-z_]+$`, ≤ 40) and two of them deliberately match keys
@@ -153,6 +185,10 @@ export const PREFERENCE_KEYS = {
   // If the ruling is that it belongs in the interview instead, that is a pack-data change plus a
   // ruling on the six-question tail.
   salary_expected_max: "number",
+  // R11 §3.1 — WHICH of the two credentials the merged `iti_diploma` option covers. Not a
+  // replacement for `education_level`: that key keeps its value and its meaning, and this one
+  // narrows it when the worker says which.
+  education_credential: "text",
   education_council: "text",
   education_year: "number",
   education_institute: "text",

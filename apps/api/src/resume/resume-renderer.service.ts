@@ -156,6 +156,21 @@ export interface ResumeRenderInput {
    */
   transcriptVetoes?: readonly TranscriptVeto[];
 
+  /**
+   * Sentences the model proposed for the own-words block that the transcript would NOT vouch for.
+   *
+   * DIAGNOSTIC ONLY, never rendered — and it exists because its ABSENCE was itself a defect. The
+   * R8 harness reported "candidates vetoed: 0" for two personas and that zero was never measured:
+   * `selectOwnWords` computes `notVerbatim` and the call site took `.phrases` and dropped it. A
+   * zero read as "the model quoted this worker faithfully" when sixteen composed sentences had in
+   * fact been thrown away — a check that could not observe what it claimed, which is the same
+   * shape as the two HIGH findings the R8 re-verification turned up.
+   *
+   * COUNT AND TEXT, not a count alone. What was rejected is the evidence for whether the
+   * extraction is composing; a bare number cannot tell a prompt regression from a quiet model.
+   */
+  ownWordsRejected?: readonly string[];
+
   // ==========================================================================
   // THE LOCKED TRADE SHEET (`bb_trade.v1`).
   //
