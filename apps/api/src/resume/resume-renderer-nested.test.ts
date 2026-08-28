@@ -11,6 +11,9 @@
  * ever saw the block, and both stints would show the company's tenure. That failure renders
  * perfectly and is wrong, which is the kind this file has to catch.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { PdfRenderer } from "../common/pdf/pdf-renderer.service";
@@ -147,5 +150,45 @@ describe("resume slot engine — nested object regions", () => {
     expect(html).toContain("VMC Operator");
     expect(html).toContain("3.5 saal");
     expect(html).not.toMatch(/\{\{/);
+  });
+});
+
+describe("the region matcher is a literal, not a composed pattern", () => {
+  /**
+   * A STRUCTURAL GUARD, and it is labelled that way because it cannot be a behavioural one.
+   *
+   * Every region used to be matched by `new RegExp("{{#" + name + "}}…")`. Semgrep's
+   * `detect-non-literal-regexp` calls that ReDoS; the sharper problem is that a slot name
+   * carrying regex metacharacters stops being a name and becomes a pattern — `a.*b` compiles to
+   * a wildcard, matches a region it does not own, and splices one worker's list into another
+   * section of the sheet. That renders perfectly and is wrong.
+   *
+   * WHY NOT ASSERT THE BEHAVIOUR INSTEAD. There is no seam to inject a slot name through:
+   * `fillSlots`, `fillObjectRegion` and `fillStringRegion` are all `private static`, the list
+   * names are a fixed object literal inside the service, and `buildResumeHtml` chooses its
+   * skeleton from the registry. Nothing a caller controls reaches the composition site, so a
+   * test that "proves" the fix through the public API would be asserting on a path that cannot
+   * be exercised — which is precisely the shape of check this repo keeps getting caught by.
+   * The honest version is to assert the construct is absent from the file.
+   *
+   * The behavioural half is carried by the rest of this file and by the 14-shape matrix: they
+   * are what proves the literal still matches everything the composed regexes used to.
+   */
+  const source = readFileSync(join(__dirname, "resume-renderer.service.ts"), "utf8");
+  /**
+   * COMMENTS STRIPPED FIRST. The claim is about the CODE, and the doc comment on `REGION_RE`
+   * quotes the very construct it replaced in order to explain why it is gone. Asserting over
+   * the raw file would make that explanation fail the test that depends on it.
+   */
+  const code = source.replace(/\/\*[^]*?\*\//g, " ").replace(/\/\/.*/g, " ");
+
+  it("never composes a regex at all", () => {
+    expect(code).not.toContain("new RegExp");
+  });
+
+  it("requires the closing tag to repeat the opening name", () => {
+    // `\1` is why `{{#a}}…{{/b}}` is not a region. Pinned because dropping the backreference
+    // leaves a regex that still passes every happy-path test in this file.
+    expect(code).toContain(String.raw`/{{#([a-z_]+)}}([\s\S]*?){{\/\1}}/g`);
   });
 });

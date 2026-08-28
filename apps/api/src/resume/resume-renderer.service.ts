@@ -436,10 +436,7 @@ export class ResumeRenderer {
     }
     // 1) Known repeat regions: repeat the inner block per item, escaping `{{.}}`.
     for (const [name, items] of Object.entries(lists)) {
-      const region = new RegExp(`{{#${name}}}([\\s\\S]*?){{/${name}}}`, "g");
-      out = out.replace(region, (_m, inner: string) =>
-        items.map((it) => inner.replace(/{{\.}}/g, () => ResumeRenderer.escapeHtml(it))).join(""),
-      );
+      out = ResumeRenderer.fillStringRegion(out, name, items);
     }
     // 2) Any remaining (unknown) repeat region collapses to nothing.
     out = out.replace(/{{#[a-z_]+}}[\s\S]*?{{\/[a-z_]+}}/g, "");
@@ -451,21 +448,45 @@ export class ResumeRenderer {
   }
 
   /**
-   * One object region, `{{#name}}…{{/name}}`, repeated once per item.
+   * THE region matcher. One hardcoded literal, shared by both region fillers.
    *
-   * NON-GREEDY on purpose: the inner match stops at the FIRST `{{/name}}`. That is correct for
-   * regions with distinct names (an `{{#employments}}` block containing `{{#roles}}`) and is why
-   * a region may never contain another region OF THE SAME NAME — the closing tags would pair up
-   * wrongly and duplicate half the page.
+   * WHY IT IS A LITERAL AND NOT BUILT FROM THE SLOT NAME. Every region used to be matched by a
+   * regex composed at call time — `new RegExp("{{#" + name + "}}…")`. Semgrep's
+   * `detect-non-literal-regexp` flags exactly that (sg.run/gr65), and the rule is right about
+   * this code for a reason that has nothing to do with ReDoS: a `name` carrying regex
+   * metacharacters stops being a name and becomes a PATTERN. A slot called `a.*b` would compile
+   * to a wildcard, match a region it does not own, and splice one worker's list into another
+   * section of the sheet. Escaping the name would fix that and still leave a composed regex; a
+   * literal removes the whole class instead, which is the standing rule here — the check that
+   * a name is a name belongs in something `tsc` and the regex engine enforce, not in a
+   * sanitiser someone can forget to call.
+   *
+   * The name is now CAPTURED and compared with `===`, so the only thing that can select a
+   * region is exact equality against a key that is actually present in the data.
+   *
+   * `\1` IS A CORRECTNESS UPGRADE, not just plumbing: the closing tag must repeat the opening
+   * name, so `{{#a}}…{{/b}}` can no longer be treated as a region at all.
+   *
+   * NON-GREEDY on purpose: the inner match stops at the FIRST matching close. That is correct
+   * for regions with distinct names (an `{{#employments}}` block containing `{{#roles}}`) and is
+   * why a region may never contain another region OF THE SAME NAME — the closing tags would pair
+   * up wrongly and duplicate half the page.
+   *
+   * Used ONLY with `String.prototype.replace`, which resets `lastIndex` around every call, so
+   * sharing one `/g` literal across call sites carries no cross-call state.
+   */
+  private static readonly REGION_RE = /{{#([a-z_]+)}}([\s\S]*?){{\/\1}}/g;
+
+  /**
+   * One object region, `{{#name}}…{{/name}}`, repeated once per item.
    */
   private static fillObjectRegion(
     html: string,
     name: string,
     items: ReadonlyArray<Record<string, unknown>>,
   ): string {
-    const region = new RegExp(`{{#${name}}}([\\s\\S]*?){{/${name}}}`, "g");
-    return html.replace(region, (_m, inner: string) =>
-      items.map((item) => ResumeRenderer.renderItem(inner, item)).join(""),
+    return html.replace(ResumeRenderer.REGION_RE, (whole, key: string, inner: string) =>
+      key === name ? items.map((item) => ResumeRenderer.renderItem(inner, item)).join("") : whole,
     );
   }
 
@@ -498,9 +519,12 @@ export class ResumeRenderer {
 
   /** A `{{#name}}…{{.}}…{{/name}}` region over plain strings. */
   private static fillStringRegion(html: string, name: string, items: readonly unknown[]): string {
-    const region = new RegExp(`{{#${name}}}([\\s\\S]*?){{/${name}}}`, "g");
-    return html.replace(region, (_m, inner: string) =>
-      items.map((it) => inner.replace(/{{\.}}/g, () => ResumeRenderer.escapeScalar(it))).join(""),
+    return html.replace(ResumeRenderer.REGION_RE, (whole, key: string, inner: string) =>
+      key === name
+        ? items
+            .map((it) => inner.replace(/{{\.}}/g, () => ResumeRenderer.escapeScalar(it)))
+            .join("")
+        : whole,
     );
   }
 
