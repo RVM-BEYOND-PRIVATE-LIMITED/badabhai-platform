@@ -10,19 +10,20 @@ built around.
 
 ---
 
-## Status — Q1–Q9 ruled 2026-08-28 (R4); Q10–Q12 opened by R6; Q13 by R11
+## Status — Q1–Q9 ruled 2026-08-28 (R4); Q10–Q12 opened by R6; Q13 by R11 (ruled R12); Q14 by R12
 
 Nothing on the **render** track is waiting on a decision. Four questions are open, and they are a
 different kind: Q10 is a flag flip that no amount of engineering substitutes for, Q11 and Q12 are
 the two R6 §7 put to me directly, and Q13 is a CI gap that hid four packets of work and a defect
 in somebody else's merged PR.
 
-| #       | question                                                       | what it blocks                                                      |
-| ------- | -------------------------------------------------------------- | ------------------------------------------------------------------- |
-| **Q10** | Arm `profile_extraction` for free-form parsing?                | the per-employment detail line, promotions, the own-words block     |
-| **Q11** | Run the city backfill, or record it as zero rows?              | nothing — fixed forward; the count is unknown until someone runs it |
-| **Q12** | Profile Strength: replace the counter, or rename it?           | §9.1, and with it the §9.3 enrichment loop                          |
-| **Q13** | Stacked PRs run NO CI — widen the trigger, or forbid the base? | nothing today; every stacked PR merges unverified                   |
+| #       | question                                                                 | what it blocks                                                      |
+| ------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| **Q10** | Arm `profile_extraction` for free-form parsing?                          | the per-employment detail line, promotions, the own-words block     |
+| **Q11** | Run the city backfill, or record it as zero rows?                        | nothing — fixed forward; the count is unknown until someone runs it |
+| **Q12** | Profile Strength: replace the counter, or rename it?                     | §9.1, and with it the §9.3 enrichment loop                          |
+| **Q13** | Stacked PRs run NO CI — widen the trigger, or forbid the base?           | **RULED (R12 §6)** — widened + baseline pinned; PR #1300            |
+| **Q14** | Should a machinist share the TURNER's `measuring_tools` mapping? (→ RVM) | nothing; machinists lose that reach meanwhile                       |
 
 The nine R4 rulings, kept because several of them are cited by code comments:
 
@@ -761,3 +762,71 @@ the baseline fix, or it trades a visibly-absent gate for an invisibly-weakened o
 Every stacked PR continues to merge unverified, and its green check continues to be evidence of
 nothing. The specific exposure is not theoretical: the one time this was caught, it was caught by
 a retarget that happened for an unrelated reason, and what it caught was already on `main`.
+
+---
+
+## Q14 · Should a machinist's `measuring_tools` reach through the TURNER's mapping? (→ RVM)
+
+**Status:** open, and it is a **trade-truth question, not an engineering one**. The scoping is
+already built (R12 §2.1) — nothing is broken while this sits. What is open is whether the sharing
+that used to happen by accident should now happen **on purpose**.
+
+### What changed, and why the question only exists now
+
+Three dictionaries carrying CNC-turner vocabulary were keyed by attribute name alone, so they
+applied to any worker whose answer bag held that key regardless of which pack he answered. They
+are now keyed by `pack_id`, so a turner's dictionary reaches turners only. That is strictly safer
+and it is shipped.
+
+But the old behaviour was not uniformly wrong. In one case it was probably **right**, and turning
+it off silently would lose reach that machinists genuinely have.
+
+### The three shared keys, measured across all 143 packs
+
+| attribute         | packs                                             | overlap                                                               | reachable through a dictionary? |
+| ----------------- | ------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------- |
+| `measuring_tools` | `qp_cnc_turning`, `qp_machining`                  | `vernier`, `micrometer` — same keys, same prompt                      | **YES** — this is the live one  |
+| `drawing_reading` | `qp_cnc_turning`, `qp_machining`, `qp_toolmaking` | none: `single_select` for the turner, **`boolean`** for the other two | no — a boolean yields no slugs  |
+| `material_worked` | `qp_cnc_turning`, `qp_welding`                    | `mild_steel`, `stainless`, `aluminium`                                | no — no dictionary covers it    |
+
+### The question, and it is one question with three answers
+
+**Q14a — `measuring_tools`.** Both packs ask the identical question ("Aap kaunse maapne ke auzaar
+use karte hain?") and share `vernier` and `micrometer`. Until R12 a `qp_machining` worker's answers
+were mapped to `skill_measuring_instruments` through a table written for turners.
+
+_My read, for you to overrule:_ a vernier is a vernier. The instrument does not change meaning
+between a lathe and a mill, and a machinist who owns and uses one has the same claim a turner
+does. **I would share it deliberately** — meaning `qp_machining` gets its own explicit entry with
+the same two mappings, reviewed as a machining decision rather than inherited as a turning one.
+
+_What the alternative costs:_ every `qp_machining` worker who answered that question loses
+`skill_measuring_instruments` from his reach on the next rebuild. That is the current shipped
+state, and it is the safe default, not a neutral one.
+
+**Q14b — `drawing_reading`.** Assessed as harmless and saying why, so you can disagree: the other
+two packs type it `boolean`, so the stored value is `true`/`false` rather than an option key,
+`slugsOf` returns an empty list, and the turner's `basic_drawing`/`gdt` slugs were never reachable
+from them. Nothing changed for those workers and nothing will. **But the trade question underneath
+is real**: a toolmaker who reads drawings has a claim as strong as a turner's, and today his answer
+maps to nothing at all because his pack asks a yes/no. That is a pack-authoring gap, not a
+dictionary one.
+
+**Q14c — `material_worked`.** `qp_welding` shares three option keys with the turner. Assessed as
+harmless because **no dictionary covers this attribute** — it is deliberately absent from
+`PACK_ATTRIBUTE_SKILLS` ("what he cut, not what he can do"). So nothing was ever inherited. Flagged
+anyway because it is the collision most likely to be _created_ later: the first person to add
+`material_worked` to a dictionary would silently reach welders too, and now cannot.
+
+### Why this needs a shop-floor answer rather than my judgement
+
+Every one of the three is a claim about whether two trades mean the same thing by the same word.
+That is the same class of question as the Q2 drop order, and it has the same failure mode if
+guessed: a worker either loses reach he has earned, or gains reach he cannot demonstrate at a
+machine trial — and §5.3 names the second as the most damaging failure available to us.
+
+### Cost of silence
+
+Machinists keep losing `skill_measuring_instruments` on every skill rebuild. That is a real
+reduction in reach for a real population, taken as the safe side of a decision nobody has made —
+which is the right default for an unmade decision and the wrong resting place for it.
