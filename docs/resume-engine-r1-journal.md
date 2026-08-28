@@ -1207,3 +1207,102 @@ predicate now compares the sheet itself.
 
 **Deferred by name**, so nobody rediscovers them as findings: drop-order ratification, capability
 compression, semgrep `--strict`, the `ci.yml` trigger, the payer QR, salary bands.
+
+---
+
+## §16 — R5: finishing CNC-turner profiling
+
+### 16.1 — Inventory (§1.1)
+
+| #   | question              | answer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Turner alias seed     | **SHIPPED, but inert.** `packages/taxonomy/src/wedge-aliases.ts` — **22 aliases / 16 skill ids, 22 ratified, 0 unratified**; the flag is `ratified`, not `rvm_ratified` (`rvm` is the `source`). **2** are turner-specific (`kharad`, `kharad ka kaam` → `skill_turning`), both self-retrieving at 1.0. With `SKILL_CANONICALIZE_ENABLED=false` **nothing in any request path reads them** — the flag is Python-only and all three readers return before `get_skill_store()`. The one SQL reader (`skills.repository.ts`) is token-gated, not flag-gated, so the table is dead by caller absence rather than by a second wall. |
+| 2   | Turner chips          | **SHIPPED on the branch, not on `origin/main`.** 15 items / 81 options, all `target_kind: attribute`. Full ordered table with every chip set is in the ask-budget audit. Three tiers behind one `gte` gate on `turning_experience`.                                                                                                                                                                                                                                                                                                                                                                                            |
+| 3   | Budget                | `MAX_ENGINE_ASKS` **24**; `qp_universal@2` spends **8**, all unconditional; the pack has **15**. **A senior turner is asked 23. One spare.**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 4   | Profile Strength §9.1 | **ABSENT as specified; something else ships under the name.** See §16.4.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+
+### 16.2 — What was built
+
+- **Work-history writer** (§1.2) — `PUT /workers/me/employment`, four employers, one role each.
+  Replace-in-one-transaction (the unique index makes positional upserts collide), employer name
+  encrypted before the DB touch, `duration_stated` derived rather than asked, PII-free event.
+- **Zone 5** (§1.3) — education and certificates now render on the live path. The data was never
+  missing: the crosswalk carries `education_level` and `certifications` onto the draft and the
+  container path simply never read them. **Languages stay empty** — `draftPath: null`, no column.
+- **Three enforcement tests** (§1.5) — city survival (with a real fix), the §8.3 asymmetry
+  property, the §8.5 prompt lint.
+
+### 16.3 — Two live defects found and fixed
+
+**Cities were being redacted as person names.** `^\s*([A-Z][a-z]+)\s*,` matched
+"Faridabad, Haryana…" and produced `[PERSON_1], Haryana…`. **33 of the 36 canonical cities**
+masked this way; the three survivors survived only because the pattern cannot span a space. That
+contradicted an owner ruling recorded four lines below it in the same file. `city_current` and
+`cities_preferred` are Required and distance is a rejection filter, so the worker silently lost
+the signal deciding whether he is reachable. Fixed by deferring the no-cue guess to the gazetteer
+the module already imported and never consulted; the cue rule ("mera naam X") is untouched.
+**Touches the AI privacy boundary — wants an ai-engineer review.**
+
+**Zone 5 rendered empty for every real worker** while showing populated on all 56 fixtures,
+because the fixtures were the only thing in the repo that set `qualification`. This also means the
+R4 credential floor had never been able to fire on a live sheet — `topQualificationLine` scans
+rows that were always empty.
+
+### 16.4 — Profile Strength: the deltas (§1.6). NOTHING CHANGED.
+
+Something called profile strength ships end-to-end — `computeStrength`
+(`apps/api/src/workers/profile-summary.mapper.ts:192`) → `GET /workers/me/profile-summary` → a
+Flutter card. It is **not** §9.1:
+
+| §9.1 as specified                          | what ships                                                       |
+| ------------------------------------------ | ---------------------------------------------------------------- |
+| 8 **weights** summing to 100               | an **unweighted count** of 9 signals                             |
+| bounded 0–100                              | **unbounded** — `skills.length + machines.length`                |
+| 3 bands (Weak <40, Fair 40–69, Strong 70+) | **no bands**                                                     |
+| one nudge, largest missing weight at Weak  | **no nudge**; `missing_fields` ships with **no client consumer** |
+| `low_tag_worker` flag at Weak              | spec'd in `matching-algorithm-v1.md`, **never emitted**          |
+
+Per the directive this is reported, not rebuilt. Building §9.1 alongside it would put two
+different "strength" numbers on the same worker, which is worse than either.
+
+**§9.2's four hard rules hold today, by accident rather than design** — the count never reaches a
+payer payload, is not a ranking input, does not gate the download, and is not phrased as a grade.
+Worth pinning as tests whenever §9.1 is actually built.
+
+### 16.5 — Cost per profile (§1.7)
+
+Priced from the real engine's ask sequence and the ai-service's own INR rate table
+(`scripts/price-interview.py`). Chat turn is `gemini-2.5-pro` (₹0.104 in / ₹0.83 out per 1k).
+
+| band   | asks | shipped default | chat armed, ~20-word replies | at the 512-token cap | extraction |
+| ------ | ---- | --------------- | ---------------------------- | -------------------- | ---------- |
+| 0      | 16   | **₹0.00**       | ₹0.96                        | ₹7.23                | ₹0.23      |
+| 5 / 10 | 23   | **₹0.00**       | **₹1.76**                    | ₹10.77               | ₹0.23      |
+
+**₹0.23 per profile shipped; ₹1.99 worst realistic case.** Under the ₹4 target either way.
+
+Three things behind that number:
+
+- **The shipped default spends nothing on the chat turn.** `AI_REAL_CALL_TASKS` defaults to empty
+  (fail-closed, owner-ruled), and COST-4 serves the templated question directly on the
+  straight-line path — which is every chip-tapping turner.
+- **A stale comment says otherwise.** `config.py:337` claims the allowlist "defaults to that task
+  alone"; the field default is `""`. Cost-relevant, and wrong.
+- **The ₹4/₹6 target was deliberately superseded in code** — `ai_target_profile_cost_inr` is
+  **15.0** and the alert **20.0**, with the rationale in `config.py`: "Rs 4 was not a budget for
+  that shape of work; it was a budget for not doing it." Meanwhile `real-llm-flip-go-no-go.md`
+  still asserts "≤ ₹4 target ✅", validated at **₹0.023/call on Flash-Lite** — a model the chat
+  turn no longer uses. Three sources, three different numbers. Reported, not re-tiered.
+
+### 16.6 — Scorecard (§2)
+
+|               | verdict                                                                                                                                                                                                                                                                                                                |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Capture**   | **PARTIAL.** Work history writes employer, city and dates (API side; Flutter is Rishi's). Zone 5 populates for education and certificates. **Languages, documents-ready and certificate detail have no ask anywhere in the 143-pack corpus** — ~15 of the 100 §9.1 points are unreachable by any question that exists. |
+| **Honesty**   | **MET.** Asymmetry enforced as a property over all chip combinations, §8.5 linted with its one real conflict recorded rather than suppressed, city/name/phone intact through extraction and proved both ways.                                                                                                          |
+| **Quality**   | **PARTIAL.** Aliases seeded, 22/22 ratified — but inert at runtime. Profile Strength drives **zero** nudges; the shipped count is not §9.1.                                                                                                                                                                            |
+| **Economics** | **MET.** ₹0.23 shipped, ₹1.99 worst realistic.                                                                                                                                                                                                                                                                         |
+| **Proof**     | **ABSENT, and unchanged.** Every number here comes from fixtures, the engine and the packs. No real transcript, no real turner.                                                                                                                                                                                        |
+
+**#1292 has not moved** — still open, not merged. So B0b, a matching-path change, is running on a
+branch with no CI, along with everything above.
