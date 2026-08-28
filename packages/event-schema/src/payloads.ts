@@ -61,6 +61,47 @@ export const WorkerNameRecordedPayload = z.object({
   worker_id: uuidSchema,
 });
 
+// The worker recorded their work history on the post-interview form.
+//
+// PII-FREE, AND THIS ONE TOOK A DECISION RATHER THAN A CONVENTION. The employer name IS the
+// feature here and it is exactly what may not travel: it is encrypted at rest in
+// `worker_employment.employer_name_enc` and it never appears on the spine, in a log or in an
+// analytics row. The city does not travel either — it is not an identifier, but a city plus a
+// worker id plus a date range narrows a person considerably and the event needs none of it.
+//
+// What DOES travel is the shape of what was recorded, which is what an audit trail is for:
+// how many employers, how many of them stated dates, and whether the worker was editing or
+// filling the form for the first time.
+export const WorkerEmploymentRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    employer_count: z.number().int().min(0).max(4),
+    /** How many of those carry a real start month (§11 #3's "duration not stated" split). */
+    durations_stated: z.number().int().min(0).max(4),
+    /** True when this replaced an existing history rather than creating the first one. */
+    replaced_existing: z.boolean(),
+  })
+  .strict();
+
+// R6 §4 — the worker answered the finishing form's closed-set page (languages, documents,
+// shift, job type, preferred cities, relocation, accommodation).
+//
+// PII-FREE, AND IT CARRIES NO ANSWER — only which keys were written and which were cleared.
+// The values themselves are closed-vocabulary labels and would be safe to carry, but the SET of
+// them is not: languages plus preferred cities plus a worker id is a good deal of what it takes
+// to pick a person out of a shop floor, and an audit trail needs to know that the form was
+// answered, not what was ticked. `keys_written` is a COUNT for the same reason the employment
+// event carries a count rather than a list.
+export const WorkerPreferencesRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** How many attribute keys this submission set. */
+    keys_written: z.number().int().min(0).max(16),
+    /** How many it explicitly CLEARED — a real edit, and distinguishable from "not answered". */
+    keys_cleared: z.number().int().min(0).max(16),
+  })
+  .strict();
+
 // The worker updated their resume display prefs on the "Aap control karte hain"
 // edit screen. PII-FREE: only worker_id + the two boolean flags — never the
 // name/phone/photo. Carries the RESULTING values (post-update) of both flags.
@@ -449,6 +490,25 @@ export const ChatSessionAbandonedPayload = z.object({
   answers_preserved: z.number().int().nonnegative(),
   /** Whole minutes between the session's last activity and the sweep closing it. */
   idle_minutes: z.number().int().nonnegative(),
+  /**
+   * HOW FAR INTO THE INTERVIEW THE WORKER GOT BEFORE WALKING AWAY (R6 §5).
+   *
+   * WHY THIS FIELD IS THE POINT OF THE EVENT NOW. `profile.interview_completed` already carries
+   * `ask_count`, so completion-by-ask-index was computable for workers who FINISHED — which is
+   * the half that cannot tell you where people leave. Without this the drop-off curve has no
+   * numerator, and the real ceiling on interview length stays a matter of argument rather than
+   * measurement. R6 §5: "If drop-off spikes at ask 28, that is the answer and no amount of
+   * budget changes it."
+   *
+   * NULLABLE, AND NULL IS A REAL STATE rather than a default nobody set: the sweep runs on a
+   * session whose Redis buffer may already have expired (`transcript_recovered: false`), and in
+   * that case the ask count is genuinely unknown. Recording 0 would put a fabricated spike at
+   * index zero into the one number this field exists to make honest.
+   *
+   * ADDITIVE AND DEFAULTED, so every row written before it validates unchanged and no consumer
+   * of this event has to know it exists.
+   */
+  engine_asks: z.number().int().nonnegative().max(200).nullable().default(null),
 });
 
 // ---------------------------------------------------------------------------
@@ -3447,9 +3507,7 @@ export const ProfileLlmInterviewFallbackPayload = z
     asks: z.number().int().nonnegative(),
   })
   .strict();
-export type ProfileLlmInterviewFallbackPayload = z.infer<
-  typeof ProfileLlmInterviewFallbackPayload
->;
+export type ProfileLlmInterviewFallbackPayload = z.infer<typeof ProfileLlmInterviewFallbackPayload>;
 
 /**
  * ONE PHYSICAL SUBMISSION ARRIVED TWICE and the second copy was served from the reply cache
@@ -3524,9 +3582,7 @@ export const ProfileSubmissionDuplicatedPayload = z
     elapsed_ms: z.number().int().nonnegative(),
   })
   .strict();
-export type ProfileSubmissionDuplicatedPayload = z.infer<
-  typeof ProfileSubmissionDuplicatedPayload
->;
+export type ProfileSubmissionDuplicatedPayload = z.infer<typeof ProfileSubmissionDuplicatedPayload>;
 
 // ---------------------------------------------------------------------------
 // feedback.* — the worker addressing the platform in their own words (#997).

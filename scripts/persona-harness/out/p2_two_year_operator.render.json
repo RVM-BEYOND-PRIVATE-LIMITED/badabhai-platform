@@ -1,0 +1,67 @@
+{
+  "persona": "p2_two_year_operator",
+  "headlineLine": "CNC Lathe Operator · 2 yrs · Fanuc",
+  "subheadLine": "Rajkot · available in 15 days · expects ₹16,000 / month",
+  "capSectionTitle": "Machines, controllers & capability",
+  "capChipRows": [
+    "Machines: CNC lathe / turning centre",
+    "Controllers: Fanuc",
+    "Materials: MS, EN8 / EN31"
+  ],
+  "capTickRows": [
+    "Operations: Facing / OD turning, Grooving / parting, Drilling / tapping",
+    "Workholding: 3-jaw chuck, Collet",
+    "Measuring instruments: Vernier, Micrometer, Plug / ring gauge"
+  ],
+  "capFactRows": [
+    "Drawings: Reads 2D drawings"
+  ],
+  "availFactRows": [
+    "Available from: 15 days",
+    "Salary expected: ₹16,000 / month",
+    "Preferred locations: Rajkot, Ahmedabad",
+    "Shift: Night shift"
+  ],
+  "qualFactRows": [
+    "Education: ITI / Diploma"
+  ],
+  "qualTickRows": [],
+  "employments": [
+    {
+      "employer": "Shakti Precision Components · Rajkot, Gujarat",
+      "when": "Jul 2024 – Present · 2 yrs 2 mo",
+      "roles": [],
+      "roleInline": " — CNC Turner",
+      "work": "CNC lathe, Fanuc · MS and EN8 · pump housings and shafts"
+    }
+  ],
+  "employmentsMore": null,
+  "ownWords": [
+    "Programme load karke part banata hoon",
+    "Pump ka housing aur shaft banate hain hum, MS aur EN8 me"
+  ],
+  "experiences": [],
+  "skills": [
+    "CNC lathe",
+    "Fanuc control",
+    "Programme load",
+    "Facing",
+    "Turning",
+    "Drilling",
+    "Grooving",
+    "Pump ka housing banana",
+    "Shaft banana",
+    "MS material",
+    "EN8 material",
+    "Offset adjustment",
+    "Vernier caliper",
+    "Micrometer",
+    "Plug gauge",
+    "Drawing reading"
+  ],
+  "degradationStage": 0,
+  "degradationDropped": [],
+  "transcriptVetoes": [],
+  "contentLines": 28.05,
+  "predictedHeadroomMm": 63.33
+}

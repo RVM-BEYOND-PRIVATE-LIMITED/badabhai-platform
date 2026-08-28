@@ -1,0 +1,76 @@
+{
+  "persona_id": "p5_twelve_year_no_iti",
+  "run": {
+    "is_mock": false,
+    "real_call": true,
+    "model_name": "claude-haiku-4-5",
+    "provider": "anthropic",
+    "candidates_tried": [
+      "claude-haiku-4-5"
+    ],
+    "input_tokens": 1446,
+    "output_tokens": 470,
+    "cost_inr": 0.3151,
+    "latency_ms": 3416,
+    "error_code": null
+  },
+  "extract": {
+    "domain_label": "Machine tool operation",
+    "role_label": "CNC lathe operator, senior machinist",
+    "skills": [
+      "CNC lathe Fanuc control",
+      "CNC lathe Haas control",
+      "VTL operation",
+      "Conventional lathe",
+      "Machine setting",
+      "Offset setting",
+      "Jaw change",
+      "Tailstock setting",
+      "First piece inspection",
+      "Programme editing",
+      "Pump body machining",
+      "Valve body machining",
+      "Cast iron machining",
+      "MS machining",
+      "Brass machining",
+      "Tolerance holding plus minus 0.02",
+      "Vernier caliper",
+      "Micrometer",
+      "Bore gauge",
+      "Height gauge",
+      "Dial indicator",
+      "Chatter detection",
+      "Training junior operators"
+    ],
+    "experiences": [
+      {
+        "role_label": "Helper",
+        "duration_text": "June 2014 se February 2016",
+        "duration_months": 20,
+        "work_done": ""
+      },
+      {
+        "role_label": "Machinist",
+        "duration_text": "March 2016 se December 2018",
+        "duration_months": 34,
+        "work_done": ""
+      },
+      {
+        "role_label": "Senior machinist",
+        "duration_text": "January 2019 se",
+        "duration_months": null,
+        "work_done": ""
+      }
+    ],
+    "shift": "day",
+    "current_city": "Kolhapur",
+    "preferred_locations": [
+      "Kolhapur",
+      "Pune"
+    ],
+    "availability": "15_days",
+    "expected_salary": 26000.0,
+    "blocked": false,
+    "is_mock": false
+  }
+}

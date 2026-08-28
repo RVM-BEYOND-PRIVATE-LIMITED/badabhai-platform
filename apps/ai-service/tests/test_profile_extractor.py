@@ -47,7 +47,22 @@ def test_legacy_draft_profile_uses_taxonomy_ids():
     assert "mach_vmc" in legacy.machines
     assert "skill_fanuc" in legacy.skills
     assert legacy.experience.total_years == 4
-    assert legacy.salary_expectation.amount_min == 22000
+    # R10 R-1: `amount_min` is the EXPECTED figure, not the current one. `_MESSY` says a bare
+    # "salary 22k" with no expected-cue, so `signals.detect` files it as CURRENT pay — and the
+    # résumé therefore prints NO salary row for him rather than advertising his current wage as
+    # his asking price. That is the ruled behaviour ("print nothing rather than the wrong
+    # number"), and it is a real coverage cost on the free-text parse route: a worker who states
+    # one uncued figure loses the row. Fixing THAT belongs in `signals.detect`'s cue handling,
+    # not here — this projection must not guess which kind of number it was given.
+    assert legacy.salary_expectation.amount_min is None
+    assert legacy.salary_expectation.amount_max is None
+
+
+def test_current_pay_is_kept_but_never_labelled_as_the_asking_price():
+    """The 22k is not lost — it is recorded as what it is."""
+    rich, legacy = profile_extractor.extract(_MESSY, "cnc_vmc")
+    assert rich.current_salary == 22000
+    assert legacy.salary_expectation.amount_min is None
 
 
 def test_confidence_in_unit_range():

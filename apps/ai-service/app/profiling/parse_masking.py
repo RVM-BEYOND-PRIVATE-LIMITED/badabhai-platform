@@ -46,6 +46,27 @@ def default_masker(text: str) -> tuple[bool, str]:
     return result.blocked, result.text
 
 
+def passthrough_masker(text: str) -> tuple[bool, str]:
+    """The SYNTHETIC-PERSONA masker: nothing is masked and nothing is blocked (R7 §1).
+
+    IT IS A FUNCTION IN THE PRODUCTION TREE AND THAT IS DELIBERATE. The alternative — a harness
+    that monkey-patches ``default_masker``, or a copy of the extract handler that skips the
+    masking line — is worse in the way that matters: it would drift from the shipped handler,
+    and then the thing being measured would stop being the thing that ships.
+
+    IT REACHES NO REAL WORKER. Selecting it requires ``AI_SYNTHETIC_PERSONA_MODE``, and the only
+    routes that can select it are registered ONLY when that reason is set (``main.py``). The
+    real-worker routes name ``default_masker`` directly and cannot be pointed at this one.
+
+    WHY BYPASSING IS THE POINT rather than a convenience. Personas are invented — invented names,
+    phones, employers, cities — so masking them measures the gateway, which already has its own
+    tests, instead of measuring what the interview extracts. With the gateway in the way a
+    persona's employer arrives as ``[EMPLOYER_1]`` and the sheet cannot be diffed against the
+    ratified sample at all.
+    """
+    return False, text
+
+
 @dataclass(frozen=True)
 class MaskedAnswer:
     """One answer as the MODEL will see it. Not a contract type — this never leaves the process."""

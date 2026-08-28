@@ -1,0 +1,88 @@
+{
+  "persona_id": "p4_eight_year_setter",
+  "run": {
+    "is_mock": false,
+    "real_call": true,
+    "model_name": "claude-haiku-4-5",
+    "provider": "anthropic",
+    "candidates_tried": [
+      "claude-haiku-4-5"
+    ],
+    "input_tokens": 1562,
+    "output_tokens": 590,
+    "cost_inr": 0.3745,
+    "latency_ms": 3779,
+    "error_code": null
+  },
+  "extract": {
+    "domain_label": "CNC turning and precision machining",
+    "role_label": "CNC turning setter cum operator",
+    "skills": [
+      "CNC lathe Fanuc",
+      "CNC lathe Siemens",
+      "VTL Mitsubishi",
+      "conventional kharad",
+      "bar feeder",
+      "live tooling",
+      "sub-spindle",
+      "tool offset",
+      "work offset",
+      "nose radius compensation",
+      "jaw change",
+      "tailstock set karna",
+      "first piece approval",
+      "G-code M-code",
+      "G71 rough turning",
+      "G76 threading",
+      "G74 peck drilling",
+      "canned cycle",
+      "tolerance plus minus 0.01",
+      "GD and T",
+      "runout",
+      "concentricity",
+      "flatness",
+      "Surface finish Ra 0.8",
+      "EN8",
+      "EN31",
+      "SS316",
+      "cast iron",
+      "first piece check",
+      "in-process inspection",
+      "SPC chart",
+      "chatter troubleshooting",
+      "speed feed adjustment",
+      "tool wear compensation"
+    ],
+    "experiences": [
+      {
+        "role_label": "CNC turning setter cum operator",
+        "duration_text": "September 2022 se",
+        "duration_months": null,
+        "work_done": "Pehle operator laga tha, ek saal baad setter bana diya"
+      },
+      {
+        "role_label": "CNC turning operator",
+        "duration_text": "April 2020 se August 2022",
+        "duration_months": 28,
+        "work_done": ""
+      },
+      {
+        "role_label": "CNC turning operator",
+        "duration_text": "May 2018 se March 2020",
+        "duration_months": 22,
+        "work_done": ""
+      }
+    ],
+    "shift": "any",
+    "current_city": "Faridabad",
+    "preferred_locations": [
+      "Faridabad",
+      "Gurugram",
+      "Manesar"
+    ],
+    "availability": "1_month",
+    "expected_salary": 32000.0,
+    "blocked": false,
+    "is_mock": false
+  }
+}

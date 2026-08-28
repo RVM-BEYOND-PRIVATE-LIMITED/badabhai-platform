@@ -17,6 +17,7 @@ import {
   type Decision,
   type EnginePacks,
   type EngineState,
+  MAX_ENGINE_ASKS,
 } from "./next-question";
 
 // ---------------------------------------------------------------------------
@@ -284,9 +285,7 @@ describe("what it refuses to predict", () => {
   it("says nothing on a close, a clarify or a disambiguation", () => {
     for (const kind of ["close", "clarify", "disambiguate"] as const) {
       const decision: Decision = { ...ask("machine_type", machine.options), kind };
-      expect(
-        computeLookahead({ decision, state: base, packs, items, nextTurn: 4 }),
-      ).toBeNull();
+      expect(computeLookahead({ decision, state: base, packs, items, nextTurn: 4 })).toBeNull();
     }
   });
 
@@ -425,8 +424,13 @@ describe("it cannot perturb the turn it runs beside", () => {
     const items = [...(packs.occupation?.items ?? []), ...UNIVERSAL.items];
 
     // One ask left in the budget: the next turn must CLOSE rather than serve `tools`.
+    //
+    // DERIVED FROM THE CONSTANT, never restated. This was the literal `24` and went red the day
+    // R6 §5 lifted the cap — a test about the RELATIONSHIP between the lookahead and the budget
+    // failing because the budget's value changed, which is the coupling `MAX_ENGINE_ASKS`'s own
+    // docstring says the suite must not have.
     const atBudget = state({
-      engineAsks: 24,
+      engineAsks: MAX_ENGINE_ASKS,
       askCounts: { machine_type: 1 },
       turn: 3,
     });

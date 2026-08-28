@@ -10,37 +10,31 @@ import type { EventsService } from "../events/events.service";
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * XFAIL(blocker="B0b") — A CNC TURNER WHO FINISHED THE ROLE-PACK INTERVIEW IS REACHABLE.
+ * A CNC TURNER WHO FINISHED THE ROLE-PACK INTERVIEW IS REACHABLE. (B0b — CLOSED.)
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * WHY THIS FILE EXISTS, AND WHY IT IS ALLOWED TO FAIL. The résumé work on this branch makes a
- * turner's SHEET correct. It does not make him FINDABLE: `worker_skill` is derived from
- * `worker_profiles.canonical_role_id` and `worker_profiles.skills`, and the role-pack path
- * writes neither — `toExtractionOutput` hardcodes both canonical ids to null (deliberately: an
- * invented taxonomy id in the one place the match engine trusts absolutely is worse than none),
- * and the pack's fourteen answers land in `worker_attributes`, which no bridge reads.
+ * WHAT IT GUARDS. `worker_skill` is derived from `worker_profiles.canonical_role_id`,
+ * `worker_profiles.skills` and — since B0b — the closed-set answers in `worker_attributes`. The
+ * pack path still writes no canonical role id (`toExtractionOutput` hardcodes both to null,
+ * deliberately: an invented taxonomy id in the one place the match engine trusts absolutely is
+ * worse than none), so this worker's entire reach comes from chips he tapped, through
+ * `corpusSkillsForPackAttributes` and the taxonomy's own `ATTRIBUTE_TO_MATCH_SKILLS`.
  *
- * So the most completely-profiled worker on the platform derives ZERO skills, holds zero
- * `worker_skill` rows, and appears in no posting's `job_reach`. A perfect résumé that no
- * employer search can reach is a résumé nobody sees. That gap is B0b — `apps/api`, a different
- * item, a different tree — and it is explicitly out of scope on this branch.
- *
- * WHAT THIS FILE IS FOR: recording the dependency as an EXECUTABLE assertion rather than as a
- * sentence in a document. It uses vitest's `it.fails`, which is xfail proper:
- *
- *   - TODAY the suite passes while the assertion inside fails, so CI stays honest and green and
- *     nobody is blocked by somebody else's item;
- *   - WHEN B0B LANDS the inner assertion starts passing and `it.fails` turns RED with "Expected
- *     test to fail". That is the signal to delete the marker; the test is then green with no
- *     other edit, and it becomes a permanent regression gate for free.
- *
- * The one shape it must never take is an assertion on the BROKEN state
- * (`expect(rows).toHaveLength(0)`) — that has to be rewritten in order to land the fix, which is
- * how a placeholder turns into an obstacle.
+ * THIS FILE WAS AN XFAIL AND IS NOW A REGRESSION GATE, which is the whole reason it was written
+ * the way it was. It asserted the FIXED state (`rows.length > 0`) under `it.fails`, so while B0b
+ * was open the suite stayed honest and green, and the day the bridge landed it turned red with
+ * "Expect test to fail" — the signal to delete the marker. It then went green with no other
+ * edit. The shape it deliberately never took was an assertion on the BROKEN state
+ * (`expect(rows).toHaveLength(0)`), which would have had to be rewritten in order to land the
+ * fix — that is how a placeholder turns into an obstacle.
  *
  * ── HOW TO RUN ────────────────────────────────────────────────────────────────
  *   pnpm db:up && pnpm db:migrate
  *   RUN_DB_TESTS=1 pnpm --filter @badabhai/api run test turner-reach.db
+ *
+ * On this Windows box the compose Postgres publishes on 127.0.0.1 only, while `localhost`
+ * resolves to `::1` first, so the default URL below can fail with ECONNREFUSED even with the
+ * container healthy. Pass `E2E_DATABASE_URL=postgresql://badabhai:badabhai@127.0.0.1:5432/badabhai`.
  *
  * Registered in ci.yml's DB-backed-gates step, which asserts per file that it EXECUTED — a
  * `skipIf` gate that never armed is a disclosed gap, not a pass.
@@ -76,7 +70,7 @@ const POSTING = uuid(0x7301);
 const SKILL = "mskill_cnc_turner";
 const INDUSTRY = "ind_industrial_manufacturing";
 
-describe.skipIf(!RUN)("XFAIL(blocker=B0b) — a role-pack turner reaches a turner posting", () => {
+describe.skipIf(!RUN)("B0b — a role-pack turner reaches a turner posting", () => {
   let client: DbClient;
   let service: WorkerSkillsService;
   let repo: WorkerSkillsRepository;
@@ -101,18 +95,21 @@ describe.skipIf(!RUN)("XFAIL(blocker=B0b) — a role-pack turner reaches a turne
     }
   });
 
-  it.fails("XFAIL(B0b): derives at least one worker_skill row from the pack answers", async () => {
+  it("derives at least one worker_skill row from the pack answers", async () => {
     await service.rebuildForWorker(WORKER);
     const rows = await repo.listSkillRows(WORKER);
     expect(
       rows.length,
-      "A fully-answered CNC turner derived NO skills. The role pack writes worker_attributes; " +
-        "deriveWorkerSkills reads worker_profiles.canonical_role_id and .skills, which the OIE " +
-        "path leaves null and empty. That bridge is B0b.",
+      "A fully-answered CNC turner derived NO skills. The pack writes worker_attributes and the " +
+        "bridge that reads them is `corpusSkillsForPackAttributes` — check it still emits corpus " +
+        "ids the taxonomy's ATTRIBUTE_TO_MATCH_SKILLS knows.",
     ).toBeGreaterThan(0);
+    // Not just "some skill": the one a turner vacancy actually publishes. A bridge that derived
+    // only attribute-level ids would satisfy the count above and reach nobody.
+    expect(rows.map((r) => r.skillId)).toContain(SKILL);
   });
 
-  it.fails("XFAIL(B0b): appears in job_reach for a published turner posting", async () => {
+  it("appears in job_reach for a published turner posting", async () => {
     await service.rebuildForWorker(WORKER);
     await repo.materializeReachForPosting(POSTING, [SKILL], [SKILL]);
     const reach = await repo.findReachRow(WORKER, POSTING);

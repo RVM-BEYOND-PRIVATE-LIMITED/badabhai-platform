@@ -1,10 +1,16 @@
 import { DraftProfileSchema, resumeProfileCarriesValues } from "@badabhai/ai-contracts";
 import { labelForTaxonomyId } from "@badabhai/taxonomy";
 import { looksLikePii } from "@badabhai/validators";
-import type { ResumeRenderInput } from "./resume-renderer.service";
+import type { ResumeExperienceLine, ResumeRenderInput } from "./resume-renderer.service";
 import { resolveTradeContent, type TradeContent } from "./trade-content";
 import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-resume-map";
+import { degradeToFit, fitOwnWords } from "./resume-degradation";
 import { buildEmploymentBlock, type WorkerEmploymentRecord } from "./resume-employment-rows";
+import { readPreferenceFacts, type ResumePreferenceFacts } from "./resume-preference-facts";
+import { selectOwnWords } from "./resume-own-words";
+import { formatWorkerPhone } from "./resume-phone";
+import { buildFresherRows } from "./resume-fresher-rows";
+import { applyTranscriptVeto } from "./resume-transcript-veto";
 import {
   bareAvailability,
   bareAvailabilityLabel,
@@ -12,7 +18,7 @@ import {
   buildDocumentRows,
   buildQualificationRows,
   buildVerdictLine,
-  formatMonthlySalary,
+  formatSalaryBand,
 } from "./resume-sheet-rows";
 
 /**
@@ -132,6 +138,21 @@ export interface TradeSheetContext {
    */
   readonly qualification?: ResumeQualificationFacts;
 
+  /**
+   * THE WORKER'S OWN STORED TURNS, verbatim, loaded by the caller — nothing the assistant said.
+   *
+   * SAME CONTRACT AS `employments` AND `phone`: the rows live in `chat_messages`, this function
+   * is pure, so the caller reads them and hands them in. Absent is the ordinary case for a
+   * profile whose interview predates the chat store, and it collapses the own-words block rather
+   * than failing the render.
+   *
+   * IT IS A VETO INPUT, NOT A CONTENT INPUT. Nothing here is printed because it is here — see
+   * `resume-own-words.ts`. The extraction proposes a phrase; this decides whether the worker
+   * actually said it. Raw transcript is the only thing that can answer that question, which is
+   * why it crosses this boundary at all.
+   */
+  readonly workerSaid?: readonly string[];
+
   /** Footer: a self-contained `data:` URI from `resume-qr.ts`. Never a URL. */
   readonly qrDataUri?: string | null;
   readonly qrCaption?: string | null;
@@ -174,9 +195,56 @@ type TradeCapabilitySlots = Pick<
   | "qrCaption"
   | "shortLink"
   | "footerMeta"
+  // Provenance rather than content, but it rides the shared slots for the same reason the rest
+  // do: both source branches must carry it, and a field set on only one of them is the shape
+  // that goes missing for exactly the workers nobody renders in a test.
+  | "transcriptVetoes"
 >;
 
+/**
+ * Build the render input, then SHED WHATEVER WILL NOT FIT ON ONE PAGE.
+ *
+ * THE WRAPPER IS THE POINT. `buildUndegraded` below has two return paths — the résumé container
+ * and the legacy answer-map shape — and every caller (the worker's own render worker and the
+ * payer disclosure) goes through this one door. Applying the ladder at each `return` instead
+ * would be two places to forget it, and the one that got forgotten would ship two-page PDFs for
+ * exactly the profiles nobody tests.
+ */
 export function buildResumeRenderInput(
+  snapshot: unknown,
+  displayName: string | null,
+  templateId: string | null,
+  photoDataUri: string | null,
+  nightShiftReady: boolean,
+  audience: ResumeAudience,
+  tradeSheet?: TradeSheetContext | null,
+): ResumeRenderInput {
+  const built = buildUndegraded(
+    snapshot,
+    displayName,
+    templateId,
+    photoDataUri,
+    nightShiftReady,
+    audience,
+    tradeSheet,
+  );
+  // THE LADDER RUNS BLIND TO THE QUOTES, deliberately. If `built.ownWords` were in scope here,
+  // a worker with three quotes and one line of overflow would have the ladder drop his LANGUAGES
+  // row — a §5.1-ranked fact — to make room for a quote that ranks nowhere. Zeroed going in,
+  // re-fitted after: ranked content settles first and the quotes take what is left.
+  const { sheet, stage, dropped, trace } = degradeToFit({ ...built, ownWords: [] });
+  // §8.4's quotes go in LAST, into whatever room is left after the ranked content has settled —
+  // see `fitOwnWords`. `built.ownWords` holds everything that earned the right to print; this
+  // decides how much of it the page can afford, and a sheet already at the budget affords none.
+  return {
+    ...fitOwnWords(sheet, built.ownWords ?? []),
+    degradationStage: stage,
+    degradationDropped: dropped,
+    degradationTrace: trace,
+  };
+}
+
+function buildUndegraded(
   snapshot: unknown,
   displayName: string | null,
   templateId: string | null,
@@ -197,7 +265,21 @@ export function buildResumeRenderInput(
   // is trade information rather than identity or negotiating position, so it crosses to the
   // payer on the same reasoning `shift` and `nightShiftReady` already do. The three things this
   // function withholds from a payer stay exactly three: the real name, the photo, the salary.
-  const capability = buildTradeCapabilityRows(tradeSheet?.packId, tradeSheet?.attributes ?? {});
+  // THE TRANSCRIPT VETO RUNS BEFORE ANY ROW IS BUILT (R8 §4), so a withdrawn claim cannot reach
+  // the capability block, the headline tools, or the "already printed" set the quotes de-dupe
+  // against. Placing it here rather than at each read site is the same argument the name masking
+  // makes: one door, and no call site that can forget.
+  const { attributes: vettedAttributes, vetoes: transcriptVetoes } = applyTranscriptVeto({
+    attributes: tradeSheet?.attributes ?? {},
+    workerSaid: tradeSheet?.workerSaid ?? [],
+  });
+  const capability = buildTradeCapabilityRows(tradeSheet?.packId, vettedAttributes);
+  // THE FINISHING FORM'S ANSWERS (R6 §4), off the SAME attribute bag the capability block reads.
+  // Trade-independent, so they are read once here rather than per pack — and read above the
+  // branch, because both the résumé container and the legacy shape need them and neither one
+  // carries them. `languages` in particular has no draft column at all (`crosswalk.ts` records
+  // `draftPath: null`), so this is the only source it will ever have.
+  const preferences = readPreferenceFacts(vettedAttributes);
   // ZONE 4 IS BUILT HERE FOR THE SAME REASON, and it also decides which of the two work-history
   // regions the template renders. `employments` is the designed two-level shape; `experiences`
   // is the flat, employer-less shape every profile in the database actually has today. The
@@ -207,6 +289,14 @@ export function buildResumeRenderInput(
     asOf: tradeSheet?.asOf ?? null,
   });
   const hasEmployments = employmentBlock.employments.length > 0;
+  // ZONE 4 FOR A FRESHER (R10 §2.6). §11 #1 puts training, trade test, workshop machines and
+  // project work here and forbids an empty History heading — and persona 1, an ITI pass-out,
+  // measured 125 mm of blank page because nothing in the corpus asked a fresher any of it.
+  //
+  // ONLY WHEN THERE IS NO REAL HISTORY. A worker with employment rows gets those; this is the
+  // other branch of the one-or-the-other rule Zone 4 already follows, not a third source competing
+  // with them.
+  const fresherRows = hasEmployments ? [] : buildFresherRows(vettedAttributes);
   const capabilitySlots = {
     capSectionTitle: capability.sectionTitle,
     capChipRows: capability.chipRows,
@@ -215,10 +305,15 @@ export function buildResumeRenderInput(
     // Documents are a self-declared tick row and are audience-blind, exactly like the capability
     // block: "I hold an Aadhaar card and an ITI certificate" is what removes a walk-in failure
     // (§5.1 rank 9), it is not identity and it carries no number.
-    qualTickRows: buildDocumentRows(tradeSheet?.qualification?.documents ?? []),
+    // R6 §4: the caller-supplied block still wins where it has one, and the FORM is the source
+    // behind it for every real worker — nothing in the 143-pack corpus asks for a document, so
+    // before the finishing form this row could not render for anybody.
+    qualTickRows: buildDocumentRows(tradeSheet?.qualification?.documents ?? preferences.documents),
     employments: employmentBlock.employments,
     employmentsMore: employmentBlock.employmentsMore,
-    phone: tradeSheet?.phone ?? null,
+    // FORMATTED HERE, INSIDE THE MAPPER, so no call site can print an unformatted number and
+    // no fixture can show a grouping the product does not produce (R10 §2.4).
+    phone: formatWorkerPhone(tradeSheet?.phone),
     // §11 #17 — LATIN ONLY ON THE EMPLOYER ARTIFACT. Structural, like the photo: a caller
     // cannot put the Devanagari line on a payer-facing sheet by passing it, because the rule
     // lives here rather than at the call site.
@@ -228,6 +323,7 @@ export function buildResumeRenderInput(
     qrCaption: tradeSheet?.qrCaption ?? null,
     shortLink: tradeSheet?.shortLink ?? null,
     footerMeta: tradeSheet?.footerMeta ?? null,
+    transcriptVetoes,
   } as const;
 
   // ── THE RÉSUMÉ CONTAINER WINS OUTRIGHT WHEN IT EXISTS ────────────────────────────────
@@ -261,6 +357,30 @@ export function buildResumeRenderInput(
   // BOTH CALLERS GET THIS AUTOMATICALLY — the worker's own render and the employer-facing
   // masked disclosure share this function, differing only by the `displayName` they pass. The
   // branch is inside, so masking cannot be forgotten on the new path.
+  // HOISTED ABOVE THE BRANCH so BOTH paths can use it. It is derived from `education_level` and
+  // `education_field`, which the answer-map crosswalk DOES carry onto the draft
+  // (`crosswalk.ts:45-46`) — so the container path had a real source for Zone 5's education row
+  // all along and was reading only the caller-supplied block, which no production caller sets.
+  //
+  // R9 §3 — THE FOUR-COMPONENT CREDENTIAL, and it is composed from TWO surfaces on purpose.
+  // The ratified sheet prints "ITI — Machinist · NCVT · 2018 · Govt. ITI, Faridabad": the level
+  // and the trade are asked in the interview and ride the crosswalk onto the draft; the council,
+  // the year and the institute are the finishing form's, because none of the three needs a model
+  // and a closed council set is the only way §4.5's "never collapse NCVT and SCVT" can be
+  // enforced at all. The em-dash joins the level to the trade, exactly as the sample does; the
+  // middot joins everything after it. Each segment takes its own separator with it when absent,
+  // so a worker who answered only the level still gets "ITI" and nothing else.
+  const educationHeadline =
+    [
+      [humanizeEducationLevel(draft.education_level), draft.education_field]
+        .map((v) => v?.trim())
+        .filter((v): v is string => Boolean(v))
+        .join(" — ") || null,
+      preferences.educationDetail,
+    ]
+      .filter((v): v is string => Boolean(v))
+      .join(" · ") || null;
+
   if (resumeProfileCarriesValues(draft.resume_profile)) {
     return fromResumeProfile(
       draft.resume_profile,
@@ -273,6 +393,14 @@ export function buildResumeRenderInput(
       capability.headlineTools,
       tradeSheet?.qualification,
       hasEmployments,
+      { educationHeadline, certifications: draft.certifications },
+      preferences,
+      // THE MANDATORY UNIVERSAL ASK, reaching the container path for the first time. It rides
+      // the answer map onto the draft (`profile-extraction.processor.ts` → `experience`), which
+      // is why it is read here rather than inside the branch: the container has no such field.
+      draft.experience.total_years,
+      tradeSheet?.workerSaid ?? [],
+      fresherRows,
     );
   }
 
@@ -283,11 +411,23 @@ export function buildResumeRenderInput(
     draft.location_preference.current_city ?? draft.location_preference.preferred_cities[0] ?? null;
   const legacyMachines = draft.machines.map(labelForTaxonomyId);
   const legacyAvailability = bareAvailability(draft.availability);
-  const legacyEducationHeadline =
-    [humanizeEducationLevel(draft.education_level), draft.education_field]
-      .map((v) => v?.trim())
-      .filter((v): v is string => Boolean(v))
-      .join(" — ") || null;
+  // AUDIENCE-GATED HERE, not at the row, so the payer copy cannot acquire the worker's asking
+  // price by someone adding a second call site. Same rule and same shape as the container path.
+  // R10 R-1 — THE LIVE DEFECT THIS FIXES. `amount_min` was written by TWO writers with OPPOSITE
+  // meanings: `profile_extractor.py:_build_legacy` put the worker's CURRENT pay in it while the
+  // TypeScript projection put his EXPECTED pay there. This line prints it under the label
+  // "expects", so on every profile written by the ai-service the sheet advertised a man's current
+  // wage as his asking price — persona 2 saying "abhi 14 hazaar mil rahe hain, 16 chahiye" would
+  // have printed `expects ₹14,000`, negotiating against him on his own résumé.
+  //
+  // The Python writer is corrected in the same packet (`amount_min` is now the expected figure and
+  // current pay goes to `current_salary`, its own field on the rich draft). This side reads the
+  // band, so a worker who answered both ends gets a range and one who answered neither gets no row
+  // — §8.4's "a field with no value collapses", never a wrong number.
+  const legacySalary =
+    audience === "worker"
+      ? formatSalaryBand(draft.salary_expectation.amount_min, draft.salary_expectation.amount_max)
+      : null;
 
   return {
     ...capabilitySlots,
@@ -306,9 +446,23 @@ export function buildResumeRenderInput(
     }),
     availFactRows: buildAvailabilityRows({
       availability: legacyAvailability,
-      salary: null,
-      preferredLocations: draft.location_preference.preferred_cities,
-      shift: null,
+      // WAS HARD `null`, AND IT SHOULD NOT HAVE BEEN. `salary_expected` is a universal pack ask
+      // on every interview, the crosswalk carries it onto the draft, and the extraction
+      // projection scatters it into `salary_expectation.amount_min` — so the figure was captured,
+      // stored, and then dropped at the last step on the branch a deterministic worker actually
+      // takes. §5.1 makes salary one of the four things that reject a candidate outright.
+      //
+      // SUPPRESSED ON THE PAYER COPY, exactly as the container path suppresses it.
+      salary: legacySalary,
+      preferredLocations:
+        preferences.preferredLocations.length > 0
+          ? preferences.preferredLocations
+          : draft.location_preference.preferred_cities,
+      // WAS HARD `null` TOO, for the same class of reason: `shift_preference` is asked by
+      // `qp_universal` and lands in `worker_attributes`, and this branch never read it.
+      shift: preferences.shiftLine,
+      willingToRelocate: preferences.willingToRelocate,
+      accommodationNeeded: preferences.accommodationNeeded,
     }),
     // ZONE 5. The context WINS PER FIELD where it has one, because it is the worker's own
     // structured answer and the snapshot's is a taxonomy id the extractor guessed at. It is a
@@ -318,11 +472,11 @@ export function buildResumeRenderInput(
     // fell. `??` and not `||` — an explicitly empty list is a real answer ("no certificates")
     // and must not fall through to the snapshot's.
     qualFactRows: buildQualificationRows({
-      educationHeadline: tradeSheet?.qualification?.educationHeadline ?? legacyEducationHeadline,
+      educationHeadline: tradeSheet?.qualification?.educationHeadline ?? educationHeadline,
       education: tradeSheet?.qualification?.education ?? draft.education.map(labelForTaxonomyId),
       certifications:
         tradeSheet?.qualification?.certifications ?? draft.certifications.map(labelForTaxonomyId),
-      languages: tradeSheet?.qualification?.languages ?? [],
+      languages: tradeSheet?.qualification?.languages ?? preferences.languages,
     }),
     // UNCHANGED ON THE LEGACY PATH. These three are new render-input fields, and the old
     // container has nothing to put in them: no work history exists outside Phase C, and the
@@ -336,7 +490,9 @@ export function buildResumeRenderInput(
     // unchanged; it fires for a profile whose interview ran but whose container came back
     // empty, which is the case that reaches this branch with labels in hand.
     trade: draft.domain_label,
-    experiences: [],
+    // R10 §2.6 — the fresher's Zone 4 reaches BOTH branches. A pass-out whose interview never ran
+    // is exactly the worker most likely to be on this path.
+    experiences: fresherRows,
     preferredLocations: [],
     expectedSalary: null,
     templateId,
@@ -447,9 +603,7 @@ function fromResumeProfile(
   /** The pack's headline row values, for the Verdict Line's third segment. */
   headlineTools: string[],
   /**
-   * Zone 5's values. THE ONLY SOURCE ON THIS PATH — Phase C returns nine keys and education,
-   * certificates and languages are not among them, which is why this section rendered empty for
-   * every worker whose interview ran.
+   * Zone 5's values from the caller. The worker's own structured answer, never through the model.
    */
   qualification: ResumeQualificationFacts | undefined,
   /**
@@ -461,6 +615,46 @@ function fromResumeProfile(
    * so the richer shape wins outright and the flat one is suppressed, never merged.
    */
   hasEmployments: boolean,
+  /**
+   * THE FALLBACK ZONE 5 NEVER HAD. This path read only `qualification`, which no production
+   * caller supplies, so education and certificates rendered empty for every worker whose
+   * interview ran — even though the answer-map crosswalk carries `education_level`,
+   * `education_field` and `certifications` straight onto the draft (`crosswalk.ts:45-47`).
+   *
+   * The caller-supplied block still WINS where it exists: it is the worker's own structured
+   * answer and never passes through the model. This only fills the gap beneath it.
+   *
+   * Languages have no draft column to fall back to — `crosswalk.ts` records `draftPath: null` —
+   * so they were empty for every worker until a capture surface existed. `preferences` below is
+   * that surface, and it is the only source they will ever have.
+   */
+  draftQualification: { educationHeadline: string | null; certifications: readonly string[] },
+  /**
+   * The finishing form's closed-set answers (R6 §4) — Zone 3's terms and Zone 5's languages.
+   *
+   * THE FORM WINS OVER THE MODEL wherever both spoke, which is the same precedence `qualification`
+   * already has and for the same reason: the worker tapped these chips himself, and `rp.shift` is
+   * the model's reading of a conversation. It is per-field rather than all-or-nothing, so a worker
+   * who answered only the languages page keeps the model's shift.
+   */
+  preferences: ResumePreferenceFacts,
+  /**
+   * `experience.total_years` — the MANDATORY universal ask, in the worker's own words.
+   *
+   * PASSED IN RATHER THAN READ HERE because `rp` is the résumé container and the container has
+   * no such field; the value lives one level up on the draft. See `renderedTotalYears` for why
+   * it outranks the sum this path used to print.
+   */
+  statedYears: number | null,
+  /** The worker's own stored turns — the veto input for §8.4's quotes. Never printed as-is. */
+  workerSaid: readonly string[],
+  /**
+   * Zone 4 for a worker with no employment rows (R10 §2.6, §11 #1).
+   *
+   * BUILT BY THE CALLER, like the capability block and for the same reason: it reads the attribute
+   * bag, which this function does not have, and both branches need the identical rows.
+   */
+  fresherRows: readonly ResumeExperienceLine[],
 ): ResumeRenderInput {
   // CERTIFIED ONCE, AT THE TOP (#831). `role_label` and `domain_label` are each read TWICE —
   // as their own fields and again by `summaryFor` — and certifying at each read site is how the
@@ -473,23 +667,55 @@ function fromResumeProfile(
   const roleLabel = cleanScalar(rp.role_label);
   const domainLabel = cleanScalar(rp.domain_label);
 
-  const salaryText = audience === "worker" ? formatMonthlySalary(rp.expected_salary) : null;
+  // THE BAND (R10 R-1). The container carries one figure — `ResumeProfileSchema.expected_salary`
+  // is a single number and widening it is a frozen-contract change — so the upper end rides the
+  // finishing form's attribute, exactly as `shift`, `languages` and the credential components do.
+  // The precedence is the same one R6 established and for the same reason: the worker tapped it
+  // himself, and the model has no field for it at all.
+  const salaryText =
+    audience === "worker" ? formatSalaryBand(rp.expected_salary, preferences.salaryMax) : null;
   // HUMANISED ONCE, HERE. The container stores the model's own token ("immediate",
   // "notice_period") so it stays diffable against its trace; the sheet prints a label. Both the
   // Verdict Line and the Terms row read this, and computing it twice is how they drift.
   const availabilityLabel = bareAvailabilityLabel(cleanScalar(rp.availability));
 
+  // ONE TOTAL, COMPUTED ONCE. The Verdict Line, the `experienceYears` slot and the summary all
+  // read it, and computing it at three call sites is how a sheet ends up saying "8 yrs" at the
+  // top and "with 5 years of experience" three lines down.
+  const totalYears = renderedTotalYears(statedYears, totalYearsFrom(rp.experiences));
+
+  // §8.4's verbatim quotes. THE MODEL PROPOSES — these are the sentences it recorded — AND THE
+  // TRANSCRIPT DISPOSES: `selectOwnWords` prints a phrase only when the worker's own stored turn
+  // contains it literally. `skills` and the capability values are passed as "already printed" so
+  // the block cannot re-quote a chip row back at the reader.
+  const skillChips = cleanList(rp.skills);
+  const ownWords = selectOwnWords({
+    // `work_done` ONLY, and NOT `duration_text`. The first run quoted persona 3's "June 2021 se
+    // January 2023 tak" — verbatim, his, and useless: the employer block three rows below prints
+    // the same span with its employer attached. A quote earns its line by saying something the
+    // sheet does not already say, and a date range never does.
+    candidates: rp.experiences.map((e) => e.work_done),
+    workerSaid,
+    alreadyPrinted: [
+      ...skillChips,
+      ...(capabilitySlots.capChipRows ?? []).flatMap((r) => r.values),
+      ...(capabilitySlots.capTickRows ?? []).flatMap((r) => r.values),
+      ...(capabilitySlots.employments ?? []).map((e) => e.work ?? ""),
+    ],
+  }).phrases;
+
   return {
     ...capabilitySlots,
+    ownWords,
     // THE VERDICT LINE — §5.1 ranks it first of eleven, and it was rendering EMPTY: the strip
     // has been on the layout since the design landed and nothing ever composed the two lines,
     // so the top 22% of the sheet carried the name and then a blank rule.
     ...buildVerdictLine({
       role: roleLabel,
-      years: totalYearsFrom(rp.experiences),
+      years: totalYears,
       // The pack's headline row (a turner's controllers) when the interview ran one, else the
       // model's free-text skills — never invented.
-      tools: headlineTools.length > 0 ? headlineTools : cleanList(rp.skills),
+      tools: headlineTools.length > 0 ? headlineTools : skillChips,
       city: cleanScalar(rp.current_city),
       availability: availabilityLabel,
       salary: salaryText,
@@ -500,8 +726,16 @@ function fromResumeProfile(
       // is a negotiating position handed away if a payer reads it before any conversation, and
       // moving it into a labelled row must not become a way around that.
       salary: salaryText,
-      preferredLocations: cleanList(rp.preferred_locations),
-      shift: humanizeShift(cleanScalar(rp.shift)),
+      preferredLocations:
+        preferences.preferredLocations.length > 0
+          ? preferences.preferredLocations
+          : cleanList(rp.preferred_locations),
+      // The form's own answer, else the model's reading of the conversation. The form's carries
+      // the employment type with it ("Rotational shifts · Permanent"), which the model has no
+      // field for at all.
+      shift: preferences.shiftLine ?? humanizeShift(cleanScalar(rp.shift)),
+      willingToRelocate: preferences.willingToRelocate,
+      accommodationNeeded: preferences.accommodationNeeded,
     }),
     // ZONE 5, FROM THE CONTEXT ONLY. Education, certifications and languages ride the answer
     // map's crosswalk fields, which Phase C does not return — so nothing on `rp` can fill them
@@ -510,10 +744,10 @@ function fromResumeProfile(
     // it never passes through the model, and where it is absent the section still collapses
     // exactly as it does today.
     qualFactRows: buildQualificationRows({
-      educationHeadline: qualification?.educationHeadline ?? null,
+      educationHeadline: qualification?.educationHeadline ?? draftQualification.educationHeadline,
       education: qualification?.education ?? [],
-      certifications: qualification?.certifications ?? [],
-      languages: qualification?.languages ?? [],
+      certifications: qualification?.certifications ?? [...draftQualification.certifications],
+      languages: qualification?.languages ?? preferences.languages,
     }),
     templateId,
     displayName,
@@ -526,11 +760,7 @@ function fromResumeProfile(
     // WHERE THEY ARE, not where they want to work. #423 split these for exactly this reason;
     // `preferred_locations` gets its own line rather than being conflated into this one.
     location: cleanScalar(rp.current_city),
-    // DERIVED FROM THE WORK HISTORY, because Phase C has no `experience_years` field and the
-    // answer map is not consulted here. The months the model recorded per job are the only
-    // statement about tenure that exists on this path — without this the résumé printed no
-    // years at all while the worker had plainly said "3.5 saal".
-    experienceYears: totalYearsFrom(rp.experiences),
+    experienceYears: totalYears,
     // `shift` IS THE ONE #831 CONFIRMED CROSSES PARTIES. This line is shared by the worker's own
     // PDF and the employer-facing masked disclosure (`buildResumeRenderInput(..., "employer")`),
     // with no audience distinction — so an uncertified value reached a payer's screen. It is
@@ -551,7 +781,7 @@ function fromResumeProfile(
       nightShiftReady,
     ),
     // The CLEANED labels, not `rp`'s raw ones — see the note at the top of this function.
-    summary: summaryFor({ ...rp, role_label: roleLabel, domain_label: domainLabel }),
+    summary: summaryFor({ role_label: roleLabel, domain_label: domainLabel, years: totalYears }),
     // VERBATIM APART FROM BLANKS. These are the labels the model produced; no taxonomy
     // resolution, because nothing here is a `skill_*` id — `toExtractionOutput` never writes
     // canonical ids on this path, and running `labelForTaxonomyId` over free text would be a
@@ -570,7 +800,9 @@ function fromResumeProfile(
     // for a duration.
     experiences: hasEmployments
       ? []
-      : rp.experiences.map((e) => ({
+      : fresherRows.length > 0
+        ? [...fresherRows]
+        : rp.experiences.map((e) => ({
           role: e.role_label,
           // The worker's OWN words first. `duration_months` is a normalization of it, and
           // printing "42 months" when they said "3.5 saal" trades their voice for a number they
@@ -626,6 +858,48 @@ function cleanScalar(value: string | null): string | null {
 }
 
 /**
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ * THE TOTAL THAT PRINTS — the worker's OWN stated figure, never the sum beneath it.
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ *
+ * WHAT WAS WRONG, MEASURED ON FIVE REAL EXTRACTIONS. The container path printed
+ * `totalYearsFrom(rp.experiences)` — the sum of the model's per-employment `duration_months`.
+ * Against workers who stated 2, 5, 8 and 12 years, that headline read "duration not stated",
+ * "1 yr 8 mo", "5 yrs 4 mo" and "9 yrs 11 mo". §5.1 ranks total experience third and the Verdict
+ * Line first, so this was the second-most-scanned fact on the sheet and it was wrong on every
+ * worker who had one.
+ *
+ * WHY THE SUM UNDERCOUNTS AND ALWAYS WILL. `duration_months` is null whenever the model could
+ * not turn a phrase into a number ("kuch saal") and those entries are skipped; employments
+ * predating the ones he described are simply absent; and two jobs may overlap. Every one of
+ * those errors runs the same direction. `experience_years` is a MANDATORY universal ask
+ * (`qp_universal@2`, answer type `duration`, RFS number) whose answer is the worker's own
+ * sentence about his own career, and it was sitting on the draft unread.
+ *
+ * THE RULE: THE STATED FIGURE WINS OUTRIGHT, and the sum only fills its absence.
+ *
+ * NOT `Math.max` OF THE TWO, and that was the tempting version. Taking the larger would satisfy
+ * "never below his stated figure" too, but where the sum exceeds what he said it would print a
+ * tenure larger than the one he claimed — resolving a genuine ambiguity UPWARD, which is exactly
+ * what §8.3's asymmetry rule forbids: "a man under-described gets a trial and proves himself; a
+ * man over-described gets a trial and embarrasses everyone." Preferring the stated figure
+ * satisfies the floor by construction, because the figure and the floor are the same number.
+ *
+ * "DURATION NOT STATED" SURVIVES, FOR THE CASE IT WAS WRITTEN FOR. A worker with neither a
+ * stated total nor a datable job is a genuine unknown and §11 #3 requires the sheet to say so.
+ * What is gone is the case where he stated it plainly and the sheet said nobody asked.
+ *
+ * A STATED ZERO STILL READS AS "duration not stated", and that is a live question rather than a
+ * decision made here — `yearsPhrase` maps 0 to the unknown text, pinned by a test whose comment
+ * reserves "fresher" for a worker who SAID he has no experience. The fresh ITI pass-out is
+ * exactly that worker. Changing it is a wording ruling; recorded in the gap table, not taken.
+ */
+export function renderedTotalYears(stated: number | null, summed: number | null): number | null {
+  const usable = typeof stated === "number" && Number.isFinite(stated) && stated > 0;
+  return usable ? stated : summed;
+}
+
+/**
  * Total years across the work history, or null.
  *
  * SUMS ONLY WHAT THE MODEL CONVERTED. An entry whose `duration_months` is null contributed a
@@ -663,13 +937,14 @@ function monthsAsText(months: number | null): string {
 function summaryFor(rp: {
   role_label: string | null;
   domain_label: string | null;
-  experiences: readonly { duration_months: number | null }[];
+  /** The SETTLED total (see `renderedTotalYears`), never re-derived — one sheet, one number. */
+  years: number | null;
 }): string | null {
   const role = rp.role_label?.trim();
   const domain = rp.domain_label?.trim();
   if (!role && !domain) return null;
   const head = role ?? domain!;
-  const years = totalYearsFrom(rp.experiences);
+  const years = rp.years;
   const tenure =
     years && years > 0 ? ` with ${years} year${years === 1 ? "" : "s"} of experience` : "";
   // The trade only earns its own clause when it says something the role does not already —
@@ -1013,31 +1288,26 @@ function humanizeEducationLevel(raw: string | null): string | null {
 const NIGHT_SHIFT_TOKENS = /^night(\s*shift)?s?$/;
 
 const KNOWN_EDUCATION_LEVELS: Readonly<Record<string, string>> = {
-  // The FIVE values `qp_universal`'s education question can actually store, not the one that
-  // happened to be noticed. `education` is target_field `education_level` and its options carry
-  // `value_text` below_10 | 10 | 12 | iti_diploma | graduate; `answer-capture` stores the
-  // value_text and `profile-extraction.processor` copies it onto the draft verbatim. So all five
-  // reach this function, and before this only `below_10` was mapped: a worker who tapped
-  // "ITI ya diploma" downloaded a résumé reading "Iti Diploma — Electronics", one who tapped
-  // "Graduation" got a lowercase "graduate", and "Dasvi paas" / "Barhvi paas" printed as a naked
-  // "10" and "12". The prettifier could not save any of them: rule 3 leaves underscore-free
-  // values alone (so "10", "12" and "graduate" pass straight through) and title-casing wrecks
-  // the acronym in `iti_diploma` — the exact outcome rule 3 exists to prevent.
+  // ── ENGLISH ON THE PDF (R10 R-3, owner ruling) ──────────────────────────────────────
   //
-  // NOTHING HERE IS INVENTED WORDING. Each label is the pack's own authored `label_text` — the
-  // words printed on the chip the worker tapped — so the résumé says back to them what they
-  // chose. That is the answer to the objection the previous comment raised against widening this
-  // map: mapping a token the pipeline emits is not guessing when the copy already exists.
+  // These were the pack's own Hinglish chip labels — "ITI ya diploma", "Dasvi paas", "Barhvi
+  // paas" — on the argument that the résumé should say back to the worker the words he tapped.
+  // R9 measured the consequence: the education row read "ITI ya diploma — Turner · NCVT · 2018 ·
+  // Govt. ITI, Faridabad", one Hinglish segment inside a line whose other four are English, on a
+  // sheet whose entire Zone 5 vocabulary (`worker-preferences.vocabulary.ts`) prints English
+  // because "this half of the sheet is read by a hiring supervisor".
   //
-  // `below_10` KEEPS "10th se kam" rather than the pack's "Dasvi se kam", because #963 names
-  // that string explicitly and it is what `education_label.dart` already shows in the app. The
-  // two vocabularies disagree only on this one value, and converging them is the frontend parity
-  // issue's job (CLAUDE.md §6) — silently changing it here would make the app and the PDF differ
-  // for the one worker population that currently agrees.
-  below_10: "10th se kam",
-  below_10th: "10th se kam",
-  "10": "Dasvi paas",
-  "12": "Barhvi paas",
-  iti_diploma: "ITI ya diploma",
-  graduate: "Graduation",
+  // THE RULING. Decision 4 rules English content because the employer's advertisement is in
+  // English, and the PDF is the employer-facing artifact. The app stays Hinglish per #963 — and
+  // §11 #17 already establishes these two surfaces differing by audience (Latin on the employer
+  // copy, both scripts on the worker's own), so this is that pattern rather than a new exception.
+  //
+  // WHAT THIS DOES NOT DO. It does not touch `education_label.dart`, the pack's `label_text`, or
+  // any stored value. The worker still taps "ITI ya diploma"; only the printed artifact changes.
+  below_10: "Below 10th",
+  below_10th: "Below 10th",
+  "10": "10th pass",
+  "12": "12th pass",
+  iti_diploma: "ITI / Diploma",
+  graduate: "Graduate",
 };

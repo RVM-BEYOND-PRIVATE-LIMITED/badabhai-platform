@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Injectable } from "@nestjs/common";
 import { PdfRenderer } from "../common/pdf/pdf-renderer.service";
+import type { DegradationStep } from "./resume-degradation";
+import type { TranscriptVeto } from "./resume-transcript-veto";
+import { RESUME_FONT_CONTRACT } from "./resume-fonts";
 import { getResumeTemplate } from "./templates/registry";
 
 /**
@@ -124,6 +127,35 @@ export interface ResumeRenderInput {
    */
   photoDataUri?: string | null;
 
+  /**
+   * PROVENANCE (§7.4): which degradation stage produced this sheet, and what it removed.
+   *
+   * 0 means nothing was dropped. Stamped so a produced PDF reproduces exactly — the same
+   * snapshot at a different stage is a different artifact, and without this the difference is
+   * invisible. It belongs beside `skin`, `template_version` and `taxonomy_version`; none of
+   * those columns exists yet, so today this rides on the render input and into the HTML's
+   * `<meta>` rather than into a table. Recorded in the journal as the follow-up it is.
+   */
+  degradationStage?: number;
+  degradationDropped?: readonly string[];
+  /**
+   * Per-step cost of the ladder that produced this sheet. DIAGNOSTIC ONLY — nothing renders it.
+   * It exists so the ladder's granularity can be read off the emitted matrix: a step that gained
+   * far more than the sheet was over took a whole block where a trim would have done.
+   */
+  degradationTrace?: readonly DegradationStep[];
+
+  /**
+   * Chip claims the worker's own transcript withdrew, each with the sentence that withdrew it.
+   *
+   * DIAGNOSTIC AND AUDITABLE, never rendered. A veto REMOVES a claim from a man's résumé, so
+   * every one has to be readable by a human after the fact — which is why the triggering phrase
+   * rides along rather than just a count. The render worker logs them; nothing on the page shows
+   * that anything was withdrawn, because the sheet's job is to state what is true, not to
+   * annotate what was corrected.
+   */
+  transcriptVetoes?: readonly TranscriptVeto[];
+
   // ==========================================================================
   // THE LOCKED TRADE SHEET (`bb_trade.v1`).
   //
@@ -238,14 +270,26 @@ function nameFitClass(displayName: string | null | undefined): string {
 }
 
 /** A labelled list row — `{{label}}` plus a `{{#values}}` region of plain strings. */
+/**
+ * `key` and `rank` are PROVENANCE, not content: the renderer never reads either.
+ *
+ * They exist so the degradation ladder can order rows by §5.1 decisiveness without re-deriving
+ * the trade map, and they are optional because rows built outside a trade map (the legacy
+ * qualification path) have neither. Anything that reached the template through them would be a
+ * bug — `bb-trade-template.test.ts` pins the slot list.
+ */
 export type ResumeListRow = {
   label: string;
   values: string[];
+  key?: string;
+  rank?: number;
 };
 /** A labelled single-value row. */
 export type ResumeFactRow = {
   label: string;
   value: string;
+  key?: string;
+  rank?: number;
 };
 /** One role stint inside an employment. `when` is its OWN date range, never the employer's. */
 export type ResumeRoleStint = {
@@ -541,8 +585,15 @@ export class ResumeRenderer {
    * Render the PDF. Returns null (degraded) when the kill-switch is off, the
    * binary is missing, the process times out, the buffer guard trips, or it exits
    * non-zero — the shared {@link PdfRenderer} owns that. NEVER logs the HTML/name.
+   *
+   * THROWS, deliberately, when the image cannot resolve the sheet's fonts. That is
+   * the one failure this method refuses to degrade over, because degrading produces a
+   * PDF rather than withholding one: a Devanagari name line of empty boxes, or the
+   * whole sheet in DejaVu Serif, both at exit 0. The processor turns the throw into
+   * the same visible "no PDF this run" it already handles.
    */
   async renderPdf(input: ResumeRenderInput): Promise<Buffer | null> {
+    await this.pdf.assertFontsResolve(RESUME_FONT_CONTRACT);
     return this.pdf.renderHtmlToPdf(this.buildResumeHtml(input), "resume");
   }
 

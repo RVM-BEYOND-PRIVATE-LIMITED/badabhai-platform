@@ -1,0 +1,86 @@
+{
+  "persona": "p5_twelve_year_no_iti",
+  "headlineLine": "CNC lathe operator, senior machinist · 12 yrs · Fanuc, Haas",
+  "subheadLine": "Kolhapur · available in 15 days · expects ₹26,000 / month",
+  "capSectionTitle": "Machines, controllers & capability",
+  "capChipRows": [
+    "Machines: CNC lathe / turning centre, Conventional lathe, VTL",
+    "Controllers: Fanuc, Haas",
+    "Materials: MS, EN8 / EN31, Brass, Cast iron"
+  ],
+  "capTickRows": [
+    "Workholding: 3-jaw chuck, 4-jaw chuck, Soft jaws, Steady rest",
+    "Setting: Tool offset, Work offset, Chuck / jaw change, Tailstock setting, First-piece setup",
+    "Measuring instruments: Vernier, Micrometer, Bore dial gauge, Height gauge, Dial indicator"
+  ],
+  "capFactRows": [
+    "Programming: Edits programs (G-code / M-code)",
+    "Drawings: Reads 2D drawings"
+  ],
+  "availFactRows": [
+    "Available from: 15 days",
+    "Salary expected: ₹26,000 / month",
+    "Preferred locations: Kolhapur, Pune",
+    "Shift: Day shift"
+  ],
+  "qualFactRows": [
+    "Education: 10th pass"
+  ],
+  "qualTickRows": [],
+  "employments": [
+    {
+      "employer": "Shree Ganesh Engineering · Kolhapur, Maharashtra",
+      "when": "Jan 2019 – Present · 7 yrs 8 mo",
+      "roles": [],
+      "roleInline": " — Senior Lathe Machinist",
+      "work": "CNC lathe Fanuc and Haas, VTL · cast iron and MS · pump and valve bodies"
+    },
+    {
+      "employer": "Vardhman Machine Tools · Kolhapur, Maharashtra",
+      "when": "Mar 2016 – Dec 2018 · 2 yrs 10 mo",
+      "roles": [],
+      "roleInline": " — Lathe Machinist",
+      "work": "Conventional lathe and CNC · MS, brass · general engineering job work"
+    },
+    {
+      "employer": "Patil Turning Works · Ichalkaranji, Maharashtra",
+      "when": "Jun 2014 – Feb 2016 · 1 yr 9 mo",
+      "roles": [],
+      "roleInline": " — Lathe Operator",
+      "work": "Conventional lathe · MS · textile machinery parts"
+    }
+  ],
+  "employmentsMore": null,
+  "ownWords": [],
+  "experiences": [],
+  "skills": [
+    "CNC lathe Fanuc control",
+    "CNC lathe Haas control",
+    "VTL operation",
+    "Conventional lathe",
+    "Machine setting",
+    "Offset setting",
+    "Jaw change",
+    "Tailstock setting",
+    "First piece inspection",
+    "Programme editing",
+    "Pump body machining",
+    "Valve body machining",
+    "Cast iron machining",
+    "MS machining",
+    "Brass machining",
+    "Tolerance holding plus minus 0.02",
+    "Vernier caliper",
+    "Micrometer",
+    "Bore gauge",
+    "Height gauge",
+    "Dial indicator",
+    "Chatter detection",
+    "Training junior operators"
+  ],
+  "degradationStage": 0,
+  "degradationDropped": [],
+  "transcriptVetoes": [],
+  "contentLines": 33.19,
+  "predictedHeadroomMm": 38.2
+}

@@ -45,6 +45,27 @@ export interface TradeRowSpec {
   /** `fact` rows only: how several selected values are joined. Default " · ". */
   readonly join?: string;
   /**
+   * A SECOND attribute whose selected values are appended to EACH of this row's chips, with a
+   * middot — "VMC · 3-axis" (R10 §2.5, rule 3).
+   *
+   * WHY THE SHEET DOES THIS AT ALL. The ratified sample prints `VMC · 3-axis`, `VMC · 4-axis`,
+   * `SPM` — the configuration is a property OF the machine, not a separate capability, and giving
+   * it its own row would spend one of nine slots restating what the machine chip already implies.
+   * Appending costs no row.
+   *
+   * ONE CONFIG PER CHIP, NOT A CROSS PRODUCT. Two machines and two configurations would otherwise
+   * produce four chips, three of which the worker never claimed. The values are appended to the
+   * FIRST chip only and the rest print bare, which is what the sample shows: the config qualifies
+   * the machine it was asked about.
+   *
+   * ABSENT IS THE ORDINARY CASE. `qp_cnc_turning` has no configuration question — axes and
+   * spindle configurations are milling facts — so this fires for no shipped map today. It exists
+   * so a milling entry is a DATA change (see the §3.1 estimate).
+   */
+  readonly configFrom?: string;
+  /** Slug → printed English for `configFrom`'s values. Same drop-the-unknown rule as `values`. */
+  readonly configValues?: Readonly<Record<string, string>>;
+  /**
    * Most values this row may print. Quoted from the design guideline §4.3, not invented:
    * machines max 4, controllers max 3, materials max 4.
    *
@@ -379,6 +400,24 @@ export interface TradeCapabilityRows {
  * Values are emitted in the MAP's order, not the worker's selection order, so two turners with the
  * same skills produce the same sheet and a diff between two renders means something changed.
  */
+/**
+ * "VMC" + ["3-axis", "4-axis"] -> ["VMC · 3-axis", "VMC · 4-axis", ...rest].
+ *
+ * THE FIRST CHIP ONLY, and the rest pass through untouched. A cross product would manufacture
+ * combinations the worker never claimed — "SPM · 4-axis" for a man who runs a 4-axis VMC and a
+ * separate SPM — which is the fabrication this file's second rule forbids by name.
+ */
+export function appendConfiguration(
+  values: readonly string[],
+  configSlugs: readonly string[],
+  dictionary: Readonly<Record<string, string>>,
+): string[] {
+  const configs = configSlugs.map((slug) => dictionary[slug]).filter((v): v is string => Boolean(v));
+  if (configs.length === 0 || values.length === 0) return [...values];
+  const [first, ...rest] = values;
+  return [...configs.map((c) => `${first} · ${c}`), ...rest];
+}
+
 export function buildTradeCapabilityRows(
   packId: string | null | undefined,
   attributes: WorkerAttributeValues,
@@ -420,14 +459,27 @@ export function buildTradeCapabilityRows(
       .slice(0, spec.maxValues ?? Number.MAX_SAFE_INTEGER);
     if (values.length === 0) continue;
 
-    if (spec.inHeadline) headlineTools.push(...values);
+    // R10 §2.5 rule 3 — the configuration rides the first chip, never its own row.
+    const configured = spec.configFrom
+      ? appendConfiguration(values, slugsOf(attributes[spec.configFrom]), spec.configValues ?? {})
+      : values;
 
+    if (spec.inHeadline) headlineTools.push(...configured);
+
+    // `key`/`rank` ride along for the degradation ladder (resume-degradation.ts), which needs to
+    // shed the least decisive row first and must not re-derive the map to find out which that is.
+    // The renderer ignores both.
+    const provenance = { key: spec.from, rank: spec.rank };
     if (spec.kind === "fact") {
-      factRows.push({ label: spec.label, value: values.join(spec.join ?? " · ") });
+      factRows.push({
+        label: spec.label,
+        value: configured.join(spec.join ?? " · "),
+        ...provenance,
+      });
     } else if (spec.kind === "chips") {
-      chipRows.push({ label: spec.label, values });
+      chipRows.push({ label: spec.label, values: configured, ...provenance });
     } else {
-      tickRows.push({ label: spec.label, values });
+      tickRows.push({ label: spec.label, values: configured, ...provenance });
     }
   }
   // The heading is suppressed when the trade produced no rows at all: the template collapses the

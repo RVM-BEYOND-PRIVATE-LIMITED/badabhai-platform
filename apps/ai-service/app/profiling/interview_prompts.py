@@ -150,6 +150,22 @@ FIELDS:
   (only if they gave something convertible; otherwise null), work_done.
 - shift, current_city, preferred_locations, availability, expected_salary.
 
+THE WORKER'S OWN WORDS, COPIED — NOT REWRITTEN. `work_done` and `duration_text` must be the
+worker's own sentences, in the language he used them in. Copy the words; do not translate them
+into English, do not tidy the grammar, do not merge two answers into one sentence, and do not
+summarise several turns into a description. If he said "CNC lathe chalata hoon, facing aur
+turning karta hoon", that is what goes in — not "Operating CNC lathe, performing facing and
+turning operations".
+
+This is not a style preference. These strings are printed on his resume as HIS words, under a
+heading that says so, and a sentence he never said is a sentence he cannot stand behind in the
+interview it wins him. Summarising is listed first among the things this model must never be
+asked to do.
+
+If a job was described in a way you cannot quote — he mentioned the employer but never said what
+he did there — leave `work_done` as an empty string. An empty field is honest; a fluent English
+summary of what a man in that job probably does is not.
+
 NEVER record a company or employer name, a person's name, a phone number, or an address, even if
 the worker gave one. `experiences` has NO field for an employer; do not put one anywhere else.
 

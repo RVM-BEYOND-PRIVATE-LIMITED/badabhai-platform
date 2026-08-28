@@ -125,5 +125,10 @@ def test_adjacent_salary_answers_do_not_poison_each_other():
     ]
     profile, _ = _extract(messages=messages)
 
-    assert profile["salary_expectation"]["amount_min"] == 25000
-    assert profile["salary_expectation"]["amount_max"] == 35000
+    # THE INTENT OF THIS TEST IS UNCHANGED — both figures must be detected and must not be
+    # confused with each other. What changed is which FIELD each lands in (R10 R-1):
+    # `amount_min` is the figure the worker is ASKING FOR, so the 35000 belongs there. It used to
+    # assert `amount_min == 25000`, i.e. it pinned the defect: the résumé prints `amount_min`
+    # under the label "expects", so this worker's sheet advertised the 25000 he already earns.
+    assert profile["salary_expectation"]["amount_min"] == 35000
+    assert profile["salary_expectation"]["amount_max"] is None

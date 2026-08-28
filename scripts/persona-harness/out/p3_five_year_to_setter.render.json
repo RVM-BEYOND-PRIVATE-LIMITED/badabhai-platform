@@ -1,0 +1,76 @@
+{
+  "persona": "p3_five_year_to_setter",
+  "headlineLine": "CNC lathe operator · 5 yrs · Fanuc, Siemens",
+  "subheadLine": "Pune · available in 1 month · expects ₹22,000 / month",
+  "capSectionTitle": "Machines, controllers & capability",
+  "capChipRows": [
+    "Machines: CNC lathe / turning centre, Conventional lathe",
+    "Controllers: Fanuc, Siemens",
+    "Materials: MS, EN8 / EN31, Stainless steel"
+  ],
+  "capTickRows": [
+    "Workholding: 3-jaw chuck, Collet, Soft jaws",
+    "Setting: Tool offset, Work offset, First-piece setup",
+    "Measuring instruments: Vernier, Micrometer, Bore dial gauge, Dial indicator"
+  ],
+  "capFactRows": [
+    "Programming: Edits programs (G-code / M-code)",
+    "Drawings: Reads 2D drawings"
+  ],
+  "availFactRows": [
+    "Available from: 1 month",
+    "Salary expected: ₹22,000 / month",
+    "Preferred locations: Pune, Nashik",
+    "Shift: Any shift"
+  ],
+  "qualFactRows": [
+    "Education: ITI / Diploma"
+  ],
+  "qualTickRows": [],
+  "employments": [
+    {
+      "employer": "Deccan Auto Turned Parts · Pune, Maharashtra",
+      "when": "Feb 2023 – Present · 3 yrs 7 mo",
+      "roles": [],
+      "roleInline": " — CNC Turner",
+      "work": "CNC lathe, Fanuc and Siemens · EN8, SS304 · automotive turned parts"
+    },
+    {
+      "employer": "Sai Engineering Works · Pune, Maharashtra",
+      "when": "Jun 2021 – Jan 2023 · 1 yr 8 mo",
+      "roles": [],
+      "roleInline": " — Lathe Operator",
+      "work": "Conventional lathe and CNC · MS · job work"
+    }
+  ],
+  "employmentsMore": null,
+  "ownWords": [],
+  "experiences": [],
+  "skills": [
+    "CNC lathe Fanuc chalayi hai",
+    "CNC lathe Siemens chalayi hai",
+    "Conventional lathe",
+    "Tool offset le leta hoon",
+    "Work offset le leta hoon",
+    "First piece check karta hoon",
+    "Soft jaw boring",
+    "Machine set karta hoon",
+    "Programme edit kar leta hoon",
+    "Feed speed badalna",
+    "Tool number change karna",
+    "EN8 material",
+    "SS304 material",
+    "MS material",
+    "Plus minus 0.05 tak comfortable hoon",
+    "Vernier",
+    "Micrometer",
+    "Bore dial gauge",
+    "Dial indicator",
+    "Bore gauge se ID check karta hoon"
+  ],
+  "degradationStage": 0,
+  "degradationDropped": [],
+  "transcriptVetoes": [],
+  "contentLines": 28.19,
+  "predictedHeadroomMm": 62.65
+}

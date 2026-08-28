@@ -1,0 +1,74 @@
+{
+  "persona_id": "p3_five_year_to_setter",
+  "run": {
+    "is_mock": false,
+    "real_call": true,
+    "model_name": "claude-haiku-4-5",
+    "provider": "anthropic",
+    "candidates_tried": [
+      "gemini-2.5-flash",
+      "claude-haiku-4-5"
+    ],
+    "input_tokens": 1333,
+    "output_tokens": 493,
+    "cost_inr": 0.3152,
+    "latency_ms": 5687,
+    "error_code": null
+  },
+  "extract": {
+    "domain_label": "CNC machining and turning",
+    "role_label": "CNC lathe operator",
+    "skills": [
+      "CNC lathe Fanuc chalayi hai",
+      "CNC lathe Siemens chalayi hai",
+      "Conventional lathe",
+      "Tool offset le leta hoon",
+      "Work offset le leta hoon",
+      "First piece check karta hoon",
+      "Soft jaw boring",
+      "Machine set karta hoon",
+      "Programme edit kar leta hoon",
+      "Feed speed badalna",
+      "Tool number change karna",
+      "EN8 material",
+      "SS304 material",
+      "MS material",
+      "Plus minus 0.05 tak comfortable hoon",
+      "Vernier",
+      "Micrometer",
+      "Bore dial gauge",
+      "Dial indicator",
+      "Bore gauge se ID check karta hoon"
+    ],
+    "experiences": [
+      {
+        "role_label": "CNC lathe operator",
+        "duration_text": "February 2023 se",
+        "duration_months": null,
+        "work_done": ""
+      },
+      {
+        "role_label": "CNC lathe operator",
+        "duration_text": "June 2021 se January 2023 tak",
+        "duration_months": 20,
+        "work_done": "Job work hota tha"
+      },
+      {
+        "role_label": "Lathe operator",
+        "duration_text": "Shuru me",
+        "duration_months": null,
+        "work_done": "Kharad chalayi hai"
+      }
+    ],
+    "shift": "any",
+    "current_city": "Pune",
+    "preferred_locations": [
+      "Pune",
+      "Nashik"
+    ],
+    "availability": "1_month",
+    "expected_salary": 22000.0,
+    "blocked": false,
+    "is_mock": false
+  }
+}

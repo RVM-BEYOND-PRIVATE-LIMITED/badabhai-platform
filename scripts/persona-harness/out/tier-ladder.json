@@ -1,0 +1,129 @@
+{
+  "pro": {
+    "by_model": {
+      "claude-haiku-4-5": {
+        "n": 4,
+        "median_ms": 4305.8
+      }
+    },
+    "tier": "pro",
+    "rows": [
+      {
+        "run": 0,
+        "turn": "CNC lathe chalata hoon sir. Do saal ho gaye.",
+        "model": "claude-haiku-4-5",
+        "latency_ms": 5202.7,
+        "cost_inr": 0.1765,
+        "reply": "```json\n{\n  \"reply_text\": \"Theek hai. CNC lathe par kaunse parts banate ho — shaft, bushing, ya kuch aur?\",\n  \"stage\": \"role\",\n  \"input_mode\": \"text\",\n  \"suggested_answers\": [],\n  \"domain_label\": \"CNC Machining\",\n  \"role_label\": null,\n  \"skills\": [],\n  \"experience_entry\": null,\n  \"phase_a_done\": false\n}\n```",
+        "rule_breaks": [
+          "37 words"
+        ]
+      },
+      {
+        "run": 0,
+        "turn": "Programme load karke part banata hoon. Facing, turning, drilling, grooving.",
+        "model": "claude-haiku-4-5",
+        "latency_ms": 4305.8,
+        "cost_inr": 0.1876,
+        "reply": "```json\n{\n  \"reply_text\": \"Theek hai. CNC machine par kaam karte ho ya manual lathe par?\",\n  \"stage\": \"role\",\n  \"input_mode\": \"options_only\",\n  \"suggested_answers\": [\"CNC machine\", \"Manual lathe\", \"Dono\"],\n  \"domain_label\": \"Machining\",\n  \"role_label\": null,\n  \"skills\": [\"Program load\", \"Facing\", \"Turning\", \"Drilling\", \"Grooving\"],\n  \"experience_entry\": null,\n  \"phase_a_done\": false\n}\n```",
+        "rule_breaks": [
+          "42 words"
+        ]
+      },
+      {
+        "run": 0,
+        "turn": "Nahi sir, programme setter banata hai. Main sirf chalata hoon.",
+        "model": "claude-haiku-4-5",
+        "latency_ms": 3665.1,
+        "cost_inr": 0.1841,
+        "reply": "```json\n{\n  \"reply_text\": \"Theek hai. CNC machine chalate ho ya koi aur type ka machine?\",\n  \"stage\": \"role\",\n  \"input_mode\": \"options_only\",\n  \"suggested_answers\": [\"CNC machine\", \"Lathe machine\", \"Milling machine\", \"Koi aur\"],\n  \"domain_label\": \"Machining / Manufacturing\",\n  \"role_label\": \"Machine operator\",\n  \"skills\": [],\n  \"experience_entry\": null,\n  \"phase_a_done\": false\n}\n```",
+        "rule_breaks": [
+          "43 words"
+        ]
+      },
+      {
+        "run": 0,
+        "turn": "Haan.",
+        "model": "claude-haiku-4-5",
+        "latency_ms": 4023.7,
+        "cost_inr": 0.1866,
+        "reply": "```json\n{\n  \"reply_text\": \"Aap kaunsa kaam karte ho? Welder, machinist, cook, driver, tailor, mason, electrician?\",\n  \"stage\": \"domain\",\n  \"input_mode\": \"options_only\",\n  \"suggested_answers\": [\"Welder\", \"Machinist\", \"Cook\", \"Driver\", \"Tailor\", \"Mason\", \"Electrician\"],\n  \"domain_label\": null,\n  \"role_label\": null,\n  \"skills\": [],\n  \"experience_entry\": null,\n  \"phase_a_done\": false\n}\n```",
+        "rule_breaks": [
+          "2 questions",
+          "39 words"
+        ]
+      }
+    ],
+    "models": [
+      "claude-haiku-4-5"
+    ],
+    "median_ms": 4305.8,
+    "p90_ms": 4305.8,
+    "mean_ms": 4299.3,
+    "cost_inr": 0.7348,
+    "rule_breaks": 5
+  },
+  "capable": {
+    "by_model": {
+      "claude-haiku-4-5": {
+        "n": 4,
+        "median_ms": 2410.0
+      }
+    },
+    "tier": "capable",
+    "rows": [
+      {
+        "run": 0,
+        "turn": "CNC lathe chalata hoon sir. Do saal ho gaye.",
+        "model": "claude-haiku-4-5",
+        "latency_ms": 3838.7,
+        "cost_inr": 0.1852,
+        "reply": "```json\n{\n  \"reply_text\": \"Theek hai. CNC lathe par kaunse materials cut karte ho — steel, aluminium, brass?\",\n  \"stage\": \"skills\",\n  \"input_mode\": \"options_only\",\n  \"suggested_answers\": [\"Steel\", \"Aluminium\", \"Brass\", \"Mixed materials\"],\n  \"domain_label\": \"CNC Machining\",\n  \"role_label\": \"CNC Lathe Operator\",\n  \"skills\": [],\n  \"experience_entry\": null,\n  \"phase_a_done\": false\n}\n```",
+        "rule_breaks": [
+          "42 words"
+        ]
+      },
+      {
+        "run": 0,
+        "turn": "Programme load karke part banata hoon. Facing, turning, drilling, grooving.",
+        "model": "claude-haiku-4-5",
+        "latency_ms": 2410.0,
+        "cost_inr": 0.1876,
+        "reply": "```json\n{\n  \"reply_text\": \"Theek hai. CNC machine par kaam karte ho ya manual lathe par?\",\n  \"stage\": \"role\",\n  \"input_mode\": \"options_only\",\n  \"suggested_answers\": [\"CNC machine\", \"Manual lathe\", \"Dono\"],\n  \"domain_label\": \"Machining\",\n  \"role_label\": null,\n  \"skills\": [\"Program load\", \"Facing\", \"Turning\", \"Drilling\", \"Grooving\"],\n  \"experience_entry\": null,\n  \"phase_a_done\": false\n}\n```",
+        "rule_breaks": [
+          "42 words"
+        ]
+      },
+      {
+        "run": 0,
+        "turn": "Nahi sir, programme setter banata hai. Main sirf chalata hoon.",
+        "model": "claude-haiku-4-5",
+        "latency_ms": 1892.0,
+        "cost_inr": 0.1824,
+        "reply": "```json\n{\n  \"reply_text\": \"Theek hai. CNC machine chalate ho ya koi aur type ka?\",\n  \"stage\": \"role\",\n  \"input_mode\": \"options_only\",\n  \"suggested_answers\": [\"CNC machine\", \"Lathe\", \"Milling machine\", \"Koi aur\"],\n  \"domain_label\": \"Machining\",\n  \"role_label\": \"Machine operator\",\n  \"skills\": [],\n  \"experience_entry\": null,\n  \"phase_a_done\": false\n}\n```",
+        "rule_breaks": [
+          "39 words"
+        ]
+      },
+      {
+        "run": 0,
+        "turn": "Haan.",
+        "model": "claude-haiku-4-5",
+        "latency_ms": 1768.3,
+        "cost_inr": 0.1667,
+        "reply": "```json\n{\n  \"reply_text\": \"Aap kis trade mein kaam karte ho?\",\n  \"stage\": \"domain\",\n  \"input_mode\": \"text\",\n  \"suggested_answers\": [],\n  \"domain_label\": null,\n  \"role_label\": null,\n  \"skills\": [],\n  \"experience_entry\": null,\n  \"phase_a_done\": false\n}\n```",
+        "rule_breaks": [
+          "28 words"
+        ]
+      }
+    ],
+    "models": [
+      "claude-haiku-4-5"
+    ],
+    "median_ms": 2410.0,
+    "p90_ms": 2410.0,
+    "mean_ms": 2477.2,
+    "cost_inr": 0.7219,
+    "rule_breaks": 4
+  }
+}

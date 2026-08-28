@@ -1,0 +1,49 @@
+{
+  "persona": "p1_fresh_iti",
+  "headlineLine": "Turner · duration not stated · lathe machine operation, kharad machine operation, facing",
+  "subheadLine": "available immediately · expects ₹12,000 / month",
+  "capSectionTitle": "Machines, controllers & capability",
+  "capChipRows": [
+    "Machines: Conventional lathe",
+    "Materials: MS"
+  ],
+  "capTickRows": [
+    "Operations: Facing / OD turning, Threading, Drilling / tapping",
+    "Workholding: 3-jaw chuck, Tailstock / centre",
+    "Measuring instruments: Vernier, Micrometer"
+  ],
+  "capFactRows": [
+    "Drawings: Reads 2D drawings"
+  ],
+  "availFactRows": [
+    "Available from: Immediate",
+    "Salary expected: ₹12,000 / month",
+    "Preferred locations: Ludhiana, Chandigarh"
+  ],
+  "qualFactRows": [
+    "Education: ITI / Diploma"
+  ],
+  "qualTickRows": [],
+  "employments": [],
+  "employmentsMore": null,
+  "ownWords": [],
+  "experiences": [
+    "ITI workshop training ·  · Conventional lathe · CNC lathe / turning centre · Milling machine · Drilling machine · Trade test passed · Stepped shaft aur bush banaya tha, drawing dekh kar"
+  ],
+  "skills": [
+    "lathe machine operation",
+    "kharad machine operation",
+    "facing",
+    "turning",
+    "threading",
+    "stepped shaft making",
+    "nut-bolt set making",
+    "vernier caliper",
+    "micrometer"
+  ],
+  "degradationStage": 0,
+  "degradationDropped": [],
+  "transcriptVetoes": [],
+  "contentLines": 22.19,
+  "predictedHeadroomMm": 91.99
+}

@@ -1,0 +1,140 @@
+import { z } from "zod";
+import { canonicalCity } from "@badabhai/profiling-lexicon";
+
+import {
+  DOCUMENTS_READY,
+  EDUCATION_COUNCILS,
+  JOB_TYPES,
+  LANGUAGES,
+  SHIFTS,
+} from "./worker-preferences.vocabulary";
+
+/**
+ * The post-interview finishing form's closed-set page (R6 §4).
+ *
+ * EVERY FIELD IS OPTIONAL AND EVERY LIST MAY BE EMPTY, because the form is one screen the worker
+ * can leave half-answered and come back to. An absent key means "not answered" and leaves the
+ * stored value alone; an explicitly EMPTY list means "none of these", which is a real answer and
+ * must be able to clear a row. Those are different states and the schema keeps them apart:
+ * `undefined` versus `[]`.
+ *
+ * ENUMS ARE DERIVED FROM THE VOCABULARY, never restated. A slug that validates here but has no
+ * label there would be stored and then silently dropped at render — the worker would tick a box,
+ * see nothing on his sheet, and nothing would log a reason.
+ */
+
+/** `z.enum` over a dictionary's keys, so validation and printing cannot drift apart. */
+function optionsOf(vocabulary: Readonly<Record<string, string>>): [string, ...string[]] {
+  const keys = Object.keys(vocabulary);
+  // Not reachable with the shipped dictionaries; asserted so an emptied one fails loudly at
+  // module load rather than producing a schema that accepts nothing and reports no reason.
+  if (keys.length === 0) throw new Error("preference vocabulary is empty");
+  return keys as [string, ...string[]];
+}
+
+/**
+ * A multi-select of dictionary slugs — de-duplicated, order preserved.
+ *
+ * CAPPED, because every one of these becomes a row on a one-page sheet. The cap is generous
+ * relative to what a real worker ticks (both ratified samples list three languages and five
+ * documents) and exists so a malformed client cannot hand the degradation ladder a row with
+ * forty values in it.
+ */
+function multiSelect(vocabulary: Readonly<Record<string, string>>, max: number) {
+  return z
+    .array(z.enum(optionsOf(vocabulary)))
+    .max(max)
+    .transform((values) => [...new Set(values)]);
+}
+
+/**
+ * Preferred cities, RESOLVED THROUGH THE SHARED GAZETTEER rather than accepted as typed.
+ *
+ * The same `cities.json` that `answer-capture.ts` resolves the interview's city answer against,
+ * and that the pseudonymisation gateway now consults before guessing that a capitalised word is
+ * a person. Canonicalising here means "gurgaon" and "Gurugram" become one value, so a printed
+ * sheet and a match query see the same string.
+ *
+ * AN UNRESOLVED CITY IS REJECTED, NOT DROPPED. Dropping is the silent-truncation shape: the
+ * worker taps three cities, sees two on his sheet, and nothing tells him why. A 400 naming the
+ * value lets the client say so. Fail-closed, per the engineering contract.
+ */
+const preferredCities = z
+  .array(z.string().trim().min(1).max(80))
+  .max(5)
+  .transform((values, ctx) => {
+    const resolved: string[] = [];
+    for (const value of values) {
+      const city = canonicalCity(value)?.value ?? null;
+      if (city === null) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `unrecognised city: ${value}`,
+        });
+        return z.NEVER;
+      }
+      resolved.push(city);
+    }
+    return [...new Set(resolved)];
+  });
+
+export const SetMyPreferencesSchema = z
+  .object({
+    languages: multiSelect(LANGUAGES, 6).optional(),
+    documents_ready: multiSelect(DOCUMENTS_READY, 8).optional(),
+    preferred_cities: preferredCities.optional(),
+    job_type: z.enum(optionsOf(JOB_TYPES)).nullable().optional(),
+    shift: z.enum(optionsOf(SHIFTS)).nullable().optional(),
+    /**
+     * ONLY THE POSITIVE CLAIM IS EVER PRINTED (`buildAvailabilityRows`), so `false` here is not
+     * a refusal on the sheet — it is the worker withdrawing a claim he previously made, which is
+     * why it is a nullable boolean rather than a flag that can only be set.
+     */
+    willing_to_relocate: z.boolean().nullable().optional(),
+    accommodation_needed: z.boolean().nullable().optional(),
+
+    /**
+     * The upper end of the expected-salary BAND (R10 R-1).
+     *
+     * §4.4 is explicit that a point figure invites anchoring against the worker, and the ratified
+     * sheet prints a range. Deriving one from a stated number is the claim §8 forbids — so the
+     * band is ASKED, and a worker who gives only the lower end still prints a point figure rather
+     * than a manufactured range.
+     *
+     * BOUNDED to the same range the interview's own salary gate uses, because a typo printed as a
+     * worker's asking price costs him money in the direction nothing else in the system guards.
+     */
+    salary_expected_max: z.number().int().min(1000).max(500000).nullable().optional(),
+
+    // ── THE CREDENTIAL'S THREE MISSING COMPONENTS (R9 §3) ────────────────────────────
+    //
+    // The ratified sheet prints "ITI — Machinist · NCVT · 2018 · Govt. ITI, Faridabad". We held
+    // the level and the trade and nothing else, so three of five segments had no source at all.
+    //
+    // A FORM, NOT AN INTERVIEW ASK, and the routing rule is the same one that put languages and
+    // documents here: a council is a closed set, a year is a number, and an institute name is
+    // something the worker reads off a certificate. None needs a model, none can be misparsed,
+    // and the engine's ask budget belongs to the questions where phrasing carries meaning.
+    education_council: z.enum(optionsOf(EDUCATION_COUNCILS)).nullable().optional(),
+    /**
+     * The year the credential was awarded.
+     *
+     * BOUNDED, AND NOT AT "any four digits". A year in the future or before living memory is a
+     * typo, and a typo printed on a résumé beside a real credential does more damage than a
+     * missing segment. The floor is 1950 (a worker awarded earlier is past retirement) and the
+     * ceiling is deliberately generous — a certificate can be dated the year it is issued.
+     */
+    education_year: z.number().int().min(1950).max(2100).nullable().optional(),
+    /**
+     * The institute, as the worker reads it off the certificate.
+     *
+     * FREE TEXT, because there is no national register of ITI names this could validate against
+     * and inventing a closed set would silently drop every institute not on it. It is the ONE
+     * free-text field on this form; the length cap is what keeps it a name rather than a
+     * paragraph, and `looksLikePii` screens it at the render boundary like every other string.
+     */
+    education_institute: z.string().trim().min(1).max(120).nullable().optional(),
+  })
+  .strict();
+
+export type SetMyPreferencesDto = z.infer<typeof SetMyPreferencesSchema>;

@@ -1,0 +1,40 @@
+{
+  "persona": "p2_two_year_operator",
+  "runs": 5,
+  "unanchored_sizes": [
+    8,
+    8,
+    8,
+    8,
+    8
+  ],
+  "anchored_sizes": [
+    8,
+    8,
+    8,
+    8,
+    8
+  ],
+  "unanchored_tally": {
+    "turning_operation|Grooving / parting": 5,
+    "turning_operation|Facing / OD turning": 5,
+    "programming_level|Offset hi badalta hoon": 5,
+    "setting_operation|Tool offset": 5,
+    "turning_operation|Boring": 5,
+    "quality_work|In-process checking": 5,
+    "turning_operation|Drilling / tapping": 5,
+    "quality_work|First-piece check": 5
+  },
+  "anchored_tally": {
+    "turning_operation|Grooving / parting": 5,
+    "turning_operation|Facing / OD turning": 5,
+    "programming_level|Offset hi badalta hoon": 5,
+    "setting_operation|Tool offset": 5,
+    "turning_operation|Boring": 5,
+    "quality_work|In-process checking": 5,
+    "turning_operation|Drilling / tapping": 5,
+    "quality_work|First-piece check": 5
+  },
+  "only_unanchored": [],
+  "only_anchored": []
+}

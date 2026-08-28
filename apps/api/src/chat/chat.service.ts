@@ -286,9 +286,28 @@ export class ChatService {
    *     the id exists and turns this route into an existence oracle);
    *   - the ownership check reads the `chat_sessions` ROW, never the buffer — an
    *     absent cache key must never be able to answer an authorization question;
-   *   - `redactKnownName` strips the worker's own name from everything crossing the
-   *     ai-service boundary, and now from every HISTORY leg too, not just this turn;
+   *   - (WITHDRAWN — see below) this line claimed `redactKnownName` strips the worker's
+   *     own name from everything crossing the ai-service boundary. It no longer does, and
+   *     this file no longer imports it;
    *   - `renderWorkerName` runs LAST, on the client-returned string only.
+   *
+   * WHY THAT LINE WAS WITHDRAWN RATHER THAN DELETED (R6, found by the ai-engineer review of
+   * the pseudonymisation change). It was true when the turn made a `profilingRespond` round
+   * trip from here. That round trip is gone — this method makes ZERO ai-service calls, and
+   * `grep redactKnownName apps/api/src` finds it only in `profile-extraction.processor.ts`.
+   *
+   * BUT THE PROTECTION DID NOT MOVE WITH THE CALL. `LlmTurnService.take` sends `message_text`
+   * and the whole `history` to `/profiling/turn` unredacted, and `profiling_chat_turn` is the
+   * ONE task `docker-compose.staging.yml` arms by default. So on the live LLM-led interview the
+   * worker's own name is defended by the ai-service gateway alone — which is precisely the
+   * surface R32 measures as leaking 3 of 4 un-cued forms, and which the owner accepted in
+   * writing on 2026-08-01.
+   *
+   * That is not a new leak and it is not this file's to close: R32 is an accepted risk with a
+   * named abort lever (`AI_REAL_CALLS_KILL_SWITCH`). What it IS, is a comment that told every
+   * later reader a mitigation was in place on the armed path. Recorded against R32 in
+   * `docs/registers/risks-register.md` rather than quietly deleted, because the gap between
+   * "extraction is redacted" and "the chat turn is not" is the useful half.
    */
   async postMessage(
     workerId: string,
@@ -1069,6 +1088,12 @@ export class ChatService {
           messages_preserved: rows.length,
           answers_preserved: answerRows.length,
           idle_minutes: idleMinutes,
+          // R6 §5 — WHERE the worker stopped, which is the number the ask cap has to be argued
+          // against. `profile.interview_completed` already carries `ask_count` for the workers
+          // who finished; this is the other half, and without it the drop-off curve has only a
+          // denominator. NULL when the buffer had already expired: the count is genuinely
+          // unknown there, and writing 0 would invent a spike at index zero.
+          engine_asks: buffer?.profiling?.engineAsks ?? null,
         },
         idempotencyKey: `chat.session_abandoned:${sessionId}`,
         correlationId: ctx.correlationId,

@@ -10,9 +10,19 @@ built around.
 
 ---
 
-## Status — all nine ruled, 2026-08-28 (R4)
+## Status — Q1–Q9 ruled 2026-08-28 (R4); Q10–Q12 opened by R6
 
-The queue is closed. Nothing on the render track is waiting on a decision any more.
+Nothing on the **render** track is waiting on a decision. Three new questions are open, and they
+are a different kind: Q10 is a flag flip that no amount of engineering substitutes for, and Q11
+and Q12 are the two R6 §7 put to me directly.
+
+| #       | question                                             | what it blocks                                                      |
+| ------- | ---------------------------------------------------- | ------------------------------------------------------------------- |
+| **Q10** | Arm `profile_extraction` for free-form parsing?      | the per-employment detail line, promotions, the own-words block     |
+| **Q11** | Run the city backfill, or record it as zero rows?    | nothing — fixed forward; the count is unknown until someone runs it |
+| **Q12** | Profile Strength: replace the counter, or rename it? | §9.1, and with it the §9.3 enrichment loop                          |
+
+The nine R4 rulings, kept because several of them are cited by code comments:
 
 | #      | ruling                                                               | leaves behind           |
 | ------ | -------------------------------------------------------------------- | ----------------------- |
@@ -437,18 +447,181 @@ long as it takes one commit.
 Asked in the same breath, and the answer is not the expected one. Measured against
 `git ls-files`, `origin/main` and `git log --all --diff-filter=A`:
 
-| file               | on disk    | on `origin/main` | ever added, any branch |
-| ------------------ | ---------- | ---------------- | ---------------------- |
-| `NEEDS_PRAKASH.md` | yes        | **no**           | once — on this stack   |
-| `ASSUMPTIONS.md`   | yes        | **no**           | once — on this stack   |
-| `AGENT_LOOP.md`    | yes (stub) | **no**           | once — on this stack   |
-| `LOOP_QUEUE.md`    | **no**     | no               | **never**              |
-| `LOOP_JOURNAL.md`  | **no**     | no               | **never**              |
+| file               | on disk    | on `origin/main`   | ever added, any branch |
+| ------------------ | ---------- | ------------------ | ---------------------- |
+| `NEEDS_PRAKASH.md` | yes        | **yes** — PR #1295 | once — on this stack   |
+| `ASSUMPTIONS.md`   | yes        | **yes** — PR #1295 | once — on this stack   |
+| `AGENT_LOOP.md`    | yes (stub) | **yes** — PR #1295 | once — on this stack   |
+| `LOOP_QUEUE.md`    | **no**     | no                 | **never**              |
+| `LOOP_JOURNAL.md`  | **no**     | no                 | **never**              |
 
 **Two are phantom.** `LOOP_QUEUE.md` and `LOOP_JOURNAL.md` have never existed here — not on
 disk, not on `main`, not in any commit on any branch. They were not created, per the directive.
 
-**And the other three are not on `main` either.** They exist only on the unmerged
-`feat/cnc-turner-role-track` stack. Every question in this file, every assumption in
-`ASSUMPTIONS.md`, and the HALT trigger itself live on a branch that has not landed. Worth saying
-plainly: if this stack is abandoned, the entire question queue goes with it.
+**The other three ARE on `main` now.** This paragraph previously said the opposite, and it was
+true when written: the three files lived only on the unmerged `feat/cnc-turner-role-track` stack,
+and the risk it named — abandon the stack, lose the question queue — was real. R4 §1 closed it by
+opening a docs-only PR straight to `main`; **#1295 merged**, and the queue no longer depends on
+this stack surviving. Corrected here rather than deleted, because the reason the rule exists is
+the more useful half.
+
+---
+
+## Q10 · Arming a model for free-form parsing — the flip this request rests on
+
+**Status: OPEN. Nothing has been flipped, and nothing in R6 flips anything.**
+
+R6 §1 asks that a real turner's sheet look like the ratified sample. R5 §1.7 found why most of
+the remaining gap is not a budget problem: **the chat turn is not calling a model on the shipped
+code defaults at all**, so ₹0.23 per profile is the cost of not doing the work. Richer free-form
+parsing is therefore a flag decision, not an engineering one, and the flag crosses R30, R32 and
+the DPA gate. This entry states exactly what would change so the decision can be made on facts.
+
+### What the posture actually is — three layers, and they disagree
+
+Read separately, because two of them have been quoted at each other before:
+
+| layer                             | `AI_ENABLE_REAL_CALLS`                 | `AI_REAL_CALL_TASKS`        |
+| --------------------------------- | -------------------------------------- | --------------------------- |
+| `Settings` defaults (`config.py`) | `False`                                | `""` — fail-closed, none    |
+| `docker-compose.yml` (dev laptop) | literal `"false"`                      | not declared                |
+| `docker-compose.staging.yml`      | `${…:-false}`                          | `${…:-profiling_chat_turn}` |
+| the box                           | **operator export — I cannot read it** | operator export             |
+
+`risks-register.md` records an owner ruling of **2026-08-01 setting the box flag true**, and R30
+and R32 are both marked _Critical (real calls are now ON)_. So on staging the chat turn may well
+be real today; the code default says otherwise; and **`profile_extraction` is armed in neither.**
+That is TD81 in one line: the interview may talk to a real model while the extraction that turns
+the interview into a profile runs mocked, returning `{}`.
+
+### Which tasks would have to be armed, and what each one sends
+
+Six task types exist. Free-form parsing needs the second one; it is the only one that writes
+profile fields.
+
+| task                  | armed on staging today    | what leaves the pseudonymisation boundary                                                                                                                                                                   |
+| --------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `profiling_chat_turn` | **yes (compose default)** | the worker's latest message through `pseudonymize()`, the whole history through `mask_transcript_lines()` (per line, never as one blob), and a closed-set state blob — stage, domain, role, skills, a count |
+| `profile_extraction`  | **no**                    | the ENTIRE interview transcript, masked per line, rendered into one prompt. Output is re-certified field by field (`_certified*`), and a blocked value becomes `None` rather than a masked string           |
+| `profile_parse`       | no                        | a deterministic answer map against a closed field list                                                                                                                                                      |
+| `skill_embedding`     | no                        | skill phrases, not worker prose                                                                                                                                                                             |
+| `stt_transcription`   | no                        | **raw worker audio** — a separate and larger decision (ADR-0029, TD59)                                                                                                                                      |
+| `tts_synthesis`       | no                        | generated question text                                                                                                                                                                                     |
+
+**Arming `profile_extraction` is the whole ask.** It is one entry added to `AI_REAL_CALL_TASKS`
+on the box. It needs no code change, and no code change substitutes for it.
+
+### What that buys, stated honestly
+
+It does **not** relax §8. The model still extracts, normalises and classifies; every printed
+string still comes from a closed-vocabulary label, a number the worker stated, or his own words
+verbatim. What it buys is the third of those. `experiences[]` has no answer-map equivalent —
+a pack asks its fixed question once and a man with three jobs has three answers — so the
+per-employment detail line, the promotion case and the "in the worker's own words" block are
+reachable through no other path. Today that path returns `{}`.
+
+### Does the city fix move R32?
+
+**No, and it must not be read as having moved it.**
+
+R32 is about a worker's **own name** reaching LLM input when it is not preceded by a cue word
+("Chandrashekhar bol raha hu"). The gazetteer approach to that was measured dead at 348 leaks in
+487 probes and reverted. Nothing about that changed.
+
+What changed is the opposite direction. The positional rule `^\s*([A-Z][a-z]+)\s*,` was masking
+**cities as if they were names** — 33 of the 36 canonical cities — directly against the owner
+ruling of 2026-07-31 written four lines below it in the same file. The fix makes that rule defer
+to the city gazetteer the module already imported and never consulted.
+
+So the accounting is:
+
+- **R32 unchanged.** An un-cued personal name still reaches a provider when real calls are on.
+- **Over-masking reduced.** The gateway now leaks _less signal_, not more PII. Nothing that was
+  masked before is unmasked now except values the owner already ruled must never be masked.
+- Worth stating plainly: **before the fix, arming extraction would have been actively harmful for
+  the city field** — the model would have read `[PERSON_1], Haryana` and had no city to extract.
+  The fix is a precondition for the flip being worth making, not an argument for making it.
+
+### Recommendation
+
+Arm `profile_extraction` on **staging only**, after the pseudonymisation change has had its
+ai-engineer review, and measure one real turner interview end to end before anything wider. The
+spend is bounded: R5 measured ₹1.99 for the worst realistic interview against a ₹4 target, and
+extraction is one call per profile rather than one per turn.
+
+**Cost of silence.** The sheet stays reachable only as far as closed-set chips can carry it.
+R6 §4 recovers most of the missing §9.1 points with no model at all, which is why that work went
+ahead — but the per-employment detail line, the promotion case and the own-words block are
+**structurally unreachable** while this stays open, and no amount of pack authoring changes that.
+
+---
+
+## Q11 · The city backfill — how many rows, and what repair costs
+
+**Status: OPEN — the analysis is done; what is needed is a decision on whether to run anything.**
+
+**What broke.** `_LEADING_NAME_RE` masked `Faridabad, Haryana` to `[PERSON_1], Haryana`. It fires
+only on text whose first token is a capitalised word followed by a comma, which is the shape of a
+composed "City, State" string far more often than the shape of worker Hinglish.
+
+**The population is bounded by the posture in Q10, and that is the good news.** The mask never
+lands in a profile column directly — it lands in _what the model read_. Three places it could
+have gone, and only the third is certainly non-empty:
+
+| where                                 | affected                                                                                                                                             | how to count it                                                             |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| profile fields (`current_city`, etc.) | only if `profile_extraction` ever ran REAL. It is armed in no compose file, so on any box that followed the committed defaults this is **zero rows** | `SELECT count(*) FROM worker_profiles WHERE current_city LIKE '%[PERSON_%'` |
+| model-composed chat replies           | the model answered turns while blind to the worker's city. Not a corrupt row — a worse conversation                                                  | not countable after the fact                                                |
+| `ai_call_traces.prompt_text`          | every armed turn whose prompt began with such a string                                                                                               | needs the `read_ai_traces` principal; the column is encrypted, so no `LIKE` |
+
+**I cannot run the count.** These are production rows and I have no access. The queries above are
+the exact ones, and the first decides whether a backfill is needed at all.
+
+**Repair is a re-derive, needs no model, and costs nothing.** `chat_messages.body_text` is stored
+in **plaintext** — the raw worker text is retained. `canonicalCity()` in
+`packages/profiling-lexicon` resolves a city from that text deterministically, against the same
+`cities.json` the fixed gateway now consults. So the backfill is: read the session's raw messages,
+resolve the city, write it where the stored value is masked or absent. No provider call, no worker
+contact, idempotent.
+
+**Recommendation.** Run the first query. If it returns zero — which the committed posture predicts
+— record that and close this with no backfill. If it returns non-zero, the re-derive above is a
+one-off script, not a migration.
+
+**Cost of silence.** Small and not growing: the leak is fixed forward, so no new rows join the
+population. What silence costs is the ability to say whether any worker is carrying a profile with
+`[PERSON_1]` where their city belongs.
+
+---
+
+## Q12 · Profile Strength — replace, or rename and build alongside
+
+**Status: OPEN. Deliberately not built, per R5 §1.6 and R6 §9.**
+
+Something ships under the name and it is not what §9.1 specifies:
+
+|          | shipped today                                           | §9.1 as written             |
+| -------- | ------------------------------------------------------- | --------------------------- |
+| scale    | an unweighted **count** of populated fields             | 100 points, weighted        |
+| bounds   | unbounded                                               | 0–100                       |
+| bands    | none                                                    | banded, with a nudge a band |
+| consumer | `missing_fields` is returned and **no client reads it** | drives the enrichment loop  |
+
+**Why I did not build §9.1 beside it.** Two different strength numbers on one worker is the
+failure mode neither version recovers from — a worker told "70%" on one screen and "6 fields" on
+another stops believing both — and §9.3 makes this surface the primary profiling instrument.
+
+**The choice is genuinely yours, because it is a product call rather than an engineering one:**
+
+- **Replace.** The shipped counter goes away and §9.1 takes the name. Cheapest, and the counter
+  has no client consumer to break. Risk: any internal dashboard reading it needs checking first.
+- **Rename and coexist.** The counter becomes `field_completeness`, an ops figure, and §9.1 ships
+  as Profile Strength for the worker. More work, but the two answer different questions.
+
+**Recommendation: replace.** Nothing consumes the counter, so the cost is a rename in one service
+and its tests, and one number is worth more than two.
+
+**Cost of silence.** §9.3 calls the résumé edit surface the best profiling instrument we have, and
+it is the surface Profile Strength exists to drive. While this is open the enrichment loop has no
+score to nudge against — so the loop R6 §5 identifies as the real answer to a long interview
+cannot be built.

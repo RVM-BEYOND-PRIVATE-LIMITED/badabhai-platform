@@ -147,7 +147,8 @@ const UNIVERSAL_KEYS = universal.items.map((i) => i.question_key);
 
 describe("qp_cnc_turning — a full simulated interview", () => {
   it("the fixtures are the real packs, not empty — else every assertion is vacuous", () => {
-    expect(turning.items.length).toBe(15);
+    // 15 trade items + 3 fresher items (R10 §2.6, gated `lte 0` and disjoint from tiers 1-2).
+    expect(turning.items.length).toBe(18);
     expect(universal.items.length).toBeGreaterThan(0);
     expect(turning.items[0]?.question_key).toBe("turning_experience");
   });

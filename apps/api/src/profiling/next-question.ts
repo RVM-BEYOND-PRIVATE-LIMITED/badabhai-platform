@@ -50,8 +50,25 @@ export const MAX_ASKS_PER_QUESTION = 2;
  * Sized with real headroom over the worst-case blind run, and the test suite pins that arithmetic
  * against the constant rather than restating the number — so the zero-margin coupling cannot
  * silently reappear when a pack grows.
+ *
+ * RAISED 24 → 28 (R6 §5, owner ruling "cap lifted"), and the number is DERIVED rather than
+ * round. `ask-budget.guard.test.ts` computes what the corpus needs — every question one worker
+ * can be routed to, plus one retry per mandatory question — and that is **26** today:
+ * `qp_cnc_turning`'s 15, `qp_universal@2`'s 8, and a re-ask each for `turning_experience`,
+ * `primary_trade` and `current_city`. **The old cap of 24 could not serve that**, which is what
+ * the R5 audit meant by "the margin is already spent by detection, not by pack size": a senior
+ * turner needing one re-ask hit 24 exactly, and a second one silently deleted `shift_preference`
+ * from the tail. The remaining 2 are reserved for the two Zone 5 credential asks proposed in
+ * `docs/profiling/sample-parity-gap.md` and not yet applied.
+ *
+ * THE BINDING CONSTRAINT ON THIS NUMBER IS ABANDONMENT, NOT COST OR TOKENS. R5 priced a full
+ * interview at ₹0.23 shipped and ₹1.99 worst-case against a ₹4 target, so spend does not decide
+ * it. Every additional ask is a drop-off opportunity for a man answering in Hinglish on a
+ * mid-range Android between shifts — which is why `chat.session_abandoned` now carries
+ * `engine_asks`, and why the guard test also holds the headroom DOWN. The real ceiling is the
+ * drop-off curve, and it is now measurable rather than arguable.
  */
-export const MAX_ENGINE_ASKS = 24;
+export const MAX_ENGINE_ASKS = 28;
 
 /**
  * Max CONSECUTIVE re-serves of one question after a worker asks back ("job milegi kya?"). The
@@ -461,4 +478,3 @@ export function joinClarify(
   if (!question || why === question) return why;
   return `${why} ${question}`;
 }
-

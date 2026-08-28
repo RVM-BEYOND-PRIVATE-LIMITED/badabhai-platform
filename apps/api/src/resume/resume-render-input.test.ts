@@ -34,12 +34,26 @@ describe("buildResumeRenderInput — skill_labels (Q14)", () => {
   });
 
   it("old snapshot without skill_labels resolves its ids to names", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { skills: ["skill_milling"] },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.skills).toEqual(["Milling"]);
   });
 
   it("labels-only snapshot (off-wedge welder) renders the labels", () => {
-    const input = buildResumeRenderInput({ skill_labels: ["MIG welding"] }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { skill_labels: ["MIG welding"] },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.skills).toEqual(["MIG welding"]);
   });
 });
@@ -78,7 +92,14 @@ describe("buildResumeRenderInput — education + certifications (#499)", () => {
   });
 
   it("old snapshot without the keys defaults both to [] (no fabrication)", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { skills: ["skill_milling"] },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.education).toEqual([]);
     expect(input.certifications).toEqual([]);
   });
@@ -129,7 +150,14 @@ describe("buildResumeRenderInput — machines", () => {
   });
 
   it("old snapshot without machines defaults to []", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { skills: ["skill_milling"] },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.machines).toEqual([]);
   });
 });
@@ -154,7 +182,14 @@ describe("buildResumeRenderInput — education_level + education_field", () => {
   });
 
   it("old snapshot without the keys defaults both to null (no fabrication)", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { skills: ["skill_milling"] },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.educationLevel).toBeNull();
     expect(input.educationField).toBeNull();
   });
@@ -181,27 +216,27 @@ describe("buildResumeRenderInput — education_level + education_field", () => {
  * which this change feeds a humanised string instead of a raw one. The shipped layouts
  * already. This changes only what is bound into it.
  */
-describe("buildResumeRenderInput — education_level is humanised (#963)", () => {
+describe("buildResumeRenderInput — education_level is humanised (#963, English per R10 R-3)", () => {
   const levelOf = (education_level: string) =>
     buildResumeRenderInput({ education_level }, null, null, null, false, "worker").educationLevel;
 
   it("renders the known token as the label the app already shows", () => {
     // THE REPORTED DEFECT, exactly. "below_10" is what the PDF printed.
-    expect(levelOf("below_10")).toBe("10th se kam");
+    expect(levelOf("below_10")).toBe("Below 10th");
   });
 
   it("maps the other spelling of the same level", () => {
     // `below_10th` is the same answer out of the same free-text field. The app's map carries
     // both; a port that carried one would humanise a worker's level or not depending on which
     // way the model happened to spell it that day.
-    expect(levelOf("below_10th")).toBe("10th se kam");
+    expect(levelOf("below_10th")).toBe("Below 10th");
   });
 
   it("matches the token whatever case the model emitted it in", () => {
     // Nothing constrains the case of a free-text scalar, and a token that missed the map by a
     // capital letter would fall through to the prettifier and print "Below 10" — still not a
     // sentence anyone says.
-    expect(levelOf("BELOW_10")).toBe("10th se kam");
+    expect(levelOf("BELOW_10")).toBe("Below 10th");
   });
 
   it("prettifies a snake_case token nobody has mapped", () => {
@@ -244,7 +279,7 @@ describe("buildResumeRenderInput — education_level is humanised (#963)", () =>
       false,
       "worker",
     );
-    expect(input.educationLevel).toBe("10th se kam");
+    expect(input.educationLevel).toBe("Below 10th");
     expect(input.educationField).toBe("Electronics");
   });
 });
@@ -263,7 +298,14 @@ describe("buildResumeRenderInput — education_level is humanised (#963)", () =>
  */
 describe("buildResumeRenderInput — the LLM-led labels", () => {
   it("prints role_label as the headline when the taxonomy resolved nothing", () => {
-    const input = buildResumeRenderInput({ role_label: "Tandoor Cook" }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { role_label: "Tandoor Cook" },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.canonicalRole).toBe("Tandoor Cook");
   });
 
@@ -293,7 +335,14 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
   it("still resolves the taxonomy role when no label was captured", () => {
     // Every deterministic-pack profile is this shape — an id and no label — so the id arms
     // carry all of them and their résumés stay byte-identical (invariant #8).
-    const input = buildResumeRenderInput({ canonical_role_id: "role_welder" }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { canonical_role_id: "role_welder" },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.canonicalRole).toBe("Welder");
   });
 
@@ -301,14 +350,28 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
     // `trade` was hardcoded null on this branch because the deterministic résumé never printed
     // a trade line and the old container had nothing to fill one with. `domain_label` is that
     // source, and it reaches the `{{trade}}` slot every shipped template already carries.
-    const input = buildResumeRenderInput({ domain_label: "Fabrication" }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { domain_label: "Fabrication" },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.trade).toBe("Fabrication");
   });
 
   it("leaves the trade null when no interview named one", () => {
     // Deterministic-pack profiles have no `domain_label`, so their trade line stays absent
     // exactly as it is today — no invented industry (§11), no changed output (invariant #8).
-    const input = buildResumeRenderInput({ canonical_role_id: "role_welder" }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { canonical_role_id: "role_welder" },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.trade).toBeNull();
   });
 
@@ -339,7 +402,14 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
   it("fabricates no summary when the model captured no labels", () => {
     // THE FAIL-CLOSED LEG. A sentence about a worker we know nothing about is worse than a
     // blank section — §11, and the same rule the trade branches already follow.
-    const input = buildResumeRenderInput({ experience: { total_years: 3 } }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { experience: { total_years: 3 } },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.summary).toBeNull();
   });
 
@@ -365,12 +435,26 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
   it("passes through a shift value outside the prompt's vocabulary", () => {
     // The wire type is a bare `str | None` with no Literal behind it. Dropping what we did not
     // anticipate is how the four keys got lost in the first place.
-    const input = buildResumeRenderInput({ shift: "rotational" }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { shift: "rotational" },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.availability).toBe("Rotational");
   });
 
   it("old snapshot without the keys renders exactly as before", () => {
-    const input = buildResumeRenderInput({ skills: ["skill_milling"] }, null, null, null, false, "worker");
+    const input = buildResumeRenderInput(
+      { skills: ["skill_milling"] },
+      null,
+      null,
+      null,
+      false,
+      "worker",
+    );
     expect(input.canonicalRole).toBeNull();
     expect(input.summary).toBeNull();
     expect(input.availability).toBeNull();
@@ -420,11 +504,11 @@ describe("buildResumeRenderInput — the worker's night-shift toggle (#947)", ()
     // and `graduate` printed raw, and it title-cased `iti_diploma` into "Iti Diploma" — the
     // acronym-wrecking its own rule 3 exists to prevent.
     const expected: ReadonlyArray<readonly [string, string]> = [
-      ["below_10", "10th se kam"],
-      ["10", "Dasvi paas"],
-      ["12", "Barhvi paas"],
-      ["iti_diploma", "ITI ya diploma"],
-      ["graduate", "Graduation"],
+      ["below_10", "Below 10th"],
+      ["10", "10th pass"],
+      ["12", "12th pass"],
+      ["iti_diploma", "ITI / Diploma"],
+      ["graduate", "Graduate"],
     ];
     for (const [raw, label] of expected) {
       const input = buildResumeRenderInput(
@@ -559,7 +643,13 @@ describe("buildResumeRenderInput — the worker's night-shift toggle (#947)", ()
     // version of that signal. The salary assertion is the contrast — the audience gate is still
     // withholding what it is meant to withhold on the very same call.
     const input = buildResumeRenderInput(
-      { resume_profile: { role_label: "VMC Operator", availability: "immediate", expected_salary: 40000 } },
+      {
+        resume_profile: {
+          role_label: "VMC Operator",
+          availability: "immediate",
+          expected_salary: 40000,
+        },
+      },
       "A. K.",
       "classic",
       null,
@@ -599,7 +689,14 @@ describe("buildResumeRenderInput — the résumé container", () => {
     expected_salary: 40000,
   };
   const build = (over: Record<string, unknown> = {}, audience: "worker" | "employer" = "worker") =>
-    buildResumeRenderInput({ resume_profile: { ...TRACE, ...over } }, "Asha Kumari", "classic", null, false, audience);
+    buildResumeRenderInput(
+      { resume_profile: { ...TRACE, ...over } },
+      "Asha Kumari",
+      "classic",
+      null,
+      false,
+      audience,
+    );
 
   it("renders every one of the nine keys the model produced", () => {
     const input = build();
@@ -636,7 +733,9 @@ describe("buildResumeRenderInput — the résumé container", () => {
     // `duration_months` is nullable precisely because "kuch saal" is a real answer. Guessing a
     // number from it is the fabrication the parse gates exist to stop.
     const input = build({
-      experiences: [{ role_label: "Helper", duration_text: "kuch saal", duration_months: null, work_done: "" }],
+      experiences: [
+        { role_label: "Helper", duration_text: "kuch saal", duration_months: null, work_done: "" },
+      ],
     });
     expect(input.experienceYears).toBeNull();
     expect(input.experiences[0]!.duration).toBe("kuch saal");
@@ -662,8 +761,12 @@ describe("buildResumeRenderInput — the résumé container", () => {
     // `extract_system_prompt` asks for 15_days / 1_month; `AvailabilitySchema.status` has
     // neither. The container keeps the model's words, so the humanising has to know them — else
     // the line silently collapsed for every worker who gave a notice period.
-    expect(build({ availability: "15_days", shift: null }).availability).toBe("Available in 15 days");
-    expect(build({ availability: "1_month", shift: null }).availability).toBe("Available in 1 month");
+    expect(build({ availability: "15_days", shift: null }).availability).toBe(
+      "Available in 15 days",
+    );
+    expect(build({ availability: "1_month", shift: null }).availability).toBe(
+      "Available in 1 month",
+    );
   });
 
   it("builds a summary from the labels", () => {
@@ -771,12 +874,22 @@ describe("buildResumeRenderInput — the résumé container", () => {
       // merge, no precedence, no field-by-field rescue from the legacy shape. `machines` here
       // is the proof: the legacy container has content the container path leaves empty, and it
       // stays empty.
-      const input = build({ ...LEGACY, machines: ["mach_vmc"], resume_profile: { ...HOLLOW, role_label: "Fitter" } });
+      const input = build({
+        ...LEGACY,
+        machines: ["mach_vmc"],
+        resume_profile: { ...HOLLOW, role_label: "Fitter" },
+      });
       expect(input.canonicalRole).toBe("Fitter");
       expect(input.skills).toEqual([]);
-      expect(input.experienceYears).toBeNull();
       expect(input.educationLevel).toBeNull();
       expect(input.machines).toEqual([]);
+      // `experienceYears` IS THE ONE EXCEPTION TO "the container wins whole", and R8 §1 made it
+      // one deliberately. Every other slot above proves the legacy shape is not consulted; this
+      // one reads `experience.total_years` off the DRAFT because the container has no such field
+      // and never will — `ResumeProfileSchema` has nine keys and tenure is not among them.
+      // Leaving it null was not the container winning, it was the sheet printing "duration not
+      // stated" for a man who had answered the mandatory ask. See `renderedTotalYears`.
+      expect(input.experienceYears).toBe(LEGACY.experience.total_years);
     });
 
     it("renders a name-only résumé when there is genuinely nothing else", () => {
@@ -889,5 +1002,178 @@ describe("buildResumeRenderInput — uncertified scalars in a stored container (
     const input = build({ role_label: "Operator grade 3", current_city: "Sector 21" });
     expect(input.canonicalRole).toBe("Operator grade 3");
     expect(input.location).toBe("Sector 21");
+  });
+});
+
+describe("Zone 5 on the résumé-container path (R5 §1.3)", () => {
+  /** The path a worker whose interview ran actually takes. */
+  const container = (over: Record<string, unknown> = {}) =>
+    buildResumeRenderInput(
+      {
+        resume_profile: { role_label: "CNC Turner", availability: "immediate" },
+        education_level: "iti_diploma",
+        certifications: ["NCVT — Turner — 2015"],
+        ...over,
+      },
+      "Ramesh Kumar",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+    );
+
+  const row = (input: ReturnType<typeof buildResumeRenderInput>, label: string) =>
+    (input.qualFactRows ?? []).find((r) => r.label === label);
+
+  it("renders education from the draft the crosswalk already fills", () => {
+    // This section rendered EMPTY for every worker whose interview ran. Not because the data
+    // was missing — `education_level` rides the answer map onto the draft — but because this
+    // path read only a caller-supplied block that no production caller sets.
+    expect(row(container(), "Education")?.value).toContain("ITI");
+  });
+
+  it("renders certificates the same way", () => {
+    expect(row(container(), "Certificates")?.value).toContain("NCVT");
+  });
+
+  it("leaves languages empty, because there is no column to read", () => {
+    // Stated as a test so it reads as a known gap rather than a bug. `crosswalk.ts` records
+    // `draftPath: null` for languages — it needs a capture surface, not a mapper change.
+    expect(row(container(), "Languages spoken")).toBeUndefined();
+  });
+
+  it("lets a caller-supplied block WIN over the draft", () => {
+    // The caller block is the worker's own structured answer and never passes through the
+    // model, so it outranks anything derived. The fallback only fills the gap beneath it.
+    const input = buildResumeRenderInput(
+      {
+        resume_profile: { role_label: "CNC Turner", availability: "immediate" },
+        education_level: "iti_diploma",
+      },
+      "Ramesh Kumar",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+      {
+        packId: "qp_cnc_turning",
+        attributes: {},
+        qualification: { educationHeadline: "ITI — Turner — NCVT" },
+      },
+    );
+    expect(row(input, "Education")?.value).toBe("ITI — Turner — NCVT");
+  });
+
+  it("collapses the section when the worker declared nothing", () => {
+    const input = container({ education_level: null, certifications: [] });
+    expect(row(input, "Education")).toBeUndefined();
+    expect(row(input, "Certificates")).toBeUndefined();
+  });
+});
+
+/**
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ * R8 §1 — the total that prints is the worker's own stated figure.
+ * ══════════════════════════════════════════════════════════════════════════════════════
+ *
+ * MEASURED ON THE R7 PERSONA RUN, not reasoned about. Against workers who stated 2, 5, 8 and 12
+ * years, the container path's summed headline read "duration not stated", "1 yr 8 mo",
+ * "5 yrs 4 mo" and "9 yrs 11 mo". §5.1 ranks total experience third and the Verdict Line first.
+ */
+describe("R8 §1 — total years prefers the mandatory ask over the sum beneath it", () => {
+  const containerWith = (months: (number | null)[]) => ({
+    role_label: "CNC Setter cum Operator",
+    experiences: months.map((m, i) => ({
+      role_label: `Job ${i}`,
+      duration_text: "",
+      duration_months: m,
+      work_done: "turning",
+    })),
+  });
+
+  it("prints the STATED figure, not the sum of the model's months", () => {
+    const input = buildResumeRenderInput(
+      { experience: { total_years: 8 }, resume_profile: containerWith([36, 16, 12]) },
+      "Ramesh Yadav",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+    );
+    // The sum is 64 months = 5.3 years; he said eight.
+    expect(input.experienceYears).toBe(8);
+    expect(input.headlineLine).toContain("8 yrs");
+    expect(input.headlineLine).not.toContain("5 yrs");
+  });
+
+  it("prints the STATED figure even when NO employment carries months at all", () => {
+    // Persona 2's exact shape: `duration_months: null` on his only job, and the headline read
+    // "duration not stated" for a man whose second sentence was "Do saal ho gaye".
+    const input = buildResumeRenderInput(
+      { experience: { total_years: 2 }, resume_profile: containerWith([null]) },
+      "Vikas Chauhan",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+    );
+    expect(input.experienceYears).toBe(2);
+    expect(input.headlineLine).not.toContain("duration not stated");
+  });
+
+  it("falls back to the sum ONLY when nothing was stated", () => {
+    const input = buildResumeRenderInput(
+      { experience: {}, resume_profile: containerWith([36]) },
+      "Ramesh Yadav",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+    );
+    expect(input.experienceYears).toBe(3);
+  });
+
+  it("still says 'duration not stated' when there is genuinely no source", () => {
+    // §11 #3 survives intact. What is gone is the case where he answered and the sheet said
+    // nobody asked — not the case where nobody did.
+    const input = buildResumeRenderInput(
+      { experience: {}, resume_profile: containerWith([null]) },
+      "Ramesh Yadav",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+    );
+    expect(input.experienceYears).toBeNull();
+    expect(input.headlineLine).toContain("duration not stated");
+  });
+
+  it("does NOT let the sum raise a total above what the worker claimed", () => {
+    // §8.3's asymmetry rule cuts both ways. `Math.max` would satisfy the "never below" floor and
+    // print six years for a man who said five — resolving an ambiguity upward, which is the one
+    // direction the guideline forbids.
+    const input = buildResumeRenderInput(
+      { experience: { total_years: 5 }, resume_profile: containerWith([48, 24]) },
+      "Ramesh Yadav",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+    );
+    expect(input.experienceYears).toBe(5);
+  });
+
+  it("keeps the headline and the summary telling the SAME story", () => {
+    // Two call sites once computed the tenure independently. A sheet reading "8 yrs" at the top
+    // and "with 5 years of experience" three lines down is worse than either number alone.
+    const input = buildResumeRenderInput(
+      { experience: { total_years: 8 }, resume_profile: containerWith([36, 16, 12]) },
+      "Ramesh Yadav",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+    );
+    expect(input.summary).toContain("8 years");
   });
 });

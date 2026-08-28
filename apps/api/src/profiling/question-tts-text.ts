@@ -245,6 +245,17 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Kitne saal se ye kaam kar rahe hain?": "कितने साल से ये काम कर रहे हैं?",
   // --- qp_cnc_turning@1 (role pack, CNC turning) ---
   "Turning ka kitna tajurba hai?": "टर्निंग का कितना तजुर्बा है?",
+  // R10 §2.6 — the fresher branch (§11 #1: training, trade test, workshop machines, project
+  // work). Authored twins, not transliterations: the clarify forms are COMPOSED from why + prompt
+  // by the reader, so only these nine need a hand.
+  "ITI ke workshop me kaunsi machine par kaam kiya hai?":
+    "आईटीआई के वर्कशॉप में कौनसी मशीन पर काम किया है?",
+  "Workshop me kaunsi machine chalayi thi?": "वर्कशॉप में कौनसी मशीन चलाई थी?",
+  "Trade test diya hai?": "ट्रेड टेस्ट दिया है?",
+  "Trade test ka kya status hai?": "ट्रेड टेस्ट का क्या स्टेटस है?",
+  "ITI me kya banaya tha? Apne shabdon me bataiye.":
+    "आईटीआई में क्या बनाया था? अपने शब्दों में बताइए।",
+  "Workshop me kaunsa job ya project banaya tha?": "वर्कशॉप में कौनसा जॉब या प्रोजेक्ट बनाया था?",
   "Aap kaunsi turning machine chalate hain?": "आप कौनसी टर्निंग मशीन चलाते हैं?",
   "Machine par kaunsa controller lagaa hai?": "मशीन पर कौनसा कंट्रोलर लगा है?",
   "Kaunse turning operation aap karte hain?": "कौनसे टर्निंग ऑपरेशन आप करते हैं?",
@@ -268,6 +279,15 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
  * engine never said.
  */
 const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
+  // R10 §2.6 — the fresher branch's three why-texts. They live HERE and not in the question table
+  // because `composeClarify` scans this table and only this table for the PREFIX of a clarify
+  // join; a why filed as a question is invisible to it and the clarify twin silently goes missing.
+  "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.":
+    "ट्रेनिंग में चलाई हुई मशीन भी तजुर्बा है, एम्प्लॉयर इसे देखते हैं।",
+  "Trade test pass hona certificate jitna hi mayne rakhta hai.":
+    "ट्रेड टेस्ट पास होना सर्टिफिकेट जितना ही मायने रखता है।",
+  "Banaya hua job dikhata hai ki aap kya kar sakte hain.":
+    "बनाया हुआ जॉब दिखाता है कि आप क्या कर सकते हैं।",
   "Har machine ka licence alag hota hai.": "हर मशीन का लाइसेंस अलग होता है।",
   "Doodh ke kaam me safai zaroori hai.": "दूध के काम में सफाई ज़रूरी है।",
   "Engine ka kaam alag rate par hota hai.": "इंजन का काम अलग रेट पर होता है।",

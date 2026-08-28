@@ -1,0 +1,43 @@
+{
+  "persona_id": "p1_fresh_iti",
+  "run": {
+    "is_mock": false,
+    "real_call": true,
+    "model_name": "gemini-2.5-flash",
+    "provider": "google",
+    "candidates_tried": [
+      "gemini-2.5-flash"
+    ],
+    "input_tokens": 1095,
+    "output_tokens": 160,
+    "cost_inr": 0.061,
+    "latency_ms": 3498,
+    "error_code": null
+  },
+  "extract": {
+    "domain_label": "Manufacturing",
+    "role_label": "Turner",
+    "skills": [
+      "lathe machine operation",
+      "kharad machine operation",
+      "facing",
+      "turning",
+      "threading",
+      "stepped shaft making",
+      "nut-bolt set making",
+      "vernier caliper",
+      "micrometer"
+    ],
+    "experiences": [],
+    "shift": null,
+    "current_city": null,
+    "preferred_locations": [
+      "Ludhiana",
+      "Chandigarh"
+    ],
+    "availability": "immediate",
+    "expected_salary": 12000.0,
+    "blocked": false,
+    "is_mock": false
+  }
+}

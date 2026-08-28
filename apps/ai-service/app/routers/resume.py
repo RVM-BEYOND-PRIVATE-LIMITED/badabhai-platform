@@ -124,9 +124,15 @@ async def _generate(body: ResumeGenerationInput) -> ResumeGenerationOutput:
     # `resume_json` stays `data`, the machine-readable ids, exactly as before.
     #
     # ACCEPTED COST, stated plainly: the masked payload is what a REAL model now sees,
-    # so a worker's city can reach it as "[CITY_1]" and a 7-digit salary as
-    # "[AMOUNT_1]". That is the same treatment every other route already applies to
-    # those values, and over-masking is the locked safe direction. Under the committed
+    # so a 7-digit salary can reach it as "[AMOUNT_1]". That is the same treatment every
+    # other route already applies, and over-masking is the locked safe direction.
+    #
+    # THE CITY HALF OF THIS SENTENCE IS GONE. It used to read "a worker's city can reach
+    # it as [CITY_1]", which stopped being true with the owner ruling of 2026-07-31 —
+    # cities are a 20-point matching input and are never redacted, and step 5 of the
+    # gateway was removed accordingly. Corrected because a stale comment describing a
+    # mask that no longer exists is how the leading-name rule came to contradict that
+    # same ruling four lines below itself (R6). Under the committed
     # default (`AI_ENABLE_REAL_CALLS=false`) nothing changes at all: the router takes
     # its mock path and returns `text`, which is built from the unmasked profile.
     gate = pseudonymize(payload)

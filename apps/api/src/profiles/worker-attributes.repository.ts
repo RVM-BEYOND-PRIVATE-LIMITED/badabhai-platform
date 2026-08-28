@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { type Database, workerAttributes, type NewWorkerAttribute } from "@badabhai/db";
 
 import { DATABASE } from "../database/database.module";
@@ -66,6 +66,34 @@ export class WorkerAttributesRepository {
       })
       .returning({ id: workerAttributes.id });
     return written.length;
+  }
+
+  /**
+   * Remove named attributes for one worker — how the finishing form CLEARS an answer.
+   *
+   * A DELETE AND NOT A NULL, because `wa_value_present_chk` demands exactly one populated value
+   * column: there is no legal row that says "this worker has no answer to `job_type`". Absence
+   * is the only representation of an unanswered attribute the schema permits, so un-ticking a
+   * chip has to remove the row. That is also why it is a separate call rather than a null inside
+   * `upsertMany` — the constraint makes the two operations genuinely different, and hiding one
+   * inside the other would put a `null` branch on the hot interview-flush path that only the
+   * form can ever take.
+   *
+   * SCOPED TO ONE WORKER AND AN EXPLICIT KEY LIST. There is no shape here that clears a worker's
+   * whole attribute set, which is the accident this signature exists to make unavailable.
+   */
+  async deleteKeys(workerId: string, keys: readonly string[], tx?: Database): Promise<number> {
+    if (keys.length === 0) return 0;
+    const removed = await (tx ?? this.db)
+      .delete(workerAttributes)
+      .where(
+        and(
+          eq(workerAttributes.workerId, workerId),
+          inArray(workerAttributes.attributeKey, [...keys]),
+        ),
+      )
+      .returning({ id: workerAttributes.id });
+    return removed.length;
   }
 
   /**

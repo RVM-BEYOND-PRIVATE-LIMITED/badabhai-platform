@@ -511,3 +511,120 @@ export const SHEET_SHAPES: readonly SheetShape[] = [
     tradeSheet: null,
   },
 ];
+
+/**
+ * THE CONTENT THAT IS COMING — Zone 4 and Zone 5 at the length real data actually has.
+ *
+ * WHY THE MATRIX IS NOT ENOUGH ON ITS OWN. Every shape above is SEEDED, and seeded data is
+ * shorter and more regular than the real thing: "Sandhar Technologies" rather than "Sandhar
+ * Technologies Limited, Plant II", "ITI Turner" rather than the full NCVT certificate string a
+ * worker reads off the document in his hand. A degradation ladder tuned to seeded lengths passes
+ * its own tests and breaks on first contact with production, which is precisely the failure the
+ * QR fixture already demonstrated in this same file.
+ *
+ * TWO QUEUED FEATURES LAND HERE. Work-history capture fills `employments` from a real form, and
+ * Phase C fills `qualification` from extraction. Both were measured (journal §9.2) to take the
+ * worst R1 shape to two pages on their FIRST row. So the ladder is verified against this, not
+ * against what exists today — the whole point of building it ahead of both.
+ *
+ * Lengths are drawn from the shapes real Indian manufacturing records take: a registered company
+ * name with its suffix, a plant qualifier, an NCVT/NSQF certificate with issuer and year.
+ */
+const FUTURE_EMPLOYERS: readonly WorkerEmploymentRecord[] = [
+  employment({
+    employer: "Sandhar Technologies Limited, Plant II",
+    employerCity: "Manesar",
+    employerState: "Haryana",
+    startYm: "2022-04",
+    endYm: null,
+    roles: [
+      {
+        roleLabel: "CNC Turner cum Setter",
+        startYm: null,
+        endYm: null,
+        workDone:
+          "Setting and running twin-spindle CNC lathes on steering knuckle housings, first-piece approval and in-process SPC",
+      },
+    ],
+  }),
+  employment({
+    employer: "Rico Auto Industries Limited",
+    employerCity: "Gurugram",
+    employerState: "Haryana",
+    startYm: "2019-06",
+    endYm: "2022-03",
+    roles: [
+      {
+        roleLabel: "CNC Turner",
+        startYm: null,
+        endYm: null,
+        workDone: "Bar-fed turning of aluminium housings, offset correction and tool life tracking",
+      },
+    ],
+  }),
+  employment({
+    employer: "Endurance Technologies Private Limited",
+    employerCity: "Aurangabad",
+    employerState: "Maharashtra",
+    startYm: "2017-01",
+    endYm: "2019-05",
+    roles: [
+      {
+        roleLabel: "Machine Operator",
+        startYm: null,
+        endYm: null,
+        workDone: "Second-operation turning on brake assemblies, gauge checks every twentieth part",
+      },
+    ],
+  }),
+  employment({
+    employer: "Munjal Showa Limited",
+    employerCity: "Manesar",
+    employerState: "Haryana",
+    startYm: "2015-08",
+    endYm: "2016-12",
+    roles: [
+      {
+        roleLabel: "Trainee Operator",
+        startYm: null,
+        endYm: null,
+        workDone: "Loading and unloading conventional lathes under a setter",
+      },
+    ],
+  }),
+];
+
+const FUTURE_QUALIFICATION: ResumeQualificationFacts = {
+  educationHeadline: "ITI (NCVT) — Turner",
+  education: ["Government Industrial Training Institute, Faridabad — NCVT — 2015"],
+  certifications: [
+    "National Trade Certificate (NTC) — Turner — NCVT — 2015",
+    "NSQF Level 4 — Advanced CNC Turning — NIMI, Chennai — 2019",
+    "Fire and Safety Awareness — Endurance Technologies internal — 2021",
+  ],
+  languages: ["Hindi (fluent)", "Haryanvi (mother tongue)", "English (basic reading)"],
+  documents: [
+    "aadhaar",
+    "pan",
+    "bank_account",
+    "uan_pf",
+    "iti_certificate",
+    "experience_letter",
+    "passport_photos",
+  ],
+};
+
+/**
+ * The same shape, with the queued Zone 4 and Zone 5 content in it.
+ *
+ * A NULL CONTEXT STAYS NULL — shape 14 has no sheet context at all, and inventing one for it
+ * would quietly delete the only fixture that covers the fully-collapsed page.
+ */
+export function withFutureContent(context: TradeSheetContext | null): TradeSheetContext | null {
+  if (context === null) return null;
+  return {
+    ...context,
+    employments: FUTURE_EMPLOYERS,
+    qualification: { ...(context.qualification ?? {}), ...FUTURE_QUALIFICATION },
+  };
+}

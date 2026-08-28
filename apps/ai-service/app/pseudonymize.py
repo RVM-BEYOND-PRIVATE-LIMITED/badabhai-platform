@@ -466,6 +466,29 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
                 return match.group(0)
             return match.group(0).replace(name, token_for(name, prefix))
 
+        def replace_leading_name(match: re.Match[str]) -> str:
+            """The leading-name heuristic, with the city carve-out step 5 already ruled.
+
+            A CITY IS NOT A NAME, and this rule was masking three of them. ``[A-Z][a-z]+``
+            followed by a comma is a good guess at "Ramesh, main welder hoon" and an equally
+            good match for "Faridabad, Haryana mein kaam karta hoon" — which came out as
+            ``[PERSON_1], Haryana ...``. Measured: 33 of the 36 canonical cities were masked
+            this way, the three survivors only because the pattern cannot span a space.
+
+            That directly contradicts the owner ruling recorded at step 5 below — cities are a
+            matching input and are never redacted — and it is not a harmless over-mask:
+            ``city_current`` and ``cities_preferred`` are Required fields and distance is one of
+            the four filters that actually reject a candidate, so the worker silently loses the
+            signal that decides whether he is reachable at all.
+
+            The cue-based rule keeps its own replacer untouched. "Mera naam X" is explicit
+            evidence of a name and stays masked whatever X is; only the no-cue guess defers.
+            """
+            candidate = match.group(1).strip().lower()
+            if candidate in KNOWN_CITIES or candidate in CITY_ALIASES:
+                return match.group(0)
+            return replace_group1(match, "PERSON")
+
         result = text
 
         # 0. EMAIL FIRST — before every other rule, because it is the only pattern
@@ -489,7 +512,7 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
         result = _EMPLOYER_RE.sub(lambda m: token_for(m.group(0), "EMPLOYER"), result)
         # 4. Person names (cue-based, then leading-name heuristic).
         result = _NAME_CUE_RE.sub(lambda m: replace_group1(m, "PERSON"), result)
-        result = _LEADING_NAME_RE.sub(lambda m: replace_group1(m, "PERSON"), result)
+        result = _LEADING_NAME_RE.sub(replace_leading_name, result)
         # 5. (removed) CITY / STATE masking — owner ruling 2026-07-31, Master Context
         #    DEAD LIST: "✗ cities as PII (→ a 20-point matching input; never redact)".
         #    "Pune" identifies nobody, and masking it to [CITY_1] cost the product its

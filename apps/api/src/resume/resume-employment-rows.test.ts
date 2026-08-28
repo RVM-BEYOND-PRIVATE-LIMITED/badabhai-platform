@@ -256,8 +256,13 @@ describe("§11 #14 — promoted within one employer", () => {
     // One employer, one role, one range. Repeating the range below reads as a second identical
     // fact; giving the title a line of its own costs a line in a zone that has 24% of the page,
     // and that line is what pushed shapes 5, 6 and 9 onto a SECOND PAGE — measured in WeasyPrint,
-    // not guessed. The zone map asks for "employer · role and function · city · months" on one
-    // line, which is exactly this.
+    // not guessed.
+    //
+    // R10 §2.5 rule 1 TRIED THE SAMPLE'S SHAPE AND MEASURED IT BACK OUT. Merging the role into
+    // the detail line keeps the same LINE COUNT but makes that line longer, and on a
+    // fully-answered turner it wraps: the parity sheet went from `degradationStage: 0` to STAGE 2,
+    // shedding the Languages row and two materials chips. The placement is not affordable at
+    // `SHEET_LINE_BUDGET = 41`, which R9 §5 measured as un-raiseable. See the parity contract.
     const { employments } = buildEmploymentBlock(
       [
         employment({

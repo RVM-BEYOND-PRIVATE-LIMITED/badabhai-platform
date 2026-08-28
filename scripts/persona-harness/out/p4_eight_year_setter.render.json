@@ -1,0 +1,100 @@
+{
+  "persona": "p4_eight_year_setter",
+  "headlineLine": "CNC turning setter cum operator · 8 yrs · Fanuc, Siemens, Mitsubishi",
+  "subheadLine": "Faridabad · available in 1 month · expects ₹32,000 / month",
+  "capSectionTitle": "Machines, controllers & capability",
+  "capChipRows": [
+    "Machines: CNC lathe / turning centre, Conventional lathe, VTL",
+    "Controllers: Fanuc, Siemens, Mitsubishi",
+    "Materials: MS, EN8 / EN31, Stainless steel, Cast iron"
+  ],
+  "capTickRows": [
+    "Workholding: 3-jaw chuck, 4-jaw chuck, Collet, Soft jaws, Steady rest",
+    "Setting: Tool offset, Work offset, Tool nose radius compensation, Chuck / jaw change, Tailstock setting, First-piece setup",
+    "Measuring instruments: Vernier, Micrometer, Bore dial gauge, Height gauge, Plug / ring gauge, Dial indicator"
+  ],
+  "capFactRows": [
+    "Programming: Writes programs (G-code / M-code)",
+    "Drawings: Reads 2D drawings and GD&T",
+    "Machine capability: Live tooling · Bar feeder · Sub-spindle"
+  ],
+  "availFactRows": [
+    "Available from: 1 month",
+    "Salary expected: ₹32,000 / month",
+    "Preferred locations: Faridabad, Gurugram, Manesar",
+    "Shift: Any shift"
+  ],
+  "qualFactRows": [
+    "Education: ITI / Diploma"
+  ],
+  "qualTickRows": [],
+  "employments": [
+    {
+      "employer": "Harsha Precision Turned Components · Faridabad, Haryana",
+      "when": "Sep 2022 – Present · 4 yrs",
+      "roles": [],
+      "roleInline": " — CNC Setter-cum-Operator",
+      "work": "CNC lathe with bar feeder and live tooling, Fanuc · EN8, EN31, SS316 · oil and gas fittings, ±0.01"
+    },
+    {
+      "employer": "Kalyani Turned Parts · Manesar, Haryana",
+      "when": "Apr 2020 – Aug 2022 · 2 yrs 5 mo",
+      "roles": [],
+      "roleInline": " — CNC Turner",
+      "work": "CNC lathe, Siemens · alloy steel · automotive shafts"
+    },
+    {
+      "employer": "National Engineering Works · Faridabad, Haryana",
+      "when": "May 2018 – Mar 2020 · 1 yr 11 mo",
+      "roles": [],
+      "roleInline": " — Lathe Operator",
+      "work": "Conventional lathe and VTL, Mitsubishi · MS and cast iron · general engineering"
+    }
+  ],
+  "employmentsMore": null,
+  "ownWords": [
+    "Pehle operator laga tha, ek saal baad setter bana diya"
+  ],
+  "experiences": [],
+  "skills": [
+    "CNC lathe Fanuc",
+    "CNC lathe Siemens",
+    "VTL Mitsubishi",
+    "conventional kharad",
+    "bar feeder",
+    "live tooling",
+    "sub-spindle",
+    "tool offset",
+    "work offset",
+    "nose radius compensation",
+    "jaw change",
+    "tailstock set karna",
+    "first piece approval",
+    "G-code M-code",
+    "G71 rough turning",
+    "G76 threading",
+    "G74 peck drilling",
+    "canned cycle",
+    "tolerance plus minus 0.01",
+    "GD and T",
+    "runout",
+    "concentricity",
+    "flatness",
+    "Surface finish Ra 0.8",
+    "EN8",
+    "EN31",
+    "SS316",
+    "cast iron",
+    "first piece check",
+    "in-process inspection",
+    "SPC chart",
+    "chatter troubleshooting",
+    "speed feed adjustment",
+    "tool wear compensation"
+  ],
+  "degradationStage": 0,
+  "degradationDropped": [],
+  "transcriptVetoes": [],
+  "contentLines": 38.05,
+  "predictedHeadroomMm": 14.43
+}

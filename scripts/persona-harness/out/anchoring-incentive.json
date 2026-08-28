@@ -1,0 +1,57 @@
+{
+  "persona": "p4_eight_year_setter",
+  "runs": 3,
+  "incentive": true,
+  "unanchored_sizes": [
+    18,
+    18,
+    18
+  ],
+  "anchored_sizes": [
+    18,
+    18,
+    18
+  ],
+  "unanchored_tally": {
+    "setting_operation|Tool offset": 3,
+    "turning_operation|Drilling / tapping": 3,
+    "setting_operation|First-piece setup": 3,
+    "turning_operation|Grooving / parting": 3,
+    "advanced_capability|Bar feeder": 3,
+    "turning_operation|Threading": 3,
+    "quality_work|SPC chart": 3,
+    "quality_work|First-piece check": 3,
+    "turning_operation|Boring": 3,
+    "turning_operation|Facing / OD turning": 3,
+    "setting_operation|Tool nose radius compensation": 3,
+    "quality_work|In-process checking": 3,
+    "programming_level|Naya programme likh leta hoon": 3,
+    "setting_operation|Tailstock setting": 3,
+    "advanced_capability|Live tooling": 3,
+    "advanced_capability|Sub-spindle": 3,
+    "setting_operation|Chuck / jaw change": 3,
+    "setting_operation|Work offset": 3
+  },
+  "anchored_tally": {
+    "setting_operation|Tool offset": 3,
+    "turning_operation|Drilling / tapping": 3,
+    "setting_operation|First-piece setup": 3,
+    "turning_operation|Grooving / parting": 3,
+    "advanced_capability|Bar feeder": 3,
+    "turning_operation|Threading": 3,
+    "quality_work|SPC chart": 3,
+    "quality_work|First-piece check": 3,
+    "turning_operation|Boring": 3,
+    "turning_operation|Facing / OD turning": 3,
+    "setting_operation|Tool nose radius compensation": 3,
+    "quality_work|In-process checking": 3,
+    "programming_level|Naya programme likh leta hoon": 3,
+    "setting_operation|Tailstock setting": 3,
+    "advanced_capability|Live tooling": 3,
+    "advanced_capability|Sub-spindle": 3,
+    "setting_operation|Chuck / jaw change": 3,
+    "setting_operation|Work offset": 3
+  },
+  "only_unanchored": [],
+  "only_anchored": []
+}

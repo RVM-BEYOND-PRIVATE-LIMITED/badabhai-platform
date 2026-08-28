@@ -1,0 +1,62 @@
+[
+  {
+    "file": "p1_fresh_iti.html",
+    "shape": "p1_fresh_iti",
+    "name": "ITI Turner, fresh pass-out",
+    "audience": "worker",
+    "variant": "persona",
+    "stage": 0,
+    "dropped": [],
+    "trace": [],
+    "lines": 22.19,
+    "predictedHeadroomMm": 91.99
+  },
+  {
+    "file": "p2_two_year_operator.html",
+    "shape": "p2_two_year_operator",
+    "name": "2-year operator",
+    "audience": "worker",
+    "variant": "persona",
+    "stage": 0,
+    "dropped": [],
+    "trace": [],
+    "lines": 28.05,
+    "predictedHeadroomMm": 63.33
+  },
+  {
+    "file": "p3_five_year_to_setter.html",
+    "shape": "p3_five_year_to_setter",
+    "name": "5-year operator moving to setter",
+    "audience": "worker",
+    "variant": "persona",
+    "stage": 0,
+    "dropped": [],
+    "trace": [],
+    "lines": 28.19,
+    "predictedHeadroomMm": 62.65
+  },
+  {
+    "file": "p4_eight_year_setter.html",
+    "shape": "p4_eight_year_setter",
+    "name": "8-year setter-cum-operator",
+    "audience": "worker",
+    "variant": "persona",
+    "stage": 0,
+    "dropped": [],
+    "trace": [],
+    "lines": 38.05,
+    "predictedHeadroomMm": 14.43
+  },
+  {
+    "file": "p5_twelve_year_no_iti.html",
+    "shape": "p5_twelve_year_no_iti",
+    "name": "12 years, no ITI",
+    "audience": "worker",
+    "variant": "persona",
+    "stage": 0,
+    "dropped": [],
+    "trace": [],
+    "lines": 33.19,
+    "predictedHeadroomMm": 38.2
+  }
+]
