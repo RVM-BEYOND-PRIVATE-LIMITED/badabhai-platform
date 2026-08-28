@@ -10,10 +10,41 @@ built around.
 
 ---
 
+## Status — all nine ruled, 2026-08-28 (R4)
+
+The queue is closed. Nothing on the render track is waiting on a decision any more.
+
+| #      | ruling                                                               | leaves behind           |
+| ------ | -------------------------------------------------------------------- | ----------------------- |
+| **Q1** | Option A, simplified — form screen, 4 employers, **one role each**   | build item 2.2          |
+| **Q2** | One rider: the highest ITI/NCVT line is never dropped. Nothing else. | **built** — R4          |
+| **Q3** | Closed as framed.                                                    | nothing                 |
+| **Q4** | **Top item.** Build the bridge, turner-scoped.                       | build item 2.1          |
+| **Q5** | Defer. Point figure keeps rendering.                                 | revisit at payer-salary |
+| **Q6** | Defer with the Phase 3 deep link.                                    | nothing                 |
+| **Q7** | Prakash runs the xerox test at the `sslip.io` length.                | nothing waits           |
+| **Q8** | **One spine RATIFIED.** A decision now, not an assumption.           | nothing                 |
+| **Q9** | Prakash commits the canonical file. Stub untouched.                  | nothing                 |
+
+Deferred by name, so nobody rediscovers them as findings: drop-order ratification, capability
+compression, semgrep `--strict`, the `ci.yml` trigger, the payer QR, salary bands.
+
+---
+
 ## Q1 · How does a worker give us their work history?
 
-**Status:** open. Blocks the WRITER only — the reader, the render block and the schema all
-shipped.
+**RULED (R4): Option A, simplified.** A post-interview form screen capped at four employers,
+capturing three fields each — employer name (typed), city (chip), from/to month-year (chips) —
+and writing **one role per employment**.
+
+Capture does not ask about promotions in v1. The two-level `employments[] → roles[]` schema stays
+exactly as built: §11 #14 already renders a second role correctly whenever one appears, so nothing
+has to change to support promotions later. That is the point of having built it two-level.
+
+Mobile work, `apps/worker-app`, **Rishi's tree** — PR and park. Build item 2.2.
+
+**Status:** ruled; the WRITER is now a scheduled build item rather than an open question. The
+reader, the render block and the schema all shipped.
 
 `worker_employment` and `worker_employment_role` exist, are migrated, and render correctly
 against seeded rows for every §11 case. Nothing writes to them, because how the question gets
@@ -39,8 +70,18 @@ every worker who generates a résumé in the meantime.
 
 ## Q2 · Capability drop order — RVM redline needed
 
-**Status:** open. **Not blocking** — a default is in force and documented at `ASSUMPTIONS.md`
-A2.
+**RULED (R4): one rider, nothing else.** The highest ITI/NCVT qualification line is never
+dropped, exactly the way availability and expected salary are never dropped. Costed at ~5 mm on
+the tightest sheets; taken. **Built in R4** — `NEVER_DROPPED` now carries a seventh entry and the
+ladder's education step preserves the top qualification line.
+
+**Explicitly NOT built:** capability compression, and any re-derivation of the drop order. The
+measurement is the reason it can wait — all 16 degrading sheets are overflow fixtures and their
+injected variants, and no realistic profile reaches a capability row. The ratified list and the
+tolerance-versus-machine-capability question both go to RVM at their next redline.
+
+**Status:** the rider is closed and shipped. The two RVM items below are recorded for that
+redline, not for this track.
 
 A fully-answered CNC turner produces 14 capability rows and the page holds 9. Five must go. The
 current order is derived from the guideline's §5.1 ranks, but which fact a hiring supervisor
@@ -90,11 +131,67 @@ run, not a unit test — cheap in effort, but it is no longer free and it is no 
 Still worth doing, and still the entry most likely to need it. It just wants doing in the same
 change rather than as a follow-up.
 
+### The default is REVISED — and it is now measured, not argued
+
+Prakash's reasoning on the sharper version — given in the R3 directive, and explicitly NOT a
+ruling; he asked for it logged as a proposed default. Reverse §5.1 is the wrong ordering to
+derive a drop order from, because §5.1 ranks by **decisiveness for the ₹40 unlock** — Job 1 of §1.1. Dropping
+strictly by it optimises Job 1 and destroys Job 3: the worker arrives at the gate and the sheet
+no longer says he has his documents, which at that gate is the whole point. It also strips the
+credential floor from exactly the ITI holder an MSME asks for.
+
+**What the ladder actually did, across the 56-sheet matrix** (this is the evidence, not an
+inference from the order):
+
+| shed                   | on how many of the 56 sheets |
+| ---------------------- | ---------------------------- |
+| languages              | 16                           |
+| documents ready        | 14                           |
+| certificates           | 10                           |
+| education              | 1                            |
+| **any capability row** | **0**                        |
+
+Sixteen sheets degraded. The ladder consumed the credentials block **entirely** and never once
+reached a capability row. `future-09-worker` lands at stage 4 with no education line at all
+while carrying every capability row it started with.
+
+**REVISED DEFAULT, in force from now, and still awaiting your ruling and RVM's redline:**
+
+> **Capability blocks compress before whole blocks drop.** A maxed-out turner carries 13
+> operations, 12 setting capabilities, 10 workholding entries and 14 instruments. §4.3 already
+> caps chips at 3–4 per row; the cascade extends that principle — exhaust compression inside
+> Zone 2 before dropping any Zone 5 block. A turner listing eight setting capabilities instead
+> of twelve loses almost nothing; a worker losing his ITI line loses the credential floor.
+
+**This is a PROPOSED default, not a settled one.** The drop order needs to be its own ratified
+list rather than derived from a ranking built for a different purpose — that is the actual ask,
+and it is larger than "reorder the ladder".
+
+**Reversal cost of the revision itself.** Lower than the reversal cost above, and worth stating
+because it is the reason for logging it rather than building it:
+
+- The ladder is a list of steps in one file with a per-step cost trace, so re-ordering steps is
+  mechanical.
+- Compression is NOT mechanical. Every step in the ladder today removes a whole element; a
+  compressing step needs a per-row cap, an ordering within the row, and a rule for what the
+  removed chips do to the row's meaning — none of which exists, and §4.3's caps are per-section,
+  not per-degradation-stage.
+- So the revision costs a re-measurement of 56 sheets (Docker WeasyPrint), and building
+  compression costs a new mechanism. Those are different sizes and only the first is cheap.
+
+**It is not urgent, and the measurement says why.** All 16 degrading sheets are the OVERFLOW
+fixtures plus their injected variants. No realistic profile in the matrix reaches a capability
+row. The revision changes nothing that renders today; it changes what happens the first time a
+real turner's full history lands.
+
 ---
 
 ## Q3 · Devanagari — confirming this is CLOSED, not parked
 
-**Status:** treated as **done**; flagging only because an earlier note listed it as outstanding.
+**RULED (R4): closed, exactly as framed.** No transliteration engine. Recorded here only so the
+decision is findable.
+
+**Status:** **done.**
 
 The guideline asks us to **store both scripts where the worker gives a Devanagari form** (§4.1)
 and to render Latin on the employer-facing artifact and both on the worker's own copy (§11 #17).
@@ -113,8 +210,17 @@ transliteration engine is being built.
 
 ## Q4 · B0b — the turner is unreachable, and that is not a résumé bug
 
-**Status:** open, **out of scope on this branch** (`apps/api`, Divyanshu's tree). Recorded here
-because it is the largest thing standing between this work and a placement.
+**RULED (R4): this is now the TOP item.** Build item 2.1, turner-scoped.
+
+The turner pack's fourteen answers are **closed-set chips**, so mapping them to
+`canonical_role_id` and `skills[]` is a deterministic lookup — no LLM, no embeddings, no
+confidence floor — and it does not touch the extraction path or the general canonicalization
+problem. Done when `turner-reach.db.test.ts` goes green and its `it.fails` is deleted.
+
+If a CNC-turning role id is not in the matchable set, that goes first as its own taxonomy change
+(`packages/db` / `packages/taxonomy`, PR to Divyanshu).
+
+**Status:** ruled and in progress.
 
 A fully-answered CNC turner derives **zero** `worker_skill` rows and appears in **no** posting's
 `job_reach`. `deriveWorkerSkills` reads `worker_profiles.canonical_role_id` and `.skills`; the
@@ -133,7 +239,11 @@ branch does not move this number at all.
 
 ## Q5 · Salary renders as a point figure; the guideline wants a band
 
-**Status:** open, low priority, **not blocking**.
+**RULED (R4): defer.** The point figure keeps rendering on the worker copy. Exposure is limited
+to sheets a worker hands over himself, and the fix is an upstream field rather than anything the
+renderer can do. **Revisit before any payer surface displays salary** — not before.
+
+**Status:** deferred with a named trigger.
 
 §4.4 is explicit: _"Bands, never a point figure — a point figure invites anchoring against the
 worker."_ `resume_profile.expected_salary` is a single number, so a band could only be
@@ -150,8 +260,11 @@ over himself, which is most of them.
 
 ## Q6 · The payer copy carries no QR at all — deliberate, or an omission?
 
-**Status:** open, **surfaced by adding the QR gate**, not previously noticed. No default taken:
-this one changes what a payer-facing artifact contains, which is not mine to decide.
+**RULED (R4): defer, and decide it with the Phase 3 deep link.** Free while the QR points at the
+homepage; by the time it points at `/w/<code>` the real question is what that page shows an
+unauthenticated scanner, which is the review that page needs anyway.
+
+**Status:** deferred, bound to Phase 3.
 
 The worker's own sheet prints the footer QR. **The employer disclosure never does** —
 `resume-disclosure.service.ts` builds its `TradeSheetContext` from the trade attributes and the
@@ -187,7 +300,10 @@ is recorded in the journal rather than quietly fixed.
 
 ## Q7 · The QR module floor is EMPIRICAL — it needs a xerox, not a ruling
 
-**Status:** open. **I cannot close this one myself, and that is the finding.**
+**RULED (R4): Prakash runs it**, at the `sslip.io` payload length. **Nothing waits on it.**
+
+**Status:** assigned. The protocol below is the deliverable; the result comes back to
+`sheet-qr.gate.test.ts`'s `MIN_MODULE_MM` if it fails.
 
 `sheet-qr.gate.test.ts` asserts a floor of **0.5 mm per module** on every sheet. That number is
 from the QR printing literature (ISO/IEC 18004 and the GS1 print specifications), **not** from the
@@ -220,17 +336,46 @@ part of deciding the QR floor**, not a separate question: a long host spends mos
 before the photocopy has spent any of it.
 
 **Recommendation:** run the xerox test on the `sslip.io`-length payload, not the short one. If
-that scans, every shorter origin is safe and the question closes for good. **Cost of silence:**
-the floor holds against the literature but has never met a real photocopier, and the acquisition
-metric §12.2 rests on it.
+that scans, every shorter origin is safe and the question closes for good.
+
+**THE TWO UNCERTAINTIES COMPOUND, and that is the part worth reading twice.** The 0.545 mm the
+`sslip.io` origin produces is **9% above** a 0.5 mm floor that is itself an unratified
+engineering guess. So the sheet the acquisition thesis rests on carries two unresolved variables
+stacked on one element:
+
+| variable          | state                                                        | direction           |
+| ----------------- | ------------------------------------------------------------ | ------------------- |
+| the 0.5 mm floor  | from the printing literature, never met a photocopier        | unknown             |
+| the origin length | B3 open; interim host is 45 chars against `badabhai.ai`'s 19 | pushes modules DOWN |
+
+Neither alone is alarming. Together, a 9% margin against an unvalidated floor is not a margin —
+and nothing on the sheet or in the gate would look any different if it were already too small.
+The QR is the one element on the page whose failure is completely invisible until a worker holds
+a photocopy under a phone in a factory gate queue.
+
+**Cost of silence:** the floor holds against the literature but has never met a real
+photocopier, and the acquisition metric §12.2 rests on it. Running the test at the SHORT payload
+length would answer a question nobody is asking — the sheet in the field will carry whichever
+origin B3 settles on, and today that is the long one.
 
 ---
 
 ## Q8 · Conflict B — one spine, or a template per trade family?
 
-**Status:** open, and **its reversal cost has risen sharply since it was last estimated**. Raised
-as its own question here because it was previously folded into the drop-order discussion, which
-is a different decision.
+**RATIFIED (R4): ONE SPINE. Closed.**
+
+Confirmed, not deferred. §7.1 already forbids skins from varying field order, section order,
+column count or page count — which is most of what a per-family template would have existed to
+change — so this is a confirmation of what the guideline already implies rather than a new
+constraint.
+
+**What this changes in how the code is described.** One spine has stopped being an assumption and
+is now a decision. The render block, the fabrication gate, the QR gate and the degradation ladder
+were all built on it; that is no longer load-bearing-on-an-open-question, it is four files
+implementing a ratified design. Anything that would vary the spine per trade family now needs a
+new ruling to undo this one, not merely a preference.
+
+**Status:** **CLOSED.** The reversal analysis below is kept for the record, not as a live cost.
 
 **The question.** Does every trade render through ONE spine — the layout `bb_trade.v1` fixes, with
 the trade only supplying its capability vocabulary — or does each trade family eventually get its
@@ -279,8 +424,31 @@ be somewhere I cannot see.
 Sections 1–3 are deliberately absent; I do not know what they say and inventing them would be
 worse than an incomplete file.
 
-**If the real one is elsewhere:** merge that §4 into it and delete the file I added. **If there
-was never one:** it now exists and wants its other sections written.
+**RULED (R4), reconfirming R3 §5.2.** Prakash: the real file exists outside the repo and he will commit it.
+The stub stays exactly as it is and must not be reconstructed — sections 1–3 arrive with the
+canonical version. **This entry stays open only until that commit lands**, at which point the
+stub's §4 merges into it.
 
-**Cost of silence.** Two files claiming to be the agent loop, which is exactly the drift that
-makes an operating contract stop being read.
+**Cost of silence.** Now near zero, and bounded: two files claiming to be the agent loop, for as
+long as it takes one commit.
+
+### While looking: what the loop's state files actually are
+
+Asked in the same breath, and the answer is not the expected one. Measured against
+`git ls-files`, `origin/main` and `git log --all --diff-filter=A`:
+
+| file               | on disk    | on `origin/main` | ever added, any branch |
+| ------------------ | ---------- | ---------------- | ---------------------- |
+| `NEEDS_PRAKASH.md` | yes        | **no**           | once — on this stack   |
+| `ASSUMPTIONS.md`   | yes        | **no**           | once — on this stack   |
+| `AGENT_LOOP.md`    | yes (stub) | **no**           | once — on this stack   |
+| `LOOP_QUEUE.md`    | **no**     | no               | **never**              |
+| `LOOP_JOURNAL.md`  | **no**     | no               | **never**              |
+
+**Two are phantom.** `LOOP_QUEUE.md` and `LOOP_JOURNAL.md` have never existed here — not on
+disk, not on `main`, not in any commit on any branch. They were not created, per the directive.
+
+**And the other three are not on `main` either.** They exist only on the unmerged
+`feat/cnc-turner-role-track` stack. Every question in this file, every assumption in
+`ASSUMPTIONS.md`, and the HALT trigger itself live on a branch that has not landed. Worth saying
+plainly: if this stack is abandoned, the entire question queue goes with it.
