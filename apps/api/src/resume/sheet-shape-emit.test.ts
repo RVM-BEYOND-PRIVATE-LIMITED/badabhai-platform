@@ -1,7 +1,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
-import { SHEET_SHAPES } from "./__fixtures__/sheet-shapes";
+import { primeSheetQr, SHEET_SHAPES, withSheetQr } from "./__fixtures__/sheet-shapes";
+
+// The emitted HTML is what gets rendered to PDF and measured; without this the footer it
+// measures is 18 mm shorter than the one production prints.
+beforeAll(primeSheetQr);
 import { buildResumeRenderInput } from "./resume-render-input";
 import { ResumeRenderer } from "./resume-renderer.service";
 
@@ -38,7 +42,7 @@ describe.skipIf(!OUT_DIR)("emit the content-shape sheets for a real PDF render",
             null,
             false,
             audience,
-            shape.tradeSheet,
+            withSheetQr(shape.tradeSheet),
           ),
         );
         const tag = `${String(shape.n).padStart(2, "0")}-${audience}`;

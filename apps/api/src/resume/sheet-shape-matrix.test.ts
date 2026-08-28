@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
-import { SHEET_SHAPES } from "./__fixtures__/sheet-shapes";
+import { primeSheetQr, SHEET_SHAPES, withSheetQr } from "./__fixtures__/sheet-shapes";
 import { buildResumeRenderInput } from "./resume-render-input";
 import { ResumeRenderer, type ResumeRenderInput } from "./resume-renderer.service";
 import { CAPABILITY_ROW_BUDGET } from "./trade-resume-map";
@@ -24,6 +24,15 @@ import { EMPLOYMENT_BLOCK_BUDGET } from "./resume-employment-rows";
 
 const renderer = new ResumeRenderer({} as never);
 
+/**
+ * THE QR IS PART OF THE PAGE, so it is part of every measurement in this file.
+ *
+ * Rendering these shapes without it collapses an 18 mm box out of the footer — the one section
+ * that was overflowing — and every "fits" result would be taken against a shorter page than the
+ * one production prints.
+ */
+beforeAll(primeSheetQr);
+
 function inputFor(shape: (typeof SHEET_SHAPES)[number], audience: "worker" | "employer") {
   return buildResumeRenderInput(
     shape.snapshot,
@@ -32,7 +41,7 @@ function inputFor(shape: (typeof SHEET_SHAPES)[number], audience: "worker" | "em
     null,
     false,
     audience,
-    shape.tradeSheet,
+    withSheetQr(shape.tradeSheet),
   );
 }
 

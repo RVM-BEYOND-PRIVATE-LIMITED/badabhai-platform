@@ -1,5 +1,7 @@
 import type { ResumeQualificationFacts, TradeSheetContext } from "../resume-render-input";
 import type { WorkerEmploymentRecord } from "../resume-employment-rows";
+import { buildResumeQrDataUri } from "../resume-qr";
+import { RESUME_PROFILE_ORIGIN } from "../resume-sheet-footer";
 
 /**
  * THE CONTENT-SHAPE MATRIX — fourteen profiles the `bb_trade` sheet has to survive.
@@ -38,6 +40,54 @@ export interface SheetShape {
 
 export const SHEET_AS_OF = new Date("2026-08-28T09:00:00Z");
 
+/**
+ * THE REAL QR, from the real generator, injected into every shape by the suites that render.
+ *
+ * IT WAS `null` HERE, so none of the twenty-eight sheets carried a QR and every page-fit
+ * result was taken against a footer production does not print. The correction is the fixture;
+ * the CONCLUSION survived, and the difference between those two is worth stating exactly.
+ *
+ * MEASURED, BECAUSE THE OBVIOUS INFERENCE WAS WRONG. `.qr` reserves 18 mm x 18 mm and the
+ * footer was the section overflowing, so the expected cost was ~12 mm of page and a re-broken
+ * one-page contract. It costs ZERO: `.foot` is a flex ROW and `.foot-txt` is five lines at
+ * 8.6 pt/1.43 — about 21.7 mm — so the text column is already taller than the QR box and the
+ * image consumes width, not height. Re-measured in WeasyPrint across all 28 sheets, the
+ * headroom delta with and without the QR is 0.00 mm on every one of them.
+ *
+ * Which is exactly why it is generated here rather than argued about: the reasoning that says
+ * "18 mm box in the overflowing section" is entirely plausible and entirely wrong, and only a
+ * render can tell the two apart. It also means any future change that makes the footer TEXT
+ * shorter silently hands the 18 mm box back its ability to drive the page height.
+ *
+ * GENERATED, NOT PASTED. A hard-coded data URI would keep passing after a change to the error
+ * correction level or the target URL, both of which move the module count and therefore the
+ * printed size of a module. `RESUME_PROFILE_ORIGIN` is the same constant the render worker
+ * passes, so the symbol under test is the shipped one.
+ *
+ * WHY A PRIME/INJECT PAIR RATHER THAN A CONSTANT. `buildResumeQrDataUri` is async and this
+ * package compiles to CommonJS, where a top-level `await` is a compile error — it passes under
+ * vitest's ESM transform and fails `tsc`, which is a good illustration of why the typecheck is a
+ * separate gate. Callers `await primeSheetQr()` once and wrap with `withSheetQr`.
+ */
+let cachedQr: string | null = null;
+
+export async function primeSheetQr(): Promise<void> {
+  cachedQr ??= await buildResumeQrDataUri(RESUME_PROFILE_ORIGIN);
+}
+
+/**
+ * The shape's context with the real QR in it.
+ *
+ * A NULL CONTEXT STAYS NULL. Shape 14 supplies none at all, which is a real state rather than an
+ * oversight — the disclosure surface passes null when both of its loads fail — and the sheet has
+ * to collapse the whole footer region cleanly rather than print a broken image.
+ */
+export function withSheetQr(context: TradeSheetContext | null): TradeSheetContext | null {
+  if (context === null) return null;
+  if (cachedQr === null) throw new Error("call `await primeSheetQr()` in beforeAll first");
+  return { ...context, qrDataUri: cachedQr };
+}
+
 /** The footer/masthead slots every shape shares; none of them is worker content. */
 const CHROME = {
   phone: "+91 98765 43210",
@@ -58,7 +108,9 @@ function employment(over: Partial<WorkerEmploymentRecord> = {}): WorkerEmploymen
     startYm: "2023-01",
     endYm: null,
     durationStated: true,
-    roles: [{ roleLabel: "CNC Turner", startYm: null, endYm: null, workDone: "CNC turning, Fanuc" }],
+    roles: [
+      { roleLabel: "CNC Turner", startYm: null, endYm: null, workDone: "CNC turning, Fanuc" },
+    ],
     ...over,
   };
 }
@@ -207,7 +259,9 @@ export const SHEET_SHAPES: readonly SheetShape[] = [
           employer: "Contract work",
           employerCity: "Manesar",
           employerState: null,
-          roles: [{ roleLabel: "Turner", startYm: null, endYm: null, workDone: "Job-shop turning" }],
+          roles: [
+            { roleLabel: "Turner", startYm: null, endYm: null, workDone: "Job-shop turning" },
+          ],
         }),
       ],
       qualification: { documents: ["Aadhaar"] },
@@ -323,7 +377,10 @@ export const SHEET_SHAPES: readonly SheetShape[] = [
       ...CHROME,
       packId: "qp_cnc_turning",
       attributes: MAXED_ATTRIBUTES,
-      employments: [employment(), employment({ employer: "Rico Auto Industries", startYm: "2018-02", endYm: "2022-12" })],
+      employments: [
+        employment(),
+        employment({ employer: "Rico Auto Industries", startYm: "2018-02", endYm: "2022-12" }),
+      ],
       qualification: FULL_QUALIFICATION,
     },
   },

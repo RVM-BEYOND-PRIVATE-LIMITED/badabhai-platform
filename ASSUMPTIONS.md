@@ -114,12 +114,18 @@ certificates") is a real answer and does not fall through.
 
 ## A5 · Two prettier exclusions kept
 
-**Assumed.** `packages/db/src/schema/index.ts` and `packages/db/src/reencrypt-pii-backfill.ts`
-are left unformatted. `apps/api/src/resume/templates/` stays in `.prettierignore`.
+**Assumed.** Five `packages/db` files are left unformatted — `src/schema/index.ts`,
+`src/reencrypt-pii-backfill.ts`, and the three the occupation-eval fix touches
+(`src/occupation-retrieval-eval.ts`, `src/occupation-retrieval-eval.test.ts`,
+`src/eval-occupation-retrieval.ts`). `apps/api/src/resume/templates/` stays in `.prettierignore`.
 
-**Why.** Both `packages/db` files are **already unformatted on `main`**; running prettier over
-them would bury this change's four added lines in a whole-file reflow, and a reviewer cannot see
-a PII rotation target land inside 200 lines of churn. The templates directory is excluded because
+**Why.** All five `packages/db` files are **already unformatted on `main`** — verified in-repo,
+so the config actually resolved (see A7 for why that qualifier is load-bearing) — and
+`prettier` is not a CI gate: `format:check` exists in the root `package.json` and no workflow
+runs it. running prettier over
+them would bury this change's real edits in a whole-file reflow, and a reviewer cannot see a PII
+rotation target — or a change to how a quality gate SCORES — land inside hundreds of lines of
+churn. The templates directory is excluded because
 `prettier --check` really does report style issues on `bb_trade.v1.html` and on the shipped
 `classic.v3.html` (measured), and reformatting either would break the `:empty` collapse: every
 collapsible container is written on one line flush against its tags, because `:empty` does not
@@ -154,6 +160,67 @@ migrate` from an empty database records 95 migrations with `max(created_at) = 17
 **Cost of reversal.** There is no safe reversal while any database has 0094 applied. Un-pinning
 breaks the deploy.
 
-**Nothing in CI protects this.** `supabase-checks.yml` is `disabled_manually` (TD97), so there is
-no schema↔migration drift gate. The protection is the header comment in the `.sql` file and the
-`_note` key at the top of `_journal.json`.
+**WHAT CI ACTUALLY DOES, corrected.** I wrote that `supabase-checks.yml` is `disabled_manually`
+(TD97) and that no schema↔migration drift gate exists. **That is wrong** — the workflow is
+`active` and both its jobs ran on PR #1292. The claim came from a stale note rather than from
+the live workflow state, which is the same class of error as A7 below: a fact asserted from a
+source that could not observe the thing it described.
+
+The corrected picture is more useful than either version:
+
+- `migration-drift` DID run and its assertion step genuinely SUCCEEDED — `drizzle-kit generate`
+  produced no diff under `packages/db/migrations`, which independently confirms schema.ts and
+  0094 are in sync and that the hand-edited `_journal.json` (the `_note` key, the pinned `when`)
+  survives a regenerate.
+- **But both assertion steps carry `continue-on-error: true`** — "NON-BLOCKING — flip to blocking
+  after a clean baseline" — so the job reports green whether the assertion passed or failed. Read
+  the STEP conclusion, never the check. It is a signal, not a gate.
+- **And neither job looks at `when` at all.** `migration-sequence` validates `idx` and `tag` and
+  reads nothing else from the journal. A re-stamped 0094 would show up only as a `migration-drift`
+  diff, on a step that cannot fail the build.
+
+So the conclusion stands and the reason changed: the pin is protected by the header comment in
+the `.sql` and the `_note` key, because the one gate that could notice is non-blocking and the
+one that is blocking does not look.
+
+---
+
+## A7 · A verification that cannot observe what it claims — the recurring class
+
+**Assumed.** Every gate on this branch is treated as unproven until it has been observed
+FAILING, and every "X is clean / X is absent / X passed" claim is treated as unproven until it
+was produced by a run that could actually have said otherwise.
+
+**Why this is an entry and not a note.** It is now the fourth instance of one failure, and the
+instances look nothing like each other, which is exactly why naming the instance never helped:
+
+| #   | The claim                             | Why it could not be observed                                                                                                                              |
+| --- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `db:verify:match-v1` passes           | It ran against an EMPTY database, so it verified nothing and said so in the affirmative.                                                                  |
+| 2   | `/health` returns 200                 | It returned 200 with a dependency missing, so the check was insensitive to the thing it existed to detect.                                                |
+| 3   | `main`'s `ci.yml` is prettier-clean   | I copied the file OUTSIDE the repo before checking, so prettier resolved no config and applied defaults. The answer described a file that does not exist. |
+| 4   | No schema↔migration drift gate exists | Read off a stale TD note instead of the live workflow list. `supabase-checks.yml` is active and ran (see A6).                                             |
+
+The shape they share is not carelessness. In every case a real command ran, exited 0, and
+printed something true — about a different question than the one being asked. A green result is
+evidence only when you can state what a red one would have required.
+
+**The two that were caught the same way** are worth recording because they are the method: the
+QR fixture (`qrDataUri: null`, so all 28 page-fit measurements were taken on a footer production
+does not print) and the `it.fails` XFAIL. Both were caught by asking "what would this have looked
+like if it were broken?" and then MAKING it broken. The QR answer was a genuine surprise: the
+expected cost was ~12 mm of page and it measured 0.00 mm, because `.foot` is a flex row whose
+text column is already taller than the 18 mm image. The fixture was wrong; the conclusion it fed
+was not. Both halves of that get stated, because "I was wrong" and "the result was wrong" are
+different claims and only one of them was true.
+
+**The standing operational facts** this leaves behind:
+
+- **`main` is not prettier-clean.** `.github/workflows/ci.yml` and at least two `packages/db`
+  files are unformatted ON MAIN. Any agent that runs `pnpm format` will produce hundreds of files
+  of churn that has nothing to do with its change — and, on `ci.yml`, will reflow a `needs:` array
+  it never touched. Check formatting IN the repo, on the files you actually changed.
+- **A `continue-on-error: true` step reports a green check.** Read step conclusions
+  (`gh api .../actions/jobs/<id> --jq '.steps[]'`), not the check list, before believing a gate.
+
+**Cost of reversal.** None — it constrains how claims are made, not what the code does.

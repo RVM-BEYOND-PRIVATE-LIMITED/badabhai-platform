@@ -267,3 +267,223 @@ exactly why `FORCE` is there).
   that as a regression.
 - **Nobody has looked at all 28 sheets.** Page count and layout are measured; glyph-level fidelity
   is not, and the Devanagari line is exercised by no fixture.
+
+---
+
+## §9 — Landing the branch: CI as the verification, and three gaps closed
+
+Everything above §8 was verified on a developer machine. This section is the first time these
+gates ran in the environment that gates merges, plus the three verification gaps that reading
+exposed. Branch pushed at `66e2f72e`; PR **#1292**.
+
+### 9.1 — What CI found that the local run could not
+
+Two failures, both real, neither visible locally.
+
+**SAST (semgrep `p/typescript`) — `detect-non-literal-regexp`, 2 blocking findings.**
+`new RegExp` composed from the slot name, at the two region-engine sites. The construct PREDATES
+this branch — `origin/main` has both — but moving them into `fillObjectRegion` /
+`fillStringRegion` changed their fingerprint, so the baseline diff surfaced them as introduced.
+Semgrep is not run by any local gate, so nothing here could have caught it.
+
+Suppressing was the cheap read and would have been wrong. The rule is right about this code for a
+reason that is not ReDoS: **a slot name carrying regex metacharacters stops being a name and
+becomes a pattern.** A list called `a.*b` compiles to a wildcard, matches a region it does not
+own, and splices one worker's list into another section of the sheet — rendering perfectly, and
+wrong. One hardcoded literal now matches any region, and the name is captured and compared with
+`===`. Escaping would have fixed the same bug and left a composed regex behind; the literal
+removes the class.
+
+The backreference fell out of it as a correctness upgrade rather than plumbing — the closing tag
+must repeat the opening name, so a region opened with one name and closed with another is no
+longer a region at all. **Measured:** dropping it fails four behavioural tests plus the new guard.
+A third, unflagged copy of the same construct in the legacy list path was folded into
+`fillStringRegion` in the same change; semgrep never fingerprinted it because the diff did not
+touch it, and leaving it would have handed the finding to whoever refactored nearby next.
+
+**Node — `db:eval:occupation`: family precision 95.7%, floor 97.0%.**
+Lint, typecheck and the whole test suite passed; the retrieval eval did not. 17 wrong-family rows
+against main's 7.
+
+It is **not** a quality regression, and the difference matters. Bisected by reverting
+`_families.jsonl` alone: main scores 98.2%. Then `--failures` named all ten new rows:
+
+```
+want fam_machining  got fam_cnc_turning  "kharad ka kaam karta hun"
+want fam_machining  got fam_cnc_turning  "lathe machine chalata hun"
+want fam_machining  got fam_cnc_turning  "cnc turning ka kaam"
+...ten of them, every one a turning utterance
+```
+
+The retrieval was **righter than the label**. The cause is structural: the gold set is labelled to
+an ISCO unit, so the eval resolves the expected family through a _synthetic_ domain id and only
+unit-and-above bindings can match it. `fam_cnc_turning` binds by `job_domain_id` inside unit 7223,
+alongside `fam_machining` which binds the whole unit — so every utterance that family exists to
+serve scores as WRONG, permanently and by construction. The metric could not express a sub-unit
+family, and until one existed nothing revealed that.
+
+The fix is in the metric, and the floor was not touched. A hit whose unit equals the gold row's
+unit but whose family differs is counted as a **refinement**, not an error, and reported
+separately in the CI log — always, never behind a flag, because the one way a counted-as-correct
+category can do harm is by being invisible. Same-unit is a sound test rather than a convenient
+one: the expected family cannot resolve below unit level, so if the units agree and the families
+differ, the only thing that can have caused it is a domain-level binding inside that unit.
+**Measured:** deleting the same-unit condition fails three tests, including `"darzi"` under unit
+7223, which must stay a failure. Result: **98.2%, exactly main's baseline, with main's same 7
+failures.**
+
+### 9.2 — §3.1 Page fit: the margin, not the verdict
+
+`28/28 on one page` was a binary and the directive was right that it hides the distribution.
+Re-measured properly: binary-search the shortest page height at which each sheet still renders on
+ONE page, using WeasyPrint's own layout (`headroom = 297 mm − that height`), resolution 0.25 mm.
+This is a whole-page measurement, so margins, break behaviour and the footer's flex row are all in
+it — which "bottom of the last box" is not.
+
+| headroom    | sheet             | headroom  | sheet             |
+| ----------- | ----------------- | --------- | ----------------- |
+| **0.00 mm** | shape-09-worker   | 32.00 mm  | shape-08-worker   |
+| 3.76 mm     | shape-06-worker   | 37.77 mm  | shape-08-employer |
+| 5.65 mm     | shape-09-employer | 102.02 mm | shape-07-worker   |
+| 9.41 mm     | shape-06-employer | 105.79 mm | shape-02-worker   |
+| 9.91 mm     | shape-05-worker   | ...       | ...               |
+| 15.56 mm    | shape-05-employer | 162.51 mm | shape-13-worker   |
+| 20.96 mm    | shape-11-worker   | 168.15 mm | shape-13-employer |
+| 26.73 mm    | shape-11-employer | 231.53 mm | shape-14 (both)   |
+
+**Worst case: shape 9's worker copy, 0.00 mm.** It fits at exactly 297 mm and spills at 296.75 mm.
+The one-page contract holds on that sheet by nothing at all. Only five of the fourteen shapes are
+under 20 mm, and they are exactly the five built to overflow — the design's own examples all sit
+above 100 mm, which is precisely why measuring against them proved so little.
+
+**Does the reserve survive what is queued? No — and that is the answer, not a caveat.** Both items
+land inside Zone 4 and Zone 5. Measured directly on shape-09-worker:
+
+```
++ one Zone 5 row (a Phase C certificate line)   -> pages@A4 = 2
++ one Zone 4 block (a captured employer)        -> pages@A4 = 2
+```
+
+So **work-history capture and Phase C each break the one-page contract on the worst-case sheet on
+their first row.** Not eventually: immediately. Whichever lands first has to arrive with a
+degradation stage for the shapes at the bottom of that table — a fifth capability row dropping, or
+the employment block collapsing to the count line earlier. That is a real design item, it belongs
+to the change that spends the margin, and flagging it now is the whole point of having measured.
+
+Seeded fixtures are also shorter and more regular than real data. These sheets use realistic
+employer names and a full credentials block, but nothing here has met a real Hinglish certificate
+string, so the numbers above are an optimistic bound on the shapes at the top of the table.
+
+### 9.3 — §3.2 The QR: a real fixture gap whose conclusion survived
+
+**The gap was real.** Every fixture carried `qrDataUri: null`, so none of the 28 sheets had a QR
+and the footer being measured was not the one production prints. Nothing asserted otherwise.
+
+**The inference from it was wrong, and the two get separated.** `.qr` reserves 18 mm × 18 mm in
+the section that was overflowing, so the expected cost was ~12 mm of page and a re-broken one-page
+contract. Measured across the sheets, with and without:
+
+```
+sheet                     no-QR (mm)  with-QR (mm)   delta
+shape-09-worker.html            0.00        0.00      0.00
+shape-06-worker.html            3.76        3.76      0.00
+shape-05-worker.html            9.91        9.91      0.00
+shape-08-worker.html           32.00       32.00      0.00
+shape-11-worker.html           20.96       20.96      0.00
+shape-01-worker.html          133.14      133.14      0.00
+```
+
+**Zero, on every sheet.** `.foot` is a flex ROW and `.foot-txt` is five lines at 8.6 pt / 1.43 —
+about 21.7 mm — so the text column is already taller than the image and the QR costs width, not
+height. The fixture was wrong; the page-fit conclusion it fed was not. It also means any future
+change that SHORTENS the footer text silently hands the 18 mm box back its ability to drive the
+page height.
+
+`sheet-qr.gate.test.ts` — 31 tests — now asserts, on every sheet:
+
+- exactly one QR, as an inline SVG data URI, never a raster and never a remote fetch;
+- a legal module count (`17 + 4v`), which is also what proves no quiet zone was baked into the
+  symbol — with the spec's 4-module margin the viewBox would be `N + 8`, never a legal size, and
+  the modules would have shrunk INSIDE the reserved box instead of gaining space around them;
+- **module size ≥ 0.5 mm.** Today: 25 modules in 18 mm = **0.720 mm**;
+- the CSS box equals `RESUME_QR.RENDERED_MM`, so the constant every margin is reasoned from cannot
+  drift from the box that actually prints;
+- the bytes are the **level-Q** encoding — compared against what L, M, Q and H actually produce,
+  not read off a constant. Q and L land on the same version for today's short URL, so size alone
+  cannot tell them apart; asserting `!= L` and `!= H` is what makes the equality mean "level Q";
+- the **scheduled** deep link stays above the floor: `/w/<code>` → 29 modules → 0.621 mm.
+
+The 0.5 mm floor is from the QR printing literature, not from the guideline — §6.3's photocopy
+clause governs fills and hairlines and says nothing about a symbol. Flagged for redline as
+`NEEDS_PRAKASH` Q7.
+
+**And it found a defect on its first run.** One `try` in `resume-render.processor.ts` wrapped the
+attributes load, the phone decrypt, the QR build, the employments load and the entire footer. A
+throw from `loadTradeSheet` left the context null — costing the sheet its phone (owner-ruled onto
+both copies), its QR, its ref code and its footer, none of which read a single trade attribute.
+The file's own comment one level down states the rule this broke: _"a failure here must cost the
+work history and nothing else."_ Now four independent steps, each degrading alone, and the context
+is never null. The sheet rendered perfectly without any of it, which is why nothing had noticed.
+
+**One asymmetry surfaced and deliberately not fixed:** the payer disclosure path supplies no QR at
+all. That is `NEEDS_PRAKASH` Q6, because putting a scannable link on a payer-facing artifact is a
+disclosure decision. Worth recording separately: the 14-shape matrix asserts the payer copy
+withholds exactly three things and **could not have caught this**, because it builds both
+audiences from ONE context — an asymmetry introduced by two different callers is invisible to it.
+
+### 9.4 — §3.3 Is the DB step actually gated?
+
+**It runs on every `pull_request` to `main` whose diff touches the relevant paths — no runner
+label, no manual arming.** The step itself is unconditional; the gating is one level up.
+
+- `.github/workflows/ci.yml` triggers on `pull_request: branches: [main]`.
+- The step lives in the `e2e` job, whose only condition is
+  `if: needs.changes.outputs.e2e == 'true'` — a `dorny/paths-filter` on `apps/api/**`,
+  `packages/**`, `tests/**`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `turbo.json`,
+  `apps/ai-service/**`, and `.github/workflows/ci.yml`.
+- The step carries no `if:` and no `continue-on-error:`.
+
+**The XFAIL flip is safe.** `turner-reach.db.test.ts` is in `apps/api/`, and the B0b bridge will be
+too, so any change that could make the turner reachable also fires the filter. It cannot land
+while the gate sits skipped.
+
+The step's own internal assertions are what make its green non-vacuous: it asserts per FILE that
+each gate ran and was not `skipped` (`describe.skipIf` would otherwise exit 0 reporting "skipped"),
+and that exactly `Test Files 9 passed (9)` ran — so an arg-forwarding slip that reruns the whole
+suite fails loudly instead of passing on unrelated tests.
+
+**Verified on PR #1292, not reasoned:** the `e2e` job's step conclusions are all `success`,
+including `DB-backed gates (... + turner reach)`.
+
+### 9.5 — CI status, by job
+
+Run `33128894992` on `a2e925e3`:
+
+| job                                                | result                                                                                                             |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| changes                                            | pass                                                                                                               |
+| Node (lint / typecheck / test / build)             | **fail** — `db:eval:occupation` (§9.1); lint / typecheck / test all passed                                         |
+| AI service (pytest / ruff)                         | pass                                                                                                               |
+| E2E (Phase 1 onboarding flow)                      | **pass** — incl. the 9-file DB-gated step                                                                          |
+| sast / SAST (semgrep OSS)                          | pass (after the fix; failed on `66e2f72e`)                                                                         |
+| worker-app / payer-app (analyze / test)            | pass                                                                                                               |
+| deps-audit                                         | pass                                                                                                               |
+| Image gate (ai-service / payer-web / admin-web)    | pass                                                                                                               |
+| Migration drift · Migration sequence               | pass — **but both assertions are `continue-on-error: true`**; the drift STEP genuinely succeeded, checked directly |
+| Payer app (build + release APK) · Supabase Preview | **skipping**                                                                                                       |
+| ci-required                                        | fail (Node)                                                                                                        |
+
+Two `skipping` entries, named because a skipped gate reads green and is not one. `Payer app (build
+
+- release APK)`runs only on`main`, and `Supabase Preview` is the vendor integration, not a gate
+  in this repo.
+
+### 9.6 — Local gates after the fixes
+
+```
+apps/api      vitest run              361 files   6347 passed | 85 skipped   exit 0
+packages/db   vitest run (from pkg)   107 files   2333 passed | 12 skipped   exit 0
+apps/api      tsc --noEmit                                                    exit 0
+db:eval:occupation   hit rate 97.0% >= 95.0% · family precision 98.2% >= 97.0%  exit 0
+WeasyPrint    28 sheets / 28 one-page / 0 over · worst headroom 0.00 mm
+```

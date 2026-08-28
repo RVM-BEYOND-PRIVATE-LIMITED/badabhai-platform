@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
-import { SHEET_SHAPES } from "./__fixtures__/sheet-shapes";
+import { primeSheetQr, SHEET_SHAPES, withSheetQr } from "./__fixtures__/sheet-shapes";
+
+// Render exactly what the other suites render. The QR is an attribute rather than printed
+// text, so it changes nothing this gate reads — which is itself worth having asserted.
+beforeAll(primeSheetQr);
 import { buildResumeRenderInput } from "./resume-render-input";
 import { TRADE_RESUME_MAPS } from "./trade-resume-map";
 
@@ -124,7 +128,7 @@ function printedStrings(shape: (typeof SHEET_SHAPES)[number], audience: "worker"
     null,
     false,
     audience,
-    shape.tradeSheet,
+    withSheetQr(shape.tradeSheet),
   );
   const out: string[] = [];
   const push = (v: string | null | undefined) => {
