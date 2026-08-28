@@ -44,6 +44,13 @@ A4_MM = 297.0
 SEARCH_STEP_MM = 0.25
 DEFAULT_FLOOR_MM = 5.0
 
+# One rendered body line, in millimetres. MUST match `LINE_MM` in
+# apps/api/src/resume/resume-degradation.ts — it is the unit the estimator's whole model is
+# denominated in, and the per-sheet fitted constant below is meaningless if the two disagree.
+# Duplicated rather than imported because this file runs inside the WeasyPrint container, which
+# has no Node; a guard test on the TS side pins the pair.
+LINE_MM = 4.89
+
 # How optimistic the LINE ESTIMATOR is allowed to be against the millimetres WeasyPrint produced.
 #
 # WHY THIS EXISTS (R8 §3). The one-page contract had two checks and neither could observe it. The
@@ -94,6 +101,11 @@ def main() -> int:
     ap.add_argument("sheet_dir")
     ap.add_argument("--floor-mm", type=float, default=DEFAULT_FLOOR_MM)
     ap.add_argument("--optimism-mm", type=float, default=DEFAULT_OPTIMISM_TOLERANCE_MM)
+    # WRITE THE MEASUREMENTS OUT, because a number that lives only in a report is not evidence.
+    # R8 recorded "every residual positive, +8.47 to +39.57 mm" in prose and nothing in the repo
+    # backed it; re-fitting the line budget against that spread then had no data to fit AGAINST.
+    # This is the artifact: one row per sheet, with the per-sheet fitted constant.
+    ap.add_argument("--json-out", help="write the per-sheet measurements to this path")
     args = ap.parse_args()
 
     files = sorted(glob.glob(os.path.join(args.sheet_dir, "*.html")))
@@ -168,6 +180,40 @@ def main() -> int:
         print("::error::%s: the line estimator predicted %.2f mm of headroom and the render gave "
               "%.2f mm (%+.2f mm optimistic) — the ladder is deciding on a wrong number"
               % (name, pred, measured, residual))
+
+    if args.json_out:
+        # PER-SHEET, WITH THE FITTED CONSTANT. The estimator's model is
+        #     headroom = C - LINE_MM * lines
+        # so each measured sheet yields its own C. The shipped budget takes the WORST observed C
+        # and subtracts the floor; recording every C is what makes a re-fit checkable rather than
+        # argued, and what shows whether the spread is tight enough for the worst case to be a
+        # sensible choice at all.
+        rows = []
+        for h, name in results:
+            row = stages.get(name, {})
+            lines = row.get("lines")
+            pred = row.get("predictedHeadroomMm")
+            fitted_c = (
+                h + LINE_MM * lines
+                if h is not None and isinstance(lines, (int, float))
+                else None
+            )
+            rows.append({
+                "file": name,
+                "shape": row.get("shape"),
+                "variant": row.get("variant"),
+                "audience": row.get("audience"),
+                "measured_headroom_mm": h,
+                "predicted_headroom_mm": pred,
+                "residual_mm": None if (h is None or pred is None) else round(h - pred, 2),
+                "lines": lines,
+                "fitted_c_mm": None if fitted_c is None else round(fitted_c, 2),
+                "stage": row.get("stage"),
+                "dropped": row.get("dropped", []),
+            })
+        with open(args.json_out, "w", encoding="utf-8") as fh:
+            json.dump({"line_mm": LINE_MM, "floor_mm": args.floor_mm, "sheets": rows}, fh, indent=2)
+        print("wrote %d measurements to %s" % (len(rows), args.json_out))
 
     return 1 if (over or under or optimistic) else 0
 

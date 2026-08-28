@@ -1,0 +1,213 @@
+{
+  "capSectionTitle": "Machines, controllers & capability",
+  "capChipRows": [
+    {
+      "label": "Machines",
+      "values": [
+        "CNC lathe / turning centre",
+        "Conventional lathe",
+        "VTL"
+      ],
+      "key": "turning_machine",
+      "rank": 21
+    },
+    {
+      "label": "Controllers",
+      "values": [
+        "Fanuc",
+        "Siemens",
+        "Mitsubishi"
+      ],
+      "key": "controller_brand",
+      "rank": 22
+    },
+    {
+      "label": "Materials",
+      "values": [
+        "MS",
+        "EN8 / EN31",
+        "Stainless steel",
+        "Cast iron"
+      ],
+      "key": "material_worked",
+      "rank": 61
+    }
+  ],
+  "capTickRows": [
+    {
+      "label": "Workholding",
+      "values": [
+        "3-jaw chuck",
+        "4-jaw chuck",
+        "Collet",
+        "Soft jaws",
+        "Steady rest"
+      ],
+      "key": "workholding",
+      "rank": 42
+    },
+    {
+      "label": "Setting",
+      "values": [
+        "Tool offset",
+        "Work offset",
+        "Tool nose radius compensation",
+        "Chuck / jaw change",
+        "First-piece setup"
+      ],
+      "key": "setting_operation",
+      "rank": 41
+    },
+    {
+      "label": "Measuring instruments",
+      "values": [
+        "Vernier",
+        "Micrometer",
+        "Bore dial gauge",
+        "Height gauge"
+      ],
+      "key": "measuring_tools",
+      "rank": 51
+    }
+  ],
+  "capFactRows": [
+    {
+      "label": "Programming",
+      "value": "Edits programs (G-code / M-code)",
+      "key": "programming_level",
+      "rank": 43
+    },
+    {
+      "label": "Drawings",
+      "value": "Reads 2D drawings and GD&T",
+      "key": "drawing_reading",
+      "rank": 44
+    },
+    {
+      "label": "Machine capability",
+      "value": "Live tooling · Bar feeder · Sub-spindle",
+      "key": "advanced_capability",
+      "rank": 23
+    }
+  ],
+  "qualTickRows": [
+    {
+      "label": "Documents ready",
+      "values": [
+        "Aadhaar",
+        "PAN",
+        "Bank account",
+        "UAN / PF",
+        "ITI certificate",
+        "Experience letter",
+        "Passport photos"
+      ]
+    }
+  ],
+  "employments": [
+    {
+      "employer": "Harsha Precision Turned Components",
+      "location_suffix": " · Faridabad, Haryana",
+      "role_inline": "",
+      "when": "Sep 2022 – Present · 4 yrs",
+      "work": "CNC lathe, bar feeder and live tooling, Fanuc · EN8, EN31, SS316 · oil and gas fittings",
+      "roles": [
+        {
+          "role": "CNC Setter-cum-Operator",
+          "when": "Apr 2024 – Present · 2 yrs 5 mo"
+        },
+        {
+          "role": "CNC Turner",
+          "when": "Sep 2022 – Mar 2024 · 1 yr 7 mo"
+        }
+      ]
+    },
+    {
+      "employer": "Kalyani Turned Parts",
+      "location_suffix": " · Manesar, Haryana",
+      "role_inline": " — CNC Turner",
+      "when": "Apr 2020 – Aug 2022 · 2 yrs 5 mo",
+      "work": "CNC lathe, Siemens · alloy steel · automotive shafts",
+      "roles": []
+    },
+    {
+      "employer": "National Engineering Works",
+      "location_suffix": " · Faridabad, Haryana",
+      "role_inline": " — Lathe Operator",
+      "when": "May 2018 – Mar 2020 · 1 yr 11 mo",
+      "work": "Conventional lathe and VTL, Mitsubishi · MS and cast iron · general engineering",
+      "roles": []
+    }
+  ],
+  "employmentsMore": null,
+  "phone": "+91 98765 43210",
+  "nameDevanagari": null,
+  "trustBadge": null,
+  "qrDataUri": "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2025%2025%22%20shape-rendering%3D%22crispEdges%22%3E%3Cpath%20fill%3D%22%23ffffff%22%20d%3D%22M0%200h25v25H0z%22%2F%3E%3Cpath%20stroke%3D%22%23000000%22%20d%3D%22M0%200.5h7m1%200h4m2%200h2m2%200h7M0%201.5h1m5%200h1m1%200h1m2%200h3m1%200h1m2%200h1m5%200h1M0%202.5h1m1%200h3m1%200h1m1%200h1m2%200h2m2%200h1m2%200h1m1%200h3m1%200h1M0%203.5h1m1%200h3m1%200h1m1%200h2m1%200h1m2%200h1m3%200h1m1%200h3m1%200h1M0%204.5h1m1%200h3m1%200h1m1%200h4m1%200h4m1%200h1m1%200h3m1%200h1M0%205.5h1m5%200h1m2%200h2m1%200h2m1%200h2m1%200h1m5%200h1M0%206.5h7m1%200h1m1%200h1m1%200h1m1%200h1m1%200h1m1%200h7M8%207.5h4m1%200h3M1%208.5h2m1%200h1m1%200h2m3%200h1m2%200h3m1%200h1m1%200h5M1%209.5h1m1%200h2m3%200h1m1%200h2m4%200h3m5%200h1M0%2010.5h2m1%200h1m2%200h3m1%200h4m4%200h1m3%200h3M0%2011.5h3m1%200h1m3%200h1m2%200h1m3%200h1m3%200h1m3%200h1M0%2012.5h1m1%200h1m1%200h3m1%200h1m1%200h2m4%200h3m2%200h1m1%200h2M4%2013.5h1m2%200h1m2%200h3m3%200h3m2%200h1m2%200h1M0%2014.5h1m2%200h1m2%200h3m2%200h2m1%200h1m1%200h4m2%200h3M1%2015.5h2m5%200h1m1%200h3m1%200h2m1%200h1m2%200h1m2%200h1M0%2016.5h1m1%200h3m1%200h3m2%200h2m2%200h7M8%2017.5h1m2%200h2m1%200h3m3%200h2m1%200h2M0%2018.5h7m1%200h2m3%200h1m1%200h2m1%200h1m1%200h2m1%200h2M0%2019.5h1m5%200h1m2%200h3m2%200h1m1%200h1m3%200h2m2%200h1M0%2020.5h1m1%200h3m1%200h1m1%200h2m1%200h1m1%200h2m1%200h6m2%200h1M0%2021.5h1m1%200h3m1%200h1m3%200h1m1%200h1m2%200h2m2%200h4M0%2022.5h1m1%200h3m1%200h1m1%200h3m5%200h1m3%200h1m3%200h1M0%2023.5h1m5%200h1m1%200h2m1%200h3m1%200h3m2%200h2m1%200h1M0%2024.5h7m2%200h3m2%200h6m3%200h2%22%2F%3E%3C%2Fsvg%3E%0A",
+  "qrCaption": "Scan to open this worker's live profile",
+  "shortLink": "badabhai.ai",
+  "footerMeta": "Generated 27 August 2026 · Self-declared · Ref RK8M2Q",
+  "transcriptVetoes": [],
+  "ownWords": [],
+  "headlineLine": "CNC Setter-cum-Operator · 8 yrs · Fanuc, Siemens, Mitsubishi",
+  "subheadLine": "Faridabad · available in 15 days · expects ₹32,000 / month",
+  "availFactRows": [
+    {
+      "label": "Available from",
+      "value": "15 days"
+    },
+    {
+      "label": "Salary expected",
+      "value": "₹32,000 / month"
+    },
+    {
+      "label": "Preferred locations",
+      "value": "Faridabad, Gurugram, Manesar · Willing to relocate"
+    },
+    {
+      "label": "Shift",
+      "value": "Rotational shifts · Permanent"
+    }
+  ],
+  "qualFactRows": [
+    {
+      "label": "Education",
+      "value": "ITI ya diploma — Turner · NCVT · 2018 · Govt. ITI, Faridabad"
+    },
+    {
+      "label": "Certificates",
+      "value": "CNC Turning & Setting"
+    },
+    {
+      "label": "Languages spoken",
+      "value": "Hindi · Haryanvi · English"
+    }
+  ],
+  "templateId": "bb_trade",
+  "displayName": "Ramesh Kumar Yadav",
+  "photoDataUri": null,
+  "canonicalRole": "CNC Setter-cum-Operator",
+  "trade": "Manufacturing",
+  "location": "Faridabad",
+  "experienceYears": 8,
+  "availability": "Available in 15 days",
+  "summary": "CNC Setter-cum-Operator with 8 years of experience in Manufacturing.",
+  "skills": [
+    "CNC turning",
+    "canned cycles",
+    "GD&T"
+  ],
+  "experiences": [],
+  "preferredLocations": [],
+  "expectedSalary": 32000,
+  "machines": [],
+  "controllers": [],
+  "education": [],
+  "certifications": [],
+  "educationLevel": null,
+  "educationField": null,
+  "responsibilities": [],
+  "degradationStage": 0,
+  "degradationDropped": [],
+  "degradationTrace": []
+}

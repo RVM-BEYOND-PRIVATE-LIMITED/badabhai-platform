@@ -349,11 +349,25 @@ function buildUndegraded(
   // `education_field`, which the answer-map crosswalk DOES carry onto the draft
   // (`crosswalk.ts:45-46`) — so the container path had a real source for Zone 5's education row
   // all along and was reading only the caller-supplied block, which no production caller sets.
+  //
+  // R9 §3 — THE FOUR-COMPONENT CREDENTIAL, and it is composed from TWO surfaces on purpose.
+  // The ratified sheet prints "ITI — Machinist · NCVT · 2018 · Govt. ITI, Faridabad": the level
+  // and the trade are asked in the interview and ride the crosswalk onto the draft; the council,
+  // the year and the institute are the finishing form's, because none of the three needs a model
+  // and a closed council set is the only way §4.5's "never collapse NCVT and SCVT" can be
+  // enforced at all. The em-dash joins the level to the trade, exactly as the sample does; the
+  // middot joins everything after it. Each segment takes its own separator with it when absent,
+  // so a worker who answered only the level still gets "ITI" and nothing else.
   const educationHeadline =
-    [humanizeEducationLevel(draft.education_level), draft.education_field]
-      .map((v) => v?.trim())
+    [
+      [humanizeEducationLevel(draft.education_level), draft.education_field]
+        .map((v) => v?.trim())
+        .filter((v): v is string => Boolean(v))
+        .join(" — ") || null,
+      preferences.educationDetail,
+    ]
       .filter((v): v is string => Boolean(v))
-      .join(" — ") || null;
+      .join(" · ") || null;
 
   if (resumeProfileCarriesValues(draft.resume_profile)) {
     return fromResumeProfile(

@@ -77,6 +77,14 @@ export class WorkerPreferencesService {
       if (value === null) cleared.push(key);
       else rows.push(this.row(workerId, key, { valueBool: value }));
     };
+    // A `numeric` column, so the value is written as a STRING. `worker-attributes.repository.ts`
+    // reads it back through `Number()` for the same reason pg returns it as text: a 14,4 numeric
+    // must not lose precision on the way out, and every consumer compares it as a JS number.
+    const number = (key: PreferenceKey, value: number | null | undefined) => {
+      if (value === undefined) return;
+      if (value === null) cleared.push(key);
+      else rows.push(this.row(workerId, key, { valueNumber: String(value) }));
+    };
 
     list("languages", dto.languages);
     list("documents_ready", dto.documents_ready);
@@ -85,6 +93,11 @@ export class WorkerPreferencesService {
     scalar("shift_preference", dto.shift);
     flag("relocation_willingness", dto.willing_to_relocate);
     flag("accommodation_needed", dto.accommodation_needed);
+    // R9 §3 — the credential's three missing components. Same three-state contract as everything
+    // above: absent leaves the stored value alone, null clears the row.
+    scalar("education_council", dto.education_council);
+    number("education_year", dto.education_year);
+    scalar("education_institute", dto.education_institute);
 
     await this.attributes.upsertMany(rows);
     await this.attributes.deleteKeys(workerId, cleared);
@@ -119,7 +132,9 @@ export class WorkerPreferencesService {
   private row(
     workerId: string,
     key: PreferenceKey,
-    value: Partial<Pick<NewWorkerAttribute, "valueText" | "valueTextList" | "valueBool">>,
+    value: Partial<
+      Pick<NewWorkerAttribute, "valueText" | "valueTextList" | "valueBool" | "valueNumber">
+    >,
   ): NewWorkerAttribute {
     return {
       workerId,
@@ -130,7 +145,7 @@ export class WorkerPreferencesService {
       // to get out of step.
       valueKind: PREFERENCE_KEYS[key],
       valueBool: value.valueBool ?? null,
-      valueNumber: null,
+      valueNumber: value.valueNumber ?? null,
       valueText: value.valueText ?? null,
       valueTextList: value.valueTextList ?? null,
       source: "answer_map",

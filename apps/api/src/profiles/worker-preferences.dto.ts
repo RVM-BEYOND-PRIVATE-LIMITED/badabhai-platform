@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { canonicalCity } from "@badabhai/profiling-lexicon";
 
-import { DOCUMENTS_READY, JOB_TYPES, LANGUAGES, SHIFTS } from "./worker-preferences.vocabulary";
+import {
+  DOCUMENTS_READY,
+  EDUCATION_COUNCILS,
+  JOB_TYPES,
+  LANGUAGES,
+  SHIFTS,
+} from "./worker-preferences.vocabulary";
 
 /**
  * The post-interview finishing form's closed-set page (R6 §4).
@@ -86,6 +92,35 @@ export const SetMyPreferencesSchema = z
      */
     willing_to_relocate: z.boolean().nullable().optional(),
     accommodation_needed: z.boolean().nullable().optional(),
+
+    // ── THE CREDENTIAL'S THREE MISSING COMPONENTS (R9 §3) ────────────────────────────
+    //
+    // The ratified sheet prints "ITI — Machinist · NCVT · 2018 · Govt. ITI, Faridabad". We held
+    // the level and the trade and nothing else, so three of five segments had no source at all.
+    //
+    // A FORM, NOT AN INTERVIEW ASK, and the routing rule is the same one that put languages and
+    // documents here: a council is a closed set, a year is a number, and an institute name is
+    // something the worker reads off a certificate. None needs a model, none can be misparsed,
+    // and the engine's ask budget belongs to the questions where phrasing carries meaning.
+    education_council: z.enum(optionsOf(EDUCATION_COUNCILS)).nullable().optional(),
+    /**
+     * The year the credential was awarded.
+     *
+     * BOUNDED, AND NOT AT "any four digits". A year in the future or before living memory is a
+     * typo, and a typo printed on a résumé beside a real credential does more damage than a
+     * missing segment. The floor is 1950 (a worker awarded earlier is past retirement) and the
+     * ceiling is deliberately generous — a certificate can be dated the year it is issued.
+     */
+    education_year: z.number().int().min(1950).max(2100).nullable().optional(),
+    /**
+     * The institute, as the worker reads it off the certificate.
+     *
+     * FREE TEXT, because there is no national register of ITI names this could validate against
+     * and inventing a closed set would silently drop every institute not on it. It is the ONE
+     * free-text field on this form; the length cap is what keeps it a name rather than a
+     * paragraph, and `looksLikePii` screens it at the render boundary like every other string.
+     */
+    education_institute: z.string().trim().min(1).max(120).nullable().optional(),
   })
   .strict();
 

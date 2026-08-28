@@ -1,5 +1,6 @@
 import {
   DOCUMENTS_READY,
+  EDUCATION_COUNCILS,
   JOB_TYPES,
   LANGUAGES,
   SHIFTS,
@@ -34,6 +35,17 @@ export interface ResumePreferenceFacts {
   /** Undefined means UNANSWERED. Only `true` ever prints; see `buildAvailabilityRows`. */
   readonly willingToRelocate: boolean | undefined;
   readonly accommodationNeeded: boolean | undefined;
+  /**
+   * "NCVT · 2018 · Govt. ITI, Faridabad" — the credential's three captured components, joined
+   * (R9 section 3). NULL when the worker answered none of them.
+   *
+   * THE TRAILING SEGMENTS ONLY. The level and the trade ("ITI - Machinist") come from the answer
+   * map's `education_level` / `education_field` and are composed by the caller, because those two
+   * are asked in the interview and these three on the form. Joining all five here would put a
+   * fact from one surface inside a value read from another, and the caller is where the sheet
+   * already decides which source wins.
+   */
+  readonly educationDetail: string | null;
 }
 
 export const NO_PREFERENCES: ResumePreferenceFacts = {
@@ -43,6 +55,7 @@ export const NO_PREFERENCES: ResumePreferenceFacts = {
   shiftLine: null,
   willingToRelocate: undefined,
   accommodationNeeded: undefined,
+  educationDetail: null,
 };
 
 function stringList(value: unknown): string[] {
@@ -51,6 +64,19 @@ function stringList(value: unknown): string[] {
 
 function scalar(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+/**
+ * A stored `numeric` attribute as a printable year.
+ *
+ * `worker-attributes.repository.ts` already converts the column to a JS number on read, but a row
+ * written before that conversion existed - or by any other writer - can still arrive as a string,
+ * so both shapes are accepted and anything else yields nothing. A year is printed as an integer:
+ * "2018", never "2018.0000", which is what the 14,4 column would otherwise give.
+ */
+function year(value: unknown): string | null {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isInteger(n) && n > 0 ? String(n) : null;
 }
 
 function flag(value: unknown): boolean | undefined {
@@ -80,5 +106,15 @@ export function readPreferenceFacts(
     shiftLine: [shift, jobType].filter((v): v is string => v !== null).join(" · ") || null,
     willingToRelocate: flag(attributes.relocation_willingness),
     accommodationNeeded: flag(attributes.accommodation_needed),
+    // COUNCIL, YEAR, INSTITUTE - in the order the ratified sheet prints them, each dropping its
+    // own separator when absent. A worker who gave only the year gets "2018", not "· 2018 ·".
+    educationDetail:
+      [
+        labelFor(EDUCATION_COUNCILS, scalar(attributes.education_council) ?? ""),
+        year(attributes.education_year),
+        scalar(attributes.education_institute),
+      ]
+        .filter((v): v is string => Boolean(v))
+        .join(" · ") || null,
   };
 }

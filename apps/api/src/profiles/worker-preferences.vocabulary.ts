@@ -96,6 +96,33 @@ export const SHIFTS: PreferenceVocabulary = {
 };
 
 /**
+ * The awarding COUNCIL of a trade credential (R9 §3).
+ *
+ * §4.5 FORBIDS COLLAPSING NCVT AND SCVT, and until this existed the rule was unenforceable
+ * rather than merely unimplemented: nothing in the pack corpus, the contract or the schema could
+ * represent the distinction at all, so there was no value to collapse. The ratified sheet prints
+ * it as its own segment — "ITI — Machinist · NCVT · 2018 · Govt. ITI, Faridabad".
+ *
+ * WHY IT MATTERS TO A SUPERVISOR, which is the only reason a row earns space: NCVT is the
+ * national certificate and SCVT the state one, and they are not interchangeable for a job that
+ * requires a specific trade certificate. Printing "ITI" alone throws away the distinction the
+ * employer is actually checking.
+ *
+ * A CLOSED SET WITH NO "OTHER". A council the list does not know yields no segment rather than a
+ * raw slug — the same rule every other dictionary here follows.
+ */
+export const EDUCATION_COUNCILS: PreferenceVocabulary = {
+  ncvt: "NCVT",
+  scvt: "SCVT",
+  nsqf: "NSQF",
+  aicte: "AICTE",
+  state_board: "State board",
+  cbse: "CBSE",
+  icse: "ICSE",
+  open_school: "NIOS / Open school",
+};
+
+/**
  * Every attribute key this form writes, and the storage kind each one takes.
  *
  * KEYS MATCH `wa_attribute_key_chk` (`^[a-z_]+$`, ≤ 40) and two of them deliberately match keys
@@ -111,6 +138,13 @@ export const PREFERENCE_KEYS = {
   shift_preference: "text",
   relocation_willingness: "boolean",
   accommodation_needed: "boolean",
+  // R9 §3 — the three components of a credential the sheet prints and nothing captured. The
+  // TRADE is not here: `education_field` already holds it, it rides the answer-map crosswalk onto
+  // the draft, and adding a second key for the same fact is how two sources start disagreeing
+  // about one worker's ITI.
+  education_council: "text",
+  education_year: "number",
+  education_institute: "text",
 } as const;
 
 export type PreferenceKey = keyof typeof PREFERENCE_KEYS;
