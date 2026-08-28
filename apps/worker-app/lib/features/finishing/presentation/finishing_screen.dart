@@ -13,6 +13,7 @@ import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_toggle.dart';
 import '../../../router.dart';
 import '../../voice_form/presentation/widgets/voice_dot_rail.dart';
+import '../domain/finishing_models.dart';
 import 'cubit/finishing_cubit.dart';
 import 'widgets/employer_card.dart';
 
@@ -38,6 +39,43 @@ const String _kCitiesSubtitle = 'Sheher daalein — ek se zyada bhi chalega.';
 const String _kCityHint = 'Sheher ka naam likhein';
 const String _kRelocateLabel = 'Doosre sheher ja sakte hain?';
 const String _kAccommodationLabel = 'Rehne ki jagah chahiye?';
+
+const String _kPayEduTitle = 'Salary aur padhai';
+const String _kPayEduSubtitle = 'Jo laagu ho, wahi bharein — sab optional hai.';
+const String _kSalaryMaxLabel = 'Zyada se zyada salary (mahina)';
+const String _kSalaryMaxHint = 'Jaise: 25000';
+const String _kCredentialLabel = 'Agar ITI ya Diploma hai to kaun sa?';
+const String _kCouncilLabel = 'Council / board';
+const String _kEduYearLabel = 'Kis saal poora hua';
+const String _kEduYearHint = 'Jaise: 2018';
+const String _kInstituteLabel = 'Institute ka naam';
+const String _kInstituteHint = 'Jaise: Govt. ITI, Faridabad';
+
+// #1298 — the education vocabularies are NOT served by the options endpoint, so
+// they are pinned here from the authoritative source
+// (apps/api/src/profiles/worker-preferences.vocabulary.ts). A slug outside these
+// dictionaries is rejected by the API, so keep them in lockstep with that file.
+const Map<String, String> _kCredentials = <String, String>{
+  'iti': 'ITI',
+  'diploma': 'Diploma',
+};
+const Map<String, String> _kCouncils = <String, String>{
+  'ncvt': 'NCVT',
+  'scvt': 'SCVT',
+  'nsqf': 'NSQF',
+  'aicte': 'AICTE',
+  'state_board': 'State board',
+  'cbse': 'CBSE',
+  'icse': 'ICSE',
+  'open_school': 'NIOS / Open school',
+};
+
+// Server bounds (worker-preferences.dto.ts) — guard at the input edge so an
+// out-of-range number is simply not sent, never a doomed 400.
+const int _kSalaryMin = 1000;
+const int _kSalaryMax = 500000;
+const int _kYearMin = 1950;
+const int _kYearMax = 2100;
 
 const String _kHistoryTitle = 'Aapne pehle kahan kaam kiya?';
 const String _kHistorySubtitle = 'Zyada se zyada 4 jagah likh sakte hain.';
@@ -180,6 +218,7 @@ class _WizardScaffold extends StatelessWidget {
     _kDocTitle,
     _kShiftTitle,
     _kCitiesTitle,
+    _kPayEduTitle,
     _kHistoryTitle,
   ];
   static const List<String> _subtitles = <String>[
@@ -187,6 +226,7 @@ class _WizardScaffold extends StatelessWidget {
     _kDocSubtitle,
     _kShiftSubtitle,
     _kCitiesSubtitle,
+    _kPayEduSubtitle,
     _kHistorySubtitle,
   ];
 
@@ -288,6 +328,8 @@ class _PageBody extends StatelessWidget {
         );
       case FinishingPage.cities:
         return _CitiesPage(state: state);
+      case FinishingPage.salaryEducation:
+        return _SalaryEducationPage(state: state);
       case FinishingPage.history:
         return _HistoryPage(state: state);
     }
@@ -463,6 +505,96 @@ class _ToggleRow extends StatelessWidget {
         ),
         const SizedBox(width: AppSpacing.s2),
         BbToggle(value: value, onChanged: onChanged, semanticLabel: label),
+      ],
+    );
+  }
+}
+
+/// Salary band max + the ITI/Diploma credential group (#1298). Everything here
+/// is optional: a worker who skips it keeps whatever the interview captured. The
+/// number fields are range-guarded at the edge, so only a valid value is ever
+/// sent and an out-of-range entry simply produces no band / no year.
+class _SalaryEducationPage extends StatefulWidget {
+  const _SalaryEducationPage({required this.state});
+  final FinishingState state;
+  @override
+  State<_SalaryEducationPage> createState() => _SalaryEducationPageState();
+}
+
+class _SalaryEducationPageState extends State<_SalaryEducationPage> {
+  late final TextEditingController _salary = TextEditingController(
+      text: widget.state.prefs.salaryExpectedMax?.toString() ?? '');
+  late final TextEditingController _year = TextEditingController(
+      text: widget.state.prefs.educationYear?.toString() ?? '');
+  late final TextEditingController _institute = TextEditingController(
+      text: widget.state.prefs.educationInstitute ?? '');
+
+  @override
+  void dispose() {
+    _salary.dispose();
+    _year.dispose();
+    _institute.dispose();
+    super.dispose();
+  }
+
+  int? _inRange(String s, int lo, int hi) {
+    final int? v = int.tryParse(s.trim());
+    if (v == null || v < lo || v > hi) return null;
+    return v;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final FinishingCubit cubit = context.read<FinishingCubit>();
+    final WorkPreferences prefs = widget.state.prefs;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _SectionLabel(_kSalaryMaxLabel),
+        FinishingTextField(
+          controller: _salary,
+          hint: _kSalaryMaxHint,
+          label: _kSalaryMaxLabel,
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          onChanged: (String v) =>
+              cubit.setSalaryMax(_inRange(v, _kSalaryMin, _kSalaryMax)),
+        ),
+        const SizedBox(height: AppSpacing.s5),
+        _SectionLabel(_kCredentialLabel),
+        _SingleChips(
+          labels: _kCredentials,
+          selected: prefs.educationCredential,
+          onTap: cubit.selectCredential,
+        ),
+        const SizedBox(height: AppSpacing.s5),
+        _SectionLabel(_kCouncilLabel),
+        _SingleChips(
+          labels: _kCouncils,
+          selected: prefs.educationCouncil,
+          onTap: cubit.selectCouncil,
+        ),
+        const SizedBox(height: AppSpacing.s5),
+        _SectionLabel(_kEduYearLabel),
+        FinishingTextField(
+          controller: _year,
+          hint: _kEduYearHint,
+          label: _kEduYearLabel,
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          onChanged: (String v) =>
+              cubit.setEducationYear(_inRange(v, _kYearMin, _kYearMax)),
+        ),
+        const SizedBox(height: AppSpacing.s5),
+        _SectionLabel(_kInstituteLabel),
+        FinishingTextField(
+          controller: _institute,
+          hint: _kInstituteHint,
+          label: _kInstituteLabel,
+          maxLength: 120,
+          textInputAction: TextInputAction.done,
+          onChanged: cubit.setInstitute,
+        ),
       ],
     );
   }

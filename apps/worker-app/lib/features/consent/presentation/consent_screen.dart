@@ -157,12 +157,59 @@ class _ConsentView extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
+                            // DPDP voice consent notice — approved copy from
+                            // docs/product/voice-consent-notice.DRAFT.md, signed
+                            // off in #1269 (2026-08-28). Rendered verbatim; do
+                            // not paraphrase or re-translate here — a wording
+                            // change belongs in that doc, reviewed again, with
+                            // CURRENT_CONSENT_VERSION bumped alongside it.
+                            //
+                            // NOTE: the doc's closing erasure line ("Aap jab
+                            // chaahein apna data hataane ke liye keh sakte
+                            // hain…") is deliberately NOT rendered yet — the
+                            // doc's own open question #3 says it must not ship
+                            // until #1271 fixes DSAR audio-erase to work even
+                            // when VOICE_NOTES_BUCKET has been unset, which has
+                            // not happened.
                             Text(
-                              // NOTE: this is the product description of the
-                              // processing, not the DPDP notice. The full DPDP
-                              // consent notice is owner/legal copy and is still
-                              // outstanding — do not invent it here.
-                              'We use your answers only to build your work profile and resume.',
+                              'Aapki awaaz record karne ki ijaazat',
+                              style: AppTypography.body(
+                                size: AppTypography.sizeMd,
+                                weight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.s2),
+                            Text(
+                              'Aap chaahein to sawaalon ka jawaab bolkar de sakte hain.',
+                              style: AppTypography.body(
+                                size: AppTypography.sizeMd,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.s3),
+                            Text(
+                              'Agar aap bolkar jawaab dete hain:',
+                              style: AppTypography.body(
+                                size: AppTypography.sizeMd,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.s2),
+                            const _ConsentBullet(
+                              'Aapki awaaz record hoti hai aur humaare paas save rehti hai.',
+                            ),
+                            const _ConsentBullet(
+                              'Us recording ko likhne ke liye hum use Sarvam naam ki ek doosri company ko bhejte hain.',
+                            ),
+                            const _ConsentBullet(
+                              'Recording hamesha ke liye save rehti hai — hum use apne aap nahi hataate.',
+                            ),
+                            const _ConsentBullet(
+                              'Aapki awaaz ka istemaal kisi AI ko sikhaane ke liye nahi kiya jaata.',
+                            ),
+                            const SizedBox(height: AppSpacing.s1),
+                            Text(
+                              'Agar aap ijaazat nahi dete, tab bhi aap poora interview type karke de sakte hain. Kuch bhi kam nahi hota — sirf mic band rehta hai.',
                               style: AppTypography.body(
                                 size: AppTypography.sizeMd,
                                 color: AppColors.textSecondary,
@@ -229,6 +276,43 @@ class _ConsentView extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// One line of the DPDP voice notice's bulleted "what happens" list — a plain
+/// "•" + wrapped text row, so long clauses (the Sarvam sentence) wrap under
+/// the text column instead of under the marker.
+class _ConsentBullet extends StatelessWidget {
+  const _ConsentBullet(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.s2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            '•  ',
+            style: AppTypography.body(
+              size: AppTypography.sizeMd,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              text,
+              style: AppTypography.body(
+                size: AppTypography.sizeMd,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

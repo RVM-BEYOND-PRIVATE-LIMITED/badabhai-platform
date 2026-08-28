@@ -15,7 +15,11 @@ export 'api_models.dart';
 
 /// Current DPDP consent version. Mirrors `CURRENT_CONSENT_VERSION` in
 /// packages/types — keep these in sync when the consent copy changes.
-const String kConsentVersion = '2026-06-01';
+///
+/// 2026-08-28: bumped alongside the voice consent notice copy landing in
+/// `consent_screen.dart` (#1270, approved in #1269) — the version bump and
+/// the words it certifies move together, never separately.
+const String kConsentVersion = '2026-08-28';
 
 /// Hard ceiling on any single HTTP request.
 ///

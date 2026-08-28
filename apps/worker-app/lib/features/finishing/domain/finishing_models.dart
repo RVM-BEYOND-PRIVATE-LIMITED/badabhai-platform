@@ -124,6 +124,11 @@ class WorkPreferences extends Equatable {
     this.shift,
     this.willingToRelocate = false,
     this.accommodationNeeded = false,
+    this.salaryExpectedMax,
+    this.educationCredential,
+    this.educationCouncil,
+    this.educationYear,
+    this.educationInstitute,
   });
 
   final Set<String> languages;
@@ -134,6 +139,24 @@ class WorkPreferences extends Equatable {
   final bool willingToRelocate;
   final bool accommodationNeeded;
 
+  /// Upper end of the expected-salary BAND (#1298, R10 R-1). The interview
+  /// captures the lower end; a max here turns a point figure into a band. Bounded
+  /// 1000–500000 at the input edge (the server rejects out-of-range).
+  final int? salaryExpectedMax;
+
+  /// Which of the two credentials the worker's `iti_diploma` level names —
+  /// `iti` or `diploma` (#1298).
+  final String? educationCredential;
+
+  /// Awarding council slug (ncvt / scvt / nsqf / …) (#1298).
+  final String? educationCouncil;
+
+  /// Year the credential was awarded, bounded 1950–2100 (#1298).
+  final int? educationYear;
+
+  /// Institute as the worker reads it off the certificate, max 120 (#1298).
+  final String? educationInstitute;
+
   WorkPreferences copyWith({
     Set<String>? languages,
     Set<String>? documentsReady,
@@ -142,6 +165,11 @@ class WorkPreferences extends Equatable {
     Object? shift = _sentinel,
     bool? willingToRelocate,
     bool? accommodationNeeded,
+    Object? salaryExpectedMax = _sentinel,
+    Object? educationCredential = _sentinel,
+    Object? educationCouncil = _sentinel,
+    Object? educationYear = _sentinel,
+    Object? educationInstitute = _sentinel,
   }) {
     return WorkPreferences(
       languages: languages ?? this.languages,
@@ -151,6 +179,21 @@ class WorkPreferences extends Equatable {
       shift: shift == _sentinel ? this.shift : shift as String?,
       willingToRelocate: willingToRelocate ?? this.willingToRelocate,
       accommodationNeeded: accommodationNeeded ?? this.accommodationNeeded,
+      salaryExpectedMax: salaryExpectedMax == _sentinel
+          ? this.salaryExpectedMax
+          : salaryExpectedMax as int?,
+      educationCredential: educationCredential == _sentinel
+          ? this.educationCredential
+          : educationCredential as String?,
+      educationCouncil: educationCouncil == _sentinel
+          ? this.educationCouncil
+          : educationCouncil as String?,
+      educationYear: educationYear == _sentinel
+          ? this.educationYear
+          : educationYear as int?,
+      educationInstitute: educationInstitute == _sentinel
+          ? this.educationInstitute
+          : educationInstitute as String?,
     );
   }
 
@@ -168,6 +211,21 @@ class WorkPreferences extends Equatable {
     };
     if (jobType != null) body['job_type'] = jobType;
     if (shift != null) body['shift'] = shift;
+    // #1298 — the salary band max + the education credential group. Same
+    // three-state rule: sent only when the worker gave a value (absent = leave
+    // the stored value alone), so an untouched field never clears an interview
+    // answer. All are `.nullable().optional()` on the server.
+    if (salaryExpectedMax != null) {
+      body['salary_expected_max'] = salaryExpectedMax;
+    }
+    if (educationCredential != null) {
+      body['education_credential'] = educationCredential;
+    }
+    if (educationCouncil != null) body['education_council'] = educationCouncil;
+    if (educationYear != null) body['education_year'] = educationYear;
+    if (educationInstitute != null) {
+      body['education_institute'] = educationInstitute;
+    }
     return body;
   }
 
@@ -180,6 +238,11 @@ class WorkPreferences extends Equatable {
         shift,
         willingToRelocate,
         accommodationNeeded,
+        salaryExpectedMax,
+        educationCredential,
+        educationCouncil,
+        educationYear,
+        educationInstitute,
       ];
 }
 

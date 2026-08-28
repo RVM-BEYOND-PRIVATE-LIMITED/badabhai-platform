@@ -151,6 +151,13 @@ defaults to `""` ([`packages/config/src/server.ts`](../../packages/config/src/se
 
 **Rollback:** unset `VOICE_NOTES_BUCKET` (the voice routes 503 fail-closed again; already-stored
 objects stay put and stay private) and/or re-run `storage-buckets.sql` to re-assert `public = false`.
+Note (#1271): a DSAR erasure for a worker who had audio stored **before** this rollback no longer
+reads as a silent success — `AccountDeletionService` now gates the two audio-deletion legs on
+whether the worker's `voice_notes` rows exist (captured pre-cascade), not on the live config
+value, so a post-rollback erasure request for such a worker is recorded/reported `failed` /
+`INCOMPLETE` rather than `skipped`. There is still no per-row bucket-name record, so once rolled
+back there is no way to actually complete that worker's audio erasure in code — re-arming the
+same bucket name is the only path to a clean re-run.
 
 **Known gap (follow-up, not this change):** `supabase/config.toml` declares only
 `worker-resumes` / `interview-kits`, so `worker-voice-notes` exists in the **remote** apply but

@@ -44,8 +44,16 @@ class ConsentCubit extends Cubit<ConsentState> {
 
   final ConsentRepository _repo;
 
-  /// Phase-1 consent purposes (mirrors the original screen).
-  static const List<String> _purposes = <String>['profiling', 'resume_generation'];
+  /// Consent purposes granted by the single onboarding "I agree" gate.
+  ///
+  /// `voice_processing` added 2026-08-28 (#1270, approved in #1269) alongside
+  /// the DPDP voice notice copy landing in `consent_screen.dart` — the purpose
+  /// is only requested once the worker has actually been shown what it means.
+  static const List<String> _purposes = <String>[
+    'profiling',
+    'resume_generation',
+    'voice_processing',
+  ];
 
   void setAccepted(bool accepted) => emit(state.copyWith(accepted: accepted));
 

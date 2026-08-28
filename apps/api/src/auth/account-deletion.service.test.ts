@@ -418,9 +418,12 @@ describe("AccountDeletionService", () => {
     expect(h.workers.hardDelete).toHaveBeenCalledOnce();
   });
 
-  it("VOICE BUCKET UNSET (default ''): audio erase is DORMANT — deletePdf NOT called for voice keys", async () => {
-    // The dormant seam: voiceKeys exist on rows but with no backend audio bucket today the erase
-    // is skipped (no speculative behavior). Only the resume PDF leg deletes.
+  it("VOICE BUCKET UNSET + rows exist (#1271 rollback state): no delete is ATTEMPTED — deletePdf NOT called for voice keys", async () => {
+    // Rollback state: voiceKeys exist on rows (audio WAS stored) but the current
+    // VOICE_NOTES_BUCKET is unset — there is no per-row bucket name to fall back to, so no
+    // speculative delete is attempted against anything. Only the resume PDF leg deletes.
+    // (The audit/event classification of this leg as FAILED, not skipped, is asserted in the
+    // TD58 describe block below — "a rolled-back bucket with stored rows FAILS LOUD".)
     const h = make({
       resumeKeys: ["r1.pdf"],
       voiceKeys: ["worker/sess/v1.ogg", "worker/sess/v2.ogg"],
@@ -816,6 +819,82 @@ describe("the erasure records what each store actually reported (#712)", () => {
     await h.svc.execute(WORKER_ID);
     expect(legOf(h, "voice_prefix")).toMatchObject({ outcome: "skipped", attempted: 0 });
     expect(legOf(h, "voice_objects")?.outcome).toBe("skipped");
+  });
+
+  // ── #1271 — DSAR rollback no longer silently voids audio erasure ───────────────────────────
+  //
+  // Both voice-audio legs used to gate purely on the LIVE `VOICE_NOTES_BUCKET` value. That
+  // conflated "no worker has ever had audio stored" (a true no-op) with "audio WAS stored, then
+  // the bucket was rolled back" (unset again) — the second case logged `skipped` and reported a
+  // complete erasure while the worker's actual audio stayed in whatever bucket held it. The fix
+  // gates on the presence of `voice_notes` rows (captured pre-cascade as `voiceKeys`), not on the
+  // config value at erasure time.
+
+  it("(a) regression guard — NO voice data ever stored: bucket-unset erasure still completes cleanly (unchanged)", async () => {
+    // A worker who never recorded a voice note: skipped is still correct, the overall outcome is
+    // still NOT failed, and the verdict log line still reads complete — none of that may regress.
+    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const h = make({ resumeKeys: ["r1.pdf"], sessions: 1 });
+
+    await h.svc.execute(WORKER_ID);
+
+    expect(legOf(h, "voice_objects")?.outcome).toBe("skipped");
+    expect(legOf(h, "voice_prefix")?.outcome).toBe("skipped");
+    expect(auditOf(h).outcome).not.toBe("failed");
+    const emitted = h.events.emit.mock.calls[0]![0];
+    expect(emitted.payload.storage_objects_failed).toBe(0);
+    expect(log.mock.calls.map((c) => String(c[0])).some((l) => l.includes("account deletion complete"))).toBe(
+      true,
+    );
+    expect(error.mock.calls).toHaveLength(0);
+    vi.restoreAllMocks();
+  });
+
+  it("(b) a worker who DID have voice data stored, bucket now unset (post-rollback), FAILS LOUD — never a false 'skipped' success", async () => {
+    // THE DEFECT. Before the fix, this exact scenario logged `skipped` and the erasure reported
+    // complete while the worker's audio stayed in the bucket. After the fix it must be recorded
+    // FAILED, the erasure outcome must be "failed", the event must carry a non-zero
+    // storage_objects_failed, and the verdict line must say INCOMPLETE, never "complete".
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const log = vi.spyOn(Logger.prototype, "log").mockImplementation(() => undefined);
+    const h = make({
+      resumeKeys: ["r1.pdf"],
+      voiceKeys: ["voice-notes/w/known.m4a"], // rows exist — audio WAS stored
+      // voiceBucket intentionally omitted — defaults to "" (the post-rollback state).
+      sessions: 1,
+    });
+
+    await h.svc.execute(WORKER_ID);
+
+    // No speculative delete was attempted — there is no bucket name to attempt it against.
+    expect(h.storage.deletePdf).not.toHaveBeenCalledWith(
+      "voice-notes/w/known.m4a",
+      expect.anything(),
+    );
+
+    // The two voice legs are recorded FAILED, not skipped.
+    expect(legOf(h, "voice_objects")).toMatchObject({ outcome: "failed", attempted: 1, deleted: 0 });
+    expect(legOf(h, "voice_prefix")).toMatchObject({ outcome: "failed", attempted: 1, deleted: 0 });
+
+    // FAIL CLOSED at the top level: the whole erasure is "failed", never "deleted"/"nothing_to_delete".
+    expect(auditOf(h).outcome).toBe("failed");
+
+    // The durable event says so too (invariant: audit and event never disagree).
+    const emitted = h.events.emit.mock.calls[0]![0];
+    expect(emitted.payload.storage_objects_failed).toBeGreaterThan(0);
+
+    // The verdict log line reads INCOMPLETE, and "account deletion complete" never appears.
+    const errorLines = error.mock.calls.map((c) => String(c[0]));
+    expect(errorLines.some((l) => l.includes("account deletion INCOMPLETE"))).toBe(true);
+    const logLines = log.mock.calls.map((c) => String(c[0]));
+    expect(logLines.some((l) => l.includes("account deletion complete"))).toBe(false);
+
+    // No object key or worker-scoped path leaks into the audit or the logs either.
+    expect(JSON.stringify(auditOf(h))).not.toContain("voice-notes/w/known.m4a");
+    expect(errorLines.join("\n")).not.toContain("voice-notes/w/known.m4a");
+
+    vi.restoreAllMocks();
   });
 
   it("names the ORPHAN-PREFIX sweep and what it removed", async () => {

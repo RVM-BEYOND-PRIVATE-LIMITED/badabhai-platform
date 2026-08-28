@@ -228,7 +228,9 @@ void main() {
     //     work-history page. "Aage badhein" advances; the last page's CTA is
     //     "Ho gaya", which persists the (empty) writes and continues to Building.
     await _pumpUntil(tester, find.text('Aage badhein'));
-    for (int i = 0; i < 4; i++) {
+    // Six pages (#1296 + the #1298 salary/education page) → five advances, then
+    // the work-history page's "Ho gaya" persists the (empty) writes.
+    for (int i = 0; i < 5; i++) {
       await tester.tap(find.text('Aage badhein'));
       await tester.pump();
       await tester.pump();

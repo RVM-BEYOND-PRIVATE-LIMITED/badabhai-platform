@@ -93,6 +93,34 @@ void main() {
       expect(body['willing_to_relocate'], true);
       expect(body['accommodation_needed'], false);
     });
+
+    test('#1298 salary + education keys are OMITTED when unset', () {
+      final Map<String, dynamic> body = const WorkPreferences().toUpdateBody();
+      for (final String k in <String>[
+        'salary_expected_max',
+        'education_credential',
+        'education_council',
+        'education_year',
+        'education_institute',
+      ]) {
+        expect(body.containsKey(k), isFalse, reason: k);
+      }
+    });
+
+    test('#1298 salary + education keys are sent when set', () {
+      final Map<String, dynamic> body = const WorkPreferences(
+        salaryExpectedMax: 25000,
+        educationCredential: 'iti',
+        educationCouncil: 'ncvt',
+        educationYear: 2018,
+        educationInstitute: 'Govt. ITI, Faridabad',
+      ).toUpdateBody();
+      expect(body['salary_expected_max'], 25000);
+      expect(body['education_credential'], 'iti');
+      expect(body['education_council'], 'ncvt');
+      expect(body['education_year'], 2018);
+      expect(body['education_institute'], 'Govt. ITI, Faridabad');
+    });
   });
 
   group('WorkPrefOptionsDto.fromJson', () {
