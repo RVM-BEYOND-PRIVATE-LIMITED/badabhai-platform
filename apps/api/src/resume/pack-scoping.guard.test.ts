@@ -88,6 +88,17 @@ describe("R12 §2.3 — a trade dictionary is reachable ONLY from its own pack",
     //     WORKSHOP_MACHINES (fresher)   nothing — its two keys are turner-only
     // `material_worked` collides with `qp_welding` in the CORPUS but appears in no dictionary,
     // so it was never reachable. Characterising a set instead of computing it, again.
+    //
+    // ── AND THEN MILLING LANDED (R13 §3.1) ────────────────────────────────────────────────
+    //
+    // `qp_vmc_milling` shares TEN attribute names with the turner, and the veto gazetteer's
+    // collision set went from one key to five. The scoping change was made in R12 on the
+    // strength of a single live collision that did nothing; one pack later it governs four
+    // more, every one of them a real behaviour dictionary applied to a real worker.
+    //
+    // Read the growth as the measurement it is: this is what "the trade's vocabulary escaped
+    // the map" would have cost had the second entry been written before R12 §2. Nothing here
+    // is a milling defect — the numbers are larger and the guard holds.
     const collisionsFor = (owned: Set<string>) =>
       [
         ...new Set(
@@ -100,12 +111,25 @@ describe("R12 §2.3 — a trade dictionary is reachable ONLY from its own pack",
     expect(
       collisionsFor(new Set(Object.keys(CAPABILITY_TERMS.qp_cnc_turning ?? {}))),
       "the veto gazetteer shares no key with another pack — this guard would pass vacuously",
-    ).toEqual(["drawing_reading"]);
+    ).toEqual([
+      "drawing_reading",
+      "programming_level",
+      "quality_work",
+      "setting_operation",
+      "troubleshooting",
+    ]);
 
     expect(
       collisionsFor(new Set(Object.keys(PACK_ATTRIBUTE_SKILLS.qp_cnc_turning ?? {}))),
       "the reach map shares no key with another pack — this guard would pass vacuously",
-    ).toEqual(["drawing_reading", "measuring_tools"]);
+    ).toEqual([
+      "controller_brand",
+      "drawing_reading",
+      "measuring_tools",
+      "programming_level",
+      "setting_operation",
+      "workholding",
+    ]);
   });
 
   it.each(PACKS.map((p) => p.pack_id))(

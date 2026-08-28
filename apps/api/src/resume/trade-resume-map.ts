@@ -58,9 +58,11 @@ export interface TradeRowSpec {
    * FIRST chip only and the rest print bare, which is what the sample shows: the config qualifies
    * the machine it was asked about.
    *
-   * ABSENT IS THE ORDINARY CASE. `qp_cnc_turning` has no configuration question — axes and
-   * spindle configurations are milling facts — so this fires for no shipped map today. It exists
-   * so a milling entry is a DATA change (see the §3.1 estimate).
+   * ABSENT IS THE ORDINARY CASE, and `qp_vmc_milling` is the case it was built for. The turner's
+   * pack has no configuration question — axes are a milling fact — so for a year this seam fired
+   * for no shipped map at all. R13 §3.1 is the first time it does, and it is the reason the
+   * milling entry could be authored as DATA: without it, "VMC · 3-axis" would have been a change
+   * to the renderer.
    */
   readonly configFrom?: string;
   /** Slug → printed English for `configFrom`'s values. Same drop-the-unknown rule as `values`. */
@@ -143,8 +145,19 @@ export interface TradeResumeMap {
   readonly capability: readonly TradeRowSpec[];
 }
 
-/** Shared by every machining-family pack: the instruments do not change by role. */
-const MEASURING_TOOLS: Readonly<Record<string, string>> = {
+/**
+ * The TURNER's instruments.
+ *
+ * IT WAS CALLED "shared by every machining-family pack: the instruments do not change by role",
+ * AND THAT WAS WRONG THE FIRST TIME A SECOND ROLE WAS AUTHORED. The ratified milling sheet prints
+ * a SNAP GAUGE, which a turner does not use; a turner's plug / ring gauge checks a bore he just
+ * bored. Same attribute name, different instruments, and the reuse only looked safe while there
+ * was one entry to compare it against.
+ *
+ * SCOPE UNCHANGED BY THIS FILE. `qp_machining` sharing this mapping is Q14, which is with RVM;
+ * milling authoring its own dictionary neither answers that question nor pre-empts it.
+ */
+const TURNING_MEASURING_TOOLS: Readonly<Record<string, string>> = {
   vernier: "Vernier",
   micrometer: "Micrometer",
   bore_gauge: "Bore dial gauge",
@@ -249,7 +262,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         rank: 51,
         label: "Measuring instruments",
         kind: "ticks",
-        values: MEASURING_TOOLS,
+        values: TURNING_MEASURING_TOOLS,
       },
       {
         from: "quality_work",
@@ -347,6 +360,237 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  {
+    /**
+     * MILLING — the second entry, and the audit of whether Q8's "trade variation is a data
+     * change" is true in practice (R13 §3).
+     *
+     * WHY MILLING AND NOT SOMETHING EASIER. The ratified BadaBhai sheet IS a VMC sheet, so parity
+     * for this pack is measurable against a document rather than against a judgement. Every row
+     * below exists because the sample prints it, in the order the sample prints it.
+     *
+     * WHAT IT SHARES WITH THE TURNER, AND WHY THE VALUES STILL DIFFER. Ten attribute NAMES are
+     * common to both packs — and three of them carry different vocabulary here:
+     *   · `material_worked` splits EN8 and EN31 into separate chips, because the sample prints
+     *     "EN8  EN31" as two; the turner's map compresses them to one chip, "EN8 / EN31".
+     *   · `measuring_tools` carries a SNAP GAUGE and not a plug / ring gauge. A plug gauge checks
+     *     a bore a turner just bored; a snap gauge checks an outside dimension a miller just cut.
+     *   · `setting_operation` is tool LENGTH compensation and fixture setting, where the turner's
+     *     is nose radius and tailstock.
+     * None of that is expressible while a dictionary is keyed by attribute name alone, which is
+     * what R12 §2 fixed. Had this entry been written first, a miller's answers would have been
+     * read through a turner's vocabulary and nothing would have said so.
+     *
+     * ROW COUNT AND THE Q2 REDLINE. Thirteen rows are defined and `CAPABILITY_ROW_BUDGET` is 9,
+     * so four drop by rank. The nine that survive are NOT the nine the ratified sheet prints —
+     * the sheet shows `Sector worked` and this map's rank order keeps `Workholding` instead. That
+     * is a one-row divergence, it is measured rather than asserted (see the map's own test), and
+     * it is evidence for Q2 rather than something to fix by inventing a rank. The tens digit is
+     * the guideline's §5.1 rank, and bending it to make a page fit is exactly the substitution of
+     * layout preference for trade truth that the turner's rank comment warns against.
+     */
+    pack_id: "qp_vmc_milling",
+    section_title: "Machines, controllers & capability",
+    capability: [
+      {
+        from: "milling_machine",
+        rank: 21,
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        // THE FIRST USE OF `configFrom` BY ANY SHIPPED MAP. The sample prints "VMC · 3-axis",
+        // "VMC · 4-axis", "SPM" — the axis count is a property OF the machine, and giving it a
+        // row of its own would spend one of nine slots restating what the machine chip implies.
+        // R10 built this seam for exactly this entry.
+        configFrom: "axis_capability",
+        configValues: {
+          three_axis: "3-axis",
+          four_axis: "4-axis",
+          five_axis: "5-axis",
+        },
+        values: {
+          vmc: "VMC",
+          hmc: "HMC",
+          conventional_mill: "Conventional milling machine",
+          bed_mill: "Bed / knee mill",
+          spm: "SPM",
+        },
+      },
+      {
+        from: "controller_brand",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 3,
+        label: "Controllers",
+        kind: "chips",
+        values: {
+          fanuc: "Fanuc",
+          siemens: "Siemens",
+          mitsubishi: "Mitsubishi",
+          haas: "Haas",
+          // A MILLING CONTROLLER THE TURNER'S MAP DOES NOT CARRY. Heidenhain is ubiquitous on
+          // machining centres and effectively absent from lathes.
+          heidenhain: "Heidenhain",
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        // EN8 AND EN31 ARE SEPARATE CHIPS HERE. The ratified sheet prints "EN8  EN31" as two
+        // values inside a four-value cap, and compressing them the way the turner's map does
+        // would silently spend one chip on two materials and print a fifth where four fit.
+        //
+        // DICTIONARY ORDER IS THE SHEET'S ORDER. Values render in the order this object lists
+        // them (there is no usage data to rank by, and inventing one would be inventing a fact
+        // about the worker), so the alloys lead — which is what the ratified sample prints.
+        values: {
+          en8: "EN8",
+          en31: "EN31",
+          mild_steel: "MS",
+          stainless: "Stainless steel",
+          aluminium: "Aluminium",
+          cast_iron: "Cast iron",
+        },
+      },
+      {
+        from: "setting_operation",
+        rank: 41,
+        label: "Setting",
+        kind: "ticks",
+        values: {
+          tool_offset: "Tool offset",
+          work_offset: "Work offset",
+          tool_length: "Tool length compensation",
+          fixture_setting: "Fixture setting",
+          first_piece: "First-piece setup",
+          tool_change: "Tool change / loading",
+        },
+      },
+      {
+        from: "workholding",
+        rank: 42,
+        label: "Workholding",
+        kind: "ticks",
+        values: {
+          machine_vice: "Machine vice",
+          fixture: "Fixture",
+          clamp_kit: "Clamps / T-bolts",
+          rotary_table: "Rotary table / indexer",
+          angle_plate: "Angle plate",
+          magnetic_chuck: "Magnetic chuck",
+        },
+      },
+      {
+        from: "programming_level",
+        rank: 43,
+        label: "Programming",
+        kind: "fact",
+        values: {
+          // Same judgement as the turner's, and for the same reason: editing offsets is a real,
+          // paid skill, and stating it plainly beats an absent row that reads as a gap.
+          offset_only: "Edits tool offsets",
+          edit_program: "Edits programs (G-code / M-code)",
+          write_program: "Writes programs (G-code / M-code)",
+          cam: "Programs via CAM software",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` has no entry ON PURPOSE, exactly as on the turner's map. "Cannot read drawings"
+        // is a true answer that belongs in matching data, not on the worker's own document.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          vernier: "Vernier",
+          micrometer: "Micrometer",
+          bore_gauge: "Bore dial gauge",
+          height_gauge: "Height gauge",
+          snap_gauge: "Snap gauge",
+          dial_indicator: "Dial indicator",
+        },
+      },
+      {
+        from: "tolerance_band",
+        rank: 62,
+        label: "Tolerance held",
+        kind: "fact",
+        values: {
+          "0.10": "±0.10 mm",
+          "0.05": "±0.05 mm",
+          "0.02": "±0.02 mm",
+          "0.01": "±0.01 mm or finer",
+        },
+      },
+      {
+        from: "milling_operation",
+        rank: 63,
+        label: "Operations",
+        kind: "ticks",
+        values: {
+          face_milling: "Face milling",
+          slot_milling: "Slot / groove milling",
+          drilling_tapping: "Drilling / tapping",
+          boring_op: "Boring",
+          pocket_milling: "Pocket milling",
+          contour_milling: "Contour / profile milling",
+        },
+      },
+      {
+        from: "quality_work",
+        rank: 71,
+        label: "Quality",
+        kind: "ticks",
+        values: {
+          first_piece_check: "First-piece inspection",
+          in_process: "In-process checking",
+          spc: "SPC charts",
+          rejection: "Rejection analysis",
+        },
+      },
+      {
+        from: "troubleshooting",
+        rank: 72,
+        label: "Troubleshooting",
+        kind: "ticks",
+        values: {
+          tool_wear: "Tool wear / breakage",
+          chatter: "Chatter and vibration",
+          size_variation: "Size variation",
+          surface_finish: "Surface finish",
+          alarm: "Alarm clearing",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        join: ", ",
+        values: {
+          automotive: "Automotive components",
+          general_engg: "General engineering / job shop",
+          die_mould: "Die and mould",
+          defence: "Defence / aerospace",
+          pump_valve: "Pumps and valves",
+          agri: "Agricultural equipment",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {
@@ -412,7 +656,9 @@ export function appendConfiguration(
   configSlugs: readonly string[],
   dictionary: Readonly<Record<string, string>>,
 ): string[] {
-  const configs = configSlugs.map((slug) => dictionary[slug]).filter((v): v is string => Boolean(v));
+  const configs = configSlugs
+    .map((slug) => dictionary[slug])
+    .filter((v): v is string => Boolean(v));
   if (configs.length === 0 || values.length === 0) return [...values];
   const [first, ...rest] = values;
   return [...configs.map((c) => `${first} · ${c}`), ...rest];
