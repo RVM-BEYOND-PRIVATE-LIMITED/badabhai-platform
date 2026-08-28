@@ -76,44 +76,51 @@ CASES: list[tuple[str, str, Slots, Slots | None, str]] = [
     ),
     # ── the cue sits AFTER the amount with a period word in between ───────────────────────
     #
-    # THE ONE FAILURE MODE, IN FIVE COSTUMES. `expectedWindowAfter` is 10 characters measured
-    # from the end of the number, so any period word between the amount and `chahiye` pushes the
-    # cue out of the window and the asking price is filed as current pay. Routed for ai-engineer
-    # review as R12 §1.2 — the fix ANCHORS the window after the period phrase at the same width,
-    # which is not the widening that produced the regression this file's docstring warns about.
+    # THE ONE FAILURE MODE, IN FIVE COSTUMES — CLOSED BY R13 §1.1. `expectedWindowAfter` is 10
+    # characters measured from the end of the number, so any period word between the amount and
+    # `chahiye` pushed the cue out of the window and the asking price was filed as current pay.
+    #
+    # WHAT THE FIX IS NOT. I argued to the reviewer that anchoring the window past the period
+    # phrase "is not widening — it is the same width, anchored differently". True narrowly and
+    # false consequentially: a 7,150-utterance sweep measured 1,776 utterances where the naked
+    # anchor moves a today-CORRECT reading to a wrong one, `abhi 25000 mahina, 30k chahiye` ->
+    # (None, 25000) among them, which is the documented regression verbatim. Three guards take
+    # that to zero and each one's measured contribution is in data/salary.json. The five rows
+    # below are covered now; the five ADVERSARIAL rows at the bottom of this table are what stop
+    # a future edit from buying them back at that price.
     (
         "cue_after_mahina",
         "35000 mahina chahiye",
         (None, 35000),
-        (35000, None),
-        "period word displaces the cue",
+        None,
+        "R13 §1.1: the period-anchored window reaches the cue",
     ),
     (
         "cue_after_permonth",
         "35000 per month chahiye",
         (None, 35000),
-        (35000, None),
+        None,
         "same, English period",
     ),
     (
         "cue_after_mahine_ki",
         "salary 35000 mahine ki chahiye",
         (None, 35000),
-        (35000, None),
+        None,
         "same, two words",
     ),
     (
         "cue_after_annual",
         "2.5 lakh saal ka chahiye",
         (None, 20833),
-        (20833, None),
+        None,
         "same; the 12x division is CORRECT",
     ),
     (
         "cue_after_pa",
         "3 lakh per annum chahiye",
         (None, 25000),
-        (25000, None),
+        None,
         "same; annual arithmetic correct",
     ),
     # ── the cue sits BEFORE the amount, or immediately after it — these all work ───────────
@@ -158,8 +165,13 @@ CASES: list[tuple[str, str, Slots, Slots | None, str]] = [
         "band_dash",
         "30000-35000 mahina chahiye",
         (None, 30000),
-        (30000, None),
-        "MEASURED R12: whole band collapses to current pay and the upper end is lost outright",
+        (30000, 35000),
+        "MEASURED R13 §1.1, AND THE PIN MOVED: under the old ten-character window the whole band "
+        "collapsed to current pay and 35000 was lost outright; the period-anchored window now "
+        "reaches the cue, so it reads exactly like band_se — floor as current pay, ceiling as "
+        "the ask. Guard (a), the next-number clamp, is what stops 30000 taking the cue for "
+        "itself. A clause-clamp-only variant happens to land this row on `want` and regresses "
+        "four other probes, so the right answer is a range rule, not a looser clamp.",
     ),
     # ── no cue at all — the documented, CORRECT default ────────────────────────────────────
     #
@@ -172,47 +184,71 @@ CASES: list[tuple[str, str, Slots, Slots | None, str]] = [
     ("bare_tankha", "meri tankha 18000 hai", (18000, None), None, "money cue, no expectation cue"),
     ("bare_pagar", "pagar 18000 mahina", (18000, None), None, ""),
     ("bare_k", "25 k mahina", (25000, None), None, ""),
-    # ── THE ANCHOR PROPOSAL'S ADVERSARIAL SET — all correct today, and they must STAY correct ──
+    # ── THE ANCHOR'S ADVERSARIAL SET — now the SHIPPED guards' regression suite ────────────────
     #
-    # These are not gaps. They are the cases the ai-engineer review of R12 §1.2 built to refute
-    # the proposed fix, and every one of them passes on the shipped code. Pinning them is the
-    # point: the proposal was to anchor the expected-cue window after the period phrase instead
-    # of after the digits, at the same width — and a 7,150-utterance sweep measured **1,776
-    # regressions** of exactly this shape, where a second amount's cue falls inside the first
-    # amount's widened reach and first-writer-wins then drops the real asking price AND the real
-    # current pay.
+    # These are not gaps and never were. They are the cases the ai-engineer review of R12 §1.2
+    # built to refute the proposed fix, and they refuted it: anchoring the window past the period
+    # phrase with no guards regresses 1,776 of 7,150 swept utterances, because a second amount's
+    # cue falls inside the first amount's re-anchored reach and first-writer-wins then drops the
+    # real asking price AND the real current pay. R13 §1.1 shipped the guarded version, so these
+    # rows stop being a warning to a future implementer and start being the thing that keeps the
+    # guards in place.
     #
-    # So the review's verdict was do-not-ship-as-proposed, and three guards are required: no
-    # extension across another number, none across a clause terminator, and none where a number
-    # sits after the cue being reached. Whoever implements that will need a red test if any guard
-    # is missing. These rows are it.
+    # EACH ROW NAMES THE GUARD IT MEASURES, and the naming is MEASURED, not reasoned: every row
+    # was run against all eight on/off combinations of the three guards, and the `why` records
+    # which combinations get it wrong. Two rows below (`adv_clause_stop`, `adv_clause_semicolon`)
+    # exist because that measurement corrected me — see the note above them.
     (
         "adv_comma_30k",
         "abhi 25000 mahina, 30k chahiye",
         (25000, 30000),
         None,
-        "the cheapest refutation: needs guards (a) and (b)",
+        "wrong with no guards and with (c) alone: either clamp saves it",
     ),
     (
         "adv_bare_30k",
         "abhi 25000 mahina 30k chahiye",
         (25000, 30000),
         None,
-        "no comma — guard (a), the next-number clamp",
+        "GUARD (a) ONLY. Wrong under every combination without the next-number clamp",
     ),
     (
         "adv_cue_first",
         "abhi 25000 mahina, chahiye 30k",
         (25000, 30000),
         None,
-        "guard (b), the clause terminator",
+        "wrong with no guards and with (a) alone: (b) or (c) saves it",
     ),
     (
         "adv_no_sep",
         "abhi 25000 milta hai mahine chahiye 30k",
         (25000, 30000),
         None,
-        "neither comma nor intervening number — guard (c)",
+        "GUARD (c) ONLY. No comma and no intervening number, so only cue ownership can decide",
+    ),
+    # THE MEASUREMENT CORRECTED THE MEASUREMENT. Over the 7,150-utterance sweep, (a)+(c) scores
+    # zero regressions — identical to all three — and no row above uniquely needs (b). Read
+    # literally that says the clause clamp is redundant and should not ship.
+    #
+    # It is not, and the sweep simply could not see it. Every utterance the sweep generates ends
+    # in `<amount> <cue>` or `<cue> <amount>`, so a cue with NO number behind it never occurs —
+    # and that is the only shape guard (b) is for. "abhi 25000 mahina hai. chahiye zyada" is an
+    # ordinary sentence (I get 25,000 a month. I want more), and without the clause clamp the
+    # current pay is filed as the asking price. A generator's grid is a fixture like any other:
+    # it can only refute what it contains.
+    (
+        "adv_clause_stop",
+        "abhi 25000 mahina hai. chahiye zyada",
+        (25000, None),
+        None,
+        "GUARD (b) ONLY — a cue in the NEXT sentence, with no number of its own",
+    ),
+    (
+        "adv_clause_semicolon",
+        "25000 mahina hai; want more",
+        (25000, None),
+        None,
+        "GUARD (b) ONLY — same shape, English, semicolon",
     ),
     (
         "adv_want_35000",
@@ -239,6 +275,108 @@ CASES: list[tuple[str, str, Slots, Slots | None, str]] = [
         (25000, None),
         (None, None),
         "'hazzar' absent -> nothing recorded",
+    ),
+    # ══ R13 §1.3 — SHAPES THE TABLE DID NOT COVER ════════════════════════════════════════════
+    #
+    # Added AFTER the nine failures were classified, deliberately: §1.2's split is what told us
+    # five of the nine were one algorithm change, and adding phrasings first would only have
+    # made a bigger number with the same three causes hidden inside it. These rows go looking
+    # for causes the table did not yet have — and found two.
+    #
+    # ── the shipped anchor, in the forms a real worker actually types ──────────────────────
+    (
+        "sym_comma",
+        "₹28,000 mahina chahiye",
+        (None, 28000),
+        None,
+        "rupee symbol + thousands separator + the period-anchored cue, all at once",
+    ),
+    (
+        "rs_comma_permonth",
+        "rs 28,000 per month chahiye",
+        (None, 28000),
+        None,
+        "the same in English, 'rs' prefix",
+    ),
+    (
+        "deva_mixed",
+        "३०००० mahina chahiye",
+        (None, 30000),
+        None,
+        "Devanagari DIGITS with Latin words — the ordinary phone-keyboard mixture",
+    ),
+    (
+        "en_demand",
+        "mera demand 30000 hai",
+        (None, 30000),
+        None,
+        "'demand' is an expectation cue and sits BEFORE the amount",
+    ),
+    (
+        "fresher_no_current",
+        "abhi kuch nahi milta, 20000 chahiye",
+        (None, 20000),
+        None,
+        "no current pay at all: the ask must not leak into the current slot",
+    ),
+    (
+        "past_then_ask",
+        "salary 22k thi, ab 28k chahiye",
+        (22000, 28000),
+        None,
+        "past-tense current pay and an ask, one sentence, both slots correct",
+    ),
+    (
+        "neg_then_ask",
+        "25000 nahi, 30000 chahiye",
+        (25000, 30000),
+        None,
+        "SLOTS ONLY. The negation over 25000 is real and is applied by the NORMALIZER "
+        "(`negationVetoed`, corpus row sal_017), not by _detect_salary — so the slot table's "
+        "job here is to record that the attribution itself is right, and to stop anyone "
+        "'fixing' the veto by moving it into the wrong layer",
+    ),
+    # ── two causes this table did not have, both found by looking ─────────────────────────
+    (
+        "reversed_order",
+        "35000 chahiye, abhi 25000 milta hai",
+        (25000, 35000),
+        (None, 35000),
+        "MEASURED R13 §1.3 — THE WINDOW CLASS, POINTING BACKWARDS. §1.1 guarded the window's "
+        "END; nothing guards its START. `expectedWindowBefore` is 25 characters, so when the "
+        "ask is stated FIRST the current pay's backward window still reaches that ask's cue, "
+        "the current pay is marked expected, and first-writer-wins then discards it entirely. "
+        "The worker's actual pay vanishes from the profile. Same defect as the one just fixed, "
+        "same fix shape (anchor + guards), opposite direction",
+    ),
+    (
+        "daily_wage",
+        "1200 daily milta hai",
+        (None, None),
+        (1200, None),
+        "MEASURED R13 §1.3 — A DAILY WAGE READ AS A MONTHLY ONE. There is no daily period, so "
+        "'1200 daily' is recorded as ₹1,200 A MONTH: a worker on ₹1,200/day (~₹31,000/month) "
+        "has a twenty-sixth of his wage printed on his resume. This file's whole premise is "
+        "'prefer NO number over a WRONG number' and here it does the opposite, because the "
+        "period defaulted rather than being consulted. `want` is therefore (None, None) — "
+        "recording nothing is correct until somebody rules on days-per-month",
+    ),
+    (
+        "band_se_hazaar",
+        "30 se 35 hazaar chahiye",
+        (None, 30000),
+        (None, 35000),
+        "the band shape in its most common spoken form: both ends are the ASK, and only the "
+        "upper one survives, so the floor the worker named is lost",
+    ),
+    (
+        "deva_cue",
+        "२५००० महीना चाहिए",
+        (None, 25000),
+        (25000, None),
+        "MEASURED: an asking price entirely in Devanagari lands in CURRENT PAY. The digits and "
+        "the period are handled — 'चाहिए' simply is not in expectedCues, which is Latin-only. "
+        "Same shape as the pinned dev_015 blindness one layer up",
     ),
 ]
 
@@ -274,15 +412,104 @@ def test_coverage_is_reported_and_the_gap_set_is_exact(capsys: pytest.CaptureFix
     covered = total - len(observed)
     with capsys.disabled():
         print(
-            f"\nsalary slot attribution: {covered}/{total} phrasings "
-            f"({covered * 100 // total}%) land in the slot a human reads them as"
+            f"\nsalary slot attribution: {covered}/{total} phrasings land in the slot a human "
+            f"reads them as"
         )
+        # BY CAUSE, never as a bare percentage (R13 §1.3). One number over four causes is not
+        # a number anyone can act on: "82%" hides that three of the eight need a range rule,
+        # three need one word each, one needs a ruling, and one is an algorithm change.
+        by_class: dict[str, list[str]] = {}
+        for case_id, _text, _want, gap, _why in CASES:
+            if gap is not None:
+                by_class.setdefault(GAP_CLASS.get(case_id, "unclassified"), []).append(case_id)
+        for cause in sorted(by_class):
+            print(f"  {cause:12} {len(by_class[cause])}  {', '.join(sorted(by_class[cause]))}")
         for case_id, text, want, gap, _why in CASES:
             if gap is not None:
-                print(f"  GAP  {case_id:22} {text!r:46} want={want} got={gap}")
+                cause = GAP_CLASS.get(case_id, "unclassified")
+                print(f"  GAP  [{cause:9}] {case_id:18} {text!r:40} want={want} got={gap}")
 
     assert observed == pinned, (
         "the pinned gap set no longer matches reality.\n"
         f"  fixed but still pinned: {sorted(pinned - observed)}  -> delete their `gap` field\n"
         f"  newly broken:           {sorted(observed - pinned)}  -> a regression, not a pin"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────────
+# The gaps, CLASSIFIED — because a coverage number that mixes causes says nothing (R13 §1.2)
+# ─────────────────────────────────────────────────────────────────────────────────────────
+
+#: Case id -> the CAUSE of its gap. Three causes, three different fixes and three different
+#: owners, and mixing them is what makes "25 of 34" unactionable:
+#:
+#:   gazetteer  a spelling absent from a unit or cue list. One word, in data/salary.json,
+#:              no algorithm change, no cross-engine risk. R12 §1.1 closed `hazaar` this way.
+#:   window     the cue is present and unambiguous but falls outside the attribution window.
+#:              An ALGORITHM change, mirrored in two engines, and the one that needed a
+#:              7,150-utterance sweep before it could ship.
+#:   band       the worker states a RANGE. The detector has no notion of one, so it reads two
+#:              independent amounts. Not a bug in any rule below it — a missing concept, and
+#:              a product call on which end of a band is the asking price.
+#:   period     the stated period has no rule at all. A DAILY wage is read as a monthly one,
+#:              which is a 26x error in the direction this file exists to prevent. Needs a
+#:              ruling (days per month) before it can be a code change, and until then the
+#:              correct behaviour is to record NOTHING.
+#:
+#: THE WINDOW CLASS IS EMPTY AS OF R13 §1.1 — all five of its rows closed together, because they
+#: were one defect in five costumes. That is the useful thing about classifying before fixing:
+#: the split said "five of these nine are one algorithm change" before a line was written.
+GAP_CLASS: dict[str, str] = {
+    "band_se": "band",
+    "band_dash": "band",
+    "band_se_hazaar": "band",
+    "sp_hajar": "gazetteer",
+    "sp_hazzar": "gazetteer",
+    "deva_cue": "gazetteer",
+    "reversed_order": "window",
+    "daily_wage": "period",
+}
+
+
+def test_every_pinned_gap_has_a_stated_cause() -> None:
+    """A pin with no cause is a pin nobody can schedule.
+
+    Both directions, like the table itself: a new gap with no class fails here, and a class
+    left behind after its gap closes fails here too. Without the second half this dict would
+    quietly accumulate the names of solved problems.
+    """
+    pinned = {c[0] for c in CASES if c[3] is not None}
+    assert set(GAP_CLASS) == pinned, (
+        f"unclassified gaps: {sorted(pinned - set(GAP_CLASS))}; "
+        f"classified but no longer a gap: {sorted(set(GAP_CLASS) - pinned)}"
+    )
+
+
+def pinned_gaps() -> list[dict[str, object]]:
+    """The open pins in this table, for `scripts/list-open-pins.mjs` (R13 §4).
+
+    THE CONVENTION, not a registration: the lister greps the test tree for `def pinned_gaps(`
+    and imports whatever defines it. A registry of gap suites would be one more list somebody
+    has to remember to update, which is the failure this whole mechanism exists to answer.
+
+    `gates` is what a packet has to be editing for this pin to be worth reading — the shared
+    lexicon data and BOTH engine implementations, because a salary gap is never one-sided.
+    """
+    return [
+        {
+            "id": case_id,
+            "title": text,
+            "why": (
+                f"[{GAP_CLASS.get(case_id, 'unclassified')}] a human reads this as {want}; "
+                f"the detector records {gap}. {why}"
+            ),
+            "gates": [
+                "packages/profiling-lexicon/data/salary.json",
+                "packages/profiling-lexicon/src/values/salary.ts",
+                "apps/ai-service/app/profiling/signals.py",
+                "apps/ai-service/tests/test_salary_attribution.py",
+            ],
+        }
+        for case_id, text, want, gap, why in CASES
+        if gap is not None
+    ]
