@@ -144,6 +144,29 @@ export const PostMessageResponseSchema = z.object({
    */
   input_mode: z.enum(["text", "options_only"]).default("text"),
   /**
+   * HOW the question on screen is answered — the one thing a client cannot infer from the rest.
+   *
+   * `options` BEING EMPTY DOES NOT MEAN "SPEAK YOUR ANSWER". All 291 boolean items in the shipped
+   * corpus carry ZERO options, so a client keying its widget off `suggested_options.length` draws
+   * a text field for every yes/no question in the product, and a chip scroller for a multi-select
+   * — where one tap is the whole answer, so a turner who runs a Fanuc AND a Siemens can record
+   * exactly one of them. The same closed set has been on the voice-form wire since it shipped
+   * (`profiling.dto.ts`); this ends the divergence rather than inventing anything.
+   *
+   * `null` MEANS "NOTHING PACK-SHAPED IS ON SCREEN" — a close, a degraded turn, or an LLM-led
+   * turn that is not serving a pack item. It is not a default to render against.
+   *
+   * THE FIVE CONTRACT VALUES ONLY. The database permits three more (`city`, `salary`,
+   * `duration`) and seven live pack items use them, but `pack-registry.service.ts` maps those to
+   * the input affordance each implies (`ANSWER_TYPE_ALIASES`) before anything reads them — so a
+   * `city` item reaches this field as `text`, and `@badabhai/ai-contracts` stays frozen.
+   *
+   * ADVISORY, EXACTLY LIKE `input_mode` ABOVE. The server still accepts typed text on every value
+   * of this field, and must keep doing so — treating it as validation would dead-end every worker
+   * on a build that predates it.
+   */
+  answer_type: z.enum(ANSWER_TYPES).nullable().default(null),
+  /**
    * Answered / total for the pinned pack, or null when no pack is resolved yet.
    *
    * IMPOSSIBLE UNDER THE LLM PATH, which is why it is new rather than overdue: the model

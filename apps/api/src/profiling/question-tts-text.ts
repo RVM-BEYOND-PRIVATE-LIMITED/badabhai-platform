@@ -84,8 +84,7 @@ const CONSTANT_TTS_TEXT: Readonly<Record<string, string>> = {
 
   // next-question.ts — the closed hardship appreciation set, indexed by turn.
   "Samajh sakta hoon. Aapki baat sahi hai.": "समझ सकता हूँ। आपकी बात सही है।",
-  "Aapki mehnat samajh aati hai. Thoda aur batayiye.":
-    "आपकी मेहनत समझ आती है। थोड़ा और बताइये।",
+  "Aapki mehnat samajh aati hai. Thoda aur batayiye.": "आपकी मेहनत समझ आती है। थोड़ा और बताइये।",
   "Theek hai. Aaram se batayiye, koi jaldi nahi.": "ठीक है। आराम से बताइये, कोई जल्दी नहीं।",
 
   // next-question.ts — served when the interview ends normally.
@@ -244,6 +243,20 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Gas, arc, MIG ya TIG mein se kaunsi?": "गैस, आर्क, MIG या TIG में से कौनसी?",
   "Kis sheher mein kaam karna hai?": "किस शहर में काम करना है?",
   "Kitne saal se ye kaam kar rahe hain?": "कितने साल से ये काम कर रहे हैं?",
+  // --- qp_cnc_turning@1 (role pack, CNC turning) ---
+  "Turning ka kitna tajurba hai?": "टर्निंग का कितना तजुर्बा है?",
+  "Aap kaunsi turning machine chalate hain?": "आप कौनसी टर्निंग मशीन चलाते हैं?",
+  "Machine par kaunsa controller lagaa hai?": "मशीन पर कौनसा कंट्रोलर लगा है?",
+  "Kaunse turning operation aap karte hain?": "कौनसे टर्निंग ऑपरेशन आप करते हैं?",
+  "Job pakadne ke liye kya use karte hain?": "जॉब पकड़ने के लिए क्या यूज़ करते हैं?",
+  "Setting mein aap kya kya karte hain?": "सेटिंग में आप क्या क्या करते हैं?",
+  "Aap kitni tolerance tak kaam kar lete hain?": "आप कितनी टॉलरेंस तक काम कर लेते हैं?",
+  "Aap kis industry ke parts banate hain?": "आप किस इंडस्ट्री के पार्ट्स बनाते हैं?",
+  "Programme ke saath aap kitna kaam karte hain?": "प्रोग्राम के साथ आप कितना काम करते हैं?",
+  "Aapki machine mein kaunsa feature hai?": "आपकी मशीन में कौनसा फीचर है?",
+  "Quality ka kaunsa kaam aap karte hain?": "क्वालिटी का कौनसा काम आप करते हैं?",
+  "Machine problem mein aap kya theek karte hain?": "मशीन प्रॉब्लम में आप क्या ठीक करते हैं?",
+  "Lagbhag kitne saal turning ka kaam kiya hai?": "लगभग कितने साल टर्निंग का काम किया है?",
 };
 
 /**
@@ -327,8 +340,7 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   "Apni gaadi wale ki kamai alag hoti hai.": "अपनी गाड़ी वाले की कमाई अलग होती है।",
   "Die aur jig ka kaam alag hota hai.": "डाई और जिग का काम अलग होता है।",
   "Ghar aur hotel ka kaam alag hota hai.": "घर और होटल का काम अलग होता है।",
-  "Tajurba dekhkar employer behtar offer dete hain.":
-    "तजुर्बा देखकर एम्प्लॉयर बेहतर ऑफर देते हैं।",
+  "Tajurba dekhkar employer behtar offer dete hain.": "तजुर्बा देखकर एम्प्लॉयर बेहतर ऑफर देते हैं।",
   "Raat wali duty ka paisa zyada hota hai.": "रात वाली ड्यूटी का पैसा ज़्यादा होता है।",
   "Ghar aur gaadi ka paint alag hai.": "घर और गाड़ी का पेंट अलग है।",
   "Finishing se saman ka daam badhta hai.": "फिनिशिंग से सामान का दाम बढ़ता है।",
@@ -381,8 +393,7 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   "Gas charging ek alag hunar hai.": "गैस चार्जिंग एक अलग हुनर है।",
   "Dairy me kai tarah ke kaam hote hain.": "डेयरी में कई तरह के काम होते हैं।",
   "Har service ka alag hunar hota hai.": "हर सर्विस का अलग हुनर होता है।",
-  "Seekhne walon ko training wali jagah milti hai.":
-    "सीखने वालों को ट्रेनिंग वाली जगह मिलती है।",
+  "Seekhne walon ko training wali jagah milti hai.": "सीखने वालों को ट्रेनिंग वाली जगह मिलती है।",
   "Shift ke hisaab se naukri chhaant kar dikhate hain.":
     "शिफ्ट के हिसाब से नौकरी छाँट कर दिखाते हैं।",
   "Kaleen aur kapda bunai alag hai.": "कालीन और कपड़ा बुनाई अलग है।",
@@ -396,11 +407,9 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
   "Export line ka tajurba zyada maanga jaata hai.":
     "एक्सपोर्ट लाइन का तजुर्बा ज़्यादा माँगा जाता है।",
   "Licence wale ko badi jagah kaam milta hai.": "लाइसेंस वाले को बड़ी जगह काम मिलता है।",
-  "Grahak se baat karne wale alag rakhe jaate hain.":
-    "ग्राहक से बात करने वाले अलग रखे जाते हैं।",
+  "Grahak se baat karne wale alag rakhe jaate hain.": "ग्राहक से बात करने वाले अलग रखे जाते हैं।",
   "Sahi vetan wali naukri hi dikhayenge.": "सही वेतन वाली नौकरी ही दिखाएँगे।",
-  "Doosre sheher mein bhi achhi naukri mil sakti hai.":
-    "दूसरे शहर में भी अच्छी नौकरी मिल सकती है।",
+  "Doosre sheher mein bhi achhi naukri mil sakti hai.": "दूसरे शहर में भी अच्छी नौकरी मिल सकती है।",
   "Machine se kaam tez hota hai.": "मशीन से काम तेज़ होता है।",
   "Bridal ka paisa sabse zyada hota hai.": "ब्राइडल का पैसा सबसे ज़्यादा होता है।",
   "Hathkargha aur power loom alag hai.": "हथकरघा और पावर लूम अलग है।",
@@ -413,6 +422,31 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "हर वेल्डिंग अलग होती है, इससे सही नौकरी मिलती है।",
   "Steel aur aluminium ka kaam alag hota hai.": "स्टील और एल्युमिनियम का काम अलग होता है।",
   "Har kachre ka kaam alag hota hai.": "हर कचरे का काम अलग होता है।",
+  // --- qp_cnc_turning@1 (role pack, CNC turning) ---
+  "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.":
+    "तजुर्बे के हिसाब से आगे के सवाल पूछे जाते हैं।",
+  "Machine ke hisaab se sahi kaam dikhaya jaata hai.": "मशीन के हिसाब से सही काम दिखाया जाता है।",
+  "Controller jaanne wale operator ko jaldi kaam milta hai.":
+    "कंट्रोलर जानने वाले ऑपरेटर को जल्दी काम मिलता है।",
+  "Operation se pata chalta hai aap kis level ka kaam karte hain.":
+    "ऑपरेशन से पता चलता है आप किस लेवल का काम करते हैं।",
+  "Job pakadna turning ka sabse zaroori hissa hai.": "जॉब पकड़ना टर्निंग का सबसे ज़रूरी हिस्सा है।",
+  "Har material ka cutting alag hota hai.": "हर मटीरियल का कटिंग अलग होता है।",
+  "Drawing padhna kai jagah zaroori hota hai.": "ड्राइंग पढ़ना कई जगह ज़रूरी होता है।",
+  "Setting karne wale operator ko zyada vetan milta hai.":
+    "सेटिंग करने वाले ऑपरेटर को ज़्यादा वेतन मिलता है।",
+  "Tolerance se aapke kaam ki fine quality pata chalti hai.":
+    "टॉलरेंस से आपके काम की फाइन क्वालिटी पता चलती है।",
+  "Industry jaanne se milti julti company dikhayi jaati hai.":
+    "इंडस्ट्री जानने से मिलती जुलती कंपनी दिखाई जाती है।",
+  "Programme likhne wale ko sabse zyada vetan milta hai.":
+    "प्रोग्राम लिखने वाले को सबसे ज़्यादा वेतन मिलता है।",
+  "Yeh feature wali machine chalane wale kam milte hain.":
+    "ये फीचर वाली मशीन चलाने वाले कम मिलते हैं।",
+  "Quality ka kaam jaanne wale ko supervisor banaya jaata hai.":
+    "क्वालिटी का काम जानने वाले को सुपरवाइज़र बनाया जाता है।",
+  "Problem theek karne wale operator ki demand zyada hai.":
+    "प्रॉब्लम ठीक करने वाले ऑपरेटर की डिमांड ज़्यादा है।",
 };
 
 /** Every atomic pair, normalized once at module load — see {@link ttsTextFor}. */

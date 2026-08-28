@@ -6,6 +6,9 @@ import type { EventsService } from "../events/events.service";
 import type { ConsentRepository } from "../consent/consent.repository";
 import type { WorkersRepository } from "../workers/workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
+import type { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
+import type { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
+import type { WorkerEmploymentRecord } from "../resume/resume-employment-rows";
 import type { StorageService } from "../storage/storage.service";
 import type { ResumeRenderer, ResumeRenderInput } from "../resume/resume-renderer.service";
 import { ResumeDisclosureService } from "./resume-disclosure.service";
@@ -38,10 +41,15 @@ interface SetupOpts {
   renderNull?: boolean; // renderPdf degrades to null
   nightShiftReady?: boolean; // #947 — the worker's own toggle, as the column stores it
   existing?: Record<string, unknown>; // existing disclosure row for idempotency
+  // The worker's settled pack answers, which the payer DOES see — trade capability is neither
+  // identity nor negotiating position.
+  tradeSheet?: { packId: string | null; attributes: Record<string, unknown> };
+  employments?: WorkerEmploymentRecord[];
 }
 
 function setup(opts: SetupOpts = {}) {
-  const consentPurposes = opts.consentPurposes === undefined ? ["employer_sharing"] : opts.consentPurposes;
+  const consentPurposes =
+    opts.consentPurposes === undefined ? ["employer_sharing"] : opts.consentPurposes;
   const workerExists = opts.workerExists ?? true;
   const hasResume = opts.hasResume ?? true;
   // ADR-0031: NULL = active worker; a Date = pending deletion (the grace marker).
@@ -53,7 +61,9 @@ function setup(opts: SetupOpts = {}) {
     countDisclosuresToPayersSince: vi.fn(async () => opts.dailyCount ?? 0),
     countDistinctPayersSince: vi.fn(async () => opts.weeklyPayers ?? 0),
     // ADR-0031: the tx-scoped deletion-grace marker read (the in-tx re-check).
-    getWorkerDeletionMarker: vi.fn(async () => (workerExists ? { deletionScheduledAt } : undefined)),
+    getWorkerDeletionMarker: vi.fn(async () =>
+      workerExists ? { deletionScheduledAt } : undefined,
+    ),
     insertRow: vi.fn(async (_tx: unknown, input: Record<string, unknown>) => ({
       id: "disc-1",
       ...input,
@@ -122,6 +132,15 @@ function setup(opts: SetupOpts = {}) {
     }),
   };
 
+  // The trade capability block — read-only, and it degrades to absence if it throws.
+  const attributes = {
+    loadTradeSheet: vi.fn(async () => opts.tradeSheet ?? { packId: null, attributes: {} }),
+  };
+  // Zone 4 — read-only on the same terms. Empty for every worker today.
+  const employments = {
+    loadForResume: vi.fn(async () => opts.employments ?? []),
+  };
+
   const service = new ResumeDisclosureService(
     repo as unknown as ResumeDisclosureRepository,
     consents as unknown as ConsentRepository,
@@ -129,11 +148,26 @@ function setup(opts: SetupOpts = {}) {
     pii as unknown as PiiCryptoService,
     renderer as unknown as ResumeRenderer,
     storage as unknown as StorageService,
+    attributes as unknown as WorkerAttributesRepository,
+    employments as unknown as WorkerEmploymentRepository,
     events as unknown as EventsService,
     CONFIG,
   );
 
-  return { service, repo, txMethods, consents, workers, pii, renderer, storage, events, emitted, getRenderInput: () => renderInput };
+  return {
+    service,
+    repo,
+    txMethods,
+    consents,
+    workers,
+    pii,
+    renderer,
+    storage,
+    attributes,
+    events,
+    emitted,
+    getRenderInput: () => renderInput,
+  };
 }
 
 const NEUTRAL = { status: "unavailable" };
@@ -141,7 +175,10 @@ const NEUTRAL = { status: "unavailable" };
 describe("ResumeDisclosureService — happy path (B-G masked render + B-E fact-only event)", () => {
   it("grants + discloses: returns the signed URL and renders with MASKED initials", async () => {
     const t = setup();
-    const res = await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
 
     expect(res).toEqual({
       ok: true,
@@ -158,7 +195,10 @@ describe("ResumeDisclosureService — happy path (B-G masked render + B-E fact-o
     expect(t.getRenderInput()?.photoDataUri).toBeNull();
     expect(t.renderer.renderPdf).toHaveBeenCalledOnce();
     // Marked disclosed with the opaque resume_ref pointer.
-    expect(t.repo.markDisclosed).toHaveBeenCalledWith("disc-1", expect.objectContaining({ resumeRef: "resume-1" }));
+    expect(t.repo.markDisclosed).toHaveBeenCalledWith(
+      "disc-1",
+      expect.objectContaining({ resumeRef: "resume-1" }),
+    );
     // B-E: exactly one resume.disclosed, FACT-only payload (ids + opaque ref).
     expect(t.emitted).toHaveLength(1);
     const ev = t.emitted[0] as { event_name: string; payload: Record<string, unknown> };
@@ -170,7 +210,10 @@ describe("ResumeDisclosureService — happy path (B-G masked render + B-E fact-o
 
   it("decrypts the real name EXACTLY once (single PII touch, F-5)", async () => {
     const t = setup();
-    await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(t.pii.decrypt).toHaveBeenCalledOnce();
   });
 
@@ -183,11 +226,44 @@ describe("ResumeDisclosureService — happy path (B-G masked render + B-E fact-o
     // way for the model-extracted `shift`. It crosses only when the worker deliberately ticked
     // it, so the only thing a payer can ever see here is a claim its author actually made.
     const t = setup({ nightShiftReady: true });
-    await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(t.getRenderInput()?.availability).toBe("Night shift ke liye taiyaar");
     // The masking around it is untouched — the toggle crossing is not a hole in the gate.
     expect(t.getRenderInput()?.displayName).toBe(MASKED);
     expect(t.getRenderInput()?.photoDataUri).toBeNull();
+  });
+
+  it("the payer DOES see the trade capability block, and the masking around it holds", async () => {
+    // THE AUDIENCE DECISION, PINNED. What a worker can do on a machine is trade information and
+    // the most decisive thing on the sheet for a hiring supervisor — neither identity nor
+    // negotiating position, so it sits with `shift` rather than with the three things this
+    // surface withholds. Withholding it would hand the payer a masked sheet whose capability
+    // section is empty, which is the disclosure they unlocked in the first place.
+    const t = setup({
+      tradeSheet: {
+        packId: "qp_cnc_turning",
+        attributes: { turning_machine: ["cnc_lathe"], tolerance_band: "0.02" },
+      },
+    });
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    expect(t.attributes.loadTradeSheet).toHaveBeenCalledWith(WORKER);
+    expect(t.getRenderInput()?.capSectionTitle).toBe("Machines, controllers & capability");
+    expect(t.getRenderInput()?.capChipRows).toEqual([
+      { label: "Machines", values: ["CNC lathe / turning centre"] },
+    ]);
+    expect(t.getRenderInput()?.capFactRows).toEqual([
+      { label: "Tolerance held", value: "±0.02 mm" },
+    ]);
+    // The three withheld things are still withheld — the capability block is not a hole in the gate.
+    expect(t.getRenderInput()?.displayName).toBe(MASKED);
+    expect(t.getRenderInput()?.photoDataUri).toBeNull();
+    expect(t.getRenderInput()?.expectedSalary).toBeNull();
   });
 
   it("#947: a worker on the column default has nothing said about them either way", async () => {
@@ -195,7 +271,10 @@ describe("ResumeDisclosureService — happy path (B-G masked render + B-E fact-o
     // a No onto a PAYER-facing document would be the worst version of that mistake: a refusal
     // the worker never gave, read by the person deciding whether to call them.
     const t = setup();
-    await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(t.getRenderInput()?.availability).toBeNull();
   });
 });
@@ -203,7 +282,10 @@ describe("ResumeDisclosureService — happy path (B-G masked render + B-E fact-o
 describe("B-D / B-E — no raw PII (name, phone, signed URL) in the event or any log arg", () => {
   it("never passes the real name, phone, or signed URL into events.emit", async () => {
     const t = setup();
-    await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     const blob = JSON.stringify(t.emitted);
     expect(blob).not.toContain(REAL_NAME);
     expect(blob).not.toContain("Ramesh");
@@ -213,7 +295,10 @@ describe("B-D / B-E — no raw PII (name, phone, signed URL) in the event or any
 
   it("the signed URL is returned to the payer but never persisted on the row", async () => {
     const t = setup();
-    const res = await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect((res as { resume_url: string }).resume_url).toBe(SIGNED_URL);
     // markDisclosed stores only the opaque resume_ref + timestamps — never the URL.
     const markArg = t.repo.markDisclosed.mock.calls[0]?.[1] as Record<string, unknown>;
@@ -224,7 +309,10 @@ describe("B-D / B-E — no raw PII (name, phone, signed URL) in the event or any
 describe("B-A — employer_sharing consent gate (fail closed, no oracle)", () => {
   it("no consent row → neutral; no render, no event", async () => {
     const t = setup({ consentPurposes: null });
-    const res = await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(res).toEqual(NEUTRAL);
     expect(t.renderer.renderPdf).not.toHaveBeenCalled();
     expect(t.emitted).toHaveLength(0);
@@ -232,19 +320,28 @@ describe("B-A — employer_sharing consent gate (fail closed, no oracle)", () =>
 
   it("only profiling consent (no employer_sharing) → neutral", async () => {
     const t = setup({ consentPurposes: ["profiling", "resume_generation"] });
-    const res = await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(res).toEqual(NEUTRAL);
   });
 
   it("revoked employer_sharing → neutral", async () => {
     const t = setup({ consentPurposes: ["employer_sharing"], consentRevoked: true });
-    const res = await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(res).toEqual(NEUTRAL);
   });
 
   it("no-consent but worker EXISTS → records an internal denied row (no_consent)", async () => {
     const t = setup({ consentPurposes: null, workerExists: true });
-    await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(t.txMethods.insertRow).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ status: "denied", denyReason: "no_consent" }),
@@ -253,7 +350,10 @@ describe("B-A — employer_sharing consent gate (fail closed, no oracle)", () =>
 
   it("UNKNOWN worker → NO row written (FK-oracle avoidance) but identical neutral body", async () => {
     const t = setup({ consentPurposes: null, workerExists: false });
-    const res = await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(res).toEqual(NEUTRAL);
     expect(t.txMethods.insertRow).not.toHaveBeenCalled();
   });
@@ -262,7 +362,10 @@ describe("B-A — employer_sharing consent gate (fail closed, no oracle)", () =>
 describe("B-B — SHARED per-worker cap (spans unlock reveals + disclosures), atomic", () => {
   it("daily shared ceiling reached → neutral + denied(capped); no render/event", async () => {
     const t = setup({ dailyCount: 5 }); // == UNLOCK_MAX_REVEALS_PER_WORKER_PER_DAY
-    const res = await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(res).toEqual(NEUTRAL);
     expect(t.txMethods.insertRow).toHaveBeenCalledWith(
       expect.anything(),
@@ -274,23 +377,41 @@ describe("B-B — SHARED per-worker cap (spans unlock reveals + disclosures), at
 
   it("weekly distinct-payer ceiling reached → neutral", async () => {
     const t = setup({ weeklyPayers: 10 });
-    const res = await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(res).toEqual(NEUTRAL);
   });
 
   it("takes the worker advisory lock before the cap read (atomicity)", async () => {
     const t = setup();
-    await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(t.txMethods.lockWorker).toHaveBeenCalledWith(expect.anything(), WORKER);
   });
 });
 
 describe("B-C — single neutral body, byte-identical across every deny branch", () => {
   it("no_consent / capped / no-resume / unknown all return the identical object", async () => {
-    const a = await setup({ consentPurposes: null }).service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
-    const b = await setup({ dailyCount: 5 }).service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
-    const c = await setup({ hasResume: false }).service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
-    const d = await setup({ consentPurposes: null, workerExists: false }).service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    const a = await setup({ consentPurposes: null }).service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    const b = await setup({ dailyCount: 5 }).service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    const c = await setup({ hasResume: false }).service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    const d = await setup({ consentPurposes: null, workerExists: false }).service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(a).toEqual(NEUTRAL);
     expect(b).toEqual(NEUTRAL);
     expect(c).toEqual(NEUTRAL);
@@ -301,7 +422,10 @@ describe("B-C — single neutral body, byte-identical across every deny branch",
   });
 
   it("the deny_reason never crosses the response boundary", async () => {
-    const res = await setup({ dailyCount: 5 }).service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    const res = await setup({ dailyCount: 5 }).service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(JSON.stringify(res)).not.toContain("capped");
     expect(JSON.stringify(res)).not.toContain("reason");
   });
@@ -310,7 +434,10 @@ describe("B-C — single neutral body, byte-identical across every deny branch",
 describe("fail-closed render — degrade to neutral, disclose nothing", () => {
   it("renderPdf null (render disabled / WeasyPrint missing) → neutral, no markDisclosed, no event", async () => {
     const t = setup({ renderNull: true });
-    const res = await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(res).toEqual(NEUTRAL);
     expect(t.repo.markDisclosed).not.toHaveBeenCalled();
     expect(t.emitted).toHaveLength(0);
@@ -321,7 +448,10 @@ describe("idempotency — a live disclosed grant is reused, not re-rendered", ()
   it("existing live 'disclosed' row → re-signs the link; no insert, no render, no new event", async () => {
     const future = new Date(Date.now() + 60_000);
     const t = setup({ existing: { id: "disc-existing", status: "disclosed", expiresAt: future } });
-    const res = await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect((res as { ok: boolean; disclosure_id: string }).disclosure_id).toBe("disc-existing");
     expect(t.txMethods.insertRow).not.toHaveBeenCalled();
     expect(t.renderer.renderPdf).not.toHaveBeenCalled();
@@ -344,7 +474,10 @@ describe("B-F — no bulk/list disclosure shape (anti-harvest)", () => {
 describe("ADR-0031 — a pending-deletion worker is not disclosable (byte-identical neutral)", () => {
   it("requestDisclosure during grace → the BYTE-IDENTICAL neutral body; no lock, no render, no row, no event", async () => {
     const t = setup({ pendingDeletion: true });
-    const res = await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     // Byte-equality with the canonical neutral constructor (the no-oracle guarantee).
     expect(JSON.stringify(res)).toBe(JSON.stringify(neutralUnavailable()));
     // Denied PRE-lock: the tx never opens; nothing is rendered, minted, written, or evented.
@@ -357,8 +490,14 @@ describe("ADR-0031 — a pending-deletion worker is not disclosable (byte-identi
   });
 
   it("a pending-deletion deny is INDISTINGUISHABLE from no-consent/capped/no-resume (no leaving-oracle)", async () => {
-    const pending = await setup({ pendingDeletion: true }).service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
-    const noConsent = await setup({ consentPurposes: null }).service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    const pending = await setup({ pendingDeletion: true }).service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
+    const noConsent = await setup({ consentPurposes: null }).service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(JSON.stringify(pending)).toBe(JSON.stringify(noConsent));
   });
 
@@ -368,7 +507,10 @@ describe("ADR-0031 — a pending-deletion worker is not disclosable (byte-identi
     const t = setup({ existing: { id: "disc-existing", status: "disclosed", expiresAt: future } });
     // The tx-scoped marker read sees the schedule land after the pre-lock read.
     t.txMethods.getWorkerDeletionMarker.mockResolvedValue({ deletionScheduledAt: new Date() });
-    const res = await t.service.requestDisclosure({ payerId: PAYER, workerId: WORKER, jobPostingId: null }, CTX);
+    const res = await t.service.requestDisclosure(
+      { payerId: PAYER, workerId: WORKER, jobPostingId: null },
+      CTX,
+    );
     expect(JSON.stringify(res)).toBe(JSON.stringify(neutralUnavailable()));
     // No fresh signed URL is minted during grace (a re-mint IS a new disclosure).
     expect(t.storage.createSignedUrl).not.toHaveBeenCalled();

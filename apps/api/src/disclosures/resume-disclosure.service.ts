@@ -8,9 +8,12 @@ import { EventsService } from "../events/events.service";
 import { ConsentRepository } from "../consent/consent.repository";
 import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
+import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { StorageService } from "../storage/storage.service";
 import { ResumeRenderer } from "../resume/resume-renderer.service";
-import { buildResumeRenderInput } from "../resume/resume-render-input";
+import { buildResumeRenderInput, type TradeSheetContext } from "../resume/resume-render-input";
+import type { WorkerEmploymentRecord } from "../resume/resume-employment-rows";
+import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
 import { maskInitials } from "../resume/mask-initials";
 import { neutralUnavailable, type NeutralUnavailableResponse } from "../unlocks/unlock-response";
 import { ResumeDisclosureRepository, type Tx } from "./resume-disclosure.repository";
@@ -71,6 +74,8 @@ export class ResumeDisclosureService {
     private readonly pii: PiiCryptoService,
     private readonly renderer: ResumeRenderer,
     private readonly storage: StorageService,
+    private readonly attributes: WorkerAttributesRepository,
+    private readonly employments: WorkerEmploymentRepository,
     private readonly events: EventsService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
@@ -136,7 +141,12 @@ export class ResumeDisclosureService {
 
       // Idempotency: a LIVE disclosure for (payer, worker, posting) → reuse it; re-mint
       // its link below WITHOUT a second grant or a second resume.disclosed event.
-      const existing = await this.repo.findByPayerWorkerPosting(tx, payerId, workerId, jobPostingId);
+      const existing = await this.repo.findByPayerWorkerPosting(
+        tx,
+        payerId,
+        workerId,
+        jobPostingId,
+      );
       if (
         existing &&
         existing.status === "disclosed" &&
@@ -182,7 +192,9 @@ export class ResumeDisclosureService {
   }
 
   /** Ops: a payer's disclosures (PII-free projection). */
-  async listByPayer(payerId: string): Promise<{ disclosures: Awaited<ReturnType<ResumeDisclosureRepository["listByPayer"]>> }> {
+  async listByPayer(
+    payerId: string,
+  ): Promise<{ disclosures: Awaited<ReturnType<ResumeDisclosureRepository["listByPayer"]>> }> {
     return { disclosures: await this.repo.listByPayer(payerId) };
   }
 
@@ -215,8 +227,44 @@ export class ResumeDisclosureService {
       try {
         maskedName = maskInitials(this.pii.decrypt(worker.fullName));
       } catch {
-        this.logger.warn(`could not decrypt full_name for worker ${workerId}; masked-nameless render`);
+        this.logger.warn(
+          `could not decrypt full_name for worker ${workerId}; masked-nameless render`,
+        );
       }
+    }
+
+    // THE TRADE CAPABILITY BLOCK CROSSES TO THE PAYER, and that is the intended reading of the
+    // audience rule rather than an oversight. What a worker can do on a machine — his machines,
+    // controllers, materials, setting operations, the tolerance he holds — is trade information
+    // and the single most decisive thing on the sheet for a hiring supervisor. It is neither
+    // identity nor negotiating position, so it sits with `shift` and `nightShiftReady` rather
+    // than with the three things this surface withholds: the real name, the photo, the salary.
+    // Withholding it would leave the payer a masked sheet with an empty capability section,
+    // which is the disclosure they paid to unlock.
+    //
+    // Degrades to absence, never to a failed disclosure — same contract as the render worker.
+    let tradeSheet: TradeSheetContext | null = null;
+    try {
+      tradeSheet = await this.attributes.loadTradeSheet(workerId);
+    } catch {
+      this.logger.warn(`could not load trade attributes for worker ${workerId}; rendering without`);
+    }
+
+    // ZONE 4 CROSSES TO THE PAYER ON THE SAME REASONING AS THE CAPABILITY BLOCK. An employer,
+    // a city and a date range are the work history — scan studies put employer and dates in the
+    // top six elements — and this is the disclosure they paid to unlock. The three things this
+    // surface withholds stay exactly three: the real name, the photo, the expected salary.
+    //
+    // SEPARATE try/catch, and separate from the attributes load above: either source failing
+    // must cost only its own section, never the whole disclosure.
+    let employments: WorkerEmploymentRecord[] = [];
+    try {
+      employments = await this.employments.loadForResume(workerId);
+    } catch {
+      this.logger.warn(`could not load work history for worker ${workerId}; rendering without`);
+    }
+    if (employments.length > 0) {
+      tradeSheet = { packId: null, attributes: {}, ...tradeSheet, employments, asOf: new Date() };
     }
 
     // ADR-0032: photoDataUri is STRUCTURALLY null here — the worker's photo is for
@@ -245,6 +293,7 @@ export class ResumeDisclosureService {
       // above, this is what keeps `expected_salary` off the disclosure — the worker's asking
       // price is theirs to reveal in a conversation, not ours to print before one.
       "employer",
+      tradeSheet,
     );
 
     let pdf: Buffer | null;
@@ -256,7 +305,9 @@ export class ResumeDisclosureService {
     if (!pdf) {
       // Render disabled / WeasyPrint missing / failed → disclose nothing this run. The
       // granted row stays 'granted' for a retry; no event (nothing was disclosed).
-      this.logger.warn(`masked resume not rendered for disclosure=${disclosureId}; returning neutral`);
+      this.logger.warn(
+        `masked resume not rendered for disclosure=${disclosureId}; returning neutral`,
+      );
       return neutralUnavailable();
     }
 
@@ -266,7 +317,10 @@ export class ResumeDisclosureService {
     let url: string;
     try {
       await this.storage.uploadPdf(objectKey, pdf);
-      url = await this.storage.createSignedUrl(objectKey, this.config.RESUME_SIGNED_URL_TTL_SECONDS);
+      url = await this.storage.createSignedUrl(
+        objectKey,
+        this.config.RESUME_SIGNED_URL_TTL_SECONDS,
+      );
     } catch {
       this.logger.warn(`upload/sign failed for disclosure=${disclosureId}; returning neutral`);
       return neutralUnavailable();
@@ -274,7 +328,11 @@ export class ResumeDisclosureService {
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + this.config.RESUME_SIGNED_URL_TTL_SECONDS * 1000);
-    await this.repo.markDisclosed(disclosureId, { resumeRef: source.resumeId, disclosedAt: now, expiresAt });
+    await this.repo.markDisclosed(disclosureId, {
+      resumeRef: source.resumeId,
+      disclosedAt: now,
+      expiresAt,
+    });
 
     // emit resume.disclosed — the FACT only (B-E). NEVER the bytes/name/url.
     const payload: PayloadInputOf<"resume.disclosed"> = {
@@ -297,7 +355,9 @@ export class ResumeDisclosureService {
     } catch (err) {
       // The disclosure committed; an emit failure must not leak or roll it back. Log
       // class only (no PII — the payload is ids, but keep the discipline).
-      this.logger.error(`resume.disclosed emit failed: ${err instanceof Error ? err.name : "unknown"}`);
+      this.logger.error(
+        `resume.disclosed emit failed: ${err instanceof Error ? err.name : "unknown"}`,
+      );
     }
 
     return this.granted(disclosureId, url, expiresAt);
@@ -333,7 +393,13 @@ export class ResumeDisclosureService {
     if (existing) {
       await this.repo.updateStatus(tx, existing.id, { status: "denied", denyReason: reason });
     } else {
-      await this.repo.insertRow(tx, { payerId, workerId, jobPostingId, status: "denied", denyReason: reason });
+      await this.repo.insertRow(tx, {
+        payerId,
+        workerId,
+        jobPostingId,
+        status: "denied",
+        denyReason: reason,
+      });
     }
   }
 

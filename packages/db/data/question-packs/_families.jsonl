@@ -32,6 +32,7 @@
 {"kind":"family","family_id":"fam_universal","label_en":"General","label_hi":"सामान्य"}
 {"kind":"family","family_id":"fam_welding","label_en":"Welding","label_hi":"वेल्डिंग","canonical_role_id":"role_welder","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_machining","label_en":"Machining and CNC","label_hi":"खराद और सीएनसी","canonical_role_id":"role_cnc_operator","industry_id":"ind_industrial_manufacturing"}
+{"kind":"family","family_id":"fam_cnc_turning","label_en":"Turning (CNC and conventional)","label_hi":"टर्निंग और खराद","canonical_role_id":"role_cnc_turner_operator","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_fitting","label_en":"Fitting and Machine Maintenance","label_hi":"फिटर और मेंटेनेंस","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_toolmaking","label_en":"Tool and Die Making","label_hi":"टूल और डाई मेकिंग","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_auto_mechanic","label_en":"Automobile Mechanic","label_hi":"गाड़ी मैकेनिक"}
@@ -77,6 +78,10 @@
 {"kind":"binding","family_id":"fam_universal","is_universal":true}
 {"kind":"binding","family_id":"fam_welding","isco_unit_code":"7212"}
 {"kind":"binding","family_id":"fam_machining","isco_unit_code":"7223"}
+{"kind":"binding","family_id":"fam_cnc_turning","job_domain_id":"jd_nco_7223_6001"}
+{"kind":"binding","family_id":"fam_cnc_turning","job_domain_id":"jd_nco_7223_6002"}
+{"kind":"binding","family_id":"fam_cnc_turning","job_domain_id":"jd_nco_7223_0601"}
+{"kind":"binding","family_id":"fam_cnc_turning","job_domain_id":"jd_nco_7223_0701"}
 {"kind":"binding","family_id":"fam_fitting","isco_unit_code":"7233"}
 {"kind":"binding","family_id":"fam_toolmaking","isco_unit_code":"7222"}
 {"kind":"binding","family_id":"fam_auto_mechanic","isco_unit_code":"7231"}

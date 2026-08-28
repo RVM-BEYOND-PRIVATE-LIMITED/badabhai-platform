@@ -3,6 +3,17 @@ import { labelForTaxonomyId } from "@badabhai/taxonomy";
 import { looksLikePii } from "@badabhai/validators";
 import type { ResumeRenderInput } from "./resume-renderer.service";
 import { resolveTradeContent, type TradeContent } from "./trade-content";
+import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-resume-map";
+import { buildEmploymentBlock, type WorkerEmploymentRecord } from "./resume-employment-rows";
+import {
+  bareAvailability,
+  bareAvailabilityLabel,
+  buildAvailabilityRows,
+  buildDocumentRows,
+  buildQualificationRows,
+  buildVerdictLine,
+  formatMonthlySalary,
+} from "./resume-sheet-rows";
 
 /**
  * Pure snapshot → {@link ResumeRenderInput} mapping (NO LLM, NO I/O, NO DI).
@@ -45,6 +56,126 @@ import { resolveTradeContent, type TradeContent } from "./trade-content";
  */
 export type ResumeAudience = "worker" | "employer";
 
+/**
+ * The role pack's answers, for the `bb_trade` sheet's first section.
+ *
+ * OPTIONAL, UNLIKE `photoDataUri` AND `nightShiftReady`, and the difference is what each one
+ * costs when a call site forgets it. Forgetting the photo LEAKS it into a payer-facing
+ * disclosure; forgetting `nightShiftReady` silently discards a preference the worker set by
+ * hand. Forgetting this produces ABSENCE — the capability section collapses, exactly as it does
+ * for the 140-odd trades with no map yet, and every other layout is unaffected because none of
+ * them carries these slots. Absence is the correct default here, so the compiler is not the
+ * right place to enforce it, and making it required would rewrite 41 existing call sites to say
+ * `null`.
+ *
+ * `attributes` is the raw `worker_attributes` map. The slug→English dictionary lives in
+ * `trade-resume-map.ts` and is applied INSIDE this function, on both paths, for the same reason
+ * the masking branch is inside it: a mapping done at the call site is a mapping one call site
+ * can do differently.
+ */
+export interface TradeSheetContext {
+  /** The pack the interview ran, e.g. `qp_cnc_turning`. Null disables the section. */
+  readonly packId: string | null;
+  readonly attributes: WorkerAttributeValues;
+
+  /**
+   * The worker's number, DECRYPTED BY THE CALLER — exactly the contract `displayName` has, and
+   * for exactly the same reason: the ciphertext lives on the worker row, the key lives in the
+   * PII service, and this function is pure. It prints on BOTH audiences by owner ruling
+   * 2026-08-28; a sheet handed over at a factory gate is useless without a number, and the
+   * payer copy is only ever produced after an unlock. Never logged, never echoed into an error.
+   */
+  readonly phone?: string | null;
+  /**
+   * The name in Devanagari. AUDIENCE-GATED INSIDE THIS FUNCTION, not at the call site.
+   *
+   * The design guideline (§11 #17) says Latin on the employer-facing artifact and BOTH scripts
+   * on the worker's own copy. That is a rule about the artifact rather than about the caller, so
+   * it is enforced here where it cannot be forgotten — the same argument that puts the name
+   * masking inside this function.
+   */
+  readonly nameDevanagari?: string | null;
+  /** The verification tier, printed verbatim. Absent collapses the masthead's right slot. */
+  readonly trustBadge?: string | null;
+
+  /**
+   * ZONE 4 — the two-level work history, employer names already DECRYPTED by the caller.
+   *
+   * SAME CONTRACT AS `phone`, and for the same reason: the ciphertext is on the row, the key is
+   * in the PII service, and this function is pure. Absent or empty is the ordinary case today —
+   * nothing writes `worker_employment` yet — and it selects the fallback below rather than an
+   * empty section.
+   */
+  readonly employments?: readonly WorkerEmploymentRecord[];
+  /**
+   * The render clock, for closing an open-ended employment ("Jan 2023 – Present · 3 yrs 8 mo").
+   *
+   * OPTIONAL, AND ITS ABSENCE IS HONEST RATHER THAN A DEFAULT. Without a clock the span still
+   * prints "Jan 2023 – Present" and the months tail is simply absent, because a tenure figure is
+   * a number and §8 forbids printing one nobody can source. Defaulting to `new Date()` inside
+   * this function would also make it impure and its output untestable.
+   */
+  readonly asOf?: Date | null;
+
+  /**
+   * ZONE 5 — Qualification, documents and languages.
+   *
+   * CALLER-SUPPLIED FOR THE SAME REASON THE CAPABILITY BLOCK IS PACK-SUPPLIED: the résumé
+   * container Phase C returns has no education, certificate or language fields, so on that path
+   * this section rendered EMPTY for every worker whose interview ran. Widening Phase C is a
+   * separate item against a different surface (see docs/resume-engine-r1-journal.md); this slot
+   * is what lets Zone 5 render the moment any source can fill it, including the seeded fixtures
+   * the block is verified against.
+   *
+   * PII-FREE BY CONTRACT. Education levels, certificate names, languages and document names are
+   * closed-vocabulary qualification labels — never a person, a number or an address.
+   */
+  readonly qualification?: ResumeQualificationFacts;
+
+  /** Footer: a self-contained `data:` URI from `resume-qr.ts`. Never a URL. */
+  readonly qrDataUri?: string | null;
+  readonly qrCaption?: string | null;
+  readonly shortLink?: string | null;
+  /** "Generated 27 August 2026 · Self-declared · Ref RK8M2Q" — composed by the caller. */
+  readonly footerMeta?: string | null;
+}
+
+/** Zone 5's values. Every field optional; an absent one contributes no row. */
+export interface ResumeQualificationFacts {
+  /** "ITI — Turner" — the single leading line, never a heading of its own (§11 #2). */
+  readonly educationHeadline?: string | null;
+  readonly education?: readonly string[];
+  readonly certifications?: readonly string[];
+  readonly languages?: readonly string[];
+  /**
+   * Documents the worker SAYS they hold. Self-declared, rendered as a tick row.
+   *
+   * §5.1 ranks this ninth of eleven because it removes the most common walk-in failure before
+   * it happens. It is a claim by the worker and is never a verification signal — the masthead
+   * badge is the only thing that speaks to verification, and it is separate.
+   */
+  readonly documents?: readonly string[];
+}
+
+/** The `bb_trade` slots built once above the source branch and shared by both paths. */
+type TradeCapabilitySlots = Pick<
+  ResumeRenderInput,
+  | "capSectionTitle"
+  | "capChipRows"
+  | "capTickRows"
+  | "capFactRows"
+  | "qualTickRows"
+  | "employments"
+  | "employmentsMore"
+  | "phone"
+  | "nameDevanagari"
+  | "trustBadge"
+  | "qrDataUri"
+  | "qrCaption"
+  | "shortLink"
+  | "footerMeta"
+>;
+
 export function buildResumeRenderInput(
   snapshot: unknown,
   displayName: string | null,
@@ -52,8 +183,52 @@ export function buildResumeRenderInput(
   photoDataUri: string | null,
   nightShiftReady: boolean,
   audience: ResumeAudience,
+  tradeSheet?: TradeSheetContext | null,
 ): ResumeRenderInput {
   const draft = DraftProfileSchema.parse(snapshot ?? {});
+
+  // COMPUTED BEFORE THE BRANCH, and that placement is the point. This function has two return
+  // paths — the résumé container and the legacy answer-map shape — and a worker reaches one or
+  // the other depending on whether their interview ran. Building the capability block inside
+  // either one would give half the workers a blank first section on a sheet whose whole purpose
+  // is that section, and nothing would report it.
+  //
+  // AUDIENCE-BLIND, DELIBERATELY. A capability block is what the worker can do on a machine; it
+  // is trade information rather than identity or negotiating position, so it crosses to the
+  // payer on the same reasoning `shift` and `nightShiftReady` already do. The three things this
+  // function withholds from a payer stay exactly three: the real name, the photo, the salary.
+  const capability = buildTradeCapabilityRows(tradeSheet?.packId, tradeSheet?.attributes ?? {});
+  // ZONE 4 IS BUILT HERE FOR THE SAME REASON, and it also decides which of the two work-history
+  // regions the template renders. `employments` is the designed two-level shape; `experiences`
+  // is the flat, employer-less shape every profile in the database actually has today. The
+  // mapper populates exactly ONE — see the suppression at each return path — so a worker can
+  // never get both a dated employer block and an undated duplicate of the same job.
+  const employmentBlock = buildEmploymentBlock(tradeSheet?.employments ?? [], {
+    asOf: tradeSheet?.asOf ?? null,
+  });
+  const hasEmployments = employmentBlock.employments.length > 0;
+  const capabilitySlots = {
+    capSectionTitle: capability.sectionTitle,
+    capChipRows: capability.chipRows,
+    capTickRows: capability.tickRows,
+    capFactRows: capability.factRows,
+    // Documents are a self-declared tick row and are audience-blind, exactly like the capability
+    // block: "I hold an Aadhaar card and an ITI certificate" is what removes a walk-in failure
+    // (§5.1 rank 9), it is not identity and it carries no number.
+    qualTickRows: buildDocumentRows(tradeSheet?.qualification?.documents ?? []),
+    employments: employmentBlock.employments,
+    employmentsMore: employmentBlock.employmentsMore,
+    phone: tradeSheet?.phone ?? null,
+    // §11 #17 — LATIN ONLY ON THE EMPLOYER ARTIFACT. Structural, like the photo: a caller
+    // cannot put the Devanagari line on a payer-facing sheet by passing it, because the rule
+    // lives here rather than at the call site.
+    nameDevanagari: audience === "worker" ? (tradeSheet?.nameDevanagari ?? null) : null,
+    trustBadge: tradeSheet?.trustBadge ?? null,
+    qrDataUri: tradeSheet?.qrDataUri ?? null,
+    qrCaption: tradeSheet?.qrCaption ?? null,
+    shortLink: tradeSheet?.shortLink ?? null,
+    footerMeta: tradeSheet?.footerMeta ?? null,
+  } as const;
 
   // ── THE RÉSUMÉ CONTAINER WINS OUTRIGHT WHEN IT EXISTS ────────────────────────────────
   //
@@ -94,11 +269,61 @@ export function buildResumeRenderInput(
       photoDataUri,
       nightShiftReady,
       audience,
+      capabilitySlots,
+      capability.headlineTools,
+      tradeSheet?.qualification,
+      hasEmployments,
     );
   }
 
   const trade = resolveTradeContent(draft.canonical_role_id, draft.canonical_trade_id);
+  const legacyRole =
+    trade?.display_name ?? resolveId(draft.canonical_role_id) ?? draft.role_label ?? null;
+  const legacyCity =
+    draft.location_preference.current_city ?? draft.location_preference.preferred_cities[0] ?? null;
+  const legacyMachines = draft.machines.map(labelForTaxonomyId);
+  const legacyAvailability = bareAvailability(draft.availability);
+  const legacyEducationHeadline =
+    [humanizeEducationLevel(draft.education_level), draft.education_field]
+      .map((v) => v?.trim())
+      .filter((v): v is string => Boolean(v))
+      .join(" — ") || null;
+
   return {
+    ...capabilitySlots,
+    // THE VERDICT LINE AND THE TWO LOWER SECTIONS ARE BUILT ON BOTH PATHS, and this is the
+    // path most existing profiles still take. Composing them only on the résumé-container
+    // branch would have left every pre-interview worker with an empty headline strip on a
+    // layout whose top 22% exists to carry exactly that line.
+    ...buildVerdictLine({
+      role: legacyRole,
+      years: draft.experience.total_years,
+      // The pack's own headline row when the interview ran one, else the taxonomy machines.
+      tools: capability.headlineTools.length > 0 ? capability.headlineTools : legacyMachines,
+      city: legacyCity,
+      availability: legacyAvailability,
+      salary: null,
+    }),
+    availFactRows: buildAvailabilityRows({
+      availability: legacyAvailability,
+      salary: null,
+      preferredLocations: draft.location_preference.preferred_cities,
+      shift: null,
+    }),
+    // ZONE 5. The context WINS PER FIELD where it has one, because it is the worker's own
+    // structured answer and the snapshot's is a taxonomy id the extractor guessed at. It is a
+    // per-field override rather than an all-or-nothing swap: `languages` exists ONLY on the
+    // context and education exists only on the snapshot for every profile written before the
+    // capture surface, so an all-or-nothing rule would blank one of the two whichever way it
+    // fell. `??` and not `||` — an explicitly empty list is a real answer ("no certificates")
+    // and must not fall through to the snapshot's.
+    qualFactRows: buildQualificationRows({
+      educationHeadline: tradeSheet?.qualification?.educationHeadline ?? legacyEducationHeadline,
+      education: tradeSheet?.qualification?.education ?? draft.education.map(labelForTaxonomyId),
+      certifications:
+        tradeSheet?.qualification?.certifications ?? draft.certifications.map(labelForTaxonomyId),
+      languages: tradeSheet?.qualification?.languages ?? [],
+    }),
     // UNCHANGED ON THE LEGACY PATH. These three are new render-input fields, and the old
     // container has nothing to put in them: no work history exists outside Phase C, and the
     // deterministic résumé never printed a trade line or a salary. Empty/null keeps every
@@ -143,7 +368,9 @@ export function buildResumeRenderInput(
     // extracted before this change it is still the only place the city exists.
     // Dropping the fallback would blank the location line on all of them.
     location:
-      draft.location_preference.current_city ?? draft.location_preference.preferred_cities[0] ?? null,
+      draft.location_preference.current_city ??
+      draft.location_preference.preferred_cities[0] ??
+      null,
     experienceYears: draft.experience.total_years,
     // #947 — the worker's own night-shift toggle joins the model's extracted shift on this one
     // slot. `false` contributes nothing at all, so every row still sitting on the column's
@@ -214,6 +441,26 @@ function fromResumeProfile(
   photoDataUri: string | null,
   nightShiftReady: boolean,
   audience: ResumeAudience,
+  // PASSED IN, NOT REBUILT. The caller computes it once above the branch; recomputing here
+  // would be a second place for the two paths to disagree about a worker's own skills.
+  capabilitySlots: TradeCapabilitySlots,
+  /** The pack's headline row values, for the Verdict Line's third segment. */
+  headlineTools: string[],
+  /**
+   * Zone 5's values. THE ONLY SOURCE ON THIS PATH — Phase C returns nine keys and education,
+   * certificates and languages are not among them, which is why this section rendered empty for
+   * every worker whose interview ran.
+   */
+  qualification: ResumeQualificationFacts | undefined,
+  /**
+   * True when Zone 4 already has real employer blocks.
+   *
+   * THE PRECEDENCE RULE, AND IT IS ONE-WAY. `worker_employment` carries an employer, a city and
+   * dates; `rp.experiences` carries a role and the worker's own words for a duration and no
+   * employer at all. Rendering both would print the same job twice — once dated and once not —
+   * so the richer shape wins outright and the flat one is suppressed, never merged.
+   */
+  hasEmployments: boolean,
 ): ResumeRenderInput {
   // CERTIFIED ONCE, AT THE TOP (#831). `role_label` and `domain_label` are each read TWICE —
   // as their own fields and again by `summaryFor` — and certifying at each read site is how the
@@ -226,7 +473,48 @@ function fromResumeProfile(
   const roleLabel = cleanScalar(rp.role_label);
   const domainLabel = cleanScalar(rp.domain_label);
 
+  const salaryText = audience === "worker" ? formatMonthlySalary(rp.expected_salary) : null;
+  // HUMANISED ONCE, HERE. The container stores the model's own token ("immediate",
+  // "notice_period") so it stays diffable against its trace; the sheet prints a label. Both the
+  // Verdict Line and the Terms row read this, and computing it twice is how they drift.
+  const availabilityLabel = bareAvailabilityLabel(cleanScalar(rp.availability));
+
   return {
+    ...capabilitySlots,
+    // THE VERDICT LINE — §5.1 ranks it first of eleven, and it was rendering EMPTY: the strip
+    // has been on the layout since the design landed and nothing ever composed the two lines,
+    // so the top 22% of the sheet carried the name and then a blank rule.
+    ...buildVerdictLine({
+      role: roleLabel,
+      years: totalYearsFrom(rp.experiences),
+      // The pack's headline row (a turner's controllers) when the interview ran one, else the
+      // model's free-text skills — never invented.
+      tools: headlineTools.length > 0 ? headlineTools : cleanList(rp.skills),
+      city: cleanScalar(rp.current_city),
+      availability: availabilityLabel,
+      salary: salaryText,
+    }),
+    availFactRows: buildAvailabilityRows({
+      availability: availabilityLabel,
+      // SUPPRESSED ON THE PAYER COPY, exactly like the scalar below it. A worker's asking price
+      // is a negotiating position handed away if a payer reads it before any conversation, and
+      // moving it into a labelled row must not become a way around that.
+      salary: salaryText,
+      preferredLocations: cleanList(rp.preferred_locations),
+      shift: humanizeShift(cleanScalar(rp.shift)),
+    }),
+    // ZONE 5, FROM THE CONTEXT ONLY. Education, certifications and languages ride the answer
+    // map's crosswalk fields, which Phase C does not return — so nothing on `rp` can fill them
+    // and merging the other source back in is the bug this path replaced. The caller-supplied
+    // block is a THIRD source rather than that merge: it is the worker's own structured answer,
+    // it never passes through the model, and where it is absent the section still collapses
+    // exactly as it does today.
+    qualFactRows: buildQualificationRows({
+      educationHeadline: qualification?.educationHeadline ?? null,
+      education: qualification?.education ?? [],
+      certifications: qualification?.certifications ?? [],
+      languages: qualification?.languages ?? [],
+    }),
     templateId,
     displayName,
     photoDataUri,
@@ -276,13 +564,20 @@ function fromResumeProfile(
     // `:empty` rule per list in four templates keeps the fix in one place and out of the
     // presentation layer.
     skills: cleanList(rp.skills),
-    experiences: rp.experiences.map((e) => ({
-      role: e.role_label,
-      // The worker's OWN words first. `duration_months` is a normalization of it, and printing
-      // "42 months" when they said "3.5 saal" trades their voice for a number they never used.
-      duration: e.duration_text.trim() || monthsAsText(e.duration_months),
-      work: e.work_done,
-    })),
+    // SUPPRESSED WHEN ZONE 4 HAS REAL EMPLOYMENTS — see `hasEmployments` above. The template
+    // renders both regions into one section, so leaving these populated would print each job
+    // twice: once with its employer and dates, once as a bare role with the worker's own words
+    // for a duration.
+    experiences: hasEmployments
+      ? []
+      : rp.experiences.map((e) => ({
+          role: e.role_label,
+          // The worker's OWN words first. `duration_months` is a normalization of it, and
+          // printing "42 months" when they said "3.5 saal" trades their voice for a number they
+          // never used.
+          duration: e.duration_text.trim() || monthsAsText(e.duration_months),
+          work: e.work_done,
+        })),
     preferredLocations: cleanList(rp.preferred_locations),
     // THE WORKER'S OWN COPY ONLY. Their asking price is useful on the résumé they carry and is
     // a negotiating position handed away if a payer reads it before any conversation. Same
@@ -375,10 +670,12 @@ function summaryFor(rp: {
   if (!role && !domain) return null;
   const head = role ?? domain!;
   const years = totalYearsFrom(rp.experiences);
-  const tenure = years && years > 0 ? ` with ${years} year${years === 1 ? "" : "s"} of experience` : "";
+  const tenure =
+    years && years > 0 ? ` with ${years} year${years === 1 ? "" : "s"} of experience` : "";
   // The trade only earns its own clause when it says something the role does not already —
   // "Cook with 3 years of experience in cooking" is worse than saying it once.
-  const context = domain && role && domain.toLowerCase() !== role.toLowerCase() ? ` in ${domain}` : "";
+  const context =
+    domain && role && domain.toLowerCase() !== role.toLowerCase() ? ` in ${domain}` : "";
   return `${head}${tenure}${context}.`;
 }
 
@@ -432,8 +729,10 @@ function summaryFromLabels(draft: ReturnType<typeof DraftProfileSchema.parse>): 
   const head = role ?? domain!;
   // The domain only earns its own clause when it says something the role does not already —
   // "Cook with 3 years of experience in cooking" is worse than saying it once.
-  const context = domain && role && domain.toLowerCase() !== role.toLowerCase() ? ` in ${domain}` : "";
-  const tenure = years && years > 0 ? ` with ${years} year${years === 1 ? "" : "s"} of experience` : "";
+  const context =
+    domain && role && domain.toLowerCase() !== role.toLowerCase() ? ` in ${domain}` : "";
+  const tenure =
+    years && years > 0 ? ` with ${years} year${years === 1 ? "" : "s"} of experience` : "";
   return `${head}${tenure}${context}.`;
 }
 

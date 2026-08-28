@@ -32,3 +32,24 @@ packages/db/migrations/**
 # meaning and buries real edits to an agent's actual instructions in review.
 .claude/agents/**
 .claude/skills/**
+
+# ---------------------------------------------------------------------------
+# RESUME LAYOUT SKELETONS — never format these either, for TWO independent reasons.
+#
+# 1. WHITESPACE IS LOAD-BEARING. Every collapsible container in these layouts is
+#    written on ONE line, flush against its tags, because `:empty` does not match an
+#    element holding a single space or a newline. Prettier's HTML printer breaks each
+#    container across lines, which silently re-enables every section a sparse profile
+#    is supposed to hide — a worker with no certifications would print a
+#    "Certifications" heading with nothing under it, on a sheet they hand to an
+#    employer. Nothing would fail; it would just be wrong.
+#
+# 2. A SHIPPED TEMPLATE VERSION IS IMMUTABLE (templates/registry.ts). A resume row
+#    records the `template_id` + version it was rendered with, so reformatting
+#    `classic.v3.html` edits a file that already-issued PDFs are pinned to.
+#
+# Measured 2026-08-28: `prettier --check` reports style issues on the shipped
+# `classic.v3.html` as well as on the new `bb_trade.v1.html`, so `pnpm format` would
+# have rewritten the whole directory. `bb-trade-template.test.ts` asserts the
+# no-whitespace discipline independently, so a formatter run still fails CI.
+apps/api/src/resume/templates/**

@@ -88,6 +88,23 @@ interface Demands {
   readonly fields: Set<string>;
   readonly domains: Set<string>;
   readonly iscos: Set<string>;
+  /**
+   * Every scalar a comparison operand names as a literal.
+   *
+   * WHY THIS EXISTS. The probe used to bind a referenced field to the string `"yes"` and nothing
+   * else, which is satisfying for `answered` and for a boolean `eq` but is UNSATISFIABLE for any
+   * numeric comparison: `compare()` refuses to order a string against a number, so `gte(field, 2)`
+   * was false in every probe and the first author to write a numeric gate would be told their
+   * working predicate gates nothing — the exact false alarm the doc above says costs this file its
+   * credibility. That author was `qp_cnc_turning`, whose depth ladder gates tier-1 and tier-2
+   * questions on an experience band (`gte turning_experience 2` / `5`).
+   *
+   * Binding a field to a constant THE PREDICATE ITSELF NAMES is a reachable state by construction —
+   * a worker can really answer that value — so this widens what the probe can express without
+   * widening what it forgives. A genuinely unsatisfiable condition stays reported: `all(gte(f,5),
+   * lte(f,2))` is false at f=5 and false at f=2, so it is still named inert.
+   */
+  readonly consts: Set<unknown>;
   turn: number;
 }
 
@@ -96,6 +113,13 @@ function demandsOf(node: Predicate, into: Demands): Demands {
   for (const operand of [node.left, node.right]) {
     const field = (operand as { field?: unknown } | undefined)?.field;
     if (typeof field === "string") into.fields.add(field);
+    // `in` models its right-hand side as ONE operand carrying a const ARRAY, so a membership test
+    // is satisfied by any element — spread it rather than probing the array as a single value.
+    const literal = (operand as { const?: unknown } | undefined)?.const;
+    if (literal !== undefined) {
+      if (Array.isArray(literal)) for (const element of literal) into.consts.add(element);
+      else into.consts.add(literal);
+    }
   }
   if (typeof node.job_domain_id === "string") into.domains.add(node.job_domain_id);
   if (typeof node.isco_code === "string") into.iscos.add(node.isco_code);
@@ -153,6 +177,7 @@ function probes(node: Predicate): EvaluationContext[] {
     fields: new Set(),
     domains: new Set(),
     iscos: new Set(),
+    consts: new Set(),
     turn: 0,
   });
 
@@ -161,6 +186,11 @@ function probes(node: Predicate): EvaluationContext[] {
     {} as AnswerMap,
     toAnswerMap(fields.map((f) => record(f, "answered", "yes"))),
     toAnswerMap(fields.map((f) => record(f, "declined", null))),
+    // One map per literal the condition compares against, so a numeric or enum gate has a state
+    // that can satisfy it. See `Demands.consts`.
+    ...[...demands.consts].map((value) =>
+      toAnswerMap(fields.map((f) => record(f, "answered", value))),
+    ),
   ];
 
   const domains = [...demands.domains];

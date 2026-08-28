@@ -126,11 +126,28 @@ function main(): void {
 
   console.log(`[${SCRIPT}] family-level (the Phase 7 criterion):`);
   console.log(`  correct family              = ${fam.correct}`);
+  console.log(`  refined to a sub-unit family = ${fam.refined}  (counted correct)`);
   console.log(`  WRONG family                = ${fam.wrongFamily}`);
   console.log(`  no match                    = ${fam.miss}`);
   console.log(`  gold rows with no family    = ${fam.unbound}  (excluded)`);
   console.log(`  FAMILY PRECISION            = ${pct(fam.precision)}  (floor ${pct(famFloor)})`);
   console.log(`  family coverage             = ${pct(fam.coverage)}`);
+
+  // ALWAYS PRINTED, never behind --failures. A refinement is counted as correct, so the one
+  // way it could do harm is by being invisible: a binding authored at the wrong granularity
+  // would quietly move utterances into a new family and the precision number would not move.
+  // Listing them makes every such move show up in the CI log of the PR that caused it.
+  if (fam.refinements.length > 0) {
+    console.log(`[${SCRIPT}] refinements (a MORE SPECIFIC family under the gold row's own unit):`);
+    for (const r of fam.refinements) {
+      console.log(
+        "  label says %s  resolved to %s  %s",
+        r.expectedFamily.padEnd(24),
+        r.gotFamily.padEnd(24),
+        JSON.stringify(r.utterance),
+      );
+    }
+  }
 
   if (showFailures && fam.failures.length > 0) {
     console.log(`[${SCRIPT}] family failures:`);

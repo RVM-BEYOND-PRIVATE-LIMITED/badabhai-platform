@@ -123,6 +123,164 @@ export interface ResumeRenderInput {
    * logged or echoed into an error.
    */
   photoDataUri?: string | null;
+
+  // ==========================================================================
+  // THE LOCKED TRADE SHEET (`bb_trade.v1`).
+  //
+  // EVERY FIELD BELOW IS OPTIONAL, and that is what makes this additive: the twelve shipped
+  // `classic`/`modern`/`minimal`/`fallback` layouts carry none of these tokens, an unknown token
+  // collapses to empty, and every existing caller compiles and renders byte-identically.
+  //
+  // ROWS, NOT FIELDS. The trade sheet's sections are lists of {label, value} rather than a slot
+  // per fact, so "does this row appear at all" is one decision in `resume-render-input.ts` — the
+  // same place the one-page caps live — instead of a CSS `:empty` trick that has to behave in
+  // WeasyPrint. A label with nothing after it is not a formatting nit on a sheet a worker hands
+  // to a supervisor; it reads as a claim they failed to answer.
+  // ==========================================================================
+
+  /**
+   * `{{phone}}` — the worker's number, on BOTH audiences (owner ruling 2026-08-28).
+   *
+   * DELIBERATELY NOT SUPPRESSED FOR THE EMPLOYER COPY, unlike {@link expectedSalary} and
+   * {@link photoDataUri}. A printed sheet handed over at a factory gate is useless without a
+   * number on it. Decrypted server-side by the caller exactly like {@link displayName}, and under
+   * the same rule: never logged, never echoed into an error.
+   */
+  phone?: string | null;
+  /** `{{name_devanagari}}` — auto-transliterated. Needs a Devanagari font in the API image. */
+  nameDevanagari?: string | null;
+  /**
+   * `{{trust_badge}}` — the masthead's right-hand slot.
+   *
+   * EMPTY UNTIL BadaBhai Verified. The owner ruling is two tiers, and an unverified sheet shows
+   * the wordmark ALONE — never "self-declared", which reads as a warning label on a worker who
+   * has done nothing wrong. No `verified` flag exists in the schema yet, so this is null today.
+   */
+  trustBadge?: string | null;
+  /** `{{headline_line}}` — role · years · controllers · axis, composed by the mapper. */
+  headlineLine?: string | null;
+  /** `{{subhead_line}}` — city · availability · salary, composed by the mapper. */
+  subheadLine?: string | null;
+
+  /**
+   * `{{cap_section_title}}` — the FIRST section's heading, which is per-trade.
+   *
+   * A turner's sheet says "Machines, controllers & capability"; a welder's says "Processes,
+   * positions & capability"; a car mechanic's says "Vehicles, systems & tools". Every OTHER
+   * section heading is a literal in the template, because the guideline's zone map fixes them
+   * and a mapper must not be able to rename "Work history".
+   *
+   * Rendered into a `data-title` ATTRIBUTE, not a text node, so the section still collapses:
+   * `.sec:empty` matches an element that carries attributes but no children, and a
+   * `display: none` element emits no `::before`. A text slot here would keep the container
+   * non-empty forever and print a bare heading over nothing.
+   */
+  capSectionTitle?: string | null;
+
+  /** `{{#cap_chip_rows}}` — machines / controllers / materials, as pill rows. */
+  capChipRows?: ResumeListRow[];
+  /** `{{#cap_tick_rows}}` — setting operations, measuring instruments, as ticked rows. */
+  capTickRows?: ResumeListRow[];
+  /** `{{#cap_fact_rows}}` — programming, drawings, tolerance, sector. */
+  capFactRows?: ResumeFactRow[];
+  /** `{{#avail_fact_rows}}` — available from, salary, preferred locations, shift. */
+  availFactRows?: ResumeFactRow[];
+  /** `{{#qual_fact_rows}}` — education, certificates, languages. */
+  qualFactRows?: ResumeFactRow[];
+  /** `{{#qual_tick_rows}}` — documents the worker says they hold. */
+  qualTickRows?: ResumeListRow[];
+
+  /** `{{#employments}}` — the two-level work history. See {@link ResumeEmployment}. */
+  employments?: ResumeEmployment[];
+  /**
+   * `{{employments_more}}` — the overflow tail, e.g. "2 earlier employers · 22 months total
+   * · 2015–2017".
+   *
+   * The guideline caps the page at four employers rendered in full and requires the remainder to
+   * collapse to ONE counted line. Never a second page, and never a silent drop: a worker with
+   * nine employers must still see that the other five were counted, or the sheet is lying about
+   * his tenure by omission.
+   */
+  employmentsMore?: string | null;
+  /**
+   * `{{#own_words}}` — verbatim Hinglish the worker actually said, each rendered in quotes.
+   *
+   * NEVER PARAPHRASED, NEVER TRANSLATED, NEVER COMPOSED. ADR-0013 makes the renderer
+   * deterministic template-fill, and this is the one place the worker's own voice reaches the
+   * page — which is exactly why it must arrive as a stored transcript fragment rather than as
+   * anything a model wrote. An empty list collapses the whole section.
+   */
+  ownWords?: string[];
+
+  /** `{{#qr}}` — a self-contained `data:` URI. No template may fetch a QR from a service. */
+  qrDataUri?: string | null;
+  qrCaption?: string | null;
+  shortLink?: string | null;
+  /** `{{footer_meta}}` — "Generated 27 August 2026 · Ref RK8M2Q". */
+  footerMeta?: string | null;
+}
+
+/**
+ * The longest display name that fits on ONE line at 20pt beside the phone, MEASURED in
+ * WeasyPrint against the real sheet on 2026-08-28 — not estimated.
+ *
+ * A CHARACTER COUNT IS A PROXY FOR A WIDTH, and it is the only proxy available: CSS cannot
+ * measure text and WeasyPrint runs no JavaScript, so a real fitter is impossible. The proxy is
+ * safe in the direction that matters because the smaller size is the guideline's FLOOR — a
+ * mis-measured wide name drops to 18pt and wraps, which §11 #9 explicitly permits; it can never
+ * be shrunk below the floor and it is never truncated.
+ */
+const NAME_ONE_LINE_MAX = 27;
+
+/** `"fit"` for a name past {@link NAME_ONE_LINE_MAX}, else `""`. */
+function nameFitClass(displayName: string | null | undefined): string {
+  return (displayName?.trim().length ?? 0) > NAME_ONE_LINE_MAX ? "fit" : "";
+}
+
+/** A labelled list row — `{{label}}` plus a `{{#values}}` region of plain strings. */
+export type ResumeListRow = {
+  label: string;
+  values: string[];
+};
+/** A labelled single-value row. */
+export type ResumeFactRow = {
+  label: string;
+  value: string;
+};
+/** One role stint inside an employment. `when` is its OWN date range, never the employer's. */
+export type ResumeRoleStint = {
+  role: string;
+  when: string;
+};
+/**
+ * One employer, with the role stints held there.
+ *
+ * TWO LEVELS BECAUSE A PROMOTION IS ONE JOB. A worker who joined as an operator and became a
+ * setter at the same company has one continuous tenure and two titles; flattening that into two
+ * entries reads to an employer as job-hopping, which is the opposite of what happened.
+ *
+ * `employer` IS WORKER-TYPED AND UNTRUSTED — it is captured by a pack question and written
+ * straight to Postgres, and it never passes through the AI service. The renderer output-encodes
+ * it like every other slot.
+ */
+export interface ResumeEmployment {
+  employer: string;
+  /** " · Gurugram, Haryana", pre-composed so an absent city leaves no stray separator. */
+  location_suffix?: string;
+  /**
+   * " — CNC Turner", pre-composed on the same terms.
+   *
+   * Set ONLY when the employment has exactly one role stint carrying no dates of its own, in
+   * which case `roles` is empty and the title rides the employer line — which is what the zone
+   * map asks for ("employer · role and function · city · months") and what keeps a four-employer
+   * sheet on one page. A promotion (two or more stints) never uses this: it renders dated
+   * function lines, per §11 #14.
+   */
+  role_inline?: string;
+  /** "Jan 2023 – Present · 3 yrs 6 mo" — the EMPLOYMENT's span. */
+  when: string;
+  work: string;
+  roles: ResumeRoleStint[];
 }
 
 /**
@@ -188,6 +346,19 @@ export class ResumeRenderer {
       // Grouped with the rupee sign in the template, not here — a bare number is what a layout
       // wants to format. Empty string collapses the line, which is what null must mean.
       expected_salary: input.expectedSalary != null ? String(input.expectedSalary) : "",
+      // --- bb_trade.v1 scalars. Absent on every other layout, where they collapse. ---
+      phone: input.phone ?? "",
+      // §11 #9 auto-fit. See NAME_ONE_LINE_MAX — a name past the measured one-line width drops
+      // to the 18pt FLOOR rather than wrapping at 20pt, and is never truncated at any length.
+      name_class: nameFitClass(input.displayName),
+      name_devanagari: input.nameDevanagari ?? "",
+      trust_badge: input.trustBadge ?? "",
+      headline_line: input.headlineLine ?? "",
+      subhead_line: input.subheadLine ?? "",
+      cap_section_title: input.capSectionTitle ?? "",
+      qr_caption: input.qrCaption ?? "",
+      short_link: input.shortLink ?? "",
+      footer_meta: input.footerMeta ?? "",
     };
     // OBJECT REGIONS — `{{#name}}…{{field}}…{{/name}}`, one repeat per item, each inner token
     // resolved from THAT item. The engine only had string regions (`{{.}}`), which is why
@@ -197,11 +368,31 @@ export class ResumeRenderer {
     // A MISSING KEY RESOLVES TO EMPTY, never to the scalar of the same name — the per-item
     // lookup below is total, so an inner `{{location}}` inside `{{#experiences}}` yields "" and
     // cannot silently pick up the worker's city from the outer scope.
-    const objectLists: Record<string, ReadonlyArray<Record<string, string>>> = {
+    // `unknown` rather than `string`, because a row's value may itself be a LIST — that is what
+    // makes `{{#cap_chip_rows}}` contain `{{#values}}` and `{{#employments}}` contain `{{#roles}}`.
+    // The recursive renderer decides per key: an array of objects is a nested object region, an
+    // array of strings a `{{.}}` region, anything else a scalar.
+    const objectLists: Record<string, ReadonlyArray<Record<string, unknown>>> = {
       experiences: input.experiences.map((e) => ({
         role: e.role,
         duration: e.duration,
         work: e.work,
+      })),
+      // Empty arrays are correct and cheap: the region collapses to nothing, so a layout that
+      // does not carry these tokens is unaffected and one that does renders no empty rows.
+      cap_chip_rows: input.capChipRows ?? [],
+      cap_tick_rows: input.capTickRows ?? [],
+      cap_fact_rows: input.capFactRows ?? [],
+      avail_fact_rows: input.availFactRows ?? [],
+      qual_fact_rows: input.qualFactRows ?? [],
+      qual_tick_rows: input.qualTickRows ?? [],
+      employments: (input.employments ?? []).map((e) => ({
+        employer: e.employer,
+        location_suffix: e.location_suffix ?? "",
+        role_inline: e.role_inline ?? "",
+        when: e.when,
+        work: e.work,
+        roles: e.roles,
       })),
     };
     // Level + field as ONE leading line ("12th — Electronics"), rendered as a
@@ -220,10 +411,20 @@ export class ResumeRenderer {
       certifications: input.certifications,
       responsibilities: input.responsibilities,
       preferred_locations: input.preferredLocations,
+      own_words: input.ownWords ?? [],
+      // A 0-OR-1 REGION, NOT A SCALAR, and the distinction is §11 #1. This element is the only
+      // child of `.sec-work` that sits outside both work-history repeats, so as a scalar slot it
+      // kept the container non-empty on EVERY render and the section heading could never
+      // collapse — an ITI fresher with no work history got a bare "WORK HISTORY" rule.
+      employments_more: input.employmentsMore ? [input.employmentsMore] : [],
       // ADR-0032: 0-or-1-item region — the documented conditional mechanism. A
       // data: URI survives escapeHtml intact (base64 + the mime prefix contain no
       // escapable characters), and templates without {{#photo}} are unaffected.
       photo: input.photoDataUri ? [input.photoDataUri] : [],
+      // Same 0-or-1 mechanism as `photo`, and for the same reason: a `data:` URI survives
+      // escapeHtml intact (base64 plus the mime prefix contain nothing escapable), and a layout
+      // without the region is unaffected.
+      qr: input.qrDataUri ? [input.qrDataUri] : [],
     };
 
     let out = skeleton;
@@ -231,23 +432,11 @@ export class ResumeRenderer {
     //    resolved and escaped here; if step 3 ran first it would consume them as scalars and
     //    every job entry would render the same worker-level value.
     for (const [name, items] of Object.entries(objectLists)) {
-      const region = new RegExp(`{{#${name}}}([\\s\\S]*?){{/${name}}}`, "g");
-      out = out.replace(region, (_m, inner: string) =>
-        items
-          .map((item) =>
-            inner.replace(/{{\s*([a-z_]+)\s*}}/g, (_t, key: string) =>
-              ResumeRenderer.escapeHtml(item[key] ?? ""),
-            ),
-          )
-          .join(""),
-      );
+      out = ResumeRenderer.fillObjectRegion(out, name, items);
     }
     // 1) Known repeat regions: repeat the inner block per item, escaping `{{.}}`.
     for (const [name, items] of Object.entries(lists)) {
-      const region = new RegExp(`{{#${name}}}([\\s\\S]*?){{/${name}}}`, "g");
-      out = out.replace(region, (_m, inner: string) =>
-        items.map((it) => inner.replace(/{{\.}}/g, () => ResumeRenderer.escapeHtml(it))).join(""),
-      );
+      out = ResumeRenderer.fillStringRegion(out, name, items);
     }
     // 2) Any remaining (unknown) repeat region collapses to nothing.
     out = out.replace(/{{#[a-z_]+}}[\s\S]*?{{\/[a-z_]+}}/g, "");
@@ -256,6 +445,96 @@ export class ResumeRenderer {
       ResumeRenderer.escapeHtml(scalars[key] ?? ""),
     );
     return out;
+  }
+
+  /**
+   * THE region matcher. One hardcoded literal, shared by both region fillers.
+   *
+   * WHY IT IS A LITERAL AND NOT BUILT FROM THE SLOT NAME. Every region used to be matched by a
+   * regex composed at call time — `new RegExp("{{#" + name + "}}…")`. Semgrep's
+   * `detect-non-literal-regexp` flags exactly that (sg.run/gr65), and the rule is right about
+   * this code for a reason that has nothing to do with ReDoS: a `name` carrying regex
+   * metacharacters stops being a name and becomes a PATTERN. A slot called `a.*b` would compile
+   * to a wildcard, match a region it does not own, and splice one worker's list into another
+   * section of the sheet. Escaping the name would fix that and still leave a composed regex; a
+   * literal removes the whole class instead, which is the standing rule here — the check that
+   * a name is a name belongs in something `tsc` and the regex engine enforce, not in a
+   * sanitiser someone can forget to call.
+   *
+   * The name is now CAPTURED and compared with `===`, so the only thing that can select a
+   * region is exact equality against a key that is actually present in the data.
+   *
+   * `\1` IS A CORRECTNESS UPGRADE, not just plumbing: the closing tag must repeat the opening
+   * name, so `{{#a}}…{{/b}}` can no longer be treated as a region at all.
+   *
+   * NON-GREEDY on purpose: the inner match stops at the FIRST matching close. That is correct
+   * for regions with distinct names (an `{{#employments}}` block containing `{{#roles}}`) and is
+   * why a region may never contain another region OF THE SAME NAME — the closing tags would pair
+   * up wrongly and duplicate half the page.
+   *
+   * Used ONLY with `String.prototype.replace`, which resets `lastIndex` around every call, so
+   * sharing one `/g` literal across call sites carries no cross-call state.
+   */
+  private static readonly REGION_RE = /{{#([a-z_]+)}}([\s\S]*?){{\/\1}}/g;
+
+  /**
+   * One object region, `{{#name}}…{{/name}}`, repeated once per item.
+   */
+  private static fillObjectRegion(
+    html: string,
+    name: string,
+    items: ReadonlyArray<Record<string, unknown>>,
+  ): string {
+    return html.replace(ResumeRenderer.REGION_RE, (whole, key: string, inner: string) =>
+      key === name ? items.map((item) => ResumeRenderer.renderItem(inner, item)).join("") : whole,
+    );
+  }
+
+  /**
+   * Render ONE item's block: nested regions first, then this item's own scalars.
+   *
+   * THE ORDER IS THE WHOLE POINT. An employment carries `when` ("Jan 2023 – Present · 3 yrs 6 mo")
+   * and so does each role stint nested inside it. If scalars ran first, the employment's `when`
+   * would be substituted into every role line before the roles region ever saw it, and a worker
+   * promoted inside one company would show the company's dates on both stints. Recursing first
+   * means the inner `{{when}}` is consumed by the role that owns it.
+   *
+   * An UNKNOWN key still resolves to empty rather than falling back to an outer scalar of the same
+   * name — the same total-lookup guarantee the single-level engine documented, preserved here.
+   */
+  private static renderItem(inner: string, item: Record<string, unknown>): string {
+    let out = inner;
+    for (const [key, value] of Object.entries(item)) {
+      if (!Array.isArray(value)) continue;
+      const first: unknown = value[0];
+      out =
+        typeof first === "object" && first !== null
+          ? ResumeRenderer.fillObjectRegion(out, key, value as Record<string, unknown>[])
+          : ResumeRenderer.fillStringRegion(out, key, value);
+    }
+    return out.replace(/{{\s*([a-z_]+)\s*}}/g, (_t, key: string) =>
+      ResumeRenderer.escapeScalar(item[key]),
+    );
+  }
+
+  /** A `{{#name}}…{{.}}…{{/name}}` region over plain strings. */
+  private static fillStringRegion(html: string, name: string, items: readonly unknown[]): string {
+    return html.replace(ResumeRenderer.REGION_RE, (whole, key: string, inner: string) =>
+      key === name
+        ? items
+            .map((it) => inner.replace(/{{\.}}/g, () => ResumeRenderer.escapeScalar(it)))
+            .join("")
+        : whole,
+    );
+  }
+
+  /** Strings and numbers render; anything else (undefined, object, null) is empty. */
+  private static escapeScalar(value: unknown): string {
+    if (typeof value === "string") return ResumeRenderer.escapeHtml(value);
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return ResumeRenderer.escapeHtml(String(value));
+    }
+    return "";
   }
 
   /**

@@ -142,15 +142,22 @@ export interface FamilyEvalResult {
   correct: number;
   /** Resolved to a DIFFERENT family — the failure that makes every later question wrong. */
   wrongFamily: number;
+  /**
+   * Resolved to a MORE SPECIFIC family under the gold row's own ISCO unit — counted with
+   * `correct`, reported separately so it can never absorb a real error unnoticed.
+   */
+  refined: number;
   /** Nothing matched, so no family was claimed. Not a precision failure. */
   miss: number;
   /** Gold rows whose expected unit binds to no family at all. Excluded from precision. */
   unbound: number;
-  /** correct / (correct + wrongFamily) — the plan's ≥0.97 criterion. */
+  /** (correct + refined) / (correct + refined + wrongFamily) — the plan's ≥0.97 criterion. */
   precision: number;
-  /** correct / total — how much of the gold set it answers correctly at all. */
+  /** (correct + refined) / total — how much of the gold set it answers correctly at all. */
   coverage: number;
   failures: { utterance: string; expectedFamily: string; gotFamily: string | null; got: string | null }[];
+  /** Every refinement, so the reviewer sees which families the gold set cannot express. */
+  refinements: { utterance: string; expectedFamily: string; gotFamily: string }[];
 }
 
 /**
@@ -180,9 +187,11 @@ export function scoreGoldSetByFamily(
 ): FamilyEvalResult {
   let correct = 0;
   let wrongFamily = 0;
+  let refined = 0;
   let miss = 0;
   let unbound = 0;
   const failures: FamilyEvalResult["failures"] = [];
+  const refinements: FamilyEvalResult["refinements"] = [];
 
   for (const g of gold) {
     // The expected family comes from the LABEL's unit code, resolved through the same
@@ -202,11 +211,37 @@ export function scoreGoldSetByFamily(
       continue;
     }
 
-    const got = familyOf(hit.jobDomainId, index.unitByDomain.get(hit.jobDomainId) ?? null);
+    const gotUnit = index.unitByDomain.get(hit.jobDomainId) ?? null;
+    const got = familyOf(hit.jobDomainId, gotUnit);
     if (got === expected) {
       correct++;
       continue;
     }
+
+    // A MORE SPECIFIC FAMILY UNDER THE SAME UNIT IS NOT A WRONG ANSWER, and the metric could
+    // not say so until a family bound below unit level actually existed.
+    //
+    // `expected` is resolved through a SYNTHETIC domain id (`__gold__<unit>`), because the gold
+    // set is labelled to a unit rather than to an occupation. Only unit-and-above bindings can
+    // match it. So the moment a family binds by `job_domain_id` — `fam_cnc_turning` under ISCO
+    // 7223, alongside `fam_machining` which binds the whole unit — every utterance that family
+    // exists to serve scores as WRONG, permanently and by construction. Measured on this
+    // branch: ten failures, every one of them "kharad", "lathe machine" or "cnc turning ka
+    // kaam" resolving to the turning family. The retrieval was RIGHTER than the label.
+    //
+    // WHY SAME-UNIT IS A SOUND TEST OF REFINEMENT rather than a convenient one. `resolveFamily`
+    // picks the most specific matching binding. `expected` cannot resolve below unit level, so
+    // if the hit's unit equals the gold's unit and the families still differ, the only thing
+    // that can have produced the difference is a domain-level binding INSIDE that unit — which
+    // is the definition of a refinement. A wrong unit makes the units differ and still counts
+    // against precision, so this cannot launder a real cross-trade error: "silai mashin" landing
+    // in `fam_tailoring` remains a failure, as it should.
+    if (got !== null && gotUnit !== null && gotUnit === g.expect_unit) {
+      refined++;
+      refinements.push({ utterance: g.utterance, expectedFamily: expected, gotFamily: got });
+      continue;
+    }
+
     wrongFamily++;
     failures.push({
       utterance: g.utterance,
@@ -216,17 +251,22 @@ export function scoreGoldSetByFamily(
     });
   }
 
-  const attempted = correct + wrongFamily;
+  // Refinements count with `correct`: the interview they produce is the RIGHT pack, which is
+  // the entire thing this criterion exists to protect.
+  const right = correct + refined;
+  const attempted = right + wrongFamily;
   const total = gold.length;
   return {
     total,
     correct,
     wrongFamily,
+    refined,
     miss,
     unbound,
-    precision: attempted === 0 ? 0 : correct / attempted,
-    coverage: total - unbound === 0 ? 0 : correct / (total - unbound),
+    precision: attempted === 0 ? 0 : right / attempted,
+    coverage: total - unbound === 0 ? 0 : right / (total - unbound),
     failures,
+    refinements,
   };
 }
 

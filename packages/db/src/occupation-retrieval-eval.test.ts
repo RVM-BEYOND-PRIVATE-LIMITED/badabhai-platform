@@ -261,3 +261,67 @@ describe("scoreGoldSetByFamily — the Phase 7 acceptance criterion", () => {
     });
   });
 });
+
+describe("scoreGoldSetByFamily — a MORE SPECIFIC family under the same unit", () => {
+  /**
+   * THE CASE THE METRIC COULD NOT EXPRESS UNTIL A SUB-UNIT FAMILY EXISTED.
+   *
+   * The gold set is labelled to an ISCO unit, so the expected family is resolved through a
+   * synthetic domain id and can only ever match a unit-and-above binding. `fam_cnc_turning`
+   * binds by `job_domain_id` INSIDE unit 7223, alongside `fam_machining` which binds the whole
+   * unit — so every utterance that family exists to serve ("kharad", "lathe machine", "cnc
+   * turning ka kaam") scored as a WRONG FAMILY, permanently and by construction, while the
+   * retrieval was in fact rightER than the label. Measured on the branch that added it: ten
+   * such rows, family precision 98.2% -> 95.7%, under a 97.0% floor.
+   *
+   * The pair below is the whole contract, and the second half is the one that matters: this
+   * must not become a way for a real cross-trade error to score as correct.
+   */
+  const index = buildOccupationIndex([
+    domain("jd_lathe", "7223", ["kharad"]),
+    domain("jd_mill", "7223", ["milling machine"]),
+    domain("jd_tailor", "7531", ["darzi"]),
+  ]);
+
+  // Domain-level binding for the lathe only, exactly as `_families.jsonl` binds the turner.
+  const familyOf = (jobDomainId: string, unit: string | null): string | null => {
+    if (jobDomainId === "jd_lathe") return "fam_cnc_turning";
+    if (unit === "7223") return "fam_machining";
+    if (unit === "7531") return "fam_tailoring";
+    return null;
+  };
+
+  it("counts it as correct, and reports it as a refinement rather than silently", () => {
+    const r = scoreGoldSetByFamily(index, [{ utterance: "kharad", expect_unit: "7223" }], familyOf);
+    expect(r.wrongFamily).toBe(0);
+    expect(r.refined).toBe(1);
+    expect(r.precision).toBe(1);
+    // Counted, but never invisible: a binding authored at the wrong granularity would move
+    // utterances into a new family without moving the number, so the list is the only signal.
+    expect(r.refinements[0]).toMatchObject({
+      expectedFamily: "fam_machining",
+      gotFamily: "fam_cnc_turning",
+    });
+  });
+
+  it("STILL fails a different unit — the rule cannot launder a real cross-trade error", () => {
+    // THE LOAD-BEARING HALF. If "same unit" were dropped from the test, this would score as a
+    // refinement too and the whole criterion would be worthless.
+    const r = scoreGoldSetByFamily(index, [{ utterance: "darzi", expect_unit: "7223" }], familyOf);
+    expect(r.refined).toBe(0);
+    expect(r.wrongFamily).toBe(1);
+    expect(r.precision).toBe(0);
+  });
+
+  it("does not turn a same-unit sibling into a refinement when the family is unchanged", () => {
+    // Milling has no domain binding, so it resolves to the unit family and is an exact match.
+    // A refinement must require an actual difference, not merely a shared unit.
+    const r = scoreGoldSetByFamily(
+      index,
+      [{ utterance: "milling machine", expect_unit: "7223" }],
+      familyOf,
+    );
+    expect(r.correct).toBe(1);
+    expect(r.refined).toBe(0);
+  });
+});

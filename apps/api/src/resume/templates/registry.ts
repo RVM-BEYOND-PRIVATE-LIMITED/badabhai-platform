@@ -34,6 +34,15 @@ export const RESUME_TEMPLATES: readonly ResumeTemplate[] = [
   // THE v1 AND v2 FILES STAY ON DISK, UNTOUCHED. A shipped version is immutable by this
   // registry's own contract, and a résumé row records the `template_id` it was rendered with —
   // so every PDF already issued keeps rendering identically. Only NEW renders pick up v3.
+  // THE LOCKED BADABHAI TRADE SHEET. Not a variant of the three below — those are generic
+  // Western resume chrome, this is the product's own identity, fixed by design review: navy
+  // masthead, one A4 page, chip pills, a two-level work history and a QR to the live profile.
+  //
+  // A NEW ID RATHER THAN A v4 OF `classic`, because it is a different document, not a restyle:
+  // it carries slots (phone, employer names, nested role stints, QR) that no earlier layout has
+  // or is allowed to have, and a resume row records the id it was rendered with. Bumping classic
+  // would silently re-point every future `classic` render at a sheet its callers never asked for.
+  { id: "bb_trade", version: 1, label: "BadaBhai trade sheet (A4, one page)", file: "bb_trade.v1.html" },
   { id: "classic", version: 3, label: "Classic (single column)", file: "classic.v3.html" },
   { id: "modern", version: 3, label: "Modern (two column)", file: "modern.v3.html" },
   { id: "minimal", version: 3, label: "Minimal (compact)", file: "minimal.v3.html" },
