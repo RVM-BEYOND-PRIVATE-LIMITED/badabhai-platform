@@ -57,12 +57,33 @@ export type ProfilingPhase = (typeof PROFILING_PHASES)[number];
  * would be the fabrication the parse gates exist to stop. `duration_text` keeps the worker's
  * own words either way.
  */
+/**
+ * A NULL `duration_text` / `work_done` IS COERCED TO "", NOT REFUSED (R7).
+ *
+ * `.default("")` only fills `undefined`. An explicit `null` failed the string check — and
+ * because this object is nested inside the extract output's `experiences`, ONE null took the
+ * whole profile down with it: role, skills, city, salary, every other employment. Measured on
+ * five synthetic personas against a real model, 2 of 5 came back with `"work_done": null` and
+ * each lost everything, silently, as `is_mock: true`.
+ *
+ * `.nullish().transform()` rather than `.nullable()`: the OUTPUT type stays `string`, so no
+ * consumer changes and no downstream null-handling appears. "" is already this schema's way of
+ * saying "nothing recorded here", and a model answering `null` is saying the same thing.
+ * Mirrored in `apps/ai-service/app/contracts.py`.
+ */
+const nullToEmpty = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .nullish()
+    .transform((v) => v ?? "");
+
 export const ExperienceEntrySchema = z
   .object({
     role_label: z.string().min(1).max(120),
-    duration_text: z.string().max(120).default(""),
+    duration_text: nullToEmpty(120),
     duration_months: z.number().int().min(0).max(720).nullable().default(null),
-    work_done: z.string().max(600).default(""),
+    work_done: nullToEmpty(600),
   })
   .strict();
 export type ExperienceEntry = z.infer<typeof ExperienceEntrySchema>;
@@ -216,7 +237,7 @@ export const PredicateOperandSchema = z
     field: slugKey.optional(),
     const: z.unknown().optional(),
   })
-  .refine((o) => ("field" in o) !== ("const" in o), {
+  .refine((o) => "field" in o !== "const" in o, {
     message: "an operand is exactly one of {field} or {const}",
   });
 export type PredicateOperand = z.infer<typeof PredicateOperandSchema>;

@@ -470,6 +470,18 @@ class ExperienceEntry(BaseModel):
 
     ``duration_months`` is optional because "kuch saal" is a real answer, and inventing 24 from
     it would be exactly the fabrication the parse gates exist to stop.
+
+    A NULL ``duration_text`` / ``work_done`` IS COERCED TO "", NOT REFUSED (R7). Both fields
+    already default to "" for an ABSENT key, but ``default=`` only fills ``undefined`` — an
+    explicit ``null`` failed ``string_type`` and, because this object is nested inside
+    ``InterviewExtractOutput.experiences``, took the ENTIRE profile down with it: role, skills,
+    city, salary, every other employment. Measured on five synthetic personas, a real model
+    emitted ``"work_done": null`` for 2 of 5 and each lost everything, silently, as
+    ``is_mock=True`` — which downstream reads as "no interview happened".
+
+    The coercion is the honest reading rather than a leniency: "" is already this schema's way
+    of saying "nothing recorded here", and a model answering ``null`` is saying exactly that.
+    Nothing that validated before stops validating, and every consumer still receives ``str``.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -478,6 +490,11 @@ class ExperienceEntry(BaseModel):
     duration_text: str = Field(default="", max_length=120)
     duration_months: int | None = Field(default=None, ge=0, le=720)
     work_done: str = Field(default="", max_length=600)
+
+    @field_validator("duration_text", "work_done", mode="before")
+    @classmethod
+    def _null_means_nothing_recorded(cls, value: object) -> object:
+        return "" if value is None else value
 
 
 class LlmInterviewDraft(BaseModel):

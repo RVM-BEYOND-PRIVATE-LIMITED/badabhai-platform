@@ -20,6 +20,7 @@ be defined here so every ``from app.main import ...`` specifier keeps working.
 from __future__ import annotations
 
 import hmac
+import logging
 import re
 import uuid
 from contextlib import asynccontextmanager
@@ -235,3 +236,21 @@ app.include_router(profile.api_router)
 app.include_router(profiling.api_router)
 app.include_router(resume.api_router)
 app.include_router(voice.api_router)
+
+# R7 §1 — the SYNTHETIC-PERSONA harness, and the second of its three barriers.
+#
+# CONDITIONAL REGISTRATION IS THE POINT. A route that exists and checks a flag can still be
+# reached, logged against, and mis-configured into serving; a route that was never registered
+# 404s at the router and there is nothing behind it to reach. So on every process that has not
+# deliberately set AI_SYNTHETIC_PERSONA_MODE — which is every deployed one, since a guard test
+# keeps the variable out of both compose files — /synthetic/* does not exist.
+#
+# The import is inside the branch so an unarmed process does not even load the module.
+if get_settings().synthetic_persona_mode:
+    from .routers import synthetic  # noqa: PLC0415  (deliberate: unarmed processes never load it)
+
+    app.include_router(synthetic.api_router)
+    logging.getLogger("ai.synthetic").warning(
+        "SYNTHETIC-PERSONA MODE ARMED: /synthetic/* is registered and BYPASSES the "
+        "pseudonymisation gateway. Developer machines only; the real-worker routes are unchanged."
+    )

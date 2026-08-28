@@ -457,6 +457,24 @@ class Settings(BaseSettings):
     # default → get_skill_store() returns the NullSkillStore (inert), so the wiring
     # cannot activate by flag alone (TD65 chain: store + flag).
     backend_api_url: str | None = None
+
+    # --- R7: the SYNTHETIC PERSONA harness -----------------------------------
+    # A REASON STRING, never a bool, and the same shape as CANONICALIZE_ALLOW_LOCAL for the
+    # same reasons: it is deliberate, visible in shell history, impossible to inherit from a
+    # stray `true`, and it makes whoever arms it write down why.
+    #
+    # WHAT IT DOES: nothing on its own. It is one of THREE independent barriers in front of a
+    # single capability — running the interview pipeline against INVENTED personas with the
+    # pseudonymisation gateway bypassed, so a model sees the whole synthetic text.
+    #   1. this reason must be set;
+    #   2. the routes it unlocks are REGISTERED ONLY WHEN IT IS SET (`main.py`), so on an
+    #      unarmed process the URL does not exist and 404s — a route that is absent cannot be
+    #      called by an authenticated caller, a confused client, or a mistake;
+    #   3. `apps/api/src/config/synthetic-persona-posture.guard.test.ts` asserts NEITHER compose
+    #      file declares the variable, so it cannot arrive on a deployed box at all.
+    # The real-worker routes (`/profiling/turn`, `/profiling/extract`) are untouched by all of
+    # this and always mask.
+    ai_synthetic_persona_mode: str | None = None
     skills_internal_token: str | None = None
 
     # TD67: the ONE service-level bearer for THIS service's routes. When set, every
@@ -1102,6 +1120,51 @@ class Settings(BaseSettings):
             "CANONICALIZE_ALLOW_LOCAL=<reason>. "
             "This check cannot fire on the deployed service: production reaches the api by "
             "compose service name, never over loopback."
+        )
+
+    @property
+    def synthetic_persona_mode(self) -> bool:
+        """True when the synthetic-persona harness is deliberately armed on this process."""
+        return bool((self.ai_synthetic_persona_mode or "").strip())
+
+    @model_validator(mode="after")
+    def _refuse_synthetic_persona_mode_on_a_networked_service(self) -> Settings:
+        """Refuse to BOOT with the synthetic harness armed against a NON-loopback api.
+
+        THE HAZARD. Synthetic mode exists to turn the pseudonymisation gateway off, so that a
+        model can be given invented personas whole — invented names, phones, employers. On a
+        developer's machine that is exactly right and it is the fastest way to iterate on what
+        the interview actually extracts. On any box carrying real worker traffic it is the one
+        setting that would send raw PII to a provider, and it would do so silently.
+
+        WHY LOOPBACK IS AGAIN THE DISCRIMINATOR, mirrored from the TD65 check above and inverted.
+        Production reaches the api over the compose network by SERVICE NAME (``http://api:3000``);
+        a loopback ``backend_api_url`` is not a production topology. TD65 refuses when the host IS
+        loopback because that means "a human's machine talking to something shared". This refuses
+        when the host is NOT loopback, because that means "a service wired into a real network".
+
+        AN UNSET ``backend_api_url`` IS ALLOWED, and that is a deliberate limit rather than an
+        oversight — it is the ordinary developer state and there is no signal in it either way.
+        The other two barriers carry that case: the routes do not exist unless this is set, and a
+        guard test keeps the variable out of both compose files.
+
+        §2: names the variable and the remedy, and NEVER echoes the URL or the reason.
+        """
+        if not self.synthetic_persona_mode:
+            return self
+        if not self.backend_api_url:
+            return self
+        host = urlparse(self.backend_api_url).hostname or ""
+        if host in _LOOPBACK_HOSTS:
+            return self
+        raise ConfigError(
+            "REFUSING TO BOOT: AI_SYNTHETIC_PERSONA_MODE is set and BACKEND_API_URL points at a "
+            "NON-loopback host. Synthetic mode bypasses the pseudonymisation gateway, so on a "
+            "process wired into a real network it would send raw worker PII to a provider with "
+            "nothing failing. It is a developer-machine capability only. "
+            "Fix ONE of: unset AI_SYNTHETIC_PERSONA_MODE (the answer on any shared box); or "
+            "point BACKEND_API_URL at loopback. "
+            "The real-worker routes always mask and are unaffected either way."
         )
 
 

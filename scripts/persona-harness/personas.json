@@ -1,0 +1,473 @@
+{
+  "_why": "R7 §3 — five SYNTHETIC CNC-turner personas spanning the seniority ladder, from a fresh ITI pass-out to twelve years with no credential. Every name, phone, employer and institute here is INVENTED. They exist so the interview → extraction → render pipeline can be run end to end, deterministically, against a live model, and diffed sheet against sheet without a real worker in the loop. The three ratified samples are fictional for the same reason.",
+  "_transcript_note": "The transcript is what the MODEL reads. It is written as a worker actually talks — Hinglish, partial answers, a number stated once and never repeated, capability claimed in the worker's own words rather than in ours. It deliberately does NOT restate every chip answer: the chips are a separate leg, and a transcript that mirrored them would make extraction look better than it is.",
+  "_chips_note": "`chips` is what the same worker taps in the deterministic pack. Keys are `target_field`s of qp_cnc_turning / qp_universal@2; values are option_keys. This is the leg that feeds worker_attributes and therefore the capability block.",
+
+  "personas": [
+    {
+      "id": "p1_fresh_iti",
+      "label": "ITI Turner, fresh pass-out",
+      "full_name": "Sandeep Rathore",
+      "phone": "+91 90210 44551",
+      "city": "Ludhiana",
+      "shape": "Zero employment. Workshop machines, trade test, project work.",
+      "chips": {
+        "turning_experience": ["under_one"],
+        "turning_machine": ["conventional_lathe"],
+        "controller_brand": ["unknown_controller"],
+        "turning_operation": ["facing_od", "threading", "drilling"],
+        "workholding": ["three_jaw", "tailstock"],
+        "material_worked": ["mild_steel"],
+        "measuring_tools": ["vernier", "micrometer"],
+        "drawing_reading": ["basic_drawing"],
+        "primary_trade": "Turner",
+        "experience_years": 0,
+        "current_city": "Ludhiana",
+        "salary_expected": 12000,
+        "preferred_locations": ["Ludhiana", "Chandigarh"],
+        "availability": ["immediate"],
+        "education": ["iti_diploma"],
+        "shift_preference": ["any"]
+      },
+      "employments": [],
+      "transcript": [
+        ["assistant", "Namaste! Main Bada Bhai. Aap kaunsa kaam karte hain?"],
+        [
+          "worker",
+          "Sir maine abhi ITI kiya hai, Turner trade se. Government ITI Ludhiana se, 2026 me pass hua hoon. NCVT ka certificate hai."
+        ],
+        ["assistant", "Achha. ITI me kis tarah ki machine par kaam kiya?"],
+        [
+          "worker",
+          "Workshop me lathe chalayi hai, purani wali, kharad. CNC nahi chalayi sir, sirf dekha hai. Facing, turning, threading sab practical me kiya hai."
+        ],
+        ["assistant", "Koi project ya trade test?"],
+        [
+          "worker",
+          "Haan trade test me maine ek stepped shaft banaya tha mild steel ka, aur ek nut-bolt set. Vernier aur micrometer se naap liya tha. Practical me first class aaya."
+        ],
+        ["assistant", "Naukri ka koi tajurba?"],
+        [
+          "worker",
+          "Nahi sir, abhi tak kahin kaam nahi kiya. Ye meri pehli naukri hogi. Seekhne ko taiyaar hoon, jo bhi kaam denge kar loonga."
+        ],
+        ["assistant", "Salary aur jagah?"],
+        [
+          "worker",
+          "12 hazaar mil jaye to theek hai sir, hostel ya rehne ka intezaam ho to aur achha. Ludhiana ya Chandigarh me kahin bhi. Turant join kar sakta hoon."
+        ]
+      ]
+    },
+
+    {
+      "id": "p2_two_year_operator",
+      "label": "2-year operator",
+      "full_name": "Vikas Prajapati",
+      "phone": "+91 87005 31192",
+      "city": "Rajkot",
+      "shape": "One employer, one machine, one controller. Basic instruments. No programming.",
+      "chips": {
+        "turning_experience": ["one_to_three"],
+        "turning_machine": ["cnc_lathe"],
+        "controller_brand": ["fanuc"],
+        "turning_operation": ["facing_od", "drilling", "grooving"],
+        "workholding": ["three_jaw", "collet"],
+        "material_worked": ["mild_steel", "alloy_steel"],
+        "measuring_tools": ["vernier", "micrometer", "plug_gauge"],
+        "drawing_reading": ["basic_drawing"],
+        "primary_trade": "CNC Turner",
+        "experience_years": 2,
+        "current_city": "Rajkot",
+        "salary_expected": 16000,
+        "preferred_locations": ["Rajkot", "Ahmedabad"],
+        "availability": ["fifteen_days"],
+        "education": ["iti_diploma"],
+        "shift_preference": ["any"]
+      },
+      "employments": [
+        {
+          "employer_name": "Shakti Precision Components",
+          "employer_city": "Rajkot",
+          "employer_state": "Gujarat",
+          "start_ym": "2024-07",
+          "end_ym": null,
+          "role_label": "CNC Turner",
+          "work_done": "CNC lathe, Fanuc · MS and EN8 · pump housings and shafts"
+        }
+      ],
+      "transcript": [
+        ["assistant", "Namaste! Aap kaunsa kaam karte hain?"],
+        ["worker", "CNC lathe chalata hoon sir. Do saal ho gaye."],
+        ["assistant", "Kahan kaam karte hain abhi?"],
+        [
+          "worker",
+          "Shakti Precision Components me, Rajkot me. July 2024 se hoon, wahi meri pehli naukri hai."
+        ],
+        ["assistant", "Kaunsi machine aur controller?"],
+        ["worker", "CNC lathe hai, Fanuc control. Ek hi machine par rehta hoon zyada tar."],
+        ["assistant", "Kya kaam karte hain machine par?"],
+        [
+          "worker",
+          "Programme load karke part banata hoon. Facing, turning, drilling, grooving. Pump ka housing aur shaft banate hain hum, MS aur EN8 me."
+        ],
+        ["assistant", "Programming aati hai?"],
+        [
+          "worker",
+          "Nahi sir, programme setter banata hai. Main sirf chalata hoon. Offset thoda bahut dekh leta hoon jab supervisor bolte hain, par khud se setting nahi karta."
+        ],
+        ["assistant", "Naapne ke liye kya use karte hain?"],
+        [
+          "worker",
+          "Vernier aur micrometer. Plug gauge bhi rakhte hain bore ke liye. Drawing dekh leta hoon, simple wali."
+        ],
+        ["assistant", "Kuch aur bata sakte hain apne baare me?"],
+        [
+          "worker",
+          "Sir attendance meri poori rehti hai, do saal me ek bhi din bina batae nahi chhoda. Night shift bhi kar leta hoon. ITI kiya hua hai Turner trade me, Rajkot se, NCVT."
+        ],
+        ["assistant", "Salary aur availability?"],
+        [
+          "worker",
+          "Abhi 14 hazaar mil rahe hain, 16 chahiye. Pandrah din ka notice dena padega. Rajkot ya Ahmedabad."
+        ]
+      ]
+    },
+
+    {
+      "id": "p3_five_year_to_setter",
+      "label": "5-year operator moving to setter",
+      "full_name": "Imran Shaikh",
+      "phone": "+91 96431 78820",
+      "city": "Pune",
+      "shape": "Two employers, some setting capability, edits programs.",
+      "chips": {
+        "turning_experience": ["three_to_seven"],
+        "turning_machine": ["cnc_lathe", "conventional_lathe"],
+        "controller_brand": ["fanuc", "siemens"],
+        "turning_operation": ["facing_od", "boring", "threading", "grooving"],
+        "workholding": ["three_jaw", "collet", "soft_jaw"],
+        "material_worked": ["mild_steel", "alloy_steel", "stainless"],
+        "measuring_tools": ["vernier", "micrometer", "bore_gauge", "dial_indicator"],
+        "drawing_reading": ["basic_drawing"],
+        "setting_operation": ["tool_offset", "work_offset", "first_piece"],
+        "tolerance_band": ["point_zero_five"],
+        "sector_worked": ["automotive", "general_engg"],
+        "programming_level": ["edit_program"],
+        "primary_trade": "CNC Turner",
+        "experience_years": 5,
+        "current_city": "Pune",
+        "salary_expected": 22000,
+        "preferred_locations": ["Pune", "Nashik"],
+        "availability": ["one_month"],
+        "education": ["iti_diploma"],
+        "shift_preference": ["rotational"]
+      },
+      "employments": [
+        {
+          "employer_name": "Deccan Auto Turned Parts",
+          "employer_city": "Pune",
+          "employer_state": "Maharashtra",
+          "start_ym": "2023-02",
+          "end_ym": null,
+          "role_label": "CNC Turner",
+          "work_done": "CNC lathe, Fanuc and Siemens · EN8, SS304 · automotive turned parts"
+        },
+        {
+          "employer_name": "Sai Engineering Works",
+          "employer_city": "Pune",
+          "employer_state": "Maharashtra",
+          "start_ym": "2021-06",
+          "end_ym": "2023-01",
+          "role_label": "Lathe Operator",
+          "work_done": "Conventional lathe and CNC · MS · job work"
+        }
+      ],
+      "transcript": [
+        ["assistant", "Namaste! Aap kya kaam karte hain?"],
+        [
+          "worker",
+          "CNC turning ka kaam sir. Paanch saal ho gaye. Kharad bhi chalayi hai shuru me."
+        ],
+        ["assistant", "Kahan kaam kiya hai?"],
+        [
+          "worker",
+          "Abhi Deccan Auto Turned Parts me hoon Pune me, February 2023 se. Usse pehle Sai Engineering Works me tha, June 2021 se January 2023 tak, wahan job work hota tha."
+        ],
+        ["assistant", "Machine aur controller?"],
+        [
+          "worker",
+          "CNC lathe Fanuc aur Siemens dono chalayi hai. Conventional lathe bhi aati hai."
+        ],
+        ["assistant", "Setting ka kaam karte hain?"],
+        [
+          "worker",
+          "Haan ab thoda thoda machine set karta hoon. Tool offset aur work offset khud le leta hoon, first piece bhi main hi check karta hoon. Soft jaw boring bhi ki hai. Setter sir chhutti par ho to main hi sambhaal leta hoon."
+        ],
+        ["assistant", "Programming?"],
+        [
+          "worker",
+          "Naya programme nahi likhta, par jo chal raha hai usme edit kar leta hoon. Feed speed badalna, tool number change karna, ye sab kar leta hoon."
+        ],
+        ["assistant", "Kis material par aur kya tolerance?"],
+        [
+          "worker",
+          "EN8, SS304, MS. Automotive ke parts hain zyada tar. Plus minus 0.05 tak comfortable hoon."
+        ],
+        ["assistant", "Naapne ke liye?"],
+        [
+          "worker",
+          "Vernier, micrometer, bore dial gauge, dial indicator. Bore gauge se ID check karta hoon."
+        ],
+        ["assistant", "Salary aur notice?"],
+        [
+          "worker",
+          "Abhi 19 hazaar hai, 22 chahiye. Ek mahina notice hai. Pune ya Nashik. Rotational shift chalta hai."
+        ]
+      ]
+    },
+
+    {
+      "id": "p4_eight_year_setter",
+      "label": "8-year setter-cum-operator",
+      "full_name": "Ravinder Malik",
+      "phone": "+91 98118 20347",
+      "city": "Faridabad",
+      "shape": "Three employers incl. a promotion, multiple machines and controllers, canned cycles, GD&T, tight tolerance.",
+      "chips": {
+        "turning_experience": ["over_seven"],
+        "turning_machine": ["cnc_lathe", "conventional_lathe", "vtl"],
+        "controller_brand": ["fanuc", "siemens", "mitsubishi"],
+        "turning_operation": [
+          "facing_od",
+          "boring",
+          "threading",
+          "grooving",
+          "drilling",
+          "knurling"
+        ],
+        "workholding": ["three_jaw", "four_jaw", "collet", "soft_jaw", "steady_rest"],
+        "material_worked": ["mild_steel", "alloy_steel", "stainless", "cast_iron"],
+        "measuring_tools": [
+          "vernier",
+          "micrometer",
+          "bore_gauge",
+          "height_gauge",
+          "dial_indicator",
+          "plug_gauge"
+        ],
+        "drawing_reading": ["gdt"],
+        "setting_operation": [
+          "tool_offset",
+          "work_offset",
+          "nose_radius",
+          "jaw_change",
+          "tailstock_set",
+          "first_piece"
+        ],
+        "tolerance_band": ["point_zero_one"],
+        "sector_worked": ["automotive", "oil_gas"],
+        "programming_level": ["write_program"],
+        "advanced_capability": ["live_tooling", "bar_feeder", "sub_spindle"],
+        "quality_work": ["first_piece_check", "in_process", "spc"],
+        "troubleshooting": ["tool_wear", "chatter", "size_variation", "surface_finish"],
+        "primary_trade": "CNC Turner",
+        "experience_years": 8,
+        "current_city": "Faridabad",
+        "salary_expected": 32000,
+        "preferred_locations": ["Faridabad", "Gurugram", "Manesar"],
+        "availability": ["one_month"],
+        "education": ["iti_diploma"],
+        "shift_preference": ["rotational"]
+      },
+      "employments": [
+        {
+          "employer_name": "Harsha Precision Turned Components",
+          "employer_city": "Faridabad",
+          "employer_state": "Haryana",
+          "start_ym": "2022-09",
+          "end_ym": null,
+          "role_label": "CNC Setter-cum-Operator",
+          "work_done": "CNC lathe with bar feeder and live tooling, Fanuc · EN8, EN31, SS316 · oil and gas fittings, ±0.01"
+        },
+        {
+          "employer_name": "Kalyani Turned Parts",
+          "employer_city": "Manesar",
+          "employer_state": "Haryana",
+          "start_ym": "2020-04",
+          "end_ym": "2022-08",
+          "role_label": "CNC Turner",
+          "work_done": "CNC lathe, Siemens · alloy steel · automotive shafts"
+        },
+        {
+          "employer_name": "National Engineering Works",
+          "employer_city": "Faridabad",
+          "employer_state": "Haryana",
+          "start_ym": "2018-05",
+          "end_ym": "2020-03",
+          "role_label": "Lathe Operator",
+          "work_done": "Conventional lathe and VTL, Mitsubishi · MS and cast iron · general engineering"
+        }
+      ],
+      "transcript": [
+        ["assistant", "Namaste! Aap kaunsa kaam karte hain?"],
+        ["worker", "CNC turning, setter cum operator hoon sir. Aath saal ka tajurba hai."],
+        ["assistant", "Kahan kahan kaam kiya hai?"],
+        [
+          "worker",
+          "Abhi Harsha Precision Turned Components me hoon Faridabad me, September 2022 se. Wahan pehle operator laga tha, ek saal baad setter bana diya. Usse pehle Kalyani Turned Parts Manesar me tha April 2020 se August 2022. Aur sabse pehle National Engineering Works Faridabad, May 2018 se March 2020."
+        ],
+        ["assistant", "Machine aur controller kaunse chalaye hain?"],
+        [
+          "worker",
+          "CNC lathe Fanuc aur Siemens, VTL Mitsubishi par bhi kaam kiya hai, aur conventional kharad to shuru se aati hai. Abhi wali machine par bar feeder aur live tooling hai, sub-spindle bhi."
+        ],
+        ["assistant", "Setting ka kaam?"],
+        [
+          "worker",
+          "Poori setting main karta hoon. Tool offset, work offset, nose radius compensation, jaw change, tailstock set karna, first piece approval sab. Naya job aaye to main hi set karta hoon."
+        ],
+        ["assistant", "Programming?"],
+        [
+          "worker",
+          "Naya programme likh leta hoon sir. G-code M-code dono me. Canned cycle use karta hoon, G71 rough turning, G76 threading, G74 peck drilling. CAM se nahi banata, machine par hi likhta hoon."
+        ],
+        ["assistant", "Tolerance aur drawing?"],
+        [
+          "worker",
+          "Plus minus 0.01 tak hold karta hoon regularly. GD and T padh leta hoon, runout, concentricity, flatness sab. Surface finish Ra 0.8 tak ke job kiye hain."
+        ],
+        ["assistant", "Material aur sector?"],
+        [
+          "worker",
+          "EN8, EN31, SS316, cast iron. Abhi oil and gas ke fittings ban rahe hain, pehle automotive shaft banate the."
+        ],
+        ["assistant", "Quality aur problem solving?"],
+        [
+          "worker",
+          "First piece check main karta hoon, in-process bhi dekhta rehta hoon, SPC chart bharta hoon. Chatter aaye to speed feed adjust karta hoon, tool wear se size variation aaye to offset correct kar deta hoon."
+        ],
+        ["assistant", "Salary aur availability?"],
+        [
+          "worker",
+          "Abhi 28 hazaar hai, 32 dekh raha hoon. Ek mahine ka notice. Faridabad, Gurugram, Manesar kahin bhi. Rotational shift theek hai. ITI Turner NCVT hai mera, Government ITI Faridabad se 2017 me."
+        ]
+      ]
+    },
+
+    {
+      "id": "p5_twelve_year_no_iti",
+      "label": "12 years, no ITI",
+      "full_name": "Mahesh Bhosale",
+      "phone": "+91 99225 61408",
+      "city": "Kolhapur",
+      "shape": "Long history, deep capability, no credential.",
+      "chips": {
+        "turning_experience": ["over_seven"],
+        "turning_machine": ["cnc_lathe", "conventional_lathe", "vtl"],
+        "controller_brand": ["fanuc", "haas"],
+        "turning_operation": ["facing_od", "boring", "threading", "grooving", "knurling"],
+        "workholding": ["three_jaw", "four_jaw", "steady_rest", "soft_jaw"],
+        "material_worked": ["mild_steel", "cast_iron", "alloy_steel", "brass"],
+        "measuring_tools": [
+          "vernier",
+          "micrometer",
+          "bore_gauge",
+          "height_gauge",
+          "dial_indicator"
+        ],
+        "drawing_reading": ["basic_drawing"],
+        "setting_operation": [
+          "tool_offset",
+          "work_offset",
+          "jaw_change",
+          "tailstock_set",
+          "first_piece"
+        ],
+        "tolerance_band": ["point_zero_two"],
+        "sector_worked": ["general_engg", "pump_valve"],
+        "programming_level": ["edit_program"],
+        "advanced_capability": ["no_advanced"],
+        "quality_work": ["first_piece_check", "in_process"],
+        "troubleshooting": ["tool_wear", "chatter", "size_variation"],
+        "primary_trade": "Lathe Machinist",
+        "experience_years": 12,
+        "current_city": "Kolhapur",
+        "salary_expected": 26000,
+        "preferred_locations": ["Kolhapur", "Pune"],
+        "availability": ["fifteen_days"],
+        "education": ["tenth"],
+        "shift_preference": ["day"]
+      },
+      "employments": [
+        {
+          "employer_name": "Shree Ganesh Engineering",
+          "employer_city": "Kolhapur",
+          "employer_state": "Maharashtra",
+          "start_ym": "2019-01",
+          "end_ym": null,
+          "role_label": "Senior Lathe Machinist",
+          "work_done": "CNC lathe Fanuc and Haas, VTL · cast iron and MS · pump and valve bodies"
+        },
+        {
+          "employer_name": "Vardhman Machine Tools",
+          "employer_city": "Kolhapur",
+          "employer_state": "Maharashtra",
+          "start_ym": "2016-03",
+          "end_ym": "2018-12",
+          "role_label": "Lathe Machinist",
+          "work_done": "Conventional lathe and CNC · MS, brass · general engineering job work"
+        },
+        {
+          "employer_name": "Patil Turning Works",
+          "employer_city": "Ichalkaranji",
+          "employer_state": "Maharashtra",
+          "start_ym": "2014-06",
+          "end_ym": "2016-02",
+          "role_label": "Lathe Operator",
+          "work_done": "Conventional lathe · MS · textile machinery parts"
+        }
+      ],
+      "transcript": [
+        ["assistant", "Namaste! Aap kya kaam karte hain?"],
+        ["worker", "Kharad ka kaam sir, lathe. Barah saal se yahi kar raha hoon."],
+        ["assistant", "ITI kiya hai?"],
+        [
+          "worker",
+          "Nahi sir, ITI nahi kiya. Dasvi paas hoon. Kaam seekha hai ustaad ke saath reh kar, Patil Turning Works me helper laga tha 2014 me, wahin se seekha."
+        ],
+        ["assistant", "Kahan kahan kaam kiya?"],
+        [
+          "worker",
+          "Patil Turning Works Ichalkaranji me June 2014 se February 2016. Phir Vardhman Machine Tools Kolhapur, March 2016 se December 2018. Abhi Shree Ganesh Engineering me hoon January 2019 se, senior machinist hoon."
+        ],
+        ["assistant", "Machine kaunsi chalate hain?"],
+        [
+          "worker",
+          "CNC lathe Fanuc aur Haas control. VTL bhi chalata hoon bade job ke liye. Conventional to bachpan se aati hai."
+        ],
+        ["assistant", "Setting aur programming?"],
+        [
+          "worker",
+          "Setting poori karta hoon, offset, jaw change, tailstock, first piece. Programme me edit kar leta hoon par naya likhna nahi aata, wo engineer sahab karte hain."
+        ],
+        ["assistant", "Kya banate hain?"],
+        [
+          "worker",
+          "Pump body, valve body, cast iron ka kaam zyada. MS, brass bhi. Plus minus 0.02 tak aaram se pakad leta hoon."
+        ],
+        ["assistant", "Naapne ke liye?"],
+        ["worker", "Vernier, micrometer, bore gauge, height gauge, dial indicator. Sab aata hai."],
+        ["assistant", "Kuch aur?"],
+        [
+          "worker",
+          "Sir ITI ka certificate nahi hai mere paas, par barah saal se yahi kaam kar raha hoon. Naye ladke ko main hi sikhata hoon shop me. Chatter aaye ya size ghoome to turant pakad leta hoon."
+        ],
+        ["assistant", "Salary aur shift?"],
+        [
+          "worker",
+          "24 hazaar mil rahe hain abhi, 26 chahiye. Pandrah din notice. Kolhapur ya Pune. Din ki shift chahiye, ghar par dekhna padta hai."
+        ]
+      ]
+    }
+  ]
+}

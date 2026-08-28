@@ -19,6 +19,7 @@ import asyncio
 import json
 
 from fastapi import APIRouter
+from pydantic import ValidationError
 
 from ..ai import prompt_registry
 from ..ai.langfuse_tracing import (
@@ -38,7 +39,7 @@ from ..contracts import (
 )
 from ..profiling.canonical_roles import coerce_json_text
 from ..profiling.interview_prompts import extract_system_prompt, interview_system_prompt
-from ..profiling.parse_masking import mask_transcript_lines
+from ..profiling.parse_masking import Masker, default_masker, mask_transcript_lines
 from ..pseudonymize import pseudonymize
 from ._shared import logger, resolve_prompt, router, workflow_scope
 
@@ -226,6 +227,21 @@ async def profiling_extract(body: InterviewExtractInput) -> InterviewExtractOutp
     closed field list. This one reads a conversation the model itself conducted and must
     SYNTHESISE across turns — `experiences[]` in particular has no answer-map equivalent,
     because the packs can only ask a fixed question once.
+
+    THE MASKER IS NAMED HERE AND NOWHERE ELSE ON THIS ROUTE. Real worker traffic always gets
+    `default_masker`; the synthetic-persona harness reaches `_extract` directly through its own
+    route, which exists only on an armed process (R7 §1). Passing it as an argument rather than
+    reading a flag inside the body is what keeps "which masker ran" a property of the ROUTE the
+    caller reached rather than of a setting the body has to re-check.
+    """
+    return await _extract(body, default_masker)
+
+
+async def _extract(body: InterviewExtractInput, masker: Masker) -> InterviewExtractOutput:
+    """The Phase C body, shared by the real route and the synthetic-persona one.
+
+    ONE BODY, TWO DOORS. A second copy of this handler for the harness would drift from the one
+    that ships within a week, and then the harness would be measuring something else.
     """
     settings = get_settings()
 
@@ -239,7 +255,7 @@ async def profiling_extract(body: InterviewExtractInput) -> InterviewExtractOutp
         # dimension that explains its cost and its latency.
         metadata={"transcript_lines": len(body.transcript)},
     ):
-        masked = mask_transcript_lines(body.transcript)
+        masked = mask_transcript_lines(body.transcript, masker)
         if not masked:
             return InterviewExtractOutput(is_mock=True)
 
@@ -285,7 +301,23 @@ async def profiling_extract(body: InterviewExtractInput) -> InterviewExtractOutp
         try:
             # Same fence tolerance as the turn parser above, and for the same reason.
             raw = json.loads(coerce_json_text(content))
-            out = InterviewExtractOutput.model_validate(raw if isinstance(raw, dict) else {})
+            try:
+                out = InterviewExtractOutput.model_validate(raw if isinstance(raw, dict) else {})
+            except ValidationError:
+                # ONE BAD EMPLOYMENT MUST NOT COST THE WHOLE PROFILE (R7).
+                #
+                # `experiences` is the only LIST OF OBJECTS in this contract, so it is the only
+                # field where a single malformed element can fail the whole parse — and when it
+                # does, the worker loses his role, his skills, his city, his salary and every
+                # OTHER employment, silently, as `is_mock=True`. Measured: a real model emitted
+                # one null field for 2 of 5 synthetic personas and each lost everything.
+                #
+                # So the retry drops only the entries that individually fail and keeps the rest.
+                # It is deliberately NOT a general leniency: the outer object is re-validated
+                # unchanged, so a malformed scalar still fails the parse as it always has. The
+                # narrowest possible widening of an all-or-nothing gate.
+                out = InterviewExtractOutput.model_validate(_without_bad_experiences(raw))
+                logger.warning("interview extract kept the profile by dropping malformed entries")
         except Exception:
             logger.warning("interview extract output failed the contract")
             # The one branch where the model's body could not be read as the contract. Recorded
@@ -357,6 +389,28 @@ async def profiling_extract(body: InterviewExtractInput) -> InterviewExtractOutp
         out.is_mock = False
         out.ai_metadata = meta
         return out
+
+
+def _without_bad_experiences(raw: object) -> dict:
+    """`raw` with any individually-invalid `experiences` entry removed.
+
+    RAISES IF `raw` IS NOT A DICT, on purpose — the caller is inside a `try` whose except
+    branch is the honest "the model's body could not be read" path, and a non-dict body is
+    exactly that case rather than one this function should paper over.
+    """
+    if not isinstance(raw, dict):
+        raise TypeError("extract body is not an object")
+    entries = raw.get("experiences")
+    if not isinstance(entries, list):
+        return raw
+    kept = []
+    for entry in entries:
+        try:
+            ExperienceEntry.model_validate(entry)
+        except ValidationError:
+            continue
+        kept.append(entry)
+    return {**raw, "experiences": kept}
 
 
 def _certifiable_item_count(out: InterviewExtractOutput) -> int:
