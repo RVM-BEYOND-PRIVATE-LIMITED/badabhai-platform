@@ -85,3 +85,65 @@ Two second-order notes on the same page, neither proposed:
   (`asked.length <= MAX_ENGINE_ASKS`) is vacuous because the engine enforces that bound by
   construction. A pack author gets no signal until a senior worker's interview closes early in
   production.
+
+---
+
+# R6 §5 — the cap, raised and instrumented
+
+**Applied**, unlike everything above it: R6 §5 ruled the cap lifted. The revised ask LIST above
+is still a proposal and is still unapplied.
+
+## The new number, derived rather than picked
+
+`MAX_ENGINE_ASKS` **24 → 28**. Not a round number — the terms are:
+
+| term                               | value  | where it comes from                                                       |
+| ---------------------------------- | ------ | ------------------------------------------------------------------------- |
+| largest occupation pack            | **15** | `qp_cnc_turning`; every other pack in the corpus is 6                     |
+| universal tail                     | **8**  | `qp_universal@2`                                                          |
+| one retry per MANDATORY question   | **3**  | `turning_experience`, `primary_trade`, `current_city` — all `max_asks: 2` |
+| **what the corpus needs today**    | **26** |                                                                           |
+| reserved for the two proposed asks | **2**  | the Zone 5 credential pair in `sample-parity-gap.md`                      |
+| **cap**                            | **28** |                                                                           |
+
+**The old cap of 24 could not serve 26.** That is the R5 finding restated with a number on it:
+the margin was already spent by detection rather than by pack size, and a senior turner needing
+one re-ask on each mandatory answer was over budget before anything was added. What the overflow
+deletes is the TAIL — `shift_preference` — not the question that caused it.
+
+## The guard that was missing
+
+`apps/api/src/profiling/ask-budget.guard.test.ts`. The strongest assertion that existed
+(`asked.length <= MAX_ENGINE_ASKS`) is **vacuous**: the engine enforces that bound by
+construction, so it can never fail. A pack author got no signal until a real interview closed
+early in production.
+
+Four assertions, and the second is the authoring signal:
+
+- the cap can serve the largest pack, retries included — the **floor**;
+- the worst case is pinned at **26 exactly**, so any pack that grows or shrinks turns it red and
+  has to be updated deliberately, in the same commit;
+- headroom is held **≤ 2**, because an inflated cap is not free;
+- no pack exceeds the cap, not merely the largest one.
+
+## The measurement that decides the real ceiling
+
+The binding constraint on interview length was never cost — R5 priced a full interview at ₹0.23
+shipped and ₹1.99 worst-case against a ₹4 target — and it is not tokens. It is **abandonment**.
+
+`profile.interview_completed` already carried `ask_count`, so completion-by-ask-index was
+computable for the workers who **finished** — the half that cannot tell you where people leave.
+`chat.session_abandoned` now carries **`engine_asks`** as well, which is the numerator. It is
+nullable and null is a real state: the sweep may run after the Redis buffer expired, and writing
+`0` there would invent a drop-off spike at index zero in the one number this exists to make
+honest.
+
+With both halves on the spine, the ceiling is a curve someone can read rather than a number
+anyone can argue. If drop-off spikes at ask 28, that is the answer.
+
+## What §4 removed from this problem
+
+`documents_ready` was the R5 proposal's strongest addition (+7 §9.1 points). It is no longer an
+ask at all — it went to the finishing form with languages, job type, shift, preferred cities,
+relocation and accommodation, which is seven closed-set answers recovered for **zero** engine
+asks. The interview's budget is now spent only on what needs language.

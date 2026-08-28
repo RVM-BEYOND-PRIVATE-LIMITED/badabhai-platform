@@ -490,6 +490,25 @@ export const ChatSessionAbandonedPayload = z.object({
   answers_preserved: z.number().int().nonnegative(),
   /** Whole minutes between the session's last activity and the sweep closing it. */
   idle_minutes: z.number().int().nonnegative(),
+  /**
+   * HOW FAR INTO THE INTERVIEW THE WORKER GOT BEFORE WALKING AWAY (R6 §5).
+   *
+   * WHY THIS FIELD IS THE POINT OF THE EVENT NOW. `profile.interview_completed` already carries
+   * `ask_count`, so completion-by-ask-index was computable for workers who FINISHED — which is
+   * the half that cannot tell you where people leave. Without this the drop-off curve has no
+   * numerator, and the real ceiling on interview length stays a matter of argument rather than
+   * measurement. R6 §5: "If drop-off spikes at ask 28, that is the answer and no amount of
+   * budget changes it."
+   *
+   * NULLABLE, AND NULL IS A REAL STATE rather than a default nobody set: the sweep runs on a
+   * session whose Redis buffer may already have expired (`transcript_recovered: false`), and in
+   * that case the ask count is genuinely unknown. Recording 0 would put a fabricated spike at
+   * index zero into the one number this field exists to make honest.
+   *
+   * ADDITIVE AND DEFAULTED, so every row written before it validates unchanged and no consumer
+   * of this event has to know it exists.
+   */
+  engine_asks: z.number().int().nonnegative().max(200).nullable().default(null),
 });
 
 // ---------------------------------------------------------------------------

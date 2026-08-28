@@ -1069,6 +1069,12 @@ export class ChatService {
           messages_preserved: rows.length,
           answers_preserved: answerRows.length,
           idle_minutes: idleMinutes,
+          // R6 §5 — WHERE the worker stopped, which is the number the ask cap has to be argued
+          // against. `profile.interview_completed` already carries `ask_count` for the workers
+          // who finished; this is the other half, and without it the drop-off curve has only a
+          // denominator. NULL when the buffer had already expired: the count is genuinely
+          // unknown there, and writing 0 would invent a spike at index zero.
+          engine_asks: buffer?.profiling?.engineAsks ?? null,
         },
         idempotencyKey: `chat.session_abandoned:${sessionId}`,
         correlationId: ctx.correlationId,
