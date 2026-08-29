@@ -230,6 +230,9 @@ export class ResumeRenderProcessor extends WorkerHost {
       attributes: {},
       ...(loaded ?? {}),
       employments,
+      // #1350 item 4 — the renderer half of the kill switch. Flipping this false reverts every
+      // resume to the worker's own words on the next render, with no deploy and no data loss.
+      polishEnabled: this.config.WORK_HISTORY_POLISH_ENABLED,
       workerSaid,
       // ONE CLOCK PER RENDER, shared with the footer below, so a sheet generated at midnight
       // cannot date its footer one day and compute a current job's tenure against the next.

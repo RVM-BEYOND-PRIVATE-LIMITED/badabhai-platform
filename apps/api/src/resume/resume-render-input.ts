@@ -124,6 +124,21 @@ export interface TradeSheetContext {
   readonly asOf?: Date | null;
 
   /**
+   * Whether a model-composed work description may PRINT (#1350 item 4).
+   *
+   * THE OTHER HALF OF THE KILL SWITCH. `WORK_HISTORY_POLISH_ENABLED` gates the polisher, which
+   * stops new rewrites; this gates the RENDERER, which is what makes the override revertible in
+   * production without a deploy. Without it, flipping the switch off would leave every
+   * already-polished row printing model-composed text until somebody ran a data migration.
+   *
+   * ABSENT MEANS OFF. The raw `work_done` is never overwritten, so falling back to it is always
+   * safe and is exactly what §8 guaranteed before the override — a caller that forgets this flag
+   * gets the conservative answer rather than the permissive one. Flipping the switch back on
+   * restores the polished text from the column that was retained.
+   */
+  readonly polishEnabled?: boolean;
+
+  /**
    * ZONE 5 — Qualification, documents and languages.
    *
    * CALLER-SUPPLIED FOR THE SAME REASON THE CAPABILITY BLOCK IS PACK-SUPPLIED: the résumé
@@ -294,6 +309,8 @@ function buildUndegraded(
   // never get both a dated employer block and an undated duplicate of the same job.
   const employmentBlock = buildEmploymentBlock(tradeSheet?.employments ?? [], {
     asOf: tradeSheet?.asOf ?? null,
+    // `?? false` rather than `?? true`: the kill switch fails closed (#1350 item 4).
+    polishEnabled: tradeSheet?.polishEnabled ?? false,
   });
   const hasEmployments = employmentBlock.employments.length > 0;
   // ZONE 4 FOR A FRESHER (R10 §2.6). §11 #1 puts training, trade test, workshop machines and

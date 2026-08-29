@@ -52,6 +52,15 @@ Raised twice with the cost stated, and reaffirmed. #1350 is the written ruling.
    and `AI_REAL_CALL_TASKS` (the ai-service's existing fail-closed allowlist). Turning either off
    is a config change, not a deploy — a reversal that needs a deploy is not a reversal.
 
+   **`WORK_HISTORY_POLISH_ENABLED` is read in TWO places, and the second one is the one that makes
+   the sentence above true.** As first shipped it gated only the polisher, which stops new rewrites
+   while every row that had already been polished kept printing model-composed text — reverting
+   would have meant a data migration to `NULL` the column, or a deploy. Since #1350's completion the
+   **renderer** reads it as well (`workLine` in `resume-employment-rows.ts`, threaded through
+   `TradeSheetContext.polishEnabled`), so flipping the flag false makes the next render of every
+   resume print the worker's own words. The polished column is retained, so flipping it back on
+   restores the rewrites with no second model call. Absent means off, in both readers.
+
 ## What replaced the guarantee
 
 The gate proved a property about bytes. What replaces it are checks on a model, and they are

@@ -264,7 +264,15 @@ export class ResumeDisclosureService {
       this.logger.warn(`could not load work history for worker ${workerId}; rendering without`);
     }
     if (employments.length > 0) {
-      tradeSheet = { packId: null, attributes: {}, ...tradeSheet, employments, asOf: new Date() };
+      tradeSheet = {
+        packId: null,
+        attributes: {},
+        ...tradeSheet,
+        employments,
+        // The employer-facing copy honours the same kill switch as the worker's own (#1350).
+        polishEnabled: this.config.WORK_HISTORY_POLISH_ENABLED,
+        asOf: new Date(),
+      };
     }
 
     // ADR-0032: photoDataUri is STRUCTURALLY null here — the worker's photo is for
