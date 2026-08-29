@@ -42,8 +42,7 @@ const String _kAccommodationLabel = 'Rehne ki jagah chahiye?';
 
 const String _kPayEduTitle = 'Salary aur padhai';
 const String _kPayEduSubtitle = 'Jo laagu ho, wahi bharein — sab optional hai.';
-const String _kSalaryMaxLabel = 'Zyada se zyada salary (mahina)';
-const String _kSalaryMaxHint = 'Jaise: 25000';
+const String _kSalaryMaxLabel = 'Mahine ki salary kitni chahte hain?';
 const String _kCredentialLabel = 'Agar ITI ya Diploma hai to kaun sa?';
 const String _kCouncilLabel = 'Council / board';
 const String _kEduYearLabel = 'Kis saal poora hua';
@@ -70,10 +69,24 @@ const Map<String, String> _kCouncils = <String, String>{
   'open_school': 'NIOS / Open school',
 };
 
-// Server bounds (worker-preferences.dto.ts) — guard at the input edge so an
-// out-of-range number is simply not sent, never a doomed 400.
-const int _kSalaryMin = 1000;
-const int _kSalaryMax = 500000;
+// #1312 — expected salary is a BAND, never a point figure (§4.4). Each entry
+// maps a band's UPPER bound (what the wire sends as `salary_expected_max`) to a
+// persona-neutral Hinglish label. The chosen band's upper bound is the value
+// sent, so the server contract is unchanged; the open-ended top band pins a
+// sensible max (100000, ≤ the server's 500000 ceiling). Ordered low→high; a
+// Map literal keeps that insertion order, which is the display order. Skipping
+// the page leaves `salaryExpectedMax` null, so the key stays ABSENT on the wire.
+const Map<int, String> _kSalaryBands = <int, String>{
+  15000: '₹10–15 hazaar',
+  20000: '₹15–20 hazaar',
+  25000: '₹20–25 hazaar',
+  35000: '₹25–35 hazaar',
+  50000: '₹35–50 hazaar',
+  100000: '₹50 hazaar se upar',
+};
+
+// Server bound (worker-preferences.dto.ts) — guard the year at the input edge so
+// an out-of-range value is simply not sent, never a doomed 400.
 const int _kYearMin = 1950;
 const int _kYearMax = 2100;
 
@@ -402,6 +415,37 @@ class _SingleChips extends StatelessWidget {
   }
 }
 
+/// Single-select salary BAND chips (#1312). Mirrors [_SingleChips] but is keyed
+/// on each band's UPPER bound (an int), which is exactly what the wire sends as
+/// `salary_expected_max`. Re-tapping the chosen band clears it (a real "skip"),
+/// so no salary key is sent — the same toggle-to-clear rule as shift / job type.
+class _SalaryBandChips extends StatelessWidget {
+  const _SalaryBandChips({required this.selected, required this.onTap});
+
+  /// The currently chosen band's upper bound, or null when none is chosen.
+  final int? selected;
+
+  /// Receives the chosen band's upper bound, or null to clear.
+  final void Function(int? upperBound) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: AppSpacing.s2,
+      runSpacing: AppSpacing.s2,
+      children: <Widget>[
+        for (final MapEntry<int, String> e in _kSalaryBands.entries)
+          BbChip(
+            label: e.value,
+            selected: selected == e.key,
+            icon: selected == e.key ? Icons.check : null,
+            onTap: () => onTap(selected == e.key ? null : e.key),
+          ),
+      ],
+    );
+  }
+}
+
 class _CitiesPage extends StatefulWidget {
   const _CitiesPage({required this.state});
   final FinishingState state;
@@ -510,10 +554,11 @@ class _ToggleRow extends StatelessWidget {
   }
 }
 
-/// Salary band max + the ITI/Diploma credential group (#1298). Everything here
-/// is optional: a worker who skips it keeps whatever the interview captured. The
-/// number fields are range-guarded at the edge, so only a valid value is ever
-/// sent and an out-of-range entry simply produces no band / no year.
+/// Salary band + the ITI/Diploma credential group (#1298, #1312). Everything
+/// here is optional: a worker who skips it keeps whatever the interview
+/// captured. Salary is a single-select BAND (#1312) whose upper bound is sent as
+/// `salary_expected_max`; the year field is still range-guarded at the edge, so
+/// an out-of-range entry simply produces no year.
 class _SalaryEducationPage extends StatefulWidget {
   const _SalaryEducationPage({required this.state});
   final FinishingState state;
@@ -522,8 +567,6 @@ class _SalaryEducationPage extends StatefulWidget {
 }
 
 class _SalaryEducationPageState extends State<_SalaryEducationPage> {
-  late final TextEditingController _salary = TextEditingController(
-      text: widget.state.prefs.salaryExpectedMax?.toString() ?? '');
   late final TextEditingController _year = TextEditingController(
       text: widget.state.prefs.educationYear?.toString() ?? '');
   late final TextEditingController _institute = TextEditingController(
@@ -531,7 +574,6 @@ class _SalaryEducationPageState extends State<_SalaryEducationPage> {
 
   @override
   void dispose() {
-    _salary.dispose();
     _year.dispose();
     _institute.dispose();
     super.dispose();
@@ -551,14 +593,9 @@ class _SalaryEducationPageState extends State<_SalaryEducationPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         _SectionLabel(_kSalaryMaxLabel),
-        FinishingTextField(
-          controller: _salary,
-          hint: _kSalaryMaxHint,
-          label: _kSalaryMaxLabel,
-          keyboardType: TextInputType.number,
-          textInputAction: TextInputAction.next,
-          onChanged: (String v) =>
-              cubit.setSalaryMax(_inRange(v, _kSalaryMin, _kSalaryMax)),
+        _SalaryBandChips(
+          selected: prefs.salaryExpectedMax,
+          onTap: cubit.setSalaryMax,
         ),
         const SizedBox(height: AppSpacing.s5),
         _SectionLabel(_kCredentialLabel),

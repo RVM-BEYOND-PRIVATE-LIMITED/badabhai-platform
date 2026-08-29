@@ -92,6 +92,33 @@ class BbAnalytics {
         'question_index': questionIndex,
       });
 
+  // ---- Finishing-form funnel (#1315) ----
+  //
+  // §4.4 makes expected salary mandatory, so the finishing form's completion
+  // RATE has to be measurable. Three coarse milestones bracket it — entered on
+  // load, a per-page reach so drop-off across the pages is distinguishable, and
+  // submitted when both writes land. Indices and counts only: no worker text, no
+  // answer, and no id ever rides along.
+
+  /// The finishing form opened (its options loaded). The funnel ENTRY that makes
+  /// a completion rate computable against [finishingFormSubmitted].
+  static const BbAnalyticsEvent finishingFormEntered =
+      BbAnalyticsEvent('bb_finishing_entered');
+
+  /// A finishing-form page came on screen. [pageIndex] is a 0-based COUNT of
+  /// which page (languages 0 … history 5), so per-page drop-off (cities /
+  /// salary+education / history) is distinguishable — never a page id, key, or
+  /// any answer on it.
+  static BbAnalyticsEvent finishingPageReached({required int pageIndex}) =>
+      BbAnalyticsEvent('bb_finishing_page', <String, Object>{
+        'page_index': pageIndex,
+      });
+
+  /// Both finishing writes landed — the funnel EXIT that closes the completion
+  /// rate.
+  static const BbAnalyticsEvent finishingFormSubmitted =
+      BbAnalyticsEvent('bb_finishing_submitted');
+
   /// Every funnel event this app can emit, with representative parameters.
   /// Exists so `test/core/observability/analytics_pii_test.dart` can assert the
   /// no-PII rule over the WHOLE set instead of one example.
@@ -103,6 +130,9 @@ class BbAnalytics {
         inviteShared,
         questionAudioPlayed(questionIndex: 4),
         profilingAnswerSpoken(questionIndex: 4),
+        finishingFormEntered,
+        finishingPageReached(pageIndex: 4),
+        finishingFormSubmitted,
       ];
 
   FirebaseAnalytics? _analytics;

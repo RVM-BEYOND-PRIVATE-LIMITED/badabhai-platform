@@ -76,6 +76,10 @@ void main() {
           // Voice-form action signals (#639).
           'question_audio_played',
           'profiling_answer_spoken',
+          // Finishing-form funnel (#1315).
+          'bb_finishing_entered',
+          'bb_finishing_page',
+          'bb_finishing_submitted',
         ]),
       );
     });
@@ -104,10 +108,13 @@ void main() {
       // The voice-form events (#639) MUST NOT carry a question id — if someone
       // ever swapped the count for one, the detector has to bite.
       expect(_kPiiKey.hasMatch('question_id'), isTrue);
+      // The finishing funnel (#1315) MUST NOT carry a page id either.
+      expect(_kPiiKey.hasMatch('page_id'), isTrue);
       // …and must NOT reject the legitimate ones.
       expect(_kPiiKey.hasMatch('turn_count'), isFalse);
       expect(_kPiiKey.hasMatch('purpose_count'), isFalse);
       expect(_kPiiKey.hasMatch('question_index'), isFalse);
+      expect(_kPiiKey.hasMatch('page_index'), isFalse);
 
       expect(
           _kPiiValue['uuid']!

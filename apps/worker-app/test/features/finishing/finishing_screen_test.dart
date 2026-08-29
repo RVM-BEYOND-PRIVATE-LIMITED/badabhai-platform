@@ -80,4 +80,74 @@ void main() {
     await pump(tester);
     expect(find.text('Dobara koshish karein'), findsWidgets);
   });
+
+  // #1312 — salary is a BAND, not a free-text number.
+
+  Future<void> advance(WidgetTester tester) async {
+    await tester.tap(find.text('Aage badhein'));
+    await tester.pumpAndSettle();
+  }
+
+  WorkPreferences lastSavedPrefs() {
+    final List<dynamic> captured =
+        verify(() => repo.saveWorkPreferences(captureAny())).captured;
+    return captured.last as WorkPreferences;
+  }
+
+  testWidgets(
+      'choosing a salary band sends its upper bound as salary_expected_max',
+      (WidgetTester tester) async {
+    await pump(tester);
+    // languages → documents → shift/type → cities → salary+education
+    for (int i = 0; i < 4; i++) {
+      await advance(tester);
+    }
+    // The ₹15–20 hazaar band — its UPPER bound (20000) is what the wire carries.
+    await tester.tap(find.text('₹15–20 hazaar'));
+    await tester.pump();
+    // salary+education → history, then finish
+    await advance(tester);
+    await tester.tap(find.text('Ho gaya'));
+    await tester.pumpAndSettle();
+
+    final WorkPreferences prefs = lastSavedPrefs();
+    expect(prefs.salaryExpectedMax, 20000);
+    expect(prefs.toUpdateBody()['salary_expected_max'], 20000);
+  });
+
+  testWidgets('skipping the salary page sends no salary_expected_max key',
+      (WidgetTester tester) async {
+    await pump(tester);
+    // Walk every page without touching the band picker, then submit.
+    for (int i = 0; i < 5; i++) {
+      await advance(tester);
+    }
+    await tester.tap(find.text('Ho gaya'));
+    await tester.pumpAndSettle();
+
+    final WorkPreferences prefs = lastSavedPrefs();
+    expect(prefs.salaryExpectedMax, isNull);
+    // The wire key must stay ABSENT (not 0) — the server field is optional.
+    expect(prefs.toUpdateBody().containsKey('salary_expected_max'), isFalse);
+  });
+
+  testWidgets('re-tapping the chosen band clears it (a real skip)',
+      (WidgetTester tester) async {
+    await pump(tester);
+    for (int i = 0; i < 4; i++) {
+      await advance(tester);
+    }
+    await tester.tap(find.text('₹15–20 hazaar'));
+    await tester.pump();
+    // Tap the same band again — it deselects, so no salary is sent.
+    await tester.tap(find.text('₹15–20 hazaar'));
+    await tester.pump();
+    await advance(tester);
+    await tester.tap(find.text('Ho gaya'));
+    await tester.pumpAndSettle();
+
+    final WorkPreferences prefs = lastSavedPrefs();
+    expect(prefs.salaryExpectedMax, isNull);
+    expect(prefs.toUpdateBody().containsKey('salary_expected_max'), isFalse);
+  });
 }
