@@ -130,17 +130,21 @@ export interface EmploymentBlock {
  */
 export function buildEmploymentBlock(
   records: readonly WorkerEmploymentRecord[],
-  opts: { readonly asOf?: Date | null } = {},
+  opts: { readonly asOf?: Date | null; readonly polishEnabled?: boolean } = {},
 ): EmploymentBlock {
   const kept = records.slice(0, EMPLOYMENT_BLOCK_BUDGET);
   const dropped = records.slice(EMPLOYMENT_BLOCK_BUDGET);
   return {
-    employments: kept.map((r) => toEmployment(r, opts.asOf ?? null)),
+    employments: kept.map((r) => toEmployment(r, opts.asOf ?? null, opts.polishEnabled === true)),
     employmentsMore: overflowLine(dropped, opts.asOf ?? null),
   };
 }
 
-function toEmployment(record: WorkerEmploymentRecord, asOf: Date | null): ResumeEmployment {
+function toEmployment(
+  record: WorkerEmploymentRecord,
+  asOf: Date | null,
+  polishEnabled: boolean,
+): ResumeEmployment {
   const stints = roleStints(record, asOf);
   // ── A LONE UNDATED ROLE MOVES ONTO THE EMPLOYER LINE ──────────────────────────────
   //
@@ -170,7 +174,7 @@ function toEmployment(record: WorkerEmploymentRecord, asOf: Date | null): Resume
     // cannot leave a stray dash on the page.
     role_inline: inlineOnly ? ` — ${stints[0]!.role}` : "",
     when: spanText(record.startYm, record.endYm, record.durationStated, asOf),
-    work: workLine(record.roles),
+    work: workLine(record.roles, { polishEnabled }),
     // THE SAME LINE FROM THE WORKER'S OWN WORDS, so a client can show what the printed text
     // was rewritten FROM (#1354). Composed through the identical joiner rather than
     // concatenated separately: a comparison between two differently-built strings would show
@@ -294,7 +298,7 @@ function overflowLine(
 /** The employment's one work line — see {@link WORK_LINE_MAX_PARTS}. */
 function workLine(
   roles: readonly WorkerEmploymentRoleRecord[],
-  opts: { readonly ownWordsOnly?: boolean } = {},
+  opts: { readonly ownWordsOnly?: boolean; readonly polishEnabled?: boolean } = {},
 ): string {
   const seen = new Set<string>();
   const parts: string[] = [];
@@ -305,8 +309,20 @@ function workLine(
     // did not run or was overruled by the far side's checks, and — since #1354 — what the
     // worker themselves can choose. A refusal outranks a rewrite; nobody else is in a position
     // to know whether a sentence about their work is true.
+    // THE KILL SWITCH IS READ HERE, NOT ONLY AT THE POLISHER (#1350 item 4).
+    //
+    // #1350 requires a switch that makes the override "revertible in production WITHOUT A DEPLOY".
+    // Gating only the polisher does not do that: it stops NEW rewrites while every row that was
+    // already polished keeps printing model-composed text forever. Reverting would have meant a
+    // data migration to NULL the column, or a deploy — the two things the switch exists to avoid.
+    //
+    // DEFAULTS TO OFF, so it fails closed. A caller that forgets to pass the flag gets the
+    // worker's own words, which is the answer §8 guaranteed and is never the unsafe one.
     const usePolished =
-      !opts.ownWordsOnly && role.workDonePolished != null && role.workDonePolishDeclined !== true;
+      opts.polishEnabled === true &&
+      !opts.ownWordsOnly &&
+      role.workDonePolished != null &&
+      role.workDonePolishDeclined !== true;
     const text = (usePolished ? role.workDonePolished : role.workDone)?.trim();
     if (!text || seen.has(text)) continue;
     seen.add(text);

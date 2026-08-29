@@ -53,35 +53,79 @@ function record(over: Partial<{ polished: string | null; declined: boolean }> = 
   } as WorkerEmploymentRecord;
 }
 
+// The polish may only PRINT while the kill switch is on (#1350 item 4), so every case below that
+// expects the rewrite has to say so. `ON_OPTS` names that rather than sprinkling a bare literal.
+const ON_OPTS = { polishEnabled: true } as const;
+
 describe("which text prints", () => {
   it("prints the rewrite when the worker has not refused it", () => {
-    const block = buildEmploymentBlock([record()]).employments[0]!;
+    const block = buildEmploymentBlock([record()], ON_OPTS).employments[0]!;
     expect(block.work).toBe(POLISHED);
   });
 
   it("prints the worker's own words when they refused", () => {
     // A refusal outranks a rewrite. Nobody else is in a position to know whether a sentence
     // about this worker's job is true.
-    const block = buildEmploymentBlock([record({ declined: true })]).employments[0]!;
+    const block = buildEmploymentBlock([record({ declined: true })], ON_OPTS).employments[0]!;
     expect(block.work).toBe(RAW);
   });
 
   it("prints the worker's own words when there is no rewrite at all", () => {
-    const block = buildEmploymentBlock([record({ polished: null })]).employments[0]!;
+    const block = buildEmploymentBlock([record({ polished: null })], ON_OPTS).employments[0]!;
     expect(block.work).toBe(RAW);
   });
 
   it("always carries the own-words line beside the printed one", () => {
     // The comparison a client shows. Composed through the SAME joiner, so a diff shown to a
     // worker reflects the rewrite rather than two differently-built strings.
-    const block = buildEmploymentBlock([record()]).employments[0]!;
+    const block = buildEmploymentBlock([record()], ON_OPTS).employments[0]!;
     expect(block.work).toBe(POLISHED);
     expect(block.work_own_words).toBe(RAW);
   });
 
   it("collapses to one value when nothing was rewritten", () => {
-    const block = buildEmploymentBlock([record({ polished: null })]).employments[0]!;
+    const block = buildEmploymentBlock([record({ polished: null })], ON_OPTS).employments[0]!;
     expect(block.work).toBe(block.work_own_words);
+  });
+});
+
+/**
+ * ═══ THE KILL SWITCH REVERTS WHAT ALREADY PRINTED (#1350 item 4) ═══
+ *
+ * #1350 requires a switch that makes the §8 override "revertible in production WITHOUT A DEPLOY".
+ * Gating only the polisher would not have been that: it stops NEW rewrites, while every row
+ * already carrying `work_done_polished` keeps printing model-composed text forever. Reverting
+ * would have meant a data migration to NULL the column, or a deploy — precisely the two things a
+ * kill switch exists to avoid. So the RENDERER reads it too, and these are the tests that say so.
+ */
+describe("the kill switch (#1350 item 4)", () => {
+  it("reverts an ALREADY-POLISHED row to the worker's own words", () => {
+    // THE ONE THAT MATTERS. The row is polished and the worker never objected — under the old
+    // behaviour this printed the model's sentence no matter what the switch said.
+    const block = buildEmploymentBlock([record()], { polishEnabled: false }).employments[0]!;
+    expect(block.work).toBe(RAW);
+  });
+
+  it("defaults to off when a caller does not pass the flag — fails closed", () => {
+    // The raw text is never overwritten, so falling back to it is always safe. A caller that
+    // forgets the flag must get the answer §8 guaranteed, not the permissive one.
+    const block = buildEmploymentBlock([record()]).employments[0]!;
+    expect(block.work).toBe(RAW);
+  });
+
+  it("keeps the rewrite in the column, so flipping back on restores it", () => {
+    // Reverting must not destroy anything. Same record, switch back on, polish returns — no
+    // re-render cost, no second model call, no data migration in either direction.
+    const off = buildEmploymentBlock([record()], { polishEnabled: false }).employments[0]!;
+    const on = buildEmploymentBlock([record()], ON_OPTS).employments[0]!;
+    expect(off.work).toBe(RAW);
+    expect(on.work).toBe(POLISHED);
+  });
+
+  it("still exposes the worker's own words either way", () => {
+    // `work_own_words` is not gated: it is the worker's own text and was never the model's.
+    const off = buildEmploymentBlock([record()], { polishEnabled: false }).employments[0]!;
+    expect(off.work_own_words).toBe(RAW);
   });
 });
 
