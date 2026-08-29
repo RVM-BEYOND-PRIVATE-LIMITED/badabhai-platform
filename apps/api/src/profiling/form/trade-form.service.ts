@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 
 import type { AnswerRecord, QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
 import type { WorkerPackAnswer } from "@badabhai/db";
@@ -216,10 +222,27 @@ export class TradeFormService {
     const familyId = familyForTradeForm(kind);
     const pack = await this.packs.loadForFamily(familyId, Date.now());
     if (!pack) {
-      // Fails closed and LOUDLY. A form kind whose pack is missing is a corpus/deploy fault, not
-      // a worker fault, and an empty form would look like a working one.
-      this.logger.error(`trade form ${kind} has no active pack for family ${familyId}`);
-      throw new NotFoundException(`no active question pack for ${kind}`);
+      // A SERVER FAULT, AND IT MUST NOT BE REPORTED AS THE WORKER'S EMPTY FORM.
+      //
+      // This threw 404 until it bit for real: a worker who HAD been handed a form tapped the CTA
+      // and got "aapke liye koi form taiyaar nahi kiya gaya hai" — because the client maps 404 to
+      // exactly that screen, which is the right reading of 404 on this route and a lie in this
+      // case. The pack is missing from the DATABASE, not from the worker's entitlement, and the
+      // two must not share a status code.
+      //
+      // HOW IT HAPPENS, because it will happen again to the next pack. Seeding is manual, like
+      // migrations: `db:seed:packs --apply` runs in the e2e job against an ephemeral Postgres,
+      // and the deploy job seeds nothing. So a new pack ships in the image, passes every test,
+      // deploys green, and is simply absent from the database it is read from — announced by a
+      // log line nobody was watching and a calm screen the worker was.
+      //
+      // 503 rather than 500: the fix is to run the seed, not to change code, so it is transient
+      // in the only sense that matters and the client is right to offer a retry.
+      this.logger.error(
+        `trade form ${kind} has no active pack for family ${familyId} — run ` +
+          `\`pnpm --filter @badabhai/db db:seed:packs --apply\` against this database`,
+      );
+      throw new ServiceUnavailableException(`no active question pack for ${kind}`);
     }
     return pack;
   }
