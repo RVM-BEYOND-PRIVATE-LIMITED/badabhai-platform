@@ -57,12 +57,17 @@ export class WorkerEmploymentRepository {
       startYm: string | null;
       endYm: string | null;
       durationStated: boolean;
-      role: {
+      /**
+       * One or more stints, in DISPLAY order (most recent first) — see `sortOrder` below.
+       * A single-role employment is a one-element array and writes the identical row it did
+       * when this took one `role`.
+       */
+      roles: readonly {
         roleLabel: string;
         startYm: string | null;
         endYm: string | null;
         workDone: string | null;
-      };
+      }[];
     }[],
   ): Promise<{ replacedExisting: boolean }> {
     return this.db.transaction(async (tx) => {
@@ -94,14 +99,20 @@ export class WorkerEmploymentRepository {
         .returning({ id: workerEmployment.id });
 
       await tx.insert(workerEmploymentRole).values(
-        inserted.map((employment, index) => ({
-          employmentId: employment.id,
-          roleLabel: rows[index]!.role.roleLabel,
-          startYm: rows[index]!.role.startYm,
-          endYm: rows[index]!.role.endYm,
-          workDone: rows[index]!.role.workDone,
-          sortOrder: 0,
-        })),
+        inserted.flatMap((employment, index) =>
+          rows[index]!.roles.map((role, roleIndex) => ({
+            employmentId: employment.id,
+            roleLabel: role.roleLabel,
+            startYm: role.startYm,
+            endYm: role.endYm,
+            workDone: role.workDone,
+            // THE SUBMITTED ORDER, never derived from the dates — the same rule the employment
+            // `sortOrder` follows one statement up, and for the same reason: a promotion in the
+            // same month as its predecessor has no date to sort by, and re-deriving would
+            // reshuffle stints between renders and make every regenerated PDF a false diff.
+            sortOrder: roleIndex,
+          })),
+        ),
       );
 
       return { replacedExisting: existing.length > 0 };
