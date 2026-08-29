@@ -220,4 +220,11 @@ class ResumeCubit extends Cubit<ResumeState> {
   /// `downloadSignedPdf` can surface the ACTUAL reason (server / 401 /
   /// PDF-not-rendered) instead of a blank generic line.
   Future<String?> resolveDownloadUrl() => _repo.resumeDownloadUrl();
+
+  /// Best-effort report to the server that the worker shared their resume
+  /// (`resume.shared`, #1317). Fire-and-forget AFTER a successful native share;
+  /// [channel] is a closed kResumeShareChannels enum token. Does NOT touch
+  /// [ResumeState] — the resume is already shown and the share already happened,
+  /// so this is a pure side-signal; the repository swallows any failure.
+  Future<void> reportShared(String channel) => _repo.reportShared(channel);
 }

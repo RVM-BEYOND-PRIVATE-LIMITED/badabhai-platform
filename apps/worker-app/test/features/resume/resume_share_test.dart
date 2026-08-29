@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
 import 'package:mocktail/mocktail.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
@@ -93,6 +94,11 @@ void main() {
         nightShiftReady: false,
       ),
     );
+    // #1317 — the button fires `reportShared` after a completed share. Default
+    // it to a canned no-op so the existing share tests are unaffected; the
+    // reporting tests below override it (verify the channel / throw to prove the
+    // share survives a failed report).
+    when(() => repo.reportShared(any())).thenAnswer((_) async {});
     locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo, editRepo));
     // The preview screen refetches on tab focus (T4) and resolves this.
     locator.registerLazySingleton<TabFocus>(() => TabFocus());
@@ -110,7 +116,15 @@ void main() {
   }
 
   /// The share button alone, with both production seams faked.
-  Future<void> pumpShareButton(WidgetTester tester) async {
+  ///
+  /// [shareResult] is what the faked share sheet returns — defaults to a
+  /// completed share from a non-WhatsApp target (so the default drives the
+  /// "other" channel). Reporting tests pass a dismissed / WhatsApp result.
+  Future<void> pumpShareButton(
+    WidgetTester tester, {
+    ShareResult shareResult =
+        const ShareResult('com.example.other', ShareResultStatus.success),
+  }) async {
     sizeView(tester);
     await tester.pumpWidget(MaterialApp(
       theme: AppTheme.light(),
@@ -129,6 +143,7 @@ void main() {
                 fileName: fileName,
                 text: text,
               ));
+              return shareResult;
             },
           ),
         ),
@@ -283,5 +298,95 @@ void main() {
     expect(find.text(kResumeShareMockNotice), findsOneWidget);
     expect(shared, isEmpty);
     expect(client.requested, isEmpty);
+  });
+
+  // #1317 — the app shares the resume but never told the server, so the
+  // `resume.shared` metric read zero by construction. The button now reports it
+  // AFTER a completed share, with a closed-enum channel derived from the target.
+  group('resume.shared reporting (#1317)', () {
+    testWidgets(
+        'a dismissed/cancelled share reports NOTHING — the metric only counts '
+        'shares the worker actually made', (WidgetTester tester) async {
+      when(() => repo.resumeDownloadUrl()).thenAnswer((_) async => signedUrl);
+      await pumpShareButton(
+        tester,
+        shareResult: const ShareResult('', ShareResultStatus.dismissed),
+      );
+
+      await tester.tap(find.text(kResumeShareLabel));
+      await tester.pumpAndSettle();
+
+      // The sheet was opened (the PDF was fetched + handed over) but the worker
+      // backed out — so no `resume.shared` is reported.
+      expect(shared, hasLength(1));
+      verifyNever(() => repo.reportShared(any()));
+    });
+
+    testWidgets(
+        'a completed WhatsApp share reports resume.shared ONCE with channel '
+        '"whatsapp"', (WidgetTester tester) async {
+      when(() => repo.resumeDownloadUrl()).thenAnswer((_) async => signedUrl);
+      await pumpShareButton(
+        tester,
+        // `raw` names the chosen app; a WhatsApp target maps to the "whatsapp"
+        // channel (case-insensitive substring).
+        shareResult: const ShareResult(
+          'com.whatsapp.ContactPicker',
+          ShareResultStatus.success,
+        ),
+      );
+
+      await tester.tap(find.text(kResumeShareLabel));
+      await tester.pumpAndSettle();
+
+      expect(shared, hasLength(1));
+      verify(() => repo.reportShared('whatsapp')).called(1);
+    });
+
+    testWidgets(
+        'a completed non-WhatsApp share reports the "other" channel',
+        (WidgetTester tester) async {
+      when(() => repo.resumeDownloadUrl()).thenAnswer((_) async => signedUrl);
+      await pumpShareButton(
+        tester,
+        shareResult: const ShareResult(
+          'com.google.android.gm.ComposeActivity',
+          ShareResultStatus.success,
+        ),
+      );
+
+      await tester.tap(find.text(kResumeShareLabel));
+      await tester.pumpAndSettle();
+
+      verify(() => repo.reportShared('other')).called(1);
+    });
+
+    testWidgets(
+        'a FAILED report never fails the share — the file still went and no '
+        'error notice is shown', (WidgetTester tester) async {
+      when(() => repo.resumeDownloadUrl()).thenAnswer((_) async => signedUrl);
+      // The report errors (offline / 5xx / session gone). It is fire-and-forget
+      // and swallowed, so the share the worker just made must be untouched.
+      when(() => repo.reportShared(any()))
+          .thenAnswer((_) async => throw Exception('report failed'));
+      await pumpShareButton(tester);
+
+      await tester.tap(find.text(kResumeShareLabel));
+      await tester.pumpAndSettle();
+
+      // The share itself succeeded — a real file crossed the boundary.
+      expect(shared, hasLength(1));
+      expect(shared.single.bytes, pdfBytes);
+      verify(() => repo.reportShared('other')).called(1);
+      // No failure notice, and the button released — the failed report is
+      // invisible to the worker.
+      expect(find.text(kResumeShareGenericFailureNotice), findsNothing);
+      expect(
+        tester
+            .widget<BbButton>(find.widgetWithText(BbButton, kResumeShareLabel))
+            .loading,
+        isFalse,
+      );
+    });
   });
 }

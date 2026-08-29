@@ -662,24 +662,32 @@ const String kResumeShareText =
 /// structurally incapable of reaching a chat thread through this seam (see the
 /// #354 note on [ResumeShareButton]). Injected so tests never touch the native
 /// share plugin.
-typedef ResumeShareFn = Future<void> Function({
+///
+/// Returns the platform [ShareResult] so the caller can report `resume.shared`
+/// with the chosen channel ONLY on a real, completed share (#1317) — a
+/// dismissed sheet reports nothing.
+typedef ResumeShareFn = Future<ShareResult> Function({
   required Uint8List bytes,
   required String fileName,
   required String text,
 });
 
 /// Production [ResumeShareFn] — the system share sheet with the PDF attached.
-Future<void> _shareResumeFile({
+Future<ShareResult> _shareResumeFile({
   required Uint8List bytes,
   required String fileName,
   required String text,
-}) async {
+}) {
   // fileNameOverrides is not optional here: cross_file drops XFile.name on every
   // platform except web, and without the override share_plus stages the
   // attachment under an invented uuid — the factory owner would receive
   // "a1b2c3d4.pdf" instead of RAMESH_KUMAR_RESUME.pdf and have no idea whose
   // resume they just opened.
-  await Share.shareXFiles(
+  //
+  // The ShareResult is returned (its `status` says whether the worker actually
+  // completed the share, its `raw` names the target app) so the caller can emit
+  // `resume.shared` on success only.
+  return Share.shareXFiles(
     <XFile>[XFile.fromData(bytes, mimeType: 'application/pdf', name: fileName)],
     fileNameOverrides: <String>[fileName],
     text: text,
@@ -796,11 +804,19 @@ class _ResumeShareButtonState extends State<ResumeShareButton> {
         final http.Client client = widget.httpClient ?? http.Client();
         try {
           final Uint8List bytes = await _fetchResumePdfBytes(client, uri);
-          await (widget.share ?? _shareResumeFile)(
+          final ShareResult result = await (widget.share ?? _shareResumeFile)(
             bytes: bytes,
             fileName: fileName,
             text: kResumeShareText,
           );
+          // #1317 — report `resume.shared` ONLY on a real, completed share. A
+          // dismissed/cancelled sheet (or an unavailable result) posts nothing,
+          // so the metric counts shares the worker actually made. Fire-and-forget
+          // + best-effort: the share already succeeded, so a failed report must
+          // never block or fail it.
+          if (result.status == ShareResultStatus.success) {
+            _reportShared(cubit, result.raw);
+          }
         } finally {
           if (widget.httpClient == null) client.close();
         }
@@ -831,6 +847,21 @@ class _ResumeShareButtonState extends State<ResumeShareButton> {
     if (reason != null) {
       messenger.showSnackBar(SnackBar(content: Text(reason)));
     }
+  }
+
+  /// Fire-and-forget the `resume.shared` report after a completed share (#1317).
+  ///
+  /// The channel is derived from the native share's `raw` target — a WhatsApp
+  /// share reports "whatsapp", anything else "other". It is a CLOSED
+  /// kResumeShareChannels enum token, never the link or any PII (the whole
+  /// point of #354 is that the credential never leaves the app — the channel
+  /// says which app, not what was sent). Best-effort by construction: the
+  /// repository swallows any failure AND the future is caught here, so a lost
+  /// report can never fail the share the worker already made.
+  void _reportShared(ResumeCubit cubit, String rawTarget) {
+    final String channel =
+        rawTarget.toLowerCase().contains('whatsapp') ? 'whatsapp' : 'other';
+    unawaited(cubit.reportShared(channel).catchError((Object _) {}));
   }
 
   @override

@@ -155,6 +155,22 @@ List<Duration> buildAiJobPollSchedule({
   return delays;
 }
 
+/// The CLOSED set of `resume.shared` channels — MUST match the server's
+/// `ShareResumeSchema` enum EXACTLY (`channel` in apps/api/src/resume/resume.dto.ts):
+/// `whatsapp` | `link` | `download` | `other`.
+///
+/// A drift here would post a channel the server's zod schema rejects (400), so
+/// a test pins this set to the published contract rather than trusting it stays
+/// in step by hand. PII-FREE BY CONSTRUCTION: a channel is a fixed enum token,
+/// never a link, phone, or name — which is exactly why `resume.shared` can
+/// carry it (CLAUDE.md §3 Privacy First).
+const Set<String> kResumeShareChannels = <String>{
+  'whatsapp',
+  'link',
+  'download',
+  'other',
+};
+
 /// HTTP client for the NestJS API (see apps/api).
 ///
 /// Base URL is supplied at build time:
@@ -711,6 +727,30 @@ class ApiClient {
     final Map<String, dynamic> json =
         await _get('/resume/$resumeId/download', authToken: authToken);
     return ResumeDownload.fromJson(json);
+  }
+
+  /// Reports that the worker shared their resume (POST /resume/:id/share —
+  /// WorkerAuthGuard; the server derives the worker from the token and emits
+  /// `resume.shared`, so the metric stops reading zero-by-construction, #1317).
+  /// Worker-scoped: requires [authToken].
+  ///
+  /// [channel] is one of the CLOSED [kResumeShareChannels] enum
+  /// (whatsapp | link | download | other) — NEVER a link or any PII; the server
+  /// re-validates it against the same closed set (`ShareResumeSchema`) and a
+  /// value outside it is a 400. Best-effort telemetry: the caller fires this
+  /// AFTER a successful native share and swallows any failure, so a lost report
+  /// never costs the worker their share. The response is `{ ok }`, so nothing is
+  /// parsed back.
+  Future<void> shareResume({
+    required String resumeId,
+    required String channel,
+    required String authToken,
+  }) async {
+    await _post(
+      '/resume/$resumeId/share',
+      <String, dynamic>{'channel': channel},
+      authToken: authToken,
+    );
   }
 
   /// Fetches a short-lived SIGNED url to a trade's interview-kit PDF

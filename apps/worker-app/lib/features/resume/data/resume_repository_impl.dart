@@ -106,4 +106,23 @@ class ResumeRepositoryImpl implements ResumeRepository {
       throw mapError(error);
     }
   }
+
+  @override
+  Future<void> reportShared(String channel) async {
+    final String? resumeId = _session.resumeId;
+    final String? token = _session.sessionToken;
+    // No resume yet, or no session — nothing to report. Silent by contract:
+    // this is best-effort telemetry fired after a share that already happened.
+    if (resumeId == null || token == null) return;
+    try {
+      await _api.shareResume(
+        resumeId: resumeId,
+        channel: channel,
+        authToken: token,
+      );
+    } catch (_) {
+      // Swallow EVERY error (offline, 4xx/5xx, session gone). A failed
+      // `resume.shared` report must never cost the worker the share they made.
+    }
+  }
 }

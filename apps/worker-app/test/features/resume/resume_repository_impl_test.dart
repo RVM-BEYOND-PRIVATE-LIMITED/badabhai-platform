@@ -239,4 +239,51 @@ void main() {
       expect(hits.where((String h) => h.contains('generate')), isEmpty);
     });
   });
+
+  // #1317 — best-effort report so the `resume.shared` metric stops reading zero.
+  group('reportShared', () {
+    test('POSTs the channel to /resume/:id/share with the session bearer',
+        () async {
+      late http.Request captured;
+      final ResumeRepositoryImpl repo = _repo(MockClient((http.Request req) async {
+        captured = req;
+        return http.Response(jsonEncode(<String, dynamic>{'ok': true}), 200);
+      }));
+
+      await repo.reportShared('whatsapp');
+
+      expect(captured.method, 'POST');
+      expect(captured.url.path, '/resume/r1/share');
+      expect(captured.headers['authorization'], 'Bearer tok');
+      expect(
+        jsonDecode(captured.body),
+        <String, dynamic>{'channel': 'whatsapp'},
+      );
+    });
+
+    test('no resumeId or token → NOTHING is sent (silent, not an error)',
+        () async {
+      final List<String> hits = <String>[];
+      final ResumeRepositoryImpl repo = _repo(
+        MockClient((http.Request req) async {
+          hits.add(req.url.path);
+          return http.Response('{}', 200);
+        }),
+        resumeId: null,
+      );
+
+      // Never throws, and no request leaves — there is nothing to report yet.
+      await repo.reportShared('other');
+      expect(hits, isEmpty);
+    });
+
+    test('a server error is SWALLOWED — a failed report never costs the share',
+        () async {
+      final ResumeRepositoryImpl repo = _repo(MockClient(
+          (http.Request req) async => http.Response('{}', 500)));
+
+      // Returns normally despite the 500 (best-effort telemetry).
+      await expectLater(repo.reportShared('whatsapp'), completes);
+    });
+  });
 }

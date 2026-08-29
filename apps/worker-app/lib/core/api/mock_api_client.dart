@@ -339,6 +339,18 @@ class MockApiClient extends ApiClient {
   }
 
   @override
+  Future<void> shareResume({
+    required String resumeId,
+    required String channel,
+    required String authToken,
+  }) async {
+    // No-op: canned success so a resume share in mock mode reports `resume.shared`
+    // without touching the network. Best-effort telemetry — nothing is stored,
+    // no bytes and no PII leave the device (#1317).
+    await _delay();
+  }
+
+  @override
   Future<InterviewKitDownload> downloadInterviewKit(String tradeKey) async {
     await _delay();
     return const InterviewKitDownload(
