@@ -224,8 +224,7 @@ export type JobPostingStatus = (typeof JOB_POSTING_STATUSES)[number];
 // `unverified` is the default until ops reviews; `rejected` is a reviewed-and-declined
 // posting (kept distinct from `unverified` so re-review is deliberate, not implicit).
 export const JOB_POSTING_VERIFICATION_STATUSES = ["unverified", "verified", "rejected"] as const;
-export type JobPostingVerificationStatus =
-  (typeof JOB_POSTING_VERIFICATION_STATUSES)[number];
+export type JobPostingVerificationStatus = (typeof JOB_POSTING_VERIFICATION_STATUSES)[number];
 
 // ---- Languages (initial supported set for blue/grey-collar India) ----
 export const LANGUAGE_CODES = [
@@ -403,6 +402,12 @@ export const WORKER_APP_SCREEN_TEMPLATES = Object.freeze([
   // the Node job that owns this contract — a green check on a suite that did not run. The first
   // build to merge main into an api-touching branch caught it.
   "/finishing", // Routes.finishing
+  // The CNC-turner trade form (#1341). Added here rather than with the screen for EXACTLY the
+  // reason recorded three lines up, which has now happened a second time: that PR touched only
+  // `apps/worker-app`, the CI path filter skipped the Node job that owns this contract, and the
+  // route landed on main with a green check on a suite that never ran. It was caught by the
+  // first api-touching branch to merge main — the same way, one release later.
+  "/trade-form", // Routes.tradeForm
   "/alerts", // Routes.alerts
   "/feedback", // Routes.feedback
   // The referral deep link. Declared inline in the route tree rather than as a `Routes`
