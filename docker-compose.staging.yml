@@ -244,6 +244,27 @@ services:
       # reading a container log.
       RESUME_RENDER_ENABLED: ${RESUME_RENDER_ENABLED:-false}
 
+      # ---- WORK-HISTORY POLISH (#1350) — THE SECTION-8 OVERRIDE SWITCH.
+      #
+      # THE SAME DEFECT THIS FILE DOCUMENTS FOR WORKER_PHOTOS_BUCKET (#794) AND
+      # AI_ENABLE_REAL_CALLS (#798), caught before it shipped this time: the flag existed in
+      # `packages/config` and had NO PATH INTO THE CONTAINER, so `export
+      # WORK_HISTORY_POLISH_ENABLED=true` on the box would have done exactly nothing and the
+      # feature would have looked broken rather than unarmed.
+      #
+      # WHAT IT GOVERNS is not a feature toggle: section 8 of the Resume Engine guideline says a
+      # printed string may only be a closed vocabulary label, a worker-stated number, or the
+      # worker's own words verbatim. #1350 is the owner ruling that lets the model REPHRASE a
+      # work-history description, and ADR-0039 records what replaced the gate that used to prove
+      # it. FALSE returns the sheet to the rule, with no model in the path.
+      #
+      # THE SECOND LOCK IS `AI_REAL_CALL_TASKS` on the ai-service below, which must also name
+      # `work_history_polish`. Either one off means the worker's own words print. Two locks
+      # because a reversal that needs a deploy is not a reversal, and this is the field where
+      # stopping quickly matters most: a fabrication is discovered at the machine trial, and it
+      # is the employer who stops trusting BadaBhai, not the worker.
+      WORK_HISTORY_POLISH_ENABLED: ${WORK_HISTORY_POLISH_ENABLED:-false}
+
       # ---- V8 VOICE STORAGE: PASS-THROUGH, NEVER REQUIRED.
       #
       # WHY THIS DOES NOT CONTRADICT THE PARAGRAPH ABOVE. That one defers SUPABASE_* as

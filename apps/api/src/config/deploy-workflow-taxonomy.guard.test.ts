@@ -127,9 +127,29 @@ describe("the four Phase-9 flags, as they reach the box", () => {
   // hardcoded patterns is easier to check by eye than one template that has to be mentally
   // expanded three times.
   it.each([
-    ["DOMAIN_MATCH_ENABLED", /DOMAIN_MATCH_ENABLED:\s*\$\{\{\s*secrets\.DOMAIN_MATCH_ENABLED\s*\}\}/, /envs:[^\n]*\bDOMAIN_MATCH_ENABLED\b/],
-    ["SKILL_CANONICALIZE_ENABLED", /SKILL_CANONICALIZE_ENABLED:\s*\$\{\{\s*secrets\.SKILL_CANONICALIZE_ENABLED\s*\}\}/, /envs:[^\n]*\bSKILL_CANONICALIZE_ENABLED\b/],
-    ["AI_ENABLE_REAL_CALLS", /AI_ENABLE_REAL_CALLS:\s*\$\{\{\s*secrets\.AI_ENABLE_REAL_CALLS\s*\}\}/, /envs:[^\n]*\bAI_ENABLE_REAL_CALLS\b/],
+    [
+      "DOMAIN_MATCH_ENABLED",
+      /DOMAIN_MATCH_ENABLED:\s*\$\{\{\s*secrets\.DOMAIN_MATCH_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bDOMAIN_MATCH_ENABLED\b/,
+    ],
+    [
+      "SKILL_CANONICALIZE_ENABLED",
+      /SKILL_CANONICALIZE_ENABLED:\s*\$\{\{\s*secrets\.SKILL_CANONICALIZE_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bSKILL_CANONICALIZE_ENABLED\b/,
+    ],
+    [
+      "AI_ENABLE_REAL_CALLS",
+      /AI_ENABLE_REAL_CALLS:\s*\$\{\{\s*secrets\.AI_ENABLE_REAL_CALLS\s*\}\}/,
+      /envs:[^\n]*\bAI_ENABLE_REAL_CALLS\b/,
+    ],
+    // #1350 — the section-8 override switch. Bridged like the three above because it is a
+    // plain boolean feature flag; contrast AI_REAL_CALL_TASKS below, which is a SCOPE
+    // decision and is deliberately not bridged at all.
+    [
+      "WORK_HISTORY_POLISH_ENABLED",
+      /WORK_HISTORY_POLISH_ENABLED:\s*\$\{\{\s*secrets\.WORK_HISTORY_POLISH_ENABLED\s*\}\}/,
+      /envs:[^\n]*\bWORK_HISTORY_POLISH_ENABLED\b/,
+    ],
   ])("%s is bridged from the environment's secrets", (_name, fromSecrets, inEnvs) => {
     expect(DEPLOY).toMatch(fromSecrets);
     // …and reaches the container: drone-ssh only exports what `envs:` lists, so a job-level
@@ -153,13 +173,17 @@ describe("the four Phase-9 flags, as they reach the box", () => {
     ["DOMAIN_MATCH_ENABLED", "false"],
     ["SKILL_CANONICALIZE_ENABLED", "false"],
     ["AI_REAL_CALL_TASKS", "profiling_chat_turn"],
-  ])("docker-compose.staging.yml defaults %s to %s when the secret is absent or empty", (name, fallback) => {
-    // `${VAR:-default}` (colon-dash) falls back on empty AS WELL AS unset. `${VAR-default}`
-    // would let a secret that exists but is blank through as an empty string — which for a
-    // boolean flag is a different value than "false" in some parsers, and is exactly the kind
-    // of difference nobody notices until a gate is open in production.
-    expect(STAGING_COMPOSE).toContain(`${name}: \${${name}:-${fallback}}`);
-  });
+    ["WORK_HISTORY_POLISH_ENABLED", "false"],
+  ])(
+    "docker-compose.staging.yml defaults %s to %s when the secret is absent or empty",
+    (name, fallback) => {
+      // `${VAR:-default}` (colon-dash) falls back on empty AS WELL AS unset. `${VAR-default}`
+      // would let a secret that exists but is blank through as an empty string — which for a
+      // boolean flag is a different value than "false" in some parsers, and is exactly the kind
+      // of difference nobody notices until a gate is open in production.
+      expect(STAGING_COMPOSE).toContain(`${name}: \${${name}:-${fallback}}`);
+    },
+  );
 });
 
 /**
@@ -195,8 +219,16 @@ describe("the FORK-B-1 skill seam — bridged, and inert until a secret exists",
   const apiEnvKeys = (): string[] => envKeysOf("api");
 
   it.each([
-    ["SKILLS_INTERNAL_TOKEN", /SKILLS_INTERNAL_TOKEN:\s*\$\{\{\s*secrets\.SKILLS_INTERNAL_TOKEN\s*\}\}/, /envs:[^\n]*\bSKILLS_INTERNAL_TOKEN\b/],
-    ["AI_INTERNAL_TOKEN", /AI_INTERNAL_TOKEN:\s*\$\{\{\s*secrets\.AI_INTERNAL_TOKEN\s*\}\}/, /envs:[^\n]*\bAI_INTERNAL_TOKEN\b/],
+    [
+      "SKILLS_INTERNAL_TOKEN",
+      /SKILLS_INTERNAL_TOKEN:\s*\$\{\{\s*secrets\.SKILLS_INTERNAL_TOKEN\s*\}\}/,
+      /envs:[^\n]*\bSKILLS_INTERNAL_TOKEN\b/,
+    ],
+    [
+      "AI_INTERNAL_TOKEN",
+      /AI_INTERNAL_TOKEN:\s*\$\{\{\s*secrets\.AI_INTERNAL_TOKEN\s*\}\}/,
+      /envs:[^\n]*\bAI_INTERNAL_TOKEN\b/,
+    ],
   ])("%s is bridged through BOTH hops", (_name, fromSecrets, inEnvs) => {
     // Both, because either alone is inert: a job-level `env:` entry that drone-ssh does not
     // export is invisible on the box. That is precisely what #798 was.
@@ -230,27 +262,23 @@ describe("the FORK-B-1 skill seam — bridged, and inert until a secret exists",
     expect(keys).toContain("AI_INTERNAL_TOKEN");
   });
 
-  it.each([
-    ["SKILLS_INTERNAL_TOKEN"],
-    ["AI_INTERNAL_TOKEN"],
-    ["BACKEND_API_URL"],
-  ])("%s uses the empty-tolerant `${VAR:-...}` form, never `${VAR:?}`", (name) => {
-    // `:-` substitutes on empty AS WELL AS unset, which is the whole reason an absent secret
-    // is survivable. `:?` would make an unset secret a hard compose failure and turn "the seam
-    // is not armed yet" into "the box will not start".
-    const pattern = `\${${name}:-`;
-    expect(STAGING_COMPOSE).toContain(pattern);
-    expect(STAGING_COMPOSE).not.toContain(`\${${name}:?`);
-  });
+  it.each([["SKILLS_INTERNAL_TOKEN"], ["AI_INTERNAL_TOKEN"], ["BACKEND_API_URL"]])(
+    "%s uses the empty-tolerant `${VAR:-...}` form, never `${VAR:?}`",
+    (name) => {
+      // `:-` substitutes on empty AS WELL AS unset, which is the whole reason an absent secret
+      // is survivable. `:?` would make an unset secret a hard compose failure and turn "the seam
+      // is not armed yet" into "the box will not start".
+      const pattern = `\${${name}:-`;
+      expect(STAGING_COMPOSE).toContain(pattern);
+      expect(STAGING_COMPOSE).not.toContain(`\${${name}:?`);
+    },
+  );
 
   it("an ABSENT secret must not become a REQUIRED empty string — the #858 property itself", () => {
     // The assertion that would have caught the original blocker. A `${VAR:-}` pass-through
     // hands the schema "", so every bridged secret here has to be empty-tolerant. A bare
     // `.optional()` is not: it accepts `undefined` and rejects "".
-    const SERVER = readFileSync(
-      join(ROOT, "packages", "config", "src", "server.ts"),
-      "utf8",
-    );
+    const SERVER = readFileSync(join(ROOT, "packages", "config", "src", "server.ts"), "utf8");
     expect(SERVER).toMatch(/SKILLS_INTERNAL_TOKEN:\s*optionalSecret\(/);
     expect(SERVER).toMatch(/AI_INTERNAL_TOKEN:\s*optionalSecret\(/);
     // ...and the helper still only reclassifies the empty string, so a malformed non-empty
@@ -273,7 +301,9 @@ describe("the FORK-B-1 skill seam — bridged, and inert until a secret exists",
     // No fallback to INTERNAL_SERVICE_TOKEN and no "allow when unconfigured" branch: absent
     // configuration must DENY, never degrade to open. Bridging the variable did not touch this.
     expect(guard).toMatch(/if \(!expected\) \{/);
-    expect(guard).toMatch(/throw new UnauthorizedException\("skills internal auth is not configured"\)/);
+    expect(guard).toMatch(
+      /throw new UnauthorizedException\("skills internal auth is not configured"\)/,
+    );
     expect(guard).not.toMatch(/config\.INTERNAL_SERVICE_TOKEN/);
   });
 });
