@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 496,
+  "clip_count": 531,
   "producers": {
-    "clarify": 173,
-    "prompt": 145,
-    "why": 161,
+    "clarify": 186,
+    "prompt": 156,
+    "why": 170,
     "constant": 8,
-    "retry": 9
+    "retry": 11
   },
   "clips": [
     {
@@ -230,6 +230,11 @@
       "producer": "clarify"
     },
     {
+      "id": "0f3c3a01bc2acb07",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal milling ka kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "0f43e276959d8b42",
       "text": "Apni gaadi wale ki kamai alag hoti hai. Kya gaadi aapki apni hai?",
       "producer": "clarify"
@@ -350,6 +355,11 @@
       "producer": "why"
     },
     {
+      "id": "1e5bf9a46b9ccce5",
+      "text": "Job ko machine par kaise pakadte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "1f0d5b9b4fa96188",
       "text": "Machine ka tajurba employer poochte hain. Aap kaunsi machine par kaam kar chuke hain?",
       "producer": "clarify"
@@ -367,6 +377,11 @@
     {
       "id": "1ffb78ea33c4d7a3",
       "text": "Pump par kai tarah ke kaam hote hain. Aap pump par kya karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "20dc85faba6c0f57",
+      "text": "Material ka tajurba employer ke liye alag mayne rakhta hai. Kaunse material par kaam kiya hai?",
       "producer": "clarify"
     },
     {
@@ -412,6 +427,11 @@
     {
       "id": "26a141f7f21195d6",
       "text": "Engine ka kaam alag rate par hota hai. Kya aap engine kholte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "270f65d8c0c90c66",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Milling ka kitna tajurba hai?",
       "producer": "clarify"
     },
     {
@@ -510,6 +530,11 @@
       "producer": "prompt"
     },
     {
+      "id": "2d9ac1bce988ecf0",
+      "text": "Zyada axis wali machine chalane wale kam milte hain.",
+      "producer": "why"
+    },
+    {
       "id": "2e2a56d3893fcada",
       "text": "Licence wale ko badi jagah kaam milta hai. Kya aapke paas bijli ka licence hai?",
       "producer": "clarify"
@@ -525,6 +550,11 @@
       "producer": "clarify"
     },
     {
+      "id": "2f11ee1d6be1a064",
+      "text": "Workholding jaanna setting ka kaam dikhata hai. Job ko machine par kaise pakadte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "2f1d3961029c3b41",
       "text": "Jagah ke hisaab se sahi naukri dikhate hain.",
       "producer": "why"
@@ -533,6 +563,11 @@
       "id": "2f600516d6bdd4da",
       "text": "Har jagah ka kaam alag hota hai.",
       "producer": "why"
+    },
+    {
+      "id": "2fe7c56a2a1bcc38",
+      "text": "Milling ka kitna tajurba hai?",
+      "producer": "prompt"
     },
     {
       "id": "30605869b7298382",
@@ -865,6 +900,11 @@
       "producer": "clarify"
     },
     {
+      "id": "53df4eee6ac81766",
+      "text": "Machine par kaunsa kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "5450b933edf75419",
       "text": "Dairy me kai tarah ke kaam hote hain. Aap dairy me kya karte hain?",
       "producer": "clarify"
@@ -955,6 +995,11 @@
       "producer": "clarify"
     },
     {
+      "id": "5ace5b4e5ae6a340",
+      "text": "Machine kitne axis ki hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "5ae5ac265bfadb5b",
       "text": "Kya aap machine se silai karte hain?",
       "producer": "prompt"
@@ -978,6 +1023,11 @@
       "id": "5c64bd6bb2b5a234",
       "text": "Safedi aur scaffolding alag hai. Aap kaunsa kaam karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "5d44926d31a4f0d3",
+      "text": "Kaunse measuring instrument chala lete hain?",
+      "producer": "prompt"
     },
     {
       "id": "5d5083090dbecd42",
@@ -1038,6 +1088,11 @@
       "id": "6376d89f848c3b19",
       "text": "Cash wale par bharosa chahiye hota hai. Kya aap cash sambhalte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "637857c4559deecb",
+      "text": "Material ka tajurba employer ke liye alag mayne rakhta hai.",
+      "producer": "why"
     },
     {
       "id": "649b829837dc22be",
@@ -1190,6 +1245,11 @@
       "producer": "clarify"
     },
     {
+      "id": "71e1321d979f6f4b",
+      "text": "Kaunse material par kaam kiya hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "72620660371ffe9f",
       "text": "Har jagah ki safai alag hoti hai. Aap kahaan safai karte hain?",
       "producer": "clarify"
@@ -1218,6 +1278,11 @@
       "id": "73ad82524c63eb4a",
       "text": "Aap pump par kya karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "73ebecdde72f55fa",
+      "text": "Workholding jaanna setting ka kaam dikhata hai.",
+      "producer": "why"
     },
     {
       "id": "73f665b8a45aab30",
@@ -1290,6 +1355,11 @@
       "producer": "why"
     },
     {
+      "id": "7e9b24dcb31ce351",
+      "text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain. Machine par kaunsa kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "7eec597ab28d909a",
       "text": "Job pakadna turning ka sabse zaroori hissa hai. Job pakadne ke liye kya use karte hain?",
       "producer": "clarify"
@@ -1303,6 +1373,16 @@
       "id": "7fdc3e8ad08449a7",
       "text": "Die aur jig ka kaam alag hota hai. Aap kya banate hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "802f2335fd265242",
+      "text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "producer": "why"
+    },
+    {
+      "id": "80f6b40cd96f3e41",
+      "text": "Naap lene wale operator ko quality ka kaam diya jaata hai.",
+      "producer": "why"
     },
     {
       "id": "814af022723c4764",
@@ -1322,6 +1402,11 @@
     {
       "id": "81a65b104487151e",
       "text": "Aap kaunse maapne ke auzaar use karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "822b8c9616cef055",
+      "text": "Aap kaunsi milling machine chalate hain?",
       "producer": "prompt"
     },
     {
@@ -1390,6 +1475,11 @@
       "producer": "clarify"
     },
     {
+      "id": "8764240a2e75feaf",
+      "text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai. Machine ki kaunsi dikkat aap sudhaar lete hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "879c42828b42541c",
       "text": "Aap hath se kaam karte hain ya machine se?",
       "producer": "prompt"
@@ -1403,6 +1493,11 @@
       "id": "87fda6640eb6521c",
       "text": "Factory aur site ka kaam alag hota hai.",
       "producer": "why"
+    },
+    {
+      "id": "8888b2367632d1fe",
+      "text": "Programming ka kaam kitna karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "89d7f3e79236a51c",
@@ -1520,6 +1615,11 @@
       "producer": "why"
     },
     {
+      "id": "94eca57f36739744",
+      "text": "Zyada axis wali machine chalane wale kam milte hain. 3-axis, 4-axis ya 5-axis, kaunsi machine par kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "9522b90c24b1ec06",
       "text": "Workshop me kaunsa job ya project banaya tha?",
       "producer": "retry"
@@ -1575,6 +1675,11 @@
       "producer": "prompt"
     },
     {
+      "id": "9bde5174c9c3a286",
+      "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis industry ke parts banaye hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "9cc8a65c4efe401c",
       "text": "Cutting master ka rate alag hota hai. Kya aap kapda cutting karte hain?",
       "producer": "clarify"
@@ -1588,6 +1693,11 @@
       "id": "9d9a5965ab15d907",
       "text": "Drawing padhna zaroori hai kai jagah. Kya aap drawing padh lete hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "9e21d3becf1b1333",
+      "text": "Lagbhag kitne saal milling ka kaam kiya hai?",
+      "producer": "retry"
     },
     {
       "id": "9eb2ecc17772d089",
@@ -1860,6 +1970,11 @@
       "producer": "retry"
     },
     {
+      "id": "b98ee4024446b243",
+      "text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "producer": "why"
+    },
+    {
       "id": "b9e1a2f562ef46d4",
       "text": "Machine problem mein aap kya theek karte hain?",
       "producer": "prompt"
@@ -1910,6 +2025,11 @@
       "producer": "clarify"
     },
     {
+      "id": "bd10f740cb2623a7",
+      "text": "Machine ki kaunsi dikkat aap sudhaar lete hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "bd2f304da1df76d1",
       "text": "Machine wale ko plant me kaam milta hai.",
       "producer": "why"
@@ -1953,6 +2073,11 @@
       "id": "bf85722d5e1a63b5",
       "text": "Kai jagah sirf veg cook chahiye.",
       "producer": "why"
+    },
+    {
+      "id": "bfe0d7797613f17a",
+      "text": "Setting karne wale ko operator se zyada paisa milta hai. Machine setting ka kaunsa kaam karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "c086018f44ccf90e",
@@ -2015,6 +2140,16 @@
       "producer": "prompt"
     },
     {
+      "id": "c7e67c9a76fd660f",
+      "text": "Program likhne wale ko sabse zyada paisa milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "c8ba99ef3010bdcf",
+      "text": "Naap lene wale operator ko quality ka kaam diya jaata hai. Kaunse measuring instrument chala lete hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "c8cf612abb61a35b",
       "text": "Finishing se saman ka daam badhta hai. Kya aap finishing ka kaam karte hain?",
       "producer": "clarify"
@@ -2052,6 +2187,11 @@
     {
       "id": "cc14b83a81bc5069",
       "text": "Licence bina gaadi ka kaam nahi milta. Aapke paas kaunsa licence hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "cc819d40d58b9189",
+      "text": "Zyada axis wali machine chalane wale kam milte hain. Machine kitne axis ki hai?",
       "producer": "clarify"
     },
     {
@@ -2190,6 +2330,11 @@
       "producer": "clarify"
     },
     {
+      "id": "d937bf1883283c29",
+      "text": "Setting karne wale ko operator se zyada paisa milta hai.",
+      "producer": "why"
+    },
+    {
       "id": "da1d228cfe744d8e",
       "text": "Tolerance se aapke kaam ki fine quality pata chalti hai. Aap kitni tolerance tak kaam kar lete hain?",
       "producer": "clarify"
@@ -2198,6 +2343,11 @@
       "id": "dad557fe0976e549",
       "text": "Kya aapne safety training li hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "daefef5c3c07a859",
+      "text": "Program likhne wale ko sabse zyada paisa milta hai. Programming ka kaam kitna karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "dc78002e6b0e17d1",
@@ -2255,6 +2405,11 @@
       "producer": "why"
     },
     {
+      "id": "e1ca577a346ccff0",
+      "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Aap kaunsi milling machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "e23487511a448209",
       "text": "Masala banane wale ki alag maang hai.",
       "producer": "why"
@@ -2288,6 +2443,11 @@
       "id": "e60226cfc8ab1ad3",
       "text": "Har khane ka alag hunar hota hai.",
       "producer": "why"
+    },
+    {
+      "id": "e63c16982ba6636a",
+      "text": "Kis industry ke parts banaye hain?",
+      "producer": "prompt"
     },
     {
       "id": "e69799f0a3543c3a",
@@ -2333,6 +2493,11 @@
       "id": "e953c4108ba089fe",
       "text": "Installation ka kaam alag milta hai. Kya aap nayi machine lagate hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "eb7354086cba1684",
+      "text": "Machine setting ka kaunsa kaam karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "ec2787fba6e7b56b",
@@ -2445,8 +2610,18 @@
       "producer": "prompt"
     },
     {
+      "id": "f9a72fcbe9335f1f",
+      "text": "3-axis, 4-axis ya 5-axis, kaunsi machine par kaam kiya hai?",
+      "producer": "retry"
+    },
+    {
       "id": "f9d1d8ac2be0a383",
       "text": "Dukan wale ko alag tarah ka kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "faeb0a6c4c7edade",
+      "text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai.",
       "producer": "why"
     },
     {

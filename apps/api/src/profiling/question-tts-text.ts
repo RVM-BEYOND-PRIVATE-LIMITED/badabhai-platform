@@ -268,6 +268,34 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Quality ka kaunsa kaam aap karte hain?": "क्वालिटी का कौनसा काम आप करते हैं?",
   "Machine problem mein aap kya theek karte hain?": "मशीन प्रॉब्लम में आप क्या ठीक करते हैं?",
   "Lagbhag kitne saal turning ka kaam kiya hai?": "लगभग कितने साल टर्निंग का काम किया है?",
+  // --- qp_vmc_milling@1 (role pack, VMC milling) — R14 §3.1 ---------------------------
+  //
+  // ELEVEN PROMPTS AND TWO RETRIES. The other thirteen milling clips are clarify forms and
+  // COMPOSE from these plus the why-texts below, which is why the authoring burden is 22 and
+  // not 35 — and why a hand-written clarify entry would fail the "composes rather than
+  // authored" case rather than help.
+  //
+  // SEVEN OF THE PACK'S PROMPTS NEEDED NOTHING AT ALL, because their Hinglish is byte-identical
+  // to the turner's and the table is keyed by that text. Sharing a question vocabulary across
+  // two role packs pays here in a way the R11 estimate did not model: it estimated ~28 twins
+  // from a flat 1.83-per-question ratio and the measured burden is 22.
+  "Aap kaunsi milling machine chalate hain?": "आप कौनसी मिलिंग मशीन चलाते हैं?",
+  "Machine kitne axis ki hai?": "मशीन कितने एक्सिस की है?",
+  "Machine par kaunsa kaam karte hain?": "मशीन पर कौनसा काम करते हैं?",
+  "Job ko machine par kaise pakadte hain?": "जॉब को मशीन पर कैसे पकड़ते हैं?",
+  "Kaunse material par kaam kiya hai?": "कौनसे मटीरियल पर काम किया है?",
+  "Machine setting ka kaunsa kaam karte hain?": "मशीन सेटिंग का कौनसा काम करते हैं?",
+  "Kaunse measuring instrument chala lete hain?": "कौनसे मेज़रिंग इंस्ट्रुमेंट चला लेते हैं?",
+  "Programming ka kaam kitna karte hain?": "प्रोग्रामिंग का काम कितना करते हैं?",
+  "Kis industry ke parts banaye hain?": "किस इंडस्ट्री के पार्ट्स बनाये हैं?",
+  "Machine ki kaunsi dikkat aap sudhaar lete hain?": "मशीन की कौनसी दिक्कत आप सुधार लेते हैं?",
+  "Milling ka kitna tajurba hai?": "मिलिंग का कितना तजुर्बा है?",
+  // The two retries. The digits stay ASCII — a `hi-IN` voice reads them as Hindi numerals — and
+  // only the word "axis" is transliterated, because lowercase Latin is exactly what the voice
+  // cannot pronounce and what `question-tts-text.test.ts` refuses.
+  "Lagbhag kitne saal milling ka kaam kiya hai?": "लगभग कितने साल मिलिंग का काम किया है?",
+  "3-axis, 4-axis ya 5-axis, kaunsi machine par kaam kiya hai?":
+    "3-एक्सिस, 4-एक्सिस या 5-एक्सिस, कौनसी मशीन पर काम किया है?",
 };
 
 /**
@@ -467,6 +495,28 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "क्वालिटी का काम जानने वाले को सुपरवाइज़र बनाया जाता है।",
   "Problem theek karne wale operator ki demand zyada hai.":
     "प्रॉब्लम ठीक करने वाले ऑपरेटर की डिमांड ज़्यादा है।",
+  // --- qp_vmc_milling@1 (role pack, VMC milling) — R14 §3.1 ---------------------------
+  //
+  // NINE WHY-TEXTS. The tenth — "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain." — is
+  // the turner's, shared verbatim because the experience gate asks the same thing of both
+  // trades, so it is already above and needed no second entry.
+  "Zyada axis wali machine chalane wale kam milte hain.":
+    "ज़्यादा एक्सिस वाली मशीन चलाने वाले कम मिलते हैं।",
+  "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.":
+    "काम के नाम से एम्प्लॉयर समझता है आप क्या कर सकते हैं।",
+  "Workholding jaanna setting ka kaam dikhata hai.": "वर्कहोल्डिंग जानना सेटिंग का काम दिखाता है।",
+  "Material ka tajurba employer ke liye alag mayne rakhta hai.":
+    "मटीरियल का तजुर्बा एम्प्लॉयर के लिए अलग मायने रखता है।",
+  "Setting karne wale ko operator se zyada paisa milta hai.":
+    "सेटिंग करने वाले को ऑपरेटर से ज़्यादा पैसा मिलता है।",
+  "Naap lene wale operator ko quality ka kaam diya jaata hai.":
+    "नाप लेने वाले ऑपरेटर को क्वालिटी का काम दिया जाता है।",
+  "Program likhne wale ko sabse zyada paisa milta hai.":
+    "प्रोग्राम लिखने वाले को सबसे ज़्यादा पैसा मिलता है।",
+  "Sector ka tajurba usi line ke employer dhoondhte hain.":
+    "सेक्टर का तजुर्बा उसी लाइन के एम्प्लॉयर ढूँढते हैं।",
+  "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai.":
+    "दिक्कत सुधारने वाले ऑपरेटर की शॉप पर ज़रूरत रहती है।",
 };
 
 /** Every atomic pair, normalized once at module load — see {@link ttsTextFor}. */

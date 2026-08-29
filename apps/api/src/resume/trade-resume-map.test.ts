@@ -16,43 +16,81 @@ import {
   tradeResumeMapFor,
 } from "./trade-resume-map";
 
-const PACK = JSON.parse(
-  readFileSync(
-    join(__dirname, "../../../../packages/db/data/question-packs/packs/qp_cnc_turning.json"),
-    "utf8",
-  ),
-) as { items: { question_key: string; options?: { option_key: string; value_text?: string }[] }[] };
+interface Pack {
+  items: { question_key: string; options?: { option_key: string; value_text?: string }[] }[];
+}
+
+function packJson(packId: string): Pack {
+  return JSON.parse(
+    readFileSync(
+      join(__dirname, `../../../../packages/db/data/question-packs/packs/${packId}.json`),
+      "utf8",
+    ),
+  ) as Pack;
+}
 
 const map = tradeResumeMapFor("qp_cnc_turning");
 
-describe("trade resume map — qp_cnc_turning", () => {
-  it("exists and is the only map today", () => {
-    expect(map).toBeDefined();
-    expect(TRADE_RESUME_MAPS).toHaveLength(1);
-    expect(tradeResumeMapFor("qp_welding")).toBeUndefined();
-    expect(tradeResumeMapFor(null)).toBeUndefined();
-  });
+/**
+ * The STRUCTURAL properties, run over every shipped map (R13 §3.1).
+ *
+ * Parametrised the day the second entry landed, and that is the point of the seam: a third trade
+ * inherits these three checks by existing, with no new test file and no new assertion. They were
+ * turner-only for one packet because there was one map, which is exactly how a check quietly
+ * becomes specific to its first subject.
+ */
+describe.each(TRADE_RESUME_MAPS.map((m) => m.pack_id))("trade resume map — %s", (packId) => {
+  const entry = tradeResumeMapFor(packId)!;
+  const pack = packJson(packId);
 
   it("EVERY row reads a question_key that actually exists in the pack", () => {
     // The defect this catches: a renamed or mistyped `from` yields a row that can never appear,
     // and nothing else in the system would ever say so.
-    const keys = new Set(PACK.items.map((i) => i.question_key));
-    for (const spec of map?.capability ?? []) {
+    const keys = new Set(pack.items.map((i) => i.question_key));
+    for (const spec of entry.capability) {
       expect(keys.has(spec.from), `no pack question "${spec.from}"`).toBe(true);
+      if (spec.configFrom !== undefined) {
+        expect(keys.has(spec.configFrom), `no pack question "${spec.configFrom}"`).toBe(true);
+      }
     }
   });
 
   it("EVERY dictionary slug is a real option value in the pack", () => {
     // The reverse direction: a label keyed on a slug the pack never emits is dead weight that
     // reads, in review, as coverage it does not have.
-    const byKey = new Map(PACK.items.map((i) => [i.question_key, i]));
-    for (const spec of map?.capability ?? []) {
-      const item = byKey.get(spec.from);
-      const real = new Set((item?.options ?? []).map((o) => o.value_text));
+    const byKey = new Map(pack.items.map((i) => [i.question_key, i]));
+    const realOptions = (key: string) =>
+      new Set((byKey.get(key)?.options ?? []).map((o) => o.value_text));
+    for (const spec of entry.capability) {
+      const real = realOptions(spec.from);
       for (const slug of Object.keys(spec.values ?? {})) {
         expect(real.has(slug), `${spec.from}: "${slug}" is not an option value`).toBe(true);
       }
+      if (spec.configFrom !== undefined) {
+        const configReal = realOptions(spec.configFrom);
+        for (const slug of Object.keys(spec.configValues ?? {})) {
+          expect(configReal.has(slug), `${spec.configFrom}: "${slug}" is not an option`).toBe(true);
+        }
+      }
     }
+  });
+
+  it("never gives `unknown` a label, on any row or any config", () => {
+    // Every escape chip in every pack carries `value_text: "unknown"`. Printing "Pata nahi" onto
+    // a resume would turn a worker's non-answer into a stated fact.
+    for (const spec of entry.capability) {
+      expect(Object.keys(spec.values ?? {})).not.toContain("unknown");
+      expect(Object.keys(spec.configValues ?? {})).not.toContain("unknown");
+    }
+  });
+});
+
+describe("trade resume map — qp_cnc_turning", () => {
+  it("exists alongside the milling map, and only real pack ids resolve", () => {
+    expect(map).toBeDefined();
+    expect(TRADE_RESUME_MAPS.map((m) => m.pack_id)).toEqual(["qp_cnc_turning", "qp_vmc_milling"]);
+    expect(tradeResumeMapFor("qp_welding")).toBeUndefined();
+    expect(tradeResumeMapFor(null)).toBeUndefined();
   });
 
   it("NEVER prints a none-of-above answer — `unknown` has no label anywhere", () => {
@@ -287,5 +325,191 @@ describe("trade resume map — qp_cnc_turning", () => {
       // double up as "MACHINES, CONTROLLERS &amp; CAPABILITY" is already what CSS produces.
       expect(map.section_title).not.toBe(map.section_title.toUpperCase());
     }
+  });
+
+  it("no VOCABULARY crosses a pack boundary without a stated reason (R14 §3.3)", () => {
+    /**
+     * THE CLASS THE `MEASURING_TOOLS` RENAME EXPOSED, not the instance.
+     *
+     * That constant's docstring read "shared by every machining-family pack: the instruments do
+     * not change by role" — a claim about the WORLD, made on the evidence of ONE pack, and false
+     * the first time a second role was authored: the ratified milling sheet prints a SNAP GAUGE,
+     * and a turner's plug / ring gauge checks a bore he just bored. It was not a careless claim.
+     * It was an UNCHALLENGEABLE one, and that is the property worth a guard: with a single map in
+     * the file, no test, no review and no amount of care could have contradicted it.
+     *
+     * So the rule is not "never share a dictionary" — controllers really may not change by role,
+     * and copying Fanuc/Siemens/Mitsubishi into every future map would be its own defect. The
+     * rule is that sharing must be a DECISION, recorded here with the reason, at the moment a
+     * second pack makes the claim testable for the first time.
+     *
+     * IDENTITY, NOT EQUALITY. Two maps that happen to list the same labels have each made their
+     * own decision; one `values` object reachable from two packs is a single vocabulary asserted
+     * to be role-independent. The second is the claim this catches.
+     */
+    const SHARED_ON_PURPOSE: Readonly<Record<string, string>> = {
+      // Empty, and that is the finding: after the rename, nothing in this file claims to be
+      // role-independent. A row added here must say WHICH two trades were compared and why the
+      // vocabulary genuinely does not change between them.
+    };
+
+    const owners = new Map<object, string[]>();
+    for (const map of TRADE_RESUME_MAPS) {
+      for (const row of map.capability) {
+        for (const dictionary of [row.values, row.configValues]) {
+          if (!dictionary) continue;
+          const seen = owners.get(dictionary) ?? [];
+          if (!seen.includes(map.pack_id)) seen.push(map.pack_id);
+          owners.set(dictionary, seen);
+        }
+      }
+    }
+
+    // The fixture must contain the thing the detector detects: two maps, or this passes because
+    // there is nothing that COULD cross a boundary — which is precisely the state that let the
+    // original claim stand.
+    expect(TRADE_RESUME_MAPS.length, "one map cannot challenge a cross-pack claim").toBeGreaterThan(
+      1,
+    );
+    expect(owners.size, "no dictionaries were collected — the walk is broken").toBeGreaterThan(5);
+
+    const crossing = [...owners.values()]
+      .filter((packs) => packs.length > 1)
+      .map((packs) => packs.sort().join(" + "))
+      .filter((key) => SHARED_ON_PURPOSE[key] === undefined);
+    expect(
+      crossing,
+      "a value dictionary is reachable from two packs — say why the vocabulary does not change " +
+        "between those trades, in SHARED_ON_PURPOSE above",
+    ).toEqual([]);
+  });
+});
+
+/**
+ * MILLING, AGAINST THE RATIFIED SHEET (R13 §3.1).
+ *
+ * The BadaBhai design sample is a VMC sheet, so this map has a document to be wrong against
+ * rather than a judgement to be argued with. The answers below are the sample's worker read back
+ * off the page, and the assertions are the nine capability rows it prints, verbatim.
+ */
+describe("trade resume map — qp_vmc_milling against the ratified sample", () => {
+  /** Ramesh Kumar Yadav's capability answers, transcribed from the ratified sheet. */
+  const YADAV = {
+    milling_machine: ["vmc", "spm"],
+    axis_capability: ["three_axis", "four_axis"],
+    controller_brand: ["fanuc", "siemens", "mitsubishi"],
+    material_worked: ["en_eight", "en_thirty_one", "mild_steel", "aluminium"],
+    setting_operation: [
+      "tool_offset",
+      "work_offset",
+      "tool_length",
+      "fixture_setting",
+      "first_piece",
+    ],
+    measuring_tools: ["vernier", "micrometer", "bore_gauge", "height_gauge", "snap_gauge"],
+    programming_level: "edit_program",
+    drawing_reading: "gdt",
+    tolerance_band: "0.02",
+    sector_worked: ["automotive"],
+  };
+
+  it("prints the sample's nine capability rows, in the sample's order", () => {
+    const rows = buildTradeCapabilityRows("qp_vmc_milling", YADAV);
+    const kept = [
+      ...rows.chipRows.map((r) => r.label),
+      ...rows.tickRows.map((r) => r.label),
+      ...rows.factRows.map((r) => r.label),
+    ];
+    expect(kept.sort()).toEqual(
+      [
+        "Machines",
+        "Controllers",
+        "Materials",
+        "Setting",
+        "Measuring instruments",
+        "Programming",
+        "Drawings",
+        "Tolerance held",
+        "Sector worked",
+      ].sort(),
+    );
+    expect(kept).toHaveLength(CAPABILITY_ROW_BUDGET);
+  });
+
+  it("appends the axis configuration to the machine chip, exactly as the sample prints it", () => {
+    // `VMC · 3-axis  VMC · 4-axis  SPM` — the FIRST use of `configFrom` by any shipped map, and
+    // the reason R10 built the seam. One config per chip, never a cross product: two machines and
+    // two axis counts would otherwise produce four chips, three of them never claimed.
+    const rows = buildTradeCapabilityRows("qp_vmc_milling", YADAV);
+    const machines = rows.chipRows.find((r) => r.label === "Machines");
+    expect(machines?.values).toEqual(["VMC · 3-axis", "VMC · 4-axis", "SPM"]);
+  });
+
+  it("prints the sample's values for every other row it carries", () => {
+    const rows = buildTradeCapabilityRows("qp_vmc_milling", YADAV);
+    const chips = new Map(rows.chipRows.map((r) => [r.label, r.values]));
+    const ticks = new Map(rows.tickRows.map((r) => [r.label, r.values]));
+    const facts = new Map(rows.factRows.map((r) => [r.label, r.value]));
+
+    expect(chips.get("Controllers")).toEqual(["Fanuc", "Siemens", "Mitsubishi"]);
+    expect(chips.get("Materials")).toEqual(["EN8", "EN31", "MS", "Aluminium"]);
+    expect(ticks.get("Setting")).toEqual([
+      "Tool offset",
+      "Work offset",
+      "Tool length compensation",
+      "Fixture setting",
+      "First-piece setup",
+    ]);
+    expect(ticks.get("Measuring instruments")).toEqual([
+      "Vernier",
+      "Micrometer",
+      "Bore dial gauge",
+      "Height gauge",
+      "Snap gauge",
+    ]);
+    expect(facts.get("Programming")).toBe("Edits programs (G-code / M-code)");
+    expect(facts.get("Drawings")).toBe("Reads 2D drawings and GD&T");
+    expect(facts.get("Tolerance held")).toBe("±0.02 mm");
+    expect(facts.get("Sector worked")).toBe("Automotive components");
+  });
+
+  it("leads the Verdict Line with CONTROLLERS, as the sample's headline does", () => {
+    // "VMC Setter-cum-Operator · 8 yrs · Fanuc, Siemens, Mitsubishi · 3 & 4-axis" — the third
+    // segment is controllers, which is per-trade data (`inHeadline`) and not a renderer decision.
+    const rows = buildTradeCapabilityRows("qp_vmc_milling", YADAV);
+    expect(rows.headlineTools).toEqual(["Fanuc", "Siemens", "Mitsubishi"]);
+  });
+
+  it("MEASURES the Q2 casualty: what a miller who answers EVERYTHING loses", () => {
+    // NOT A DEFECT AND NOT A FIX — the evidence Q2 needs, computed rather than argued.
+    //
+    // The sample's worker answers nine capability questions and all nine print. A miller who
+    // answers all thirteen is over the nine-row budget, and rank decides. This asserts WHICH
+    // rows that costs him, so the ruling is made against a list instead of against a principle.
+    const everything = {
+      ...YADAV,
+      workholding: ["machine_vice", "fixture", "rotary_table"],
+      milling_operation: ["face_milling", "slot_milling", "pocket_milling"],
+      quality_work: ["first_piece_check", "in_process"],
+      troubleshooting: ["tool_wear", "chatter"],
+    };
+    const rows = buildTradeCapabilityRows("qp_vmc_milling", everything);
+    const kept = new Set([
+      ...rows.chipRows.map((r) => r.label),
+      ...rows.tickRows.map((r) => r.label),
+      ...rows.factRows.map((r) => r.label),
+    ]);
+    expect(kept.size).toBe(CAPABILITY_ROW_BUDGET);
+
+    const declared = tradeResumeMapFor("qp_vmc_milling")!.capability.map((c) => c.label);
+    const dropped = declared.filter((l) => !kept.has(l));
+    expect(dropped).toEqual(["Operations", "Quality", "Troubleshooting", "Sector worked"]);
+
+    // THE ONE THAT MATTERS: the ratified sheet PRINTS "Sector worked", and a fully-answering
+    // miller loses it to "Workholding" (rank 42 beats rank 81). Bending the rank to keep it
+    // would substitute a layout preference for the §5.1 order, which is the exact move the
+    // turner map's rank comment warns against — so it is measured and routed, not fixed.
+    expect(kept.has("Workholding")).toBe(true);
+    expect(kept.has("Sector worked")).toBe(false);
   });
 });
