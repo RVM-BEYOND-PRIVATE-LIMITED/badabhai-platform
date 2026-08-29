@@ -75,9 +75,13 @@ export class PinController {
   }
 
   /**
-   * Start a PIN reset — send an OTP to the phone (reuses the existing OTP send path). Guarded
-   * by the per-IP hourly cap FIRST (security Finding 2): this reset send previously reached the
-   * OTP path WITHOUT the network-level backstop the login route applies.
+   * Start a PIN reset — send an OTP to the phone (reuses the existing OTP send path). Guarded by
+   * the per-SENDER hourly cap (security Finding 2): this reset send once reached the OTP path
+   * with NO per-caller backstop at all, while the login route had one.
+   *
+   * SAID "per-IP hourly cap FIRST" UNTIL #1306, and both halves of that had stopped being true:
+   * #1035 re-keyed the gate from the address onto `X-Device-Id`, and #1306 removed the network
+   * ceiling that used to follow it. The route is now gated by one sender cap and nothing else.
    */
   @Post("reset/request")
   @HttpCode(200)

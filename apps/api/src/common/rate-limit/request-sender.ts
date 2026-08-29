@@ -68,12 +68,22 @@ export interface SenderSource {
  * looser.
  *
  * ROTATING DEVICE IDS IS THE REAL EVASION, and it is bounded elsewhere on purpose: a
- * reinstall mints a new id, so an abuser can too. What that buys them is more DISTINCT
- * buckets, never more SMS to one number — `OTP_MAX_SENDS_PER_HOUR` (5/number/hour),
+ * reinstall mints a new id, so an abuser can too — and this header is unauthenticated, so
+ * they need not even reinstall, just send a different string. What that buys them is more
+ * DISTINCT buckets, never more SMS to one number — `OTP_MAX_SENDS_PER_HOUR` (5/number/hour),
  * `OTP_MAX_SENDS_PER_DAY` (10/number/day) and the platform-wide
  * `OTP_GLOBAL_MAX_SENDS_PER_DAY` breaker are what bound spend, and none of them is keyed on
  * the caller. Per-device is therefore strictly better than per-IP without weakening the
- * spend ceiling. The per-network ceiling above it stays as the crude flood backstop.
+ * spend ceiling.
+ *
+ * ⚠ THERE IS NO PER-NETWORK CEILING ABOVE THIS ON THE OTP ROUTES ANY MORE (#1306). This
+ * paragraph used to close by promising one ("the crude flood backstop"), and code that
+ * reasons about the OTP send/verify paths must not assume it: `otp_request_net` and
+ * `otp_verify_net` are gone from /auth/otp/request, /auth/otp/verify and
+ * /auth/pin/reset/request. The only surviving network ceiling is `test_login_net` on the
+ * D-3 seam. So on those OTP routes a caller-keyed cap is ROTATABLE ALL THE WAY DOWN — treat
+ * `assertWithinHourlySenderCap` as a runaway-client breaker, never as an abuse boundary, and
+ * put anything that must actually hold on a key the caller does not choose.
  */
 export function senderOf(req: SenderSource): Sender {
   const raw = req.header(DEVICE_ID_HEADER);
