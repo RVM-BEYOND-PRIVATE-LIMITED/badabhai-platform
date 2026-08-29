@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/api/api_models.dart';
+import '../../../../core/error/failure.dart';
+import '../../../../core/error/failure_reason.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
+import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
+import '../cubit/resume_cubit.dart';
 
 /// #1343 — renders a `format: "trade_sheet"` [TradeSheetResumeDocument] as the
 /// zoned rows the printed sheet uses, so a turner's resume tab reads as the
@@ -344,15 +349,78 @@ class _RowLabel extends StatelessWidget {
 /// One employer on the work-history block — employer (+ role/location inline
 /// suffixes, already separator-prefixed server-side), its span, the work
 /// description, then any promotion stints.
-class _EmploymentEntry extends StatelessWidget {
+///
+/// #1353/#1354 — STATEFUL only for the own-words reveal/choice affordance
+/// below the work line (see [_OwnWordsChoice]); everything else is the
+/// unchanged #1343 render.
+class _EmploymentEntry extends StatefulWidget {
   const _EmploymentEntry({required this.employment});
 
   final ResumeEmploymentDto employment;
 
   @override
+  State<_EmploymentEntry> createState() => _EmploymentEntryState();
+}
+
+class _EmploymentEntryState extends State<_EmploymentEntry> {
+  bool _revealed = false;
+  bool _pending = false;
+
+  /// Set the moment THIS screen visit calls `ownWords: true` for this entry.
+  ///
+  /// The wire's [ResumeEmploymentDto.hasOwnWordsToReveal] cannot tell "never
+  /// rewritten" apart from "the worker already declined the rewrite" — both
+  /// leave `work == workOwnWords`, by design (see that getter's own doc). So
+  /// once the worker keeps their own words, the wire alone can no longer offer
+  /// a way back to the polished version. This remembers the worker's OWN
+  /// action, in memory, for the rest of this screen visit only — never
+  /// persisted, never guessed from server state — so "switch back" (the flow
+  /// spec's reversibility requirement) stays reachable the same way it was
+  /// offered.
+  bool _justKeptOwnWords = false;
+
+  Future<void> _choose(bool ownWords) async {
+    final String? id = widget.employment.id;
+    if (id == null || _pending) return;
+    setState(() => _pending = true);
+    try {
+      await context
+          .read<ResumeCubit>()
+          .setEmploymentDescriptionSource(id, ownWords: ownWords);
+      if (!mounted) return;
+      setState(() {
+        _justKeptOwnWords = ownWords;
+        // Nothing left to compare once the printed line already is the
+        // worker's own words.
+        if (ownWords) _revealed = false;
+      });
+    } on Failure catch (f) {
+      // #1353 — the worker tapped a deliberate choice about a sentence
+      // carrying their name; a failed write must surface honestly, never
+      // look like it silently worked (mirrors ResumeCubit's own doc).
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(SnackBar(content: Text(failureReason(f).reason)));
+    } finally {
+      if (mounted) setState(() => _pending = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final ResumeEmploymentDto employment = widget.employment;
     final String heading =
         '${employment.employer}${employment.roleInline ?? ''}${employment.locationSuffix ?? ''}';
+    // A genuine rewrite to compare, with an id to act on. See the DTO's own
+    // doc — an entry that was never rewritten and one whose rewrite was
+    // already declined are indistinguishable here, by design, and both
+    // correctly show nothing (below).
+    final bool canOfferOwnWords =
+        employment.id != null && employment.hasOwnWordsToReveal;
+    final bool canOfferPolishedBack =
+        !canOfferOwnWords && employment.id != null && _justKeptOwnWords;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -383,6 +451,27 @@ class _EmploymentEntry extends StatelessWidget {
             ),
           ),
         ],
+        // #1353/#1354 — an entry with nothing to compare shows NOTHING extra:
+        // no affordance, no disabled/greyed placeholder.
+        if (canOfferOwnWords) ...<Widget>[
+          const SizedBox(height: AppSpacing.s2),
+          _OwnWordsChoice(
+            revealed: _revealed,
+            pending: _pending,
+            ownWordsText: employment.workOwnWords!,
+            onToggle: () => setState(() => _revealed = !_revealed),
+            onKeep: () => _choose(true),
+          ),
+        ] else if (canOfferPolishedBack) ...<Widget>[
+          const SizedBox(height: AppSpacing.s2),
+          BbButton(
+            label: 'Polish kiya version rakhein',
+            onPressed: () => _choose(false),
+            variant: BbButtonVariant.tonal,
+            size: BbButtonSize.md,
+            loading: _pending,
+          ),
+        ],
         for (final ResumeEmploymentRoleStintDto stint in employment.roles)
           Padding(
             padding: const EdgeInsets.only(top: AppSpacing.s1),
@@ -395,6 +484,123 @@ class _EmploymentEntry extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// #1353/#1354 — the reveal-then-choose affordance for ONE employment whose
+/// printed line was rewritten: a quiet link that reveals [ownWordsText]
+/// (the worker's own words, unrewritten), then an EQUALLY-WEIGHTED button to
+/// keep them over the polish. Deliberately never [BbButtonVariant.danger] (or
+/// any warning styling) — keeping one's own words is a first-class choice,
+/// not a downgrade, and needs no "are you sure".
+class _OwnWordsChoice extends StatelessWidget {
+  const _OwnWordsChoice({
+    required this.revealed,
+    required this.pending,
+    required this.ownWordsText,
+    required this.onToggle,
+    required this.onKeep,
+  });
+
+  final bool revealed;
+  final bool pending;
+  final String ownWordsText;
+  final VoidCallback onToggle;
+  final VoidCallback onKeep;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _RevealLink(
+          label: revealed
+              ? 'Likha hua version chhupayein'
+              : 'Aapke apne shabdon mein dekhein',
+          icon: revealed ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+          onTap: onToggle,
+        ),
+        if (revealed) ...<Widget>[
+          const SizedBox(height: AppSpacing.s2),
+          Container(
+            padding: const EdgeInsets.all(AppSpacing.s3),
+            decoration: BoxDecoration(
+              color: AppColors.canvas,
+              borderRadius: BorderRadius.circular(AppRadii.sm),
+              border: Border.all(color: AppColors.borderSubtle),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                _RowLabel('Aapke shabdon mein'),
+                const SizedBox(height: AppSpacing.s1),
+                Text(
+                  ownWordsText,
+                  style: AppTypography.body(
+                    size: AppTypography.sizeMd,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.s3),
+                BbButton(
+                  label: 'Apne shabd rakhein',
+                  onPressed: onKeep,
+                  variant: BbButtonVariant.tonal,
+                  size: BbButtonSize.md,
+                  loading: pending,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// A quiet, tappable text link (icon + label) — used only for the LOCAL
+/// reveal/collapse toggle, which never touches the network (the choice
+/// itself is a [BbButton], see [_OwnWordsChoice]). Padded to the worker
+/// tap-target floor rather than sized to its text.
+class _RevealLink extends StatelessWidget {
+  const _RevealLink({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadii.sm),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: AppSpacing.s9),
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.s1),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(icon, size: 18, color: AppColors.textBrand),
+              const SizedBox(width: AppSpacing.s1),
+              Text(
+                label,
+                style: AppTypography.body(
+                  size: AppTypography.sizeSm,
+                  weight: FontWeight.w700,
+                  color: AppColors.textBrand,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
