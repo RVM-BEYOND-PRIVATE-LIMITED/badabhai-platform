@@ -86,10 +86,13 @@ export class PinController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<{ success: true }> {
-    // The per-caller caps BEFORE the send — the SAME pair auth.controller requestOtp uses,
-    // sharing the "otp_request" / "otp_request_net" scopes so PIN-reset + login draw from ONE
-    // SMS budget per sender and per network. Fails closed (429) if Redis is down.
-    // (Finding 2: this path bypassed the per-IP cap.)
+    // The per-caller cap BEFORE the send — the SAME one auth.controller requestOtp uses, sharing
+    // the "otp_request" scope so PIN-reset + login draw from ONE SMS budget per sender. Fails
+    // closed (429) if Redis is down. (Finding 2: this path bypassed the per-caller cap entirely.)
+    //
+    // ONE CAP, NOT TWO, SINCE #1306: the "otp_request_net" ceiling that used to sit beside it was
+    // dropped from the send path platform-wide, and this route moved with it — sharing a scope
+    // means sharing the decision, or the counter ends up fenced by two call sites that disagree.
     //
     // #1035 — keyed on the HANDSET (`X-Device-Id`), not the NAT egress address, for the same
     // reason as the login route: a forgot-PIN worker on a shared factory wifi was locked out
