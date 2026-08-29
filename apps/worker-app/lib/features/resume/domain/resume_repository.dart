@@ -19,4 +19,13 @@ abstract interface class ResumeRepository {
   /// session. Throws a [Failure] on error. PRIVACY: the returned url embeds a
   /// token — callers launch it immediately and never log it.
   Future<String> resumeDownloadUrl();
+
+  /// Best-effort report that the worker shared their resume (POST
+  /// /resume/:id/share → `resume.shared`, #1317). [channel] is a closed
+  /// kResumeShareChannels enum token (whatsapp | link | download | other),
+  /// never a link or any PII. Reads the resume id + session token from the
+  /// session; a missing id/token or ANY transport error is SWALLOWED and NEVER
+  /// thrown — this is fired after a successful native share, so a failed report
+  /// must never surface to the worker or undo the share they just made.
+  Future<void> reportShared(String channel);
 }
