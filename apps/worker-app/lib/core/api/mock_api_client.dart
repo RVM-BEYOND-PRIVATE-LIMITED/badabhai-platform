@@ -910,6 +910,17 @@ class MockApiClient extends ApiClient {
 
   static const int _kMockTradeFormTotalQuestions = 4;
 
+  /// #1356 — DEFAULT FALSE, matching production reality: `TRADE_FORM_KINDS` covers
+  /// exactly one trade (cnc_turner) today, so the overwhelming majority of mock
+  /// journeys must see the SAME "no form" 404 a real non-turner worker gets — the
+  /// #1344 pre-check in `ProfileCubit` calls this on every confirmed profile, and
+  /// an always-present canned form silently routed EVERY mock journey to the trade
+  /// form instead of the common `/finishing` path. Flip to true in a test that
+  /// specifically wants to exercise the trade-form screen through the full app
+  /// (e.g. a future chat-handover mock scenario) — `TradeFormScreen`'s own widget
+  /// tests already use a dedicated fake repository and never touch this flag.
+  bool mockHasTradeForm = false;
+
   Map<String, dynamic> _mockTradeFormQuestion({
     required String key,
     required String prompt,
@@ -942,6 +953,9 @@ class MockApiClient extends ApiClient {
   @override
   Future<Map<String, dynamic>> getTradeForm({required String authToken}) async {
     await _delay();
+    // Mirror the real contract's neutral 404 for a worker with no form (#1356) —
+    // see `mockHasTradeForm`'s doc comment for why this is the correct default.
+    if (!mockHasTradeForm) throw ApiException(404, 'Not found');
     return <String, dynamic>{
       'kind': 'cnc_turner',
       'pack_id': 'qp_cnc_turning',
