@@ -145,6 +145,23 @@ export const serverEnvSchema = z.object({
   // so the system runs without the binary in local dev. Default OFF: enable via env in
   // staging/prod once the binary is present (Dockerfile installs it).
   RESUME_RENDER_ENABLED: booleanFromString,
+  // WORK-HISTORY POLISH (#1350) — the model rephrasing a worker's job description into
+  // professional English before it is printed.
+  //
+  // THIS IS THE SWITCH ON A SECTION-8 OVERRIDE, not a feature toggle. Section 8 says a printed
+  // string may only be a closed vocabulary label, a worker-stated number, or the worker's own
+  // words verbatim — "there is no fourth source" — and the fabrication gate enforced that
+  // mechanically over every atom on the sheet. #1350 is the owner ruling that carves out this
+  // one field. OFF returns the sheet to the rule: the worker's own words print, exactly as
+  // they did before, with no model in the path.
+  //
+  // DEFAULT OFF, and it is a SECOND lock rather than the only one. The far side is already
+  // fail-closed — `work_history_polish` goes real only when AI_REAL_CALL_TASKS names it — so
+  // turning this on without arming that task changes nothing. Two locks because a reversal
+  // that needs a deploy is not a reversal, and this is the field where being able to stop
+  // quickly matters most: a fabrication is discovered at the machine trial, and it is the
+  // employer who stops trusting BadaBhai, not the worker.
+  WORK_HISTORY_POLISH_ENABLED: booleanFromString,
   // Per-worker generations allowed per UTC day (paid-path abuse cap).
   RESUME_DAILY_CAP: z.coerce.number().int().positive().default(5),
   // Global generations allowed per UTC day — interim backstop until TD4 binds a

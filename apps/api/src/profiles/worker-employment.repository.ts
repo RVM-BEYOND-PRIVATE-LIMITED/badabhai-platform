@@ -120,6 +120,29 @@ export class WorkerEmploymentRepository {
   }
 
   /**
+   * Store the model's rephrasing of one or more stints (#1350).
+   *
+   * WRITES ONLY `work_done_polished`. The worker's own `work_done` is never touched — it is the
+   * system of record, the fallback whenever this column is null, and what makes the section-8
+   * override reversible by changing which column the renderer reads.
+   *
+   * ONE STATEMENT PER STINT rather than a CASE expression: the set is at most a handful of rows
+   * (four employers, a stint or two each), and a readable loop beats a clever update nobody can
+   * check. Runs in a transaction so a partial write cannot leave half a history polished.
+   */
+  async savePolishedDescriptions(byRoleId: ReadonlyMap<string, string>): Promise<void> {
+    if (byRoleId.size === 0) return;
+    await this.db.transaction(async (tx) => {
+      for (const [id, polished] of byRoleId) {
+        await tx
+          .update(workerEmploymentRole)
+          .set({ workDonePolished: polished })
+          .where(eq(workerEmploymentRole.id, id));
+      }
+    });
+  }
+
+  /**
    * One worker's history in DISPLAY ORDER (most recent first).
    *
    * ORDERED BY `sort_order`, NEVER BY DATE, and that is the schema's decision restated here so a
@@ -151,6 +174,8 @@ export class WorkerEmploymentRepository {
         startYm: workerEmploymentRole.startYm,
         endYm: workerEmploymentRole.endYm,
         workDone: workerEmploymentRole.workDone,
+        workDonePolished: workerEmploymentRole.workDonePolished,
+        id: workerEmploymentRole.id,
       })
       .from(workerEmploymentRole)
       .where(
@@ -165,10 +190,12 @@ export class WorkerEmploymentRepository {
     for (const role of roles) {
       const bucket = byEmployment.get(role.employmentId) ?? [];
       bucket.push({
+        id: role.id,
         roleLabel: role.roleLabel,
         startYm: role.startYm,
         endYm: role.endYm,
         workDone: role.workDone,
+        workDonePolished: role.workDonePolished,
       });
       byEmployment.set(role.employmentId, bucket);
     }

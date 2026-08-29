@@ -565,6 +565,37 @@ class InterviewExtractOutput(BaseModel):
     ai_metadata: AICallMetadata | None = None
 
 
+class WorkHistoryPolishInput(BaseModel):
+    """A worker's own job description, in, to be rephrased into professional English.
+
+    Section 8 says this should not exist -- the model never composes, and there is no fourth
+    source for a printed string. Issue #1350 is the owner ruling that overrides that sentence
+    for this field and no other. Read it before extending this anywhere else.
+
+    Nothing identifying is carried: not the worker, not the employer, not the city, not the
+    dates. Only the sentence and the role title that gives it context.
+    """
+
+    schema_version: Literal["oie.v1"] = "oie.v1"
+    worker_ref: str = Field(min_length=1)
+    work_done: str = Field(min_length=1, max_length=300)
+    role_label: str | None = None
+
+
+class WorkHistoryPolishOutput(BaseModel):
+    """The rephrased sentence, or None on any degrade.
+
+    None is a first-class answer: the caller prints the worker's own words, which is what the
+    sheet did before this existed and what it keeps doing whenever the model is unavailable,
+    blocked, or returns something that fails validation.
+    """
+
+    work_done: str | None = None
+    blocked: bool = False
+    is_mock: bool = True
+    ai_metadata: AICallMetadata | None = None
+
+
 # --- Interview conversation state ------------------------------------------
 class ConversationState(BaseModel):
     """Server-computed interview progress. Holds profile signals only (role,

@@ -183,5 +183,17 @@
     "blocked",
     "is_mock",
     "ai_metadata"
+  ],
+  "WorkHistoryPolishInput": [
+    "schema_version",
+    "worker_ref",
+    "work_done",
+    "role_label"
+  ],
+  "WorkHistoryPolishOutput": [
+    "work_done",
+    "blocked",
+    "is_mock",
+    "ai_metadata"
   ]
 }

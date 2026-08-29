@@ -16,6 +16,8 @@ import {
   LlmTurnOutputSchema,
   InterviewExtractInputSchema,
   InterviewExtractOutputSchema,
+  WorkHistoryPolishInputSchema,
+  WorkHistoryPolishOutputSchema,
   PredicateOperandSchema,
   PredicateObjectShapeForParity,
   PredicateSchema,
@@ -857,6 +859,12 @@ describe("OIE contract parity (contracts.py mirror)", () => {
     ["LlmTurnOutput", LlmTurnOutputSchema.shape],
     ["InterviewExtractInput", InterviewExtractInputSchema.shape],
     ["InterviewExtractOutput", InterviewExtractOutputSchema.shape],
+    // Work-history polish (#1350). The one field the model is allowed to COMPOSE, by owner
+    // ruling overriding section 8 — so its parity matters more than most, not less: a field
+    // dropped in flight here means a sheet silently printing the raw text while the audit
+    // trail says it was polished.
+    ["WorkHistoryPolishInput", WorkHistoryPolishInputSchema.shape],
+    ["WorkHistoryPolishOutput", WorkHistoryPolishOutputSchema.shape],
   ];
 
   it.each(shapes)("%s keys match the golden fixture shared with Pydantic", (name, shape) => {

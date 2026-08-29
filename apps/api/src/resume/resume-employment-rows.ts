@@ -56,10 +56,22 @@ export interface WorkerEmploymentRecord {
 }
 
 export interface WorkerEmploymentRoleRecord {
+  /** The row id, so a polisher can write its result back to the stint it read. */
+  readonly id?: string;
   readonly roleLabel: string;
   readonly startYm: string | null;
   readonly endYm: string | null;
+  /** The worker's own words. The system of record, and the fallback. */
   readonly workDone: string | null;
+  /**
+   * The same description rephrased into professional English by the model (#1350).
+   *
+   * BOTH ARE CARRIED, and that is deliberate. `workDone` stays what the worker actually
+   * wrote — it is what a dispute is settled by and what prints whenever this is null, which
+   * is the ordinary state for every row written before #1350 and every row where the model
+   * was unavailable, declined, or produced something the far side rejected.
+   */
+  readonly workDonePolished?: string | null;
 }
 
 /**
@@ -260,7 +272,11 @@ function workLine(roles: readonly WorkerEmploymentRoleRecord[]): string {
   const seen = new Set<string>();
   const parts: string[] = [];
   for (const role of roles) {
-    const text = role.workDone?.trim();
+    // THE POLISHED LINE WHEN THERE IS ONE, the worker's own words otherwise (#1350). The
+    // fallback is not a degradation to apologise for: it is what this sheet printed before the
+    // owner ruling and what it must keep printing on every path where the model did not run,
+    // declined, or was overruled by the far side's checks.
+    const text = (role.workDonePolished ?? role.workDone)?.trim();
     if (!text || seen.has(text)) continue;
     seen.add(text);
     parts.push(text);

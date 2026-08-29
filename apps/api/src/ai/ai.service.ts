@@ -14,10 +14,13 @@ import {
   ProfileParseOutputSchema,
   LlmTurnOutputSchema,
   InterviewExtractOutputSchema,
+  WorkHistoryPolishOutputSchema,
   type LlmTurnInput,
   type LlmTurnOutput,
   type InterviewExtractInput,
   type InterviewExtractOutput,
+  type WorkHistoryPolishInput,
+  type WorkHistoryPolishOutput,
   type PseudonymizationOutput,
   type ProfileParseInput,
   type ProfileParseOutput,
@@ -534,6 +537,39 @@ export class AiService {
       input,
       InterviewExtractOutputSchema,
       PROFILE_JOB_TIMEOUT_MS,
+      ctx,
+    );
+  }
+
+  /**
+   * Rephrase ONE work-history description into professional English (#1350).
+   *
+   * THE ONLY CALL ON THIS CLIENT WHOSE OUTPUT IS PRINTED AS PROSE. Section 8 forbids it — the
+   * model never composes, and there is no fourth source for a printed string — and #1350 is
+   * the owner ruling that overrides that sentence for this field alone. The far side is what
+   * bounds it: a prompt written as prohibitions, a digit-grounding check, a length cap and a
+   * pseudonymize re-certification, any of which returns null.
+   *
+   * `null` MEANS PRINT THE WORKER'S OWN WORDS, and it is the answer on every degrade — an
+   * unreachable service, a mock posture, a deadline, a decline, a rejected rewrite. A caller
+   * must never read it as an empty description: the raw text is retained precisely so that
+   * fallback is always available.
+   *
+   * FAIL-CLOSED WITHOUT A NEW FLAG. `work_history_polish` goes real only when it appears in
+   * `AI_REAL_CALL_TASKS`, so leaving it out of that allowlist IS the kill switch, and turning
+   * it off later is a config change rather than a deploy.
+   */
+  async polishWorkHistory(
+    input: WorkHistoryPolishInput,
+    ctx?: AiRequestContext,
+  ): Promise<WorkHistoryPolishOutput | null> {
+    // The DEFAULT budget, not the queue-side one: this rewrites a single sentence, and a
+    // render must not wait on it the way a whole-transcript extraction legitimately does.
+    return this.post(
+      "/profiling/work-history/polish",
+      input,
+      WorkHistoryPolishOutputSchema,
+      undefined,
       ctx,
     );
   }

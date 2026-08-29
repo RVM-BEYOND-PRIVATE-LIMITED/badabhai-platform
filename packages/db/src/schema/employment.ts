@@ -125,6 +125,23 @@ export const workerEmploymentRole = pgTable(
     endYm: text("end_ym"),
     /** "CNC turning, Fanuc · EN8, EN31 · automotive components". The worker's own description. */
     workDone: text("work_done"),
+    /**
+     * The same description, rephrased into professional English by the model (#1350).
+     *
+     * A SECOND COLUMN, NEVER AN OVERWRITE. {@link workDone} stays the worker's actual words and
+     * remains the system of record: it is what the fabrication gate measures against, what a
+     * dispute is settled by, and what the sheet falls back to whenever this is null. Rewriting
+     * in place would destroy the only evidence of what the worker really said, and would make
+     * the override in #1350 irreversible.
+     *
+     * NULL IS THE ORDINARY STATE: every row written before this shipped, every row whose polish
+     * has not run yet, and every row where the model was unavailable or its output was rejected.
+     * A reader must fall back to {@link workDone}, never treat null as an empty description.
+     *
+     * §8 SAYS THIS COLUMN SHOULD NOT EXIST — "the model never composes ... there is no fourth
+     * source". #1350 is the owner ruling that overrides it, for this one field and no other.
+     */
+    workDonePolished: text("work_done_polished"),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
@@ -135,6 +152,10 @@ export const workerEmploymentRole = pgTable(
   (t) => [
     check("wer_role_label_chk", sql`length(btrim(${t.roleLabel})) BETWEEN 1 AND 80`),
     check("wer_work_done_len_chk", sql`${t.workDone} IS NULL OR length(${t.workDone}) <= 300`),
+    check(
+      "wer_work_done_polished_len_chk",
+      sql`${t.workDonePolished} IS NULL OR length(${t.workDonePolished}) <= 300`,
+    ),
     check(
       "wer_ym_format_chk",
       sql`(${t.startYm} IS NULL OR ${t.startYm} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$') AND (${t.endYm} IS NULL OR ${t.endYm} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$')`,

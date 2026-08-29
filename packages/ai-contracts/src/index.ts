@@ -32,14 +32,8 @@ export type {
   PseudonymizationOutput,
 } from "./common";
 
-export {
-  JOB_DOMAIN_MATCH_STATUSES,
-  JobDomainMatchSchema,
-} from "./occupation";
-export type {
-  JobDomainMatchStatus,
-  JobDomainMatch,
-} from "./occupation";
+export { JOB_DOMAIN_MATCH_STATUSES, JobDomainMatchSchema } from "./occupation";
+export type { JobDomainMatchStatus, JobDomainMatch } from "./occupation";
 
 export {
   ConversationStateSchema,
@@ -140,14 +134,8 @@ export type {
   RetagPlanOutput,
 } from "./skills";
 
-export {
-  TranscriptionInputSchema,
-  TranscriptionOutputSchema,
-} from "./voice";
-export type {
-  TranscriptionInput,
-  TranscriptionOutput,
-} from "./voice";
+export { TranscriptionInputSchema, TranscriptionOutputSchema } from "./voice";
+export type { TranscriptionInput, TranscriptionOutput } from "./voice";
 
 // Occupation Intelligence Engine (Phase 0 contract freeze). NOTE:
 // `PredicateObjectShapeForParity` is deliberately NOT exported — it exists for the
@@ -182,6 +170,8 @@ export {
   LlmTurnOutputSchema,
   InterviewExtractInputSchema,
   InterviewExtractOutputSchema,
+  WorkHistoryPolishInputSchema,
+  WorkHistoryPolishOutputSchema,
   LLM_INTERVIEW_STAGES,
   INPUT_MODES,
 } from "./oie";
@@ -195,6 +185,8 @@ export type {
   LlmTurnOutput,
   InterviewExtractInput,
   InterviewExtractOutput,
+  WorkHistoryPolishInput,
+  WorkHistoryPolishOutput,
   OccupationMatchLayer,
   OccupationMatchStatus,
   AnswerStatus,

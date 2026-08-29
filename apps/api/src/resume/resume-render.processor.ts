@@ -1,3 +1,4 @@
+import { WorkHistoryPolishService } from "./work-history-polish.service";
 import { toResumeDocument } from "./resume-document";
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Inject, Logger } from "@nestjs/common";
@@ -44,6 +45,9 @@ export class ResumeRenderProcessor extends WorkerHost {
     private readonly attributes: WorkerAttributesRepository,
     private readonly employments: WorkerEmploymentRepository,
     private readonly transcript: WorkerTranscriptRepository,
+    // #1350 — the one field on this sheet the model may compose. Off by two independent
+    // locks by default; see `WORK_HISTORY_POLISH_ENABLED`.
+    private readonly polish: WorkHistoryPolishService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {
     super();
@@ -173,6 +177,33 @@ export class ResumeRenderProcessor extends WorkerHost {
     } catch {
       this.logger.warn(
         `could not load work history for worker ${workerId}; rendering the fallback history`,
+      );
+    }
+
+    // #1350 — REPHRASE ANY DESCRIPTION THAT HAS NOT BEEN REPHRASED YET.
+    //
+    // HERE RATHER THAN AT CAPTURE, because capture is the worker's request path on a phone
+    // and this render is already a queue job. One model call per stint EVER — the result is
+    // written back, and only null-polish stints are visited — so a re-render of an unchanged
+    // history spends nothing while an edited description arrives as a fresh row and is
+    // re-polished for free.
+    //
+    // NEVER THROWS INTO THE RENDER. Every degrade leaves the polish null and the sheet prints
+    // the worker's own words, which is what it printed before the ruling. A resume that fails
+    // to render is strictly worse than one that renders in Hinglish.
+    try {
+      employments = [
+        ...(await this.polish.polish(
+          workerId,
+          employments,
+          { correlationId: job.data.correlationId, requestId: job.data.requestId },
+          this.config,
+        )),
+      ];
+    } catch (err) {
+      this.logger.warn(
+        `work-history polish failed for worker ${workerId}; rendering the worker's own words ` +
+          `(${err instanceof Error ? err.message : "unknown"})`,
       );
     }
 
