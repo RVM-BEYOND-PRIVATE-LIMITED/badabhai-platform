@@ -320,9 +320,23 @@ const ChatMessage kChatOpeningMessage = ChatMessage(
   ttsText: kChatOpeningTtsText,
 );
 
+/// Sink for the PII-free funnel milestones the chat emits (#B7, #1316) — the
+/// terminal [BbAnalytics.chatWrapUp] and the per-ask
+/// [BbAnalytics.profilingAnswerSpoken] index. Injectable ONLY so a test can
+/// OBSERVE the events without a live Firebase; production always takes
+/// [_defaultChatAnalyticsSink].
+typedef ChatAnalyticsSink = void Function(BbAnalyticsEvent event);
+
+/// The production sink: fire-and-forget to [BbAnalytics.instance], which is
+/// itself fail-open (a device with no Firebase simply records nothing, and a
+/// throw never reaches the interview).
+void _defaultChatAnalyticsSink(BbAnalyticsEvent event) =>
+    unawaited(BbAnalytics.instance.log(event));
+
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
-  ChatBloc(this._repo)
-      : super(const ChatState(messages: <ChatMessage>[kChatOpeningMessage])) {
+  ChatBloc(this._repo, {ChatAnalyticsSink? analyticsSink})
+      : _analytics = analyticsSink ?? _defaultChatAnalyticsSink,
+        super(const ChatState(messages: <ChatMessage>[kChatOpeningMessage])) {
     on<ChatStarted>(_onStarted);
     on<ChatMessageSent>(_onMessageSent);
     on<ChatRetryRequested>(_onRetryRequested);
@@ -330,6 +344,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   }
 
   final ChatRepository _repo;
+
+  /// PII-free funnel-milestone sink (#B7, #1316). Defaults to
+  /// [BbAnalytics.instance]; a test injects its own to observe the per-ask
+  /// indices (and the wrap-up count) deterministically.
+  final ChatAnalyticsSink _analytics;
 
   /// True once the wrap-up milestone has been logged for this session (#B7).
   /// [ChatState.extractionReady] LATCHES, so without this the milestone would
@@ -342,11 +361,28 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   void _logWrapUpOnce({required bool ready}) {
     if (!ready || _wrapUpLogged) return;
     _wrapUpLogged = true;
-    unawaited(BbAnalytics.instance.log(BbAnalytics.chatWrapUp(
+    _analytics(BbAnalytics.chatWrapUp(
       turnCount:
           state.messages.where((ChatMessage m) => m.fromWorker).length,
-    )));
+    ));
   }
+
+  /// Emit the per-ask funnel index (#1316) for ONE answered ask in the chat
+  /// interview — the flow workers actually reach. Until now the chat emitted
+  /// only the single terminal [_logWrapUpOnce], so a drop-off-by-ask-index curve
+  /// could not be drawn; this is the missing per-ask signal, reusing the event
+  /// that already existed for the unreachable voice_form.
+  ///
+  /// [questionIndex] is the 1-based rank of the ask among answered asks — a
+  /// COUNT only, matching the voice_form call site. NEVER the question text, the
+  /// answer text, or any id (that is exactly the shape
+  /// [BbAnalytics.profilingAnswerSpoken] enforces and `analytics_pii_test` scans).
+  ///
+  /// Fired only when the answer is actually RECORDED — a delivered send or a
+  /// server-merged voice note — so a failed-and-abandoned ask is never counted
+  /// and a retry never double-counts (the failed first attempt emitted nothing).
+  void _logAnswerSpoken(int questionIndex) =>
+      _analytics(BbAnalytics.profilingAnswerSpoken(questionIndex: questionIndex));
 
   /// How many sends are awaiting a reply right now.
   ///
@@ -523,7 +559,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       ));
     }
 
-    await _deliver(text, index, emit, submissionId: submissionId);
+    // #1316 — the 1-based rank of the ask this send answers, captured NOW (both
+    // branches above have appended the worker bubble) so it is stable under the
+    // bloc-8.x concurrency: a second send appends its own bubble and reads its
+    // own higher index. Emitted on delivery, not here — see [_deliver].
+    final int askIndex =
+        state.messages.where((ChatMessage m) => m.fromWorker).length;
+    await _deliver(text, index, emit,
+        submissionId: submissionId, askIndex: askIndex);
   }
 
   /// Sends [text] (already appended at [index]) and records the outcome.
@@ -536,6 +579,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     String text,
     int index,
     Emitter<ChatState> emit, {
+    required int askIndex,
     String? submissionId,
   }) async {
     _inFlightSends++;
@@ -619,6 +663,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         lookahead: turn.lookahead,
         clearPredictedQuestionKey: true,
       ));
+      // #1316 — the ask is now ANSWERED (the reply landed). Emit its per-ask
+      // index for the abandonment curve. On a retry this is the FIRST time this
+      // ask records (the failed attempt threw below and emitted nothing), so no
+      // double-count. On a failure the answer is not recorded — nothing here.
+      _logAnswerSpoken(askIndex);
       _logWrapUpOnce(ready: turn.extractionReady);
     } on Failure catch (_) {
       _inFlightSends--;
@@ -706,6 +755,14 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       inputMode: ChatInputMode.text, // #770 — bring the composer back on retry
     ));
 
+    // #1316 — the ask this bubble answers, by its rank among worker bubbles UP TO
+    // AND INCLUDING position [index]. Later worker bubbles do not shift it, so a
+    // retry emits the SAME index the original send would have had once it lands.
+    final int askIndex = state.messages
+        .take(index + 1)
+        .where((ChatMessage m) => m.fromWorker)
+        .length;
+
     // #870 — re-send the ORIGINAL id minted for this bubble on the first send, so
     // the server sees a retry (same submission) rather than a fresh answer. The
     // text is already re-sent byte-identically; the id now rides with it.
@@ -714,6 +771,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       index,
       emit,
       submissionId: message.submissionId,
+      askIndex: askIndex,
     );
   }
 
@@ -743,6 +801,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // same readiness decision (#421).
       extractionReady: event.extractionReady,
     ));
+    // #1316 — a voice answer is an answered ask too: the transcript was already
+    // sent server-side and is merged (recorded) here, so emit its per-ask index
+    // like a delivered typed send. Rank = worker bubbles after the merge above.
+    _logAnswerSpoken(
+      state.messages.where((ChatMessage m) => m.fromWorker).length,
+    );
     _logWrapUpOnce(ready: event.extractionReady);
   }
 }
