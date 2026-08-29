@@ -1,12 +1,10 @@
+import { WorkHistoryPolishService } from "./work-history-polish.service";
 import { Module } from "@nestjs/common";
 import { BullModule } from "@nestjs/bullmq";
 import { AuthModule } from "../auth/auth.module";
 import { ProfilesModule } from "../profiles/profiles.module";
 import { StorageModule } from "../storage/storage.module";
-import {
-  RESUME_GENERATE_QUEUE,
-  RESUME_RENDER_QUEUE,
-} from "../queue/queue.constants";
+import { RESUME_GENERATE_QUEUE, RESUME_RENDER_QUEUE } from "../queue/queue.constants";
 import { ResumeController } from "./resume.controller";
 import { ResumeService } from "./resume.service";
 import { ResumeRepository } from "./resume.repository";
@@ -40,6 +38,7 @@ import { ResumeRenderProcessor } from "./resume-render.processor";
     ResumeRateLimit,
     ResumeGenerateProcessor,
     ResumeRenderProcessor,
+    WorkHistoryPolishService,
   ],
 })
 export class ResumeModule {}

@@ -157,6 +157,10 @@ function setup(
     attributes as unknown as WorkerAttributesRepository,
     employments as unknown as WorkerEmploymentRepository,
     transcript as unknown as WorkerTranscriptRepository,
+    // #1350 — a pass-through by default. These tests are about the render lifecycle, and the
+    // polish is off unless WORK_HISTORY_POLISH_ENABLED is set; its own behaviour has its own
+    // suite. Returning the records unchanged is exactly what the disabled path does.
+    { polish: async (_w: string, r: unknown) => r } as never,
     config,
   );
   return { proc, resumes, workers, pii, renderer, storage, attributes, employments, transcript };
@@ -310,18 +314,23 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
   it("never references EventsService (no events.emit reachable from this processor)", () => {
     // Static guard: a future refactor that wires events into the render processor would break the
     // 'render emits no event' guarantee. The constructor arity must stay at exactly the
-    // NON-EVENT deps, currently nine:
+    // NON-EVENT deps, currently ten:
     //   resumes · workers · pii · renderer · storage · attributes · employments · transcript
-    //   · config
+    //   · polish · config
     // `attributes` (WorkerAttributesRepository) joined in 2026-08-28 for the trade sheet's
     // capability block, and `employments` (WorkerEmploymentRepository) the same day for Zone 4.
     // `transcript` (WorkerTranscriptRepository) joined for R8 §2/§4 — the worker's own turns,
     // which §8.4's quote block and the over-claim veto both read. All three are read-only
     // repositories, none with an event surface.
     //
+    // `polish` (WorkHistoryPolishService) joined for #1350 — the owner ruling that lets the
+    // model rephrase a work-history description. It reaches AiService and
+    // WorkerEmploymentRepository; NEITHER has an event surface, which is the property this
+    // test actually protects and which was checked before the number below was bumped.
+    //
     // ARITY ALONE IS A PROXY, so the real property is asserted directly below it: a number can be
     // bumped to make this pass while wiring in exactly the dependency it exists to keep out.
-    expect(ResumeRenderProcessor.length).toBe(9);
+    expect(ResumeRenderProcessor.length).toBe(10);
     const source = readFileSync(join(__dirname, "resume-render.processor.ts"), "utf8");
     expect(source, "an events dependency reached the render processor").not.toMatch(
       /EventsService|events\.emit/,

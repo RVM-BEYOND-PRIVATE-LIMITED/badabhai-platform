@@ -209,6 +209,12 @@ class TestServiceAuthEnabled:
         # /profiling/opening and /profiling/respond and this is NOT their restoration — the old
         # pair let a model run the interview and hold the state; these hold none, and the API
         # bounds every turn. Both carry worker text, so both must be gated exactly like the rest.
+        #
+        # 13 -> 14 with #1350: POST /profiling/work-history/polish, which rephrases ONE work
+        # history description into professional English. It carries worker free text like the
+        # two above and is gated identically. It is also the one route in this service licensed
+        # to COMPOSE printed text -- section 8 is overridden for that field by owner ruling -- so
+        # if this line ever needs deleting, read ADR-0039 before deleting the route.
         assert post_paths == [
             "/embeddings/skill-alias",
             "/growth/cluster",
@@ -218,6 +224,7 @@ class TestServiceAuthEnabled:
             "/profile/parse",
             "/profiling/extract",
             "/profiling/turn",
+            "/profiling/work-history/polish",
             "/pseudonymize",
             "/resume/generate",
             "/skills/canonicalize",

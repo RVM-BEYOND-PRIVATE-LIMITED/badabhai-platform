@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 
 from fastapi import APIRouter
 from pydantic import ValidationError
@@ -36,9 +37,15 @@ from ..contracts import (
     InterviewExtractOutput,
     LlmTurnInput,
     LlmTurnOutput,
+    WorkHistoryPolishInput,
+    WorkHistoryPolishOutput,
 )
 from ..profiling.canonical_roles import coerce_json_text
-from ..profiling.interview_prompts import extract_system_prompt, interview_system_prompt
+from ..profiling.interview_prompts import (
+    extract_system_prompt,
+    interview_system_prompt,
+    work_history_polish_prompt,
+)
 from ..profiling.parse_masking import Masker, default_masker, mask_transcript_lines
 from ..pseudonymize import pseudonymize
 from ._shared import logger, resolve_prompt, router, workflow_scope
@@ -471,3 +478,111 @@ def _certified_scalar(value: str | None) -> str | None:
     if value is None:
         return None
     return None if pseudonymize(value).blocked else value
+
+
+POLISH_TASK_TYPE = "work_history_polish"
+
+# Digits that appear in the model's line must appear in the worker's. Tolerances, quantities and
+# dimensions are the fabrications that cost a worker their credibility at the machine trial, and
+# they are the ones a fluent rewrite invents most readily ("held tight tolerances" becomes
+# "held +/-0.02 mm"). The fabrication gate enforced exactly this rule over every printed atom;
+# #1350 removes this field from that gate's reach, so the rule is re-implemented here rather
+# than dropped.
+_DIGIT_RUN = re.compile(r"\d+")
+
+
+def _digits_are_grounded(polished: str, source: str) -> bool:
+    """Every digit run in the rewrite occurs in the worker's own sentence."""
+    grounded = set(_DIGIT_RUN.findall(source))
+    return all(run in grounded for run in _DIGIT_RUN.findall(polished))
+
+
+@api_router.post("/profiling/work-history/polish", response_model=WorkHistoryPolishOutput)
+async def work_history_polish(body: WorkHistoryPolishInput) -> WorkHistoryPolishOutput:
+    """Rephrase ONE work-history description into professional English (#1350).
+
+    THE ONE ROUTE IN THIS SERVICE THAT COMPOSES PRINTED TEXT. Section 8's "there is no fourth
+    source" is overridden here by owner ruling, and nowhere else. Every other printed string on
+    a resume remains a closed-vocabulary label, a worker-stated number, or verbatim worker words.
+
+    NULL IS THE SAFE ANSWER AND IT IS RETURNED FREELY: on a blocked input, a mock posture, a
+    deadline, an unreadable body, an ungrounded digit, or a rewrite the gateway will not vouch
+    for. The caller prints the worker's own words in every one of those cases, which is exactly
+    what the sheet did before this route existed. A degrade costs polish, never a description.
+    """
+    settings = get_settings()
+
+    with workflow_scope(
+        name=WORKFLOW_PROFILE_BUILD,
+        worker_ref=body.worker_ref,
+        # A length, not the sentence: enough to explain cost and latency, nothing to leak.
+        metadata={"work_done_chars": len(body.work_done)},
+    ):
+        # THE INPUT GATE. The worker typed this into a form and it routinely carries an employer,
+        # a city or a supervisor's name — `parse_masking` exists for exactly this text. A blocked
+        # input is not rewritten at all: masking it and rewriting the mask would put "[EMPLOYER]"
+        # into a sentence printed on a resume.
+        masked = pseudonymize(body.work_done)
+        if masked.blocked:
+            logger.warning("work-history polish skipped: the input did not clear the gateway")
+            return WorkHistoryPolishOutput(is_mock=True)
+
+        resolved = resolve_prompt(prompt_registry.WORK_HISTORY_POLISH)
+        system_prompt = resolved.text if resolved is not None else work_history_polish_prompt()
+        role = body.role_label or "worker"
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": f"Role: {role}\nWhat they wrote: {masked.text}",
+            },
+        ]
+
+        try:
+            content, meta = await asyncio.wait_for(
+                router.run(
+                    POLISH_TASK_TYPE,
+                    messages=messages,
+                    mock_response='{"work_done": null}',
+                    real_call_allowed=True,
+                    user_ref=body.worker_ref,
+                    prompt=resolved,
+                ),
+                timeout=settings.profiling_extract_deadline_seconds,
+            )
+        except TimeoutError:
+            logger.warning("work-history polish deadline exceeded")
+            return WorkHistoryPolishOutput(is_mock=True)
+
+        if not meta.real_call:
+            return WorkHistoryPolishOutput(is_mock=True)
+
+        try:
+            raw = json.loads(coerce_json_text(content))
+            out = WorkHistoryPolishOutput.model_validate(raw if isinstance(raw, dict) else {})
+        except Exception:
+            logger.warning("work-history polish output failed the contract")
+            return WorkHistoryPolishOutput(is_mock=True, ai_metadata=meta)
+
+        polished = (out.work_done or "").strip()
+        if not polished:
+            # The model declined, which the prompt explicitly licenses. Not a failure.
+            return WorkHistoryPolishOutput(work_done=None, ai_metadata=meta)
+
+        # THREE WALLS, EACH REPLACING SOMETHING THE FABRICATION GATE USED TO PROVE.
+        #
+        # 1. Length — the column and the sheet's one-line budget both cap at 300.
+        # 2. Digits — see `_digits_are_grounded`.
+        # 3. The gateway — this is COMPOSED text, so the input gate above does not cover it; the
+        #    model can put a name into a sentence that had none.
+        if len(polished) > 300:
+            logger.warning("work-history polish rejected: over length")
+            return WorkHistoryPolishOutput(work_done=None, ai_metadata=meta)
+        if not _digits_are_grounded(polished, body.work_done):
+            logger.warning("work-history polish rejected: it introduced a number")
+            return WorkHistoryPolishOutput(work_done=None, ai_metadata=meta)
+        if pseudonymize(polished).blocked:
+            logger.warning("work-history polish rejected: the rewrite did not clear the gateway")
+            return WorkHistoryPolishOutput(work_done=None, ai_metadata=meta)
+
+        return WorkHistoryPolishOutput(work_done=polished, ai_metadata=meta)

@@ -674,6 +674,13 @@
       "when": 1787991513414,
       "tag": "0095_absurd_human_fly",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1788000029261,
+      "tag": "0096_gigantic_oracle",
+      "breakpoints": true
     }
   ]
 }

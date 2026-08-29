@@ -220,7 +220,26 @@ function workerSupplied(shape: (typeof SHEET_SHAPES)[number]): string[] {
   }
   for (const e of shape.tradeSheet?.employments ?? []) {
     out.push(e.employer, e.employerCity ?? undefined, e.employerState ?? undefined);
-    for (const r of e.roles) out.push(r.roleLabel, r.workDone ?? undefined);
+    for (const r of e.roles) {
+      // ── THE ONE NAMED EXCEPTION TO SECTION 8 (#1350) ──────────────────────────────────
+      //
+      // `workDonePolished` is text the MODEL COMPOSED. Admitting it here is admitting a fourth
+      // source, which is exactly what this gate was built to make impossible — so it is written
+      // as one named field on one row type, never as a relaxation of `sourced()`.
+      //
+      // WHAT STILL HOLDS. Every other atom on the sheet — every label, number, city, education
+      // line, certificate, tolerance and duration — is unchanged and still has to resolve to a
+      // closed-vocabulary label, a worker-stated number, or verbatim worker words. The override
+      // buys exactly one field.
+      //
+      // WHAT NO LONGER HOLDS, stated plainly so nobody has to infer it from a diff: this gate
+      // can no longer prove a work description is something the worker said. The guarantees
+      // that replaced it live on the far side of `/profiling/work-history/polish` — a prompt
+      // written as prohibitions, a digit-grounding check, a length cap and a pseudonymize
+      // re-certification — and they are weaker than this one was, because they are checks on a
+      // model rather than a proof about bytes. #1350 records that trade being made knowingly.
+      out.push(r.roleLabel, r.workDone ?? undefined, r.workDonePolished ?? undefined);
+    }
   }
   const q = shape.tradeSheet?.qualification;
   if (q) {

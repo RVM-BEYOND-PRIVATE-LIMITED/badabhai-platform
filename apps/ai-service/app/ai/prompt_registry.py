@@ -52,6 +52,11 @@ logger = get_logger("ai.prompts")
 INTERVIEW_TURN = "worker-interview-turn"
 INTERVIEW_EXTRACT = "worker-interview-extract"
 PROFILE_PARSE = "profile-parse"
+# The one prompt licensed to COMPOSE printed text, by the owner ruling in #1350 that overrides
+# section 8 for work-history descriptions. Versioned like the rest so a regression is traceable
+# to a prompt edit -- which matters more here than anywhere, because the fabrication gate can no
+# longer prove this field and the prompt is what bounds it.
+WORK_HISTORY_POLISH = "worker-work-history-polish"
 
 #: ``prompt_source`` values. Two, and they mean different things to an operator: "local"
 #: says the deploy decides the prompt, "langfuse" says someone outside the deploy can.
@@ -191,9 +196,14 @@ def install_default_prompts() -> None:
     ``app.ai`` import time, and the AI package keeps no import-time dependency on the
     profiling package.
     """
-    from ..profiling.interview_prompts import extract_system_prompt, interview_system_prompt
+    from ..profiling.interview_prompts import (
+        extract_system_prompt,
+        interview_system_prompt,
+        work_history_polish_prompt,
+    )
     from ..profiling.parse_prompt import PARSE_SYSTEM_PROMPT
 
     register(INTERVIEW_TURN, interview_system_prompt)
     register(INTERVIEW_EXTRACT, extract_system_prompt)
     register(PROFILE_PARSE, lambda: PARSE_SYSTEM_PROMPT)
+    register(WORK_HISTORY_POLISH, work_history_polish_prompt)

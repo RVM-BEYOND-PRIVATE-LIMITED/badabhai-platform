@@ -1,0 +1,2 @@
+ALTER TABLE "worker_employment_role" ADD COLUMN "work_done_polished" text;--> statement-breakpoint
+ALTER TABLE "worker_employment_role" ADD CONSTRAINT "wer_work_done_polished_len_chk" CHECK ("worker_employment_role"."work_done_polished" IS NULL OR length("worker_employment_role"."work_done_polished") <= 300);

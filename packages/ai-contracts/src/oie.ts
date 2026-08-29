@@ -635,3 +635,42 @@ export const InterviewExtractOutputSchema = z.object({
   ai_metadata: AICallMetadataSchema.nullable().default(null),
 });
 export type InterviewExtractOutput = z.infer<typeof InterviewExtractOutputSchema>;
+
+/**
+ * WORK-HISTORY POLISH — a worker’s own description of a job, rephrased into professional English.
+ *
+ * §8 SAYS THIS SHOULD NOT EXIST. “The model extracts, normalises and classifies. It never
+ * composes ... there is no fourth source.” Issue #1350 is the owner ruling that overrides that
+ * sentence for THIS FIELD AND NO OTHER, and the fabrication gate is widened by one named
+ * exception rather than relaxed. Read #1350 before extending this to anything else.
+ *
+ * ONE STINT PER CALL, NOT A BATCH. Each description is independent, a failure must cost one line
+ * rather than a worker’s whole history, and a batch invites the model to make two descriptions
+ * “consistent” with each other — which is composition across facts, not rephrasing of one.
+ *
+ * NOTHING IDENTIFYING IS SENT. Not the worker, not the employer, not the city, not the dates —
+ * only the sentence to rewrite and the role title that gives it context. Everything else on the
+ * sheet is rendered deterministically and never leaves the API.
+ */
+export const WorkHistoryPolishInputSchema = z.object({
+  schema_version: z.literal("oie.v1").default("oie.v1"),
+  worker_ref: z.string().min(1),
+  /** The worker’s own words. Pseudonymized at the boundary like every other free text. */
+  work_done: z.string().min(1).max(300),
+  /** Context only, so “shaft banata tha” is read as a turner’s sentence. Never rewritten. */
+  role_label: z.string().max(80).nullable().default(null),
+});
+export type WorkHistoryPolishInput = z.infer<typeof WorkHistoryPolishInputSchema>;
+
+export const WorkHistoryPolishOutputSchema = z.object({
+  /**
+   * The rephrased sentence, or null when the model declined, was unavailable, or its output
+   * failed validation. NULL IS A FIRST-CLASS ANSWER: the caller prints the worker’s own words,
+   * which is what the sheet did before this existed and what it must keep doing on every degrade.
+   */
+  work_done: z.string().max(300).nullable().default(null),
+  blocked: z.boolean().default(false),
+  is_mock: z.boolean().default(true),
+  ai_metadata: AICallMetadataSchema.nullable().default(null),
+});
+export type WorkHistoryPolishOutput = z.infer<typeof WorkHistoryPolishOutputSchema>;

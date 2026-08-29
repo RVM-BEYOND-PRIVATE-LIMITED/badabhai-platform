@@ -61,6 +61,8 @@ from app.contracts import (
     QuestionPackStatus,
     TargetField,
     TranscriptLine,
+    WorkHistoryPolishInput,
+    WorkHistoryPolishOutput,
 )
 
 _FIXTURE_DIR = (
@@ -259,6 +261,10 @@ _OIE_MODELS = {
     "LlmTurnOutput": LlmTurnOutput,
     "InterviewExtractInput": InterviewExtractInput,
     "InterviewExtractOutput": InterviewExtractOutput,
+    # #1350 — the one field the model may compose. Parity matters MORE here, not less: a field
+    # dropped in flight means a sheet printing raw text while the trace says it was polished.
+    "WorkHistoryPolishInput": WorkHistoryPolishInput,
+    "WorkHistoryPolishOutput": WorkHistoryPolishOutput,
 }
 
 

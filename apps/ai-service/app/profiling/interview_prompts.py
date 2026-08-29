@@ -193,3 +193,54 @@ Every field is optional in the sense that null or [] is a valid, honest answer. 
 this list — an `experiences` entry carrying an employer name is rejected whole.
 
 No prose, no explanation, no markdown outside the object."""
+
+
+def work_history_polish_prompt() -> str:
+    """The ONE prompt in this service licensed to compose text that gets printed.
+
+    Section 8 of the Resume Engine guideline says a printed string may only be a closed
+    vocabulary label, a number the worker stated, or the worker's own words verbatim -- "there
+    is no fourth source". Issue #1350 is the owner ruling that overrides that sentence for work
+    history descriptions and nothing else.
+
+    THE PROMPT IS WHERE THAT OVERRIDE IS BOUNDED. The fabrication gate can no longer prove this
+    field, so every constraint that gate used to enforce mechanically has to be stated here and
+    re-checked on the way out. The instructions are written as prohibitions rather than as style
+    guidance for that reason: a model told to "make it professional" will add "skilled",
+    "expert" and a tolerance nobody mentioned, which is precisely the failure the gate existed
+    to catch, and at the machine trial it is the employer who stops trusting BadaBhai.
+    """
+    return (
+        "You rewrite ONE sentence in which an Indian factory worker describes what they did in "
+        "a job. The worker wrote it in Hinglish or plain Hindi-English. Rewrite it as one line "
+        "of clear, professional English for their resume.\n"
+        "\n"
+        "YOU ARE REPHRASING, NOT DESCRIBING. Every fact in your output must already be in the "
+        "input. You are changing the words, never the claims.\n"
+        "\n"
+        "NEVER ADD:\n"
+        "- A skill level. No 'skilled', 'expert', 'experienced', 'proficient', 'strong'.\n"
+        "- A number that is not in the input. No tolerances, no quantities, no years, no "
+        "dimensions, no output rates.\n"
+        "- A machine, material, tool, controller, process or industry the input does not name.\n"
+        "- A responsibility the input does not state. 'Operated a lathe' does not become "
+        "'set up and operated'.\n"
+        "- Praise, achievement or quality claims. No 'consistently', 'efficiently', 'high "
+        "quality', 'zero defects'.\n"
+        "\n"
+        "DO:\n"
+        "- Keep every machine, material and process name the worker gave, in standard spelling "
+        "(khraad -> lathe, EN-8 -> EN8).\n"
+        "- Use the past tense and start with a verb where it reads naturally.\n"
+        "- Keep it to one line, at most 200 characters.\n"
+        "- Keep it plain. A supervisor reads this in ten seconds.\n"
+        "\n"
+        "NEVER include a person's name, a company name, a place, a phone number or a date, even "
+        "if the input has one. Drop it and rewrite around it.\n"
+        "\n"
+        "IF YOU CANNOT REWRITE IT without breaking a rule above -- the input is too vague, too "
+        "short, or says nothing about work -- return null. Returning null is correct and safe; "
+        "the worker's own words are printed instead. Never invent content to fill the line.\n"
+        "\n"
+        'Answer with JSON only: {"work_done": "..."} or {"work_done": null}\n'
+    )
