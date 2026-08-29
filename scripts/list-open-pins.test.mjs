@@ -11,6 +11,7 @@
 // reported zero on the one file in the repo that has an xfail in it. That bug is pinned as a
 // case below: a 700-character reason must still be found.
 
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -176,5 +177,75 @@ test("the alias marker is read from the FULL note, not the truncated one", () =>
   assert.ok(
     pins.some((p) => p.raw.length > 200),
     "no corpus note is long enough to be truncated — this guard would pass vacuously",
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// R16 §0 — allowlist rows are pins that do not look like one
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+test("the allowlist provider finds real rows, each with a reason AND a falsifier", () => {
+  const pins = PROVIDERS.allowlist();
+  // Vacuity first: this provider reported a confident ZERO twice while being written — once
+  // because its regex demanded a character before `ALLOWED` (so the constant actually named
+  // `ALLOWED` never matched) and once because the brace walker read the apostrophe in a
+  // comment's `worker's` as a string opener and ran past the closing brace.
+  assert.ok(pins.length >= 4, `expected several allowlist rows, got ${pins.length}`);
+  // NOT ANCHORED ON THE AXES ROW ANY MORE, AND THE REASON IS THE RULE WORKING. This asserted
+  // `ALLOWED.buildVerdictLine.axes` — the row whose stale reason ("no pack asks for axes yet")
+  // is why R16 §0 exists at all. R16 §1 then wired both branches, its `falsifiedBy` fired, and
+  // the row was deleted; this assertion went red as a stale claim about a suppression that no
+  // longer exists. Anchored on a live row instead, and the lesson is left where it happened.
+  assert.ok(
+    pins.some((p) => p.id === "ALLOWED.return.ownWords"),
+    "no known allowlist row is listed — the reader is matching nothing",
+  );
+  for (const pin of pins) {
+    assert.match(pin.why, /SUPPRESSED — .+ \| FALSIFIED BY: .+/, `${pin.id} lost half its line`);
+    assert.ok(!pin.why.includes("(unparsed)"), `${pin.id}: the falsifier did not parse`);
+    assert.ok(!pin.why.includes("no reason given"), `${pin.id}: no reason parsed`);
+  }
+});
+
+test("a falsifier wrapped across adjacent string literals is joined, not truncated", () => {
+  // Prettier splits any reason past the print width into `"..." + "..."`. Reading only the first
+  // literal cut the condition off mid-sentence, so the ledger printed a rule that stopped before
+  // saying what the rule was.
+  const pins = PROVIDERS.allowlist();
+  const wrapped = pins.find((p) => p.id === "ALLOWED.return.responsibilities");
+  assert.ok(wrapped, "the multi-literal row is missing");
+  assert.match(wrapped.why, /resolveTradeContent/, "the tail of the joined falsifier is gone");
+});
+
+test("an allowlist row with NO falsifier fails the provider closed", () => {
+  // The whole point. A suppression with no expiry must not be listed as if it were fine, and
+  // must not be silently skipped either — `collectPins` reports the provider as unavailable,
+  // exactly as it does for a missing venv.
+  const real = PROVIDERS.allowlist;
+  let unavailable;
+  try {
+    PROVIDERS.allowlist = () => {
+      throw new Error("allowlist row(s) state no `falsifiedBy`: FAKE_ALLOWED.someRow");
+    };
+    ({ unavailable } = collectPins());
+  } finally {
+    PROVIDERS.allowlist = real;
+  }
+  assert.ok(
+    unavailable.some((u) => u.startsWith("allowlist:") && u.includes("FAKE_ALLOWED.someRow")),
+    `the failure was not reported: ${JSON.stringify(unavailable)}`,
+  );
+  assert.equal(collectPins().unavailable.length, 0, "nothing should be failing right now");
+});
+
+test("the printer can never omit a provider's group", () => {
+  // `main` used to iterate a HARDCODED group list. Adding this provider made its rows
+  // collectable, countable and invisible: the header said 23 pins and the body printed four
+  // groups. The list is derived from PROVIDERS now, and this pins that.
+  const source = readFileSync(new URL("./list-open-pins.mjs", import.meta.url), "utf8");
+  assert.match(
+    source,
+    /for \(const group of Object\.keys\(PROVIDERS\)\)/,
+    "the printer's group list is hardcoded again — a new provider would be invisible",
   );
 });

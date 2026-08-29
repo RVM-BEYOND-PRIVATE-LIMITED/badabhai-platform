@@ -324,8 +324,13 @@ describe.each(BRANCHES)("§6.2 collapse rules, both halves [%s branch]", (branch
  * Asserted at the function, which is the only layer that can hold a value for it, plus a pin on
  * the reachability itself. When milling lands, the pin's second half goes red and the wiring is
  * what turns it green again.
+ *
+ * R16 §1 — MILLING LANDED AND THE WIRING IS DONE, so the second half is gone. What it was
+ * guarding is now asserted where it can actually be observed: `branch-parity.audit.test.ts`
+ * renders a `qp_vmc_milling` sheet down BOTH mapper branches and requires the segment. This
+ * file keeps the function-level composition and the turner's collapse.
  */
-describe("the axes segment (§6.2's fourth, unreachable through either mapper branch)", () => {
+describe("the axes segment (§6.2's fourth — wired on both branches in R16 §1)", () => {
   it("renders and collapses correctly at the function level", () => {
     const facts = {
       role: "VMC Operator",
@@ -347,11 +352,20 @@ describe("the axes segment (§6.2's fourth, unreachable through either mapper br
     expectNoDanglingSeparator(without.headlineLine ?? "");
   });
 
-  it("is NOT reachable from a stored profile — measured, and this is the pin", () => {
-    // A turner sheet cannot show axes even if the pack somehow held them, because the mapper
-    // never passes the field. Milling is what makes this matter; if this assertion ever fails,
-    // somebody wired it and should delete the pin rather than loosen it.
+  it("is still absent for a TURNER, whose pack asks no axis question", () => {
+    // WAS "is NOT reachable from a stored profile — measured, and this is the pin", and the pin
+    // said to delete it rather than loosen it if it ever went green. R16 §1 wired both branches,
+    // so it is deleted — but the turner half of it is kept, because that is the assertion with a
+    // future: the segment must still COLLAPSE for a trade that asks no axis question, separator
+    // and all.
+    //
+    // AND THE OLD PIN COULD NEVER HAVE SEEN THE FIX. Its fixture is a turner sheet, and
+    // `qp_cnc_turning` has no `axis_capability` question — so it would have gone on passing,
+    // green and reassuring, on the day the wiring landed. A pin whose fixture cannot reach the
+    // thing it pins is a claim about the fixture, not about the code. The reachability assertion
+    // now lives in `branch-parity.audit.test.ts` against a MILLING sheet, on both branches.
     const { input } = render("container", FULL_LEGACY);
     expect(input.headlineLine ?? "").not.toMatch(/axis/i);
+    expectNoDanglingSeparator(input.headlineLine ?? "");
   });
 });

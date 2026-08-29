@@ -249,6 +249,21 @@ interface Allowed {
   readonly starved: Branch | "both";
   /** Why this is not a defect, or what ruling holds it open. */
   readonly reason: string;
+  /**
+   * WHAT WOULD MAKE THIS ROW FALSE — R16 §0, and it is required by the type on purpose.
+   *
+   * THE INCIDENT. This file's `buildVerdictLine.axes` row read "no pack asks for axes yet". That
+   * was TRUE when it was written and FALSE four days later, when `qp_vmc_milling` shipped asking
+   * exactly that — and nothing anywhere noticed, because a reason is prose and prose does not
+   * expire. The row went on authorising the suppression it had stopped justifying.
+   *
+   * An allowlist row is a claim with an expiry date. Stating the expiry is what lets a reader
+   * check it in one step instead of re-deriving the whole argument, and it is what
+   * `scripts/list-open-pins.mjs` surfaces so the ledger shows the condition rather than only the
+   * exception. Write the OBSERVABLE that would flip it — "a pack ships an `axis_capability`
+   * question", not "if this changes".
+   */
+  readonly falsifiedBy: string;
 }
 
 /**
@@ -295,6 +310,9 @@ const ALLOWED: Readonly<Record<string, Allowed>> = {
   "return.responsibilities": {
     starved: "container",
     reason: "trade copy is keyed by a canonical id the OIE path never writes",
+    falsifiedBy:
+      "`toExtractionOutput` starts writing a canonical_role_id or canonical_trade_id, so " +
+      "`resolveTradeContent` can resolve an interview-led profile",
   },
   // §8.4's verbatim quotes. The candidates are `experiences[].work_done`, and the container is
   // the only shape that carries them — see `return.experiences` below for why the legacy branch
@@ -302,8 +320,15 @@ const ALLOWED: Readonly<Record<string, Allowed>> = {
   "return.ownWords": {
     starved: "legacy",
     reason: "candidates are resume_profile.experiences[].work_done",
+    falsifiedBy:
+      "the legacy answer-map shape gains a field carrying the worker's own sentences, so " +
+      "`selectOwnWords` has candidates on that branch",
   },
-  "return.ownWordsRejected": { starved: "legacy", reason: "the other half of the same selection" },
+  "return.ownWordsRejected": {
+    starved: "legacy",
+    reason: "the other half of the same selection",
+    falsifiedBy: "`return.ownWords` becomes reachable on the legacy branch",
+  },
 
   // `return.experiences` IS DELIBERATELY NOT HERE, and its absence is the honest record of what
   // the static half cannot see — see "THE FOURTH SHAPE" in the header. It is on both branches
@@ -332,24 +357,10 @@ const ALLOWED: Readonly<Record<string, Allowed>> = {
   // R13 §2's third finding. There is no turner axis question, so it is correctly empty for every
   // worker who exists today; it stops being correct the moment a milling pack ships, which is
   // what `yadav-parity.contract.test.ts:577` pins.
-  // R15 §6.1 — THE REASON THIS ROW GAVE IS NOW FALSE, and correcting it is the point.
-  //
-  // It read "no pack asks for axes yet". `qp_vmc_milling` shipped in #1309 and asks
-  // `axis_capability` with three options, and `trade-resume-map.ts` already routes the answer
-  // into the MACHINE chip as `configFrom` — the sheet prints "VMC · 3-axis" today. So the value
-  // is captured, stored and rendered; what is still true is narrower and worse, because it can
-  // no longer be waved off as a missing question: `buildVerdictLine` accepts a dedicated `axes`
-  // segment, §6.2 of the sheet spec names it, and NEITHER mapper branch passes it. The milling
-  // headline strip cannot print "3 & 4-axis" for a worker who answered exactly that.
-  //
-  // Kept as an allowlist row rather than fixed here: the Verdict Line's axes segment is a
-  // second rendering of a fact the machine chip already carries, so wiring it is a layout
-  // decision about duplication rather than a wiring gap. Pinned as behaviour in
-  // verdict-line-collapse.render.test.ts:328.
-  "buildVerdictLine.axes": {
-    starved: "both",
-    reason: "the milling pack ASKS it and the chip prints it; no mapper branch passes it here",
-  },
+  // R16 §1 — THE ROW IS GONE BECAUSE THE GAP IS. Both branches now pass `axes`, so its own
+  // `falsifiedBy` ("either mapper branch passes `axes` to buildVerdictLine") has fired and the
+  // staleness test would fail this file if the row stayed. That is the mechanism working: the
+  // row before it read "no pack asks for axes yet" and sat here false for four days.
 };
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -531,8 +542,41 @@ const MAXIMAL_CONTAINER = {
   },
 };
 
+/**
+ * The trade context BOTH probes are rendered with (R16 §2).
+ *
+ * WHY THE FIXTURE GREW. Without a `tradeSheet` the whole capability block, the phone, the QR, the
+ * footer and the trust badge are null on both sides — and a key that is empty on both sides can
+ * never report a difference, so the diff was looping over 44 keys while only 21 could speak. The
+ * key set was complete and the INSTRUMENT was half blind, which is a distinction worth measuring
+ * rather than assuming; see the observability test below.
+ *
+ * A MILLING PACK, DELIBERATELY. `qp_vmc_milling` is the only shipped pack that asks
+ * `axis_capability`, so this is also the fixture that makes R16 §1's fourth headline segment
+ * observable at all — the pre-existing axes pin used a TURNER sheet, which has no axis question
+ * and therefore could not have noticed the wiring either way.
+ */
+const MILLING_SHEET = {
+  packId: "qp_vmc_milling",
+  attributes: {
+    milling_machine: ["vmc"],
+    controller_brand: ["fanuc", "siemens"],
+    axis_capability: ["three_axis", "four_axis"],
+  },
+  phone: "+919876543210",
+  qrDataUri: "data:image/png;base64,iVBORw0KGgo=",
+  qrCaption: "Scan to open this worker's live profile",
+  shortLink: "badabhai.ai/w/abc123",
+  footerMeta: "Generated 29 Aug 2026 · Ref RK8M2Q",
+  nameDevanagari: "रमेश कुमार यादव",
+  qualification: { documents: ["aadhaar", "pan"] },
+} as const;
+
 const render = (snapshot: unknown) =>
-  buildResumeRenderInput(snapshot, "Ramesh Kumar Yadav", "classic", null, false, "worker");
+  buildResumeRenderInput(snapshot, "Ramesh Kumar Yadav", "classic", null, false, "worker", {
+    ...MILLING_SHEET,
+    attributes: { ...MILLING_SHEET.attributes },
+  });
 
 describe("R14 §1 — measured, per branch, on the template production actually renders", () => {
   it("the probes really do take the two different branches", () => {
@@ -634,27 +678,34 @@ describe("R14 §1 — measured, per branch, on the template production actually 
     }
   });
 
-  it.fails(
-    "R15 §1 — the two branches pick the headline's TOOLS from different sources (REPORTED)",
-    () => {
-      // FOUND BY THE RUNTIME DIFF BELOW, and it is the twelfth asymmetry — the only one left.
-      //
-      // `buildVerdictLine` is handed `headlineTools.length > 0 ? headlineTools : legacyMachines`
-      // on one branch and `… : skillChips` on the other. When a pack ran they agree; when none
-      // did, one worker's headline strip names his MACHINES and the other's names his SKILLS,
-      // from one draft. Neither expression is a bare literal and both branches pass the argument,
-      // so all six static assertions pass it — this is the fourth shape.
-      //
-      // NOT FIXED HERE, DELIBERATELY, and it is the one place R15 §1 stops. Aligning them changes
-      // what prints for profiles that already exist — on the legacy branch a worker with no
-      // machines would newly show skills, and on the container branch machines would displace
-      // skills — so it is an output ruling rather than a wiring gap, exactly as `expectedSalary`
-      // was before Q15. Q17 in NEEDS_PRAKASH.md.
-      const legacy = render(EQUIVALENT_LEGACY);
-      const container = render(EQUIVALENT_CONTAINER);
-      expect(container.headlineLine).toBe(legacy.headlineLine);
-    },
-  );
+  it("R16 §2 — the two branches pick the headline's TOOLS from the same source (Q17, RULED)", () => {
+    // WAS AN it.fails, AND THIS IS THE FLIP. `buildVerdictLine` was handed
+    // `headlineTools ?? legacyMachines` on one branch and `headlineTools ?? skillChips` on the
+    // other, so with no role pack one worker's headline named his machines and another's named
+    // his skills from identical answers. Both call `headlineToolsOrFallback` now, so the two
+    // cannot drift apart again without deleting a shared function.
+    const legacy = render(EQUIVALENT_LEGACY);
+    const container = render(EQUIVALENT_CONTAINER);
+    expect(container.headlineLine).toBe(legacy.headlineLine);
+    // Vacuity: the fixture must actually reach the tools segment, or this passes on two nulls.
+    // With a pack in play the PACK ROW wins on both branches, which is the agreed first arm.
+    expect(legacy.headlineLine ?? "").toContain("Fanuc, Siemens");
+  });
+
+  it("R16 §2 — and they agree with NO pack, which is the arm Q17 was actually about", () => {
+    // THE TEST ABOVE CANNOT SEE THE BUG IT EXISTS FOR. `MILLING_SHEET` fills `headlineTools`, so
+    // the fallback arm never runs and reverting the container branch to `: skillChips` leaves it
+    // green — mutation-verified, and it survived. Q17 was only ever about the case where NO pack
+    // resolved, so that is the case this renders.
+    const noPack = (snapshot: unknown) =>
+      buildResumeRenderInput(snapshot, "Ramesh Kumar Yadav", "classic", null, false, "worker");
+    const legacy = noPack(EQUIVALENT_LEGACY);
+    const container = noPack(EQUIVALENT_CONTAINER);
+    expect(container.headlineLine).toBe(legacy.headlineLine);
+    // And it must be the MACHINES, not the skills — the fallback order the ruling picked.
+    expect(legacy.headlineLine ?? "").toContain("Vertical Machining Center (VMC)");
+    expect(legacy.headlineLine ?? "").not.toContain("Milling");
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────────────────
@@ -734,15 +785,21 @@ const EQUIVALENT_CONTAINER = {
  * DELIBERATELY SMALL. Every row is a slot one branch can fill and the other structurally
  * cannot; anything else is a defect, in whichever direction it points.
  */
-const RUNTIME_ALLOWED: Readonly<Record<string, string>> = {
-  // THE ONLY ONE LEFT, AND IT IS PINNED ABOVE RATHER THAN ACCEPTED — see the `it.fails` for why
-  // aligning the two is an output ruling and not a wiring gap. Q17.
-  headlineLine: "R15 §1 — tools fall back to machines on one branch and skills on the other (Q17)",
+interface RuntimeAllowed {
+  readonly reason: string;
+  /** R16 §0 — the observable that would make this row false. Required, like `Allowed`. */
+  readonly falsifiedBy: string;
+}
+
+const RUNTIME_ALLOWED: Readonly<Record<string, RuntimeAllowed>> = {
   // Container-only by construction: §8.4's quotes are selected from
   // `resume_profile.experiences[].work_done`, and the legacy shape has no such field. The legacy
   // branch leaves the slot unset rather than empty, which is the honest signal — "no selection
   // ran" is not the same claim as "a selection ran and rejected nothing".
-  ownWordsRejected: "the quote selection exists only on the container",
+  ownWordsRejected: {
+    reason: "the quote selection exists only on the container",
+    falsifiedBy: "the legacy branch gains a source of the worker's own sentences to quote",
+  },
   // TWO COMPOSERS, BY DESIGN — `buildSummary(draft, trade)` reads the taxonomy's trade content,
   // `summaryFor` reads the model's labels, and neither branch can run the other's.
   //
@@ -751,17 +808,40 @@ const RUNTIME_ALLOWED: Readonly<Record<string, string>> = {
   // "CNC Operator with 8 years of experience in CNC machining." — so on the branch most existing
   // profiles take, the résumé's opening sentence never names the job the worker does. That is a
   // content question rather than a parity one, which is why it is a row and not a fix.
-  summary: "composed by two different functions; the legacy one omits the role (reported)",
+  summary: {
+    reason: "composed by two different functions; the legacy one omits the role (reported)",
+    falsifiedBy: "`buildSummary` and `summaryFor` are unified, or the legacy one names the role",
+  },
 };
 
 describe("R15 §1 — the two branches render the SAME worker the same way, in either direction", () => {
   it("the two drafts really are the two branches, and really are equivalent", () => {
-    // VACUITY, WRITTEN FIRST, TWICE OVER. A diff of two objects is trivially empty if both
-    // renders came out of the same branch, and it is also trivially empty if both are blank.
+    // VACUITY, WRITTEN FIRST — AND THE FIRST VERSION DISCRIMINATED NOTHING.
+    //
+    // It read `expect(legacy.ownWords ?? []).toEqual([])` and
+    // `expect(container.responsibilities).toEqual([])`, which look like branch markers and are
+    // not: `ownWords` is `[]` on the CONTAINER too, because equivalence required emptying
+    // `experiences` on both sides and `selectOwnWords` returns nothing without candidates; and
+    // `responsibilities` is `[]` on the LEGACY branch too, because `role_cnc_operator` resolves
+    // to no trade content. Both assertions passed for reasons unrelated to which branch ran, so
+    // the guard headed "written first" would have gone on passing if the selector broke and both
+    // probes took the same path. Caught by an adversarial read of this file, not by the file.
+    //
+    // THESE TWO DO DISCRIMINATE. `ownWordsRejected` is UNSET on the legacy branch and an array on
+    // the container — the two are different claims ("no selection ran" vs "one ran and rejected
+    // nothing"), which is exactly why it is an allowlist row. And the summary is composed by two
+    // different functions that neither branch can run for the other.
     const legacy = render(EQUIVALENT_LEGACY);
     const container = render(EQUIVALENT_CONTAINER);
-    expect(legacy.ownWords ?? [], "legacy must NOT have taken the container path").toEqual([]);
-    expect(container.responsibilities, "container must NOT have taken the legacy path").toEqual([]);
+    expect(
+      legacy.ownWordsRejected,
+      "legacy must NOT have taken the container path",
+    ).toBeUndefined();
+    expect(
+      container.ownWordsRejected,
+      "container must NOT have taken the legacy path",
+    ).toBeInstanceOf(Array);
+    expect(legacy.summary, "the two summary composers must not agree").not.toBe(container.summary);
     expect(legacy.headlineLine, "the fixture must actually render").toContain("8 yrs");
     expect(container.headlineLine, "the fixture must actually render").toContain("8 yrs");
     // And the diff must be capable of reporting something: these keys are read below.
@@ -780,6 +860,103 @@ describe("R15 §1 — the two branches render the SAME worker the same way, in e
       delta.push(`${key} — legacy ${l} vs container ${c}`);
     }
     expect(delta.sort(), "one worker, two shapes, two different résumés").toEqual([]);
+  });
+
+  it("R16 §1 — a worker who answers the axis question gets the segment, on BOTH branches", () => {
+    // THE FOURTH HEADLINE SEGMENT, WHICH HAD NEVER RENDERED FOR ANYBODY.
+    //
+    // `buildVerdictLine` has accepted `axes` since the sheet shipped and `resume-renderer` has
+    // documented `{{headline_line}}` as "role · years · controllers · axis" the whole time —
+    // while neither mapper branch passed it. The value was captured all along: `qp_vmc_milling`
+    // asks `axis_capability` and `trade-resume-map` already printed "VMC · 3-axis" on the machine
+    // chip. It simply never travelled to the headline.
+    //
+    // ASSERTED ON THE COMPOSED LINE, not on `buildVerdictLine` in isolation. The pre-existing
+    // pin in `verdict-line-collapse.render.test.ts` tested the function and then asserted the
+    // segment was unreachable — using a TURNER sheet, which asks no axis question, so it could
+    // not have observed the wiring either way. A unit test of the composer plus a fixture that
+    // cannot reach it is exactly the pair that let this sit unnoticed.
+    for (const [branch, snapshot] of [
+      ["legacy", EQUIVALENT_LEGACY],
+      ["container", EQUIVALENT_CONTAINER],
+    ] as const) {
+      const line = render(snapshot).headlineLine ?? "";
+      // "3-axis" and "4-axis" share a non-digit suffix, so `axesPhrase` compresses them — this
+      // is the ratified sheet's own string.
+      expect(line, `${branch} branch`).toContain("3 & 4-axis");
+      // And it is the LAST segment, after the tools, exactly as §6.2 orders it.
+      expect(line.indexOf("3 & 4-axis"), `${branch}: axes must follow the tools`).toBeGreaterThan(
+        line.indexOf("Fanuc"),
+      );
+    }
+  });
+
+  it("R16 §1 — the axes segment collapses WITH its separator when no pack asks", () => {
+    // The other half, and the half a wiring change is most likely to break: the turner asks no
+    // axis question, so his headline must be byte-identical to what it renders today — no
+    // trailing separator, no empty segment.
+    const turner = buildResumeRenderInput(
+      EQUIVALENT_LEGACY,
+      "Ramesh Kumar Yadav",
+      "classic",
+      null,
+      false,
+      "worker",
+      { packId: "qp_cnc_turning", attributes: { turning_machine: ["cnc_lathe"] } },
+    );
+    expect(turner.headlineLine ?? "").not.toMatch(/axis/i);
+    expect(turner.headlineLine ?? "").not.toMatch(/·\s*$/);
+  });
+
+  it("R16 §1 — the axis labels are dictionary-ordered, not answer-ordered", () => {
+    // A worker who taps four-axis first must still read "3 & 4-axis". Reading his answer order
+    // would print "4 & 3-axis" — and `axesPhrase` would compress it just as happily, so the
+    // sheet would look deliberate while being backwards.
+    const reversed = buildResumeRenderInput(
+      EQUIVALENT_LEGACY,
+      "Ramesh Kumar Yadav",
+      "classic",
+      null,
+      false,
+      "worker",
+      {
+        ...MILLING_SHEET,
+        attributes: {
+          ...MILLING_SHEET.attributes,
+          axis_capability: ["four_axis", "three_axis"],
+        },
+      },
+    );
+    expect(reversed.headlineLine ?? "").toContain("3 & 4-axis");
+  });
+
+  it("R16 §2 — how much of the render input this diff can actually SEE", () => {
+    // THE OWNER ASKED DIRECTLY, so it is measured here rather than asserted in prose.
+    //
+    // The diff compares EVERY key on the rendered object — its key set is complete. Its
+    // OBSERVABILITY is not: a key that is null/empty on BOTH sides cannot report a difference no
+    // matter what the mapper does to it, so those keys are covered by the loop and unguarded in
+    // practice. `experiences` is one of them — the very field this file's header names as the
+    // reason the runtime half exists — because equivalence required emptying it on both sides.
+    //
+    // ASSERTED AS A FLOOR, NOT A CEILING. The number may rise; if it FALLS, a fixture stopped
+    // exercising something and the diff quietly got weaker, which is exactly how a gate becomes
+    // the most reassuring test in the repo.
+    const legacy = render(EQUIVALENT_LEGACY) as unknown as Record<string, unknown>;
+    const container = render(EQUIVALENT_CONTAINER) as unknown as Record<string, unknown>;
+    const keys = [...new Set([...Object.keys(legacy), ...Object.keys(container)])];
+    const isEmpty = (v: unknown) =>
+      v === null || v === undefined || (Array.isArray(v) && v.length === 0) || v === "";
+    const observable = keys.filter((k) => !isEmpty(legacy[k]) || !isEmpty(container[k]));
+    const blind = keys.filter((k) => !observable.includes(k)).sort();
+
+    expect(keys.length, "the reader found no keys at all").toBeGreaterThan(40);
+    expect(
+      observable.length,
+      `only ${observable.length} of ${keys.length} keys carry a value on either side; blind: ${blind.join(", ")}`,
+    ).toBeGreaterThanOrEqual(23);
+    // The honest record of what this instrument cannot see, kept where it is read.
+    expect(blind, "a blind key gained a value — raise the floor above").toContain("experiences");
   });
 
   it("no allowlist row may go stale", () => {

@@ -405,7 +405,12 @@ const CONTRACT: ControllerContract[] = [
     // decide a DPDP data-access question that is the owner's, not this fix's.
     name: "Resume",
     ctor: ResumeController,
-    routes: { generate: [C, W], get: [I], regenerate: [I], download: [W], share: [I] },
+    // R16 §5.1 — `share` moved from [I] to [C, W]. It required an internal-service secret the
+    // worker app does not hold, which made `resume.shared` — §12.2's "number that matters" —
+    // unreachable by the only caller that would ever emit it. It is worker-authed, consent-gated,
+    // ownership-checked and rate-limited now. THIS IS THE THIRD PLACE that pinned those guards
+    // (with resume-consent.authz.test.ts and prod-canary's OPS_ROUTES); they move together.
+    routes: { generate: [C, W], get: [I], regenerate: [I], download: [W], share: [C, W] },
   },
   {
     name: "Unlocks",

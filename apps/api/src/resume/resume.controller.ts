@@ -117,15 +117,52 @@ export class ResumeController {
     return this.resume.download(worker.id, id, ctx);
   }
 
-  /** Record that a worker shared a resume (PII-free, closed-enum channel). */
+  /**
+   * Record that a worker shared a resume (PII-free, closed-enum channel).
+   *
+   * ── R16 §5.1 — WORKER-CALLABLE NOW, AND IT NEVER WAS ─────────────────────────────────
+   *
+   * This route carried `InternalServiceGuard`, which requires a shared `x-internal-service`
+   * secret and denies every request when that secret is unset. The worker app holds no such
+   * secret and never could — so `resume.shared`, the ONE number §12.2 calls "the number that
+   * matters" and §12.4 sets a ninety-day kill criterion against, was unreachable by
+   * construction. The metric that decides whether the free résumé survives could not fire.
+   *
+   * NOTHING CALLED IT. A repo-wide search finds the route definition and one prod-canary probe
+   * that expects a rejection — no internal service, no job, no client. Converting it costs no
+   * caller.
+   *
+   * FOUR THINGS MOVE TOGETHER, and three of them are the reason a guard swap alone would have
+   * been worse than leaving it shut:
+   *
+   *   WorkerAuthGuard   so the app can reach it at all.
+   *   ConsentGuard      recording what a worker did with their résumé is behavioural profiling,
+   *                     which is exactly what the sibling `POST /workers/me/actions/batch`
+   *                     gates. Ordered AFTER the auth guard, which reads `req.worker`.
+   *   ownership         `recordShare` took only a resume id and attributed the event to whatever
+   *                     row it found. Under an internal-only guard the caller was trusted; under
+   *                     a worker session it is not, and a guessed UUID would have written an
+   *                     engagement signal in a stranger's name. Worker engagement is a
+   *                     first-class ranking signal (CLAUDE.md §2.4), so that is a rankable
+   *                     forgery, not a bad analytics row.
+   *   per-IP cap        `download` carries one and this had none. An event-writer with a session
+   *                     and no cap is an unmetered one.
+   */
   @Post(":id/share")
   @HttpCode(201)
-  @UseGuards(InternalServiceGuard)
-  share(
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async share(
     @Param("id", new ParseUUIDPipe()) id: string,
+    @CurrentWorker() worker: AuthenticatedWorker,
     @Body(new ZodValidationPipe(ShareResumeSchema)) dto: ShareResumeDto,
+    @Ip() ip: string,
     @Ctx() ctx: RequestContext,
   ) {
-    return this.resume.recordShare(id, dto, ctx);
+    await this.ipRateLimit.assertWithinHourlyIpCap(
+      "resume_share",
+      ip,
+      this.config.RESUME_RATE_LIMIT_PER_IP_PER_HOUR,
+    );
+    return this.resume.recordShare(worker.id, id, dto, ctx);
   }
 }

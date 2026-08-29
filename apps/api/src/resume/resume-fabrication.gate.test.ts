@@ -44,11 +44,25 @@ import { TRADE_RESUME_MAPS } from "./trade-resume-map";
  * the pattern whether the tenure is right or invented.
  */
 
-/** Every reviewed English label in the trade maps — the row labels AND the value labels. */
+/**
+ * Every reviewed English label in the trade maps — row labels, value labels AND config labels.
+ *
+ * `configValues` WAS MISSING, and R16 §1 is what made that matter. The gate enumerated
+ * `row.values` only, so "3-axis" and "4-axis" were outside the closed vocabulary — dormant
+ * purely because every sheet fixture is a turner or pack-less, and the turner pack asks no
+ * configuration question. Wiring the axis labels into the Verdict Line put them on a second
+ * surface, and the gate would have called the sheet's own reviewed dictionary a fabrication the
+ * first time a milling shape was added. A vocabulary that omits part of its own source is not a
+ * narrower gate, it is a wrong one.
+ */
 const DICTIONARY: ReadonlySet<string> = new Set(
   TRADE_RESUME_MAPS.flatMap((m) => [
     m.section_title,
-    ...m.capability.flatMap((row) => [row.label, ...Object.values(row.values ?? {})]),
+    ...m.capability.flatMap((row) => [
+      row.label,
+      ...Object.values(row.values ?? {}),
+      ...Object.values(row.configValues ?? {}),
+    ]),
   ]),
 );
 

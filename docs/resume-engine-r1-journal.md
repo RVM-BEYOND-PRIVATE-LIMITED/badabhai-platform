@@ -3106,3 +3106,146 @@ Q2 and Q14 remain with RVM.
 Still owed on turner, and named in §7's scorecard rather than buried: the alias layer is inert, the
 `axes` segment reaches no branch, three band phrasings and three gazetteer phrasings are pinned, and
 **real transcripts remain absent and stay absent until RVM runs.**
+
+---
+
+## §28 — R16: the segment nobody could see, the metric nobody could write, and a de-dupe that compared spellings
+
+### 28.1 — §0, and the row that went false in four days
+
+An allowlist row is a claim with an expiry date. `buildVerdictLine.axes` read *"no pack asks for
+axes yet"* — true when written, false four days later when `qp_vmc_milling` shipped asking exactly
+that, and nothing noticed because prose does not expire.
+
+`falsifiedBy` is a REQUIRED field on every suppression now, `pnpm pins` lists suppressions beside
+pins so the ledger shows the condition rather than only the exception, and a row that states no
+falsifier makes the provider **unavailable** rather than being quietly skipped.
+
+**The rule caught its own author within the hour.** A test I wrote asserted that the axes row must
+be listed; §1 then wired both branches, the row's `falsifiedBy` fired, the row was deleted, and my
+assertion went red as a stale claim about a suppression that no longer existed.
+
+**The provider reported a confident zero twice while being written.** Its regex demanded at least
+one character before `ALLOWED`, so the constant actually named `ALLOWED` never matched. Its brace
+walker read the apostrophe in a comment's `worker's` as a string opener and ran past the closing
+brace. And the printer's group list was hardcoded, so once both were fixed the rows were
+collected, counted, and **invisible** — the header said 23 pins and the body printed four groups.
+The list is derived from `PROVIDERS` now.
+
+### 28.2 — §1, and what "end to end" turned out to mean
+
+`buildVerdictLine` has accepted `axes` since the sheet shipped and neither branch passed it. Both
+do now, and two judgement calls are worth stating.
+
+**The milling row opts in explicitly.** Deriving the segment from any `configFrom` would make a
+future bar-feeder or sub-spindle qualifier print as an "axis" and get compressed by the
+shared-suffix rule. That is the `MEASURING_TOOLS` mistake one packet on — a claim about the world
+resting on the only pack that exists — and the row spec already had `inHeadline` as the precedent
+for exactly this.
+
+**`appendConfiguration` is dictionary-ordered too.** It read the worker's answer order, so a man
+who tapped four-axis first would have got chips "VMC · 4-axis, VMC · 3-axis" beside a headline
+reading "3 & 4-axis": one fact, two orders, one page. Both now derive from the same ordered
+dictionary.
+
+**And asserting it end to end found something larger than the segment.** `resume.service.ts` names
+`templateId: "classic"` for every production render; `{{headline_line}}` exists in exactly one
+template, `bb_trade.v1.html`; nothing in non-test source selects it. **No part of the Verdict Line
+has ever reached a worker's PDF** — not the axis segment, not the tools, not the salary R12 §1.4
+fixed, not the years R13 §2 fixed. Four packets have been correcting the composition of a line the
+product does not print.
+
+Not fixed: which template ships is an output ruling and the skin system is out of scope. Written as
+`verdict-line-reachability.test.ts`, so the day someone points the product at the trade sheet the
+file goes red and says so — the same shape as the allowlist row, refusing to be a note nobody
+re-checks.
+
+**The old pin could never have observed the fix.** `verdict-line-collapse.render.test.ts` asserted
+the segment was unreachable using a TURNER sheet, and `qp_cnc_turning` asks no axis question — so
+it would have gone on passing, green and reassuring, on the day the wiring landed. A pin whose
+fixture cannot reach the thing it pins is a claim about the fixture.
+
+### 28.3 — §2, Q17, and the honest answer about the diff
+
+Both branches call one `headlineToolsOrFallback(pack → machines → skills)`. Two parallel ternaries
+are what Q17 *was* — they agreed when written and drifted — so the divergence is unrepresentable
+rather than merely fixed, which is the move `zone5` made one packet earlier.
+
+**The owner asked whether the diff covers every field or only draft ones. Measured: its key set is
+complete — 44 of 44 — and its OBSERVABILITY was not.** With the old fixture only 21 keys could
+report a difference at all, `experiences` among them, the very field the file's header names as the
+reason the runtime half exists. A shared milling `tradeSheet` lit up the capability block, the
+phone, the QR and the footer; the number is asserted as a floor so a fixture that stops exercising
+something fails instead of quietly weakening the gate.
+
+**Two mutations survived the first battery, and both were mine.** The Q17 test could not see its own
+bug — the milling pack fills `headlineTools`, so the fallback arm never ran and reverting the
+container branch left it green. And `configInHeadline` was unchallengeable: milling is the only pack
+using `configFrom`, so deleting the opt-in changed no output. The first needed a pack-less probe;
+the second needed the collection extracted into a pure function a synthetic spec could contradict.
+
+### 28.4 — §3, where the premise needed correcting
+
+The directive read this as "a rendering defect waiting behind a flag". **It is not waiting.** The
+Python lexicon writes `fixture setup` while `SKILL_CORPUS.labelEn` says `Fixture / job setup`, and
+the deterministic detector writes the label into `skill_labels` and the id of the *same lexicon row*
+into `skills`. Four of the five ids it can emit **already print twice today, flag off**, on the
+branch most existing profiles take. Arming the alias layer would have been a fifth road into a
+defect that ships.
+
+The merge compared strings, so it could only ever collapse the cases where the two label tables
+happen to agree — precisely the cases that were never broken. A phrase→id index in
+`packages/taxonomy` lets it compare identity instead. All 22 ratified aliases are proved one by
+one, phrase in and single chip out, and mutation-verified: reverting the merge makes every one
+double-render.
+
+**Two corrections of fact.** Provenance does not exist on the snapshot — `canonicalize_labels`
+collapses per-label results to a flat id list, so a render-time "replace" cannot be reconstructed
+and the fix has to be an identity de-dupe rather than a removal. And the 22 are the RVM wedge set
+across 16 skill ids; exactly **two** are turner terms (`kharad`, `kharad ka kaam`). All are
+exercised anyway — the mechanism is per-phrase.
+
+### 28.5 — §5.1, a metric that was never able to fire
+
+`POST /resume/:id/share` was behind `InternalServiceGuard`, which needs a shared secret the worker
+app does not hold and cannot be given. So `resume.shared` — §12.2's "number that matters", with
+§12.4's ninety-day kill criterion on it — was unreachable by construction, and the route had **no
+caller anywhere**: its definition and one canary probe.
+
+Four things had to move together, and three are why a guard swap alone would have been worse than
+leaving it shut: `WorkerAuthGuard`, `ConsentGuard`, a per-IP cap, and an **ownership check**.
+`recordShare` read the actor and the payload's `worker_id` off whatever row it found — safe while
+the caller was trusted, a forgery hole the moment it took a worker session, since a guessed UUID
+would write an engagement signal in a stranger's name. Worker engagement is a first-class ranking
+signal, so that is a rankable forgery, not a bad analytics row.
+
+**Three places pinned those guards and I updated two.** `guard-contract.test.ts` was the third, and
+I found it from a red build rather than from reading.
+
+### 28.6 — §5.2, the backend answer
+
+Routing exists and readiness does not, and the distinction is the answer. All seven endpoints the
+dead flow calls are wired — but `/voice/upload-url` **503s by default**, because
+`VOICE_NOTES_BUCKET` defaults to `""` and the service fails closed, and the client's own preflight
+turns that into a hard abort. With default config the flow dies at its first backend call.
+
+F7 is **REUSE, not rebuild**: `questionAudioPlayed` and `profilingAnswerSpoken` take a bare `int`
+and already live in `core/observability`. Three cautions for whoever routes it: the batcher's one
+coupling is a `static const kScreen` read by a `static` method, so it is a signature change and not
+a default argument; a TypeScript test reads that Dart file **by path**, so moving it breaks the
+API suite; and `ChatProgress.answered` is a COUNT, nullable and sticky-forward, which is not the
+same quantity as voice_form's server-supplied question index.
+
+### 28.7 — two defects in my own R15 work, found by reading it adversarially
+
+The runtime diff's vacuity guard, headed "WRITTEN FIRST, TWICE OVER", **discriminated zero times**:
+`ownWords` is empty on the container too, and `responsibilities` is empty on legacy too, so both
+markers passed for reasons unrelated to which branch ran. And the fabrication gate's closed
+vocabulary enumerated `row.values` but not `row.configValues` — already blind to the axis labels on
+the chip, before this packet put them anywhere new.
+
+### 28.8 — state
+
+**PR #1336**, green and CLEAN. Q17 closed. The share route is worker-callable with the `it.fails`
+written for #1317. The alias layer stays **disarmed**, and what remains before arming is safe is in
+§28.4: the writer-side pairing in `canonicalize_labels`, which is where provenance is still alive.

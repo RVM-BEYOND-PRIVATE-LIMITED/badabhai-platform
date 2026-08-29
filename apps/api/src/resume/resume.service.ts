@@ -337,11 +337,20 @@ export class ResumeService {
 
   /**
    * Record that a worker shared a resume. `channel` is a closed enum, so no link
-   * or PII enters the `resume.shared` event. 404 if the resume is missing.
+   * or PII enters the `resume.shared` event.
+   *
+   * OWNERSHIP CHECKED, AND 404 FOR BOTH CASES (R16 §5.1). This took only a resume id and
+   * attributed the event to whatever row it found — safe while the route was internal-only and
+   * a forgery hole the moment it took a worker session, because the actor and the payload's
+   * `worker_id` are both read off the looked-up row. Not-found and not-owner return the SAME
+   * 404, exactly as `download` does: distinguishing them is an existence oracle over other
+   * workers' resume ids.
    */
-  async recordShare(resumeId: string, dto: ShareResumeDto, ctx: RequestContext) {
+  async recordShare(workerId: string, resumeId: string, dto: ShareResumeDto, ctx: RequestContext) {
     const resume = await this.resumes.findById(resumeId);
-    if (!resume) throw new NotFoundException(`Resume ${resumeId} not found`);
+    if (!resume || resume.workerId !== workerId) {
+      throw new NotFoundException(`Resume ${resumeId} not found`);
+    }
 
     await this.events.emit({
       event_name: "resume.shared",
