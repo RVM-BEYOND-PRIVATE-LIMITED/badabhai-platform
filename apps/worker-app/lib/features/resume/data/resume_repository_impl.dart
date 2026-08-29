@@ -125,4 +125,24 @@ class ResumeRepositoryImpl implements ResumeRepository {
       // `resume.shared` report must never cost the worker the share they made.
     }
   }
+
+  @override
+  Future<ResumeDocument?> loadResumeDocument() async {
+    final String? token = _session.sessionToken;
+    // No session → nothing to fetch. Silent by contract (see the interface
+    // doc): this is a best-effort UPGRADE over resume_text, never a
+    // precondition for it.
+    if (token == null) return null;
+    try {
+      final ResumeDocumentResponse response =
+          await _api.getResumeDocument(authToken: token);
+      return response.document;
+    } catch (_) {
+      // Swallow EVERY error — a 404 ("no resume row yet"), a network blip, or
+      // any other failure must never cost the worker their resume tab. The
+      // existing resume_text path (already fetched via generateResume/reuse)
+      // stays authoritative; only a clean 2xx `document` is ever drawn.
+      return null;
+    }
+  }
 }

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/api/api_models.dart' show ResumeDocument;
 import '../../../../core/error/failure.dart';
 import '../../../../core/observability/analytics.dart';
 import '../../domain/resume_edit_repository.dart';
@@ -16,14 +17,22 @@ class ResumeState extends Equatable {
     this.status = ResumeStatus.loading,
     this.resumeText = '',
     this.nightShiftReady = false,
+    this.document,
   });
 
   final ResumeStatus status;
   final String resumeText;
   final bool nightShiftReady;
 
+  /// #1343 — the SAME resume as structured data (GET /resume/document), a
+  /// best-effort UPGRADE over [resumeText]. Null when the server has none yet
+  /// OR the fetch failed — the screen must fall back to parsing [resumeText]
+  /// on null, never treat it as "no resume".
+  final ResumeDocument? document;
+
   @override
-  List<Object?> get props => <Object?>[status, resumeText, nightShiftReady];
+  List<Object?> get props =>
+      <Object?>[status, resumeText, nightShiftReady, document];
 }
 
 /// Drives the resume screen: a single generate-on-open action. A failure shows
@@ -86,12 +95,19 @@ class ResumeCubit extends Cubit<ResumeState> {
         _resumeReadyLogged = true;
         unawaited(BbAnalytics.instance.log(BbAnalytics.resumeReady));
       }
-      final bool nightShiftReady = await _loadNightShiftReady();
+      // Started together so the document fetch rides alongside the night-shift
+      // fetch rather than doubling the wait — both are best-effort UPGRADES
+      // over the resume text already on screen.
+      final Future<bool> nightShiftFuture = _loadNightShiftReady();
+      final Future<ResumeDocument?> documentFuture = _loadDocument();
+      final bool nightShiftReady = await nightShiftFuture;
+      final ResumeDocument? document = await documentFuture;
       if (isClosed) return;
       emit(ResumeState(
         status: ResumeStatus.ready,
         resumeText: text,
         nightShiftReady: nightShiftReady,
+        document: document,
       ));
     } on ProfileIncompleteFailure {
       if (isClosed) return;
@@ -138,13 +154,18 @@ class ResumeCubit extends Cubit<ResumeState> {
         status: ResumeStatus.ready,
         resumeText: text,
         nightShiftReady: state.nightShiftReady,
+        document: state.document,
       ));
-      final bool nightShiftReady = await _loadNightShiftReady();
+      final Future<bool> nightShiftFuture = _loadNightShiftReady();
+      final Future<ResumeDocument?> documentFuture = _loadDocument();
+      final bool nightShiftReady = await nightShiftFuture;
+      final ResumeDocument? document = await documentFuture;
       if (isClosed) return;
       emit(ResumeState(
         status: ResumeStatus.ready,
         resumeText: text,
         nightShiftReady: nightShiftReady,
+        document: document,
       ));
     } on ProfileIncompleteFailure {
       if (isClosed) return;
@@ -172,14 +193,19 @@ class ResumeCubit extends Cubit<ResumeState> {
       emit(const ResumeState(status: ResumeStatus.failed));
       return;
     }
-    // Show the text immediately; load the night-shift pref in the background.
+    // Show the text immediately; load the night-shift pref + the structured
+    // document in the background.
     emit(ResumeState(status: ResumeStatus.ready, resumeText: text));
-    final bool nightShiftReady = await _loadNightShiftReady();
+    final Future<bool> nightShiftFuture = _loadNightShiftReady();
+    final Future<ResumeDocument?> documentFuture = _loadDocument();
+    final bool nightShiftReady = await nightShiftFuture;
+    final ResumeDocument? document = await documentFuture;
     if (isClosed) return;
     emit(ResumeState(
       status: ResumeStatus.ready,
       resumeText: text,
       nightShiftReady: nightShiftReady,
+      document: document,
     ));
   }
 
@@ -196,6 +222,9 @@ class ResumeCubit extends Cubit<ResumeState> {
       status: ResumeStatus.ready,
       resumeText: state.resumeText,
       nightShiftReady: nightShiftReady,
+      // Preserved, not re-fetched: this is a lightweight prefs-only reload, and
+      // the structured document did not change under a night-shift toggle.
+      document: state.document,
     ));
   }
 
@@ -209,6 +238,18 @@ class ResumeCubit extends Cubit<ResumeState> {
       return fields.nightShiftReady;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// #1343 — best-effort load of the structured resume document. The
+  /// repository itself never throws (see [ResumeRepository.loadResumeDocument]),
+  /// but this belt-and-suspenders catch matches [_loadNightShiftReady]: a
+  /// hiccup here must NEVER cost the worker the resume text already resolved.
+  Future<ResumeDocument?> _loadDocument() async {
+    try {
+      return await _repo.loadResumeDocument();
+    } catch (_) {
+      return null;
     }
   }
 

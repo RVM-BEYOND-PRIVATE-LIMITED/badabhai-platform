@@ -99,6 +99,9 @@ void main() {
     // reporting tests below override it (verify the channel / throw to prove the
     // share survives a failed report).
     when(() => repo.reportShared(any())).thenAnswer((_) async {});
+    // #1343 — the ordinary answer; this file exercises the share flow, not the
+    // structured-document render (see resume_document_render_test.dart).
+    when(() => repo.loadResumeDocument()).thenAnswer((_) async => null);
     locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo, editRepo));
     // The preview screen refetches on tab focus (T4) and resolves this.
     locator.registerLazySingleton<TabFocus>(() => TabFocus());

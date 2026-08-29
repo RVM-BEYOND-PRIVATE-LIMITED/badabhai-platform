@@ -59,6 +59,9 @@ void main() {
         ),
       );
     }
+    // #1343 — the ordinary answer for a screen not exercising the structured
+    // document; this file's own coverage lives in resume_document_render_test.dart.
+    when(() => repo.loadResumeDocument()).thenAnswer((_) async => null);
     locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo, editRepo));
     // The screen refetches on tab focus (T4) and resolves this from the locator.
     locator.registerLazySingleton<TabFocus>(() => TabFocus());
