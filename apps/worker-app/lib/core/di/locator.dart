@@ -74,6 +74,9 @@ import '../../features/feedback/domain/feedback_repository.dart';
 import '../../features/finishing/data/finishing_repository_impl.dart';
 import '../../features/finishing/domain/finishing_repository.dart';
 import '../../features/finishing/presentation/cubit/finishing_cubit.dart';
+import '../../features/trade_form/data/trade_form_repository_impl.dart';
+import '../../features/trade_form/domain/trade_form_repository.dart';
+import '../../features/trade_form/presentation/cubit/trade_form_cubit.dart';
 import '../../features/name/data/name_repository_impl.dart';
 import '../../features/name/domain/name_repository.dart';
 import '../../features/name/presentation/cubit/name_cubit.dart';
@@ -272,6 +275,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerLazySingleton<FinishingRepository>(
     () => FinishingRepositoryImpl(
+        locator<ApiClient>(), locator<SessionRepository>()),
+  );
+  locator.registerLazySingleton<TradeFormRepository>(
+    () => TradeFormRepositoryImpl(
         locator<ApiClient>(), locator<SessionRepository>()),
   );
   locator.registerLazySingleton<SwipeRepository>(
@@ -477,6 +484,9 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   );
   locator.registerFactory<FinishingCubit>(
     () => FinishingCubit(locator<FinishingRepository>()),
+  );
+  locator.registerFactory<TradeFormCubit>(
+    () => TradeFormCubit(locator<TradeFormRepository>()),
   );
   locator.registerFactory<ChatBloc>(
     () => ChatBloc(locator<ChatRepository>()),
