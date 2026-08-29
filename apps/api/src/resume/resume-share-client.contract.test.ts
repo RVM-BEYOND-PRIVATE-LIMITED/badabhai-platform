@@ -28,10 +28,10 @@ import { ShareResumeSchema } from "./resume.dto";
  * finished, and it turns the suite red the day the work lands so nobody has to remember to come
  * back and delete a note.
  *
- * IT IS A GREP, AND THAT IS DELIBERATE. Asserting a Dart call site from TypeScript cannot be
- * precise, and a precise-looking assertion here would be worse: it would fail on a refactor that
- * is fine. This asserts the one thing that matters — that SOMETHING in the client posts to the
- * share route — and leaves the shape to the client's own tests.
+ * IT ASSERTS A NAME. Asserting a Dart call site from TypeScript cannot be precise, so this
+ * requires one thing that cannot happen by accident: an `ApiClient.recordResumeShare` method.
+ * A looser path grep was tried first and gave different answers in CI and locally on the same
+ * commit — the shape of the assertion mattered more than the thing asserted.
  */
 
 const CLIENT = join(__dirname, "../../../worker-app/lib/core/api/api_client.dart");
@@ -70,6 +70,14 @@ describe("R16 §5.1 — the client half of resume.shared", () => {
     // guessed channel would put a fabricated fact into the audit spine. `link` is the honest
     // value until the client actually observes the target.
     const client = readFileSync(CLIENT, "utf8");
-    expect(client).toMatch(/\/resume\/.*\/share/);
+    // A NAMED METHOD, NOT A PATH GREP. The first version matched `/\/resume\/.*\/share/`
+    // against the whole file, which passed in CI and failed locally on the same commit — a
+    // detector whose answer depends on the environment is not a detector. `.` never crosses a
+    // newline, so the two halves must share a line, and reasoning about which line they land on
+    // is exactly the fragility worth removing rather than debugging.
+    //
+    // The method name is the contract instead: unambiguous, impossible to match by accident, and
+    // it tells whoever wires this what to call it.
+    expect(client).toContain("recordResumeShare");
   });
 });

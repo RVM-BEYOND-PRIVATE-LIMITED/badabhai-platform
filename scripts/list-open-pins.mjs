@@ -472,6 +472,12 @@ function providerAllowlists() {
   return pins;
 }
 
+/** The only two fields `fieldText` is ever asked for — literal, so no pattern is built. */
+const FIELD_HEAD = {
+  reason: /\breason\s*:/,
+  falsifiedBy: /\bfalsifiedBy\s*:/,
+};
+
 /**
  * The full string value of `field:` inside an object-literal chunk.
  *
@@ -481,7 +487,11 @@ function providerAllowlists() {
  * the condition was. Same failure `providerPytest` already had to fix for `reason=`.
  */
 function fieldText(chunk, field) {
-  const at = new RegExp(`\\b${field}\\s*:`).exec(chunk);
+  // LITERAL PATTERNS, NOT an interpolated `new RegExp`. The interpolated form tripped
+  // semgrep's detect-non-literal-regexp, and it was right to: the field set here is closed
+  // and known, so building a pattern at run time bought nothing and put a template string on
+  // the regex path. Two entries, both literal.
+  const at = FIELD_HEAD[field]?.exec(chunk) ?? null;
   if (at === null) return "";
   // Stop at the next top-level `key:` so a later field's text cannot be absorbed.
   const rest = chunk.slice(at.index + at[0].length);
