@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/api/api_client.dart' show WorkPrefOptionsDto;
 import '../../../../core/error/failure.dart';
+import '../../../../core/observability/analytics.dart';
 import '../../domain/finishing_models.dart';
 import '../../domain/finishing_repository.dart';
 
@@ -104,6 +107,9 @@ class FinishingCubit extends Cubit<FinishingState> {
     try {
       final WorkPrefOptionsDto options = await _repo.loadOptions();
       emit(state.copyWith(status: FinishingStatus.ready, options: options));
+      // #1315 — funnel entry. Fire-and-forget, never fatal (BbAnalytics is
+      // fail-open); it carries no worker data, only that the form opened.
+      unawaited(BbAnalytics.instance.log(BbAnalytics.finishingFormEntered));
     } on Failure catch (f) {
       emit(state.copyWith(status: FinishingStatus.loadError, error: f.message));
     } catch (_) {
@@ -118,7 +124,12 @@ class FinishingCubit extends Cubit<FinishingState> {
 
   void nextPage() {
     if (state.isLastPage) return;
-    emit(state.copyWith(pageIndex: state.pageIndex + 1, submitError: null));
+    final int next = state.pageIndex + 1;
+    emit(state.copyWith(pageIndex: next, submitError: null));
+    // #1315 — per-page reach, so drop-off across the pages is measurable. The
+    // index is a page COUNT (0-based), never an answer on the page.
+    unawaited(
+        BbAnalytics.instance.log(BbAnalytics.finishingPageReached(pageIndex: next)));
   }
 
   void previousPage() {
@@ -243,6 +254,8 @@ class FinishingCubit extends Cubit<FinishingState> {
       await _repo.saveWorkPreferences(state.prefs);
       await _repo.saveEmployment(kept);
       emit(state.copyWith(status: FinishingStatus.done));
+      // #1315 — funnel exit: both writes landed, so completion is real.
+      unawaited(BbAnalytics.instance.log(BbAnalytics.finishingFormSubmitted));
     } on Failure catch (f) {
       emit(state.copyWith(status: FinishingStatus.ready, submitError: f.message));
     } catch (_) {
