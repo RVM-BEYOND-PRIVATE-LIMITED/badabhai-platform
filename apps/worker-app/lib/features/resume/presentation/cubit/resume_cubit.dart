@@ -268,4 +268,35 @@ class ResumeCubit extends Cubit<ResumeState> {
   /// [ResumeState] — the resume is already shown and the share already happened,
   /// so this is a pure side-signal; the repository swallows any failure.
   Future<void> reportShared(String channel) => _repo.reportShared(channel);
+
+  /// #1353/#1354 — the worker chooses which text prints for ONE work-history
+  /// entry: [ownWords] `true` keeps what they typed, `false` (re-)selects the
+  /// model's rewrite. Lets a [Failure] PROPAGATE (mirrors [resolveDownloadUrl]):
+  /// the worker tapped a specific, deliberate choice about a sentence carrying
+  /// their name, so the caller must show an honest failure rather than have the
+  /// screen silently look like it worked.
+  ///
+  /// On success, RE-FETCHES the structured document — the app's usual
+  /// write-then-reload convention (mirrors how the finishing/trade-form
+  /// screens reload after a save) — so the choice is reflected from the
+  /// server's OWN next answer rather than guessed at locally:
+  /// [ResumeEmploymentDto.work] is a composed string this client cannot safely
+  /// reconstruct itself. If the reload itself hiccups, the document already on
+  /// screen is KEPT (mirrors [refreshNightShift]: a stale document beats a
+  /// blanked one) rather than losing what the write just confirmed.
+  Future<void> setEmploymentDescriptionSource(
+    String employmentId, {
+    required bool ownWords,
+  }) async {
+    await _repo.setEmploymentDescriptionSource(employmentId, ownWords: ownWords);
+    if (isClosed) return;
+    final ResumeDocument? reloaded = await _loadDocument();
+    if (isClosed) return;
+    emit(ResumeState(
+      status: state.status,
+      resumeText: state.resumeText,
+      nightShiftReady: state.nightShiftReady,
+      document: reloaded ?? state.document,
+    ));
+  }
 }

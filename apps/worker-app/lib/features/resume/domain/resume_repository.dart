@@ -42,4 +42,23 @@ abstract interface class ResumeRepository {
   /// truth on any hiccup here, so a caller must treat null as "render the
   /// text instead", never as "the worker has no resume".
   Future<ResumeDocument?> loadResumeDocument();
+
+  /// #1353/#1354 — records the worker's choice of which text prints for ONE
+  /// work-history entry: [ownWords] `true` keeps what they typed (`source:
+  /// "own_words"`), `false` (re-)selects the model's rewrite (`source:
+  /// "polished"`). Reversible in both directions.
+  ///
+  /// UNLIKE [loadResumeDocument] and [reportShared], this NEVER swallows a
+  /// failure — it PROPAGATES a [Failure] (throws [UnauthorizedFailure] with no
+  /// session; maps any transport error via the usual [mapError]). The worker
+  /// tapped a specific, deliberate choice about a sentence carrying their name;
+  /// a failed write must surface honestly, never look like it silently worked.
+  /// A 404 (the id does not belong to this worker, or does not exist) is one
+  /// such honest failure — it should not happen from this screen (the id comes
+  /// straight from the document the worker is looking at), but is never turned
+  /// into a silent no-op if it somehow does.
+  Future<void> setEmploymentDescriptionSource(
+    String employmentId, {
+    required bool ownWords,
+  });
 }
