@@ -10,14 +10,19 @@ const CTX = { correlationId: "corr", requestId: "req" } as RequestContext;
 
 const EMPLOYER = "Sandhar Technologies Limited, Plant II";
 
-function setup() {
+function setup(stintsUpdated = 1, latestResume: unknown = null) {
   // Typed explicitly. `vi.fn(async () => ...)` infers a ZERO-ARG signature, so `mock.calls[0][1]`
   // is a type error even though the call happens at runtime - the tests passed and tsc did not.
   type Row = {
     employerNameEnc: string;
     employerCity: string | null;
     durationStated: boolean;
-    roles: readonly { roleLabel: string; startYm: string | null; endYm: string | null; workDone: string | null }[];
+    roles: readonly {
+      roleLabel: string;
+      startYm: string | null;
+      endYm: string | null;
+      workDone: string | null;
+    }[];
   };
   const replaceForWorker = vi.fn(async (_workerId: string, _rows: readonly Row[]) => ({
     replacedExisting: false,
@@ -28,14 +33,17 @@ function setup() {
   // `enc:${v}` would make the "no plaintext reaches the repository" assertion below pass
   // against a service that never encrypted at all.
   const encrypt = vi.fn(() => "CIPHERTEXT-TOKEN");
+  // #1354 — the description-source write. Returns how many stints it updated; ZERO is the
+  // not-this-worker's-employment answer, which the service must turn into a 404.
+  const setPolishDeclined = vi.fn(async (_w: string, _e: string, _d: boolean) => stintsUpdated);
   const svc = new WorkerEmploymentService(
-    { replaceForWorker } as never,
-    { findById: async () => ({ id: WORKER }), latestResume: async () => null } as never,
+    { replaceForWorker, setPolishDeclined } as never,
+    { findById: async () => ({ id: WORKER }), latestResume: async () => latestResume } as never,
     { encrypt } as never,
     { emit } as never,
     { add } as never,
   );
-  return { svc, replaceForWorker, emit, add, encrypt };
+  return { svc, replaceForWorker, emit, add, encrypt, setPolishDeclined };
 }
 
 const entry = (over: Record<string, unknown> = {}) => ({
@@ -244,5 +252,52 @@ describe("the form's contract", () => {
 
   it("rejects unknown keys, so a client cannot smuggle a field past validation", () => {
     expect(() => parse([{ ...entry(), employer_phone: "9876543210" }])).toThrow();
+  });
+});
+
+/**
+ * ═══ THE WORKER'S CHOICE OF DESCRIPTION SOURCE (#1354) ═══
+ *
+ * The mitigation for #1350's section-8 override. ADR-0039 is explicit that no test can assert
+ * the absence of a plausible-but-false rewrite — only the worker can — so what is protected
+ * here is their ability to say so, and the authorization on the one route that lets them.
+ */
+describe("choosing which description prints (#1354)", () => {
+  const EMPLOYMENT = "33333333-3333-4333-8333-333333333333";
+
+  it("records a refusal as declined, and re-renders so it reaches the PDF", async () => {
+    // A worker choosing a description source always has a resume — that is the screen they are
+    // on. With none, `enqueueRerender` correctly returns early and there is nothing to assert.
+    const { svc, setPolishDeclined, add } = setup(1, { id: "res-1" });
+    const out = await svc.setDescriptionSource(WORKER, EMPLOYMENT, { source: "own_words" }, CTX);
+    expect(setPolishDeclined).toHaveBeenCalledWith(WORKER, EMPLOYMENT, true);
+    expect(out.stints_updated).toBe(1);
+    // The choice means nothing until it reaches the sheet the worker hands over.
+    expect(add).toHaveBeenCalled();
+  });
+
+  it("puts the rewrite back when they change their mind", async () => {
+    const { svc, setPolishDeclined } = setup();
+    await svc.setDescriptionSource(WORKER, EMPLOYMENT, { source: "polished" }, CTX);
+    expect(setPolishDeclined).toHaveBeenCalledWith(WORKER, EMPLOYMENT, false);
+  });
+
+  it("404s another worker's employment — no existence oracle", async () => {
+    // Zero rows updated is what the repository returns when the id belongs to someone else OR
+    // to nobody. A 403 would confirm the former, which is a read of another worker's history
+    // by status code.
+    const { svc } = setup(0);
+    await expect(
+      svc.setDescriptionSource(WORKER, EMPLOYMENT, { source: "own_words" }, CTX),
+    ).rejects.toThrow(/not found/i);
+  });
+
+  it("emits nothing that identifies the employer or either text", async () => {
+    const { svc, emit } = setup();
+    await svc.setDescriptionSource(WORKER, EMPLOYMENT, { source: "own_words" }, CTX);
+    const payload = JSON.stringify(emit.mock.calls.at(-1)?.[0]?.payload ?? {});
+    for (const secret of [EMPLOYER, "Manesar", "Haryana", EMPLOYMENT]) {
+      expect(payload).not.toContain(secret);
+    }
   });
 });

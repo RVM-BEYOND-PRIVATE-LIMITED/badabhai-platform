@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Put, UseGuards } from "@nestjs/common";
+import { Body, Controller, HttpCode, Param, ParseUUIDPipe, Put, UseGuards } from "@nestjs/common";
 
 import {
   WorkerAuthGuard,
@@ -8,7 +8,12 @@ import {
 import { ConsentGuard } from "../auth/consent.guard";
 import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
-import { SetMyEmploymentSchema, type SetMyEmploymentDto } from "./worker-employment.dto";
+import {
+  SetDescriptionSourceSchema,
+  SetMyEmploymentSchema,
+  type SetDescriptionSourceDto,
+  type SetMyEmploymentDto,
+} from "./worker-employment.dto";
 import { WorkerEmploymentService } from "./worker-employment.service";
 
 /**
@@ -42,5 +47,30 @@ export class WorkerEmploymentController {
   ): Promise<{ ok: true; employer_count: number }> {
     const result = await this.employment.replaceForWorker(worker.id, dto, ctx);
     return { ok: true, employer_count: result.employer_count };
+  }
+
+  /**
+   * Choose which text prints as one employment's work line (#1354).
+   *
+   * THE MITIGATION FOR THE SECTION-8 OVERRIDE, in one route. #1350 lets the model rephrase a
+   * worker's description and print it; ADR-0039 records that no test can assert the absence of
+   * a plausible-but-false sentence. Only the worker knows whether one is true, so this is how
+   * they say so.
+   *
+   * The employment id is the ONLY client-supplied identifier, and ownership is proved inside
+   * the UPDATE — see `WorkerEmploymentRepository.setPolishDeclined`. The worker still comes
+   * from the token.
+   */
+  @Put("me/employment/:employmentId/description-source")
+  @HttpCode(200)
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  async setDescriptionSource(
+    @CurrentWorker() worker: AuthenticatedWorker,
+    @Param("employmentId", new ParseUUIDPipe()) employmentId: string,
+    @Body(new ZodValidationPipe(SetDescriptionSourceSchema)) dto: SetDescriptionSourceDto,
+    @Ctx() ctx: RequestContext,
+  ): Promise<{ ok: true; stints_updated: number }> {
+    const result = await this.employment.setDescriptionSource(worker.id, employmentId, dto, ctx);
+    return { ok: true, stints_updated: result.stints_updated };
   }
 }

@@ -681,6 +681,13 @@
       "when": 1788000029261,
       "tag": "0096_gigantic_oracle",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1788004428926,
+      "tag": "0097_silly_roland_deschain",
+      "breakpoints": true
     }
   ]
 }

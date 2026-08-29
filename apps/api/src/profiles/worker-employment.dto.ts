@@ -120,4 +120,23 @@ export const SetMyEmploymentSchema = z
   .strict();
 
 export type SetMyEmploymentDto = z.infer<typeof SetMyEmploymentSchema>;
+
+/**
+ * Which text prints as this employment's work line (#1354).
+ *
+ * A CHOICE, NOT A DELETION. `own_words` records that the worker looked at the rewrite and
+ * preferred what they actually wrote; the rewrite is kept, so `polished` puts it back with no
+ * second model call. Reversible in both directions on purpose — a worker who taps the wrong
+ * one must not have to re-enter their history to undo it.
+ *
+ * NAMED FOR WHAT PRINTS rather than for the flag it sets. `{ decline_polish: true }` would be
+ * a client having to know the model wrote something in order to refuse it; this reads the way
+ * the screen does.
+ */
+export const SetDescriptionSourceSchema = z
+  .object({
+    source: z.enum(["own_words", "polished"]),
+  })
+  .strict();
+export type SetDescriptionSourceDto = z.infer<typeof SetDescriptionSourceSchema>;
 export type EmploymentEntryDto = z.infer<typeof EmploymentEntrySchema>;

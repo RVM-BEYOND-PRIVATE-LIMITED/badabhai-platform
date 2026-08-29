@@ -72,7 +72,11 @@ export class WorkHistoryPolishService {
         (role) =>
           role.id !== undefined &&
           (role.workDone?.trim().length ?? 0) > 0 &&
-          (role.workDonePolished ?? null) === null,
+          (role.workDonePolished ?? null) === null &&
+          // A REFUSAL IS NOT AN ABSENCE (#1354). Without this the worker's decision would
+          // survive exactly until the next re-render: the polish is null because they declined
+          // it, and a null polish is precisely what this filter treats as work to do.
+          role.workDonePolishDeclined !== true,
       ),
     );
     if (pending.length === 0) return records;
