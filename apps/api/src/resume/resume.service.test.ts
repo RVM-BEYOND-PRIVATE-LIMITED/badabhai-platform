@@ -45,10 +45,9 @@ function setup(
     // confirmed-gate tests override this per-call.
     findById: vi.fn(
       async () =>
-        ({ id: "p-1", workerId: "w-1", profileStatus: "confirmed", rawProfile: {} }) as Record<
-          string,
-          unknown
-        > | undefined,
+        ({ id: "p-1", workerId: "w-1", profileStatus: "confirmed", rawProfile: {} }) as
+          | Record<string, unknown>
+          | undefined,
     ),
   };
   // The AI mock returns a NAME-LESS resume (as the real service does).
@@ -95,9 +94,7 @@ function setup(
     findById: vi.fn(async (_id: string) => undefined as Record<string, unknown> | undefined),
   };
   const events = {
-    emit: vi.fn(
-      async (params: { event_name: string; payload: Record<string, unknown> }) => params,
-    ),
+    emit: vi.fn(async (params: { event_name: string; payload: Record<string, unknown> }) => params),
   };
   // Rate-cap is a pass-through here (its own behaviour is covered separately).
   const rateLimit = { assertWithinDailyCap: vi.fn(async (_workerId: string) => undefined) };
@@ -106,7 +103,9 @@ function setup(
     add: vi.fn(async (_name: string, _data: Record<string, unknown>) => undefined),
   };
   const storage = {
-    createSignedUrl: vi.fn(async (_key: string, _ttl: number) => "https://signed.example/url?token=abc"),
+    createSignedUrl: vi.fn(
+      async (_key: string, _ttl: number) => "https://signed.example/url?token=abc",
+    ),
   };
   const config = {
     RESUME_SIGNED_URL_TTL_SECONDS: 900,
@@ -247,7 +246,10 @@ describe("ResumeService — TD21 name injection", () => {
     expect(JSON.stringify(aiArg)).not.toMatch(/Asha/i);
 
     expect(pii.decrypt).toHaveBeenCalledWith("v1.ciphertext");
-    const saved = resumes.createInitial.mock.calls[0]![0] as { resumeText: string; resumeJson: { name?: string } };
+    const saved = resumes.createInitial.mock.calls[0]![0] as {
+      resumeText: string;
+      resumeJson: { name?: string };
+    };
     expect(saved.resumeText).toContain(NAME); // name lands on the worker's own resume
     expect(saved.resumeJson.name).toBe(NAME);
   });
@@ -257,7 +259,10 @@ describe("ResumeService — TD21 name injection", () => {
     await svc.generate(DTO, CTX);
 
     expect(pii.decrypt).not.toHaveBeenCalled();
-    const saved = resumes.createInitial.mock.calls[0]![0] as { resumeText: string; resumeJson: { name?: string } };
+    const saved = resumes.createInitial.mock.calls[0]![0] as {
+      resumeText: string;
+      resumeJson: { name?: string };
+    };
     expect(saved.resumeText).toBe("PROFESSIONAL SUMMARY (draft)");
     expect(saved.resumeJson.name).toBeUndefined();
   });
@@ -271,7 +276,10 @@ describe("ResumeService — TD21 name injection", () => {
 
     const out = await svc.generate(DTO, CTX); // must NOT throw
     expect(out.resume_id).toBeTruthy();
-    const saved = resumes.createInitial.mock.calls[0]![0] as { resumeText: string; resumeJson: { name?: string } };
+    const saved = resumes.createInitial.mock.calls[0]![0] as {
+      resumeText: string;
+      resumeJson: { name?: string };
+    };
     expect(saved.resumeText).toBe("PROFESSIONAL SUMMARY (draft)"); // name-less fallback
     expect(saved.resumeJson.name).toBeUndefined();
   });
@@ -521,7 +529,11 @@ describe("ResumeService.download (TD5 / TD29 worker-authed + ownership)", () => 
 
   it("409s when rendered but the storage key is missing (defensive)", async () => {
     const { svc, resumes } = setup(null);
-    resumes.findById.mockResolvedValueOnce({ ...ROW, renderStatus: "rendered", pdfStorageKey: null });
+    resumes.findById.mockResolvedValueOnce({
+      ...ROW,
+      renderStatus: "rendered",
+      pdfStorageKey: null,
+    });
     await expect(svc.download(OWNER, RES_ID, CTX)).rejects.toBeInstanceOf(ConflictException);
   });
 
@@ -535,18 +547,49 @@ describe("ResumeService.recordShare (TD5)", () => {
   it("emits resume.shared with the closed-enum channel and no free text", async () => {
     const { svc, resumes, events } = setup(null);
     resumes.findById.mockResolvedValueOnce(ROW);
-    const res = await svc.recordShare(RES_ID, { channel: "whatsapp" }, CTX);
+    const res = await svc.recordShare(OWNER, RES_ID, { channel: "whatsapp" }, CTX);
     expect(res).toEqual({ ok: true });
-    const call = events.emit.mock.calls[0]![0] as { event_name: string; payload: { channel: string } };
+    const call = events.emit.mock.calls[0]![0] as {
+      event_name: string;
+      payload: { channel: string };
+    };
     expect(call.event_name).toBe("resume.shared");
     expect(call.payload.channel).toBe("whatsapp");
   });
 
   it("404s when the resume does not exist", async () => {
     const { svc } = setup(null);
-    await expect(svc.recordShare(RES_ID, { channel: "link" }, CTX)).rejects.toBeInstanceOf(
+    await expect(svc.recordShare(OWNER, RES_ID, { channel: "link" }, CTX)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+
+  it("R16 §5.1 — 404s when the resume belongs to ANOTHER worker, and emits nothing", async () => {
+    // THE FORGERY THIS CLOSES. `recordShare` took only a resume id and read the actor and the
+    // payload's `worker_id` off whatever row it found — harmless while the route required an
+    // internal-service secret, and a rankable forgery the moment it took a worker session:
+    // a guessed UUID would have written an engagement signal in a stranger's name, and worker
+    // engagement is a first-class ranking signal.
+    const { svc, resumes, events } = setup(null);
+    resumes.findById.mockResolvedValueOnce(ROW);
+    await expect(
+      svc.recordShare("11111111-1111-4111-8111-111111111111", RES_ID, { channel: "link" }, CTX),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("R16 §5.1 — a stranger's resume and a missing one are INDISTINGUISHABLE", async () => {
+    // No existence oracle over other workers' resume ids: both answer 404 with the same message,
+    // exactly as `download` does.
+    const { svc, resumes } = setup(null);
+    resumes.findById.mockResolvedValueOnce(ROW);
+    const notOwner = await svc
+      .recordShare("11111111-1111-4111-8111-111111111111", RES_ID, { channel: "link" }, CTX)
+      .catch((e: Error) => e.message);
+    const missing = await svc
+      .recordShare(OWNER, RES_ID, { channel: "link" }, CTX)
+      .catch((e: Error) => e.message);
+    expect(notOwner).toBe(missing);
   });
 });
 

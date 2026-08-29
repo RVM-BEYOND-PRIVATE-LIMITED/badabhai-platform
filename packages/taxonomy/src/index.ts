@@ -168,9 +168,30 @@ const _SKILL_CORPUS_LABEL = new Map(SKILL_CORPUS.map((s) => [s.skillId, s.labelE
 
 /** Acronyms that must render fully upper-cased in a prettified fallback label. */
 const _ACRONYMS = new Set([
-  "cnc", "vmc", "hmc", "iti", "mig", "tig", "gdt", "cam", "ncvt", "nsqf",
-  "scvt", "gtaw", "gmaw", "smaw", "gd&t", "hvac", "plc", "vfd",
-  "cad", "cam", "3d", "2d", "mep", "hvac",
+  "cnc",
+  "vmc",
+  "hmc",
+  "iti",
+  "mig",
+  "tig",
+  "gdt",
+  "cam",
+  "ncvt",
+  "nsqf",
+  "scvt",
+  "gtaw",
+  "gmaw",
+  "smaw",
+  "gd&t",
+  "hvac",
+  "plc",
+  "vfd",
+  "cad",
+  "cam",
+  "3d",
+  "2d",
+  "mep",
+  "hvac",
 ]);
 
 /**
@@ -186,8 +207,7 @@ const _ACRONYMS = new Set([
  */
 export function labelForTaxonomyId(id: string): string {
   if (!id || typeof id !== "string") return id;
-  const node =
-    getRole(id) ?? getMachine(id) ?? getSkill(id) ?? getDomain(id) ?? getIndustry(id);
+  const node = getRole(id) ?? getMachine(id) ?? getSkill(id) ?? getDomain(id) ?? getIndustry(id);
   if (node) return node.name;
   // Matching V1 `mskill_*` ids. Resolved BEFORE the prettifier so the curated label
   // wins: `mskill_cnc_operator_general` must render "CNC Operator", not
@@ -210,9 +230,7 @@ export function prettifyTaxonomyId(id: string): string {
     .split(/[_\s]+/)
     .filter(Boolean)
     .map((w) =>
-      _ACRONYMS.has(w.toLowerCase())
-        ? w.toUpperCase()
-        : w.charAt(0).toUpperCase() + w.slice(1),
+      _ACRONYMS.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1),
     )
     .join(" ");
 }
@@ -228,6 +246,8 @@ export * from "./crosswalk-integrity";
 
 // ADR-0030 / TAX-5 — PROPOSED vernacular wedge aliases (RVM ratification-gated).
 export * from "./wedge-aliases";
+// R16 §3 — the phrase→id reverse index, so a de-dupe can compare IDENTITY instead of spelling.
+export * from "./skill-identity";
 
 // Shared enums (TradeKey, SkipReason, SourceSurface) — single source of truth
 // consumed by @badabhai/db and apps/api to avoid drift (TD31).

@@ -68,6 +68,17 @@ export interface TradeRowSpec {
   /** Slug → printed English for `configFrom`'s values. Same drop-the-unknown rule as `values`. */
   readonly configValues?: Readonly<Record<string, string>>;
   /**
+   * Does this row's CONFIGURATION also earn the Verdict Line's fourth segment? (R16 §1.)
+   *
+   * OPT-IN PER ROW, AND DELIBERATELY NOT "any row with a `configFrom`". `configFrom` is a general
+   * seam — it appends a qualifier to the first chip, and the next pack to use it might qualify a
+   * lathe with a bar feeder or a sub-spindle. Deriving the headline's axis segment from every
+   * configuration would make each of those print as an "axis", which is the `MEASURING_TOOLS`
+   * mistake exactly: a claim about the world resting on the single pack that happened to exist
+   * when it was written. One flag, set by the map that means it.
+   */
+  readonly configInHeadline?: boolean;
+  /**
    * Most values this row may print. Quoted from the design guideline §4.3, not invented:
    * machines max 4, controllers max 3, materials max 4.
    *
@@ -403,6 +414,10 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         // row of its own would spend one of nine slots restating what the machine chip implies.
         // R10 built this seam for exactly this entry.
         configFrom: "axis_capability",
+        // R16 §1 — and it is the ratified sheet's own headline: "… · Fanuc, Siemens,
+        // Mitsubishi · 3 & 4-axis". The axis count is the one configuration a machining
+        // employer scans for, which is why this row opts in and the seam does not assume.
+        configInHeadline: true,
         configValues: {
           three_axis: "3-axis",
           four_axis: "4-axis",
@@ -613,6 +628,28 @@ function slugsOf(raw: unknown): string[] {
   return [];
 }
 
+/**
+ * The Verdict Line's fourth-segment values contributed by ONE row (R16 §1).
+ *
+ * EXPORTED AND PURE BECAUSE THE OPT-IN IS OTHERWISE UNTESTABLE. `qp_vmc_milling` is the only
+ * shipped map that uses `configFrom` at all, so deleting the `configInHeadline` check changes no
+ * output and every test stays green — mutation-verified, and it survived. That is the
+ * `MEASURING_TOOLS` shape exactly: a rule that cannot be contradicted by the data that exists.
+ * A synthetic spec can contradict it, so the rule is checked here rather than believed.
+ *
+ * ITERATED DICTIONARY-FIRST, like `values` in the builder and for the same reason: reading the
+ * worker's answer order prints "4 & 3-axis" for a man who tapped the four-axis chip first, and
+ * `axesPhrase` compresses it just as happily — so the sheet looks deliberate while being
+ * backwards.
+ */
+export function headlineAxesFor(spec: TradeRowSpec, attributes: WorkerAttributeValues): string[] {
+  if (!spec.configInHeadline || !spec.configFrom) return [];
+  const chosen = new Set(slugsOf(attributes[spec.configFrom]));
+  return Object.entries(spec.configValues ?? {})
+    .filter(([slug]) => chosen.has(slug))
+    .map(([, label]) => label);
+}
+
 export interface TradeCapabilityRows {
   /**
    * The first section's heading, or null when no map matched.
@@ -629,6 +666,18 @@ export interface TradeCapabilityRows {
    * printing a headline with a hole in it.
    */
   readonly headlineTools: string[];
+  /**
+   * The Verdict Line's FOURTH segment, from rows flagged `configInHeadline` (R16 §1).
+   *
+   * SEPARATE FROM `headlineTools` BECAUSE THE SEGMENTS ARE SEPARATE. `buildVerdictLine` composes
+   * "role · years · tools · axes", and `axesPhrase` compresses a shared suffix — "3-axis" and
+   * "4-axis" become "3 & 4-axis" — which only works on values that are axes. Folding them into
+   * `headlineTools` would print "Fanuc, Siemens, 3-axis" and lose the compression.
+   *
+   * EMPTY FOR EVERY PACK THAT ASKS NO CONFIGURATION, including the turner's, and the segment then
+   * collapses with its separator.
+   */
+  readonly headlineAxes: string[];
   readonly chipRows: ResumeListRow[];
   readonly tickRows: ResumeListRow[];
   readonly factRows: ResumeFactRow[];
@@ -656,7 +705,16 @@ export function appendConfiguration(
   configSlugs: readonly string[],
   dictionary: Readonly<Record<string, string>>,
 ): string[] {
-  const configs = configSlugs
+  // DICTIONARY ORDER, NOT THE WORKER'S ANSWER ORDER (R16 §1).
+  //
+  // This read the worker's stored slug order, so a man who tapped four-axis before three-axis
+  // got the chips "VMC · 4-axis", "VMC · 3-axis". That was survivable while the labels only
+  // appeared here — but the Verdict Line's axis segment now reads the SAME dictionary and is
+  // ordered by it, so the two would have printed one fact two ways on one page: chips
+  // descending, headline compressed to "3 & 4-axis". Same rule as `values` in the builder, and
+  // the same reason it is stated there: determinism is what makes a sheet diffable.
+  const configs = Object.keys(dictionary)
+    .filter((slug) => configSlugs.includes(slug))
     .map((slug) => dictionary[slug])
     .filter((v): v is string => Boolean(v));
   if (configs.length === 0 || values.length === 0) return [...values];
@@ -673,7 +731,9 @@ export function buildTradeCapabilityRows(
   const tickRows: ResumeListRow[] = [];
   const factRows: ResumeFactRow[] = [];
   const headlineTools: string[] = [];
-  if (!map) return { sectionTitle: null, headlineTools, chipRows, tickRows, factRows };
+  const headlineAxes: string[] = [];
+  if (!map)
+    return { sectionTitle: null, headlineTools, headlineAxes, chipRows, tickRows, factRows };
 
   // THE BUDGET IS APPLIED BEFORE ANYTHING IS BUILT, and the two orderings are kept apart on
   // purpose. Which rows SURVIVE is decided by `rank` (§5.1 decisiveness); the order they RENDER in
@@ -711,6 +771,8 @@ export function buildTradeCapabilityRows(
       : values;
 
     if (spec.inHeadline) headlineTools.push(...configured);
+    // R16 §1 — the axis labels themselves, not the "VMC · 3-axis" chip they also ride on.
+    headlineAxes.push(...headlineAxesFor(spec, attributes));
 
     // `key`/`rank` ride along for the degradation ladder (resume-degradation.ts), which needs to
     // shed the least decisive row first and must not re-derive the map to find out which that is.
@@ -734,6 +796,7 @@ export function buildTradeCapabilityRows(
   return {
     sectionTitle: empty ? null : map.section_title,
     headlineTools,
+    headlineAxes,
     chipRows,
     tickRows,
     factRows,

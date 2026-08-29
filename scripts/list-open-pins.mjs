@@ -395,11 +395,219 @@ export function pinsTouching(pins, paths) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// Provider 5 — ALLOWLIST ROWS (R16 §0)
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * An allowlist row is a pin that does not look like one.
+ *
+ * THE INCIDENT. `branch-parity.audit.test.ts` carried a row reading "no pack asks for axes yet".
+ * True when written; false four days later when `qp_vmc_milling` shipped asking exactly that. A
+ * pin gets read every time somebody runs `pnpm pins`; an allowlist row is read when somebody
+ * happens to open the file it lives in, which is approximately never. The suppression outlived
+ * its justification in silence — the same failure the pin ledger exists to prevent, one layer
+ * down.
+ *
+ * So allowlist rows are collected HERE, beside the pins, and each must state the OBSERVABLE that
+ * would flip it. A row with no `falsifiedBy` is not listed and not ignored: it THROWS, so the
+ * provider is unavailable and `collectPins` reports it — the same fail-closed shape
+ * `providerPythonTables` uses for a missing venv. Reporting a suppression as absent would be the
+ * vacuous-detector bug in the tool built to stop it.
+ *
+ * WHAT COUNTS AS AN ALLOWLIST is a naming convention, deliberately: a `const` whose name ends in
+ * `ALLOWED`, `ALLOWLIST` or `_ON_PURPOSE`. A convention is checkable and a comment is not, and
+ * the alternative — every file registering itself somewhere — is one more list to go stale.
+ */
+function providerAllowlists() {
+  const pins = [];
+  const missing = [];
+  for (const abs of walk(join(REPO, "apps"))) {
+    if (!/\.test\.tsx?$/.test(abs)) continue;
+    // BLANKED ONCE, HERE, AND BOTH WALKERS READ THE BLANKED TEXT. Two bugs came from getting
+    // this wrong. `balanced` treated the apostrophe in a comment's `worker's` as a string
+    // opener and scanned past the closing brace, so every allowlist in this file parsed to
+    // nothing and the provider reported a confident zero. `topLevelEntries` split on a comma
+    // inside a comment and invented a member called `and that is the finding`.
+    //
+    // `blankComments` preserves LENGTH and preserves STRING literals, so offsets stay valid and
+    // `reason` / `falsifiedBy` are still extractable from the blanked text.
+    const code = blankComments(readFileSync(abs, "utf8"));
+    for (const m of code.matchAll(
+      // No prefix requirement before the suffix — the first version demanded at least one
+      // character before `ALLOWED`, so the constant actually named `ALLOWED` never matched and
+      // only `RUNTIME_ALLOWED` was seen.
+      /const\s+([\w$]*(?:ALLOWED|ALLOWLIST|_ON_PURPOSE))\s*:[^=]*=\s*\{/g,
+    )) {
+      const open = code.indexOf("{", m.index + m[0].length - 1);
+      const body = balanced(code, open);
+      if (body === null) continue;
+      for (const entry of topLevelEntries(body)) {
+        // A row whose value is a bare string cannot carry a falsifier at all — that is the old
+        // shape, and it is exactly what R16 §0 replaces.
+        if (!/falsifiedBy\s*:/.test(entry.value)) {
+          missing.push(`${rel(abs)} ${m[1]}.${entry.key}`);
+          continue;
+        }
+        pins.push({
+          source: "allowlist",
+          id: `${m[1]}.${entry.key}`,
+          title: `${rel(abs)}:${lineOf(code, m.index)}`,
+          why:
+            `SUPPRESSED — ${fieldText(entry.value, "reason") || "no reason given"}` +
+            ` | FALSIFIED BY: ${fieldText(entry.value, "falsifiedBy") || "(unparsed)"}`,
+          raw: entry.value,
+          gates: [rel(abs)],
+        });
+      }
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      "allowlist row(s) state no `falsifiedBy`, so the suppression has no expiry and cannot be " +
+        `checked: ${missing.join(", ")}. R16 §0 — every allowlist entry says what would make it ` +
+        "false.",
+    );
+  }
+  return pins;
+}
+
+/**
+ * The full string value of `field:` inside an object-literal chunk.
+ *
+ * ADJACENT LITERALS ARE JOINED, and that is not a nicety: prettier wraps any reason longer than
+ * the print width into `"..." + "..."`, and reading only the first literal truncated the
+ * falsifier mid-sentence — the ledger then showed a condition that stopped before saying what
+ * the condition was. Same failure `providerPytest` already had to fix for `reason=`.
+ */
+function fieldText(chunk, field) {
+  const at = new RegExp(`\\b${field}\\s*:`).exec(chunk);
+  if (at === null) return "";
+  // Stop at the next top-level `key:` so a later field's text cannot be absorbed.
+  const rest = chunk.slice(at.index + at[0].length);
+  const nextKey = /,\s*[A-Za-z_$][\w$]*\s*:/.exec(rest);
+  const slice = nextKey === null ? rest : rest.slice(0, nextKey.index);
+  return [...slice.matchAll(/"((?:\\.|[^"])*)"|'((?:\\.|[^'])*)'|`((?:\\.|[^`])*)`/g)]
+    .map((lit) => lit[1] ?? lit[2] ?? lit[3] ?? "")
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** The body of the `{...}` opening at `open`, or null when unbalanced. Strings are skipped. */
+function balanced(src, open) {
+  let depth = 0;
+  for (let i = open; i < src.length; i += 1) {
+    const c = src[i];
+    if (c === '"' || c === "'" || c === "`") {
+      i += 1;
+      while (i < src.length && src[i] !== c) i += src[i] === "\\" ? 2 : 1;
+      continue;
+    }
+    if (c === "{") depth += 1;
+    else if (c === "}") {
+      depth -= 1;
+      if (depth === 0) return src.slice(open + 1, i);
+    }
+  }
+  return null;
+}
+
+/**
+ * `key: value` members at depth 0. Quoted keys are unquoted.
+ *
+ * COMMENTS ARE BLANKED FIRST, and that ordering is the bug this had. Splitting on `,` before
+ * stripping comments turns every comma INSIDE a comment into a member boundary, so the tail of a
+ * prose sentence becomes a "key": the first run reported an entry called
+ * `SHARED_ON_PURPOSE.and that is the finding` from an object that is empty apart from its note.
+ * Blanking preserves length, so the depth walk below still sees the real braces.
+ */
+function topLevelEntries(rawBody) {
+  // Idempotent: the allowlist provider hands in already-blanked text, and blanking it twice is
+  // a no-op. Kept so the function is correct for any caller, not only that one.
+  const body = blankComments(rawBody);
+  const out = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < body.length; i += 1) {
+    const c = body[i];
+    if (c === '"' || c === "'" || c === "`") {
+      i += 1;
+      while (i < body.length && body[i] !== c) i += body[i] === "\\" ? 2 : 1;
+      continue;
+    }
+    if ("{[(".includes(c)) depth += 1;
+    else if ("}])".includes(c)) depth -= 1;
+    else if (c === "," && depth === 0) {
+      pushEntry(out, body.slice(start, i));
+      start = i + 1;
+    }
+  }
+  pushEntry(out, body.slice(start));
+  return out;
+}
+
+/** Replace comment bodies with spaces, preserving length so brace depth still holds. */
+function blankComments(text) {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    const two = text.slice(i, i + 2);
+    if (two === "//") {
+      const nl = text.indexOf("\n", i);
+      const stop = nl === -1 ? text.length : nl;
+      out += " ".repeat(stop - i);
+      i = stop;
+      continue;
+    }
+    if (two === "/*") {
+      const end = text.indexOf("*/", i + 2);
+      const stop = end === -1 ? text.length : end + 2;
+      for (let k = i; k < stop; k += 1) out += text[k] === "\n" ? "\n" : " ";
+      i = stop;
+      continue;
+    }
+    const c = text[i];
+    if (c === '"' || c === "'" || c === "`") {
+      out += c;
+      i += 1;
+      while (i < text.length && text[i] !== c) {
+        if (text[i] === "\\") {
+          out += text[i];
+          i += 1;
+        }
+        out += text[i] ?? "";
+        i += 1;
+      }
+      out += text[i] ?? "";
+      i += 1;
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
+
+function pushEntry(out, chunk) {
+  const cleaned = chunk.trim();
+  if (!cleaned) return;
+  const at = cleaned.indexOf(":");
+  if (at === -1) return;
+  const key = cleaned
+    .slice(0, at)
+    .trim()
+    .replace(/^["'`]|["'`]$/g, "");
+  if (!key) return;
+  out.push({ key, value: cleaned.slice(at + 1).trim() });
+}
+
 export const PROVIDERS = {
   vitest: providerVitest,
   pytest: providerPytest,
   corpus: providerCorpus,
   table: providerPythonTables,
+  allowlist: providerAllowlists,
 };
 
 export function collectPins({ skipPython = false } = {}) {
@@ -441,7 +649,12 @@ function main(argv) {
         ? `${pins.length} open pins (all)`
         : `${shown.length} of ${pins.length} open pins touch ${scope.length} path(s)`;
     process.stdout.write(`\n${header}\n${"─".repeat(Math.max(header.length, 40))}\n`);
-    for (const group of ["table", "corpus", "vitest", "pytest"]) {
+    // DERIVED FROM `PROVIDERS`, NOT LISTED. This was a hardcoded array, and adding the
+    // allowlist provider made its rows collectable, countable and INVISIBLE: the header said
+    // "23 open pins" while the body printed the four groups the list happened to name. A
+    // ledger that silently omits a category is worse than one that omits nothing, because the
+    // count says otherwise.
+    for (const group of Object.keys(PROVIDERS)) {
       const rows = shown.filter((p) => p.source === group);
       if (rows.length === 0) continue;
       process.stdout.write(`\n[${group}]\n`);

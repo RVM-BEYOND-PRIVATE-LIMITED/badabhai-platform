@@ -1,5 +1,5 @@
 import { DraftProfileSchema, resumeProfileCarriesValues } from "@badabhai/ai-contracts";
-import { labelForTaxonomyId } from "@badabhai/taxonomy";
+import { labelForTaxonomyId, skillIdForPhrase } from "@badabhai/taxonomy";
 import { looksLikePii } from "@badabhai/validators";
 import type { ResumeExperienceLine, ResumeRenderInput } from "./resume-renderer.service";
 import { resolveTradeContent, type TradeContent } from "./trade-content";
@@ -403,6 +403,7 @@ function buildUndegraded(
       audience,
       capabilitySlots,
       capability.headlineTools,
+      capability.headlineAxes,
       tradeSheet?.qualification,
       hasEmployments,
       {
@@ -455,6 +456,12 @@ function buildUndegraded(
   const legacyCity =
     draft.location_preference.current_city ?? draft.location_preference.preferred_cities[0] ?? null;
   const legacyMachines = draft.machines.map(labelForTaxonomyId);
+  // R16 §2 — the third fallback for the headline's tools segment, and the SAME expression the
+  // `skills` slot below uses, so the strip and the chips can never name different things.
+  const legacySkills = mergeSkillsWithLabels(
+    draft.skills.map(labelForTaxonomyId),
+    draft.skill_labels.map(labelForTaxonomyId),
+  );
   const legacyAvailability = bareAvailability(draft.availability);
   // AUDIENCE-GATED HERE, not at the row, so the payer copy cannot acquire the worker's asking
   // price by someone adding a second call site. Same rule and same shape as the container path.
@@ -483,8 +490,23 @@ function buildUndegraded(
     ...buildVerdictLine({
       role: legacyRole,
       years: draft.experience.total_years,
-      // The pack's own headline row when the interview ran one, else the taxonomy machines.
-      tools: capability.headlineTools.length > 0 ? capability.headlineTools : legacyMachines,
+      // R16 §2 — Q17, RULED. ONE EXPRESSION, BOTH BRANCHES.
+      //
+      // These read `… : legacyMachines` on one branch and `… : skillChips` on the other, so with
+      // no role pack one worker's headline strip named his MACHINES and another's named his
+      // SKILLS, from the same answers. Neither expression was a bare literal and both branches
+      // passed the argument, so all six static assertions passed it — the fourth shape, found by
+      // the runtime whole-object diff and by nothing else.
+      //
+      // MACHINES BEFORE SKILLS, and the order is the ratified sheet's: its headline strip prints
+      // machines and controllers, which is the vocabulary a machining advertisement uses. Skills
+      // stay as the third fallback rather than being dropped, so a trade with no machine list
+      // still gets a third segment instead of a hole.
+      //
+      // THE REASON THE DIVERGENCE EXISTED IS GONE. The container branch had no machines list
+      // until R15 §1 gave it one; `draftQualification.machines` is the same draft column the
+      // legacy branch reads, so this is now literally the same fact on both sides.
+      tools: headlineToolsOrFallback(capability.headlineTools, legacyMachines, legacySkills),
       city: legacyCity,
       availability: legacyAvailability,
       // WAS HARD `null`, AND IT IS THE SAME MISS AS THE ROW BELOW — found by R12 §1.4, which
@@ -507,6 +529,19 @@ function buildUndegraded(
       // expression up rather than repeated here, which is why this reads the variable and never
       // `draft.salary_expectation` directly.
       salary: legacySalary,
+      // R16 §1 — THE FOURTH SEGMENT, WHICH HAD NEVER RENDERED FOR ANYBODY.
+      //
+      // `buildVerdictLine` has accepted `axes` since the sheet shipped, `resume-renderer.service`
+      // documents `{{headline_line}}` as "role · years · controllers · axis", and NEITHER branch
+      // passed it — so the slot contract described a segment no worker could get. The value was
+      // captured all along: `qp_vmc_milling` asks `axis_capability`, and `trade-resume-map` has
+      // been translating it to "3-axis"/"4-axis" for the machine chip. It just never travelled
+      // to the headline.
+      //
+      // A LITERAL `[]` WOULD NOT DO. `branch-parity.audit.test.ts` counts a bare literal as
+      // stubbed, exactly as it did for `salary: null` — the same class this is the fourth
+      // instance of.
+      axes: capability.headlineAxes,
     }),
     availFactRows: buildAvailabilityRows({
       availability: legacyAvailability,
@@ -698,6 +733,8 @@ function fromResumeProfile(
   capabilitySlots: TradeCapabilitySlots,
   /** The pack's headline row values, for the Verdict Line's third segment. */
   headlineTools: string[],
+  /** The pack's headline CONFIGURATION values — the Verdict Line's fourth segment (R16 §1). */
+  headlineAxes: string[],
   /**
    * Zone 5's values from the caller. The worker's own structured answer, never through the model.
    */
@@ -839,12 +876,15 @@ function fromResumeProfile(
     ...buildVerdictLine({
       role: roleLabel,
       years: totalYears,
-      // The pack's headline row (a turner's controllers) when the interview ran one, else the
-      // model's free-text skills — never invented.
-      tools: headlineTools.length > 0 ? headlineTools : skillChips,
+      // R16 §2 — the SAME expression the legacy branch uses. See the note there.
+      tools: headlineToolsOrFallback(headlineTools, [...draftQualification.machines], skillChips),
       city: cleanScalar(rp.current_city),
       availability: availabilityLabel,
       salary: salaryText,
+      // R16 §1 — see the legacy branch. PASSED IN rather than read here, for the same reason
+      // `headlineTools` is: this function receives `capabilitySlots` (a `Pick` of render-input
+      // fields, which cannot carry a non-slot value) and never the `capability` object itself.
+      axes: headlineAxes,
     }),
     availFactRows: buildAvailabilityRows({
       availability: availabilityLabel,
@@ -961,6 +1001,29 @@ function fromResumeProfile(
     controllers: [],
     responsibilities: [],
   };
+}
+
+/**
+ * The Verdict Line's third segment, resolved identically on both source branches (R16 §2).
+ *
+ * ONE FUNCTION RATHER THAN TWO MATCHING EXPRESSIONS, because two matching expressions are what
+ * Q17 was: they agreed when they were written and drifted apart without anything noticing. The
+ * runtime diff would catch a future divergence, but a shared binding makes the divergence
+ * unrepresentable, which is the same move `zone5` makes for Zone 5 one packet earlier.
+ *
+ * THE ORDER IS THE RATIFIED SHEET'S. The pack's own headline row wins when an interview ran it;
+ * else the worker's machines, which is what a machining advertisement names; else his skills, so
+ * a trade with no machine vocabulary still fills the segment rather than leaving a hole. Nothing
+ * here invents a value — every arm is something the worker answered.
+ */
+function headlineToolsOrFallback(
+  packRow: readonly string[],
+  machines: readonly string[],
+  skills: readonly string[],
+): string[] {
+  if (packRow.length > 0) return [...packRow];
+  if (machines.length > 0) return [...machines];
+  return [...skills];
 }
 
 /** Trimmed entries with the blanks removed — see the note at the `skills` call site. */
@@ -1166,10 +1229,35 @@ function mergeSkillsWithLabels(names: string[], labels: string[]): string[] {
       .replace(/[^a-z0-9]+/g, " ")
       .trim();
   const seen = new Set(names.map(norm));
+  // R16 §3 — DE-DUPE ON IDENTITY, NOT ON SPELLING.
+  //
+  // `names` are canonical labels resolved from ids; `labels` are the worker's own phrases. The
+  // string comparison below can only collapse the two where the two label tables happen to
+  // agree — which is precisely the cases that were never broken. Measured: the Python lexicon
+  // writes "fixture setup" while `SKILL_CORPUS.labelEn` says "Fixture / job setup", and four of
+  // the five ids the deterministic detector emits printed TWICE on a worker's résumé, today,
+  // with `SKILL_CANONICALIZE_ENABLED` off. Arming the alias layer would have added a fifth path
+  // into the same defect rather than creating it.
+  //
+  // THE ID SET IS BUILT FROM THE ids, NOT FROM `names`. `names` has already been through
+  // `labelForTaxonomyId`, so the ids are gone by the time this function sees them — which is why
+  // the caller passes them separately. Resolving a canonical LABEL back to its id also works
+  // (the index carries labels too), but going through the ids is exact and cannot be defeated by
+  // a label the corpus renames.
+  const ids = new Set(
+    names.map((n) => skillIdForPhrase(n)).filter((id): id is string => id !== null),
+  );
   const out = [...names];
   for (const label of labels) {
     const key = norm(label);
     if (!key || seen.has(key)) continue;
+    // THE PHRASE NAMES A SKILL ALREADY PRINTED. `kharad` and "Turning (lathe operation)" are one
+    // skill; printing both is the worker's own word listed as a second competence. Dropping the
+    // PHRASE rather than the canonical label is the existing precedence at this call site —
+    // reviewed English first — and reversing it is an owner ruling, not a default.
+    const id = skillIdForPhrase(label);
+    if (id !== null && ids.has(id)) continue;
+    if (id !== null) ids.add(id);
     seen.add(key);
     out.push(label);
   }

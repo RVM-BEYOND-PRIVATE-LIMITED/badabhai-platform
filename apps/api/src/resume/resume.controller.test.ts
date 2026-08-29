@@ -80,10 +80,17 @@ describe("ResumeController (thin) — delegation", () => {
     expect(resume.regenerate).toHaveBeenCalledWith(RES_ID, CTX);
   });
 
-  it("share delegates to recordShare", async () => {
-    const { controller, resume } = make();
-    await controller.share(RES_ID, { channel: "whatsapp" }, CTX);
-    expect(resume.recordShare).toHaveBeenCalledWith(RES_ID, { channel: "whatsapp" }, CTX);
+  it("share applies the per-IP cap FIRST, then delegates with the authed worker id", async () => {
+    // R16 §5.1 — the worker id is the point. It comes from the SESSION, never from the body,
+    // so a client cannot name whose share this was.
+    const { controller, resume, ipRateLimit } = make();
+    await controller.share(RES_ID, OWNER, { channel: "link" }, IP, CTX);
+    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
+      "resume_share",
+      IP,
+      expect.any(Number),
+    );
+    expect(resume.recordShare).toHaveBeenCalledWith(OWNER.id, RES_ID, { channel: "link" }, CTX);
   });
 
   it("download applies the per-IP cap FIRST, then delegates with the authed worker id", async () => {

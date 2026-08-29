@@ -73,7 +73,10 @@ describe("B-3 — POST /resume/generate is consent-gated (wiring)", () => {
   it("does NOT put ConsentGuard on the InternalServiceGuard routes", () => {
     // A class-level ConsentGuard would 401 the extraction pipeline: internal callers
     // carry no worker session. This pins the per-route application.
-    for (const route of ["get", "regenerate", "share"] as const) {
+    // `share` LEFT THIS LIST IN R16 §5.1 — it is worker-authed and consent-gated now, because
+    // an internal-only route made `resume.shared` unreachable by the only caller that would
+    // ever emit it. Its own guards are pinned in the describe below.
+    for (const route of ["get", "regenerate"] as const) {
       const guards = declaredGuards(route);
       expect(guards).toContain(InternalServiceGuard);
       expect(guards).not.toContain(ConsentGuard);
@@ -105,5 +108,20 @@ describe("B-3 — the real ConsentGuard's contract on that route", () => {
   it("the 403 carries no PII (only the opaque worker id the caller already owns)", async () => {
     const guard = new ConsentGuard(repoReturning(revokedRow), new Reflector());
     await expect(guard.canActivate(ctx(WORKER))).rejects.toThrow(/consent/i);
+  });
+});
+
+describe("R16 §5.1 — POST /resume/:id/share is worker-authed, consent-gated and owned", () => {
+  it("declares WorkerAuthGuard BEFORE ConsentGuard", () => {
+    const guards = declaredGuards("share");
+    expect(guards).toContain(WorkerAuthGuard);
+    expect(guards).toContain(ConsentGuard);
+    expect(guards.indexOf(WorkerAuthGuard)).toBeLessThan(guards.indexOf(ConsentGuard));
+  });
+
+  it("no longer carries InternalServiceGuard", () => {
+    // The app holds no internal-service secret, so while this guard was on the route the
+    // `resume.shared` metric could not be written by anyone at all.
+    expect(declaredGuards("share")).not.toContain(InternalServiceGuard);
   });
 });

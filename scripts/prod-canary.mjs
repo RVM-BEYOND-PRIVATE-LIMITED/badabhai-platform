@@ -124,7 +124,10 @@ export const OPS_ROUTES = [
 
   // ── resume artifacts ──
   ["GET", `/resume/${ABSENT_ID}`],
-  ["POST", `/resume/${ABSENT_ID}/share`, {}],
+  // R16 §5.1 — REMOVED. `POST /resume/:id/share` is no longer an InternalServiceGuard route;
+  // it is worker-authed and consent-gated, so it belongs to the worker surface rather than the
+  // ops one. `canary-coverage.test.ts` derives this list from the guards, so leaving it here
+  // would assert an internal route that no longer exists.
   ["POST", `/resume/${ABSENT_ID}/regenerate`, {}],
 
   // ── pricing (an unauthenticated PUT here repriced the whole catalog) ──
@@ -218,7 +221,10 @@ function assertTransportSafeForSecrets(base) {
   }
   if (url.protocol === "https:") return;
   const host = url.hostname;
-  if (url.protocol === "http:" && (host === "localhost" || host === "127.0.0.1" || host === "::1")) {
+  if (
+    url.protocol === "http:" &&
+    (host === "localhost" || host === "127.0.0.1" || host === "::1")
+  ) {
     return;
   }
   fail(
@@ -252,7 +258,9 @@ async function main() {
   console.log(`[prod-canary]   target : ${base}`);
   console.log(
     `[prod-canary]   stages : health + guards + consent${
-      opsStage ? " + ops-token reachability" : " (ops-token stage SKIPPED — PROD_CANARY_OPS_TOKEN not set)"
+      opsStage
+        ? " + ops-token reachability"
+        : " (ops-token stage SKIPPED — PROD_CANARY_OPS_TOKEN not set)"
     }`,
   );
 
@@ -282,7 +290,9 @@ async function main() {
         "publish a VERIFIED job posting into workers' feeds. Stop the release.",
     );
   }
-  console.log(`[prod-canary] PASS  stage 2 — all ${OPS_ROUTES.length} ops routes reject an anonymous caller`);
+  console.log(
+    `[prod-canary] PASS  stage 2 — all ${OPS_ROUTES.length} ops routes reject an anonymous caller`,
+  );
 
   // ── STAGE 3 — the DPDP consent gate holds ─────────────────────────────────
   const gateLeaks = [];
@@ -311,7 +321,9 @@ async function main() {
       if (method !== "GET") continue; // never send a write, even a rejected one, with a real token
       const res = await call(base, method, path, body, OPS_TOKEN.trim());
       if (REJECTED.has(res.status)) blocked.push(`${method} ${path} -> ${res.status}`);
-      console.log(`[prod-canary]   ${REJECTED.has(res.status) ? "FAIL" : "ok  "} ${method} ${path} -> ${res.status}`);
+      console.log(
+        `[prod-canary]   ${REJECTED.has(res.status) ? "FAIL" : "ok  "} ${method} ${path} -> ${res.status}`,
+      );
     }
     if (blocked.length > 0) {
       fail(

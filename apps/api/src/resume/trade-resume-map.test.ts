@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  headlineAxesFor,
   buildTradeCapabilityRows,
   CAPABILITY_ROW_BUDGET,
   TRADE_RESUME_MAPS,
@@ -237,6 +238,7 @@ describe("trade resume map — qp_cnc_turning", () => {
     expect(buildTradeCapabilityRows("qp_welding", { welding_process: ["mig"] })).toEqual({
       sectionTitle: null,
       headlineTools: [],
+      headlineAxes: [],
       chipRows: [],
       tickRows: [],
       factRows: [],
@@ -347,10 +349,21 @@ describe("trade resume map — qp_cnc_turning", () => {
      * own decision; one `values` object reachable from two packs is a single vocabulary asserted
      * to be role-independent. The second is the claim this catches.
      */
-    const SHARED_ON_PURPOSE: Readonly<Record<string, string>> = {
+    /**
+     * R16 §0 — a row here is a SUPPRESSION, so it carries the observable that would end it.
+     *
+     * The shape used to be `Record<string, string>`: a bare reason, which is prose, and prose
+     * does not expire. The row this file's own rename replaced — `MEASURING_TOOLS` documented
+     * as "shared by every machining-family pack: the instruments do not change by role" — was
+     * true against one pack and false against the second, and nothing could say so. A reason
+     * explains; a falsifier is checkable.
+     */
+    const SHARED_ON_PURPOSE: Readonly<
+      Record<string, { readonly reason: string; readonly falsifiedBy: string }>
+    > = {
       // Empty, and that is the finding: after the rename, nothing in this file claims to be
-      // role-independent. A row added here must say WHICH two trades were compared and why the
-      // vocabulary genuinely does not change between them.
+      // role-independent. A row added here must say WHICH two trades were compared, why the
+      // vocabulary genuinely does not change between them, and what would make that false.
     };
 
     const owners = new Map<object, string[]>();
@@ -511,5 +524,85 @@ describe("trade resume map — qp_vmc_milling against the ratified sample", () =
     // turner map's rank comment warns against — so it is measured and routed, not fixed.
     expect(kept.has("Workholding")).toBe(true);
     expect(kept.has("Sector worked")).toBe(false);
+  });
+});
+
+describe("R16 §1 — the headline axes opt-in", () => {
+  // WHY THESE ARE SYNTHETIC SPECS. `qp_vmc_milling` is the only shipped map using `configFrom`,
+  // so deleting the `configInHeadline` check changes no rendered output and the whole suite stays
+  // green — measured, and the mutation survived. The flag is a claim the shipped data cannot
+  // contradict, which is the `MEASURING_TOOLS` shape one packet on. A spec written here can
+  // contradict it.
+  const base = {
+    from: "milling_machine",
+    rank: 21,
+    kind: "chips",
+    label: "Machines",
+    values: { vmc: "VMC" },
+    configFrom: "axis_capability",
+    configValues: { three_axis: "3-axis", four_axis: "4-axis", five_axis: "5-axis" },
+  } as const;
+  const attrs = { axis_capability: ["four_axis", "three_axis"] };
+
+  it("contributes nothing unless the row OPTS IN", () => {
+    expect(headlineAxesFor({ ...base }, attrs)).toEqual([]);
+  });
+
+  it("contributes the dictionary-ordered labels when it does", () => {
+    expect(headlineAxesFor({ ...base, configInHeadline: true }, attrs)).toEqual([
+      "3-axis",
+      "4-axis",
+    ]);
+  });
+
+  it("contributes nothing when the worker answered no configuration", () => {
+    expect(headlineAxesFor({ ...base, configInHeadline: true }, {})).toEqual([]);
+  });
+
+  it("drops a slug the dictionary does not know, like every other value here", () => {
+    expect(
+      headlineAxesFor({ ...base, configInHeadline: true }, { axis_capability: ["unknown"] }),
+    ).toEqual([]);
+  });
+
+  it("exactly one shipped row opts in today, and it is the miller's", () => {
+    // The record of how far the claim currently reaches. If a second row opts in, this fails and
+    // whoever added it states why that configuration is an AXIS rather than some other qualifier.
+    const optedIn = TRADE_RESUME_MAPS.flatMap((m) =>
+      m.capability.filter((r) => r.configInHeadline).map((r) => `${m.pack_id}.${r.from}`),
+    );
+    expect(optedIn).toEqual(["qp_vmc_milling.milling_machine"]);
+  });
+});
+
+describe("R16 §1 — the chip and the headline state the axis fact ONCE, the same way", () => {
+  const REVERSED = { milling_machine: ["vmc"], axis_capability: ["four_axis", "three_axis"] };
+
+  it("the machine chip and the headline agree on order", () => {
+    // These read the same dictionary through two different paths — `appendConfiguration` for the
+    // chip and `headlineAxesFor` for the segment. Before R16 §1 the chip used the worker's answer
+    // order and the headline used the dictionary's, so a man who tapped four-axis first would
+    // have read "VMC · 4-axis, VMC · 3-axis" beside a headline saying "3 & 4-axis": one fact,
+    // two orders, one page.
+    const rows = buildTradeCapabilityRows("qp_vmc_milling", REVERSED);
+    const machines = rows.chipRows.find((r) => r.label === "Machines");
+    expect(machines?.values).toEqual(["VMC · 3-axis", "VMC · 4-axis"]);
+    expect(rows.headlineAxes).toEqual(["3-axis", "4-axis"]);
+  });
+
+  it("no shipped row can print its configuration in BOTH headline segments", () => {
+    // THE TRAP THE OPT-IN DOES NOT CLOSE ON ITS OWN. `headlineTools` is pushed the CONFIGURED
+    // values, so a row carrying both `inHeadline` and `configInHeadline` would put the axis
+    // labels in the tools segment and again in the axis segment — "… · Fanuc, 3-axis · 3 & 4-axis".
+    // Nothing about `configInHeadline` prevents that pairing; this is what prevents it.
+    const both = TRADE_RESUME_MAPS.flatMap((m) =>
+      m.capability
+        .filter((r) => r.inHeadline && r.configInHeadline)
+        .map((r) => `${m.pack_id}.${r.from}`),
+    );
+    expect(
+      both,
+      "this row would print its configuration twice in one headline — split the row or drop one flag",
+    ).toEqual([]);
   });
 });
