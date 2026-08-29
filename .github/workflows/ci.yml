@@ -1465,18 +1465,7 @@ jobs:
     # still built only on a push to main), and no app was removed from it. A matrix job's
     # aggregate `result` is `failure` if ANY leg failed, so one app's broken Dockerfile still
     # fails this check.
-    needs:
-      [
-        changes,
-        node,
-        ai-service,
-        image-gate,
-        e2e,
-        worker-app,
-        payer-app,
-        sast,
-        deps-audit,
-      ]
+    needs: [changes, node, ai-service, image-gate, e2e, worker-app, payer-app, sast, deps-audit]
     runs-on: ubuntu-latest
     steps:
       - name: Check for CI failures
@@ -1899,6 +1888,11 @@ jobs:
           AI_ENABLE_REAL_CALLS: ${{ secrets.AI_ENABLE_REAL_CALLS }}
           GEMINI_FLASH_API_KEY: ${{ secrets.GEMINI_FLASH_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # The section-8 override switch (#1350 / ADR-0039): may the model REPHRASE a worker's
+          # work-history description before it is printed. Off is the pre-ruling behaviour —
+          # the worker's own words — and is what an unset or empty secret resolves to, because
+          # compose's `:-` form treats empty as absent. Fail-closed by construction.
+          WORK_HISTORY_POLISH_ENABLED: ${{ secrets.WORK_HISTORY_POLISH_ENABLED }}
 
           # Payer OTP email (ADR-0019) — the ZeptoMail analogue of the FAST2SMS_* trio
           # above. EMAIL_PROVIDER/ZEPTOMAIL_SANDBOX_MODE are NOT here: they now default
@@ -2036,7 +2030,28 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED
+          #
+          # ⚠ FIVE LINKS, AND A SECRET ONLY BUYS THE FIRST. A value reaches a container by:
+          #   1. existing as a GitHub environment secret
+          #   2. a `FOO: ${{ secrets.FOO }}` line in the `env:` block above
+          #   3. its NAME in this `envs:` allowlist — appleboy forwards nothing else
+          #   4. the box's shell, where the deploy script runs
+          #   5. a `${FOO:-default}` passthrough in docker-compose.staging.yml
+          # Miss any one and the value is silently absent: the feature reads as BROKEN rather
+          # than as unarmed, and the next move is hunting a bug in a path that never ran. That
+          # is #794 (WORKER_PHOTOS_BUCKET) and #798 (AI_ENABLE_REAL_CALLS), twice.
+          #
+          # ONE VARIABLE IS DELIBERATELY LEFT OUT OF LINKS 2 AND 3, and it must stay out:
+          # `AI_REAL_CALL_TASKS`. Bridging it would let a GitHub secret add a task to the
+          # real-call allowlist with no code review, which is the one decision that must not be
+          # editable from the secrets UI. Widening it is a reviewed change to the compose
+          # default. `deploy-workflow-taxonomy.guard.test.ts` pins that absence.
+          #
+          # `secret-parity-check.yml` does NOT cover this. It compares the bridges against
+          # compose's REQUIRED (`${VAR:?...}`) vars only, so every optional `${VAR:-default}`
+          # flag — which is most feature switches, including both added here — is invisible to
+          # it. Adding one is a manual four-place edit until that check is widened.
           # #994 — THE BODY OF THIS DEPLOY LIVES IN scripts/deploy/staging-deploy.sh.
           #
           # It is not inlined here because GitHub Actions caps a single step input at
