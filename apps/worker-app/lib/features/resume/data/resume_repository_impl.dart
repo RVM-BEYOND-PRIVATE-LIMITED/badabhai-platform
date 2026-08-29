@@ -145,4 +145,24 @@ class ResumeRepositoryImpl implements ResumeRepository {
       return null;
     }
   }
+
+  @override
+  Future<void> setEmploymentDescriptionSource(
+    String employmentId, {
+    required bool ownWords,
+  }) async {
+    final String? token = _session.sessionToken;
+    if (token == null) {
+      throw const UnauthorizedFailure();
+    }
+    try {
+      await _api.setEmploymentDescriptionSource(
+        employmentId: employmentId,
+        ownWords: ownWords,
+        authToken: token,
+      );
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
 }

@@ -286,4 +286,79 @@ void main() {
       await expectLater(repo.reportShared('whatsapp'), completes);
     });
   });
+
+  // #1353/#1354 — the worker's choice of which text prints for one
+  // work-history entry. UNLIKE reportShared, this NEVER swallows a failure.
+  group('setEmploymentDescriptionSource', () {
+    test('PUTs {"source":"own_words"} to the right path with the session bearer',
+        () async {
+      late http.Request captured;
+      final ResumeRepositoryImpl repo = _repo(MockClient((http.Request req) async {
+        captured = req;
+        return http.Response(
+          jsonEncode(<String, dynamic>{'ok': true, 'stints_updated': 1}),
+          200,
+        );
+      }));
+
+      await repo.setEmploymentDescriptionSource('emp-1', ownWords: true);
+
+      expect(captured.method, 'PUT');
+      expect(captured.url.path, '/workers/me/employment/emp-1/description-source');
+      expect(captured.headers['authorization'], 'Bearer tok');
+      expect(jsonDecode(captured.body), <String, dynamic>{'source': 'own_words'});
+    });
+
+    test('ownWords: false PUTs {"source":"polished"} — reversible in both directions',
+        () async {
+      late http.Request captured;
+      final ResumeRepositoryImpl repo = _repo(MockClient((http.Request req) async {
+        captured = req;
+        return http.Response(jsonEncode(<String, dynamic>{'ok': true}), 200);
+      }));
+
+      await repo.setEmploymentDescriptionSource('emp-1', ownWords: false);
+
+      expect(jsonDecode(captured.body), <String, dynamic>{'source': 'polished'});
+    });
+
+    test('404 (a foreign/unknown employment id) maps to ServerFailure — an '
+        'honest failure, NEVER a silent no-op', () {
+      final ResumeRepositoryImpl repo = _repo(MockClient(
+          (http.Request req) async => http.Response('{}', 404)));
+
+      expect(
+        repo.setEmploymentDescriptionSource('emp-1', ownWords: true),
+        throwsA(isA<ServerFailure>()),
+      );
+    });
+
+    test('401 -> UnauthorizedFailure', () {
+      final ResumeRepositoryImpl repo = _repo(MockClient(
+          (http.Request req) async => http.Response('{}', 401)));
+
+      expect(
+        repo.setEmploymentDescriptionSource('emp-1', ownWords: true),
+        throwsA(isA<UnauthorizedFailure>()),
+      );
+    });
+
+    test('no session token fails closed with UnauthorizedFailure, and NOTHING is sent',
+        () async {
+      final List<String> hits = <String>[];
+      final ResumeRepositoryImpl repo = _repo(
+        MockClient((http.Request req) async {
+          hits.add(req.url.path);
+          return http.Response('{}', 200);
+        }),
+        token: null,
+      );
+
+      await expectLater(
+        repo.setEmploymentDescriptionSource('emp-1', ownWords: true),
+        throwsA(isA<UnauthorizedFailure>()),
+      );
+      expect(hits, isEmpty);
+    });
+  });
 }
