@@ -314,4 +314,114 @@ void main() {
       expect(cubit.state.document, same(tradeSheet));
     });
   });
+
+  // #1353/#1354 — the worker's choice of which text prints for one
+  // work-history entry. UNLIKE reportShared, this NEVER swallows a failure
+  // (mirrors resolveDownloadUrl).
+  group('setEmploymentDescriptionSource', () {
+    const ResumeDocument tradeSheet = TradeSheetResumeDocument(
+      header: ResumeDocumentHeaderDto(name: 'Suresh Yadav'),
+      trade: 'cnc_turner',
+    );
+    const ResumeDocument reloadedSheet = TradeSheetResumeDocument(
+      header: ResumeDocumentHeaderDto(name: 'Suresh Yadav'),
+      trade: 'cnc_turner',
+      employmentsMore: 'reloaded',
+    );
+
+    blocTest<ResumeCubit, ResumeState>(
+      'success -> PUTs the choice then RE-FETCHES the document, keeping the '
+      'resume text and night-shift pref already on screen',
+      build: () {
+        when(() => repo.setEmploymentDescriptionSource(any(),
+                ownWords: any(named: 'ownWords')))
+            .thenAnswer((_) async {});
+        when(() => repo.loadResumeDocument())
+            .thenAnswer((_) async => reloadedSheet);
+        return ResumeCubit(repo, editRepo);
+      },
+      seed: () => const ResumeState(
+        status: ResumeStatus.ready,
+        resumeText: 'good resume',
+        nightShiftReady: true,
+        document: tradeSheet,
+      ),
+      act: (ResumeCubit c) =>
+          c.setEmploymentDescriptionSource('emp-1', ownWords: true),
+      expect: () => const <ResumeState>[
+        ResumeState(
+          status: ResumeStatus.ready,
+          resumeText: 'good resume',
+          nightShiftReady: true,
+          document: reloadedSheet,
+        ),
+      ],
+      verify: (_) {
+        verify(() => repo.setEmploymentDescriptionSource('emp-1',
+            ownWords: true)).called(1);
+        verify(() => repo.loadResumeDocument()).called(1);
+      },
+    );
+
+    blocTest<ResumeCubit, ResumeState>(
+      'ownWords: false is passed straight through — reversible in both '
+      'directions',
+      build: () {
+        when(() => repo.setEmploymentDescriptionSource(any(),
+                ownWords: any(named: 'ownWords')))
+            .thenAnswer((_) async {});
+        when(() => repo.loadResumeDocument())
+            .thenAnswer((_) async => reloadedSheet);
+        return ResumeCubit(repo, editRepo);
+      },
+      act: (ResumeCubit c) =>
+          c.setEmploymentDescriptionSource('emp-1', ownWords: false),
+      expect: () => const <ResumeState>[
+        ResumeState(document: reloadedSheet),
+      ],
+      verify: (_) {
+        verify(() => repo.setEmploymentDescriptionSource('emp-1',
+            ownWords: false)).called(1);
+      },
+    );
+
+    test(
+        'a write failure PROPAGATES the Failure — never a silent no-op over '
+        'a sentence carrying the worker\'s name', () async {
+      when(() => repo.setEmploymentDescriptionSource(any(),
+              ownWords: any(named: 'ownWords')))
+          .thenThrow(const ServerFailure(404));
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      addTearDown(cubit.close);
+
+      await expectLater(
+        cubit.setEmploymentDescriptionSource('emp-1', ownWords: true),
+        throwsA(isA<ServerFailure>()),
+      );
+      // The write never even reached the point of reloading.
+      verifyNever(() => repo.loadResumeDocument());
+    });
+
+    test(
+        'a write success but a hiccupping reload KEEPS the document already '
+        'on screen (mirrors refreshNightShift: stale beats blanked)',
+        () async {
+      when(() => repo.setEmploymentDescriptionSource(any(),
+              ownWords: any(named: 'ownWords')))
+          .thenAnswer((_) async {});
+      when(() => repo.loadResumeDocument())
+          .thenAnswer((_) async => tradeSheet);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      addTearDown(cubit.close);
+      await cubit.showGenerated('good resume');
+      expect(cubit.state.document, same(tradeSheet));
+
+      when(() => repo.loadResumeDocument()).thenThrow(const NetworkFailure());
+      await cubit.setEmploymentDescriptionSource('emp-1', ownWords: true);
+
+      expect(cubit.state.document, same(tradeSheet));
+      expect(cubit.state.status, ResumeStatus.ready);
+      expect(cubit.state.resumeText, 'good resume');
+    });
+  });
 }
