@@ -257,8 +257,11 @@ void main() {
     expect(find.text('Kaam milega.'), findsOneWidget);
 
     await tester.tap(find.text('Profile'));
-    await _pumpUntil(tester, find.text('Profile strength'));
-    expect(find.text('Profile strength'), findsOneWidget);
+    // #1322: the count-based "Profile strength" card is gone (the number was a
+    // grade §9.2 forbids). Land on the persistent "Skills aur anubhav" card, which
+    // the Profile tab always renders, as the stable tab landmark.
+    await _pumpUntil(tester, find.text('Skills aur anubhav'));
+    expect(find.text('Skills aur anubhav'), findsOneWidget);
     expect(_navIndex(tester), _kProfileTab);
 
     // ── 8b. INTERVIEW KIT — opening it from Profile must NOT move the bottom
@@ -274,7 +277,7 @@ void main() {
     // Back returns to Profile, still on the Profile tab.
     await tester.pageBack();
     await tester.pumpAndSettle();
-    expect(find.text('Profile strength'), findsOneWidget);
+    expect(find.text('Skills aur anubhav'), findsOneWidget);
     expect(_navIndex(tester), _kProfileTab);
 
     // T5: the badge is lit on the Profile header bell BEFORE Alerts is opened.

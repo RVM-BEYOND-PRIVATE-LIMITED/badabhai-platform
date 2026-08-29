@@ -1,10 +1,9 @@
-// WA-4: the Profile-strength card renders the backend's raw signal COUNT
-// honestly. The backend `strength` is an integer count (countFields recomputed
-// on read) with NO denominator on the wire; the card used to render
-// `count * 100 %` (a 7-signal profile read "700%") over a bar fed the raw
-// count, plus a "photo → 100%" line no backend field backs. Now: "N signals"
-// with actionable copy, and a real N/max meter ONLY when the backend ships
-// `strength_max`. No percent is ever fabricated.
+// #1322: the Profile-strength CONSUMER on the Profile tab. The tab no longer
+// renders the raw signal count as a card ("N cheezein" / "N/max" was a grade the
+// spec §9.2 forbids); it now renders the ProfileStrengthCard nudge — three bands,
+// at most ONE humanized prompt, and silence at Strong. These tests assert the
+// nudge integrates on the tab; the band/one-nudge/never-a-grade rules themselves
+// live in widgets/profile_strength_card_test.dart.
 import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,11 +13,11 @@ import 'package:mocktail/mocktail.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
-import 'package:badabhai_worker_app/core/widgets/bb_progress_bar.dart';
 import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary.dart';
 import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary_repository.dart';
 import 'package:badabhai_worker_app/features/profile_tab/presentation/cubit/profile_tab_cubit.dart';
 import 'package:badabhai_worker_app/features/profile_tab/presentation/profile_tab_screen.dart';
+import 'package:badabhai_worker_app/features/profile_tab/presentation/widgets/profile_strength_card.dart';
 
 class MockProfileSummaryRepository extends Mock
     implements ProfileSummaryRepository {}
@@ -48,66 +47,70 @@ void main() {
   tearDown(() async => locator.reset());
 
   testWidgets(
-    '0-state is actionable, not broken-looking: "0 cheezein" + a concrete '
-    'next step, no bar, no percent',
+    'a WEAK profile shows exactly one humanized nudge for the largest missing '
+    'weight (missing_fields.first), never a number and never a raw slug',
     (WidgetTester tester) async {
       await _pump(
         tester,
-        const ProfileSummary(tradeLabel: 'Fitter', strengthSignals: 0),
+        const ProfileSummary(
+          tradeLabel: 'Fitter',
+          strengthSignals: 1,
+          strengthMax: 9,
+          // Ordered largest-weight-first by the server; only `.first` is shown.
+          missingFields: <String>['role', 'skills', 'photo'],
+        ),
       );
 
-      expect(find.text('Profile strength'), findsOneWidget);
-      expect(find.text('0 cheezein'), findsOneWidget);
-      expect(
-        find.text(
-          'Abhi profile khaali hai — chat mein apne skills aur experience batayein.',
-        ),
-        findsOneWidget,
-      );
-      // No denominator on the wire → no bar and no fabricated percent.
-      expect(find.byType(BbProgressBar), findsNothing);
+      expect(find.text(kProfileStrengthWeakTitle), findsOneWidget);
+      expect(find.text('Sabse zaroori: apna kaam / role jodein.'), findsOneWidget);
+      // Only ONE nudge: the lower-weight missing slots are not surfaced.
+      expect(find.textContaining('apni skills'), findsNothing);
+      expect(find.textContaining('apni photo'), findsNothing);
+      // Never a grade: no "N/9" fraction and no percent anywhere on screen.
+      expect(find.textContaining('/9'), findsNothing);
       expect(find.textContaining('%'), findsNothing);
     },
   );
 
   testWidgets(
-    'N-state renders the honest COUNT in DS voice (a 7-signal profile is '
-    '"7 cheezein", never "700%" and never dev vocabulary)',
-    (WidgetTester tester) async {
-      await _pump(
-        tester,
-        const ProfileSummary(tradeLabel: 'CNC Operator', strengthSignals: 7),
-      );
-
-      expect(find.text('7 cheezein'), findsOneWidget);
-      expect(
-        find.text(
-          'Profile mein 7 cheezein complete — chat mein aur jankari denge to aur strong hogi.',
-        ),
-        findsOneWidget,
-      );
-      // The pre-fix rendering (count * 100 %) must never come back, and "signals"
-      // is dev vocabulary — it stays out of the UI (L-2).
-      expect(find.textContaining('%'), findsNothing);
-      expect(find.textContaining('signals'), findsNothing);
-      expect(find.byType(BbProgressBar), findsNothing);
-    },
-  );
-
-  testWidgets(
-    'a REAL backend denominator (strength_max) lights up the N/max meter',
+    'a FAIR profile shows the single highest-value item, framed as one more thing',
     (WidgetTester tester) async {
       await _pump(
         tester,
         const ProfileSummary(
           tradeLabel: 'CNC Operator',
-          strengthSignals: 6,
-          strengthMax: 12,
+          strengthSignals: 5,
+          strengthMax: 9,
+          missingFields: <String>['salary', 'photo'],
         ),
       );
 
-      expect(find.text('6/12'), findsOneWidget);
-      expect(find.byType(BbProgressBar), findsOneWidget);
+      expect(find.text(kProfileStrengthFairTitle), findsOneWidget);
+      expect(find.text('Ek aur cheez: salary ki ummeed jodein.'), findsOneWidget);
+      expect(find.text(kProfileStrengthWeakTitle), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'a STRONG profile is silent — the strength card collapses to nothing even '
+    'when a low-weight field is still missing',
+    (WidgetTester tester) async {
+      await _pump(
+        tester,
+        const ProfileSummary(
+          tradeLabel: 'VMC Operator',
+          strengthSignals: 8,
+          strengthMax: 9,
+          missingFields: <String>['photo'],
+        ),
+      );
+
+      // No nudge is shown at Strong — the card collapses to nothing — while the
+      // rest of the profile still renders below it.
+      expect(find.text(kProfileStrengthWeakTitle), findsNothing);
+      expect(find.text(kProfileStrengthFairTitle), findsNothing);
+      expect(find.textContaining('apni photo'), findsNothing);
+      expect(find.text('Skills aur anubhav'), findsOneWidget);
     },
   );
 
