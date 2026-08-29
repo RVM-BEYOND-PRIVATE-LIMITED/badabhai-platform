@@ -465,6 +465,47 @@ describe("member-invite config (ADR-0027 B5.4 — mock mailer in alpha, fail-clo
   });
 });
 
+describe("OTP per-caller send/verify budgets (#1306)", () => {
+  it("defaults the per-device send cap to 200 — a runaway-client breaker, not an attacker control", () => {
+    // WHY THIS IS PINNED AT ALL. `X-Device-Id` is an unauthenticated, caller-chosen header
+    // (`senderOf` takes any 8-256 char string, no attestation), so this cap never bound an
+    // abuser — they mint a fresh uuid per request. At its old value of 20 the population it
+    // reliably bound was our own QA testing many numbers from one handset, which is #1306. Its
+    // remaining job is the ACCIDENT: one handset with a stuck resend button or a retry loop in
+    // a bad build must not bill us at Fast2SMS line rate. Unasserted, this number could drift
+    // back down and reintroduce the outage with nothing failing.
+    expect(loadServerConfig({}).OTP_MAX_SENDS_PER_DEVICE_PER_HOUR).toBe(200);
+  });
+
+  it("keeps the verify budget DERIVED from the send budget (sends x OTP_MAX_ATTEMPTS)", () => {
+    // NOT TWO INDEPENDENT NUMBERS. A handset inside its send budget can legitimately produce
+    // OTP_MAX_SENDS_PER_DEVICE_PER_HOUR x OTP_MAX_ATTEMPTS verifies in the same hour, so moving
+    // the send cap without this one makes VERIFY the binding constraint at a fraction of the
+    // sends it is meant to service — trading a send-side 429 for the strictly worse verify-side
+    // one, where the worker is holding a valid code they cannot spend.
+    //
+    // ASSERTED AS THE RATIO, not as 1000, so the next person to move either number is told
+    // about the other. The controller test asserts the same relation against its fixture; this
+    // is the copy that binds the REAL shipped defaults.
+    const c = loadServerConfig({});
+    expect(c.OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR).toBe(
+      c.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR * c.OTP_MAX_ATTEMPTS,
+    );
+  });
+
+  it("keeps the per-phone SMS budgets DISTINCT from the per-caller ones", () => {
+    // The category error this file has caught before: a per-PHONE budget (how many texts one
+    // NUMBER may receive — real Fast2SMS spend) passed to a per-CALLER limiter. Equal numbers
+    // would let the next such swap pass unnoticed.
+    const c = loadServerConfig({});
+    expect(c.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR).not.toBe(c.OTP_MAX_SENDS_PER_HOUR);
+    expect(c.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR).not.toBe(c.OTP_MAX_SENDS_PER_DAY);
+    // The per-phone caps are what actually bound spend and are deliberately UNCHANGED by #1306.
+    expect(c.OTP_MAX_SENDS_PER_HOUR).toBe(5);
+    expect(c.OTP_MAX_SENDS_PER_DAY).toBe(10);
+  });
+});
+
 describe("OTP global daily send circuit-breaker (OTP-5 — the spend ceiling + kill-switch)", () => {
   it("defaults the worker cap to 10000 (#1306) and leaves the payer cap at 2000", () => {
     // THE TWO ARE NOT ONE NUMBER, and #1306 is why they diverged. The worker breaker stopped
