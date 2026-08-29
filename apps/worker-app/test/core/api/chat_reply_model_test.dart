@@ -430,4 +430,92 @@ void main() {
       expect(reply.ttsText, isNull);
     });
   });
+
+  // #1339/#1340 — the interview handed over to a form. Set on exactly one
+  // turn per interview, null on every other (including every degraded/blocked
+  // reply). Parsed with the same #371 discipline as every other object field:
+  // a malformed offer degrades to no card, never a lost reply.
+  group('form_offer parsing (#1339/#1340)', () {
+    test('a well-formed object parses onto formOffer', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'CNC turner profile detected. Ab form bharkar resume pura karein.',
+        'question_kind': 'close',
+        'session_ended': true,
+        'extraction_ready': false,
+        'form_offer': <String, dynamic>{
+          'kind': 'cnc_turner',
+          'headline': 'CNC turner profile detected',
+          'cta_label': 'Form bharkar resume pura karein',
+        },
+      });
+
+      expect(reply.formOffer, isNotNull);
+      expect(reply.formOffer!.kind, 'cnc_turner');
+      expect(reply.formOffer!.headline, 'CNC turner profile detected');
+      expect(reply.formOffer!.ctaLabel, 'Form bharkar resume pura karein');
+      // The wire contract sets these ALONGSIDE the offer — asserted here so a
+      // future edit to either cannot silently decouple them.
+      expect(reply.sessionEnded, isTrue);
+      expect(reply.extractionReady, isFalse);
+    });
+
+    test('an absent key -> null (every ordinary turn, including deterministic)',
+        () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Aur bataiye.',
+      });
+      expect(reply.formOffer, isNull);
+    });
+
+    test('an explicit JSON null -> null, matching the documented default', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Aur bataiye.',
+        'form_offer': null,
+      });
+      expect(reply.formOffer, isNull);
+    });
+
+    test('a non-map form_offer degrades to null, the reply survives (#371)', () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'Bada bhai ka jawaab',
+        'form_offer': 'nonsense',
+      });
+      expect(reply.reply, 'Bada bhai ka jawaab');
+      expect(reply.formOffer, isNull);
+    });
+
+    test('a missing/blank required string drops the whole offer, never throws',
+        () {
+      for (final Object? bad in <Object?>[
+        <String, dynamic>{'headline': 'H', 'cta_label': 'C'}, // no kind
+        <String, dynamic>{'kind': 'cnc_turner', 'cta_label': 'C'}, // no headline
+        <String, dynamic>{'kind': 'cnc_turner', 'headline': 'H'}, // no cta_label
+        <String, dynamic>{'kind': '', 'headline': 'H', 'cta_label': 'C'},
+        <String, dynamic>{'kind': 'cnc_turner', 'headline': '', 'cta_label': 'C'},
+        <String, dynamic>{'kind': 'cnc_turner', 'headline': 'H', 'cta_label': ''},
+        42,
+        <dynamic>['not', 'a', 'map'],
+      ]) {
+        final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+          'reply': 'Bada bhai ka jawaab',
+          'form_offer': bad,
+        });
+        expect(reply.reply, 'Bada bhai ka jawaab', reason: 'reply survives: $bad');
+        expect(reply.formOffer, isNull, reason: 'malformed offer: $bad');
+      }
+    });
+
+    test('an unrecognised future kind still parses (#371 — client routes generically)',
+        () {
+      final ChatReply reply = ChatReply.fromJson(<String, dynamic>{
+        'reply': 'ok',
+        'form_offer': <String, dynamic>{
+          'kind': 'some_future_trade',
+          'headline': 'H',
+          'cta_label': 'C',
+        },
+      });
+      expect(reply.formOffer?.kind, 'some_future_trade');
+    });
+  });
 }

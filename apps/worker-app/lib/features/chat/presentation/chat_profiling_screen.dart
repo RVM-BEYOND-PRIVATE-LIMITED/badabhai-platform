@@ -6,7 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_models.dart'
-    show ChatInputMode, ChatOption, ChatProgress, ChatQuestionKind;
+    show ChatInputMode, ChatOption, ChatProgress, ChatQuestionKind, FormOffer;
 import '../../../core/config/remote_config.dart';
 import '../../../core/di/locator.dart';
 import '../../../core/theme/app_colors.dart';
@@ -127,6 +127,10 @@ class _ChatViewState extends State<_ChatView> {
   /// True while the profile preview is being opened (#372) — see
   /// [_openProfilePreview] for why a bool and not just the disabled state.
   bool _openingPreview = false;
+
+  /// True while the trade-form handover is being opened (#1340) — same
+  /// same-frame double-tap guard as [_openingPreview]; see [_openTradeForm].
+  bool _openingTradeForm = false;
 
   /// An option/chip tap is dispatched and the reply has not arrived yet.
   ///
@@ -554,6 +558,83 @@ class _ChatViewState extends State<_ChatView> {
     );
   }
 
+  /// The handover card (#1339/#1340) — drawn INSTEAD OF [_doneCta] on the one
+  /// turn the interview hands the worker to a trade-specific form (see
+  /// [ChatState.formOffer] for why the two must never both render).
+  ///
+  /// [offer].headline and the button label are SERVER-SUPPLIED copy, not
+  /// client-authored — `persona_neutrality_test.dart`'s scan does not apply to
+  /// them (see [FormOffer]); this widget's own layout contributes no static
+  /// copy of its own. Matches the [EmployerCard]-style surface card used
+  /// elsewhere in the app (filled surface, hairline border, `AppRadii.sm`),
+  /// not a new visual language.
+  Widget _formOfferCard(FormOffer offer) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.s4,
+        0,
+        AppSpacing.s4,
+        AppSpacing.s3,
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.s4),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceCard,
+          borderRadius: BorderRadius.circular(AppRadii.sm),
+          border: Border.all(color: AppColors.haldi),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                const Icon(
+                  Icons.assignment_turned_in_outlined,
+                  size: 20,
+                  color: AppColors.blue,
+                ),
+                const SizedBox(width: AppSpacing.s2),
+                Expanded(
+                  child: Text(
+                    offer.headline,
+                    style: AppTypography.display(size: AppTypography.sizeMd),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            BbButton(
+              label: offer.ctaLabel,
+              block: true,
+              size: BbButtonSize.lg,
+              iconLeft: Icons.arrow_forward_rounded,
+              onPressed: _openingTradeForm ? null : _openTradeForm,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Opens the trade form at most once per round trip — same same-frame
+  /// double-tap guard as [_openProfilePreview] (#372): the disabled state on
+  /// [BbButton] arrives only on the NEXT frame, too late to stop a real
+  /// double-tap landing both inside the current one.
+  Future<void> _openTradeForm() async {
+    if (_openingTradeForm) return;
+    setState(() => _openingTradeForm = true);
+    try {
+      await context.push(Routes.tradeForm);
+    } finally {
+      // The worker can back out of the form and return to this (dead) chat
+      // session — re-arm so the card stays tappable rather than permanently
+      // disabled.
+      if (mounted) setState(() => _openingTradeForm = false);
+    }
+  }
+
   /// Opens the profile preview at most once per round trip (#372).
   ///
   /// The boolean is checked SYNCHRONOUSLY, before the frame that disables the
@@ -801,7 +882,18 @@ class _ChatViewState extends State<_ChatView> {
                         _optionsOnlyHint()
                       else
                         _inputBar(showVoice),
-                      _doneCta(state),
+                      // #1339/#1340 — the handover card REPLACES the "build my
+                      // profile" CTA on the one turn that hands the worker to a
+                      // trade form, never alongside it. `extraction_ready` is
+                      // already false on that turn (see [ChatState.formOffer]),
+                      // but `_doneCta` renders UNCONDITIONALLY regardless of
+                      // readiness (it only changes label/style) — so this branch,
+                      // not that flag, is what actually keeps the two CTAs from
+                      // both appearing.
+                      if (state.formOffer != null)
+                        _formOfferCard(state.formOffer!)
+                      else
+                        _doneCta(state),
                     ],
                   ),
                 ),
