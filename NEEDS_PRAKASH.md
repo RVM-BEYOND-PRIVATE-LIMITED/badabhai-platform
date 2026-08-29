@@ -989,6 +989,14 @@ citation, so the loss is visible; it is not shrinking on its own.
 
 ## Q17 · The two branches pick the headline's TOOLS from different sources (R15 §1)
 
+**Status: RULED (R16 §2) and BUILT.** Both branches call one `headlineToolsOrFallback`
+(pack row → machines → skills), so the divergence is unrepresentable rather than merely fixed,
+and the pin is flipped. Two parallel ternaries were what Q17 WAS — they agreed when they were
+written and drifted apart without anything noticing — which is why this is a shared function
+and not two matching expressions. The fallback order is the ratified sheet's: its headline
+strip prints machines and controllers, and skills stay as the third arm rather than being
+dropped.
+
 **Status: OPEN. Reported, measured, pinned, not built.** The twelfth asymmetry on the mapper seam
 and the only one left after R15 §1.
 
@@ -1032,3 +1040,42 @@ Small and permanent: the headline strip is §5.1's first-ranked element of eleve
 with identical answers get different first lines depending on whether their interview ran. It is
 pinned as an `it.fails` in `branch-parity.audit.test.ts`, so it cannot rot, and it is one allowlist
 row away from being invisible again if that pin is ever deleted.
+
+---
+
+## Q18 · Nothing in production renders the Verdict Line at all (R16 §1)
+
+**Status: OPEN. Measured, pinned, not fixed — it is an output ruling, not a wiring gap.**
+
+R16 §1 asked for the axis segment to be asserted end to end. Checking the end turned up something
+larger than the segment:
+
+- `resume.service.ts` names `templateId: "classic"` for **every** production render.
+- `{{headline_line}}` exists in exactly ONE template — `bb_trade.v1.html`.
+- Nothing in non-test source selects `bb_trade`. Every mention outside tests is a comment.
+
+So **no part of the Verdict Line has ever reached a worker's PDF**: not the axis segment, not the
+tools, not the salary R12 §1.4 fixed, not the years R13 §2 fixed. Four packets have been correcting
+the composition of a line the product does not currently print. The mapper work is not wasted — it
+is what makes the sheet correct the moment it is selected — but the scorecard has to say so.
+
+`classic.v3` renders `{{headline}}`, which is `canonicalRole`, a job title. The two token names are
+one character apart, which is a fair part of why this went unnoticed for so long.
+
+### Options
+
+1. **Point `resume.service.ts` at `bb_trade`.** One line. It is the sheet the whole Resume Engine
+   guideline describes, and every mapper packet since R9 has been building for it.
+2. **Keep `classic` and treat `bb_trade` as unreleased.** Then the Verdict Line, the capability
+   block, the QR and the footer are all dormant, and each scorecard line should read "absent"
+   rather than "met".
+3. **Ship it behind skin selection** (F14 / #1324), so the choice is the worker's.
+
+**Recommendation: option 1**, but it is squarely yours — it changes what every worker's résumé
+looks like, and the skin system is out of scope for this packet.
+
+### Cost of silence
+
+Every future mapper fix is unobservable in production, and each packet's scorecard reads better
+than the product is. Pinned in `apps/api/src/resume/verdict-line-reachability.test.ts`, which goes
+red the day someone changes the template.
