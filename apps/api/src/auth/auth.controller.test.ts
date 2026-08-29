@@ -128,13 +128,20 @@ function make() {
   };
   const config = {
     OTP_MAX_SENDS_PER_HOUR: 5,
-    OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR: 100,
+    OTP_MAX_SENDS_PER_DAY: 10,
+    // The verify budget is DERIVED — sends x attempts — not picked; see the ratio assertion in
+    // the #1132/#1306 block below. Mirrors the real defaults so the ratio is exercised here too.
+    OTP_MAX_ATTEMPTS: 5,
+    OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR: 1000,
     OTP_MAX_VERIFY_PER_IP_PER_HOUR: 5000,
-    OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: 20,
-    // THREE DISTINCT VALUES ON PURPOSE (#1035 widened the pair to a trio). A per-phone SMS
-    // budget, a per-handset send gate and a per-network flood ceiling are three different
-    // questions, and every one of them has been passed to the wrong limiter at some point in
-    // this file's history. Equal numbers would let the next such swap pass unnoticed.
+    OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: 200,
+    // DISTINCT VALUES ON PURPOSE (#1035 widened the pair to a trio). A per-phone SMS budget, a
+    // per-handset send gate and a per-network flood ceiling are three different questions, and
+    // every one of them has been passed to the wrong limiter at some point in this file's
+    // history. Equal numbers would let the next such swap pass unnoticed. The two per-IP knobs
+    // stay here even though #1306 stopped the OTP routes reading them: `test_login_net` still
+    // does, and a case that re-added a net cap on an OTP route must fail on the CALL, not on an
+    // undefined knob.
     OTP_MAX_SENDS_PER_IP_PER_HOUR: 1000,
     TEST_LOGIN_MAX_PER_DAY: 200,
     // QA-ONLY immediate hard-delete seam — DEFAULT OFF, so the route 404s unless a case flips it.
@@ -286,22 +293,31 @@ describe("AuthController — token/refresh out-of-band deletion → 410 WORKER_A
 });
 
 describe("AuthController", () => {
-  it("requestOtp applies the sender cap FIRST, then the network cap, then delegates", async () => {
-    const { controller, auth, ipRateLimit } = make();
+  it("requestOtp applies the sender cap and delegates — with NO network cap (#1306)", async () => {
+    const { controller, auth, ipRateLimit, config } = make();
     await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX);
     expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
       "otp_request",
       { kind: "device", value: DEVICE },
-      20,
-    );
-    // Its OWN scope, so it cannot collide with the `otp_request` address bucket the
-    // no-device-header fallback still writes into.
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
-      "otp_request_net",
-      "1.2.3.4",
-      1000,
+      config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
     );
     expect(auth.requestOtp).toHaveBeenCalledWith("+91999", CTX);
+  });
+
+  it("#1306 — the send path consults NO per-network cap at all", async () => {
+    // THE OWNER RULING, AS AN ASSERTION, and deliberately `not.toHaveBeenCalled` on the whole
+    // limiter rather than on one scope string: re-adding `otp_request_net` under ANY scope or
+    // knob fails here, which is the faithful-mutation property this test exists for.
+    //
+    // WHY IT WENT. Keyed on `req.ip` with TRUST_PROXY_HOP_COUNT=0 and no reverse proxy, that
+    // bucket is the NAT egress address — under carrier CGNAT one bucket shared by thousands of
+    // unrelated workers, which is the #1035 outage waiting to happen again. It could only ever
+    // bind honest traffic, because an abuser rotates `X-Device-Id` past the gate in front of it
+    // for free. Spend is bounded by the per-phone caps and the global breaker, neither of which
+    // is keyed on the caller.
+    const { controller, ipRateLimit } = make();
+    await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX);
+    expect(ipRateLimit.assertWithinHourlyIpCap).not.toHaveBeenCalled();
   });
 
   it("#1035 — two handsets on ONE wifi do NOT share a bucket", async () => {
@@ -335,12 +351,12 @@ describe("AuthController", () => {
   });
 
   it("#1035 — a device id too short to identify a handset falls back to the address", async () => {
-    const { controller, ipRateLimit } = make();
+    const { controller, ipRateLimit, config } = make();
     await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice("short"), CTX);
     expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
       "otp_request",
       { kind: "ip", value: "1.2.3.4" },
-      20,
+      config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
     );
   });
 
@@ -352,40 +368,22 @@ describe("AuthController", () => {
     // thousands of Jio / Airtel subscribers — worth five sign-ins an hour IN TOTAL, and the
     // 429 a locked-out worker saw was indistinguishable from the platform being down.
     //
-    // #1035 adds the third number, and the same swap is available again: the sender gate must
-    // read the per-DEVICE knob and the flood ceiling the per-IP one, never each other's.
+    // #1035 added the third number, and the same swap is available again: the sender gate must
+    // read the per-DEVICE knob, never a per-phone SMS budget. The flood ceiling that used to be
+    // asserted beside it is gone (#1306) — the remaining half of the rule is the half that can
+    // still regress.
     const { controller, ipRateLimit, config } = make();
     await controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX);
     const senderCap = (ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>).mock
       .calls[0]![2];
-    const netCap = (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mock
-      .calls[0]![2];
     expect(senderCap).toBe(config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR);
-    expect(netCap).toBe(config.OTP_MAX_SENDS_PER_IP_PER_HOUR);
     expect(senderCap).not.toBe(config.OTP_MAX_SENDS_PER_HOUR);
-    expect(netCap).not.toBe(config.OTP_MAX_SENDS_PER_HOUR);
-    // The flood ceiling must stay far ABOVE the sender gate, or it becomes the thing that
-    // trips for a shared network — the bug, restored under a new name.
-    expect(netCap).toBeGreaterThan(senderCap);
+    expect(senderCap).not.toBe(config.OTP_MAX_SENDS_PER_DAY);
   });
 
-  it("requestOtp sender-cap rejection blocks the send AND spares the shared bucket", async () => {
-    // Sender first is why the second assertion holds: a handset that has already spent its
-    // allowance must not also charge the ceiling its neighbours are counted against.
+  it("requestOtp sender-cap rejection blocks the send", async () => {
     const { controller, auth, ipRateLimit } = make();
     (ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new ConflictException("cap"),
-    );
-    await expect(
-      controller.requestOtp({ phone: "+91999" } as never, reqWithDevice(), CTX),
-    ).rejects.toBeTruthy();
-    expect(auth.requestOtp).not.toHaveBeenCalled();
-    expect(ipRateLimit.assertWithinHourlyIpCap).not.toHaveBeenCalled();
-  });
-
-  it("requestOtp network-cap rejection blocks the send", async () => {
-    const { controller, auth, ipRateLimit } = make();
-    (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
       new ConflictException("cap"),
     );
     await expect(
@@ -405,7 +403,7 @@ describe("AuthController", () => {
 
   // ---- #1132 — /auth/otp/verify carries the two-tier cap (device then network) ----
 
-  it("verifyOtp caps the HANDSET first (senderOf), then the network — with the verify scopes (#1132)", async () => {
+  it("verifyOtp caps the HANDSET, with the verify scope and NO network cap (#1132, #1306)", async () => {
     const { controller, ipRateLimit, config } = make();
     await controller.verifyOtp({ phone: "+91999", otp: "1234" } as never, reqWithDevice(), CTX);
     // Keyed on the DEVICE the client named, at the per-DEVICE knob — NOT req.ip (the #1035 rule).
@@ -414,14 +412,11 @@ describe("AuthController", () => {
       { kind: "device", value: DEVICE },
       config.OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR,
     );
-    // Its OWN network scope, at the flood-ceiling knob — never the per-device one.
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
-      "otp_verify_net",
-      "1.2.3.4",
-      config.OTP_MAX_VERIFY_PER_IP_PER_HOUR,
-    );
-    // ...and its own knobs, NOT the send route's: a verify is not a send, each send licenses up
-    // to OTP_MAX_ATTEMPTS of them, and these run outside `runOnce` so a retry ladder spends
+    // #1306 — `otp_verify_net` is gone, on the same reasoning as the send route. Asserted on the
+    // whole limiter, not one scope, so re-adding it under any name fails here.
+    expect(ipRateLimit.assertWithinHourlyIpCap).not.toHaveBeenCalled();
+    // ...and its own knob, NOT the send route's: a verify is not a send, each send licenses up
+    // to OTP_MAX_ATTEMPTS of them, and this runs outside `runOnce` so a retry ladder spends
     // three units where the send route spends one. Reusing the send budget would lock a worker
     // out of spending a code they are already holding.
     expect(config.OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR).not.toBe(
@@ -429,6 +424,20 @@ describe("AuthController", () => {
     );
     expect(config.OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR).toBeGreaterThan(
       config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
+    );
+  });
+
+  it("#1306 — the verify budget stays DERIVED from the send budget, not pinned to a literal", async () => {
+    // THE COUPLING THIS LOCKS. OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR is not a picked number: it is
+    // sends x OTP_MAX_ATTEMPTS, because a handset INSIDE its send budget can legitimately produce
+    // that many verifies. #1306 raised the send cap 20 -> 200 and this had to move 100 -> 1000
+    // with it; leaving it behind would have made VERIFY the binding constraint at a tenth of the
+    // sends it services — trading a send-side 429 for the worse verify-side one, where the worker
+    // is holding a valid code they cannot spend. Asserted as the RATIO so the next person to move
+    // either number is told about the other.
+    const { config } = make();
+    expect(config.OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR).toBe(
+      config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR * config.OTP_MAX_ATTEMPTS,
     );
   });
 
@@ -491,19 +500,24 @@ describe("AuthController", () => {
   // ---- D-3 — POST /auth/test-login (the guard 404s/401s the route; here: handler behaviour) ----
 
   it("testLogin applies ALL THREE caps (sender hour + network hour + global day) BEFORE the mint seam", async () => {
-    const { controller, auth, ipRateLimit } = make();
+    const { controller, auth, ipRateLimit, config } = make();
     await controller.testLogin({ phone: SYNTHETIC_PHONE } as never, reqWith(), CTX);
     // No device header on this caller (the e2e smoke does not send one), so the sender
     // resolves to the address — the pre-#1035 bucket, at the pre-#1035 number.
+    //
+    // THE SEAM KEPT ITS NETWORK CEILING when #1306 took the OTP routes' away, and the asymmetry
+    // is deliberate rather than an oversight: this route's callers are CI and staging smoke from
+    // known networks, not workers behind carrier CGNAT, so an address bucket here costs nobody a
+    // sign-in. It is the one remaining reader of OTP_MAX_SENDS_PER_IP_PER_HOUR.
     expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
       "test_login",
       { kind: "ip", value: "1.2.3.4" },
-      20,
+      config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
     );
     expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
       "test_login_net",
       "1.2.3.4",
-      1000,
+      config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
     );
     // Review L1 — the IP-INDEPENDENT backstop: a token holder rotating IPs is still bounded.
     expect(ipRateLimit.assertWithinGlobalDailyCap).toHaveBeenCalledWith("test_login", 200);
@@ -1221,8 +1235,10 @@ describe("#1019 — POST /auth/otp/request honours Idempotency-Key", () => {
 
     // The whole defect: this used to be 3 — three counted sends, three paid SMS.
     expect(auth.requestOtp).toHaveBeenCalledTimes(1);
-    // And the per-IP bucket — shared across a whole CGNAT egress — is charged once, not thrice.
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledTimes(1);
+    // And the sender bucket is charged once, not thrice. Asserted on the SENDER cap since
+    // #1306: the per-network one this used to watch is gone from the send path, so watching it
+    // here would now pass at zero calls and stop witnessing the retry-collapse it exists for.
+    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledTimes(1);
     expect([a, b, c]).toEqual([
       { success: true, channel: "sms", resend_in_seconds: 30 },
       { success: true, channel: "sms", resend_in_seconds: 30 },
@@ -1246,7 +1262,10 @@ describe("#1019 — POST /auth/otp/request honours Idempotency-Key", () => {
     await controller.requestOtp({ phone: "+919876543210" } as never, reqWith(), CTX);
 
     expect(auth.requestOtp).toHaveBeenCalledTimes(2);
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledTimes(2);
+    // Two keyless calls are two independent requests, so the sender bucket is charged twice —
+    // the contrast with the retry-collapse case above. Watches the SENDER cap since #1306 for
+    // the same reason: the per-network one is no longer called at all on this route.
+    expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -1535,11 +1554,11 @@ describe("#1132 — /auth/otp/verify device-first cap, ahead of the idempotency 
 
   it("(d) verify spends its OWN budget — the send buckets are untouched, at its own cap", async () => {
     // TWO PROPERTIES, both regressions waiting to happen if someone "tidies" the knobs back
-    // together. (1) The verify caps read OTP_MAX_VERIFY_* — the harness sets the SEND knobs to
+    // together. (1) The verify cap reads OTP_MAX_VERIFY_* — the harness sets the SEND knobs to
     // 9999, so a route reading those would never trip at all and (a) plus the 429 below would
-    // both go green-but-wrong. (2) The buckets are scoped `otp_verify` / `otp_verify_net`, so
-    // burning the verify budget does NOT spend the send budget: a worker throttled on verify
-    // can still request a fresh code, which is the whole point of separating them.
+    // both go green-but-wrong. (2) The bucket is scoped `otp_verify`, so burning the verify
+    // budget does NOT spend the send budget: a worker throttled on verify can still request a
+    // fresh code, which is the whole point of separating them.
     const { controller, store } = harness(2);
     await controller.verifyOtp(body, reqWithDevice("device-ddd4"), CTX);
     await controller.verifyOtp(body, reqWithDevice("device-ddd4"), CTX);
@@ -1550,11 +1569,12 @@ describe("#1132 — /auth/otp/verify device-first cap, ahead of the idempotency 
     const rateKeys = [...store.keys()].filter((k) => k.startsWith("ratelimit:"));
     // The device tier counted under the VERIFY scope...
     expect(rateKeys.some((k) => k.startsWith("ratelimit:dev:otp_verify:"))).toBe(true);
-    // ...the network tier under its own...
-    expect(rateKeys.some((k) => k.startsWith("ratelimit:ip:otp_verify_net:"))).toBe(true);
     // ...and NOTHING landed in the send route's buckets, so the code-request path is unspent.
     expect(rateKeys.some((k) => k.includes(":otp_request:"))).toBe(false);
-    expect(rateKeys.some((k) => k.includes(":otp_request_net:"))).toBe(false);
+    // #1306 — no per-network bucket is written by EITHER OTP route any more. Asserted over the
+    // whole `ratelimit:ip:` namespace rather than the two scope names, so re-introducing a net
+    // cap under a fresh scope still fails here.
+    expect(rateKeys.some((k) => k.startsWith("ratelimit:ip:"))).toBe(false);
   });
 
   it("(c) a throttled verify writes NO idempotency reservation (the limiter runs BEFORE runOnce)", async () => {

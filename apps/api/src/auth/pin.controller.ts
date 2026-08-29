@@ -86,10 +86,13 @@ export class PinController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<{ success: true }> {
-    // The per-caller caps BEFORE the send — the SAME pair auth.controller requestOtp uses,
-    // sharing the "otp_request" / "otp_request_net" scopes so PIN-reset + login draw from ONE
-    // SMS budget per sender and per network. Fails closed (429) if Redis is down.
-    // (Finding 2: this path bypassed the per-IP cap.)
+    // The per-caller cap BEFORE the send — the SAME one auth.controller requestOtp uses, sharing
+    // the "otp_request" scope so PIN-reset + login draw from ONE SMS budget per sender. Fails
+    // closed (429) if Redis is down. (Finding 2: this path bypassed the per-caller cap entirely.)
+    //
+    // ONE CAP, NOT TWO, SINCE #1306: the "otp_request_net" ceiling that used to sit beside it was
+    // dropped from the send path platform-wide, and this route moved with it — sharing a scope
+    // means sharing the decision, or the counter ends up fenced by two call sites that disagree.
     //
     // #1035 — keyed on the HANDSET (`X-Device-Id`), not the NAT egress address, for the same
     // reason as the login route: a forgot-PIN worker on a shared factory wifi was locked out
@@ -112,17 +115,19 @@ export class PinController {
       // enumeration oracle), so the duplicate answer is the same constant the work returns.
       inFlight: () => ({ success: true as const }),
       work: async () => {
-        // Sender first, then the network ceiling — the ordering rationale is at the
-        // /auth/otp/request call site this mirrors.
+        // The sender cap only — the network ceiling was dropped platform-wide on the OTP send
+        // path (#1306); the rationale is at the /auth/otp/request call site this mirrors.
+        //
+        // THIS ROUTE HAD TO MOVE WITH IT, not merely for symmetry. It shares the send route's
+        // SCOPES and its KNOBS by deliberate design (the comment above this block: "They share
+        // the buckets, so they share the knobs"), so leaving the `otp_request_net` call here
+        // would have kept writing — and tripping — a bucket the send route no longer honours.
+        // One counter fenced by two call sites that disagree is a limiter whose ceiling moves
+        // depending on which route you hit, which is the precise failure that comment forbids.
         await this.ipRateLimit.assertWithinHourlySenderCap(
           "otp_request",
           senderOf(req),
           this.config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
-        );
-        await this.ipRateLimit.assertWithinHourlyIpCap(
-          "otp_request_net",
-          req.ip ?? "unknown",
-          this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
         );
         await this.pin.resetRequest(dto.phone, ctx);
         return { success: true as const };

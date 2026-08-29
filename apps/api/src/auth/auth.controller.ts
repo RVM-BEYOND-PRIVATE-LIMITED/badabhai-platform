@@ -82,7 +82,7 @@ export class AuthController {
   /**
    * Send a login code.
    *
-   * `Idempotency-Key` IS HONOURED HERE (#1019) and everything below it — the per-IP cap
+   * `Idempotency-Key` IS HONOURED HERE (#1019) and everything below it — the per-device cap
    * included — runs inside that guard. The client retries a transport failure up to three
    * times under ONE key, and this route used to count every attempt as a fresh request: one
    * tap could spend three of a per-phone hourly budget of five, send three paid SMS, and
@@ -111,30 +111,29 @@ export class AuthController {
         resend_in_seconds: this.config.OTP_RESEND_COOLDOWN_SECONDS,
       }),
       work: async () => {
-        // TWO CAPS BEFORE ISSUING, and the ORDER is deliberate (#1035).
+        // ONE CAP BEFORE ISSUING, and it is NOT an attacker control (#1306).
         //
-        // FIRST, THE SENDER — the handset that asked, via `X-Device-Id`, falling back to the
-        // address for a client that sends none. This is the gate that is supposed to trip:
-        // it separates two workers standing on one factory wifi, which is the thing the
-        // address cannot do. Keyed on the address it was the NAT egress bucket, so a handful
-        // of legitimate sign-ins locked out everyone else behind the same CGNAT pool and
-        // changing your phone number did not help, because the number was never the key.
+        // THE PER-NETWORK CEILING IS GONE. `otp_request_net` was keyed on `req.ip`, which in
+        // the shipped topology (`TRUST_PROXY_HOP_COUNT` 0, no reverse proxy) is the NAT egress
+        // address — under carrier CGNAT, one bucket shared by thousands of unrelated workers.
+        // It could only ever bind honest traffic: an abuser reaches any value it holds by
+        // rotating `X-Device-Id`, so it bought no defence while standing one outage away from
+        // #1035 all over again. Removed by owner ruling; the knob survives for `test_login_net`.
         //
-        // SECOND, THE NETWORK — a crude flood ceiling, ~50× the sender cap, that a real
-        // shared wifi must never reach. Its own scope (`otp_request_net`) so it cannot
-        // collide with the address bucket the fallback above still writes.
+        // WHAT REMAINS IS A RUNAWAY-CLIENT BREAKER, NOT A SECURITY BOUNDARY. `X-Device-Id` is an
+        // unauthenticated header the caller chooses (see `senderOf`), so anyone willing to send a
+        // fresh uuid per request is already past this. That is accepted: its job is to stop ONE
+        // handset — a retry loop in a bad build, a stuck resend button — from billing us at
+        // Fast2SMS line rate before anyone notices. Sized (200/hr) so no human can reach it.
         //
-        // Sender first so a device that has already spent its allowance does NOT also charge
-        // the bucket its neighbours share. Both fail closed (429) if Redis is down.
+        // SPEND IS BOUND BELOW THIS, BY THE GATES A CALLER CANNOT ROTATE PAST: the per-phone
+        // cooldown + OTP_MAX_SENDS_PER_HOUR/_PER_DAY bound what one NUMBER can be sent, and
+        // OTP_GLOBAL_MAX_SENDS_PER_DAY bounds the platform's daily bill. Fails closed (429) if
+        // Redis is down.
         await this.ipRateLimit.assertWithinHourlySenderCap(
           "otp_request",
           senderOf(req),
           this.config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
-        );
-        await this.ipRateLimit.assertWithinHourlyIpCap(
-          "otp_request_net",
-          req.ip ?? "unknown",
-          this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
         );
         return this.auth.requestOtp(dto.phone, ctx);
       },
@@ -180,38 +179,44 @@ export class AuthController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<LoginResponse> {
-    // TWO CAPS BEFORE THE RESERVATION (#1132), and OUTSIDE `runOnce` on purpose — the one place
+    // ONE CAP BEFORE THE RESERVATION (#1132), and OUTSIDE `runOnce` on purpose — the one place
     // in this file a limiter runs in FRONT of the idempotency reservation rather than inside the
     // guarded work. `runOnce` reserves with `SET NX` BEFORE it runs the work (correctly — see its
     // header), so on this UNAUTHENTICATED route that Redis write used to be the first thing to
     // run, ahead of every control there was. An unauthenticated caller could therefore mint one
     // non-evictable idempotency key per distinct key/phone into a `noeviction` Redis and wedge it
     // — the platform-wide 429/503/401 lockout #1019 exists to end. Capping here means the
-    // reservation is only ever written for a caller already inside its device+network budget.
+    // reservation is only ever written for a caller already inside its device budget.
     //
-    // KEYED ON THE HANDSET FIRST, exactly as /auth/otp/request (#1035): `senderOf(req)` is the
-    // device the client named via `X-Device-Id`, the address only as a fallback for a caller that
-    // sent none. Keyed on `req.ip` this would be the NAT egress / carrier-CGNAT bucket, and a
-    // handful of legitimate sign-ins would lock out everyone else behind the same pool — the exact
-    // outage #1035 fixed on the send route. Same device-then-network ORDER as the send
-    // route, but its OWN scopes (`otp_verify` / `otp_verify_net`) and its OWN knobs — a verify
-    // is not a send, and each send licenses up to OTP_MAX_ATTEMPTS of them, so the send budget
-    // is the wrong ceiling here (see the derivation on OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR). The
-    // rate-limit namespace (`ratelimit:…`) cannot collide with the idempotency one (`otp_idem:…`).
+    // THE PER-NETWORK CEILING IS GONE (#1306), the same owner ruling as the send route: keyed on
+    // `req.ip` that bucket is the NAT egress / carrier-CGNAT pool, so it could only ever bind
+    // workers who happen to share a carrier — the exact outage #1035 fixed — while an abuser
+    // rotated `X-Device-Id` straight past it.
     //
-    // ONE LOGICAL VERIFY CAN SPEND UP TO THREE UNITS, because these run OUTSIDE `runOnce` while
+    // WHAT THAT COSTS, STATED PLAINLY: the device cap below is the only limiter left in front of
+    // the reservation, and it IS rotatable, so a caller willing to mint a uuid per request can
+    // again write idempotency keys ahead of it. That is now bounded by the reservation itself
+    // rather than by this cap — #1019's other half hashes and TRUNCATES the key (the caller no
+    // longer chooses the write's size) and every reservation carries a 180s TTL, so the residual
+    // is a self-draining ~180s window of fixed-size keys, not the unbounded wedge #1019 found.
+    //
+    // ITS OWN SCOPE AND ITS OWN KNOB — a verify is not a send, and each send licenses up to
+    // OTP_MAX_ATTEMPTS of them, so the send budget is the wrong ceiling here (see the derivation
+    // on OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR). The rate-limit namespace (`ratelimit:…`) cannot
+    // collide with the idempotency one (`otp_idem:…`).
+    //
+    // ONE LOGICAL VERIFY CAN SPEND UP TO THREE UNITS, because this runs OUTSIDE `runOnce` while
     // `AuthedClient` reuses one key across three transport retries — the price of capping ahead
     // of the reservation, and the reason the verify budget carries headroom the send budget does
     // not need.
+    //
+    // THIS IS NOT THE BRUTE-FORCE CONTROL. Guessing one number stays bounded where it always was,
+    // by `otp:attempts:<phoneHash>` + OTP_MAX_ATTEMPTS inside `OtpService.verify` — per PHONE, not
+    // per caller, and untouched by anything here.
     await this.ipRateLimit.assertWithinHourlySenderCap(
       "otp_verify",
       senderOf(req),
       this.config.OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR,
-    );
-    await this.ipRateLimit.assertWithinHourlyIpCap(
-      "otp_verify_net",
-      req.ip ?? "unknown",
-      this.config.OTP_MAX_VERIFY_PER_IP_PER_HOUR,
     );
     return this.otpIdempotency.runOnce({
       scope: "otp_verify",

@@ -44,7 +44,9 @@ function make() {
   };
   const config = {
     OTP_MAX_SENDS_PER_HOUR: 5,
-    OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: 20,
+    OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: 200,
+    // Kept though #1306 stopped this route reading it: a regression that re-adds a net cap must
+    // fail on the CALL assertion, not on an undefined knob.
     OTP_MAX_SENDS_PER_IP_PER_HOUR: 1000,
   } as ServerConfig;
   const controller = new PinController(
@@ -53,7 +55,7 @@ function make() {
     otpIdempotency as unknown as OtpRequestIdempotency,
     config,
   );
-  return { controller, pin, ipRateLimit, otpIdempotency };
+  return { controller, pin, ipRateLimit, otpIdempotency, config };
 }
 
 // `header` is part of the stub because the handler reads `Idempotency-Key` (#1019) and
@@ -79,25 +81,26 @@ const reqWith = (
 const DEVICE = "3f7c1b9a-0d4e-4c62-9a11-77b2c5e8d013";
 
 describe("PinController.resetRequest — per-caller caps (security Finding 2, #1035)", () => {
-  it("applies the sender cap FIRST (shared otp_request scope), then the network cap, then sends", async () => {
-    const { controller, pin, ipRateLimit } = make();
+  it("applies the sender cap (shared otp_request scope) and sends — no network cap (#1306)", async () => {
+    const { controller, pin, ipRateLimit, config } = make();
     const res = await controller.resetRequest(
       { phone: PHONE } as never,
       reqWith({ deviceId: DEVICE }),
       CTX,
     );
-    // SHARED SCOPES with /auth/otp/request on purpose: PIN-reset and login send through the
-    // same OtpService, so they must draw on ONE budget per sender and one per network.
+    // SHARED SCOPE with /auth/otp/request on purpose: PIN-reset and login send through the
+    // same OtpService, so they must draw on ONE budget per sender.
     expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
       "otp_request",
       { kind: "device", value: DEVICE },
-      20,
+      config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
     );
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledWith(
-      "otp_request_net",
-      "1.2.3.4",
-      1000,
-    );
+    // #1306 — and it must MOVE WITH that route, not just match it. The send path dropped its
+    // per-network ceiling; because these two call sites deliberately share one scope and one
+    // knob, a stray `otp_request_net` call left here would keep writing and tripping a bucket
+    // /auth/otp/request no longer honours — one counter with two disagreeing fences, which is
+    // a ceiling that moves depending on which route you happen to hit.
+    expect(ipRateLimit.assertWithinHourlyIpCap).not.toHaveBeenCalled();
     expect(pin.resetRequest).toHaveBeenCalledWith(PHONE, CTX);
     expect(res).toEqual({ success: true });
   });
@@ -130,10 +133,14 @@ describe("PinController.resetRequest — per-caller caps (security Finding 2, #1
     expect(pin.resetRequest).not.toHaveBeenCalled();
   });
 
-  it("a network-cap rejection (429) BLOCKS the send — no OTP is dispatched", async () => {
+  it("a sender-cap rejection (429) BLOCKS the send — no OTP is dispatched", async () => {
+    // Was the NETWORK cap's test until #1306 removed that call from this route. The property
+    // being protected is unchanged and is the one that matters: a refused cap must abort BEFORE
+    // `pin.resetRequest`, so a throttled caller costs no SMS. Re-pointed at the limiter this
+    // route still consults rather than deleted, because the abort path is what regresses.
     const { controller, pin, ipRateLimit } = make();
-    (ipRateLimit.assertWithinHourlyIpCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error("Too many requests from this network; please try again later"),
+    (ipRateLimit.assertWithinHourlySenderCap as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("Too many requests; please try again later"),
     );
     await expect(
       controller.resetRequest({ phone: PHONE } as never, reqWith(), CTX),
@@ -142,12 +149,12 @@ describe("PinController.resetRequest — per-caller caps (security Finding 2, #1
   });
 
   it('a missing req.ip and no device id falls back to "unknown" (still capped, fails closed)', async () => {
-    const { controller, ipRateLimit } = make();
+    const { controller, ipRateLimit, config } = make();
     await controller.resetRequest({ phone: PHONE } as never, reqWith({ ip: undefined }), CTX);
     expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledWith(
       "otp_request",
       { kind: "ip", value: "unknown" },
-      20,
+      config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
     );
   });
 });
@@ -245,11 +252,12 @@ describe("#1019 — POST /auth/pin/reset/request honours Idempotency-Key", () =>
     const c = await controller.resetRequest({ phone: PHONE } as never, req, CTX);
 
     expect(pin.resetRequest).toHaveBeenCalledTimes(1);
-    // BOTH caps are INSIDE the guard — the assertion a pass-through double cannot make. Each
-    // one is a counter the retry ladder was burning three times over (#1019), and #1035 added
-    // the second without moving either out.
+    // THE CAP IS INSIDE THE GUARD — the assertion a pass-through double cannot make. It is a
+    // counter the retry ladder was burning three times over (#1019). #1035 added a second cap
+    // beside it without moving either out; #1306 removed that one again, so the placement
+    // property now rides on the one limiter this route still consults.
     expect(ipRateLimit.assertWithinHourlySenderCap).toHaveBeenCalledTimes(1);
-    expect(ipRateLimit.assertWithinHourlyIpCap).toHaveBeenCalledTimes(1);
+    expect(ipRateLimit.assertWithinHourlyIpCap).not.toHaveBeenCalled();
     expect([a, b, c]).toEqual([{ success: true }, { success: true }, { success: true }]);
   });
 

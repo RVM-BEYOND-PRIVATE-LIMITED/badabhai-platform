@@ -27,6 +27,10 @@ const config = {
   // breaker never trips for the throttle/verify suites (each test gets a fresh Redis store,
   // so the global counter resets per test). The breaker tests set a LOW cap explicitly.
   OTP_GLOBAL_MAX_SENDS_PER_DAY: 2000,
+  // #1306 — the deleted-phone tombstone READ is now gated on this knob, so it has to be set
+  // here or the whole tombstone suite would skip the check and pass for the wrong reason. The
+  // real default (7d); the "0 disables it" case sets its own.
+  ACCOUNT_DELETION_COOLDOWN_SECONDS: 604800,
   SMS_PROVIDER: "fast2sms",
 } as unknown as ServerConfig;
 
@@ -90,7 +94,9 @@ function makeRedis(throwOn?: string) {
   };
 }
 
-function setup(opts: { throwOn?: string; sendThrows?: boolean } = {}) {
+function setup(
+  opts: { throwOn?: string; sendThrows?: boolean; config?: ServerConfig } = {},
+) {
   const redis = makeRedis(opts.throwOn);
   const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
   const sms: SmsProvider = {
@@ -98,7 +104,7 @@ function setup(opts: { throwOn?: string; sendThrows?: boolean } = {}) {
       ? vi.fn().mockRejectedValue(new Error("gateway down"))
       : vi.fn().mockResolvedValue(undefined),
   };
-  const svc = new OtpService(config, pii, sms, queue);
+  const svc = new OtpService(opts.config ?? config, pii, sms, queue);
   return { svc, redis, sms };
 }
 
@@ -156,6 +162,25 @@ describe("OtpService.issueAndSend", () => {
     });
     // No code was generated or stored.
     expect(redis.store.has(codeKey)).toBe(false);
+  });
+
+  it("#1306 — ACCOUNT_DELETION_COOLDOWN_SECONDS=0 makes an EXISTING tombstone stop refusing", async () => {
+    // THE BUG THIS LOCKS, and note what the setup asserts: the key is PRESENT in Redis and the
+    // send still succeeds. `AccountDeletionService` had always skipped WRITING the key at 0, so
+    // the obvious test — "0 mints no tombstone" — passed while the switch was still broken. The
+    // READ ignored the config, so keys minted before an operator flipped it went on refusing
+    // sends for their full remaining TTL: seven days, by default, during which the documented
+    // kill-switch does nothing observable. That is the shape QA hit against a recycled pool of
+    // deleted test numbers (#1264), and turning it off did not help them.
+    //
+    // 0 IS AN OFF SWITCH, NOT AN ERASER — the key is deliberately left in the store here. An
+    // operator flipping this mid-incident needs the refusals to stop NOW, not after a sweep;
+    // clearing the residue is a separate documented step (docs/otp-throttles-runbook.md).
+    const { svc, redis } = setup({ config: { ...config, ACCOUNT_DELETION_COOLDOWN_SECONDS: 0 } });
+    redis.store.set(deletedPhoneKey, "1");
+    await expect(svc.issueAndSend(PHONE)).resolves.toBeTruthy();
+    expect(redis.store.has(deletedPhoneKey)).toBe(true);
+    expect(redis.store.has(codeKey)).toBe(true);
   });
 
   it("fail-open if deleted-phone tombstone exists but Redis errors (TD80)", async () => {
