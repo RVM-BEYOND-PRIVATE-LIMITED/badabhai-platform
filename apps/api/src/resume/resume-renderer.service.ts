@@ -323,6 +323,13 @@ export type ResumeRoleStint = {
  * it like every other slot.
  */
 export interface ResumeEmployment {
+  /**
+   * The employment row id (#1353/#1354) — the ONLY client-supplied identifier
+   * `PUT /workers/me/employment/:employmentId/description-source` accepts, and
+   * without it that route is unreachable from the resume screen. Undefined only
+   * for pre-#1353 seeded/test fixtures; every real record carries one.
+   */
+  id?: string;
   employer: string;
   /** " · Gurugram, Haryana", pre-composed so an absent city leaves no stray separator. */
   location_suffix?: string;
