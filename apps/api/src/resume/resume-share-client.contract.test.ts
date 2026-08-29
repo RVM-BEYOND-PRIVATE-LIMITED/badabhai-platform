@@ -16,22 +16,25 @@ import { ShareResumeSchema } from "./resume.dto";
  * §5.1 they could not have been: the route required an internal-service secret the app does not
  * hold and cannot be given.
  *
- * THE SERVER HALF IS DONE. The route is worker-authed, consent-gated, ownership-checked and
- * rate-limited, and it is asserted in `resume-consent.authz.test.ts` and `resume.service.test.ts`.
- * What remains is one call from `apps/worker-app`, which is Rishi's tree (issue #1317).
+ * BOTH HALVES ARE DONE NOW. The route is worker-authed, consent-gated, ownership-checked and
+ * rate-limited (R16 §5.1), and #1317 landed the client call the same day. This file stopped being
+ * a pin and became the regression test for the loop being closed.
  *
- * WHY THE `it.fails` LIVES HERE AND READS DART. This repo has a working precedent —
- * `apps/api/src/actions/worker-app-action-contract.test.ts` reads constants straight out of the
- * Dart source, because "a client that never calls the endpoint" and "a client that calls it with
- * the wrong shape" both pass every test written on either side alone. The `it.fails` pattern has
- * paid four times in this workstream: it tells the person doing the work exactly when they are
- * finished, and it turns the suite red the day the work lands so nobody has to remember to come
- * back and delete a note.
+ * IT READS DART, and the precedent is `apps/api/src/actions/worker-app-action-contract.test.ts`:
+ * "a client that never calls the endpoint" and "a client that calls it with the wrong shape" both
+ * pass every test written on either side alone, so something has to look across.
  *
- * IT ASSERTS A NAME. Asserting a Dart call site from TypeScript cannot be precise, so this
- * requires one thing that cannot happen by accident: an `ApiClient.recordResumeShare` method.
- * A looser path grep was tried first and gave different answers in CI and locally on the same
- * commit — the shape of the assertion mattered more than the thing asserted.
+ * ── THE PIN THAT WENT STALE IN AN HOUR, AND IT IS R16 §0's OWN FAILURE MODE ───────────────
+ *
+ * This carried an `it.fails` asserting the client had NO share call, and it asserted that by
+ * looking for a method named `recordResumeShare` — a name I invented for the issue. #1317 shipped
+ * the call as `shareResume`. So the gap closed and the pin went on passing, because an `it.fails`
+ * looking for the wrong name fails for the right reason and reports nothing.
+ *
+ * That is exactly the shape R16 §0 was written about one commit earlier: a suppression that
+ * outlives the thing it suppressed, still green, still reassuring. A pin keyed on a name the
+ * other side never agreed to is a claim about my guess, not about the code — so this asserts the
+ * ROUTE, which is the contract both sides actually share, and names the method only as evidence.
  */
 
 const CLIENT = join(__dirname, "../../../worker-app/lib/core/api/api_client.dart");
@@ -59,25 +62,31 @@ describe("R16 §5.1 — the client half of resume.shared", () => {
     expect(ShareResumeSchema.safeParse({ channel: "carrier_pigeon" }).success).toBe(false);
   });
 
-  it.fails("the worker app POSTs to /resume/:id/share (REPORTED — issue #1317)", () => {
-    // FLIPS THE DAY THE CALL LANDS. The server side is finished; this is the one line that
-    // closes the loop, and until it exists `resume.shared` is structurally zero — not "low",
-    // not "not yet meaningful", but incapable of being written by anybody.
+  it("the worker app POSTs to /resume/:id/share (#1317 — LANDED)", () => {
+    // WAS AN `it.fails`. `resume.shared` was structurally zero — not low, not "not yet
+    // meaningful", but incapable of being written by anybody, because the route required an
+    // internal-service secret the app cannot hold. Both halves exist now.
     //
-    // NOTE FOR WHOEVER WIRES IT: do NOT send `whatsapp`. The OS share sheet does return a
-    // target, but this app's own `ResumeShareFn` typedef returns `Future<void>` and discards it,
-    // and `analytics.dart` records a standing decision not to collect the picked app. Sending a
-    // guessed channel would put a fabricated fact into the audit spine. `link` is the honest
-    // value until the client actually observes the target.
+    // ANCHORED ON THE ROUTE, NOT ON A METHOD NAME. The pin looked for `recordResumeShare`, a
+    // name I made up when filing the issue; the call shipped as `shareResume`. The route path is
+    // the thing the two sides actually agree on, so it is what this asserts. The method name
+    // below is evidence, checked second — if it is renamed, this test should still hold.
     const client = readFileSync(CLIENT, "utf8");
-    // A NAMED METHOD, NOT A PATH GREP. The first version matched `/\/resume\/.*\/share/`
-    // against the whole file, which passed in CI and failed locally on the same commit — a
-    // detector whose answer depends on the environment is not a detector. `.` never crosses a
-    // newline, so the two halves must share a line, and reasoning about which line they land on
-    // is exactly the fragility worth removing rather than debugging.
+    expect(client, "no client method posts to the share route").toContain("/share'");
+    expect(client).toContain("shareResume");
+  });
+
+  it("the client reports ONLY a completed share, and never guesses the channel", () => {
+    // THE CONCERN THE PIN CARRIED, and #1317 answered it better than the pin proposed. I had
+    // written "do not send `whatsapp`" on the belief that the OS cannot report the picked target
+    // — which was wrong: `share_plus` returns a `ShareResult`, and the blocker was this app's own
+    // `Future<void>` typedef discarding it. #1317 widened the typedef, so the channel is now
+    // OBSERVED rather than assumed, and nothing is posted when the sheet is dismissed.
     //
-    // The method name is the contract instead: unambiguous, impossible to match by accident, and
-    // it tells whoever wires this what to call it.
-    expect(client).toContain("recordResumeShare");
+    // Both properties matter to the audit spine: a guessed channel is a fabricated fact, and
+    // counting a cancelled share inflates the one number §12.4 kills the feature against.
+    const preview = readFileSync(PREVIEW, "utf8");
+    expect(preview, "a dismissed share must post nothing").toContain("ShareResultStatus.success");
+    expect(preview, "the channel must come from the observed result").toContain("result.raw");
   });
 });
