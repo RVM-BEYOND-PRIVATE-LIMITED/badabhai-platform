@@ -3510,6 +3510,38 @@ export const ProfileLlmInterviewFallbackPayload = z
 export type ProfileLlmInterviewFallbackPayload = z.infer<typeof ProfileLlmInterviewFallbackPayload>;
 
 /**
+ * THE INTERVIEW HANDED OVER TO A TRADE FORM — Phase A recognised the trade and stopped.
+ *
+ * WHY IT IS NOT JUST A COMPLETION REASON. `profile.interview_completed` already carries
+ * `completion_reason: "form_handoff"`, and that answers "how did this interview end". It cannot
+ * answer the two questions the handover is actually judged on: WHICH form a worker was sent to,
+ * and how many turns the model needed to get there. The second is the cost of the feature — a
+ * handover on turn one is the design working, and a handover on turn nine is Phase A failing to
+ * recognise a trade it is supposed to recognise on the first answer. Nothing else records it.
+ *
+ * ONCE PER SESSION. `formKind` is set once and never cleared, so a second event for the same
+ * interview would be a lie about how often the handover fired.
+ *
+ * PII-FREE: two ids, one closed-set form kind, and two counts. NO LABELS — `domain_label` and
+ * `role_label` are the model's free text about a specific worker and are precisely what must not
+ * follow a routing decision into the audit log. `.strict()` is what stops a later field adding
+ * them back.
+ */
+export const ProfileFormModeEnteredPayload = z
+  .object({
+    worker_id: uuidSchema,
+    session_id: uuidSchema,
+    /** Which form. A closed set, mirroring `TRADE_FORM_KINDS`. */
+    form_kind: z.enum(["cnc_turner"]),
+    /** Turns Phase A spent before it recognised the trade. One is the design; nine is a defect. */
+    llm_led_turns: z.number().int().nonnegative(),
+    /** Questions the model asked before handing over. */
+    asks: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ProfileFormModeEnteredPayload = z.infer<typeof ProfileFormModeEnteredPayload>;
+
+/**
  * ONE PHYSICAL SUBMISSION ARRIVED TWICE and the second copy was served from the reply cache
  * instead of being taken as a new answer (#931).
  *

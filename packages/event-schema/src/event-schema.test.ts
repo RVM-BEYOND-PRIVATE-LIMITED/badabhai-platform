@@ -3042,8 +3042,13 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 170 event names (169 prior + the finishing form)", () => {
-    expect(EVENT_NAMES).toHaveLength(170);
+  it("exposes all 171 event names (170 prior + the trade-form handover)", () => {
+    expect(EVENT_NAMES).toHaveLength(171);
+    // The interview recognised a trade with its own form, stopped, and handed the worker over.
+    // PII-FREE by shape and deliberately by omission: the routing evidence is two free-text
+    // labels the model wrote about a named worker, and neither follows the decision onto the
+    // spine. What is carried is the form kind and how many turns Phase A needed to get there.
+    expect(isEventName("profile.form_mode_entered")).toBe(true);
     // R5 1.2 — the worker recorded his own work history. PII-FREE by shape: counts and a
     // boolean, never the employer name the feature is about, and never the city.
     expect(isEventName("worker.employment_recorded")).toBe(true);

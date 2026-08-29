@@ -1,3 +1,4 @@
+import { TRADE_FORM_OFFERS } from "./trade-form-router";
 import { describe, expect, it } from "vitest";
 
 import type { AnswerRecord, OccupationPin } from "@badabhai/ai-contracts";
@@ -70,6 +71,10 @@ const FULL: ProfilingEnvelope = {
   catalogVersion: "cat_2026_08",
   lastTurn: {
     inboundHash: "a".repeat(64),
+    // NON-DEFAULT, like everything else in this fixture: null is exactly what a narrowing that
+    // dropped the field would rebuild, so a null here would assert nothing. A replayed handover
+    // that lost its button leaves the worker a closing message with no way forward.
+    formOffer: TRADE_FORM_OFFERS.cnc_turner,
     // NON-DEFAULT for the same reason as everything else here, and this one is the point of the
     // exercise: `null` is what a `narrowLastTurn` that dropped the field would rebuild, so a
     // fixture seeding `null` would assert nothing at all — and a dropped submission id is a reply
@@ -130,6 +135,7 @@ const FULL: ProfilingEnvelope = {
   llmFallback: true,
   llmGateOpen: true,
   llmGateAsked: true,
+  formKind: "cnc_turner",
 };
 
 describe("⚠ THE FIELD-DROP TRAP — narrow() round-trips every v2 field", () => {

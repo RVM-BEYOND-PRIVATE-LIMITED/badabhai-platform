@@ -1,3 +1,4 @@
+import { TRADE_FORM_KINDS } from "../profiling/trade-form-router";
 import { z } from "zod";
 import { MESSAGE_DIRECTIONS } from "@badabhai/types";
 import { ANSWER_TYPES } from "@badabhai/ai-contracts";
@@ -240,6 +241,28 @@ export const PostMessageResponseSchema = z.object({
         turn: z.number().int().nonnegative(),
       }),
     )
+    .nullable()
+    .default(null),
+  /**
+   * THE INTERVIEW HANDED OVER TO A FORM -- the card the client draws instead of a composer.
+   *
+   * Set on exactly one turn per interview and null on every other, including every interview
+   * that never hands over (which is almost all of them). When it is set, `session_ended` is
+   * true and `reply` is the closing line: a client that predates this field shows that line and
+   * a finished interview, which is a degraded but coherent screen rather than a broken one.
+   * That is why it is additive and defaulted rather than a new response shape.
+   *
+   * `cta_label` IS THE ONLY WAY FORWARD from this turn. There are no chips and no question, so
+   * a client that renders the reply without the button leaves the worker at a dead end -- which
+   * is why the offer is cached on the replay path too, beside `options` and `lookahead`.
+   */
+  form_offer: z
+    .object({
+      // The closed set from `TRADE_FORM_KINDS`. What the client routes on -- never the labels.
+      kind: z.enum(TRADE_FORM_KINDS),
+      headline: z.string(),
+      cta_label: z.string(),
+    })
     .nullable()
     .default(null),
 });
