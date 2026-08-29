@@ -1,0 +1,332 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../../core/di/locator.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/app_typography.dart';
+import '../../../core/widgets/bb_blue_header.dart';
+import '../../../core/widgets/bb_button.dart';
+import '../domain/trade_form_models.dart';
+import 'cubit/trade_form_cubit.dart';
+import 'widgets/trade_form_employment_page.dart';
+import 'widgets/trade_form_preferences_page.dart';
+import 'widgets/trade_form_progress_bar.dart';
+import 'widgets/trade_form_question_body.dart';
+
+// ---- Copy. aap-form, no `!`, safe verbs only. Scanned by
+// persona_neutrality_test.dart. ----
+const String _kLoading = 'Taiyaari ho rahi hai…';
+const String _kRetry = 'Dobara koshish karein';
+const String _kNext = 'Aage badhein';
+const String _kFinish = 'Ho gaya';
+const String _kNoFormTitle = 'Yahan abhi bharne ke liye kuch nahi hai';
+const String _kNoFormBody =
+    'Aapke liye koi form taiyaar nahi kiya gaya hai. Baad mein dobara dekhein.';
+const String _kNoFormHeader = 'Form';
+
+/// The trade form (#1341) — sectioned, resumable, driven entirely by
+/// `GET /profiling/form`. Reached via `context.push(Routes.tradeForm)`; no
+/// navigation is wired INTO this screen yet (that is #1340's handover card).
+class TradeFormScreen extends StatelessWidget {
+  const TradeFormScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocProvider<TradeFormCubit>(
+      create: (_) => locator<TradeFormCubit>()..load(),
+      child: const _TradeFormView(),
+    );
+  }
+}
+
+class _TradeFormView extends StatelessWidget {
+  const _TradeFormView();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<TradeFormCubit, TradeFormState>(
+      builder: (BuildContext context, TradeFormState state) {
+        switch (state.status) {
+          case TradeFormStatus.loading:
+            return const _StatusScaffold(
+              title: _kNoFormHeader,
+              child: _LoadingBody(),
+            );
+          case TradeFormStatus.noForm:
+            return const _StatusScaffold(
+              title: _kNoFormHeader,
+              child: _NoFormBody(),
+            );
+          case TradeFormStatus.loadError:
+            return _StatusScaffold(
+              title: _kNoFormHeader,
+              child: _ErrorBody(
+                message: state.loadError ?? _kRetry,
+                onRetry: () => context.read<TradeFormCubit>().load(),
+              ),
+            );
+          case TradeFormStatus.ready:
+          case TradeFormStatus.submitting:
+            return _WizardScaffold(state: state);
+        }
+      },
+    );
+  }
+}
+
+/// A bare blue-header scaffold for the pre-form loading / error / empty
+/// states — [onBack] pops the whole screen since there is nothing to walk yet.
+class _StatusScaffold extends StatelessWidget {
+  const _StatusScaffold({required this.title, required this.child});
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.canvas,
+      body: Column(
+        children: <Widget>[
+          BbBlueHeader(title: title, onBack: () => context.pop()),
+          Expanded(child: SafeArea(top: false, child: child)),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoadingBody extends StatelessWidget {
+  const _LoadingBody();
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          const CircularProgressIndicator(color: AppColors.blue),
+          const SizedBox(height: AppSpacing.s4),
+          Text(_kLoading,
+              style: AppTypography.body(
+                  size: AppTypography.sizeBase, color: AppColors.textMuted)),
+        ],
+      ),
+    );
+  }
+}
+
+/// The honest "nothing to fill here" state for a 404 — DISTINCT from a blank
+/// form (#1341). No retry: this is a real, stable answer for this worker
+/// right now, not a transient failure.
+class _NoFormBody extends StatelessWidget {
+  const _NoFormBody();
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.gutter),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(_kNoFormTitle,
+                textAlign: TextAlign.center,
+                style: AppTypography.display(size: AppTypography.sizeLg)),
+            const SizedBox(height: AppSpacing.s2),
+            Text(_kNoFormBody,
+                textAlign: TextAlign.center,
+                style: AppTypography.body(
+                    size: AppTypography.sizeBase, color: AppColors.textMuted)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorBody extends StatelessWidget {
+  const _ErrorBody({required this.message, required this.onRetry});
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.gutter),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(message,
+                textAlign: TextAlign.center,
+                style: AppTypography.body(size: AppTypography.sizeMd)),
+            const SizedBox(height: AppSpacing.s4),
+            BbButton(
+              label: _kRetry,
+              variant: BbButtonVariant.secondary,
+              size: BbButtonSize.md,
+              onPressed: onRetry,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The main walk chrome: a per-step header (section title, back-to-previous),
+/// a progress bar, the swapped step body, and — for the two marker screens
+/// ONLY — a sticky save/advance button. A question screen has no such
+/// button: it advances from its OWN inline controls
+/// ([TradeFormQuestionBody]), since each question is its own
+/// `POST /profiling/form/answer` rather than a batched page write.
+class _WizardScaffold extends StatefulWidget {
+  const _WizardScaffold({required this.state});
+  final TradeFormState state;
+
+  @override
+  State<_WizardScaffold> createState() => _WizardScaffoldState();
+}
+
+class _WizardScaffoldState extends State<_WizardScaffold> {
+  // Reused across every occurrence of that marker type — only one is ever
+  // mounted at a time (the walk shows one step on screen), so a single
+  // GlobalKey per marker kind is safe even though a marker can appear more
+  // than once in the walk (e.g. the shipped CNC-turner pack's two
+  // "preferences" screens).
+  final GlobalKey<TradeFormPreferencesPageState> _prefsKey =
+      GlobalKey<TradeFormPreferencesPageState>();
+  final GlobalKey<TradeFormEmploymentPageState> _empKey =
+      GlobalKey<TradeFormEmploymentPageState>();
+
+  @override
+  Widget build(BuildContext context) {
+    final TradeFormCubit cubit = context.read<TradeFormCubit>();
+    final TradeFormState state = widget.state;
+    final TradeFormStep? step = state.currentStep;
+    final bool enabled = !state.isSubmitting;
+
+    return Scaffold(
+      backgroundColor: AppColors.canvas,
+      body: Column(
+        children: <Widget>[
+          BbBlueHeader(
+            title: state.currentSectionTitle ?? '',
+            onBack: state.isFirstStep ? () => context.pop() : cubit.goBack,
+          ),
+          Expanded(
+            child: SafeArea(
+              top: false,
+              child: Column(
+                children: <Widget>[
+                  const SizedBox(height: AppSpacing.s4),
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+                    child:
+                        TradeFormProgressBar(answered: state.answered, total: state.total),
+                  ),
+                  if (state.submitError != null) ...<Widget>[
+                    const SizedBox(height: AppSpacing.s3),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.gutter),
+                      child: Text(
+                        state.submitError!,
+                        style: AppTypography.body(
+                            size: AppTypography.sizeSm, color: AppColors.danger),
+                      ),
+                    ),
+                  ],
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(AppSpacing.gutter,
+                          AppSpacing.s4, AppSpacing.gutter, AppSpacing.s4),
+                      child: _stepBody(step, cubit, enabled),
+                    ),
+                  ),
+                  if (step is TradeFormPreferencesStep ||
+                      step is TradeFormEmploymentStep)
+                    _MarkerBottomBar(
+                      isLast: state.isLastStep,
+                      isSubmitting: state.isSubmitting,
+                      onPressed: () {
+                        if (step is TradeFormPreferencesStep) {
+                          _prefsKey.currentState?.save();
+                        } else if (step is TradeFormEmploymentStep) {
+                          _empKey.currentState?.save();
+                        }
+                      },
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _stepBody(TradeFormStep? step, TradeFormCubit cubit, bool enabled) {
+    if (step is TradeFormQuestionStep) {
+      return TradeFormQuestionBody(
+        key: ValueKey<String>(step.question.id),
+        step: step,
+        enabled: enabled,
+        onSubmitChips: (List<String> keys) =>
+            cubit.answerQuestion(step, TradeFormAnswer.chips(keys)),
+        onSubmitBoolean: (bool value) =>
+            cubit.answerQuestion(step, TradeFormAnswer.boolean(value)),
+        onSubmitText: (String text) =>
+            cubit.answerQuestion(step, TradeFormAnswer.text(text)),
+        onDecline: () => cubit.declineQuestion(step),
+      );
+    }
+    if (step is TradeFormPreferencesStep) {
+      return TradeFormPreferencesPage(
+        key: _prefsKey,
+        enabled: enabled,
+        loadOptions: cubit.loadPreferenceOptions,
+        onSave: cubit.savePreferencesAndAdvance,
+      );
+    }
+    if (step is TradeFormEmploymentStep) {
+      return TradeFormEmploymentPage(
+        key: _empKey,
+        enabled: enabled,
+        onSave: cubit.saveEmploymentAndAdvance,
+      );
+    }
+    return const SizedBox.shrink();
+  }
+}
+
+class _MarkerBottomBar extends StatelessWidget {
+  const _MarkerBottomBar({
+    required this.isLast,
+    required this.isSubmitting,
+    required this.onPressed,
+  });
+
+  final bool isLast;
+  final bool isSubmitting;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.gutter, AppSpacing.s3, AppSpacing.gutter, AppSpacing.s4),
+      decoration: const BoxDecoration(
+        color: AppColors.canvas,
+        border: Border(top: BorderSide(color: AppColors.borderSubtle)),
+      ),
+      child: BbButton(
+        label: isLast ? _kFinish : _kNext,
+        block: true,
+        loading: isSubmitting,
+        onPressed: isSubmitting ? null : onPressed,
+      ),
+    );
+  }
+}

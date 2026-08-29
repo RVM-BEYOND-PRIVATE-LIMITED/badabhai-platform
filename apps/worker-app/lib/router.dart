@@ -26,6 +26,7 @@ import 'features/kit/presentation/kit_screen.dart';
 import 'features/notifications/presentation/notifications_screen.dart';
 import 'features/profile/presentation/profile_preview_screen.dart';
 import 'features/finishing/presentation/finishing_screen.dart';
+import 'features/trade_form/presentation/trade_form_screen.dart';
 import 'features/feedback/presentation/feedback_screen.dart';
 import 'features/invite/presentation/invite_screen.dart';
 import 'features/job_search/presentation/job_search_screen.dart';
@@ -78,6 +79,13 @@ class Routes {
   /// pages. Sits AFTER the profile confirm and BEFORE [building], so the rows it
   /// fills are present in the first résumé generate.
   static const String finishing = '/finishing';
+
+  /// The trade form (#1341) — sectioned, resumable, driven by
+  /// `GET /profiling/form`. A SEPARATE surface from [finishing] (not a
+  /// replacement); no navigation is wired into it yet — #1340's handover
+  /// card pushes here once it lands, and #1344 will retire [finishing]
+  /// later. Reachable today only via `context.push(Routes.tradeForm)`.
+  static const String tradeForm = '/trade-form';
   static const String building = '/building';
 
   // --- Shell branch roots (persistent bottom nav) ---
@@ -441,6 +449,10 @@ GoRouter _buildRouter() {
       GoRoute(
         path: Routes.finishing,
         builder: (_, __) => const FinishingScreen(),
+      ),
+      GoRoute(
+        path: Routes.tradeForm,
+        builder: (_, __) => const TradeFormScreen(),
       ),
       GoRoute(
         path: Routes.building,
