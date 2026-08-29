@@ -7,7 +7,6 @@ import 'package:mocktail/mocktail.dart';
 import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
-import 'package:badabhai_worker_app/core/theme/app_colors.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_button.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
@@ -204,6 +203,183 @@ void main() {
       expect(find.text('CNC Turner · 8 yrs · Fanuc'), findsOneWidget);
       // The legacy renderer's own section title is gone — one document, one render.
       expect(find.text('General Info'), findsNothing);
+    });
+  });
+
+  // #1353/#1354 — the reveal-then-choose affordance on ONE work-history entry
+  // whose printed line was rewritten. `_EmploymentEntry` reads a real
+  // `ResumeCubit` off `context.read` (for the write), so this rig mirrors the
+  // PRODUCTION wiring in `resume_preview_screen.dart`: a real cubit over
+  // mocked repos, with a `BlocBuilder` selecting `state.document` — a plain
+  // `document:` prop (as group 1 above uses) cannot observe "the affordance
+  // goes away after the choice", because that only happens once the cubit
+  // re-fetches and the document actually changes.
+  group('ResumeDocumentView — reveal-own-words affordance (#1353/#1354)', () {
+    late MockResumeRepository repo;
+    late MockResumeEditRepository editRepo;
+    late ResumeCubit cubit;
+
+    const ResumeEmploymentDto sameWords = ResumeEmploymentDto(
+      id: 'emp-1',
+      employer: 'Bharat Forge',
+      when: 'Jan 2023 – Present',
+      work: 'Operates CNC lathe for precision turned parts.',
+      workOwnWords: 'Operates CNC lathe for precision turned parts.',
+    );
+
+    const ResumeEmploymentDto noOwnWords = ResumeEmploymentDto(
+      id: 'emp-1',
+      employer: 'Bharat Forge',
+      when: 'Jan 2023 – Present',
+      work: 'Operates CNC lathe for precision turned parts.',
+    );
+
+    const ResumeEmploymentDto rewritten = ResumeEmploymentDto(
+      id: 'emp-1',
+      employer: 'Bharat Forge',
+      when: 'Jan 2023 – Present',
+      work: 'Operated CNC lathe delivering high-precision turned components '
+          'across multiple product lines.',
+      workOwnWords: 'CNC lathe chalata tha, thoda fitting bhi karta tha.',
+    );
+
+    TradeSheetResumeDocument documentWith(ResumeEmploymentDto employment) =>
+        TradeSheetResumeDocument(
+          header: const ResumeDocumentHeaderDto(name: 'Suresh Yadav'),
+          trade: 'cnc_turner',
+          employments: <ResumeEmploymentDto>[employment],
+        );
+
+    setUp(() {
+      GoogleFonts.config.allowRuntimeFetching = false;
+      repo = MockResumeRepository();
+      editRepo = MockResumeEditRepository();
+      when(() => editRepo.load()).thenAnswer(
+        (_) async => const ResumeSafeFields(
+          displayName: 'Suresh Yadav',
+          showPhoto: false,
+          nightShiftReady: false,
+        ),
+      );
+    });
+
+    /// Pumps the affordance through the SAME `BlocBuilder`-over-`ResumeCubit`
+    /// wiring the real screen uses — the caller stubs `repo.loadResumeDocument`
+    /// before calling this.
+    Future<void> pumpDocument(WidgetTester tester) async {
+      cubit = ResumeCubit(repo, editRepo);
+      addTearDown(cubit.close);
+      await tester.pumpWidget(MaterialApp(
+        home: BlocProvider<ResumeCubit>.value(
+          value: cubit,
+          child: Scaffold(
+            body: BlocBuilder<ResumeCubit, ResumeState>(
+              builder: (BuildContext context, ResumeState state) {
+                final ResumeDocument? document = state.document;
+                if (document is! TradeSheetResumeDocument) {
+                  return const SizedBox.shrink();
+                }
+                return SingleChildScrollView(
+                  child: ResumeDocumentView(document: document),
+                );
+              },
+            ),
+          ),
+        ),
+      ));
+      await cubit.showGenerated('resume text');
+      await tester.pump();
+    }
+
+    testWidgets(
+        'work_own_words EQUAL to work shows NO affordance at all',
+        (WidgetTester tester) async {
+      when(() => repo.loadResumeDocument())
+          .thenAnswer((_) async => documentWith(sameWords));
+      await pumpDocument(tester);
+
+      expect(find.text('Aapke apne shabdon mein dekhein'), findsNothing);
+      expect(find.byType(BbButton), findsNothing);
+    });
+
+    testWidgets('work_own_words NULL shows NO affordance at all',
+        (WidgetTester tester) async {
+      when(() => repo.loadResumeDocument())
+          .thenAnswer((_) async => documentWith(noOwnWords));
+      await pumpDocument(tester);
+
+      expect(find.text('Aapke apne shabdon mein dekhein'), findsNothing);
+      expect(find.byType(BbButton), findsNothing);
+    });
+
+    testWidgets(
+        'a GENUINE rewrite shows the reveal link, and tapping it reveals the '
+        'own-words text', (WidgetTester tester) async {
+      when(() => repo.loadResumeDocument())
+          .thenAnswer((_) async => documentWith(rewritten));
+      await pumpDocument(tester);
+
+      expect(find.text('Aapke apne shabdon mein dekhein'), findsOneWidget);
+      expect(find.text(rewritten.workOwnWords!), findsNothing);
+
+      await tester.tap(find.text('Aapke apne shabdon mein dekhein'));
+      await tester.pump();
+
+      expect(find.text(rewritten.workOwnWords!), findsOneWidget);
+      expect(find.text('Likha hua version chhupayein'), findsOneWidget);
+      expect(
+        find.widgetWithText(BbButton, 'Apne shabd rakhein'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets(
+        'choosing "keep my own words" calls '
+        'ResumeCubit.setEmploymentDescriptionSource(id, ownWords: true), and '
+        'the reveal affordance goes away (nothing left to compare)',
+        (WidgetTester tester) async {
+      int loadCalls = 0;
+      when(() => repo.loadResumeDocument()).thenAnswer((_) async {
+        loadCalls++;
+        // First load (showGenerated) serves the rewrite; the RELOAD after the
+        // choice serves the server's post-choice document, where the printed
+        // line now equals the worker's own words.
+        return loadCalls == 1
+            ? documentWith(rewritten)
+            : documentWith(sameWords);
+      });
+      when(() => repo.setEmploymentDescriptionSource(any(),
+              ownWords: any(named: 'ownWords')))
+          .thenAnswer((_) async {});
+      await pumpDocument(tester);
+
+      await tester.tap(find.text('Aapke apne shabdon mein dekhein'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(BbButton, 'Apne shabd rakhein'));
+      await tester.pumpAndSettle();
+
+      verify(() => repo.setEmploymentDescriptionSource('emp-1',
+          ownWords: true)).called(1);
+      expect(find.text('Aapke apne shabdon mein dekhein'), findsNothing);
+      expect(find.text('Likha hua version chhupayein'), findsNothing);
+      expect(find.text(rewritten.workOwnWords!), findsNothing);
+    });
+
+    testWidgets(
+        'the keep-own-words choice is EQUALLY WEIGHTED — .tonal, never '
+        '.danger or any warning styling', (WidgetTester tester) async {
+      when(() => repo.loadResumeDocument())
+          .thenAnswer((_) async => documentWith(rewritten));
+      await pumpDocument(tester);
+
+      await tester.tap(find.text('Aapke apne shabdon mein dekhein'));
+      await tester.pump();
+
+      final BbButton button = tester.widget<BbButton>(
+        find.widgetWithText(BbButton, 'Apne shabd rakhein'),
+      );
+      expect(button.variant, BbButtonVariant.tonal);
+      expect(button.variant, isNot(BbButtonVariant.danger));
     });
   });
 }
