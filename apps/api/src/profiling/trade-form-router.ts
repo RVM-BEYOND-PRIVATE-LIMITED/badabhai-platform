@@ -198,3 +198,18 @@ export function narrowTradeFormOffer(value: unknown): TradeFormOffer | null {
   // that no longer exist anywhere in the source. Only the KIND survives the round trip.
   return match === undefined ? null : TRADE_FORM_OFFERS[match];
 }
+
+/**
+ * Which question-pack FAMILY backs a form.
+ *
+ * THE SAME VALUE the route table already holds for corroboration, exposed under its second
+ * meaning rather than duplicated. The two are the same fact — "this is the turning family" —
+ * and a second table would be free to disagree with the first the day a family is renamed.
+ */
+export function familyForTradeForm(kind: TradeFormKind): string {
+  const route = TRADE_FORM_ROUTES.find((candidate) => candidate.kind === kind);
+  // Unreachable while `TradeFormKind` is derived from the same table; asserted so an entry
+  // removed from the table without its kind fails loudly instead of serving an empty form.
+  if (!route) throw new Error(`no trade-form route for ${kind}`);
+  return route.corroboratingFamilyId;
+}

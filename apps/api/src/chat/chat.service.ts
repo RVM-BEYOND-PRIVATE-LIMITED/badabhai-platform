@@ -802,6 +802,19 @@ export class ChatService {
       turn_count: buffer.turnCount,
       captured: buffer.captured,
       completion_reason: buffer.completionReason ?? null,
+      // WHICH FORM THE INTERVIEW HANDED OVER TO, or null. Null for every session that did not.
+      //
+      // HERE RATHER THAN ON `ConversationState`, deliberately. That interface is the frozen
+      // cross-language contract mirrored in `apps/ai-service/app/contracts.py`, and its own
+      // header argues against freezing one service state-machine detail into a shape the parse
+      // call cannot use and the ai-service must never write. This JSONB column already carries
+      // engine bookkeeping beside the contract fields -- `completion_reason` one line up and
+      // `extraction_ready_emitted` below -- and this belongs with those.
+      //
+      // IT HAS TO BE DURABLE. The envelope lives in Redis and the buffer is DROPPED the moment
+      // the flush commits, so without this row the form API would have no way to learn which
+      // form a returning worker was sent to.
+      form_kind: buffer.profiling?.formKind ?? null,
       // The RFS field ids the worker actually answered.
       //
       // FILTERED, not trusted. The event payload enforces `^[a-z_]+$`, max 40 chars and
