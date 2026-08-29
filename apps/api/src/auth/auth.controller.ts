@@ -250,12 +250,24 @@ export class AuthController {
    * session. Consent is NEVER created or bypassed here. Emits the distinct
    * `worker.test_login` event.
    *
-   * TWO caps, both fail-closed (review L1): the per-IP hour cap (as
-   * /auth/otp/request) AND a GLOBAL daily ceiling — the per-IP cap alone would let a
-   * token holder rotate IPs for unlimited mints, so the IP-INDEPENDENT backstop is
-   * what actually bounds the seam (TEST_LOGIN_MAX_PER_DAY; 0 = kill-switch). The
-   * SERVICE additionally refuses any phone outside the reserved synthetic range
-   * (review M1) — that is the mint chokepoint, and it answers the same neutral 404.
+   * THREE caps, all fail-closed (review L1): a per-sender hour cap, a per-network hour
+   * cap, AND a GLOBAL daily ceiling. THE GLOBAL ONE IS WHAT ACTUALLY BOUNDS THE SEAM
+   * (TEST_LOGIN_MAX_PER_DAY; 0 = kill-switch) — a token holder rotates addresses, and
+   * since #1035 rotates `X-Device-Id` too, past either per-caller gate. Do NOT relax
+   * the global ceiling on the strength of the two in front of it. The SERVICE
+   * additionally refuses any phone outside the reserved synthetic range (review M1) —
+   * that is the mint chokepoint, and it answers the same neutral 404.
+   *
+   * NO LONGER MIRRORS /auth/otp/request (#1306): that route's network ceiling is gone,
+   * this one's is kept — its callers are CI and staging smoke from known networks, not
+   * workers behind carrier CGNAT, so an address bucket costs nobody a sign-in here. It
+   * is the last reader of OTP_MAX_SENDS_PER_IP_PER_HOUR.
+   *
+   * ⚠ IT ALSO SHARES OTP_MAX_SENDS_PER_DEVICE_PER_HOUR with the OTP send path, so #1306
+   * raising that 20 -> 200 widened this seam's per-caller gate tenfold as a side effect.
+   * Harmless only because TEST_LOGIN_MAX_PER_DAY (200/day) sits below it and binds first
+   * — which is precisely why that ceiling must not be raised without giving this route
+   * its own sender knob.
    */
   @Post("test-login")
   @HttpCode(200)
@@ -265,10 +277,14 @@ export class AuthController {
     @Req() req: Request,
     @Ctx() ctx: RequestContext,
   ): Promise<LoginResponse> {
-    // The SAME sender-then-network pair as /auth/otp/request above, and for the same reason:
-    // these are per-CALLER questions, not a per-phone SMS budget. Their own buckets
-    // (`test_login` / `test_login_net`), so the seam never competes with real sign-ins — and
-    // the GLOBAL daily ceiling below, not either of these, is what actually bounds it.
+    // A sender-then-network pair, on the reasoning /auth/otp/request used to share: these are
+    // per-CALLER questions, not a per-phone SMS budget. Their own buckets (`test_login` /
+    // `test_login_net`), so the seam never competes with real sign-ins — and the GLOBAL daily
+    // ceiling below, not either of these, is what actually bounds it.
+    //
+    // THE SEND ROUTE NO LONGER HAS THE NETWORK HALF (#1306) — do not "restore symmetry" by
+    // deleting this one. It was removed there because that bucket is a carrier-CGNAT pool full
+    // of workers; here the callers are CI and staging smoke from known networks.
     await this.ipRateLimit.assertWithinHourlySenderCap(
       "test_login",
       senderOf(req),

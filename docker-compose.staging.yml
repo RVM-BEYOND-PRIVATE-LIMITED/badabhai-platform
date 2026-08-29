@@ -442,12 +442,39 @@ services:
       # ⚠ KEEP THESE DEFAULTS IN SYNC with packages/config/src/server.ts. Two sources of truth for
       # one number is how a limiter ends up with a ceiling nobody can predict; the config file is
       # authoritative and this is a mirror of it.
+      # ⚠ AUDIT THE BOX BEFORE THE FIRST DEPLOY THAT CARRIES THIS BLOCK. These names go from inert
+      # to LIVE here. Anything already sitting in the box's `.env` or shell profile has been
+      # ignored for as long as it has existed, so nobody has had reason to clean it up — a stale
+      # `OTP_MAX_SENDS_PER_DEVICE_PER_HOUR=20` left over from the #1035 investigation would now
+      # take effect and silently reinstate the outage #1306 fixed. The runbook's §2 audit step
+      # (`printenv | grep '^OTP_'`) exists for exactly this and should be run once, on this deploy.
       OTP_GLOBAL_MAX_SENDS_PER_DAY: ${OTP_GLOBAL_MAX_SENDS_PER_DAY:-10000}
       OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: ${OTP_MAX_SENDS_PER_DEVICE_PER_HOUR:-200}
+      # ⚠ NOT WORKER-ONLY. These two are read by AdminOtpService and PayerOtpService as well as
+      # OtpService, so moving either to unblock worker sign-ins loosens the admin-portal and
+      # payer-portal OTP caps by the same factor, on channels with their own spend. When only the
+      # worker budget is meant, reach for OTP_MAX_SENDS_PER_DAY (worker-only) instead.
       OTP_MAX_SENDS_PER_HOUR: ${OTP_MAX_SENDS_PER_HOUR:-5}
-      OTP_MAX_SENDS_PER_DAY: ${OTP_MAX_SENDS_PER_DAY:-10}
       OTP_RESEND_COOLDOWN_SECONDS: ${OTP_RESEND_COOLDOWN_SECONDS:-30}
+      OTP_MAX_SENDS_PER_DAY: ${OTP_MAX_SENDS_PER_DAY:-10}
+      # DERIVED: must stay OTP_MAX_SENDS_PER_DEVICE_PER_HOUR x OTP_MAX_ATTEMPTS. A handset inside
+      # its send budget can legitimately produce that many verifies, so moving the send cap alone
+      # makes VERIFY the binding constraint — the worse failure, where a worker holds a valid code
+      # they cannot spend. A config test asserts the ratio.
       OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR: ${OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR:-1000}
+      # The brute-force knob and the code lifetime — undeclared until now for the same reason as
+      # everything else in this block, which meant tightening guesses-per-code during a
+      # credential-stuffing response was a code change. OTP_MAX_ATTEMPTS is also the second term
+      # of the derived ratio above, so it cannot be tunable only in theory.
+      OTP_MAX_ATTEMPTS: ${OTP_MAX_ATTEMPTS:-5}
+      OTP_TTL_SECONDS: ${OTP_TTL_SECONDS:-300}
+      # The PAYER half of the kill-switch surface. AdminKillSwitchService publishes
+      # `payer_otp_email` with `pause_via: set PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY=0 (env/deploy)`
+      # in the same list as its worker sibling — declaring only the worker one would have left the
+      # surface advertising two levers of which exactly one worked, which is worse than two that
+      # visibly do not. Its own default (2000), NOT the worker ceiling: a different channel with a
+      # different provider and its own spend.
+      PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY: ${PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY:-2000}
       # Still read by the D-3 `test_login_net` ceiling; no longer on the OTP path (see the knob's
       # note in server.ts). Declared so that one remaining call site is tunable too.
       OTP_MAX_SENDS_PER_IP_PER_HOUR: ${OTP_MAX_SENDS_PER_IP_PER_HOUR:-1000}
