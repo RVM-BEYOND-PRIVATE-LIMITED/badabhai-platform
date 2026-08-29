@@ -220,9 +220,27 @@ describe("TradeFormService", () => {
       await expect(service.schema(WORKER)).rejects.toThrow(/not been handed/);
     });
 
-    it("404s loudly when the form kind has no active pack", async () => {
+    it("does NOT 404 when the pack is missing — that is a server fault, not an empty form", async () => {
+      // THE DISTINCTION THIS TEST EXISTS FOR, and it cost a real worker a dead end before it did.
+      //
+      // The client maps 404 on this route to "aapke liye koi form taiyaar nahi kiya gaya hai",
+      // which is the correct reading of 404 here and completely false when the worker HAS been
+      // handed a form and the pack is simply absent from the database. Seeding is manual, so a
+      // new pack can ship, pass every test, deploy green and still not be there.
+      //
+      // 503, so the app offers a retry instead of telling the worker they are not entitled to
+      // the form they were just invited to fill.
       const { service } = await makeService({ pack: null });
-      await expect(service.schema(WORKER)).rejects.toThrow(/no active question pack/);
+      await expect(service.schema(WORKER)).rejects.toMatchObject({
+        status: 503,
+      });
+    });
+
+    it("still 404s the worker who was never handed a form — the two are not the same failure", async () => {
+      // The discriminating half. Without it the assertion above would pass against a route that
+      // had stopped distinguishing the cases at all, in the other direction.
+      const { service } = await makeService({ formKind: null });
+      await expect(service.schema(WORKER)).rejects.toMatchObject({ status: 404 });
     });
   });
 
