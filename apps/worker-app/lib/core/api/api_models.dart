@@ -1341,6 +1341,7 @@ class ProfileSummaryDto extends Equatable {
     required this.city,
     required this.strength,
     this.strengthMax,
+    this.missingFields = const <String>[],
     this.skills = const <String>[],
     this.machines = const <String>[],
     this.experienceYears,
@@ -1370,6 +1371,16 @@ class ProfileSummaryDto extends Equatable {
   /// meter lights up the day the backend ships it (WA-4 seam); the UI never
   /// fabricates a denominator while it is null.
   final int? strengthMax;
+
+  /// The canonical keys of the 9 field-group slots the profile is still MISSING
+  /// (`missing_fields`), ordered by the server largest-missing-weight FIRST — so
+  /// `missing_fields.first` is the single most valuable thing to add next. Each
+  /// entry is a short slug: `role` | `trade` | `skills` | `machines` |
+  /// `experience` | `salary` | `location` | `availability` | `photo`. PII-free by
+  /// construction (field NAMES, never values). Additive wire field — a malformed
+  /// or absent array parses to `[]`, never a throw. Humanized to readable Hinglish
+  /// at the display edge (never rendered as a raw slug).
+  final List<String> missingFields;
 
   /// Canonical skill labels from the latest profile (PII-free taxonomy strings);
   /// `[]` when none. Additive wire field — absent on older backends.
@@ -1405,6 +1416,13 @@ class ProfileSummaryDto extends Equatable {
       city: json['city'] as String?,
       strength: (json['strength'] as num?)?.toInt() ?? 0,
       strengthMax: (json['strength_max'] as num?)?.toInt(),
+      // Defensive: keep only real string slugs; a malformed/absent array ⇒ [].
+      // Order is preserved (largest-missing-weight first) — the consumer relies
+      // on `.first` being the single most valuable slot to add next.
+      missingFields: (json['missing_fields'] as List<dynamic>?)
+              ?.whereType<String>()
+              .toList(growable: false) ??
+          const <String>[],
       // Defensive: keep only real strings; a malformed/absent array ⇒ [].
       skills: (json['skills'] as List<dynamic>?)
               ?.whereType<String>()
@@ -1430,6 +1448,7 @@ class ProfileSummaryDto extends Equatable {
         city,
         strength,
         strengthMax,
+        missingFields,
         skills,
         machines,
         experienceYears,

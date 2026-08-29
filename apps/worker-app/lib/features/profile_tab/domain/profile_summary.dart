@@ -17,6 +17,7 @@ class ProfileSummary extends Equatable {
     this.verified = false,
     required this.strengthSignals,
     this.strengthMax,
+    this.missingFields = const <String>[],
     this.skills = const <String>[],
     this.machines = const <String>[],
     this.experienceYears,
@@ -52,6 +53,13 @@ class ProfileSummary extends Equatable {
   /// wire today, so this is null). Non-null unlocks a real N/max meter; until
   /// then no fraction/percent is fabricated.
   final int? strengthMax;
+
+  /// The still-missing field-group slots (`missing_fields`), ordered by the
+  /// server largest-missing-weight FIRST — `missingFields.first` is the single
+  /// most valuable slot to add next. PII-free field NAMES, `[]` when none/complete.
+  /// Drives the Profile-strength NUDGE (one humanized prompt at a time); never a
+  /// grade, never a raw slug on screen.
+  final List<String> missingFields;
 
   /// Worker-confirmed canonical skill labels (`skills`); `[]` when none. PII-free
   /// taxonomy strings — safe to render as chips.
@@ -101,6 +109,7 @@ class ProfileSummary extends Equatable {
         verified,
         strengthSignals,
         strengthMax,
+        missingFields,
         skills,
         machines,
         experienceYears,

@@ -109,6 +109,27 @@ void main() {
     expect(s.strengthMax, 12);
   });
 
+  test('missing_fields flows through in ORDER (the nudge reads .first); absent '
+      '⇒ empty', () async {
+    when(() => api.getProfileSummary(authToken: any(named: 'authToken')))
+        .thenAnswer((_) async => const ProfileSummaryDto(
+              profileStatus: 'draft',
+              confirmedAt: null,
+              tradeDisplayName: 'Fitter',
+              canonicalTradeId: null,
+              canonicalRoleId: null,
+              city: null,
+              strength: 3,
+              strengthMax: 9,
+              missingFields: <String>['skills', 'salary', 'photo'],
+            ));
+
+    final ProfileSummary s =
+        await ProfileSummaryRepositoryImpl(api, session).summary();
+    expect(s.missingFields, <String>['skills', 'salary', 'photo']);
+    expect(s.missingFields.first, 'skills');
+  });
+
   test('skills / machines / experience years flow through to the domain summary',
       () async {
     when(() => api.getProfileSummary(authToken: any(named: 'authToken')))

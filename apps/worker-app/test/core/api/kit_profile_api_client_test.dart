@@ -134,6 +134,7 @@ void main() {
                 'city': null,
                 'strength': 6,
                 'strength_max': 12,
+                'missing_fields': <String>['salary', 'photo'],
               }),
               200,
             )),
@@ -143,6 +144,8 @@ void main() {
           await api.getProfileSummary(authToken: 'tok');
       expect(dto.strength, 6);
       expect(dto.strengthMax, 12);
+      // Order preserved (largest-missing-weight first) — the nudge reads .first.
+      expect(dto.missingFields, <String>['salary', 'photo']);
     });
 
     test('getProfileSummary tolerates a missing trade block + null fields',
@@ -173,6 +176,8 @@ void main() {
       expect(dto.skills, isEmpty);
       expect(dto.machines, isEmpty);
       expect(dto.experienceYears, isNull);
+      // Additive missing_fields seam: absent ⇒ empty list, never a crash.
+      expect(dto.missingFields, isEmpty);
     });
 
     test('getProfileSummary parses skills/machines/experience_years and drops '

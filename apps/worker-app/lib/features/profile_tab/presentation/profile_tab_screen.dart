@@ -15,13 +15,13 @@ import '../../../core/widgets/bb_alerts_action.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_action.dart';
 import '../../../core/widgets/bb_list_row.dart';
-import '../../../core/widgets/bb_progress_bar.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_verified_badge.dart';
 import '../../../router.dart';
 import '../../../core/util/taxonomy_labels.dart';
 import 'cubit/profile_tab_cubit.dart';
 import 'widgets/profile_avatar.dart';
+import 'widgets/profile_strength_card.dart';
 import '../domain/profile_summary.dart';
 
 /// The tabbed Profile (spec §5.9) — distinct from the profiling ProfilePreview.
@@ -88,7 +88,14 @@ class _ProfileTabView extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(AppSpacing.gutter),
       children: <Widget>[
-        _strengthCard(s),
+        // #1322: at most ONE humanized nudge, derived from the server's strength
+        // band + ordered `missing_fields`. Collapses to nothing at Strong (and
+        // when nothing is missing) — never a grade, never an "N/9" score.
+        ProfileStrengthCard(
+          signals: s.strengthSignals,
+          max: s.strengthMax,
+          missingFields: s.missingFields,
+        ),
         const SizedBox(height: AppSpacing.s4),
         _skillsCard(s),
         const SizedBox(height: AppSpacing.s4),
@@ -294,60 +301,6 @@ class _ProfileTabView extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-
-  /// WA-4: the backend `strength` is an integer SIGNAL COUNT (countFields,
-  /// recomputed on read) with NO denominator on the wire — this card used to
-  /// render `count * 100 %` (e.g. "800%") over a bar fed the raw count, plus a
-  /// "photo → 100%" line no backend field backs. It now shows the honest count
-  /// in DS voice ("N cheezein" — never dev vocabulary like "signals", L-2);
-  /// the moment the API ships `strength_max` the real N/max meter + bar light
-  /// up via [ProfileSummary.strengthMax] — nothing here divides by a
-  /// client-side magic number. ("Add X" hints need the missing field LIST,
-  /// which the summary response does not carry either.)
-  Widget _strengthCard(ProfileSummary s) {
-    final int n = s.strengthSignals;
-    final int? max = s.strengthMax;
-    final bool hasMax = max != null && max > 0;
-    final String meter = hasMax ? '$n/$max' : '$n cheezein';
-    final String hint = n == 0
-        ? 'Abhi profile khaali hai — chat mein apne skills aur experience batayein.'
-        : 'Profile mein $n cheezein complete — chat mein aur jankari denge to aur strong hogi.';
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surfaceCard,
-        borderRadius: BorderRadius.circular(AppRadii.lg),
-        border: Border.all(color: AppColors.borderSubtle),
-      ),
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: <Widget>[
-              Text('Profile strength',
-                  style: AppTypography.body(
-                      size: AppTypography.sizeSm, weight: FontWeight.w700)),
-              Text(meter,
-                  style: AppTypography.mono(color: AppColors.textMuted)),
-            ],
-          ),
-          // A fraction bar exists ONLY when a real denominator exists.
-          if (hasMax) ...<Widget>[
-            const SizedBox(height: AppSpacing.s2),
-            BbProgressBar(value: n / max),
-          ],
-          const SizedBox(height: AppSpacing.s3),
-          // ADR-0032 nudge route-through intentionally NOT taken here: #340 was cut
-          // before #326, and its copy hardcoded "…aur 100% tak pahunchein" — the
-          // fabricated percent WA-4 removed (no backend field backs it). This hint
-          // also points to CHAT, so a tap to resumeEdit would contradict its text.
-          // The photo flow stays reachable via the edit screen's "Aapki photo" row.
-          Text(hint, style: AppTypography.body(color: AppColors.textMuted)),
-        ],
-      ),
     );
   }
 

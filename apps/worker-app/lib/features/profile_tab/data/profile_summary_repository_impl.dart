@@ -40,6 +40,9 @@ class ProfileSummaryRepositoryImpl implements ProfileSummaryRepository {
         // UI shows an honest count, not a fake fraction.
         strengthSignals: dto.strength,
         strengthMax: dto.strengthMax,
+        // The still-missing slots, order preserved (largest-missing-weight first)
+        // — the Profile-strength nudge reads `.first` and humanizes it. PII-free.
+        missingFields: dto.missingFields,
         // Structured skills/experience for the "Skills aur anubhav" section —
         // PII-free canonical labels + a years number (never the summary text).
         skills: dto.skills,
