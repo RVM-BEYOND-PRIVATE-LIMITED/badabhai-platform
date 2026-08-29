@@ -76,6 +76,19 @@ _ROUTE_SHAPES: dict[str, tuple[ModelTier, bool]] = {
     # and a prose answer would have to be regex-scraped for an id, which is precisely
     # how a hallucinated id gets past a parser.
     "domain_match": ("cheap", True),
+    # #1350 — rephrasing one work-history sentence into professional English.
+    #
+    # CHEAP, and that is a judgement about the TASK rather than about its importance. The model
+    # is forbidden from adding any fact: it receives one sentence and returns the same claims in
+    # better English, which is the shape a cheap model does well. A capable model would not
+    # obey the prohibitions any harder — the far side re-checks them either way — and this runs
+    # once per employment stint for every worker, so the tier is the difference between a
+    # rounding error and a line item.
+    #
+    # `json_mode` because the answer is `{"work_done": ...}` and a prose preamble would be
+    # scraped for a sentence, which is how a refusal ("I cannot rewrite this") gets printed on
+    # a resume as if it were the worker's description.
+    "work_history_polish": ("cheap", True),
 }
 
 

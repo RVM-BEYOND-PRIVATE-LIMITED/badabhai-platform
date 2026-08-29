@@ -122,6 +122,9 @@ _TASK_TRACE: dict[str, tuple[str, str]] = {
     "skill_canonicalization": ("canonicalize-skill", "taxonomy"),
     "skill_canonicalization_batch": ("canonicalize-skill-labels", "taxonomy"),
     "voice_transcription": ("transcribe-voice-note", "voice"),
+    # #1350. Tagged "resume" rather than "profiling": it is spent on the artifact, not on the
+    # interview, and the question it has to answer is "what does the section-8 override cost".
+    "work_history_polish": ("polish-work-history", "resume"),
 }
 
 #: Workflow names — the ROOT trace names. Business operations, not AI tasks: a workflow is
