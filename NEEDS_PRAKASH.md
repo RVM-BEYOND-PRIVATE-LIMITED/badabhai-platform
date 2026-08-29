@@ -10,7 +10,7 @@ built around.
 
 ---
 
-## Status — Q1–Q9 ruled 2026-08-28 (R4); Q10–Q12 opened by R6; Q13 by R11 (ruled R12); Q14 by R12; Q2 + Q14 routed to RVM by R13
+## Status — Q1–Q9 ruled 2026-08-28 (R4); Q10–Q12 opened by R6; Q13 by R11 (ruled R12); Q14 by R12; Q2 + Q14 routed to RVM by R13; Q15 + Q16 opened by R14
 
 Nothing on the **render** track is waiting on a decision. Four questions are open, and they are a
 different kind: Q10 is a flag flip that no amount of engineering substitutes for, Q11 and Q12 are
@@ -24,6 +24,8 @@ in somebody else's merged PR.
 | **Q12** | Profile Strength: replace the counter, or rename it?                     | §9.1, and with it the §9.3 enrichment loop                          |
 | **Q13** | Stacked PRs run NO CI — widen the trigger, or forbid the base?           | **RULED (R12 §6)** — widened + baseline pinned; PR #1300            |
 | **Q14** | Should a machinist share the TURNER's `measuring_tools` mapping? (→ RVM) | nothing; machinists lose that reach meanwhile                       |
+| **Q15** | Wire the two legacy slots R14 §1 found stubbed, with the audience gate?  | nothing; the legacy sheet contradicts itself in two places          |
+| **Q16** | Does the 2026-08-12 narrow-field-set ruling still hold?                  | nothing; the interview-led résumé is the thinner one                |
 
 The nine R4 rulings, kept because several of them are cited by code comments:
 
@@ -867,3 +869,93 @@ machine trial — and §5.3 names the second as the most damaging failure availa
 Machinists keep losing `skill_measuring_instruments` on every skill rebuild. That is a real
 reduction in reach for a real population, taken as the safe side of a decision nobody has made —
 which is the right default for an unmade decision and the wrong resting place for it.
+
+---
+
+## Q15 · Two slots the legacy branch stubs, with the value sitting in scope (R14 §1)
+
+R14 §1 audited the whole seam between the résumé container and the legacy answer-map shape rather
+than waiting for the next defect to be found by a question. It found eleven asymmetries. Nine are
+explained — an owner ruling, no source on the starved branch, or an unreachable coupling. **Two
+are not**, and both are the same shape as the salary defect R12 §1.4 already ruled on.
+
+Measured, on `classic.v3` — the template `resume.service.ts` names for every production render:
+
+| slot                       | what the sheet does                                                               |
+| -------------------------- | --------------------------------------------------------------------------------- |
+| `{{#preferred_locations}}` | region renders EMPTY while Zone 3 prints "Preferred locations: Gurugram, Noida"   |
+| `{{expected_salary}}`      | renders nothing while the Verdict Line prints "expects ₹24,000 – ₹28,000 / month" |
+
+Both values are already computed a few lines above, in the same object literal, and handed to
+`buildAvailabilityRows`. The scalars beside them are a literal `[]` and a literal `null`.
+
+### Why this is a question and not just a fix
+
+**The directive said report the size of it before fixing anything beyond the known three**, and it
+was right to: these change what prints on every résumé rendered from the legacy branch, which is
+the branch the mapper's own comment calls "the path most existing profiles still take". That is a
+product-visible change to a live artifact, not a refactor.
+
+There is also one thing a careless fix gets wrong. `expectedSalary` must carry the audience gate
+with it — `audience === "worker" ? … : null` — or the worker's asking price appears on the
+employer-facing masked disclosure. `legacySalary` is already gated, which is exactly why the
+Verdict Line and the fact row are safe today and why a naive `draft.salary_expectation.amount_min`
+would not be.
+
+### Options
+
+1. **Wire both, with the audience gate.** Two lines. The sheet then says the same thing in both
+   places it already tries to say it.
+2. **Wire `preferredLocations` only.** It carries no disclosure risk at all.
+3. **Leave both.** The legacy sheet keeps contradicting itself in two places.
+
+**Recommendation: option 1.** It is the ruling R12 §1.4 already made, applied to the two slots that
+packet did not look at.
+
+### Cost of silence
+
+Every worker on the legacy branch hands over a sheet whose Zone 3 lists his preferred cities and
+whose location region is blank, and whose subhead states an asking price the salary slot does not.
+Both are pinned as `it.fails` in `branch-parity.audit.test.ts`, so nothing rots — but the sheet
+stays self-contradicting until this is answered.
+
+---
+
+## Q16 · Does the 2026-08-12 "narrow field set first" ruling still hold? (R14 §1)
+
+`ResumeProfileSchema`'s docstring records a ruling of yours: _"Education, certifications,
+languages, tools and relocation are captured by the template tail and live on `DraftProfile` — they
+are NOT rendered from here, and that is an accepted, temporary loss (owner decision 2026-08-12):
+the pipeline is being proven end-to-end on a narrow field set first."_
+
+R14 §1 measured what that costs now, sixteen days on. On `classic.v3`, a worker whose LLM interview
+ran gets `{{#machines}}`, `{{#education}}`, `{{#certifications}}` and `{{#education_headline}}` all
+empty — while the identical draft renders all four for a worker whose interview never ran. **The
+newer path produces the thinner résumé.**
+
+### What changed since the ruling
+
+R9's Zone 5 work has already unwound half of it without anyone re-opening the decision.
+`qualFactRows` on that same container branch reads the composed education headline and the draft's
+certifications — so **`bb_trade` prints the certificates that `classic.v3`'s scalar slot two lines
+below does not.** One source, two answers, decided by which template a caller names.
+
+### Options
+
+1. **Reaffirm.** The loss stays; `bb_trade` is the sheet that matters and `classic.v3` is legacy
+   chrome. Then the inconsistency is deliberate and should be written down where it can be read.
+2. **Close it.** Thread the draft's four values into `fromResumeProfile` the way
+   `draftQualification` already is. It is not a merge into the container — those fields are not in
+   the container at all, which is the whole reason they were lost.
+3. **Retire the old templates for new renders.** Point `resume.service.ts` at `bb_trade`, which
+   makes the question moot for everyone rendered after the change.
+
+**Recommendation: option 2, then look hard at option 3 separately.** Option 2 is small, and the
+source is already half-threaded.
+
+### Cost of silence
+
+Every worker whose interview ran renders a résumé missing his machines, his education and his
+certificates, on the template production actually names — and the better his interview went, the
+more he loses. `branch-parity.audit.test.ts` holds the ruling as an allowlist row with this
+citation, so the loss is visible; it is not shrinking on its own.

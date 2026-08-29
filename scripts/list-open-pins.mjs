@@ -217,6 +217,11 @@ function providerCorpus() {
         id: `${row.id} (${rel(abs)}:${i + 1})`,
         title: row.text ?? "",
         why: note.replace(/\s+/g, " ").slice(0, 200),
+        // THE UNTRUNCATED NOTE, and it is not a nicety. `why` is capped at 200 characters for
+        // the listing, and the first alias this script grew sat at character 340 — so the fold
+        // silently did not happen and the duplicate it was written to remove stayed on the page.
+        // Aliases are read from here; display still reads `why`.
+        raw: note.replace(/\s+/g, " "),
         gates: [rel(abs), ...(CORPUS_PREFIX_SUBJECTS[prefix] ?? [])],
       });
     });
@@ -323,6 +328,63 @@ function changedPaths() {
   return [...paths];
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// De-duplication — one gap, however many places record it (R14 §5)
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * `SAME GAP AS <pin>` folds this pin into that one. `SEE ALSO <pin>` keeps both and links them.
+ *
+ * WHY THIS EXISTS. The first run of this script against R13's paths reported twenty pins, and
+ * two pairs of them were one gap each: `sp_hajar`/`sp_hazzar` in the pytest table and
+ * `sal_018`/`sal_019` in the shared corpus are the same two missing spellings, recorded once per
+ * mechanism because the two mechanisms were built a packet apart. Nobody would have noticed from
+ * either end — each register is internally consistent — and the cost is not tidiness: a list that
+ * says twenty when it means eighteen is a list whose count nobody can act on, and the two extra
+ * rows read as two extra pieces of work.
+ *
+ * FAIL CLOSED ON A DANGLING REFERENCE. An alias naming a pin that no longer exists is worse than
+ * no alias: it silently deletes a pin from the listing. `resolveAliases` reports it as an
+ * unavailable provider would be reported, and the process exits non-zero.
+ */
+const ALIAS_RE = /\b(SAME GAP AS|SEE ALSO)\s+([A-Za-z0-9_.:]+)/g;
+
+/** Does `pin` answer to `ref` — its full id, its trailing `::case`, or its corpus row id? */
+function pinAnswersTo(pin, ref) {
+  if (pin.id === ref) return true;
+  if (pin.id.endsWith(`::${ref}`)) return true;
+  // Corpus ids are rendered `sal_018 (path:line)`.
+  return pin.id.split(" ")[0] === ref;
+}
+
+export function resolveAliases(pins) {
+  const dangling = [];
+  const merged = new Map(pins.map((pin) => [pin.id, { ...pin, alsoAt: [], seeAlso: [] }]));
+  const folded = new Set();
+
+  for (const pin of pins) {
+    for (const [, kind, ref] of (pin.raw ?? pin.why).matchAll(ALIAS_RE)) {
+      const target = pins.find((other) => other !== pin && pinAnswersTo(other, ref));
+      if (target === undefined) {
+        dangling.push(`${pin.id} names "${ref}", which is not an open pin`);
+        continue;
+      }
+      if (kind === "SEE ALSO") {
+        merged.get(target.id).seeAlso.push(pin.id);
+        merged.get(pin.id).seeAlso.push(target.id);
+        continue;
+      }
+      // SAME GAP AS — the referencing pin folds into the target, and its gated files come with
+      // it so path filtering still surfaces the gap from either side.
+      const into = merged.get(target.id);
+      into.alsoAt.push(pin.id);
+      into.gates = [...new Set([...into.gates, ...pin.gates])];
+      folded.add(pin.id);
+    }
+  }
+  return { pins: [...merged.values()].filter((pin) => !folded.has(pin.id)), dangling };
+}
+
 /** A pin matches when any file it gates sits under any of the given paths (or vice versa). */
 export function pinsTouching(pins, paths) {
   if (paths.length === 0) return [];
@@ -354,7 +416,11 @@ export function collectPins({ skipPython = false } = {}) {
       unavailable.push(`${name}: ${error.message}`);
     }
   }
-  return { pins, unavailable };
+  // R14 §5 — collapse the registers AFTER every provider has run, never inside one: the two
+  // halves of a duplicated gap live in different providers by definition.
+  const { pins: deduped, dangling } = resolveAliases(pins);
+  for (const line of dangling) unavailable.push(`alias: ${line}`);
+  return { pins: deduped, unavailable };
 }
 
 function main(argv) {
@@ -383,6 +449,14 @@ function main(argv) {
         process.stdout.write(`  ${pin.id}\n`);
         if (pin.title) process.stdout.write(`      ${pin.title}\n`);
         if (pin.why) process.stdout.write(`      ${pin.why}\n`);
+        // The same gap, recorded elsewhere. Printed rather than hidden: the point of folding is
+        // one COUNT, not one location — closing this gap means editing every line named here.
+        for (const also of pin.alsoAt ?? []) {
+          process.stdout.write(`      also recorded at ${also}\n`);
+        }
+        for (const link of pin.seeAlso ?? []) {
+          process.stdout.write(`      see also ${link}\n`);
+        }
       }
     }
     if (shown.length === 0) process.stdout.write("\n  (none)\n");

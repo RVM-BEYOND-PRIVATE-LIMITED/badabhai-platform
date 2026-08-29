@@ -510,9 +510,12 @@ FAMILIES: list[tuple[str, list[tuple[str, str | None]]]] = [
         ("paune saal", "0.75 — the short form alone"),
         ("sava saal", "1.25 — the short form alone"),
         ("7-8 saal",
-         "MEASURED: yields 8, not 7 — only the number ADJACENT to the unit "
+         "MEASURED: yields 8, not 7 - only the number ADJACENT to the unit "
          "qualifies, so a range records the optimistic end. Shipped behaviour, "
-         "pinned deliberately"),
+         "pinned deliberately. THE SAME CLASS AS THE SALARY BAND, IN A DIFFERENT FIELD: "
+         "a worker states a range, one end reaches the rule and the other is discarded. "
+         "The salary side calls it the band class and has three rows; nothing connected "
+         "the two until the pin lister put them on one page. SEE ALSO band_se"),
         ("7 se 8 saal", "same as above with a word separator"),
         ("5+ years", None),
         ("12.5 saal", "decimal"),
@@ -527,9 +530,11 @@ FAMILIES: list[tuple[str, list[tuple[str, str | None]]]] = [
         ("salary 28000 hai", None),
         ("20k mahina milta hai", "k unit + explicit monthly cue"),
         ("25 hazaar per month",
-         "MEASURED GAP, records NOTHING: the unit list has 'hazar' but not the very common "
-         "'hazaar' spelling, so this is a bare 2-digit number and is dropped. Pinned so "
-         "adding the spelling is a visible one-line diff with a corpus change attached"),
+         "R12 1.1 - CLOSED. This row was pinned as a measured gap: 'hazaar' was absent from "
+         "thousandUnits, so the {WE} guard rejected the 'hazar' prefix, the unit group matched "
+         "empty and minDigitsWithoutUnit dropped the bare 2-digit number. The spelling is now in "
+         "the list AHEAD of 'hazar' (longest-first). 'hajar' and 'hazzar' remain uncovered - see "
+         "sal_018/sal_019"),
         ("24 thousand milta hai", None),
         ("2 hzr", "the abbreviated thousand unit"),
         ("rs 32000 chahiye", "EXPECTED slot: 'chahiye' near the amount"),
@@ -543,15 +548,83 @@ FAMILIES: list[tuple[str, list[tuple[str, str | None]]]] = [
         ("28000 kamata hu", None),
         ("stipend 9000 milta hai", None),
         ("28000 nahi milta", "NEGATED: the amount is found and vetoed, not dropped"),
+        # -- R12 1.3: two spellings the thousand-unit list still does not carry ---------
+        ("25 hajar per month",
+         "MEASURED GAP (R12 1.3), records NOTHING. 'hajar' - j for z - is absent from "
+         "thousandUnits, so the same {WE}/minDigitsWithoutUnit chain that dropped 'hazaar' drops "
+         "this. NOT added: 1.1 ruled one spelling per packet so each addition carries its own "
+         "measurement. SAME GAP AS sp_hajar - the pytest table carries the want/got pair and "
+         "this row carries the cross-language half; they are one missing spelling, not two "
+         "pieces of work"),
+        ("25 hazzar per month",
+         "MEASURED GAP (R12 1.3), records NOTHING. Double-z spelling, same chain as sal_018. "
+         "Same reasoning for leaving it. SAME GAP AS sp_hazzar"),
+        # -- R13 1.1: the three guards on the period-anchored window's END --------------
+        #
+        # THESE SIX ROWS ARE THE ONLY THING IN THE CORPUS THAT CAN TELL A GUARDED BUILD FROM AN
+        # UNGUARDED ONE. Measured before they were written: all 527 rows agreed on both.
+        ("abhi 25000 mahina 30k chahiye",
+         "GUARD (a) - the extension must not cross the NEXT number. Without it 25000's "
+         "period-anchored window reaches 30k's 'chahiye', the CURRENT pay is filed as the asking "
+         "price and the real ask is dropped by first-writer-wins. Measured: a naked anchor gets "
+         "this wrong"),
+        ("abhi 25000 mahina, chahiye 30k",
+         "GUARD (b) - the extension must not cross a clause terminator. The cue is FRONTED (Hindi "
+         "routinely puts it before its number), so the next-number clamp alone still lets 25000 "
+         "reach 'chahiye'; the comma is what separates the two answers"),
+        ("abhi 25000 mahina chahiye 30k",
+         "GUARD (c) - a number standing AFTER a cue owns that cue. Same fronted shape with no "
+         "punctuation, so neither clamp bites and only ownership can tell whose 'chahiye' it is. "
+         "This row is the only thing in the corpus that distinguishes (a)+(b) from all three"),
+        ("35000 mahina chahiye",
+         "THE SHAPE THE ANCHOR EXISTS FOR: ' mahina' spends 8 of the 10-character expectation "
+         "window, so before R13 1.1 this asking price was recorded as CURRENT PAY. Closing it is "
+         "what put salp_002 red"),
+        ("abhi 25000 mahina hai. chahiye zyada",
+         "GUARD (b), AND THE ONLY ROW IN THE CORPUS THAT CAN SEE IT. An ordinary two-sentence "
+         "answer - I get 25,000 a month, I want more - where the cue in the SECOND sentence has "
+         "no number of its own. Guard (a) has no next number to clamp on and guard (c) has no "
+         "number behind the cue, so only the clause terminator stops the current pay being filed "
+         "as the asking price. Measured: with the TS port's clause clamp deleted and this row "
+         "absent, the whole 531-row corpus stayed green"),
+        ("25000 mahina hai; want more",
+         "Same shape in English with a semicolon, so the terminator set is exercised at more than "
+         "one character"),
+        # -- R14 2.2: the same two guards on the window's START -------------------------
+        ("35000 chahiye, abhi 25000 milta hai",
+         "GUARD (b') - the window's START must not reach back across a clause end. The worker "
+         "states his ASK first, so the current pay's 25-character backward window reaches the "
+         "ask's 'chahiye', 25000 is marked expected and first-writer-wins then discards it: his "
+         "actual wage vanished from the profile. Guard (a') alone does NOT fix this row - clamping "
+         "at 35000's end still leaves ' chahiye, abhi ' inside the window - so this is the row "
+         "that isolates the clause clamp"),
+        ("chahiye 35000 abhi 25000 milta hai",
+         "GUARD (a') - and the mirror of the row above: the cue is FRONTED and there is no "
+         "punctuation anywhere, so (b') has nothing to clamp on. Only 'the previous number ended "
+         "here' keeps the ask's cue away from the current pay. The two rows together are what "
+         "stop either backward guard being deleted as redundant, which is exactly the mistake "
+         "R13's sweep nearly caused for guard (b)"),
+        # -- R14 2.1: a period the detector cannot convert records NOTHING ---------------
+        ("1200 daily milta hai",
+         "A DAILY WAGE IS NOT A MONTHLY ONE. The period used to DEFAULT to monthly, so a worker "
+         "on 1,200 a day - roughly 31,000 a month - had 1,200 printed on his resume as his "
+         "current pay. Suppressed rather than multiplied: 26, 30 and 24 days a month are all "
+         "defensible and differ by a quarter, so any conversion prints a figure he never stated"),
+        ("25000 mahina milta hai, din bhar kaam",
+         "THE FALSE-POSITIVE GUARD FOR THE ROW ABOVE. 'din' is in the daily set and sits inside "
+         "this amount's period window, and an explicit 'mahina' is there too. The sub-monthly "
+         "rule only fires when NEITHER an annual nor a monthly cue was found, so the stated "
+         "period still wins and the wage is recorded"),
     ]),
     # ------------------------------------------------- salary: the 12x period cases --
     ("salp", [
         ("3 lakh saalana milta hai", "annual cue BEFORE the amount"),
         ("4 lakh per annum chahiye",
-         "MEASURED: annual (33,333/month) but the CURRENT slot, not expected. The "
-         "expectation window is 10 chars past the match end and 'chahiye' sits at 17, so "
-         "the cue is out of reach. The narrow window is what stops a neighbouring answer's "
-         "cue from stealing this amount"),
+         "R13 1.1 - CLOSED, and this row is how the fix announced itself. It was pinned as the "
+         "MEASURED wrong reading: 'chahiye' sits 17 characters past the match end and the "
+         "expectation window reached only 10, so an annual ASKING price (33,333/month) was filed "
+         "as CURRENT PAY. The window is now re-anchored past the period phrase, guarded three "
+         "ways; this row went red the moment that landed, which is exactly what a pin is for"),
         ("360000 per year milta hai", "annual, no unit word"),
         ("3.6 lakh yearly", None),
         ("5 lakh varsh ka", None),
@@ -737,6 +810,47 @@ def _values_for(text: str) -> dict[str, object]:
     return out
 
 
+def _refuse_to_drop_a_row(lines: list[str]) -> None:
+    """Regeneration may ADD and may CHANGE a value. It may never DELETE a case.
+
+    THE INCIDENT THIS EXISTS FOR (R14 2.2). R13 authored six corpus rows that are the ONLY
+    thing distinguishing a guarded salary build from an unguarded one, and appended them
+    straight to the JSONL instead of to FAMILIES here. Running this script — the command this
+    file's own docstring tells you to run — deleted all six, plus the two pinned `hajar` /
+    `hazzar` gaps. Eight rows, silently, and every suite stays green afterwards because the
+    rows that could have gone red no longer exist.
+
+    A DROP IS ALWAYS A MISTAKE OR ALWAYS DELIBERATE, and the two are worth different effort:
+    a deliberate deletion means removing the text from FAMILIES, which this check does not
+    block. What it blocks is a row that exists in the committed file and in no family — which
+    can only mean somebody edited the artifact instead of the generator.
+
+    A CHANGED VALUE IS NOT BLOCKED. That is the corpus doing its job: a detector change moves
+    an expected output and the diff is the evidence. Only disappearance is silent.
+    """
+    if not OUT.exists():
+        return
+    # KEYED ON THE TEXT, NOT THE ID. Ids are positional (`sal_018` is just the eighteenth
+    # member of the `sal` family), so they never disappear when a family shrinks by one in the
+    # middle or when a row's text is replaced in place — the id survives and points at a
+    # different utterance. The text is the case.
+    existing = {
+        json.loads(line)["text"]: json.loads(line)["id"]
+        for line in OUT.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    }
+    produced = {json.loads(line)["text"] for line in lines}
+    dropped = sorted(set(existing) - produced)
+    if dropped:
+        detail = "\n".join(f"  {existing[text]}  {text!r}" for text in dropped)
+        raise SystemExit(
+            f"REFUSING TO WRITE: {len(dropped)} committed case(s) are in the file and in no "
+            f"family, so regenerating would delete them:\n{detail}\n"
+            "Add the text to FAMILIES above (the notes come with it), or delete the row from "
+            "the committed file first if the removal is deliberate."
+        )
+
+
 def main() -> None:
     seen_text: dict[str, str] = {}
     lines: list[str] = []
@@ -759,6 +873,8 @@ def main() -> None:
             if note:
                 record["note"] = note
             lines.append(json.dumps(record, ensure_ascii=False, sort_keys=False))
+
+    _refuse_to_drop_a_row(lines)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     # newline="\n" explicitly: text mode translates to os.linesep, so on Windows this file

@@ -124,8 +124,9 @@ describe("R10 R-2 — instance 2: salary may never print below the stated figure
     // Persona 2's words: "abhi 14 hazaar mil rahe hain, 16 chahiye". Before R10 the legacy branch
     // printed ₹14,000 under the label "expects".
     const input = sheetFor({ salary_expectation: { amount_min: 16000 } });
-    expect(lowerRupees(input.availFactRows?.find((r) => r.label === "Salary expected")?.value))
-      .toBe(16000);
+    expect(
+      lowerRupees(input.availFactRows?.find((r) => r.label === "Salary expected")?.value),
+    ).toBe(16000);
   });
 
   it("a band's LOWER end is never below the stated minimum", () => {
@@ -199,6 +200,46 @@ describe("R10 R-2 — instance 3: the derived tenure of an employment", () => {
   });
 });
 
+describe("R14 §2.1 — what this gate CANNOT see, stated where someone would look for it", () => {
+  /**
+   * A UNIT ERROR IS OUTSIDE THIS GATE, and the answer is structural rather than a matter of
+   * widening it.
+   *
+   * THE DEFECT. "1200 daily milta hai" recorded ₹1,200 per MONTH for a worker on roughly
+   * ₹31,000 — the detector's period defaulted to monthly because no period cue matched. That is
+   * a twenty-sixth of his wage, printed under a label an employer reads as his current pay, in
+   * the one direction R-2 exists to prevent. So it is a fair question why R-2 was silent.
+   *
+   * WHY IT COULD NOT FIRE. R-2's invariant is "where the worker STATED a scalar and the sheet
+   * prints a DERIVED one, the printed value may never be lower than the stated one." Here the
+   * stated scalar is 1200 and the printed one is 1200: the sheet prints what was stated,
+   * unchanged, so the precondition never holds and there is no comparison to fail. The error is
+   * in the UNIT, and the unit is consumed and discarded inside `signals._period_months` — no
+   * writer anywhere produces the ₹31,000 this gate would need on the other side of the
+   * inequality. Provenance is not placement (the paragraph at the top of this file), and this is
+   * the third thing it is not: placement is not SCALE.
+   *
+   * WHERE IT WAS CLOSED. At the only layer that can see a period word — `subMonthlyCues` in
+   * `packages/profiling-lexicon/data/salary.json`, which suppresses the amount rather than
+   * multiplying it by a days-per-month figure nobody stated. R14 §2.1.
+   */
+  it("cannot distinguish a 26x unit error, and the assertion is the proof", () => {
+    // Both readings satisfy R-2 against the same stated scalar, which is what "blind" means
+    // here: the gate is not failing to fire, it is being handed a question it does not answer.
+    const statedRupeesPerDay = 1200;
+    const printedAsMonthly = lowerRupees(formatSalaryBand(statedRupeesPerDay, null));
+    expect(printedAsMonthly).toBeGreaterThanOrEqual(statedRupeesPerDay);
+
+    // The TRUE monthly figure — which nothing in the pipeline computes — satisfies it too.
+    const trueMonthly = lowerRupees(formatSalaryBand(statedRupeesPerDay * 26, null));
+    expect(trueMonthly).toBeGreaterThanOrEqual(statedRupeesPerDay);
+
+    // Same predicate, both inputs, opposite correctness. A gate that passes the right answer and
+    // the 26x-wrong one equally is not a gate on this defect.
+    expect(printedAsMonthly).not.toBe(trueMonthly);
+  });
+});
+
 describe("R10 R-2 — the gate itself is capable of failing", () => {
   it("would catch a mapper that preferred the sum over the stated figure", () => {
     // THE MUTATION BAR, expressed as a positive check rather than by editing the source: the
@@ -207,7 +248,9 @@ describe("R10 R-2 — the gate itself is capable of failing", () => {
     // fails `toBeGreaterThanOrEqual(stated)` on every one of the four cases.
     const summedFor = (months: (number | null)[]) => {
       const kept = months.filter((m): m is number => typeof m === "number" && m > 0);
-      return kept.length === 0 ? null : Math.round((kept.reduce((a, b) => a + b, 0) / 12) * 10) / 10;
+      return kept.length === 0
+        ? null
+        : Math.round((kept.reduce((a, b) => a + b, 0) / 12) * 10) / 10;
     };
     expect(summedFor([null])).toBeNull();
     expect(summedFor([null, 20])!).toBeLessThan(5);

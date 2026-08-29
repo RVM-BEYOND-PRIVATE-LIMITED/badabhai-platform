@@ -107,3 +107,74 @@ test("an unavailable provider is reported, never silently counted as zero", () =
   }
   assert.equal(collectPins().unavailable.length, 0, "no provider should be failing right now");
 });
+
+test("one gap recorded twice is listed once, and says where else it lives (R14 §5)", () => {
+  // THE REAL DUPLICATES, not a fixture. `sp_hajar`/`sp_hazzar` in the pytest table and
+  // `sal_018`/`sal_019` in the shared corpus are the same two missing spellings — one gap each,
+  // recorded once per mechanism because the two mechanisms were built a packet apart.
+  const { pins } = collectPins();
+  const hajar = pins.filter((p) => p.id.includes("sp_hajar") || p.id.startsWith("sal_018"));
+  assert.equal(hajar.length, 1, "the hajar gap is still listed twice");
+  assert.ok(
+    hajar[0].alsoAt.some((id) => id.startsWith("sal_018")),
+    "the surviving pin must name the corpus row it absorbed — folding is about the COUNT, and " +
+      "closing the gap still means editing both places",
+  );
+  assert.ok(
+    hajar[0].gates.includes("packages/profiling-lexicon/__fixtures__/utterances.jsonl"),
+    "the absorbed pin's gated files must come with it, or the gap stops surfacing from that side",
+  );
+
+  // SEE ALSO keeps both and links them in both directions: the experience range and the salary
+  // band are the same class, not the same gap.
+  const exp028 = pins.find((p) => p.id.startsWith("exp_028"));
+  const bandSe = pins.find((p) => p.id.endsWith("::band_se"));
+  assert.ok(exp028 && bandSe, "both sides of the cross-reference must still be listed");
+  assert.ok(exp028.seeAlso.some((id) => id.endsWith("::band_se")));
+  assert.ok(bandSe.seeAlso.some((id) => id.startsWith("exp_028")));
+});
+
+test("an alias naming a pin that does not exist FAILS CLOSED", () => {
+  // The failure mode this guards is worse than a duplicate: a fold whose target has been closed
+  // and deleted would silently remove the surviving pin from the listing, and a shorter list
+  // reads as progress. Reported like an unavailable provider, so the process exits non-zero.
+  const real = PROVIDERS.corpus;
+  try {
+    PROVIDERS.corpus = () => [
+      {
+        source: "corpus",
+        id: "fake_001 (nowhere:1)",
+        title: "t",
+        why: "pinned",
+        raw: "pinned. SAME GAP AS a_pin_that_was_closed_and_deleted",
+        gates: ["packages/profiling-lexicon/__fixtures__/utterances.jsonl"],
+      },
+    ];
+    const { pins, unavailable } = collectPins();
+    assert.ok(
+      unavailable.some((u) => u.includes("a_pin_that_was_closed_and_deleted")),
+      "a dangling alias must be reported by name",
+    );
+    assert.ok(
+      pins.some((p) => p.id.startsWith("fake_001")),
+      "and the pin must still be LISTED — dropping it is the silent deletion this guards",
+    );
+  } finally {
+    PROVIDERS.corpus = real;
+  }
+});
+
+test("the alias marker is read from the FULL note, not the truncated one", () => {
+  // The bug this pins: `why` is capped at 200 characters for display and the first alias
+  // written sat at character 340, so the fold silently did not happen. Every corpus pin must
+  // therefore carry the untruncated note.
+  const pins = PROVIDERS.corpus();
+  assert.ok(
+    pins.every((p) => typeof p.raw === "string" && p.raw.length >= p.why.length),
+    "every corpus pin must carry its untruncated note as `raw`",
+  );
+  assert.ok(
+    pins.some((p) => p.raw.length > 200),
+    "no corpus note is long enough to be truncated — this guard would pass vacuously",
+  );
+});
