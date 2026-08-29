@@ -1441,21 +1441,30 @@ class ResumeEmploymentRoleStintDto extends Equatable {
 /// One employer on a `format: "trade_sheet"` document's work history
 /// (`ResumeEmployment` in apps/api resume-renderer.service.ts).
 ///
-/// [locationSuffix] / [roleInline] READ SNAKE_CASE KEYS (`location_suffix` /
-/// `role_inline`) even though the surrounding document is camelCase — see the
-/// file-level note above. Both are PRE-COMPOSED with their own leading
-/// separator (" · Gurugram, Haryana" / " — CNC Turner") so an absent value
-/// leaves no stray separator when appended to [employer].
+/// [locationSuffix] / [roleInline] / [workOwnWords] READ SNAKE_CASE KEYS
+/// (`location_suffix` / `role_inline` / `work_own_words`) even though the
+/// surrounding document is camelCase — see the file-level note above. The
+/// first two are PRE-COMPOSED with their own leading separator
+/// (" · Gurugram, Haryana" / " — CNC Turner") so an absent value leaves no
+/// stray separator when appended to [employer].
 class ResumeEmploymentDto extends Equatable {
   const ResumeEmploymentDto({
+    this.id,
     this.employer = '',
     this.locationSuffix,
     this.roleInline,
     this.when = '',
     this.work = '',
+    this.workOwnWords,
     this.roles = const <ResumeEmploymentRoleStintDto>[],
   });
 
+  /// The employment row id (#1353/#1354) — the ONLY identifier
+  /// `PUT /workers/me/employment/:employmentId/description-source` accepts.
+  /// Present on every real record; absent only for pre-#1353 seeded fixtures
+  /// server-side, which is why the reveal/choice affordance also requires it
+  /// (see [ResumeDocumentView]'s `_EmploymentEntry`) rather than assuming it.
+  final String? id;
   final String employer;
   final String? locationSuffix;
   final String? roleInline;
@@ -1464,17 +1473,37 @@ class ResumeEmploymentDto extends Equatable {
   /// the employer's, distinct from each [roles] stint's own `when`.
   final String when;
   final String work;
+
+  /// The SAME line, composed through the same joiner but with the worker's
+  /// OWN words only (#1354) — emitted UNCONDITIONALLY whenever the employment
+  /// has any role text at all, not only when a rewrite happened. Equal to
+  /// [work] whenever nothing was rewritten (or a rewrite was declined and the
+  /// printed line already IS the worker's own words) — see
+  /// [hasOwnWordsToReveal], which is the ONLY honest signal for whether there
+  /// is anything to show: this DTO never guesses from an absent value.
+  final String? workOwnWords;
   final List<ResumeEmploymentRoleStintDto> roles;
+
+  /// #1353 — true only when there is a GENUINE rewrite to compare: [workOwnWords]
+  /// is present AND differs from the printed [work]. Equal strings (or a null
+  /// [workOwnWords]) mean nothing to reveal — an entry that was never rewritten
+  /// and an entry whose rewrite the worker already declined are, by design,
+  /// indistinguishable from the wire alone (the printed line already reads as
+  /// the worker's own words either way), so both correctly show no affordance.
+  bool get hasOwnWordsToReveal =>
+      workOwnWords != null && workOwnWords != work;
 
   factory ResumeEmploymentDto.fromJson(Map<String, dynamic> json) {
     final List<dynamic> rawRoles =
         json['roles'] as List<dynamic>? ?? const <dynamic>[];
     return ResumeEmploymentDto(
+      id: json['id'] as String?,
       employer: json['employer'] as String? ?? '',
       locationSuffix: json['location_suffix'] as String?,
       roleInline: json['role_inline'] as String?,
       when: json['when'] as String? ?? '',
       work: json['work'] as String? ?? '',
+      workOwnWords: json['work_own_words'] as String?,
       roles: rawRoles
           .whereType<Map<String, dynamic>>()
           .map(ResumeEmploymentRoleStintDto.fromJson)
@@ -1483,8 +1512,16 @@ class ResumeEmploymentDto extends Equatable {
   }
 
   @override
-  List<Object?> get props =>
-      <Object?>[employer, locationSuffix, roleInline, when, work, roles];
+  List<Object?> get props => <Object?>[
+        id,
+        employer,
+        locationSuffix,
+        roleInline,
+        when,
+        work,
+        workOwnWords,
+        roles,
+      ];
 }
 
 /// The two-line verdict a `format: "trade_sheet"` document's masthead prints

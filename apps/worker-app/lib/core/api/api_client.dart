@@ -620,6 +620,29 @@ class ApiClient {
     );
   }
 
+  /// PUT /workers/me/employment/:employmentId/description-source (#1353/#1354) —
+  /// records which text should print for ONE work-history entry: `own_words`
+  /// keeps what the worker typed, `polished` (re-)selects the model's rewrite.
+  /// Reversible in both directions, no penalty either way. Worker-scoped
+  /// (WorkerAuthGuard): ownership is proved INSIDE the update (it joins back to
+  /// `worker_employment` on the session's worker id), so [employmentId] not
+  /// belonging to this worker — or not existing at all — is a 404, surfaced as
+  /// [ApiException] like any other failure, never a silent no-op. The response
+  /// is `{ ok, stints_updated }`; nothing is parsed back — the caller re-fetches
+  /// [getResumeDocument] to see the choice reflected, matching this app's usual
+  /// write-then-reload convention.
+  Future<void> setEmploymentDescriptionSource({
+    required String employmentId,
+    required bool ownWords,
+    required String authToken,
+  }) async {
+    await _put(
+      '/workers/me/employment/$employmentId/description-source',
+      <String, dynamic>{'source': ownWords ? 'own_words' : 'polished'},
+      authToken: authToken,
+    );
+  }
+
   /// PUT /workers/me/work-preferences (#1296) — the closed-set finishing pages.
   /// [fields] is the already-built body: an ABSENT key leaves the stored value
   /// alone, an empty list clears that row ("none of these"), and a `null` scalar
