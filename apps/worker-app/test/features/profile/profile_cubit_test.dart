@@ -7,15 +7,29 @@ import 'package:badabhai_worker_app/features/profile/domain/profile_repository.d
 import 'package:badabhai_worker_app/features/profile/presentation/cubit/profile_cubit.dart';
 import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary.dart';
 import 'package:badabhai_worker_app/features/profile_tab/domain/profile_summary_repository.dart';
+import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models.dart';
+import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_repository.dart';
 
 class MockProfileRepository extends Mock implements ProfileRepository {}
 
 class MockProfileSummaryRepository extends Mock
     implements ProfileSummaryRepository {}
 
+class MockTradeFormRepository extends Mock implements TradeFormRepository {}
+
+/// Minimal non-null form — only its non-nullity matters to the routing check
+/// (#1344), never its contents here.
+const TradeForm kSomeTradeForm = TradeForm(
+  kind: 'cnc_turner',
+  packId: 'pack-1',
+  packVersion: 1,
+  sections: <TradeFormSection>[],
+);
+
 void main() {
   late MockProfileRepository repo;
   late MockProfileSummaryRepository summaryRepo;
+  late MockTradeFormRepository tradeFormRepo;
 
   // The real extracted profile read back after extraction — trade / city /
   // strength — which the confirm step must reflect (not a placeholder).
@@ -29,8 +43,12 @@ void main() {
   setUp(() {
     repo = MockProfileRepository();
     summaryRepo = MockProfileSummaryRepository();
+    tradeFormRepo = MockTradeFormRepository();
     // Default: the summary read succeeds with real data.
     when(() => summaryRepo.summary()).thenAnswer((_) async => realSummary);
+    // Default: no trade form for this worker — the pre-#1344 destination
+    // (/finishing) stays the default in tests that are not about routing.
+    when(() => tradeFormRepo.loadForm()).thenAnswer((_) async => null);
   });
 
   // bloc emits the first state even when it equals the initial state, so the
@@ -146,22 +164,34 @@ void main() {
   );
 
   blocTest<ProfileCubit, ProfileState>(
-    'confirm from ready -> confirmed (keeps the summary)',
+    'confirm from ready -> confirmed (keeps the summary), no trade form -> '
+    'routeTarget finishing (#1344, byte-identical to the pre-existing '
+    'destination)',
     build: () {
       when(() => repo.confirmProfile()).thenAnswer((_) async {});
-      return ProfileCubit(repo, summaryRepo);
+      return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
     },
     seed: () =>
         const ProfileState(status: ProfileStatus.ready, summary: realSummary),
     act: (ProfileCubit c) => c.confirm(),
     // #360: an in-flight emission now precedes the result, so the CTA can show
-    // a loading state instead of looking dead for the whole request.
+    // a loading state instead of looking dead for the whole request. #1344
+    // adds a brief `routing` emission while the trade-form check is in
+    // flight, then the terminal `confirmed` carries the resolved routeTarget.
     expect: () => const <ProfileState>[
       ProfileState(
           status: ProfileStatus.ready, summary: realSummary, confirming: true),
-      ProfileState(status: ProfileStatus.confirmed, summary: realSummary),
+      ProfileState(status: ProfileStatus.routing, summary: realSummary),
+      ProfileState(
+        status: ProfileStatus.confirmed,
+        summary: realSummary,
+        routeTarget: ProfileRouteTarget.finishing,
+      ),
     ],
-    verify: (_) => verify(() => repo.confirmProfile()).called(1),
+    verify: (_) {
+      verify(() => repo.confirmProfile()).called(1);
+      verify(() => tradeFormRepo.loadForm()).called(1);
+    },
   );
 
   blocTest<ProfileCubit, ProfileState>(
@@ -199,14 +229,18 @@ void main() {
     'a retry after a failed confirm clears the previous confirmFailure',
     build: () {
       when(() => repo.confirmProfile()).thenAnswer((_) async {});
-      return ProfileCubit(repo, summaryRepo);
+      return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
     },
     seed: () => const ProfileState(
         status: ProfileStatus.ready, confirmFailure: NetworkFailure()),
     act: (ProfileCubit c) => c.confirm(),
     expect: () => const <ProfileState>[
       ProfileState(status: ProfileStatus.ready, confirming: true),
-      ProfileState(status: ProfileStatus.confirmed),
+      ProfileState(status: ProfileStatus.routing),
+      ProfileState(
+        status: ProfileStatus.confirmed,
+        routeTarget: ProfileRouteTarget.finishing,
+      ),
     ],
   );
 
@@ -218,7 +252,7 @@ void main() {
       when(() => repo.confirmProfile()).thenAnswer(
         (_) => Future<void>.delayed(const Duration(milliseconds: 20)),
       );
-      return ProfileCubit(repo, summaryRepo);
+      return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
     },
     seed: () => const ProfileState(status: ProfileStatus.ready),
     act: (ProfileCubit c) {
@@ -229,10 +263,116 @@ void main() {
     // The guard still drops the second tap — only ONE in-flight emission.
     expect: () => const <ProfileState>[
       ProfileState(status: ProfileStatus.ready, confirming: true),
-      ProfileState(status: ProfileStatus.confirmed),
+      ProfileState(status: ProfileStatus.routing),
+      ProfileState(
+        status: ProfileStatus.confirmed,
+        routeTarget: ProfileRouteTarget.finishing,
+      ),
     ],
     verify: (_) => verify(() => repo.confirmProfile()).called(1),
   );
+
+  // ---- #1344 (scoped retirement) — the trade-form pre-check itself --------
+
+  group('#1344 routeTarget resolution', () {
+    blocTest<ProfileCubit, ProfileState>(
+      'loadForm() returns a real TradeForm -> routeTarget tradeForm',
+      build: () {
+        when(() => repo.confirmProfile()).thenAnswer((_) async {});
+        when(() => tradeFormRepo.loadForm())
+            .thenAnswer((_) async => kSomeTradeForm);
+        return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
+      },
+      seed: () => const ProfileState(
+          status: ProfileStatus.ready, summary: realSummary),
+      act: (ProfileCubit c) => c.confirm(),
+      expect: () => const <ProfileState>[
+        ProfileState(
+            status: ProfileStatus.ready,
+            summary: realSummary,
+            confirming: true),
+        ProfileState(status: ProfileStatus.routing, summary: realSummary),
+        ProfileState(
+          status: ProfileStatus.confirmed,
+          summary: realSummary,
+          routeTarget: ProfileRouteTarget.tradeForm,
+        ),
+      ],
+    );
+
+    blocTest<ProfileCubit, ProfileState>(
+      'loadForm() returns null (404, uncovered trade) -> routeTarget '
+      'finishing — byte-identical to the pre-#1344 destination',
+      build: () {
+        when(() => repo.confirmProfile()).thenAnswer((_) async {});
+        when(() => tradeFormRepo.loadForm()).thenAnswer((_) async => null);
+        return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
+      },
+      seed: () => const ProfileState(
+          status: ProfileStatus.ready, summary: realSummary),
+      act: (ProfileCubit c) => c.confirm(),
+      expect: () => const <ProfileState>[
+        ProfileState(
+            status: ProfileStatus.ready,
+            summary: realSummary,
+            confirming: true),
+        ProfileState(status: ProfileStatus.routing, summary: realSummary),
+        ProfileState(
+          status: ProfileStatus.confirmed,
+          summary: realSummary,
+          routeTarget: ProfileRouteTarget.finishing,
+        ),
+      ],
+    );
+
+    blocTest<ProfileCubit, ProfileState>(
+      'loadForm() throws -> FAILS SAFE to routeTarget finishing, never '
+      'strands the worker on the routing spinner or an error state',
+      build: () {
+        when(() => repo.confirmProfile()).thenAnswer((_) async {});
+        when(() => tradeFormRepo.loadForm()).thenThrow(const NetworkFailure());
+        return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
+      },
+      seed: () => const ProfileState(
+          status: ProfileStatus.ready, summary: realSummary),
+      act: (ProfileCubit c) => c.confirm(),
+      expect: () => const <ProfileState>[
+        ProfileState(
+            status: ProfileStatus.ready,
+            summary: realSummary,
+            confirming: true),
+        ProfileState(status: ProfileStatus.routing, summary: realSummary),
+        ProfileState(
+          status: ProfileStatus.confirmed,
+          summary: realSummary,
+          routeTarget: ProfileRouteTarget.finishing,
+        ),
+      ],
+    );
+
+    // Same fail-safe, proven again with a bare (non-Failure) exception — the
+    // task explicitly requires "any reason other than a clean no-form
+    // result", not only the typed Failure hierarchy.
+    blocTest<ProfileCubit, ProfileState>(
+      'loadForm() throws a bare exception -> still fails safe to finishing',
+      build: () {
+        when(() => repo.confirmProfile()).thenAnswer((_) async {});
+        when(() => tradeFormRepo.loadForm())
+            .thenThrow(Exception('boom'));
+        return ProfileCubit(repo, summaryRepo, tradeFormRepo: tradeFormRepo);
+      },
+      seed: () => const ProfileState(status: ProfileStatus.ready),
+      act: (ProfileCubit c) => c.confirm(),
+      expect: () => const <ProfileState>[
+        ProfileState(status: ProfileStatus.ready, confirming: true),
+        ProfileState(status: ProfileStatus.routing),
+        ProfileState(
+          status: ProfileStatus.confirmed,
+          routeTarget: ProfileRouteTarget.finishing,
+        ),
+      ],
+    );
+  });
 
   // Emit-after-close guard: popping the screen mid-extraction (the ~14s poll)
   // must not throw a StateError when the in-flight future finally resolves.
