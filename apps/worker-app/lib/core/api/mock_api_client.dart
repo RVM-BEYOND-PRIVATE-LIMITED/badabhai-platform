@@ -250,6 +250,20 @@ class MockApiClient extends ApiClient {
     await _delay();
   }
 
+  /// #1353/#1354 — PUT .../description-source. No-op: mock mode's
+  /// [getResumeDocument] always answers `document: null` (see below), so there
+  /// is no employment id this could ever be called against in the first place;
+  /// this override exists only so mock mode never falls through to a real
+  /// network call, per this file's own maintenance contract.
+  @override
+  Future<void> setEmploymentDescriptionSource({
+    required String employmentId,
+    required bool ownWords,
+    required String authToken,
+  }) async {
+    await _delay();
+  }
+
   /// ADR-0032 mock photo state — session-local, no network, no bytes stored.
   bool _mockHasPhoto = false;
 

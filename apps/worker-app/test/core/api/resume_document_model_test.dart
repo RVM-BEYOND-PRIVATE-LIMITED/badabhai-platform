@@ -147,11 +147,13 @@ void main() {
             ],
             'employments': <dynamic>[
               <String, dynamic>{
+                'id': 'emp-1',
                 'employer': 'ABC Precision Ltd',
                 'location_suffix': ' · Gurugram, Haryana',
                 'role_inline': ' — CNC Turner',
                 'when': 'Jan 2023 – Present · 3 yrs 6 mo',
                 'work': 'Turning on CNC lathe.',
+                'work_own_words': 'lathe pe shaft banata tha',
                 'roles': <dynamic>[
                   <String, dynamic>{'role': 'Trainee', 'when': '2023'},
                 ],
@@ -192,11 +194,14 @@ void main() {
 
       expect(doc.employments, hasLength(1));
       final ResumeEmploymentDto employment = doc.employments.single;
+      expect(employment.id, 'emp-1');
       expect(employment.employer, 'ABC Precision Ltd');
       expect(employment.locationSuffix, ' · Gurugram, Haryana');
       expect(employment.roleInline, ' — CNC Turner');
       expect(employment.when, 'Jan 2023 – Present · 3 yrs 6 mo');
       expect(employment.work, 'Turning on CNC lathe.');
+      expect(employment.workOwnWords, 'lathe pe shaft banata tha');
+      expect(employment.hasOwnWordsToReveal, isTrue);
       expect(employment.roles.single.role, 'Trainee');
       expect(employment.roles.single.when, '2023');
       expect(doc.employmentsMore, 'and 2 more');
@@ -216,6 +221,50 @@ void main() {
       expect(doc.employmentsMore, isNull);
       expect(doc.headline.line1, isNull);
       expect(doc.headline.line2, isNull);
+    });
+  });
+
+  // #1353/#1354 — `id` and `work_own_words` are the two fields the reveal/keep-
+  // own-words affordance needs; [ResumeEmploymentDto.hasOwnWordsToReveal] is the
+  // ONLY signal the client uses to decide whether to show anything at all.
+  group('ResumeEmploymentDto — id / work_own_words (#1353)', () {
+    test('both absent parses to null, no crash — an ordinary pre-#1353 shape', () {
+      final ResumeEmploymentDto e = ResumeEmploymentDto.fromJson(
+        <String, dynamic>{'employer': 'ABC Ltd', 'work': 'Turning on CNC lathe.'},
+      );
+      expect(e.id, isNull);
+      expect(e.workOwnWords, isNull);
+      expect(e.hasOwnWordsToReveal, isFalse);
+    });
+
+    test('work_own_words EQUAL to work (never rewritten, or already declined) '
+        '-> hasOwnWordsToReveal is false', () {
+      final ResumeEmploymentDto e = ResumeEmploymentDto.fromJson(<String, dynamic>{
+        'id': 'emp-1',
+        'work': 'lathe pe shaft banata tha',
+        'work_own_words': 'lathe pe shaft banata tha',
+      });
+      expect(e.hasOwnWordsToReveal, isFalse);
+    });
+
+    test('work_own_words DIFFERS from work (a genuine rewrite) -> '
+        'hasOwnWordsToReveal is true', () {
+      final ResumeEmploymentDto e = ResumeEmploymentDto.fromJson(<String, dynamic>{
+        'id': 'emp-1',
+        'work': 'Operated CNC lathe for precision shaft turning.',
+        'work_own_words': 'lathe pe shaft banata tha',
+      });
+      expect(e.id, 'emp-1');
+      expect(e.hasOwnWordsToReveal, isTrue);
+    });
+
+    test('work_own_words present but work absent (defaults to "") still compares honestly', () {
+      final ResumeEmploymentDto e = ResumeEmploymentDto.fromJson(<String, dynamic>{
+        'id': 'emp-1',
+        'work_own_words': 'lathe pe shaft banata tha',
+      });
+      expect(e.work, '');
+      expect(e.hasOwnWordsToReveal, isTrue);
     });
   });
 }
