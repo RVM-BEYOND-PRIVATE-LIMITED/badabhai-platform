@@ -593,12 +593,52 @@ export const serverEnvSchema = z.object({
   // down, and — because the bucket is the NETWORK — changing your phone number does not reset
   // it. That is exactly how #1035 was reported.
   //
-  // 20 IS A CEILING FOR ONE PHYSICAL HANDSET, not for a network, which is what lets it stay
-  // this tight: a worker signing in, mistyping and resending stays far below it, and so does
-  // a friend's handset borrowed by three people. Rotating device ids evades it (a reinstall
-  // mints a new one) and that is bounded deliberately by the SPEND caps below rather than
-  // here — see OTP_MAX_SENDS_PER_HOUR / _PER_DAY and the global breaker.
-  OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: z.coerce.number().int().positive().default(20),
+  // 200 IS A RUNAWAY-CLIENT BREAKER, NOT AN ATTACKER CONTROL — and the distinction is the
+  // whole reason this number moved from 20 (#1306).
+  //
+  // `X-Device-Id` is an UNAUTHENTICATED header the caller picks: `senderOf` accepts any 8–256
+  // character string, with no attestation and no signature behind it. Anyone willing to send a
+  // fresh uuid per request is past this gate for free, which the #1035 note above already
+  // conceded ("rotating device ids evades it"). What follows from that was not drawn out then:
+  // a limiter an abuser steps over at zero cost is a limiter that, in practice, binds only
+  // people who are NOT abusing — and at 20/hr the population it bound hardest was our own QA,
+  // testing many numbers from one handset with a device id that persists across reinstalls.
+  // That is #1306: the first send to a freshly-changed number 429ing, because the number was
+  // never the key.
+  //
+  // SO ITS JOB IS THE ACCIDENT, NOT THE ADVERSARY: one handset — a retry loop in a bad build,
+  // a stuck resend button, a wedged automation — must not bill us at Fast2SMS line rate before
+  // a human notices. 200/hr is far above anything a person can produce by hand (a worker
+  // signing in, mistyping and resending is two orders of magnitude below it) and far below
+  // what an uncapped loop does in a minute. Deleting the call site instead of raising it would
+  // have traded a QA outage for an unmetered billing incident, which is the worse of the two.
+  //
+  // SPEND IS BOUND BY THE GATES A CALLER CANNOT ROTATE PAST, and they are unchanged: what one
+  // NUMBER may receive (OTP_MAX_SENDS_PER_HOUR / _PER_DAY + the resend cooldown) and what the
+  // PLATFORM may spend in a day (OTP_GLOBAL_MAX_SENDS_PER_DAY). Neither is keyed on the caller,
+  // so neither moves when this one does.
+  OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: z.coerce.number().int().positive().default(200),
+  // NO LONGER ON THE OTP PATH (#1306). This knob is now read by ONE call site — the D-3
+  // `test_login_net` ceiling on POST /auth/test-login — and by nothing else. The OTP send route
+  // and /auth/pin/reset/request stopped consulting it when the per-network ceiling was dropped
+  // from the send path by owner ruling.
+  //
+  // WHY IT WENT. Everything the #1035 note below says about this bucket being a whole CGNAT
+  // pool was true, and the conclusion drawn from it was too cautious. An address bucket cannot
+  // tell two workers on one factory wifi apart, and an abuser rotates `X-Device-Id` past the
+  // gate in front of it for free — so on a route where the caller is a handset behind carrier
+  // NAT, this could bind honest traffic and essentially nothing else. It kept the shape of a
+  // defence without the substance of one. The test-login seam is a different question: its
+  // callers are CI and staging smoke from known networks, not workers, so an address bucket
+  // there costs nobody a sign-in, and it is bounded above by TEST_LOGIN_MAX_PER_DAY anyway.
+  //
+  // THE NAME IS KEPT DELIBERATELY. Renaming it to something test-login-shaped would be tidier
+  // and would break every environment that sets it (§10 — additive changes only, never a rename
+  // without a migration). It stays as-is; this note is the pointer for the next reader who
+  // greps it expecting to find the OTP path.
+  //
+  // -- The #1035 rationale, retained for the one call site that still applies it --
+  //
   // THE CRUDE PER-NETWORK FLOOD CEILING ABOVE THAT SENDER GATE — no longer the limit a
   // legitimate worker can hit, and it must never become one again (#1035).
   //
@@ -631,8 +671,20 @@ export const serverEnvSchema = z.object({
   //
   // WHY VERIFY NEEDS A LOOSER NUMBER THAN SEND. Sends and verifies are not one-to-one: each
   // send licenses up to OTP_MAX_ATTEMPTS (5) verify calls, so a handset INSIDE its send budget
-  // can legitimately produce 20 x 5 = 100 verifies in the same hour. That is where this
-  // default comes from — it is DERIVED from the two constants above, not picked.
+  // can legitimately produce OTP_MAX_SENDS_PER_DEVICE_PER_HOUR x 5 verifies in the same hour.
+  // That is where this default comes from — it is DERIVED from the two constants above, not
+  // picked.
+  //
+  // 100 -> 1000 (#1306) BECAUSE THE DERIVATION MOVED, not because verify needed loosening. The
+  // send cap went 20 -> 200, so the licensed verify volume went 100 -> 1000 with it. Leaving
+  // this at 100 would have made VERIFY the new binding constraint at a tenth of the sends it is
+  // supposed to service — turning a fixed send-side 429 into a verify-side one, which the
+  // paragraph below explains is the WORSE of the two failures: a worker locked out of verify is
+  // holding a valid code they cannot spend. A derived constant has to move when its inputs do.
+  //
+  // KEEP THE RATIO IF EITHER NUMBER CHANGES AGAIN: this is
+  // OTP_MAX_SENDS_PER_DEVICE_PER_HOUR x OTP_MAX_ATTEMPTS. It is asserted as a ratio, not as a
+  // literal, in auth.controller.test.ts.
   //
   // AND WHY THE HEADROOM ON TOP MATTERS. The verify caps run OUTSIDE `runOnce`, deliberately
   // (see auth.controller.ts): that is the only placement that stops an unauthenticated caller
@@ -647,13 +699,28 @@ export const serverEnvSchema = z.object({
   // one number stays bounded where it already was — `otp:attempts:<phoneHash>` + OTP_MAX_ATTEMPTS
   // inside OtpService.verify, which is per PHONE and untouched by this. This cap bounds VOLUME
   // from one handset, nothing else, and a verify costs no SMS and no provider call.
-  OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR: z.coerce.number().int().positive().default(100),
+  OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR: z.coerce.number().int().positive().default(1000),
   // The network backstop above that verify sender gate, at the same ~50x ratio the send pair
   // uses and for the same reason: this bucket can be an entire CGNAT pool, so the moment it
   // becomes the binding constraint, workers who merely share a carrier lock each other out
   // (#1035). Its only job is that one socket cannot trivially flood the verify path. An
   // attacker reaches any value here by rotating device ids, so a tighter number buys no real
   // defence while risking that outage. If a real shared network ever hits this, raise it.
+  //
+  // ⚠ UNREAD AS OF #1306 — NO call site consults this. The `otp_verify_net` ceiling was dropped
+  // from POST /auth/otp/verify by the same owner ruling that dropped `otp_request_net` from the
+  // send path, on the reasoning two lines above: an address bucket here is a carrier-CGNAT pool
+  // that binds workers sharing a carrier, while an abuser rotates `X-Device-Id` past it at no
+  // cost. Verify brute-force is bounded where it always was — `otp:attempts:<phoneHash>` +
+  // OTP_MAX_ATTEMPTS, per PHONE, inside OtpService.verify — so nothing moved when this stopped
+  // being read.
+  //
+  // DECLARED, NOT DELETED, and that is a §10 obligation rather than an oversight: dropping the
+  // key from the schema makes any environment that sets it fail its parse, which is a breaking
+  // change to a live config contract for zero benefit. It costs one unread line to keep. Delete
+  // it only in a release that owns the migration, and only after confirming no deployment sets
+  // it. If the verify path ever wants a network ceiling again, re-wire THIS knob rather than
+  // minting a second one — a scope with two knobs is the category error the block above records.
   OTP_MAX_VERIFY_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(5000),
   // Per-phone DAILY send ceiling backstopping the hourly cap: an abuser pacing just
   // under OTP_MAX_SENDS_PER_HOUR could still burn paid SMS all day against one number.
@@ -661,17 +728,41 @@ export const serverEnvSchema = z.object({
   // neutral 429 as the hourly cap (no new oracle); fail-closed like every OTP throttle.
   OTP_MAX_SENDS_PER_DAY: z.coerce.number().int().positive().default(10),
   // GLOBAL daily send circuit-breaker for the worker SMS path (OTP-5 — the SPEND
-  // ceiling). A backstop ABOVE the per-phone cooldown/cap + the per-IP cap: it bounds
-  // the TOTAL number of REAL Fast2SMS sends platform-wide per UTC day, so a distributed
-  // abuser rotating phones/IPs still cannot run up the bill. Counts REAL sends ONLY
-  // (no-op in mock/console mode → no spend, no effect). Fail-closed: a Redis error on
-  // the global counter rejects rather than uncapping.
+  // ceiling). A backstop ABOVE the per-phone cooldown/cap: it bounds the TOTAL number of
+  // REAL Fast2SMS sends platform-wide per UTC day, so a distributed abuser rotating
+  // phones/devices still cannot run up the bill. Counts REAL sends ONLY (no-op in
+  // mock/console mode → no spend, no effect). Fail-closed: a Redis error on the global
+  // counter rejects rather than uncapping.
   //   min(0) is DELIBERATE: 0 = PAUSED = the worker-SMS KILL-SWITCH. Setting this to 0
   //   trips the breaker on the very next real send → instant halt of all real spend
   //   (and a PII-free worker.otp_send_cap_exceeded breach event), env-only, NO redeploy.
   //   This is the worker-SMS off-switch: worker OTP is REAL-ONLY (Fast2SMS), so there is
   //   no provider toggle to disable real sends — setting the cap to 0 is the lever.
-  OTP_GLOBAL_MAX_SENDS_PER_DAY: z.coerce.number().int().min(0).default(2000),
+  //
+  // 2000 -> 10000 (#1306), because this stopped being a backstop and became THE backstop.
+  //
+  // THE BREAKER IS SHARED, WHICH MAKES ITS FLOOR A DoS SURFACE, not just a budget. Tripping it
+  // does not throttle whoever tripped it — it 429s EVERY worker on the platform until UTC
+  // midnight. While the per-device and per-network ceilings stood in front of it, reaching it
+  // took effort. With the network ceiling gone and the device ceiling rotatable for free, a
+  // single actor's path to "nobody can sign in until tomorrow" was ~2000 HTTP requests. A
+  // ceiling low enough to be reached cheaply is a lever handed to the abuser, so the fix is to
+  // put it out of casual reach while it still bounds the bill.
+  //
+  // WHY 10000 AND NOT HIGHER. It has to stay a real spend ceiling — this is paid Fast2SMS
+  // traffic, and an unbounded fuse is not a fuse. 10000/day is comfortably above any organic
+  // volume the platform currently produces (it is ~5x the previous ceiling, which was itself
+  // never approached in normal operation) and comfortably below a bill anyone would discover
+  // by accident. REVISIT IT AGAINST REAL VOLUME, not by feel: when organic daily sends
+  // routinely exceed ~20% of this, the headroom that makes it safe is gone and the number
+  // needs to move with the traffic.
+  //
+  // IT IS NOW AN OPS LEVER, which it previously was not: this knob is declared in
+  // docker-compose.staging.yml as of #1306, so it can be changed on the box without a code
+  // deploy. Before that it was unreachable from any deployment surface and every environment
+  // silently ran this default — the reason the kill-switch documented above had never actually
+  // been armable in production. See docs/otp-throttles-runbook.md.
+  OTP_GLOBAL_MAX_SENDS_PER_DAY: z.coerce.number().int().min(0).default(10000),
   // SMS delivery is REAL-ONLY: "fast2sms" sends via the Fast2SMS DLT route (all Fast2SMS
   // specifics live in Fast2SmsProvider). There is NO console/dev provider — assertAuthConfig
   // requires the Fast2SMS credentials in EVERY environment, so the app fails CLOSED without

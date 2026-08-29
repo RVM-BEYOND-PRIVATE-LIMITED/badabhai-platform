@@ -419,6 +419,44 @@ services:
       # value rather than in the secret bridge, where the parity check could not see it.
       TEST_IMMEDIATE_DELETE_ENABLED: ${TEST_IMMEDIATE_DELETE_ENABLED:-false}
       TEST_IMMEDIATE_DELETE_WORKER_IDS: ${TEST_IMMEDIATE_DELETE_WORKER_IDS:-}
+
+      # ---- OTP THROTTLES + THE DELETION COOL-DOWN (#1306). The same #872 / #794 / #798 / #813 /
+      # #1264 gap as the block immediately above, and it had gone unnoticed for longer: NOT ONE of
+      # these names was declared here, there is no `env_file:` on this service, and nothing carries
+      # them in the CI `envs:` bridge — so `OTP_GLOBAL_MAX_SENDS_PER_DAY=…` in a GitHub secret or in
+      # the box's own `.env` reached this container by no path whatsoever. The api reads plain
+      # `process.env` (there is no dotenv in apps/api or packages/config), so every environment has
+      # silently run the zod defaults from packages/config/src/server.ts since these knobs existed.
+      #
+      # THE OPERATIONAL CONSEQUENCE, WHICH IS THE POINT OF THIS BLOCK: the worker-SMS KILL-SWITCH
+      # documented on OTP_GLOBAL_MAX_SENDS_PER_DAY ("0 = PAUSED … env-only, NO redeploy") could not
+      # actually be armed. Neither could the deletion cool-down be shortened during the #1264 QA
+      # cycle that #1306 was filed out of. Every one of these was a code change wearing an env
+      # var's clothes. Declaring them here is what makes the documented levers real.
+      #
+      # NOT SECRETS — they are tuning numbers, not credentials — so they belong here as plain
+      # `${VAR:-default}` values rather than in the secret bridge, where the #912 parity check
+      # could not see them. Each default below MIRRORS the zod default, so declaring them changes
+      # NOTHING until somebody exports one: an unset box keeps exactly today's behaviour.
+      #
+      # ⚠ KEEP THESE DEFAULTS IN SYNC with packages/config/src/server.ts. Two sources of truth for
+      # one number is how a limiter ends up with a ceiling nobody can predict; the config file is
+      # authoritative and this is a mirror of it.
+      OTP_GLOBAL_MAX_SENDS_PER_DAY: ${OTP_GLOBAL_MAX_SENDS_PER_DAY:-10000}
+      OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: ${OTP_MAX_SENDS_PER_DEVICE_PER_HOUR:-200}
+      OTP_MAX_SENDS_PER_HOUR: ${OTP_MAX_SENDS_PER_HOUR:-5}
+      OTP_MAX_SENDS_PER_DAY: ${OTP_MAX_SENDS_PER_DAY:-10}
+      OTP_RESEND_COOLDOWN_SECONDS: ${OTP_RESEND_COOLDOWN_SECONDS:-30}
+      OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR: ${OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR:-1000}
+      # Still read by the D-3 `test_login_net` ceiling; no longer on the OTP path (see the knob's
+      # note in server.ts). Declared so that one remaining call site is tunable too.
+      OTP_MAX_SENDS_PER_IP_PER_HOUR: ${OTP_MAX_SENDS_PER_IP_PER_HOUR:-1000}
+      # 0 DISABLES the post-deletion re-registration cool-down (ADR-0026 Phase 5). As of #1306 both
+      # the WRITE (AccountDeletionService) and the READ (OtpService) honour it, so 0 is a true off
+      # switch rather than "stop minting new tombstones". It does NOT clear keys already in Redis —
+      # that is the separate ops step in docs/otp-throttles-runbook.md.
+      ACCOUNT_DELETION_COOLDOWN_SECONDS: ${ACCOUNT_DELETION_COOLDOWN_SECONDS:-604800}
+
       AUTH_ROLLING_TIERS_ENABLED: ${AUTH_ROLLING_TIERS_ENABLED:-false}
       AI_JOBS_RETENTION_DELETE_ENABLED: ${AI_JOBS_RETENTION_DELETE_ENABLED:-false}
       AI_ENABLE_REAL_CALLS: ${AI_ENABLE_REAL_CALLS:-false}

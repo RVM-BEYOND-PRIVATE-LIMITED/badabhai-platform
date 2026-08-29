@@ -466,9 +466,16 @@ describe("member-invite config (ADR-0027 B5.4 — mock mailer in alpha, fail-clo
 });
 
 describe("OTP global daily send circuit-breaker (OTP-5 — the spend ceiling + kill-switch)", () => {
-  it("defaults the worker + payer global daily caps to 2000", () => {
+  it("defaults the worker cap to 10000 (#1306) and leaves the payer cap at 2000", () => {
+    // THE TWO ARE NOT ONE NUMBER, and #1306 is why they diverged. The worker breaker stopped
+    // being a backstop and became THE backstop when the per-network ceiling was dropped from the
+    // OTP send path and the per-device one was recognised as rotatable — and because the fuse is
+    // SHARED, tripping it 429s every worker until UTC midnight rather than throttling whoever
+    // burned it. At 2000 that outage cost a single actor ~2000 requests. The payer path kept its
+    // per-IP ceilings and its own channel, so its number did not move; asserting both here keeps
+    // the next person from "tidying" them back together.
     const config = loadServerConfig({});
-    expect(config.OTP_GLOBAL_MAX_SENDS_PER_DAY).toBe(2000);
+    expect(config.OTP_GLOBAL_MAX_SENDS_PER_DAY).toBe(10000);
     expect(config.PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY).toBe(2000);
   });
 

@@ -112,17 +112,19 @@ export class PinController {
       // enumeration oracle), so the duplicate answer is the same constant the work returns.
       inFlight: () => ({ success: true as const }),
       work: async () => {
-        // Sender first, then the network ceiling — the ordering rationale is at the
-        // /auth/otp/request call site this mirrors.
+        // The sender cap only — the network ceiling was dropped platform-wide on the OTP send
+        // path (#1306); the rationale is at the /auth/otp/request call site this mirrors.
+        //
+        // THIS ROUTE HAD TO MOVE WITH IT, not merely for symmetry. It shares the send route's
+        // SCOPES and its KNOBS by deliberate design (the comment above this block: "They share
+        // the buckets, so they share the knobs"), so leaving the `otp_request_net` call here
+        // would have kept writing — and tripping — a bucket the send route no longer honours.
+        // One counter fenced by two call sites that disagree is a limiter whose ceiling moves
+        // depending on which route you hit, which is the precise failure that comment forbids.
         await this.ipRateLimit.assertWithinHourlySenderCap(
           "otp_request",
           senderOf(req),
           this.config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR,
-        );
-        await this.ipRateLimit.assertWithinHourlyIpCap(
-          "otp_request_net",
-          req.ip ?? "unknown",
-          this.config.OTP_MAX_SENDS_PER_IP_PER_HOUR,
         );
         await this.pin.resetRequest(dto.phone, ctx);
         return { success: true as const };

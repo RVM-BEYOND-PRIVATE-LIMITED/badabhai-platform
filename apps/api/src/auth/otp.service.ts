@@ -38,8 +38,11 @@ interface RedisOtpClient {
  *   - Verification is constant-time (timingSafeEqual over equal-length buffers).
  *   - Single-use: a successful verify deletes the code + attempt counter.
  *   - FAIL CLOSED: any Redis error rejects (503) rather than allowing a login.
- *   - Per-phone resend cooldown + hourly send cap throttle abuse (the per-IP cap
- *     is enforced separately by IpRateLimit in the controller).
+ *   - Per-phone resend cooldown + hourly/daily send caps throttle abuse. These are the
+ *     gates that actually bound SMS spend, because they are keyed on the NUMBER: the
+ *     per-device cap the controller applies is keyed on a caller-chosen header and is a
+ *     runaway-client breaker, not a boundary (#1306). The per-IP cap that used to sit
+ *     beside it is gone — see the auth.controller.ts send-path comment.
  *
  * Redis keys (all namespaced under `otp:`):
  *   otp:code:<phoneHash>      HMAC of the code         TTL = OTP_TTL_SECONDS
@@ -109,26 +112,44 @@ export class OtpService {
 
     try {
       // 1b. Deleted-phone cool-down tombstone check (anti-abuse only, fail-open).
-      // After account deletion, `deleted_phone:<hash>` key is set in Redis with 7-day
-      // TTL. If it exists, return the SAME byte-identical 429 as the resend cooldown
-      // so a caller cannot distinguish "deleted account" from "normal cooldown" (no
-      // oracle). A Redis error here is FAIL-OPEN (logged warn, proceed).
-      const deletedPhoneKey = `deleted_phone:${phoneHash}`;
-      try {
-        if ((await redis.exists(deletedPhoneKey)) > 0) {
-          this.refused(hashPrefix, "deleted_phone_tombstone");
-          throw new HttpException(
-            "Please wait before requesting another code",
-            HttpStatus.TOO_MANY_REQUESTS,
+      // After account deletion, `deleted_phone:<hash>` key is set in Redis with the
+      // ACCOUNT_DELETION_COOLDOWN_SECONDS TTL (7d default). If it exists, return the SAME
+      // byte-identical 429 as the resend cooldown so a caller cannot distinguish "deleted
+      // account" from "normal cooldown" (no oracle). A Redis error here is FAIL-OPEN
+      // (logged warn, proceed).
+      //
+      // READ AND WRITE NOW OBEY THE SAME KNOB (#1306). `AccountDeletionService` has always
+      // skipped SETTING the key when ACCOUNT_DELETION_COOLDOWN_SECONDS is 0, but this READ
+      // ignored the config and interrogated Redis unconditionally — so 0 meant "stop minting
+      // tombstones", never "the cool-down is off". Keys minted before the switch was thrown
+      // went on refusing sends for their full remaining TTL, which for the 7-day default is a
+      // week during which the documented kill-switch looks broken. QA hit exactly this while
+      // exercising the immediate-delete seam (#1264) against a recycled pool of test numbers:
+      // every deleted number was silently unreachable for a week, and reaching for another
+      // test number did not help because that one had been deleted too.
+      //
+      // 0 IS NOW A TRUE OFF SWITCH on both sides of the key. It does NOT erase keys already in
+      // Redis — it stops them being consulted, which is what "off" has to mean for an operator
+      // who flips it mid-incident. Clearing the residue is a separate, documented ops step
+      // (docs/otp-throttles-runbook.md); nothing here depends on it having been run.
+      if (this.config.ACCOUNT_DELETION_COOLDOWN_SECONDS > 0) {
+        const deletedPhoneKey = `deleted_phone:${phoneHash}`;
+        try {
+          if ((await redis.exists(deletedPhoneKey)) > 0) {
+            this.refused(hashPrefix, "deleted_phone_tombstone");
+            throw new HttpException(
+              "Please wait before requesting another code",
+              HttpStatus.TOO_MANY_REQUESTS,
+            );
+          }
+        } catch (tombstoneErr) {
+          if (tombstoneErr instanceof HttpException) throw tombstoneErr;
+          this.logger.warn(
+            `deleted_phone tombstone check failed phone_hash=${hashPrefix}; fail-open (reason: ${
+              tombstoneErr instanceof Error ? tombstoneErr.message : String(tombstoneErr)
+            })`,
           );
         }
-      } catch (tombstoneErr) {
-        if (tombstoneErr instanceof HttpException) throw tombstoneErr;
-        this.logger.warn(
-          `deleted_phone tombstone check failed phone_hash=${hashPrefix}; fail-open (reason: ${
-            tombstoneErr instanceof Error ? tombstoneErr.message : String(tombstoneErr)
-          })`,
-        );
       }
 
       // 2. Resend cooldown.
