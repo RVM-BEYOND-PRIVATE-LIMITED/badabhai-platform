@@ -881,6 +881,18 @@ jobs:
       - name: Smoke self-test (staging)
         run: node --test scripts/staging-smoke.test.mjs
 
+      # R15 §6.3 — the repo has two linters and only one of them is the gate. `pnpm lint` is
+      # `eslint .`; `lint:oxlint` is a payer-web-only supplementary pass. Reading oxlint's
+      # silence as the gate's silence cost a red CI on #1308. `lint-gate-parity` asserts that
+      # `pnpm lint:ci` chains exactly the lint scripts this workflow runs, so a third lint step
+      # added above without updating that script fails here and names it.
+      #
+      # `pins:test` joins it because it was in the same position: a self-test that existed, was
+      # runnable, and ran nowhere. An open-pin ledger nothing executes is the ledger nobody
+      # reads — the exact failure the pin list exists to prevent, one level up.
+      - name: Repo self-tests (lint-gate parity, open pins)
+        run: node --test scripts/lint-gate-parity.test.mjs scripts/list-open-pins.test.mjs
+
       - name: Build
         run: pnpm build
 

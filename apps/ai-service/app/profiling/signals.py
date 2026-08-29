@@ -2238,6 +2238,74 @@ def _period_phrase_end(near_after: str) -> int | None:
     return best
 
 
+def _cue_at_word_start(lower: str, cue: str, start: int, end: int) -> int:
+    """First offset in ``[start, end)`` where ``cue`` begins at a WORD START, else ``-1``.
+
+    R15 3.1. The cue list used to encode this as a leading SPACE on the one stem that needed it
+    (`' chah'`), which fails wherever there is no space to find: at offset 0, and after a comma or
+    a digit. Checking the preceding character against the FULL string rather than the window is
+    what makes it correct at a window edge too - a window that opens mid-word must not turn that
+    word's tail into a cue.
+
+    LETTERS, NOT ALPHANUMERICS. `_guarded_window_start` clamps to the end of the previous number,
+    so a digit sits before the cue exactly when R14's guard (a') has fired; counting a digit as a
+    word character would quietly re-open what that guard closed.
+    """
+    at = lower.find(cue, start)
+    while at != -1 and at + len(cue) <= end:
+        if at == 0 or not lower[at - 1].isalpha():
+            return at
+        at = lower.find(cue, at + 1)
+    return -1
+
+
+def _cue_trails_a_number(lower: str, cue_at: int, numbers: list[tuple[int, int]]) -> bool:
+    """Does the nearest number BEFORE this cue sit against it, with only blanks between?
+
+    Guard (c'), R15 3.2 — R14's (c) pointing the other way, and R14 concluded it did not exist:
+    "no (c') because (a') subsumes it". That was measured on two sweeps neither of which can
+    produce the shape it is wrong about, which is the third time the same generator has been
+    read as evidence of absence.
+
+    (a') clamps the backward window to the END of the previous number. When the cue sits
+    immediately after that number the clamp lands ON the cue rather than past it, so the cue is
+    inside the window and (a') has excluded nothing. It LOOKED subsumed only because the one cue
+    that could show it was written ` chah`, with a leading space that fell outside the clamped
+    window - so the wrong answer was blocked by a typographic accident rather than by a guard.
+    Removing that space for 3.1 is what made the hole visible.
+
+    THE RULE IS ADJACENCY, WHICH IS THE MECHANISM R14 SAID THIS RESIDUAL NEEDED. In
+    `30000 chah raha hu - abhi 25000 mahina milta hai` the cue trails 30000, so it states 30000's
+    role and says nothing about 25000. A cue with only whitespace between it and a preceding
+    number belongs to that number.
+    """
+    prev_end = max((end for _start, end in numbers if end <= cue_at), default=None)
+    return prev_end is not None and lower[prev_end:cue_at].strip() == ""
+
+
+def _any_cue_at_word_start(
+    lower: str,
+    start: int,
+    end: int,
+    numbers: list[tuple[int, int]],
+    amount_at: int,
+) -> bool:
+    """Is there an expectation cue in the window that belongs to THIS amount?
+
+    The base window straddles the amount - it reaches `_EXPECTED_WINDOW_BEFORE` back and
+    `_EXPECTED_WINDOW_AFTER` forward - so (c') is applied only to cues standing BEFORE the
+    figure. A cue after it trails this amount by construction, and that adjacency is the whole
+    reason `25000 chahiye` reads as an asking price.
+    """
+    for cue in _EXPECTED_CUES:
+        at = _cue_at_word_start(lower, cue, start, end)
+        while at != -1:
+            if at >= amount_at or not _cue_trails_a_number(lower, at, numbers):
+                return True
+            at = _cue_at_word_start(lower, cue, at + 1, end)
+    return False
+
+
 def _cue_after_the_period_phrase(
     lower: str,
     m: re.Match[str],
@@ -2281,14 +2349,16 @@ def _cue_after_the_period_phrase(
         limit = terminator.start()
     limit = max(base_end, limit)
 
-    extension = lower[window_start:limit]
     for cue in _EXPECTED_CUES:
         # Only cues the BASE window could not already have seen — a cue inside it would have
-        # answered this question before we were called.
-        at = extension.find(cue, max(0, base_end - window_start - len(cue) + 1))
+        # answered this question before we were called. R15 3.1: word-start matched, like the
+        # base window above, so the two halves cannot disagree about what counts as a cue.
+        at = _cue_at_word_start(
+            lower, cue, max(window_start, base_end - len(cue) + 1), limit
+        )
         if at == -1:
             continue
-        cue_end = window_start + at + len(cue)
+        cue_end = at + len(cue)
         # (c) — and ON THIS LINE. A number on the next line is a different utterance, the same
         # reason every other window here is clamped to the line the amount sits on.
         if any(cue_end <= start < line_end for start, _end in numbers):
@@ -2371,7 +2441,9 @@ def _iter_salaries(text: str, lower: str) -> Iterator[SalaryHit]:
         # three guards there; handing it a clamped start would silently narrow the forward
         # extension as well, which no measurement supports.
         guarded_start = _guarded_window_start(lower, m, numbers, line_start)
-        is_expected = any(cue in lower[guarded_start:base_end] for cue in _EXPECTED_CUES)
+        is_expected = _any_cue_at_word_start(
+            lower, guarded_start, base_end, numbers, m.start(1)
+        )
         if not is_expected:
             is_expected = _cue_after_the_period_phrase(
                 lower, m, numbers, window_start, base_end, line_end

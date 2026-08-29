@@ -201,10 +201,31 @@ const SHARED_BUILDERS = [
 ] as const;
 type SharedBuilder = (typeof SHARED_BUILDERS)[number];
 
+/**
+ * The fields a branch hands a shared builder.
+ *
+ * RESOLVES A NAMED ARGUMENT, and it has to. The reader originally assumed every call site was
+ * `builder({ … })` written inline, which is a silent assumption about how the code happens to be
+ * shaped rather than anything the audit is about. R15 §1 gave the container branch a `zone5`
+ * binding so its rows and its scalar slots read ONE expression — and the reader then parsed the
+ * identifier, found the next object literal in the file, and reported seven fields as absent
+ * that were being passed perfectly well. A parser that mis-reads a refactor is worse than no
+ * parser, because it fails LOUDLY on the wrong thing and the fix looks like reverting the
+ * refactor.
+ */
 function builderArgs(branchBody: string, builder: SharedBuilder): Field[] {
   const at = branchBody.indexOf(`${builder}(`);
   expect(at, `${builder} is not called on this branch`).toBeGreaterThan(-1);
-  return fieldsOf(literalAt(branchBody, at));
+  const open = at + builder.length + 1;
+  const named = /^\s*([A-Za-z_$][\w$]*)\s*\)/.exec(branchBody.slice(open));
+  if (!named) return fieldsOf(literalAt(branchBody, at));
+  // `builder(zone5)` — read the binding's own literal, from the whole file rather than the
+  // branch body, since the declaration sits above the `return`.
+  const decl = CODE.indexOf(`const ${named[1]} = {`);
+  expect(decl, `${builder} is passed \`${named[1]}\`, which is declared nowhere`).toBeGreaterThan(
+    -1,
+  );
+  return fieldsOf(literalAt(CODE, decl));
 }
 
 const ROWS_SOURCE = codeOnly(readFileSync(join(__dirname, "resume-sheet-rows.ts"), "utf8"));
@@ -257,20 +278,13 @@ const ALLOWED: Readonly<Record<string, Allowed>> = {
   // own: R9's `qualFactRows` reads `draftQualification.certifications` and the composed
   // `educationHeadline` on this very branch, so Zone 5 of `bb_trade` prints the certificates
   // that `classic.v3`'s scalar slot two lines below does not. One source, two answers.
-  "return.machines": {
-    starved: "container",
-    reason: "owner ruling 2026-08-12 — narrow field set first",
-  },
-  "return.education": {
-    starved: "container",
-    reason: "owner ruling 2026-08-12 — narrow field set first",
-  },
-  "return.certifications": {
-    starved: "container",
-    reason: "owner ruling 2026-08-12; NOTE qualFactRows on this same branch already reads it",
-  },
-  "return.educationLevel": { starved: "container", reason: "owner ruling 2026-08-12" },
-  "return.educationField": { starved: "container", reason: "owner ruling 2026-08-12" },
+  // ── THE FIVE ARE GONE (R15 §1) ────────────────────────────────────────────────────────
+  //
+  // `machines`, `education`, `certifications`, `educationLevel` and `educationField` are filled
+  // from the draft on the container branch now. Their rows are DELETED rather than flipped to a
+  // "fixed" note, because the staleness test below requires every row to name a live asymmetry
+  // — a row kept for its history would fail it, which is the property that makes this list
+  // readable at all.
 
   // ── NO SOURCE ON THE STARVED BRANCH ────────────────────────────────────────────────────
   //
@@ -310,23 +324,31 @@ const ALLOWED: Readonly<Record<string, Allowed>> = {
   // other half; neither looked at the scalars. They are held open here rather than fixed because
   // R14 §1 says report the size of it first — see the two `it.fails` at the bottom, which are
   // the executable form of this paragraph and go GREEN the day someone wires them.
-  "return.preferredLocations": {
-    starved: "legacy",
-    reason: "R14 §1 — reported, awaiting the word; source is draft.location_preference",
-  },
-  "return.expectedSalary": {
-    starved: "legacy",
-    reason: "R14 §1 — reported, awaiting the word; source is legacySalary's own inputs",
-  },
+  // BOTH WIRED (R15 §2, Q15 ruled). `expectedSalary` carries `audience === "worker" ? … : null`
+  // with it, which is the reason it was never the one-line change it looked like.
 
   // ── ACCEPTED BY THE BUILDER, PASSED BY NEITHER ────────────────────────────────────────
   //
   // R13 §2's third finding. There is no turner axis question, so it is correctly empty for every
   // worker who exists today; it stops being correct the moment a milling pack ships, which is
   // what `yadav-parity.contract.test.ts:577` pins.
+  // R15 §6.1 — THE REASON THIS ROW GAVE IS NOW FALSE, and correcting it is the point.
+  //
+  // It read "no pack asks for axes yet". `qp_vmc_milling` shipped in #1309 and asks
+  // `axis_capability` with three options, and `trade-resume-map.ts` already routes the answer
+  // into the MACHINE chip as `configFrom` — the sheet prints "VMC · 3-axis" today. So the value
+  // is captured, stored and rendered; what is still true is narrower and worse, because it can
+  // no longer be waved off as a missing question: `buildVerdictLine` accepts a dedicated `axes`
+  // segment, §6.2 of the sheet spec names it, and NEITHER mapper branch passes it. The milling
+  // headline strip cannot print "3 & 4-axis" for a worker who answered exactly that.
+  //
+  // Kept as an allowlist row rather than fixed here: the Verdict Line's axes segment is a
+  // second rendering of a fact the machine chip already carries, so wiring it is a layout
+  // decision about duplication rather than a wiring gap. Pinned as behaviour in
+  // verdict-line-collapse.render.test.ts:328.
   "buildVerdictLine.axes": {
     starved: "both",
-    reason: "no pack asks for axes yet — pinned in verdict-line-collapse.render.test.ts",
+    reason: "the milling pack ASKS it and the chip prints it; no mapper branch passes it here",
   },
 };
 
@@ -520,9 +542,11 @@ describe("R14 §1 — measured, per branch, on the template production actually 
     expect(render(MAXIMAL_LEGACY).canonicalRole).toBe("CNC Operator");
   });
 
-  it("the legacy branch prints the same fact in Zone 3 and drops it from the scalar slot", () => {
-    // MEASURED, AND THIS IS THE FINDING. `classic.v3` renders BOTH `{{#preferred_locations}}`
-    // and the availability rows; one of them is populated and the other is not, from one draft.
+  it("the legacy branch prints the same fact in Zone 3 AND in the scalar slot (R15 §2)", () => {
+    // WAS THE FINDING, IS NOW THE REGRESSION TEST. `classic.v3` renders BOTH
+    // `{{#preferred_locations}}` and the availability rows; one was populated and the other was
+    // not, from one draft. Asserted together, in one test, because the defect was never in
+    // either value — it was in the two of them disagreeing.
     const input = render(MAXIMAL_LEGACY);
     expect(input.availFactRows?.map((r) => `${r.label}: ${r.value}`)).toEqual([
       "Available from: Immediate",
@@ -530,8 +554,35 @@ describe("R14 §1 — measured, per branch, on the template production actually 
       "Preferred locations: Gurugram, Noida",
     ]);
     expect(input.subheadLine).toContain("expects ₹24,000 – ₹28,000 / month");
-    expect(input.preferredLocations, "the scalar slot, from the same draft").toEqual([]);
-    expect(input.expectedSalary, "the scalar slot, from the same draft").toBeNull();
+    expect(input.preferredLocations, "the scalar slot, from the same draft").toEqual([
+      "Gurugram",
+      "Noida",
+    ]);
+    expect(input.expectedSalary, "the scalar slot, from the same draft").toBe(24000);
+  });
+
+  it("R15 §2 — the employer copy does NOT get the asking price through the new scalar", () => {
+    // THE REASON Q15 WAS NOT A ONE-LINE CHANGE. The Verdict Line and the Terms row read
+    // `legacySalary`, which is already gated; this slot takes a raw number off the draft, so
+    // wiring it without the gate would have put the worker's asking price on the employer copy
+    // — the exact disclosure ADR-0032 withholds, reached from the other side.
+    const employer = buildResumeRenderInput(
+      MAXIMAL_LEGACY,
+      "R. K. Yadav",
+      "classic",
+      null,
+      false,
+      "employer",
+    );
+    expect(employer.expectedSalary, "the payer copy must never carry it").toBeNull();
+    expect(employer.subheadLine ?? "").not.toContain("expects");
+    expect(
+      employer.availFactRows?.map((r) => r.label),
+      "and it must not come back as a labelled row either",
+    ).not.toContain("Salary expected");
+    // Vacuity: the same draft on the worker copy DOES carry it, so this is a gate and not an
+    // empty fixture.
+    expect(render(MAXIMAL_LEGACY).expectedSalary).toBe(24000);
   });
 
   it("the legacy branch drops a populated draft.experiences", () => {
@@ -541,19 +592,36 @@ describe("R14 §1 — measured, per branch, on the template production actually 
     expect(render(MAXIMAL_LEGACY).experiences).toEqual([]);
   });
 
-  it("the container branch drops the qualification scalars the legacy branch renders", () => {
-    // The 2026-08-12 ruling, measured rather than quoted.
+  it("the container branch renders the qualification scalars too (R15 §1 — the five)", () => {
+    // WAS THE MEASUREMENT OF THE 2026-08-12 RULING, IS NOW ITS REGRESSION TEST. On `classic.v3`
+    // an interview-led worker's whole Education & Certifications section used to collapse while
+    // the identical draft rendered it for a worker whose interview never ran.
     const container = render(MAXIMAL_CONTAINER);
     const legacy = render(MAXIMAL_LEGACY);
-    expect(legacy.machines).toEqual(["Vertical Machining Center (VMC)"]);
-    expect(legacy.education).toEqual(["ITI"]);
-    expect(legacy.certifications).toEqual(["NCVT"]);
-    expect(legacy.educationLevel).toBe("ITI / Diploma");
-    expect(container.machines).toEqual([]);
-    expect(container.education).toEqual([]);
-    expect(container.certifications).toEqual([]);
-    expect(container.educationLevel).toBeNull();
-    expect(container.educationField).toBeNull();
+    for (const input of [legacy, container]) {
+      expect(input.machines).toEqual(["Vertical Machining Center (VMC)"]);
+      expect(input.education).toEqual(["ITI"]);
+      expect(input.certifications).toEqual(["NCVT"]);
+      expect(input.educationLevel).toBe("ITI / Diploma");
+      expect(input.educationField).toBe("Machinist");
+    }
+  });
+
+  it("R15 §1 — the rows and the scalars are ONE binding, so they cannot disagree again", () => {
+    // THE DEFECT UNDERNEATH THE FIVE. `bb_trade` prints Zone 5 as `qualFactRows` and
+    // `classic.v3` prints the same facts as `{{#education}}` / `{{#certifications}}`. They were
+    // computed from two different expressions, which is how R9 wired the rows and left the
+    // scalars empty with nothing anywhere reporting that one source gave two answers.
+    for (const snapshot of [MAXIMAL_LEGACY, MAXIMAL_CONTAINER]) {
+      const input = render(snapshot);
+      const rows = Object.fromEntries(
+        (input.qualFactRows ?? []).map((r) => [r.label, r.value]),
+      ) as Record<string, string>;
+      expect(rows["Certificates"], "the row and the scalar are the same fact").toBe(
+        input.certifications.join(", "),
+      );
+      expect(rows["Education"] ?? "").toContain(input.education.join(", "));
+    }
   });
 
   it("the Verdict Line itself is symmetric — R12 §1.4 and R13 §2 hold", () => {
@@ -567,20 +635,161 @@ describe("R14 §1 — measured, per branch, on the template production actually 
   });
 
   it.fails(
-    "R14 §1 — the legacy branch fills {{#preferred_locations}} (REPORTED, not fixed)",
+    "R15 §1 — the two branches pick the headline's TOOLS from different sources (REPORTED)",
     () => {
-      // ONE LINE: `preferredLocations: preferences.preferredLocations.length > 0 ? … :
-      // draft.location_preference.preferred_cities`, the same expression `buildAvailabilityRows`
-      // is already handed twelve lines above. Held for the owner's word — R14 §1 asks for the size
-      // of the delta before anything beyond the known three is fixed.
-      expect(render(MAXIMAL_LEGACY).preferredLocations).toEqual(["Gurugram", "Noida"]);
+      // FOUND BY THE RUNTIME DIFF BELOW, and it is the twelfth asymmetry — the only one left.
+      //
+      // `buildVerdictLine` is handed `headlineTools.length > 0 ? headlineTools : legacyMachines`
+      // on one branch and `… : skillChips` on the other. When a pack ran they agree; when none
+      // did, one worker's headline strip names his MACHINES and the other's names his SKILLS,
+      // from one draft. Neither expression is a bare literal and both branches pass the argument,
+      // so all six static assertions pass it — this is the fourth shape.
+      //
+      // NOT FIXED HERE, DELIBERATELY, and it is the one place R15 §1 stops. Aligning them changes
+      // what prints for profiles that already exist — on the legacy branch a worker with no
+      // machines would newly show skills, and on the container branch machines would displace
+      // skills — so it is an output ruling rather than a wiring gap, exactly as `expectedSalary`
+      // was before Q15. Q17 in NEEDS_PRAKASH.md.
+      const legacy = render(EQUIVALENT_LEGACY);
+      const container = render(EQUIVALENT_CONTAINER);
+      expect(container.headlineLine).toBe(legacy.headlineLine);
     },
   );
+});
 
-  it.fails("R14 §1 — the legacy branch fills {{expected_salary}} (REPORTED, not fixed)", () => {
-    // ONE LINE, and it must carry the audience gate with it: `audience === "worker" ?
-    // draft.salary_expectation.amount_min : null`. `legacySalary` is already gated, which is why
-    // the Verdict Line and the fact row are safe and this scalar would not be by default.
-    expect(render(MAXIMAL_LEGACY).expectedSalary).toBe(24000);
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// R15 §1 — THE DIRECTION-AGNOSTIC DIFF, AND IT IS THE RUNTIME ONE THAT WAS MISSING
+// ─────────────────────────────────────────────────────────────────────────────────────────
+//
+// The static half above ALREADY fails in both directions — mutation-verified, four ways: a
+// field added to one branch only is named "absent on the <other> branch" whichever branch it
+// was added to, and a field stubbed on one side is named "hard-coded on <that side>" either
+// way. It is what FOUND the five container-starved slots, so nothing about its direction
+// needed correcting.
+//
+// WHAT WAS ONE-DIRECTIONAL IS THE RUNTIME HALF, and it was worse than one-directional: it was
+// a list of hand-written probes, one per KNOWN finding. Every one of them asserts a value
+// somebody had already gone looking for. A slot starved in either direction, by the fourth
+// shape — present and derived on BOTH branches, from different sources, one of them thinner —
+// had no assertion at all, because the static reader cannot see it and no probe had been
+// written for it yet. That is the shape `experiences` is, and it was held by exactly one
+// hand-authored line.
+//
+// SO THE DIFF IS TAKEN OVER THE WHOLE RENDERED OBJECT, from two drafts carrying the SAME
+// answers, and every key must agree unless a row here says why. It is symmetric by
+// construction — it compares two objects and reports the key, not the branch — so it cannot
+// acquire a direction to be blind in.
+//
+// IT FOUND ONE NOBODY HAD LOOKED FOR: `qualFactRows`' certifications reached the container
+// branch as RAW `draft.certifications` — `cert_ncvt` on a worker's résumé — while the legacy
+// branch resolved the identical field through `labelForTaxonomyId`. Same source, same field,
+// two answers, and neither branch was ABSENT or STUBBED, so all six static assertions passed.
+
+/**
+ * The same worker, answered identically, in each of the two shapes the mapper accepts.
+ *
+ * EQUIVALENCE IS THE WHOLE INSTRUMENT, and the first draft of this fixture was not equivalent:
+ * it gave the legacy side a salary BAND and the container a single figure, a `shift` to one and
+ * not the other, and different headline tools. Every one of those showed up as a "difference"
+ * that was mine rather than the mapper's, and each would have had to be allowlisted — which is
+ * how an allowlist stops meaning anything. The three below are pinned to the same values on both
+ * sides so a delta is the code's.
+ */
+const EQUIVALENT_LEGACY = {
+  ...MAXIMAL_LEGACY,
+  // The one field the container cannot carry — see `return.experiences`. Dropped from BOTH
+  // sides so the diff measures the mapper rather than a source the processor cannot produce.
+  experiences: [],
+  // ONE figure, because `ResumeProfileSchema.expected_salary` is a single number and the band's
+  // upper end rides a finishing-form attribute neither probe supplies.
+  salary_expectation: { amount_min: 26000, amount_max: null },
+  shift: "day",
+  // THE LEAK THE LEGACY BRANCH DEFENDS AGAINST AND THE CONTAINER DID NOT. `labelForTaxonomyId`
+  // is a no-op on `NCVT` and on any `cert_*` id — it resolves `skill_*` and `mach_*` — so a
+  // fixture full of plain labels CANNOT exercise the difference, and the first run of this diff
+  // reported certifications as agreeing. `skill_milling` is exactly the id the legacy comment
+  // says leaks in from the extraction path, and it is the only value here that can tell a
+  // resolved list from a raw one.
+  certifications: ["NCVT", "skill_milling"],
+};
+
+const EQUIVALENT_CONTAINER = {
+  ...MAXIMAL_CONTAINER,
+  certifications: ["NCVT", "skill_milling"],
+  resume_profile: {
+    ...MAXIMAL_CONTAINER.resume_profile,
+    experiences: [],
+    expected_salary: 26000,
+    // The rendered value the legacy side produces from `skill_milling`, so the `skills` SLOT
+    // compares. The headline TOOLS still diverge, and deliberately so — see the pin below.
+    skills: ["Milling"],
+    role_label: "CNC Operator",
+    domain_label: "CNC machining",
+  },
+};
+
+/**
+ * Keys allowed to differ between the two renders, each with the reason.
+ *
+ * DELIBERATELY SMALL. Every row is a slot one branch can fill and the other structurally
+ * cannot; anything else is a defect, in whichever direction it points.
+ */
+const RUNTIME_ALLOWED: Readonly<Record<string, string>> = {
+  // THE ONLY ONE LEFT, AND IT IS PINNED ABOVE RATHER THAN ACCEPTED — see the `it.fails` for why
+  // aligning the two is an output ruling and not a wiring gap. Q17.
+  headlineLine: "R15 §1 — tools fall back to machines on one branch and skills on the other (Q17)",
+  // Container-only by construction: §8.4's quotes are selected from
+  // `resume_profile.experiences[].work_done`, and the legacy shape has no such field. The legacy
+  // branch leaves the slot unset rather than empty, which is the honest signal — "no selection
+  // ran" is not the same claim as "a selection ran and rejected nothing".
+  ownWordsRejected: "the quote selection exists only on the container",
+  // TWO COMPOSERS, BY DESIGN — `buildSummary(draft, trade)` reads the taxonomy's trade content,
+  // `summaryFor` reads the model's labels, and neither branch can run the other's.
+  //
+  // WORTH A LOOK ANYWAY, and recorded here rather than in a doc: the legacy composer drops the
+  // ROLE. It renders "CNC machining with 8 years of experience." where the container renders
+  // "CNC Operator with 8 years of experience in CNC machining." — so on the branch most existing
+  // profiles take, the résumé's opening sentence never names the job the worker does. That is a
+  // content question rather than a parity one, which is why it is a row and not a fix.
+  summary: "composed by two different functions; the legacy one omits the role (reported)",
+};
+
+describe("R15 §1 — the two branches render the SAME worker the same way, in either direction", () => {
+  it("the two drafts really are the two branches, and really are equivalent", () => {
+    // VACUITY, WRITTEN FIRST, TWICE OVER. A diff of two objects is trivially empty if both
+    // renders came out of the same branch, and it is also trivially empty if both are blank.
+    const legacy = render(EQUIVALENT_LEGACY);
+    const container = render(EQUIVALENT_CONTAINER);
+    expect(legacy.ownWords ?? [], "legacy must NOT have taken the container path").toEqual([]);
+    expect(container.responsibilities, "container must NOT have taken the legacy path").toEqual([]);
+    expect(legacy.headlineLine, "the fixture must actually render").toContain("8 yrs");
+    expect(container.headlineLine, "the fixture must actually render").toContain("8 yrs");
+    // And the diff must be capable of reporting something: these keys are read below.
+    expect(Object.keys(legacy).length).toBeGreaterThan(20);
+  });
+
+  it("no rendered slot differs between the branches without a stated reason", () => {
+    const legacy = render(EQUIVALENT_LEGACY) as unknown as Record<string, unknown>;
+    const container = render(EQUIVALENT_CONTAINER) as unknown as Record<string, unknown>;
+    const delta: string[] = [];
+    for (const key of new Set([...Object.keys(legacy), ...Object.keys(container)])) {
+      if (key in RUNTIME_ALLOWED) continue;
+      const l = JSON.stringify(legacy[key] ?? null);
+      const c = JSON.stringify(container[key] ?? null);
+      if (l === c) continue;
+      delta.push(`${key} — legacy ${l} vs container ${c}`);
+    }
+    expect(delta.sort(), "one worker, two shapes, two different résumés").toEqual([]);
+  });
+
+  it("no allowlist row may go stale", () => {
+    // The same rule the static allowlist follows: a row that outlives its subject silently
+    // re-authorises the next person to break the key it names.
+    const legacy = render(EQUIVALENT_LEGACY) as unknown as Record<string, unknown>;
+    const container = render(EQUIVALENT_CONTAINER) as unknown as Record<string, unknown>;
+    const stale = Object.keys(RUNTIME_ALLOWED).filter(
+      (k) => JSON.stringify(legacy[k] ?? null) === JSON.stringify(container[k] ?? null),
+    );
+    expect(stale, "these keys now agree — drop the row").toEqual([]);
   });
 });

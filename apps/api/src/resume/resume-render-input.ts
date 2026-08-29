@@ -405,7 +405,40 @@ function buildUndegraded(
       capability.headlineTools,
       tradeSheet?.qualification,
       hasEmployments,
-      { educationHeadline, certifications: draft.certifications },
+      {
+        educationHeadline,
+        // R15 §1 — THE FIVE STARVED SLOTS, AND THE POPULATION IS WHY THEY WENT FIRST.
+        //
+        // These rode the draft all along: `crosswalk.ts:45-47` writes `education_level`,
+        // `education_field`, `education` and `certifications` onto it from the answer map, and
+        // `machines` is a taxonomy list the extractor fills. The container path simply never
+        // asked for them, so on `classic.v3` — the template `resume.service.ts` names for every
+        // production render — an interview-led worker's whole Education & Certifications
+        // section collapsed while the identical draft rendered it for a worker whose interview
+        // never ran. The newer path was the starved one, which is the half the framing "the
+        // legacy branch is behind" hid for three packets.
+        //
+        // NOT THE MERGE THE 2026-08-12 RULING FORBIDS. That ruling governs the VALUES INSIDE
+        // the container — no blending Phase C's nine keys with the old answer map — and it is
+        // untouched: nothing here overwrites a field `resume_profile` carries. These five have
+        // no container representation AT ALL, so this is a fallback beneath an empty slot, and
+        // it is the identical mechanism R9 already shipped one line above for
+        // `educationHeadline` and `certifications`. Q16 asks whether the ruling still holds in
+        // general; it is not answered here, and does not need to be for a field the container
+        // has no way to express.
+        education: draft.education.map(labelForTaxonomyId),
+        certifications: draft.certifications.map(labelForTaxonomyId),
+        machines: draft.machines.map(labelForTaxonomyId),
+        educationLevel: humanizeEducationLevel(draft.education_level),
+        educationField: draft.education_field,
+        // R15 §1 — THE LEGACY BRANCH'S OWN `shift` FALLBACK, HOISTED SO BOTH CAN USE IT.
+        // `buildAvailabilityRows` was handed `preferences.shiftLine` alone on the legacy branch
+        // and `preferences.shiftLine ?? humanizeShift(rp.shift)` on the container, so a worker
+        // whose shift the extractor captured got a Shift row on one path and no row on the
+        // other — from one draft. Neither expression is a bare literal, so the static half
+        // could not see it; the runtime diff below is what named it.
+        shift: humanizeShift(draft.shift),
+      },
       preferences,
       // THE MANDATORY UNIVERSAL ASK, reaching the container path for the first time. It rides
       // the answer map onto the draft (`profile-extraction.processor.ts` → `experience`), which
@@ -491,7 +524,14 @@ function buildUndegraded(
           : draft.location_preference.preferred_cities,
       // WAS HARD `null` TOO, for the same class of reason: `shift_preference` is asked by
       // `qp_universal` and lands in `worker_attributes`, and this branch never read it.
-      shift: preferences.shiftLine,
+      //
+      // R15 §1 — AND THE FALLBACK BENEATH IT WAS MISSING ON THIS BRANCH ALONE. The container
+      // path reads `preferences.shiftLine ?? humanizeShift(rp.shift)`; this one stopped at the
+      // form. `draft.shift` is in scope — the `humanizeAvailability` call at the bottom of this
+      // same literal already reads it — so a worker who told the interview his shift and never
+      // opened the finishing form got the fact in his availability line and no Shift row, on
+      // the branch most existing profiles take.
+      shift: preferences.shiftLine ?? humanizeShift(draft.shift),
       willingToRelocate: preferences.willingToRelocate,
       accommodationNeeded: preferences.accommodationNeeded,
     }),
@@ -524,8 +564,33 @@ function buildUndegraded(
     // R10 §2.6 — the fresher's Zone 4 reaches BOTH branches. A pass-out whose interview never ran
     // is exactly the worker most likely to be on this path.
     experiences: fresherRows,
-    preferredLocations: [],
-    expectedSalary: null,
+    // ── R15 §2 — Q15, RULED. THE SALARY DEFECT'S THIRD AND FOURTH INSTANCE, CLOSED ────────
+    //
+    // Both had a source in scope and both were hard-coded `[]`/`null`, on the branch this
+    // file's own comment calls "the path most existing profiles still take". `classic.v3`
+    // renders `{{#preferred_locations}}` and `{{expected_salary}}` from these two scalars, so
+    // the sheet printed "Preferred locations: Gurugram, Noida" in Zone 3 and nothing in the
+    // region three lines above it — one draft, two answers, which is the whole class R12 §1.4
+    // and R13 §2 closed one slot over without ever looking at the scalars.
+    //
+    // THE SAME EXPRESSION `buildAvailabilityRows` IS ALREADY HANDED, deliberately: the form's
+    // answer wins over the extractor's, and reading it twice is how the row and the region
+    // would drift apart again.
+    preferredLocations:
+      preferences.preferredLocations.length > 0
+        ? preferences.preferredLocations
+        : draft.location_preference.preferred_cities,
+    // AUDIENCE-GATED, AND THIS IS WHY IT WAS NEVER A MECHANICAL ONE-LINER. The Verdict Line and
+    // the Terms row read `legacySalary`, which is gated forty lines up; this slot takes a raw
+    // number, so wiring it without the gate would put the worker's asking price on the
+    // employer copy — the exact disclosure ADR-0032 withholds, arrived at from the other side.
+    // Gated HERE rather than at the template, for the same reason the photo and the real name
+    // are: a call site cannot forget a rule that lives in the mapper.
+    //
+    // `amount_min` IS THE ASKING PRICE, not the current wage — R10 R-1 corrected the Python
+    // writer that had those reversed, and `legacySalary` reads the same field to compose the
+    // band the row prints.
+    expectedSalary: audience === "worker" ? draft.salary_expectation.amount_min : null,
     templateId,
     displayName,
     photoDataUri,
@@ -659,7 +724,15 @@ function fromResumeProfile(
    * so they were empty for every worker until a capture surface existed. `preferences` below is
    * that surface, and it is the only source they will ever have.
    */
-  draftQualification: { educationHeadline: string | null; certifications: readonly string[] },
+  draftQualification: {
+    educationHeadline: string | null;
+    education: readonly string[];
+    certifications: readonly string[];
+    machines: readonly string[];
+    educationLevel: string | null;
+    educationField: string | null;
+    shift: string | null;
+  },
   /**
    * The finishing form's closed-set answers (R6 §4) — Zone 3's terms and Zone 5's languages.
    *
@@ -709,6 +782,24 @@ function fromResumeProfile(
   // "notice_period") so it stays diffable against its trace; the sheet prints a label. Both the
   // Verdict Line and the Terms row read this, and computing it twice is how they drift.
   const availabilityLabel = bareAvailabilityLabel(cleanScalar(rp.availability));
+
+  // ZONE 5, RESOLVED ONCE — R15 §1, and resolving it once is the fix rather than a tidy-up.
+  //
+  // The rows and the scalar slots are TWO RENDERINGS OF THE SAME FACT: `bb_trade` prints the
+  // `qualFactRows` and `classic.v3` prints `{{#education}}` / `{{#certifications}}`. They were
+  // computed from two different expressions, so R9 could wire the rows and leave the scalars
+  // empty and nothing anywhere said the two disagreed. One binding, read by both, makes that
+  // particular drift unrepresentable instead of merely fixed.
+  //
+  // THE PRECEDENCE IS UNCHANGED AND STILL PER-FIELD: the caller's structured block wins where
+  // it has an answer, the draft fills the gap beneath it, and `??` keeps an explicitly empty
+  // list ("no certificates") from falling through to the snapshot's.
+  const zone5 = {
+    educationHeadline: qualification?.educationHeadline ?? draftQualification.educationHeadline,
+    education: qualification?.education ?? [...draftQualification.education],
+    certifications: qualification?.certifications ?? [...draftQualification.certifications],
+    languages: qualification?.languages ?? preferences.languages,
+  };
 
   // ONE TOTAL, COMPUTED ONCE. The Verdict Line, the `experienceYears` slot and the summary all
   // read it, and computing it at three call sites is how a sheet ends up saying "8 yrs" at the
@@ -768,7 +859,11 @@ function fromResumeProfile(
       // The form's own answer, else the model's reading of the conversation. The form's carries
       // the employment type with it ("Rotational shifts · Permanent"), which the model has no
       // field for at all.
-      shift: preferences.shiftLine ?? humanizeShift(cleanScalar(rp.shift)),
+      // The form's own answer, then the model's reading of the conversation, then the answer
+      // map's — R15 §1 added the third, because `draft.shift` is what the deterministic packs
+      // write and a container-path worker can have one without `rp.shift` being set.
+      shift:
+        preferences.shiftLine ?? humanizeShift(cleanScalar(rp.shift)) ?? draftQualification.shift,
       willingToRelocate: preferences.willingToRelocate,
       accommodationNeeded: preferences.accommodationNeeded,
     }),
@@ -778,12 +873,7 @@ function fromResumeProfile(
     // block is a THIRD source rather than that merge: it is the worker's own structured answer,
     // it never passes through the model, and where it is absent the section still collapses
     // exactly as it does today.
-    qualFactRows: buildQualificationRows({
-      educationHeadline: qualification?.educationHeadline ?? draftQualification.educationHeadline,
-      education: qualification?.education ?? [],
-      certifications: qualification?.certifications ?? [...draftQualification.certifications],
-      languages: qualification?.languages ?? preferences.languages,
-    }),
+    qualFactRows: buildQualificationRows(zone5),
     templateId,
     displayName,
     photoDataUri,
@@ -850,13 +940,25 @@ function fromResumeProfile(
     // a negotiating position handed away if a payer reads it before any conversation. Same
     // treatment, and the same reasoning, as ADR-0032 gives the photo.
     expectedSalary: audience === "worker" ? rp.expected_salary : null,
-    // See the note above: not available on this path yet.
-    machines: [],
+    // ── R15 §1 — THE FIVE, FILLED FROM THE DRAFT ──────────────────────────────────────────
+    //
+    // `education` and `certifications` are the SAME BINDING the rows above read, so the two
+    // renderings of one fact cannot disagree again. `machines`, `educationLevel` and
+    // `educationField` have no row form and come straight from the draft. See the call site
+    // for why this is a fallback beneath an empty slot rather than the merge the 2026-08-12
+    // ruling forbids.
+    machines: [...draftQualification.machines],
+    education: [...zone5.education],
+    certifications: [...zone5.certifications],
+    educationLevel: draftQualification.educationLevel,
+    educationField: draftQualification.educationField,
+    // STILL EMPTY, AND CORRECTLY SO — the two that are not recoverable this way.
+    // `controllers` is empty on BOTH branches (no snapshot field carries them, and inventing
+    // them is fabrication). `responsibilities` is trade-level copy keyed by a canonical id,
+    // and `toExtractionOutput` hardcodes both canonical ids to null on this path, so
+    // `resolveTradeContent` returns undefined for every container profile that can exist. It
+    // would stay empty even with the draft threaded in, which is why it is not in the five.
     controllers: [],
-    education: [],
-    certifications: [],
-    educationLevel: null,
-    educationField: null,
     responsibilities: [],
   };
 }

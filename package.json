@@ -16,6 +16,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "lint:oxlint": "oxlint --config apps/payer-web/.oxlintrc.json apps/payer-web/src",
+    "lint:ci": "pnpm lint && pnpm lint:oxlint",
     "typecheck": "turbo run typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",

@@ -868,27 +868,49 @@ describe("buildResumeRenderInput — the résumé container", () => {
       expect(build({ ...LEGACY, resume_profile: {} })).toEqual(build({ ...LEGACY }));
     });
 
-    it("still wins outright the moment it carries ANY value", () => {
-      // The guard asks whether this is a record of an interview, NOT which source is richer.
-      // A container holding one field is still the model's object and still wins whole — no
-      // merge, no precedence, no field-by-field rescue from the legacy shape. `machines` here
-      // is the proof: the legacy container has content the container path leaves empty, and it
-      // stays empty.
+    it("still wins outright for every field it can express (R15 §1 narrowed this)", () => {
+      // ── THE INVARIANT, RESTATED, BECAUSE R15 §1 CROSSED THE LINE THIS TEST USED TO DRAW ──
+      //
+      // It read: "a container holding one field wins whole — no merge, no precedence, no
+      // field-by-field rescue from the legacy shape", and it offered `machines` and
+      // `educationLevel` as the proof. That is stronger than the rule it was protecting, and it
+      // was ALREADY FALSE when it was written: R9's `qualFactRows` reads the draft's
+      // `educationHeadline` and `certifications` on this very branch. The two fields named here
+      // simply happened to be ones R9 had not reached.
+      //
+      // WHAT THE RULE ACTUALLY PROTECTS is the bug this path replaced: reassembling the model's
+      // object out of the old answer map, field by field, so that a value the model DID produce
+      // gets outvoted or reshaped by a second source. That is untouched and is what the first
+      // three assertions below pin — `role_label` and `skills` are container keys, the container
+      // has them, and the legacy shape is not consulted for either even though it holds richer
+      // content.
+      //
+      // WHAT R15 §1 CHANGED is the case where the container has NO WAY TO EXPRESS THE FIELD.
+      // `ResumeProfileSchema` has nine keys; `machines`, `education`, `certifications`,
+      // `education_level` and `education_field` are not among them and never will be, so there
+      // is no model value to outvote and "the container wins" decided nothing — it just left
+      // the slot empty. On `classic.v3` that collapsed an interview-led worker's whole
+      // Education & Certifications section while the identical draft rendered it for a worker
+      // whose interview never ran.
+      //
+      // `experienceYears` WAS ALREADY THIS EXACT CASE, granted an exception by name in R8 §1.
+      // R15 §1 stops treating it as an exception and states the rule it was an instance of: a
+      // container key wins outright; a slot the container cannot represent falls through to the
+      // draft. Q16 asks whether the 2026-08-12 narrow-field-set ruling still holds in general —
+      // that stays open, and does not need answering for a field the container cannot carry.
       const input = build({
         ...LEGACY,
         machines: ["mach_vmc"],
         resume_profile: { ...HOLLOW, role_label: "Fitter" },
       });
+      // THE CONTAINER STILL WINS WHOLE where it can speak: `role_label` is set and beats the
+      // legacy role, and `skills` is an EMPTY container key that is still respected rather than
+      // rescued from the legacy shape's two entries.
       expect(input.canonicalRole).toBe("Fitter");
-      expect(input.skills).toEqual([]);
-      expect(input.educationLevel).toBeNull();
-      expect(input.machines).toEqual([]);
-      // `experienceYears` IS THE ONE EXCEPTION TO "the container wins whole", and R8 §1 made it
-      // one deliberately. Every other slot above proves the legacy shape is not consulted; this
-      // one reads `experience.total_years` off the DRAFT because the container has no such field
-      // and never will — `ResumeProfileSchema` has nine keys and tenure is not among them.
-      // Leaving it null was not the container winning, it was the sheet printing "duration not
-      // stated" for a man who had answered the mandatory ask. See `renderedTotalYears`.
+      expect(input.skills, "an empty container key is an answer, not a gap").toEqual([]);
+      // AND THE SLOTS IT CANNOT EXPRESS NOW FALL THROUGH, instead of printing nothing.
+      expect(input.educationLevel).toBe("10th");
+      expect(input.machines).toEqual(["Vertical Machining Center (VMC)"]);
       expect(input.experienceYears).toBe(LEGACY.experience.total_years);
     });
 

@@ -604,6 +604,41 @@ FAMILIES: list[tuple[str, list[tuple[str, str | None]]]] = [
          "here' keeps the ask's cue away from the current pay. The two rows together are what "
          "stop either backward guard being deleted as redundant, which is exactly the mistake "
          "R13's sweep nearly caused for guard (b)"),
+        # -- R15 3.1/3.2: the cue's OWN boundary, and the number it belongs to ----------
+        ("chah raha hu 30000 mahina",
+         "WORD-START MATCHING (3.1). The cue list carried ' chah' with a LEADING SPACE so the "
+         "stem could not fire inside an unrelated word - and a cue at offset 0 has no character "
+         "before it, so an utterance OPENING with the ask carried no expectation cue at all and "
+         "the asking price was filed as the current pay. This is the only row in the corpus whose "
+         "cue starts at index 0; the generator's other salary rows all open with an amount or "
+         "with 'abhi', which is why 440 sweep rows of this shape went unmeasured for two packets"),
+        ("unexpected kharcha 25000 mahina milta hai",
+         "THE OTHER HALF OF THE WORD-START RULE, and the corpus had no row for it. Dropping the "
+         "leading space from ' chah' is what recovers a fronted ask - but a BARE stem with no "
+         "boundary would fire inside any word that contains it, and 'expect' sits inside "
+         "'unexpected'. Without the word-start test this man's actual wage is read as an asking "
+         "price and lost. Written down because the offset-0 row alone cannot show it: reverting "
+         "only the boundary check leaves that row passing, so a mutation aimed at the guard scored "
+         "it redundant until this row existed. The wording is load-bearing - the first draft put "
+         "the cue 31 characters from the amount and the 25-character backward window never saw "
+         "it, and the second put a COMMA between them, which guard (b') then clamped the window "
+         "at. Both were green with the guard on AND with it off. The text is the one a probe "
+         "confirmed discriminates, checked before it was written down rather than after"),
+        ("30k chahiye abhi 25000 mahina milta hai",
+         "GUARD (c') - ADJACENCY. No punctuation between the clauses, so (b') has nothing to "
+         "clamp on, and no number between the cue and this amount, so (a') does not help either: "
+         "the ask's 'chahiye' reached back and marked the current pay as expected, and "
+         "first-writer-wins then dropped it. (c') discards a cue with only whitespace between it "
+         "and a preceding number - 'chahiye' trails 30k, so it states 30k's role. 992 of the "
+         "reversed sweep's 4,400 monthly rows"),
+        ("30000 chah raha hu - abhi 25000 mahina milta hai",
+         "THE ROW THAT SEPARATES A GUARD FROM AN ACCIDENT. This one PASSED before (c') existed, "
+         "and only by luck: (a') clamps the backward window to the end of the previous number, "
+         "which lands exactly ON the 'c' of 'chah', so the cue sat inside the window and (a') "
+         "excluded nothing - the leading space in ' chah' fell outside the clamp and did the "
+         "guard's work. Removing that space for 3.1 lost 48 sweep rows and exposed it. R14's "
+         "conclusion that (a') subsumes (c') was measured on two sweeps neither of which can "
+         "generate this shape"),
         # -- R14 2.1: a period the detector cannot convert records NOTHING ---------------
         ("1200 daily milta hai",
          "A DAILY WAGE IS NOT A MONTHLY ONE. The period used to DEFAULT to monthly, so a worker "

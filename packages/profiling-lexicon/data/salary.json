@@ -87,7 +87,25 @@
 
   "expectedWindowBefore": 25,
   "expectedWindowAfter": 10,
-  "expectedCues": ["expect", "chahiye", "chahie", "want", "expected", "demand", " chah"],
+  "$comment_expectedCues": [
+    "R15 3.1 - THESE ARE MATCHED AT A WORD START, NOT AS BARE SUBSTRINGS.",
+    "`chah` used to be written ` chah`, with a LEADING SPACE, so the stem could not fire inside a",
+    "longer word. A space is a proxy for `word start` and it is wrong at both ends of the string:",
+    "an utterance that OPENS with the ask has no character before the cue at all, so `chah raha hu",
+    "30000 mahina` carried NO expectation cue and the asking price was filed as the current pay.",
+    "Measured on a 2,200-row sweep whose every row opens with the cue: 440 of them wrong, and the",
+    "gap is older than every guard in this file.",
+    "",
+    "The boundary is a LETTER test rather than an alphanumeric one, deliberately. `(a')` clamps the",
+    "backward window to the end of the previous NUMBER, so the character before a cue is a digit",
+    "whenever that clamp fires; treating a digit as a word character would have made the new rule",
+    "silently undo the guard R14 added one packet ago.",
+    "",
+    "The rule applies to EVERY cue, which also stops `expect` matching inside `unexpected` - a",
+    "second-order fix nobody had asked for, and the reason the sweeps below are reported in both",
+    "directions rather than only where the change was aimed."
+  ],
+  "expectedCues": ["expect", "chahiye", "chahie", "want", "expected", "demand", "chah"],
   "$comment_expectedCues": [
     "SUBSTRINGS, not patterns — matched with a plain containment test against the lowercased",
     "window, exactly as signals.py does. ' chah' carries a LEADING SPACE on purpose: it is a",
