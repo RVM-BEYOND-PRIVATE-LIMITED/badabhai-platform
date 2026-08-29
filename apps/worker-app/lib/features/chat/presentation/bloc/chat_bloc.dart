@@ -10,6 +10,7 @@ import '../../../../core/api/api_models.dart'
         ChatOption,
         ChatProgress,
         ChatQuestionKind,
+        FormOffer,
         PredictedQuestion;
 import '../../../../core/error/failure.dart';
 import '../../../../core/observability/analytics.dart';
@@ -102,6 +103,7 @@ class ChatState extends Equatable {
     this.occupationLabel,
     this.lookahead = const <String, PredictedQuestion?>{},
     this.predictedQuestionKey,
+    this.formOffer,
   });
 
   /// Ordered, append-only transcript.
@@ -192,6 +194,17 @@ class ChatState extends Equatable {
   /// against this to tell whether the prediction was right.
   final String? predictedQuestionKey;
 
+  /// THE INTERVIEW HANDED OVER TO A FORM (`form_offer`, #1339/#1340), from the
+  /// LATEST turn — null on every turn except the one that hands over.
+  ///
+  /// TURN-SCOPED, like [questionKind] and [inputMode], NOT sticky like
+  /// [extractionReady]: it is set from a live reply and reset back to null the
+  /// moment the worker acts again (a new send, a retry, a voice merge) so a
+  /// stale card can never survive past the turn that offered it. In practice a
+  /// handover turn also ends the session, so there is no "next turn" to answer
+  /// — but the reset keeps the invariant true defensively rather than by luck.
+  final FormOffer? formOffer;
+
   ChatState copyWith({
     List<ChatMessage>? messages,
     bool? initializing,
@@ -213,6 +226,12 @@ class ChatState extends Equatable {
     // reconcile — which `?? this` cannot express — so clearing it takes an
     // explicit flag (the standard copyWith idiom for a clearable nullable).
     bool clearPredictedQuestionKey = false,
+    FormOffer? formOffer,
+    // Same idiom as [clearPredictedQuestionKey]: formOffer is TURN-SCOPED
+    // (field doc), so a new turn without one must be able to CLEAR the
+    // previous turn's card, which `formOffer ?? this.formOffer` cannot express
+    // on its own — every non-null-in-the-wire turn passes this explicitly.
+    bool clearFormOffer = false,
   }) {
     return ChatState(
       messages: messages ?? this.messages,
@@ -235,6 +254,7 @@ class ChatState extends Equatable {
       predictedQuestionKey: clearPredictedQuestionKey
           ? null
           : (predictedQuestionKey ?? this.predictedQuestionKey),
+      formOffer: clearFormOffer ? null : (formOffer ?? this.formOffer),
     );
   }
 
@@ -256,6 +276,7 @@ class ChatState extends Equatable {
         occupationLabel,
         lookahead,
         predictedQuestionKey,
+        formOffer,
       ];
 }
 
@@ -536,6 +557,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // question that imposed it, and the predicted turn brings its own mode.
         inputMode: ChatInputMode.text,
         predictedQuestionKey: predicted.questionKey,
+        // The previous turn's card, if any, belongs to a question already
+        // answered — clear it alongside the other turn-scoped fields (#1340). A
+        // `close`-shaped prediction (the only kind a handover could produce) is
+        // filtered out above by the `predicted.questionKey != null` guard, so
+        // this branch can never itself be predicting a handover card back in.
+        clearFormOffer: true,
       ));
     } else {
       // No usable prediction → EXACTLY today's behaviour: show the typing
@@ -556,6 +583,11 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         questionKind: ChatQuestionKind.ask,
         // Same reason (#770): bring the composer back the moment the worker answers.
         inputMode: ChatInputMode.text,
+        // The previous turn's handover card, if any, belongs to a question
+        // already answered — clear it alongside the chips (#1340). In practice a
+        // handover turn also ends the session, so this send is rare, but a stale
+        // card must never survive it.
+        clearFormOffer: true,
       ));
     }
 
@@ -662,6 +694,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
         // #761 — the fresh predictions for the NEXT tap; the current one is done.
         lookahead: turn.lookahead,
         clearPredictedQuestionKey: true,
+        // #1339/#1340 — THIS turn's handover card, or null on an ordinary turn.
+        // Also carried on a RETRY/REPLAY: a flaky link that lands the retried
+        // POST against the server's cached response gets the same offer back
+        // here, byte-identical, and redraws the same card.
+        formOffer: turn.formOffer,
+        clearFormOffer: turn.formOffer == null,
       ));
       // #1316 — the ask is now ANSWERED (the reply landed). Emit its per-ask
       // index for the abandonment curve. On a retry this is the FIRST time this
@@ -753,6 +791,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       suggestedOptions: const <ChatOption>[], // #761 — drop with the followups
       questionKind: ChatQuestionKind.ask, // #649 — drop a stale disambiguate
       inputMode: ChatInputMode.text, // #770 — bring the composer back on retry
+      clearFormOffer: true, // #1340 — drop a stale card while the retry is in flight
     ));
 
     // #1316 — the ask this bubble answers, by its rank among worker bubbles UP TO
@@ -800,6 +839,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       // The voice turn went through the SAME chat endpoint, so it carries the
       // same readiness decision (#421).
       extractionReady: event.extractionReady,
+      // #1340 — the voice pipeline's merge event carries no `form_offer` (it
+      // predates #1339 and the handover flow is text-only today), so a stale
+      // card from a previous typed turn must not survive a voice answer.
+      clearFormOffer: true,
     ));
     // #1316 — a voice answer is an answered ask too: the transcript was already
     // sent server-side and is merged (recorded) here, so emit its per-ask index

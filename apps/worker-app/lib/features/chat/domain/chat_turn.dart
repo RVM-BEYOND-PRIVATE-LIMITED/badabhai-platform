@@ -6,6 +6,7 @@ import '../../../core/api/api_models.dart'
         ChatOption,
         ChatProgress,
         ChatQuestionKind,
+        FormOffer,
         PredictedQuestion;
 
 /// One assistant turn from the profiling chat: bada bhai's [reply] plus any
@@ -30,6 +31,7 @@ class ChatTurn extends Equatable {
     this.askedQuestionId,
     this.ttsText,
     this.lookahead = const <String, PredictedQuestion?>{},
+    this.formOffer,
   });
 
   final String reply;
@@ -100,6 +102,14 @@ class ChatTurn extends Equatable {
   /// every committed env today, so a release badge would be noise on every turn).
   final bool isMock;
 
+  /// THE INTERVIEW HANDED OVER TO A FORM (`form_offer`, #1339/#1340), carried
+  /// from `ChatReply.formOffer` — null on every turn except the ONE that hands
+  /// over. Drives the handover card + its CTA in [ChatProfilingScreen], IN
+  /// PLACE OF the "build my profile" CTA (see that screen's `_doneCta`): the
+  /// two must never both render, which is why the backend also sends
+  /// `extraction_ready: false` on this same turn.
+  final FormOffer? formOffer;
+
   @override
   List<Object?> get props => <Object?>[
         reply,
@@ -116,5 +126,6 @@ class ChatTurn extends Equatable {
         askedQuestionId,
         ttsText,
         lookahead,
+        formOffer,
       ];
 }
