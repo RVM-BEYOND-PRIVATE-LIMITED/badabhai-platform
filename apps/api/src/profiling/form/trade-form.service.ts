@@ -1,9 +1,12 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 
-import type { QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
+import type { AnswerRecord, QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
 import type { WorkerPackAnswer } from "@badabhai/db";
 
 import { ChatRepository } from "../../chat/chat.repository";
+import { WorkerAttributesRepository } from "../../profiles/worker-attributes.repository";
+import { projectProfile } from "../answer-map-projector";
+import { packAnswerRowFor } from "../pack-answer-row";
 import { TRADE_RESUME_MAPS } from "../../resume/trade-resume-map";
 import { PackRegistryService } from "../pack-registry.service";
 import { familyForTradeForm, TRADE_FORM_KINDS, type TradeFormKind } from "../trade-form-router";
@@ -39,6 +42,8 @@ export class TradeFormService {
     private readonly chat: ChatRepository,
     private readonly packs: PackRegistryService,
     private readonly answers: TradeFormRepository,
+    // THE SECOND DESTINATION, and the one the SHEET actually reads. See `answer()`.
+    private readonly attributes: WorkerAttributesRepository,
   ) {}
 
   /**
@@ -49,7 +54,7 @@ export class TradeFormService {
    * offline case — a worker on 2G in a shop floor basement — impossible rather than merely slow.
    */
   async schema(workerId: string): Promise<TradeFormSchemaResponse> {
-    const kind = await this.formKindFor(workerId);
+    const { kind } = await this.contextFor(workerId);
     const pack = await this.packFor(kind);
     const saved = await this.answers.listAnswers(workerId, pack.pack_id);
     const byKey = new Map(saved.map((row) => [row.questionKey, row]));
@@ -97,8 +102,8 @@ export class TradeFormService {
     dto: TradeFormAnswerDto,
     _now: Date = new Date(),
   ): Promise<TradeFormAnswerResponse> {
-    const kind = await this.formKindFor(workerId);
-    const pack = await this.packFor(kind);
+    const ctx = await this.contextFor(workerId);
+    const pack = await this.packFor(ctx.kind);
     const item = pack.items.find((candidate) => candidate.question_key === dto.question_key);
     // A KEY THIS PACK DOES NOT DEFINE IS A 400, NOT A DROP. Dropping is the silent-truncation
     // shape: the worker taps, the client shows it saved, and the sheet never mentions it. A named
@@ -107,8 +112,68 @@ export class TradeFormService {
       throw new BadRequestException(`question_key ${dto.question_key} is not in ${pack.pack_id}`);
     }
 
-    const row = this.rowFor(workerId, pack, item, dto);
+    // ── ONE ANSWER, TWO DESTINATIONS, ONE NORMALISATION ────────────────────────────────
+    //
+    // THE DEFECT THIS CLOSES. The capability rows on the trade sheet are read from
+    // `worker_attributes` (`loadTradeSheet`), and the ONLY writer of those from an interview is
+    // the extraction processor: `projectProfile(answerMap)` -> `projection.attributes` ->
+    // `upsertMany`. The trade-form handover deliberately switches extraction OFF (a two-turn
+    // transcript yields a container that outranks the answer map and blanks the sheet), which
+    // also cut the only path that FILLS the capability zone. A worker could complete every
+    // question in this form and their sheet would print an empty capability section.
+    //
+    // ONE NORMALISATION, NOT TWO. The value is resolved once, here, exactly as
+    // `answer-capture.matchOptions` resolves it for the interview, and then handed to the SAME
+    // two builders the interview uses -- `packAnswerRowFor` and `projectProfile`. That is what
+    // makes a form answer and an interview answer to the same question produce byte-identical
+    // rows in both tables. Hand-shaping the columns here, as the first version of this file did,
+    // silently stored option KEYS where the interview stores option VALUES and put a
+    // single-select in `answer_option_keys` where the interview puts it in `answer_text` -- two
+    // shapes for one question type in one column, which happened to work only because this
+    // pack's keys and values are spelled the same.
+    const record = this.recordFor(item, dto);
+    const row = packAnswerRowFor({
+      workerId,
+      sessionId: ctx.sessionId,
+      packId: pack.pack_id,
+      packVersion: pack.version,
+      record,
+      source: "form",
+    });
+    // `packAnswerRowFor` returns null only for a record that is neither answered nor declined,
+    // and `recordFor` produces exactly those two. Asserted rather than assumed: a silent skip
+    // here is an answer the worker watched save and that never existed.
+    if (row === null) {
+      throw new BadRequestException(`${item.question_key} produced no storable answer`);
+    }
     await this.answers.upsertAnswer(row);
+
+    // THE SHEET'S OWN SOURCE. `projectProfile` is the interview's projector, run over this one
+    // record: same crosswalk, same typing, same `attributeKey`, so the sheet cannot tell which
+    // surface an answer arrived through. An attribute-less question (target_kind: none) simply
+    // yields nothing and writes nothing.
+    const { attributes } = projectProfile([record]);
+    if (attributes.length > 0) {
+      await this.attributes.upsertMany(
+        attributes.map((attribute) => ({
+          workerId,
+          attributeKey: attribute.attributeKey,
+          valueKind: attribute.valueKind,
+          valueBool: attribute.valueKind === "boolean" ? (attribute.value as boolean) : null,
+          valueNumber: attribute.valueKind === "number" ? String(attribute.value as number) : null,
+          valueText: attribute.valueKind === "text" ? (attribute.value as string) : null,
+          valueTextList:
+            attribute.valueKind === "text_list"
+              ? [...(attribute.value as readonly string[])]
+              : null,
+          source: attribute.source,
+          questionKey: attribute.attributeKey,
+          packId: pack.pack_id,
+          packVersion: pack.version,
+          sessionId: ctx.sessionId,
+        })),
+      );
+    }
 
     const saved = await this.answers.listAnswers(workerId, pack.pack_id);
     return {
@@ -129,18 +194,22 @@ export class TradeFormService {
    * knows — and re-running the router here would make the answer depend on labels this service
    * does not have.
    */
-  private async formKindFor(workerId: string): Promise<TradeFormKind> {
+  private async contextFor(workerId: string): Promise<{ kind: TradeFormKind; sessionId: string }> {
     const session = await this.chat.findLatestSessionByWorker(workerId);
     const state = (session?.conversationState ?? null) as { form_kind?: unknown } | null;
     const stored = state?.form_kind;
     const kind = TRADE_FORM_KINDS.find((candidate) => candidate === stored);
-    if (!kind) {
+    if (!kind || !session) {
       // NOT AN EMPTY FORM. A worker who reaches this URL without a handover has either never
       // interviewed or is not on a trade that has a form, and serving them a CNC turner's
       // eighteen questions would be worse than telling them there is nothing here.
       throw new NotFoundException("this worker has not been handed a trade form");
     }
-    return kind;
+    // THE INTERVIEW THAT HANDED THEM HERE, carried onto every row this form writes. Honest
+    // provenance rather than a null: `worker_pack_answer.chat_session_id` and
+    // `worker_attributes.session_id` both mean "which conversation produced this", and for a
+    // form answer the truthful answer is the interview that routed the worker to the form.
+    return { kind, sessionId: session.id };
   }
 
   private async packFor(kind: TradeFormKind): Promise<QuestionPack> {
@@ -207,7 +276,12 @@ export class TradeFormService {
         saved && saved.status !== "unanswered"
           ? {
               status: saved.status,
-              option_keys: saved.answerOptionKeys ?? [],
+              // BACK THROUGH THE OPTION TABLE, not read straight off the column. What is stored
+              // is the NORMALISED VALUE (`option.value`), because that is what the interview
+              // stores and what the resume map is keyed by; what the client needs to pre-select
+              // a chip is the option KEY. They are spelled the same in this pack and are not
+              // required to be, so the round trip is done properly rather than by coincidence.
+              option_keys: selectedKeys(item, saved),
               text: saved.answerText,
               number: saved.answerNumber,
               bool: saved.answerBool,
@@ -217,38 +291,33 @@ export class TradeFormService {
   }
 
   /**
-   * One answer, typed against the question's DECLARED type.
+   * One answer as an {@link AnswerRecord} — the interview's own currency.
    *
-   * THE QUESTION DECIDES, NOT THE CLIENT. A client that sent chips for a boolean, or text for a
-   * multi-select, would otherwise write a row that violates `wpa_answer_shape_chk` at the
-   * database — a 500 where a 400 belongs — or, worse, one that satisfies it while meaning
-   * something no reader expects.
+   * THE QUESTION DECIDES ITS TYPE, NOT THE CLIENT. A client that sent chips for a boolean, or
+   * text for a multi-select, would otherwise write a row that violates `wpa_answer_shape_chk`
+   * at the database — a 500 where a 400 belongs — or, worse, one that satisfies it while
+   * meaning something no reader expects.
+   *
+   * OPTIONS RESOLVE TO `option.value ?? option.label_text`, which is exactly what
+   * `answer-capture.matchOptions` stores for the same tap in an interview. The resume map is
+   * keyed by that value, so storing the option KEY instead would leave every chip the worker
+   * picked unrenderable on the sheet the moment a pack spells its keys and values differently.
+   *
+   * A SINGLE-SELECT IS A SCALAR, a multi-select is an array. `typedAnswerColumns` then puts the
+   * first in `answer_text` and the second in `answer_option_keys`, which is the shape the
+   * interview already writes — one question type, one column, one meaning.
    */
-  private rowFor(
-    workerId: string,
-    pack: QuestionPack,
-    item: QuestionPackItem,
-    dto: TradeFormAnswerDto,
-  ) {
+  private recordFor(item: QuestionPackItem, dto: TradeFormAnswerDto): AnswerRecord {
     const base = {
-      workerId,
-      // NULL. A form answer has no interview behind it, and `chat_session_id` is provenance
-      // rather than ownership — the column is nullable precisely so an answer can outlive, or
-      // never have had, a session.
-      chatSessionId: null,
-      packId: pack.pack_id,
-      packVersion: pack.version,
-      questionKey: item.question_key,
-      source: "form" as const,
+      question_key: item.question_key,
+      target_field: item.target_field,
+      value_raw: null,
+      evidence: null,
+      // A FORM HAS NO TURNS. Zero is the honest value, not a fabricated ordinal.
+      turn: 0,
+      history: [],
     };
-    const declined = {
-      ...base,
-      status: "declined" as const,
-      answerText: null,
-      answerNumber: null,
-      answerBool: null,
-      answerOptionKeys: null,
-    };
+    const declined: AnswerRecord = { ...base, value_normalized: null, status: "declined" };
 
     if (dto.answer.kind === "declined") return declined;
 
@@ -256,27 +325,32 @@ export class TradeFormService {
       if (item.answer_type !== "single_select" && item.answer_type !== "multi_select") {
         throw new BadRequestException(`${item.question_key} does not take option keys`);
       }
-      const valid = new Set(item.options.map((option) => option.option_key));
-      const unknown = dto.answer.option_keys.filter((key) => !valid.has(key));
+      const byKey = new Map(item.options.map((option) => [option.option_key, option]));
+      const unknown = dto.answer.option_keys.filter((key) => !byKey.has(key));
       if (unknown.length > 0) {
         throw new BadRequestException(`unknown option keys: ${unknown.join(", ")}`);
       }
       if (item.answer_type === "single_select" && dto.answer.option_keys.length > 1) {
         throw new BadRequestException(`${item.question_key} takes one option`);
       }
+      const keys = [...new Set(dto.answer.option_keys)];
       // NOTHING TICKED IS A DECLINATION, not an empty answer. The worker looked at the list and
       // none of it applied, which settles the question — an empty array would violate the
       // biconditional the table enforces between `answered` and having a value.
-      const keys = [...new Set(dto.answer.option_keys)];
       if (keys.length === 0) return declined;
-      return { ...declined, status: "answered" as const, answerOptionKeys: keys };
+      const values = keys.map((key) => optionValue(byKey.get(key)!));
+      return {
+        ...base,
+        value_normalized: item.answer_type === "single_select" ? values[0]! : values,
+        status: "answered",
+      };
     }
 
     if (dto.answer.kind === "boolean") {
       if (item.answer_type !== "boolean") {
         throw new BadRequestException(`${item.question_key} is not a yes/no question`);
       }
-      return { ...declined, status: "answered" as const, answerBool: dto.answer.value };
+      return { ...base, value_normalized: dto.answer.value, status: "answered" };
     }
 
     if (item.answer_type === "number") {
@@ -284,11 +358,36 @@ export class TradeFormService {
       if (!Number.isFinite(parsed)) {
         throw new BadRequestException(`${item.question_key} takes a number`);
       }
-      return { ...declined, status: "answered" as const, answerNumber: parsed };
+      return { ...base, value_normalized: parsed, status: "answered" };
     }
     if (item.answer_type !== "text") {
       throw new BadRequestException(`${item.question_key} does not take free text`);
     }
-    return { ...declined, status: "answered" as const, answerText: dto.answer.text };
+    return { ...base, value_normalized: dto.answer.text, status: "answered" };
   }
+}
+
+/** What an interview stores for a tapped chip — see `answer-capture.matchOptions`. */
+function optionValue(option: QuestionPackItem["options"][number]): string {
+  return typeof option.value === "string" && option.value.length > 0
+    ? option.value
+    : option.label_text;
+}
+
+/**
+ * The option KEYS a stored answer corresponds to, for pre-selecting chips on a resumed form.
+ *
+ * Matched on the stored VALUE, which is what both columns actually hold: `answer_text` for a
+ * single-select and `answer_option_keys` for a multi-select (the column name predates the
+ * distinction and is a misnomer — it holds values).
+ */
+function selectedKeys(item: QuestionPackItem, saved: WorkerPackAnswer): string[] {
+  const stored = new Set<string>([
+    ...(saved.answerOptionKeys ?? []),
+    ...(typeof saved.answerText === "string" ? [saved.answerText] : []),
+  ]);
+  if (stored.size === 0) return [];
+  return item.options
+    .filter((option) => stored.has(optionValue(option)))
+    .map((option) => option.option_key);
 }
