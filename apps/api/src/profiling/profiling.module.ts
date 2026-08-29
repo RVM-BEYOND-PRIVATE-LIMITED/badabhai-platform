@@ -18,6 +18,9 @@ import { PackRepository } from "./pack.repository";
 import { ProfilingController } from "./profiling.controller";
 import { ProfilingSessionService } from "./profiling-session.service";
 import { ProfilingVoiceRepository } from "./profiling-voice.repository";
+import { TradeFormController } from "./form/trade-form.controller";
+import { TradeFormRepository } from "./form/trade-form.repository";
+import { TradeFormService } from "./form/trade-form.service";
 
 /**
  * The deterministic profiling engine — LIVE as of the Phase 8 cutover, and now with a surface.
@@ -84,7 +87,11 @@ import { ProfilingVoiceRepository } from "./profiling-voice.repository";
     // keys with two TTLs, free to disagree about whether an interview exists.
     BullModule.registerQueue({ name: RESUME_RENDER_QUEUE }),
   ],
-  controllers: [ProfilingController],
+  // THREE SURFACES, and the third is a different KIND of thing. Chat and the voice form are
+  // interviews reaching one turn engine; the trade form is a form -- every question known up
+  // front, answered in any order, resumable across sessions -- so it shares the pack, the
+  // answer table and the question shape, and shares no turn machinery at all.
+  controllers: [ProfilingController, TradeFormController],
   providers: [
     PackRepository,
     PackCacheService,
@@ -94,6 +101,8 @@ import { ProfilingVoiceRepository } from "./profiling-voice.repository";
     ProfilingOrchestrator,
     ProfilingSessionService,
     ProfilingVoiceRepository,
+    TradeFormRepository,
+    TradeFormService,
   ],
   exports: [PackRegistryService, ProfilingOrchestrator],
 })

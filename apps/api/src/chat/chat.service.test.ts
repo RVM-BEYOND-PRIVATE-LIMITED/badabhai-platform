@@ -82,6 +82,7 @@ function envelope(over: Partial<ProfilingEnvelope> = {}): ProfilingEnvelope {
     llmFallback: false,
     llmGateOpen: false,
     llmGateAsked: false,
+    formKind: null,
     ...over,
   };
 }
@@ -1180,7 +1181,10 @@ describe("ChatService — the lookahead reaches the client (#765)", () => {
       workerName: null,
       turn: {
         lookahead: {
-          a: entry({ promptText: "{{worker_name}} ji, kitna tajurba?", whyText: "{{unknown}} ji." }),
+          a: entry({
+            promptText: "{{worker_name}} ji, kitna tajurba?",
+            whyText: "{{unknown}} ji.",
+          }),
           b: entry({ promptText: "Kaam kahan karte ho?" }),
         },
       },
@@ -1417,7 +1421,11 @@ describe("ChatService.startSession — the opener is reviewed copy, not a model 
 
 describe("ChatService.startSession — reattaches to the live session instead of minting", () => {
   it("returns the live session and never calls createSession", async () => {
-    const live = { id: "33333333-3333-4333-8333-333333333333", status: "active", startedAt: new Date(T0) };
+    const live = {
+      id: "33333333-3333-4333-8333-333333333333",
+      status: "active",
+      startedAt: new Date(T0),
+    };
     const { svc, chat } = make({ liveSession: live });
     const res = (await svc.startSession(WORKER, CTX)) as Record<string, unknown>;
     expect(res.session_id).toBe(live.id);

@@ -176,6 +176,21 @@ export const COMPLETION_REASONS = [
   "turn_cap",
   "abuse_cap",
   "no_pack",
+  /**
+   * The trade handed over to a FORM — the interview stopped because it SUCCEEDED, not because
+   * it ran out of room. See {@link ./trade-form-router}.
+   *
+   * A DISTINCT REASON RATHER THAN "complete", because the two answer different questions about
+   * the same session. "complete" means the engine served every question it had; this means the
+   * engine deliberately served none of them, and the worker’s remaining answers are arriving
+   * through another surface. Folding it into "complete" would make a fleet-wide drop in
+   * ask_count read as an engine regression rather than as the handover working as designed.
+   *
+   * SAFE ON THE EVENT WITHOUT A MIGRATION: ProfileInterviewCompletedPayload.completion_reason
+   * is deliberately a free ^[a-z_]+$ slug rather than an enum, "for forward compatibility with
+   * reasons a later phase adds". This is that later phase.
+   */
+  "form_handoff",
 ] as const;
 export type CompletionReason = (typeof COMPLETION_REASONS)[number];
 

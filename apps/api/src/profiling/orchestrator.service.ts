@@ -15,6 +15,12 @@
  * landed in it.
  */
 
+import {
+  routeToTradeForm,
+  TRADE_FORM_OFFERS,
+  type TradeFormKind,
+  type TradeFormOffer,
+} from "./trade-form-router";
 import { Injectable, Logger } from "@nestjs/common";
 import type {
   AnswerRecord,
@@ -264,6 +270,13 @@ export interface TurnResult {
    * a build that has not shipped the change yet.
    */
   readonly inputMode?: InputMode;
+  /**
+   * The trade-form handover card. Set on exactly one turn per interview, null everywhere else.
+   *
+   * OPTIONAL SO EVERY EXISTING CONSTRUCTION SITE COMPILES UNCHANGED — there are a dozen, and
+   * none of them serve a handover. See {@link ../profiling/trade-form-router}.
+   */
+  readonly formOffer?: TradeFormOffer | null;
 }
 
 export interface TurnInput {
@@ -722,9 +735,7 @@ export class ProfilingOrchestrator {
       // engine never offers it again, so the worker answers a question nothing will follow up.
       // Bounded to one leftover question inside the deploy window, and zero today because the
       // flag is default OFF, which is exactly why it is cheaper to close than to remember.
-      const served = progressItems.find(
-        (item) => item.question_key === envelope.servedQuestionKey,
-      );
+      const served = progressItems.find((item) => item.question_key === envelope.servedQuestionKey);
       if (served) {
         const text = servedText(
           served,
@@ -897,10 +908,7 @@ export class ProfilingOrchestrator {
     // completion rate for low-literacy users; a bar that retreats when a worker hesitates is not
     // a cost the pack skip was signed off with.
     const selectable = selectableEnginePacks(envelope, packs.engine);
-    let progressItems = [
-      ...(selectable.occupation?.items ?? []),
-      ...selectable.universal.items,
-    ];
+    let progressItems = [...(selectable.occupation?.items ?? []), ...selectable.universal.items];
     const askedItem =
       items.find((item) => item.question_key === envelope.servedQuestionKey) ?? null;
     // THE SAME QUESTION, BUT ONLY IF THE ENGINE WOULD STILL SERVE IT — the re-serve twin of
@@ -1266,6 +1274,73 @@ export class ProfilingOrchestrator {
         // design: one branch, not a second engine to keep in step.
       } else {
         next = { ...next, ...led.patch };
+
+        // --- THE TRADE-FORM HANDOVER ----------------------------------------
+        //
+        // BEFORE THE `ask` BRANCH, NOT AFTER IT. The routing evidence is the draft the patch
+        // above just folded in, and that draft is complete the moment the model names the trade
+        // -- which is usually the SAME turn it wants to ask its next question on. Checking after
+        // the ask branch would serve that question first and hand over one turn late, which is
+        // one more question than a worker who has already said what they do needs to answer.
+        //
+        // AI PROPOSES, CODE DECIDES (section 3). The model contributes two free-text labels;
+        // every rule about what they mean lives in `routeToTradeForm`, which is pure, closed and
+        // unit-tabled. A model that hallucinates a trade cannot route a worker anywhere.
+        const formKind = routeToTradeForm({
+          draft: next.llmDraft,
+          occupationFamilyId: next.occupationFamilyId,
+        });
+        if (formKind !== null) {
+          // SETTLE FIRST, END SECOND. Everything Phase A learned becomes answers before the
+          // interview closes, for the same reason the fallback branch settles: the form picks
+          // up from the answer map, and a handover that discarded the trade would open the form
+          // by asking a worker the one question they have already answered. Unguarded by
+          // `llmLedTurns` here -- unlike the fallback -- because routing REQUIRES a label, so
+          // there is always a draft to settle and never a bare retrieval pin to settle from.
+          answers = settleFromLlmDraft(
+            answers,
+            next.llmDraft,
+            next.occupation?.label ?? null,
+            items,
+            turn,
+          );
+          next = withAnswers(next, answers);
+          next = {
+            ...next,
+            formKind,
+            // PHASE A IS OFF FOR GOOD. `leads()` gates on the stage, so this is what makes the
+            // handover survive a reload -- and `llmGateOpen` closes with it, or the worker next
+            // sentence would be read as a yes/no to a question no longer on screen.
+            llmStage: "done",
+            llmGateOpen: false,
+            phase: "close",
+            servedQuestionKey: null,
+          };
+          await this.recordFormHandoff(next, input, formKind);
+          const offer: TradeFormOffer = TRADE_FORM_OFFERS[formKind];
+          return this.turn(buffer, next, input, {
+            reply: offer.reply,
+            kind: "close",
+            questionKey: null,
+            options: [],
+            answerType: null,
+            whyText: null,
+            inputMode: "text",
+            progress: progressOf(progressItems, answers),
+            unansweredEssentials: essentialsOf(items, answers),
+            // COMPLETE, so the flush transaction runs and the answer map is DURABLE before the
+            // worker leaves for the form. A handover that left the session open would
+            // checkpoint only every fifth ask, and a two-turn interview never reaches a fifth.
+            complete: true,
+            completionReason: "form_handoff",
+            replayed: false,
+            excludeFromParse: capture.excludeFromParse,
+            unavailable: false,
+            checkpointDue: false,
+            formOffer: offer,
+          });
+        }
+
         if (led.kind === "ask") {
           // NO `servedQuestionKey`. A model's question belongs to no pack, and claiming a pack's
           // key for it would make the next turn's `askedItem` lookup capture the answer as that
@@ -1848,6 +1923,48 @@ export class ProfilingOrchestrator {
   }
 
   /**
+   * The interview handed over to a trade form -- the countable half of that fact.
+   *
+   * SWALLOWS ITS OWN FAILURE, exactly as {@link recordFallback} does. The handover has already
+   * happened in the envelope by the time this runs; throwing here would fail the turn and roll
+   * a worker back into an interview that had correctly decided to end, to protect a telemetry
+   * row. The log line is the fallback record.
+   */
+  private async recordFormHandoff(
+    envelope: ProfilingEnvelope,
+    input: TurnInput,
+    formKind: TradeFormKind,
+  ): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "profile.form_mode_entered",
+        actor: { actor_type: "worker", actor_id: input.workerId },
+        subject: { subject_type: "chat_session", subject_id: input.sessionId },
+        payload: {
+          worker_id: input.workerId,
+          session_id: input.sessionId,
+          form_kind: formKind,
+          // THE COST OF THE FEATURE. A handover on turn one is the design; on turn nine it is
+          // Phase A failing to recognise a trade it should have caught on the first answer.
+          llm_led_turns: envelope.llmLedTurns,
+          asks: envelope.llmAsks,
+        },
+        // ONCE PER SESSION -- `formKind` is set once and never cleared, so a second row would
+        // misreport how often the handover fired.
+        idempotencyKey: `profile.form_mode_entered:${input.sessionId}`,
+        correlationId: input.ctx.correlationId,
+        requestId: input.ctx.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the trade-form handover for session ${input.sessionId} was not recorded; the worker ` +
+          `is on the ${formKind} form but the switch is now invisible: ` +
+          `${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
    * ONE PHYSICAL SUBMISSION ARRIVED TWICE — the countable half of that fact (#931 step 5).
    *
    * WHY A LOG LINE WAS NOT ENOUGH, given one already exists. A duplicate is invisible on the event
@@ -2059,6 +2176,8 @@ export class ProfilingOrchestrator {
         progress: result.progress,
         whyText: result.whyText,
         answerType: result.answerType,
+        // See `LastTurn.formOffer`: the button is the only way out of a handover turn.
+        formOffer: result.formOffer ?? null,
         // #766 item 2 — the prediction rides along, for the reason stated one line up: taken off
         // `result` so the replay is the SAME response rather than a second derivation. Without it
         // a retried submit replayed the words and silently dropped the instant next-question
@@ -2172,6 +2291,8 @@ function replayResultOf(last: LastTurn): TurnResult {
     whyText: last.whyText,
     answerType: last.answerType,
     inputMode: last.inputMode,
+    // FROM THE CACHE, like the four above. A handover replayed without its button is a dead end.
+    formOffer: last.formOffer,
     unansweredEssentials: [],
     complete: false,
     completionReason: null,

@@ -3,10 +3,14 @@ import { z } from "zod";
 /**
  * The post-interview work-history form (R4 Q1, ruled: "Option A, simplified").
  *
- * FOUR EMPLOYERS, THREE FIELDS EACH, ONE ROLE. Employer name typed, city chipped, from/to as
- * month-year chips. Capture does not ask about promotions in v1 — the two-level
- * `employments[] → roles[]` schema stays exactly as built and §11 #14 already renders a second
- * role whenever one appears, so nothing has to change to support them later.
+ * FOUR EMPLOYERS, THREE FIELDS EACH. Employer name typed, city chipped, from/to as month-year
+ * chips.
+ *
+ * PROMOTIONS ARE NOW CAPTURABLE (#1328, unblocking #1313). v1 said "one role" and noted that
+ * the two-level `employments[] → roles[]` schema was already built and that §11 #14 already
+ * renders a second role whenever one appears, so nothing would have to change to support them
+ * later. This is later, and the note held: the table, the reader and the renderer are
+ * untouched, and only the ASK widened.
  *
  * WHY A FORM AND NOT MORE PACK QUESTIONS. `MAX_ENGINE_ASKS` is 24; a senior turner already
  * spends 23 of them. A multi-employer loop needs roughly six keys per employer, so one employer
@@ -22,6 +26,43 @@ import { z } from "zod";
 /** `YYYY-MM`, matching `we_ym_format_chk` exactly. A month, never a date — §11 #3. */
 const yearMonth = z.string().regex(/^[0-9]{4}-(0[1-9]|1[0-2])$/, "expected YYYY-MM");
 
+/**
+ * ROLES PER EMPLOYMENT accepted from one submission.
+ *
+ * NOT A RENDER BUDGET, unlike {@link EMPLOYMENT_BLOCK_BUDGET} — `roleStints` prints every
+ * stint it is given, so no role is silently dropped by the sheet and the argument that puts
+ * the employer cap in this file does not apply. This is a plain bound so a malformed client
+ * cannot hand the degradation ladder an employment with forty promotions in it.
+ */
+export const ROLES_PER_EMPLOYMENT_MAX = 4;
+
+/**
+ * One stint inside an employment — a title held for a span (#1328, unblocking #1313).
+ *
+ * ITS OWN DATES, AND THEY ARE THE POINT. A promotion is exactly the case where the role's span
+ * is narrower than the employment's, and §11 #14 renders that: a lone stint whose span equals
+ * its employment prints no dates, and two stints always carry their own. A role with no start
+ * inherits nothing — an inherited range would assert the worker held THAT title for the whole
+ * tenure, which is precisely what a promotion did not do.
+ *
+ * `work_done` IS PER ROLE, not per employment, because that is where the data model already
+ * puts it: `workLine()` composes the employment's single printed work line from the distinct
+ * descriptions across its roles.
+ */
+const EmploymentRoleSchema = z
+  .object({
+    role_label: z.string().trim().min(1).max(80),
+    start_ym: yearMonth.nullable().default(null),
+    /** Null means CURRENT for this stint — the worker still holds this title. */
+    end_ym: yearMonth.nullable().default(null),
+    work_done: z.string().trim().min(1).max(300).nullable().default(null),
+  })
+  .strict()
+  .refine((r) => r.end_ym === null || r.start_ym === null || r.end_ym >= r.start_ym, {
+    message: "end_ym must not precede start_ym",
+    path: ["end_ym"],
+  });
+
 const EmploymentEntrySchema = z
   .object({
     /**
@@ -35,14 +76,39 @@ const EmploymentEntrySchema = z
     start_ym: yearMonth.nullable().default(null),
     /** Null means CURRENT — a real state, not missing data. */
     end_ym: yearMonth.nullable().default(null),
-    /** The single role, per the v1 ruling. Promotions are a later capture change, not a schema one. */
-    role_label: z.string().trim().min(1).max(80),
+    /**
+     * THE SINGLE-ROLE SHORTHAND, and it is kept rather than replaced.
+     *
+     * Every shipped client sends this pair and one role is still the overwhelming case. Making
+     * it optional beside `roles` means an app build that predates promotion capture keeps
+     * working unchanged and renders BYTE-IDENTICALLY — which is #1328's own acceptance
+     * condition, and is why this is a widening rather than a migration.
+     */
+    role_label: z.string().trim().min(1).max(80).optional(),
     work_done: z.string().trim().min(1).max(300).nullable().default(null),
+    /** Two or more titles at one employer — a promotion. See {@link EmploymentRoleSchema}. */
+    roles: z.array(EmploymentRoleSchema).min(1).max(ROLES_PER_EMPLOYMENT_MAX).optional(),
   })
   .strict()
   .refine((e) => e.end_ym === null || e.start_ym === null || e.end_ym >= e.start_ym, {
     message: "end_ym must not precede start_ym",
     path: ["end_ym"],
+  })
+  // EXACTLY ONE OF THE TWO, never both and never neither.
+  //
+  // Neither is an employment with no title, which the sheet cannot print and the role table
+  // cannot represent. BOTH is worse than redundant: the two would be free to disagree about
+  // what the worker did there, and nothing downstream could say which one the worker meant.
+  // Rejecting names the mistake at the boundary instead of silently preferring one.
+  .refine((e) => (e.role_label === undefined) !== (e.roles === undefined), {
+    message: "send either role_label or roles, not both and not neither",
+    path: ["roles"],
+  })
+  // `work_done` is the SHORTHAND's field. With `roles` it belongs on the stint that earned it,
+  // and accepting it at both levels would be a second place for one fact to live.
+  .refine((e) => e.roles === undefined || e.work_done === null, {
+    message: "work_done belongs on each role when roles is used",
+    path: ["work_done"],
   });
 
 export const SetMyEmploymentSchema = z

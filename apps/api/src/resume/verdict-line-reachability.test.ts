@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { templateIdForPack } from "./resume-document";
+
 /**
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  * WHICH TEMPLATE DOES PRODUCTION ACTUALLY ASK FOR? (R16 §1.)
@@ -25,9 +27,10 @@ import { describe, expect, it } from "vitest";
  * assertion, the day someone points `resume.service.ts` at `bb_trade` this file goes red and
  * says so, and the change is a deliberate edit here rather than a silent one there.
  *
- * NOT FIXED HERE, DELIBERATELY. Which template ships is an output ruling — the skin system is
- * explicitly out of scope (R16 §7) and `bb_trade.v1` is the sheet the whole Resume Engine
- * guideline describes. Wiring it is one line and an owner's decision, not a mapper fix.
+ * FIXED. The owner asked for the CNC turner sheet end to end, which is that decision made:
+ * `resume.service.ts` now resolves the template from the worker's role pack, GATED on the pack
+ * having a resume map so a trade with none still renders `classic` byte-identically. The
+ * assertions below are inverted rather than deleted — see the first of them.
  */
 
 const SRC = join(__dirname);
@@ -54,12 +57,28 @@ describe("R16 §1 — the Verdict Line's reachability, measured rather than assu
     expect(classic).not.toContain("{{headline_line}}");
   });
 
-  it("production still asks for `classic`, so the whole verdict line is INERT", () => {
-    // THE FINDING. When this goes red, somebody pointed the product at the trade sheet — delete
-    // this test and move the scorecard line from "absent" to "met".
+  it("production selects the trade sheet for a pack that has a resume map", () => {
+    // THE FINDING, CLOSED. This test used to assert the opposite — that `resume.service.ts`
+    // hardcoded `classic` on both branches, so no part of the Verdict Line had ever reached a
+    // worker's PDF and four packets had been correcting the composition of a line the product
+    // did not print. Its own instruction was: when this goes red, somebody pointed the product
+    // at the trade sheet — delete it and move the scorecard line from absent to met.
+    //
+    // INVERTED RATHER THAN DELETED, for the same reason the profiling module's
+    // `controllers === []` assertion was inverted rather than dropped: losing the negative
+    // without gaining the positive is how a thing comes to be built dark a second time.
     const service = read("resume.service.ts");
+    // No literal survives — the id is resolved from the worker's pack.
     const named = [...service.matchAll(/templateId:\s*"([a-z_]+)"/g)].map((m) => m[1]);
-    expect(named.length, "no templateId literal found — the reader is broken").toBeGreaterThan(0);
-    expect(new Set(named)).toEqual(new Set(["classic"]));
+    expect(named).toEqual([]);
+    expect(service).toContain("templateIdForPack");
+  });
+
+  it("the gate is the pack having a resume map, and nothing looser", () => {
+    // A looser gate silently re-lays-out every worker in the country. This is the assertion
+    // that keeps the flip incremental: a trade with no authored map still renders `classic`.
+    expect(templateIdForPack("qp_cnc_turning")).toBe("bb_trade");
+    expect(templateIdForPack("qp_universal")).toBe("classic");
+    expect(templateIdForPack(null)).toBe("classic");
   });
 });

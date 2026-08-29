@@ -53,15 +53,29 @@ export class WorkerEmploymentService {
       // schema's `we_duration_stated_chk` refuses `true` without a start, so deriving it from
       // the presence of a start month is the only value that can be both honest and legal.
       durationStated: e.start_ym !== null,
-      role: {
-        roleLabel: e.role_label,
-        // ONE ROLE PER EMPLOYMENT in v1, so its dates ARE the employment's. When promotion
-        // capture lands the two diverge and §11 #14 already renders that — this is the only
-        // line that changes.
-        startYm: e.start_ym,
-        endYm: e.end_ym,
-        workDone: e.work_done,
-      },
+      // THE LINE v1 SAID WOULD BE THE ONLY ONE TO CHANGE, changing (#1328).
+      //
+      // The shorthand still produces exactly what it produced before — one role whose dates ARE
+      // the employment's — so a client that predates promotion capture renders byte-identically.
+      // `roles` is taken in the order the worker gave it, which is display order, most recent
+      // first; deriving it from the dates would reshuffle stints between renders and make every
+      // regenerated PDF a false diff, exactly as the employment `sortOrder` comment says.
+      roles:
+        e.roles !== undefined
+          ? e.roles.map((r) => ({
+              roleLabel: r.role_label,
+              startYm: r.start_ym,
+              endYm: r.end_ym,
+              workDone: r.work_done,
+            }))
+          : [
+              {
+                roleLabel: e.role_label as string,
+                startYm: e.start_ym,
+                endYm: e.end_ym,
+                workDone: e.work_done,
+              },
+            ],
     }));
 
     const { replacedExisting } = await this.employment.replaceForWorker(workerId, rows);

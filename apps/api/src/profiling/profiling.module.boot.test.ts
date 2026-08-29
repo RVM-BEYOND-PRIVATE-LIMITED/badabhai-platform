@@ -1,3 +1,6 @@
+import { TradeFormController } from "./form/trade-form.controller";
+import { TradeFormRepository } from "./form/trade-form.repository";
+import { TradeFormService } from "./form/trade-form.service";
 import "reflect-metadata";
 import { describe, expect, it } from "vitest";
 
@@ -83,6 +86,11 @@ describe("ProfilingModule wiring", () => {
       ProfilingOrchestrator,
       ProfilingSessionService,
       ProfilingVoiceRepository,
+      // The trade form. Both are CONSTRUCTOR dependencies of `TradeFormService`, so omitting
+      // either does not fail a metadata test — it fails BOOT, exactly as `PackCacheService`
+      // and `LlmTurnService` above.
+      TradeFormRepository,
+      TradeFormService,
     ]);
   });
 
@@ -90,7 +98,14 @@ describe("ProfilingModule wiring", () => {
     // Phase 5 asserted `controllers === []`, because an unexercised engine must not be reachable
     // by a real worker. The voice form is the change that deliberately makes it reachable, so the
     // property is inverted rather than dropped.
-    expect(getMeta("controllers", ProfilingModule)).toEqual([ProfilingController]);
+    // The trade form is the THIRD surface and the first that is not an interview: every
+    // question known up front, answered in any order, resumable across sessions. Listed here
+    // for the same reason the voice form is — a declared controller that AppModule does not
+    // mount serves nothing, and the assertion below is the half that proves it does.
+    expect(getMeta("controllers", ProfilingModule)).toEqual([
+      ProfilingController,
+      TradeFormController,
+    ]);
   });
 
   it("is imported by AppModule, which is what makes that controller serve anything", () => {

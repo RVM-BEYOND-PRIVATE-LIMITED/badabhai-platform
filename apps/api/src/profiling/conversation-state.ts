@@ -30,6 +30,12 @@
  * un-narrowed field a TYPECHECK FAILURE rather than a review checklist item.
  */
 
+import {
+  narrowTradeFormOffer,
+  TRADE_FORM_KINDS,
+  type TradeFormKind,
+  type TradeFormOffer,
+} from "./trade-form-router";
 import { createHash } from "node:crypto";
 
 import { z } from "zod";
@@ -164,6 +170,16 @@ export interface LastTurn {
   readonly whyText: string | null;
   /** How the question on screen is answered, so the client knows chips from mic. */
   readonly answerType: AnswerType | null;
+  /**
+   * The trade-form handover card, on the one turn that serves it.
+   *
+   * CACHED FOR THE SAME REASON `options` AND `lookahead` ARE. The handover turn is a closing
+   * message plus a button, and the button is the only way forward — a replay that dropped it
+   * would leave a worker on a flaky link staring at "ab form bharkar resume pura karein" with
+   * nothing to tap, which is a worse response than the one it claims to repeat. Null on every
+   * other turn and on every stamp written before this field existed.
+   */
+  readonly formOffer: TradeFormOffer | null;
   /**
    * The predicted next turns served with that reply (#766 item 2) — cached for exactly the reason
    * `options` and `progress` above are.
@@ -601,6 +617,21 @@ export interface ProfilingEnvelope {
    * silently take the gate off the air again in precisely the way #1016 describes.
    */
   readonly llmGateAsked: boolean;
+
+  /**
+   * The trade form this interview handed over to, once it has. Null for every other session.
+   *
+   * SET ONCE AND NEVER CLEARED. It is the record that Phase A is off for this session and that
+   * the rest of the profile is arriving from a form, so it has to survive a reload — which is
+   * why it is stored rather than re-derived from the draft on every turn. Re-deriving would
+   * also make the handover depend on the model still returning the same two labels, and a
+   * model that phrased the role differently on a later turn would silently un-hand-over an
+   * interview that had already ended and sent the worker back into a conversation.
+   *
+   * NOT A SECOND llmStage. The stage says how far Phase A got; this says which SURFACE owns
+   * the rest of the profile. An interview reaches stage done without a form every day.
+   */
+  readonly formKind: TradeFormKind | null;
 }
 
 /**
@@ -692,6 +723,7 @@ export const PROFILING_ENVELOPE_KEYS = {
   llmFallback: true,
   llmGateOpen: true,
   llmGateAsked: true,
+  formKind: true,
 } satisfies Record<keyof ProfilingEnvelope, true>;
 
 /** A fresh envelope for an interview that has just entered the deterministic engine. */
@@ -728,6 +760,7 @@ export function emptyProfilingEnvelope(): ProfilingEnvelope {
     llmFallback: false,
     llmGateOpen: false,
     llmGateAsked: false,
+    formKind: null,
   };
 }
 
@@ -846,6 +879,8 @@ function narrowLastTurn(value: unknown): LastTurn | null {
     progress: progress.success ? progress.data : { answered: 0, total: 0 },
     whyText: typeof v.whyText === "string" ? v.whyText : null,
     answerType: isAnswerType(v.answerType) ? v.answerType : null,
+    // REBUILT FROM THE ROUTER'S TABLE, never trusted off the wire — see `narrowTradeFormOffer`.
+    formOffer: narrowTradeFormOffer(v.formOffer),
     // FAIL-SAFE TO `null`, which is a state the client already handles: "no prediction" means the
     // round trip it has today, not an error. So a record written before this field existed — or
     // one whose shape drifted — degrades to today's behaviour rather than being discarded or
@@ -976,6 +1011,12 @@ export function narrowProfilingEnvelope(value: unknown): ProfilingEnvelope | und
     // worker who never saw it never does — which is #1016 itself, preserved. "We have no record
     // that it was asked" is also the honest reading of a field nothing ever wrote.
     llmGateAsked: v.llmGateAsked === true,
+    // NULL ON ANYTHING OUTSIDE THE CLOSED SET, ABSENT INCLUDED — and absent is the state of
+    // every envelope in flight across the deploy that adds this field. Null reads as "this
+    // interview never handed over", which is true of all of them and leaves them running the
+    // engine they started on. Trusting the stored string instead would let a stale value from
+    // a retired form route a live worker into a surface that no longer exists.
+    formKind: TRADE_FORM_KINDS.find((candidate) => candidate === v.formKind) ?? null,
   };
 }
 

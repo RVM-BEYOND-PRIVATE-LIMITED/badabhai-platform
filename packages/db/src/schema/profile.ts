@@ -19,9 +19,7 @@ import {
   uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
-import type {
-  ProfileStatus,
-} from "@badabhai/types";
+import type { ProfileStatus } from "@badabhai/types";
 import { jsonObject, jsonArray } from "./internal/sql-defaults";
 import { workers } from "./worker";
 import { jobDomains } from "./occupation";
@@ -108,10 +106,9 @@ export const workerProfiles = pgTable(
     // unwritable. ON DELETE SET NULL, never CASCADE: catalog rows are deprecated
     // rather than deleted (SG-5), but if one ever were, degrading to "unmatched" is
     // correct and deleting the worker's whole profile plainly is not.
-    jobDomainId: text("job_domain_id").references(
-      (): AnyPgColumn => jobDomains.jobDomainId,
-      { onDelete: "set null" },
-    ),
+    jobDomainId: text("job_domain_id").references((): AnyPgColumn => jobDomains.jobDomainId, {
+      onDelete: "set null",
+    }),
     // WHY the match ended where it did. Recorded on EVERY path including failure,
     // because "we could not place this worker" is exactly the metric the catalog's
     // coverage is judged on, and it is invisible if only successes are stored.
@@ -200,6 +197,20 @@ export const generatedResumes = pgTable(
     // 'pending' -> 'rendered' | 'failed'. Plain text (matches ai_jobs.status), validated in code.
     renderStatus: text("render_status").notNull().default("pending"),
     renderedAt: timestamp("rendered_at", { withTimezone: true }),
+    // THE RESUME AS STRUCTURED DATA, projected from the exact render input the PDF was drawn
+    // from and written in the same step that uploads it.
+    //
+    // WHY IT IS STORED RATHER THAN COMPUTED ON READ. Building it needs the worker name, the
+    // photo, the trade attributes, the work history and the preferences — five loads the render
+    // worker already does. Recomputing them per app request would be a second assembly of the
+    // same document, free to disagree with the one on the paper, which is the whole defect this
+    // column exists to close: the app currently re-derives its resume screen by PARSING
+    // resume_text for "Label: value" lines.
+    //
+    // NULLABLE, and null is the ordinary state for every row rendered before this shipped and
+    // for every row still pending. A reader must fall back to resume_text rather than treat null
+    // as an empty resume.
+    resumeDocument: jsonb("resume_document"),
   },
   (t) => [
     index("generated_resumes_worker_id_idx").on(t.workerId),
@@ -329,4 +340,3 @@ export const workerAnswers = pgTable(
     ),
   ],
 ).enableRLS(); // RLS tracked in the model; carried by the migration (BL-26 parity fix)
-

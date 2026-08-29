@@ -17,7 +17,7 @@ function setup() {
     employerNameEnc: string;
     employerCity: string | null;
     durationStated: boolean;
-    role: { roleLabel: string; startYm: string | null };
+    roles: readonly { roleLabel: string; startYm: string | null; endYm: string | null; workDone: string | null }[];
   };
   const replaceForWorker = vi.fn(async (_workerId: string, _rows: readonly Row[]) => ({
     replacedExisting: false,
@@ -100,10 +100,91 @@ describe("the work-history writer (R4 Q1)", () => {
     expect(written[0]!.durationStated).toBe(false);
   });
 
-  it("gives the single role the employment's own dates (v1: one role each)", async () => {
+  it("gives the single role the employment's own dates (the shorthand)", async () => {
     await h.svc.replaceForWorker(WORKER, parse([entry()]), CTX);
     const written = h.replaceForWorker.mock.calls[0]![1];
-    expect(written[0]!.role).toMatchObject({ roleLabel: "CNC Turner", startYm: "2022-04" });
+    // BYTE-IDENTICAL TO WHAT THE SHORTHAND ALWAYS PRODUCED (#1328's acceptance condition):
+    // one role, carrying the employment's own dates.
+    expect(written[0]!.roles).toHaveLength(1);
+    expect(written[0]!.roles[0]).toMatchObject({ roleLabel: "CNC Turner", startYm: "2022-04" });
+  });
+
+  describe("promotions (#1328, unblocking #1313)", () => {
+    const promoted = () => ({
+      ...entry(),
+      role_label: undefined,
+      work_done: null,
+      roles: [
+        // Display order, most recent first — the order the reference sheet prints.
+        {
+          role_label: "CNC Setter-cum-Operator",
+          start_ym: "2024-04",
+          end_ym: null,
+          work_done: "Setting and first-piece",
+        },
+        {
+          role_label: "CNC Turner",
+          start_ym: "2022-04",
+          end_ym: "2024-03",
+          work_done: "Production turning",
+        },
+      ],
+    });
+
+    it("writes every stint, in the order the worker gave them", async () => {
+      await h.svc.replaceForWorker(WORKER, parse([promoted()]), CTX);
+      const written = h.replaceForWorker.mock.calls[0]![1];
+      expect(written[0]!.roles).toEqual([
+        {
+          roleLabel: "CNC Setter-cum-Operator",
+          startYm: "2024-04",
+          endYm: null,
+          workDone: "Setting and first-piece",
+        },
+        {
+          roleLabel: "CNC Turner",
+          startYm: "2022-04",
+          endYm: "2024-03",
+          workDone: "Production turning",
+        },
+      ]);
+    });
+
+    it("keeps each stint's OWN dates rather than the employment's", async () => {
+      // The whole signal a promotion produces. An inherited range would assert the worker held
+      // the senior title for the entire tenure, which is exactly what a promotion did not do.
+      await h.svc.replaceForWorker(WORKER, parse([promoted()]), CTX);
+      const roles = h.replaceForWorker.mock.calls[0]![1][0]!.roles;
+      expect(roles[0]!.startYm).toBe("2024-04");
+      expect(roles[1]!.endYm).toBe("2024-03");
+    });
+
+    it("rejects an employment carrying BOTH shorthand and roles", () => {
+      // The two would be free to disagree about what the worker did there, and nothing
+      // downstream could say which one they meant.
+      const both = { ...entry(), roles: [{ role_label: "CNC Turner" }] };
+      expect(() => parse([both])).toThrow();
+    });
+
+    it("rejects an employment with neither", () => {
+      const neither = { ...entry(), role_label: undefined };
+      expect(() => parse([neither])).toThrow();
+    });
+
+    it("rejects employment-level work_done alongside roles", () => {
+      // With `roles` it belongs on the stint that earned it; two homes for one fact is one too
+      // many.
+      const bad = { ...promoted(), work_done: "Production turning" };
+      expect(() => parse([bad])).toThrow();
+    });
+
+    it("rejects a stint whose end precedes its start", () => {
+      const bad = {
+        ...promoted(),
+        roles: [{ role_label: "X", start_ym: "2024-06", end_ym: "2024-01" }],
+      };
+      expect(() => parse([bad])).toThrow();
+    });
   });
 
   it("accepts an EMPTY list as a real edit that clears the block", async () => {

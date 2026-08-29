@@ -355,6 +355,10 @@ export class ChatService {
             occupation_label: null,
             // No prediction on a turn that served no pack question.
             lookahead: null,
+            // NO HANDOVER ON A DEGRADED TURN. Nothing was decided here, so there is nothing to
+            // offer -- and a card drawn over a blocked reply would send a worker to a form the
+            // interview never actually routed them to.
+            form_offer: null,
           },
           dto.session_id,
         );
@@ -401,6 +405,10 @@ export class ChatService {
             occupation_label: null,
             // No prediction on a turn that served no pack question.
             lookahead: null,
+            // NO HANDOVER ON A DEGRADED TURN. Nothing was decided here, so there is nothing to
+            // offer -- and a card drawn over a blocked reply would send a worker to a form the
+            // interview never actually routed them to.
+            form_offer: null,
           },
           dto.session_id,
         );
@@ -686,7 +694,11 @@ export class ChatService {
       // Now a pack `question_key`. Still passes the `^[a-z_]+$` ≤40-char filter the flush
       // transaction applies, because the pack validator enforces exactly that shape.
       asked_question_id: turn.questionKey,
-      extraction_ready: terminal,
+      // FALSE ON A HANDOVER even though the session ended. This flag is what lights the app's
+      // build-my-profile CTA, and on a handover the only correct next step is the form button
+      // in `form_offer`. Two competing CTAs on one screen makes the worker choose between a
+      // resume built from nothing and the form that actually fills it.
+      extraction_ready: terminal && turn.formOffer == null,
       // Required-but-unanswered pack questions. Question keys only, never PII — and unlike the
       // LLM path, empty here genuinely means "nothing essential is outstanding" rather than
       // "the model did not say".
@@ -698,6 +710,16 @@ export class ChatService {
       // #649 was raised to fix. The orchestrator knew at the offer branch and the fact was thrown
       // away one layer down.
       question_kind: turn.kind,
+      // THE HANDOVER CARD, when this is the turn that serves one. Mapped field by field rather
+      // than spread, so an offer gaining an internal field cannot leak it onto the wire.
+      form_offer:
+        turn.formOffer == null
+          ? null
+          : {
+              kind: turn.formOffer.kind,
+              headline: turn.formOffer.headline,
+              cta_label: turn.formOffer.ctaLabel,
+            },
       // TYPING ON OR OFF. Absent on every turn but two, and absent means `text` — the same
       // asymmetry `lookahead` uses, and for the same reason: forgetting it produces today's
       // behaviour rather than a wrong screen.
@@ -772,11 +794,27 @@ export class ChatService {
     // The state snapshot that lands in `chat_sessions.conversation_state`. Built
     // field-by-field from the buffer rather than spread, so nothing Redis-shaped
     // (`messages`, `workerId`) can ride into the JSONB column.
+    // THE INTERVIEW HANDED OVER TO A FORM. Read once here and used twice below, so the emit
+    // and the persisted marker cannot disagree about whether extraction was withheld.
+    const handedToForm = buffer.profiling?.formKind != null;
     const finalState: Record<string, unknown> = {
       role_family: buffer.roleFamily || DEFAULT_ROLE_FAMILY,
       turn_count: buffer.turnCount,
       captured: buffer.captured,
       completion_reason: buffer.completionReason ?? null,
+      // WHICH FORM THE INTERVIEW HANDED OVER TO, or null. Null for every session that did not.
+      //
+      // HERE RATHER THAN ON `ConversationState`, deliberately. That interface is the frozen
+      // cross-language contract mirrored in `apps/ai-service/app/contracts.py`, and its own
+      // header argues against freezing one service state-machine detail into a shape the parse
+      // call cannot use and the ai-service must never write. This JSONB column already carries
+      // engine bookkeeping beside the contract fields -- `completion_reason` one line up and
+      // `extraction_ready_emitted` below -- and this belongs with those.
+      //
+      // IT HAS TO BE DURABLE. The envelope lives in Redis and the buffer is DROPPED the moment
+      // the flush commits, so without this row the form API would have no way to learn which
+      // form a returning worker was sent to.
+      form_kind: buffer.profiling?.formKind ?? null,
       // The RFS field ids the worker actually answered.
       //
       // FILTERED, not trusted. The event payload enforces `^[a-z_]+$`, max 40 chars and
@@ -788,7 +826,9 @@ export class ChatService {
       // ai-service validates the same shape at startup; this is the second wall, so a
       // version-skewed deployment costs an observability field instead of an interview.
       answered_topics: this.slugFieldIds(Object.keys(buffer.captured).sort(), sessionId),
-      extraction_ready_emitted: true,
+      // FALSE WHEN THE INTERVIEW HANDED OVER TO A FORM. This has to agree with the emit below
+      // or a later re-drive would fire exactly the extraction this flush withheld.
+      extraction_ready_emitted: !handedToForm,
       // THE ANSWER MAP AND THE PINNED OCCUPATION, projected into the frozen contract shape.
       //
       // THIS IS WHAT MAKES THE PARSE CALL POSSIBLE AT ALL. The extraction job runs minutes
@@ -863,22 +903,42 @@ export class ChatService {
           });
         }
 
-        await this.events.emit({
-          event_name: "profile.extraction_ready",
-          actor: { actor_type: "worker", actor_id: workerId },
-          subject: { subject_type: "chat_session", subject_id: sessionId },
-          payload: {
-            worker_id: workerId,
-            session_id: sessionId,
-            role_family: buffer.roleFamily || DEFAULT_ROLE_FAMILY,
-            turn_count: buffer.turnCount,
-            answered_topics: finalState.answered_topics as string[],
-          },
-          idempotencyKey: `profile.extraction_ready:${sessionId}`,
-          correlationId: ctx.correlationId,
-          requestId: ctx.requestId,
-          tx,
-        });
+        // ══ A FORM HANDOVER PRESERVES. IT DOES NOT EXTRACT. ══
+        //
+        // The same rule `abandonInterview` follows one method down, for a different reason and
+        // with a far sharper consequence.
+        //
+        // THE DEFECT THIS PREVENTS. Phase C reads the transcript and writes `resume_profile`.
+        // A handover ends the interview after one or two turns, so Phase C would read a
+        // conversation containing almost nothing and return a container holding just
+        // `domain_label` and `role_label` — which is ENOUGH to do damage:
+        // `resumeProfileCarriesValues` is true on ANY one non-null field, and
+        // `buildResumeRenderInput` gives that container priority over the answer map.
+        // `fromResumeProfile` carries no machines, no controllers, no education and no
+        // certifications — so the trade sheet this whole feature exists to fill would render
+        // blank in exactly those rows, gutted by a two-label container that won a branch it
+        // had no business winning.
+        //
+        // The form owns this profile. It writes the answer map and the worker tables the
+        // sheet actually reads, and nothing on that path needs the model.
+        if (!handedToForm) {
+          await this.events.emit({
+            event_name: "profile.extraction_ready",
+            actor: { actor_type: "worker", actor_id: workerId },
+            subject: { subject_type: "chat_session", subject_id: sessionId },
+            payload: {
+              worker_id: workerId,
+              session_id: sessionId,
+              role_family: buffer.roleFamily || DEFAULT_ROLE_FAMILY,
+              turn_count: buffer.turnCount,
+              answered_topics: finalState.answered_topics as string[],
+            },
+            idempotencyKey: `profile.extraction_ready:${sessionId}`,
+            correlationId: ctx.correlationId,
+            requestId: ctx.requestId,
+            tx,
+          });
+        }
 
         // THE INTERVIEW'S OWN RECORD (OIE Phase 9). Distinct from `extraction_ready` above,
         // which is a downstream trigger — one says "there is work to do", this says "here is
@@ -962,7 +1022,12 @@ export class ChatService {
         `turns=${buffer.turnCount} reason=${buffer.completionReason ?? "-"}`,
     );
     await this.buffer.drop(sessionId);
-    await this.autoTriggerExtraction(workerId, sessionId, ctx);
+    // WITHHELD ON A HANDOVER, for the reason spelled out at the emit above: generic extraction
+    // on a two-turn transcript produces a container that outranks the answer map and blanks the
+    // trade sheet. Gated here as well as on the event, because this call does not read it.
+    if (!handedToForm) {
+      await this.autoTriggerExtraction(workerId, sessionId, ctx);
+    }
     return true;
   }
 
@@ -1256,6 +1321,10 @@ export class ChatService {
         occupation_label: null,
         // No prediction on a turn that served no pack question.
         lookahead: null,
+        // NO HANDOVER ON A DEGRADED TURN. Nothing was decided here, so there is nothing to
+        // offer -- and a card drawn over a blocked reply would send a worker to a form the
+        // interview never actually routed them to.
+        form_offer: null,
       },
       sessionId,
     );
@@ -1293,6 +1362,10 @@ export class ChatService {
         occupation_label: null,
         // No prediction on a turn that served no pack question.
         lookahead: null,
+        // NO HANDOVER ON A DEGRADED TURN. Nothing was decided here, so there is nothing to
+        // offer -- and a card drawn over a blocked reply would send a worker to a form the
+        // interview never actually routed them to.
+        form_offer: null,
       },
       sessionId,
     );

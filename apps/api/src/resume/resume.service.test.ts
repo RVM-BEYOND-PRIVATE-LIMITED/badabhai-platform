@@ -134,6 +134,10 @@ function setup(
     resumes as unknown as ResumeRepository,
     profiles as unknown as ProfilesRepository,
     workers as unknown as WorkersRepository,
+    // No trade pack in these fixtures, so every resume here keeps `classic` — which is exactly
+    // the byte-identical path the template gating has to preserve for a worker whose trade has
+    // no sheet authored yet.
+    { loadTradeSheet: async () => ({ packId: null, attributes: [] }) } as never,
     events as unknown as EventsService,
     ai as unknown as AiService,
     aiCost as unknown as AiCostRecorder,

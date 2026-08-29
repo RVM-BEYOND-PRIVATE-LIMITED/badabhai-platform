@@ -1,3 +1,5 @@
+import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
+import { templateIdForPack } from "./resume-document";
 import {
   BadRequestException,
   ConflictException,
@@ -30,10 +32,40 @@ import type { GenerateResumeInput, ShareResumeDto } from "./resume.dto";
 export class ResumeService {
   private readonly logger = new Logger(ResumeService.name);
 
+  /**
+   * THE WORKER'S OWN RESUME, AS STRUCTURED DATA — what the app draws its resume screen from.
+   *
+   * `document: null` IS A REAL AND ORDINARY ANSWER, not an error. Every row rendered before
+   * the column shipped has none, and so does every row still pending its first render. The
+   * client falls back to `resume_text` on null; treating it as an empty resume would blank a
+   * screen that has perfectly good content behind it.
+   *
+   * NO OWNERSHIP CHECK BEYOND THE TOKEN, because there is no id in the request: the worker is
+   * taken from the bearer token and the query is scoped to them. There is nothing to
+   * enumerate, which is the strongest form of the ownership guarantee rather than a missing
+   * one.
+   */
+  async myDocument(
+    workerId: string,
+  ): Promise<{ resume_id: string; version: number; document: unknown | null }> {
+    const latest = await this.workers.latestResume(workerId);
+    if (!latest) throw new NotFoundException("no resume yet");
+    return {
+      resume_id: latest.id,
+      version: latest.version,
+      document: latest.resumeDocument ?? null,
+    };
+  }
+
   constructor(
     private readonly resumes: ResumeRepository,
     private readonly profiles: ProfilesRepository,
     private readonly workers: WorkersRepository,
+    // WHICH ROLE PACK ANSWERED THIS WORKER'S TRADE QUESTIONS — the one fact that decides which
+    // layout their resume renders through. Already exported by ProfilesModule and already used
+    // by the render worker for the capability rows; read here so the row RECORDS the template
+    // it will actually be drawn with, rather than claiming one and rendering another.
+    private readonly attributes: WorkerAttributesRepository,
     private readonly events: EventsService,
     private readonly ai: AiService,
     private readonly aiCost: AiCostRecorder,
@@ -158,6 +190,30 @@ export class ResumeService {
     // auto-generate on profile.confirmed and a manual POST /resume/generate converge on
     // ONE row, even though the worker's name can be recorded AFTER confirm. An explicit
     // regenerate (forceNewVersion) creates the next version instead.
+    // THE LAYOUT, CHOSEN FROM THE WORKER'S TRADE.
+    //
+    // `bb_trade` has been shipped, tested and immutable for sixteen packets and NOTHING HAS
+    // EVER SELECTED IT: both branches below hardcoded "classic", so the trade sheet — the
+    // zoned one-page layout the whole role-pack track exists to fill — has been dark code.
+    //
+    // GATED ON THE PACK HAVING A RESUME MAP, which is the same condition the capability rows
+    // already use, so a worker whose trade has no map keeps `classic` and renders
+    // byte-identically to yesterday. Workers flip over one at a time as their trade is
+    // authored — no cutover, no backfill — exactly how the work-history reader was staged.
+    //
+    // DEGRADES TO `classic`, NEVER TO A FAILED GENERATE. A trade lookup that throws must not
+    // cost a worker their resume; the wrong-but-working layout is the correct failure here.
+    let templateId = "classic";
+    try {
+      const { packId } = await this.attributes.loadTradeSheet(dto.worker_id);
+      templateId = templateIdForPack(packId);
+    } catch (err) {
+      this.logger.warn(
+        `could not resolve the trade layout for worker ${dto.worker_id}; using classic ` +
+          `(${err instanceof Error ? err.message : "unknown"})`,
+      );
+    }
+
     let saved: GeneratedResume;
     let previousVersion: number | null = null;
     if (opts.forceNewVersion) {
@@ -169,7 +225,7 @@ export class ResumeService {
         resumeJson,
         resumeText,
         version: (previous?.version ?? 0) + 1,
-        templateId: "classic",
+        templateId,
         // NAME-FREE structured draft, so a future renderer can re-render from the
         // snapshot. The name lives only in resume_json/resume_text (TD21), never here.
         sourceProfileSnapshot: draft,
@@ -185,7 +241,7 @@ export class ResumeService {
           resumeJson,
           resumeText,
           version: 1,
-          templateId: "classic",
+          templateId,
           sourceProfileSnapshot: draft,
         },
         { overwrite: !opts.systemInitiated },

@@ -1,0 +1,1 @@
+ALTER TABLE "generated_resumes" ADD COLUMN "resume_document" jsonb;

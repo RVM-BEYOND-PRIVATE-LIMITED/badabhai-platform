@@ -874,6 +874,18 @@ export const EVENT_REGISTRY = {
     payload: p.ProfileLlmInterviewFallbackPayload,
   },
 
+  // Phase A recognised a trade that has its own form, so the interview STOPPED and the worker
+  // was handed a form instead (`completion_reason: "form_handoff"` on the completion event).
+  // Distinct from that reason because only this carries WHICH form and how many turns the model
+  // needed to get there — a handover on turn one is the design working, on turn nine it is Phase
+  // A failing to recognise a trade on the first answer. Once per session; `formKind` is sticky.
+  // Two ids, one closed-set kind, two counts. No labels. v1.
+  "profile.form_mode_entered": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileFormModeEnteredPayload,
+  },
+
   // One physical submission arrived twice and the second copy was served from the reply cache
   // (#931). Structurally invisible otherwise — a duplicate returns before the engine is consulted,
   // so it writes no `chat_messages` row and emits no `chat.message_received`; the only prior

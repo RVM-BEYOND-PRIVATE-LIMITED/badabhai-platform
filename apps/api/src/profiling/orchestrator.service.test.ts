@@ -219,7 +219,9 @@ type SeededLastTurn = Omit<LastTurn, "submissionId"> & { submissionId?: string |
 /** Seed a session already mid-interview, with `q_city` on screen. */
 function seed(
   store: Map<string, TranscriptBuffer>,
-  envelope: Partial<Omit<ProfilingEnvelope, "lastTurn">> & { lastTurn?: SeededLastTurn | null } = {},
+  envelope: Partial<Omit<ProfilingEnvelope, "lastTurn">> & {
+    lastTurn?: SeededLastTurn | null;
+  } = {},
   buffer: Partial<TranscriptBuffer> = {},
 ) {
   // Split out so the stamp is rebuilt with its default rather than spread in raw — see
@@ -973,6 +975,7 @@ describe("LAYER A — the reply cache", () => {
       lastTurn: {
         inboundHash: inboundHash(SESSION, 1, "main pune me rehta hu"),
         reply: "stale",
+        formOffer: null,
         kind: "ask" as const,
         questionKey: "q_city",
         at: new Date(T0.getTime() + 60_000).toISOString(),
@@ -1210,9 +1213,7 @@ describe("the per-submission client id — a different id is a real turn (#931)"
     const feed = await answerFeed(w, ID_A);
     expect(feed.questionKey).toBe("q_drawing");
 
-    const drawing = await w.orchestrator.takeTurn(
-      say(YES, new Date(T0.getTime() + 2_000), ID_B),
-    );
+    const drawing = await w.orchestrator.takeTurn(say(YES, new Date(T0.getTime() + 2_000), ID_B));
 
     expect(drawing.replayed).toBe(false);
     expect(answersFor(w, "q_feed")).toHaveLength(1);
@@ -1283,9 +1284,7 @@ describe("the per-submission client id — a different id is a real turn (#931)"
     const w = world();
     const first = await answerFeed(w, ID_A);
 
-    const late = await w.orchestrator.takeTurn(
-      say(YES, new Date(T0.getTime() + 40_000), ID_A),
-    );
+    const late = await w.orchestrator.takeTurn(say(YES, new Date(T0.getTime() + 40_000), ID_A));
 
     expect(late.replayed).toBe(true);
     expect(late.reply).toBe(first.reply);
@@ -1397,7 +1396,9 @@ describe("the per-submission client id — a different id is a real turn (#931)"
       // catches it and the turn runs for real. Nothing asserted that ruling, because every other
       // test in this block sends the same word twice.
       const { orchestrator } = makeWorld();
-      const first = await orchestrator.takeTurn(say("haan", T0, "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"));
+      const first = await orchestrator.takeTurn(
+        say("haan", T0, "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"),
+      );
       expect(first.replayed).toBeFalsy();
 
       const second = await orchestrator.takeTurn(
@@ -1405,7 +1406,6 @@ describe("the per-submission client id — a different id is a real turn (#931)"
       );
       expect(second.replayed).toBeFalsy();
     });
-
   });
 
   describe("a duplicate is observable (#931 step 5)", () => {
@@ -1655,7 +1655,9 @@ describe("the disambiguation offer announces itself (#695)", () => {
     // out. Same scenario as above, one argument different.
     const { orchestrator, store } = makeWorld({ identifyOffer: OFFER });
     seed(store);
-    const first = await orchestrator.takeTurn(say("welding ka kaam", T0, "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"));
+    const first = await orchestrator.takeTurn(
+      say("welding ka kaam", T0, "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"),
+    );
     expect(first.kind).toBe("disambiguate");
 
     const held = store.get(SESSION) as TranscriptBuffer;
@@ -1669,7 +1671,9 @@ describe("the disambiguation offer announces itself (#695)", () => {
     });
 
     // The SAME id — a genuine transport retry, the case the id branch exists to absorb.
-    const onId = await orchestrator.takeTurn(say("welding ka kaam", T0, "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"));
+    const onId = await orchestrator.takeTurn(
+      say("welding ka kaam", T0, "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"),
+    );
     expect(onId.replayed).toBeFalsy();
     expect(onId.options.length).toBeGreaterThan(0);
   });
@@ -1761,6 +1765,7 @@ describe("the mid-interview checkpoint boundary (Phase 9, risk #10)", () => {
       lastTurn: {
         inboundHash: inboundHash(SESSION, 1, text),
         reply: "Kitne saal ka kaam ka tajurba hai?",
+        formOffer: null,
         kind: "ask" as const,
         questionKey: "q_years",
         at: T0.toISOString(),

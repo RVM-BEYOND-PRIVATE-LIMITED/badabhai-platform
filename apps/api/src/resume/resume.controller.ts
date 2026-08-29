@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   Inject,
   Ip,
@@ -78,6 +79,21 @@ export class ResumeController {
       throw new NotFoundException(`Profile ${dto.profile_id} not found`);
     }
     return this.resume.generate({ worker_id: worker.id, profile_id: dto.profile_id }, ctx);
+  }
+
+  /**
+   * The acting worker's own resume as structured data.
+   *
+   * DECLARED BEFORE `@Get(":id")` AND THAT IS LOAD-BEARING. Nest matches routes in
+   * declaration order, so a literal path that shares a segment with a parameterised one has to
+   * come first — below this line, `document` would be parsed as an id and rejected by
+   * `ParseUUIDPipe` as a 400.
+   */
+  @Get("document")
+  @Header("Cache-Control", "no-store") // carries the worker's own name and phone
+  @UseGuards(WorkerAuthGuard, ConsentGuard)
+  myDocument(@CurrentWorker() worker: AuthenticatedWorker) {
+    return this.resume.myDocument(worker.id);
   }
 
   /** Read a single generated resume by id (ops read view). */
