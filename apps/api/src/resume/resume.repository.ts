@@ -95,10 +95,25 @@ export class ResumeRepository {
   }
 
   /** Flip a row to 'rendered' with its PDF object key + render timestamp. */
-  async markRendered(id: string, pdfStorageKey: string): Promise<void> {
+  /**
+   * Flip a row to 'rendered', and store the document the PDF was drawn from.
+   *
+   * ONE WRITE, NOT TWO. The document and the PDF describe the same render; storing them
+   * separately would let a row exist that says 'rendered' while carrying the previous
+   * render's document, which is precisely the disagreement the column exists to prevent.
+   *
+   * `resumeDocument` is optional so the existing call sites and tests compile unchanged; a
+   * caller that omits it leaves whatever was there, which is null on a first render.
+   */
+  async markRendered(id: string, pdfStorageKey: string, resumeDocument?: unknown): Promise<void> {
     await this.db
       .update(generatedResumes)
-      .set({ renderStatus: "rendered", pdfStorageKey, renderedAt: new Date() })
+      .set({
+        renderStatus: "rendered",
+        pdfStorageKey,
+        renderedAt: new Date(),
+        ...(resumeDocument === undefined ? {} : { resumeDocument }),
+      })
       .where(eq(generatedResumes.id, id));
   }
 

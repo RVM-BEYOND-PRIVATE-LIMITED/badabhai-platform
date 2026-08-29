@@ -399,6 +399,9 @@ describe("ResumeRenderProcessor — lifecycle (TD5)", () => {
     expect(resumes.markRendered).toHaveBeenCalledWith(
       RESUME_ID,
       `resumes/${WORKER_ID}/${RESUME_ID}/v1.pdf`,
+      // The re-render replaces the document too: a forced re-render that left the previous
+      // document in place would leave the app screen describing the PDF it just overwrote.
+      expect.objectContaining({ format: expect.any(String) }),
     );
   });
 
@@ -545,7 +548,13 @@ describe("ResumeRenderProcessor — lifecycle (TD5)", () => {
     await proc.process(makeJob());
     const expectedKey = `resumes/${WORKER_ID}/${RESUME_ID}/v3.pdf`;
     expect(storage.uploadPdf).toHaveBeenCalledWith(expectedKey, PDF);
-    expect(resumes.markRendered).toHaveBeenCalledWith(RESUME_ID, expectedKey);
+    expect(resumes.markRendered).toHaveBeenCalledWith(
+      RESUME_ID,
+      expectedKey,
+      // ONE WRITE. The document and the PDF describe the same render, so a row that says
+      // 'rendered' can never carry the previous render's document.
+      expect.objectContaining({ format: expect.any(String) }),
+    );
   });
 
   it("renderer returning null: stays PENDING (not failed) when render is DISABLED, even on final attempt", async () => {

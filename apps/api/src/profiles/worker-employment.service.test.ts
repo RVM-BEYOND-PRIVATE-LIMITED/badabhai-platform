@@ -17,7 +17,7 @@ function setup() {
     employerNameEnc: string;
     employerCity: string | null;
     durationStated: boolean;
-    role: { roleLabel: string; startYm: string | null };
+    roles: readonly { roleLabel: string; startYm: string | null; endYm: string | null; workDone: string | null }[];
   };
   const replaceForWorker = vi.fn(async (_workerId: string, _rows: readonly Row[]) => ({
     replacedExisting: false,

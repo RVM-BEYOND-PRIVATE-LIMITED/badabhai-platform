@@ -1,3 +1,4 @@
+import { toResumeDocument } from "./resume-document";
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Inject, Logger } from "@nestjs/common";
 import type { Job } from "bullmq";
@@ -250,9 +251,7 @@ export class ResumeRenderProcessor extends WorkerHost {
     // THE SLUG AND THE ATTRIBUTE KEY ONLY. The triggering phrase is raw transcript and does not
     // go to a log; it rides the render input for a human reading the artifact, never a log sink.
     for (const veto of input.transcriptVetoes ?? []) {
-      this.logger.log(
-        `resume ${resumeId}: transcript veto on ${veto.attributeKey}=${veto.slug}`,
-      );
+      this.logger.log(`resume ${resumeId}: transcript veto on ${veto.attributeKey}=${veto.slug}`);
     }
 
     let pdf: Buffer | null = null;
@@ -325,7 +324,14 @@ export class ResumeRenderProcessor extends WorkerHost {
     const objectKey = `resumes/${workerId}/${resumeId}/v${resume.version}.pdf`;
     try {
       await this.storage.uploadPdf(objectKey, pdf);
-      await this.resumes.markRendered(resumeId, objectKey);
+      // THE SAME INPUT THE TEMPLATE JUST CONSUMED, projected for a client that draws the
+      // resume rather than printing it. Built here rather than on read because assembling it
+      // needs the five loads above, and a second assembly is a second answer.
+      await this.resumes.markRendered(
+        resumeId,
+        objectKey,
+        toResumeDocument(input, loaded?.packId ?? null),
+      );
     } catch (err) {
       // The PDF rendered but upload/persist failed. Let BullMQ retry; only on the
       // FINAL attempt flip the row to 'failed' so it doesn't sit 'pending' forever.
