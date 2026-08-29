@@ -214,6 +214,8 @@ class ChatRepositoryImpl implements ChatRepository {
         // asked_question_id attributes THIS turn, lookahead predicts the next.
         askedQuestionId: reply.askedQuestionId,
         lookahead: reply.lookahead,
+        // #1339/#1340 — the handover card's data, null on every ordinary turn.
+        formOffer: reply.formOffer,
       );
     } catch (error) {
       throw mapError(error);

@@ -583,6 +583,54 @@ class ChatOption extends Equatable {
   List<Object?> get props => <Object?>[optionKey, labelText, isNoneOfAbove];
 }
 
+/// THE INTERVIEW HANDED OVER TO A FORM (`form_offer`, #1339/#1340) — the card
+/// the client draws instead of a composer, in place of the next question.
+///
+/// Set on exactly ONE turn per interview and `null` on every other, including
+/// every degraded/blocked reply — see [ChatReply.formOffer] for the full
+/// contract. [headline] and [ctaLabel] are SERVER-SUPPLIED copy (not
+/// client-authored), so `persona_neutrality_test.dart`'s string-literal scan
+/// does not apply to them; the server side owns their Ten Laws compliance.
+class FormOffer extends Equatable {
+  const FormOffer({
+    required this.kind,
+    required this.headline,
+    required this.ctaLabel,
+  });
+
+  /// The closed `TRADE_FORM_KINDS` value (currently only `cnc_turner`). Kept as
+  /// a raw string rather than a client enum — #371 discipline: a future kind
+  /// this build does not know about must still render the card and route to
+  /// the (today, single) trade form, never be silently dropped.
+  final String kind;
+
+  /// The headline text drawn on the card.
+  final String headline;
+
+  /// The label on the card's primary [BbButton] — the ONLY way forward from
+  /// this turn (there are no chips and no question).
+  final String ctaLabel;
+
+  /// Parses one `{kind, headline, cta_label}` object. Returns null on a
+  /// non-map, or when any of the three required strings is missing/blank — a
+  /// malformed offer is dropped, never thrown (#371): the worker then sees the
+  /// closing bubble with no card, degraded but coherent, exactly like a client
+  /// that predates this field.
+  static FormOffer? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final Object? kind = raw['kind'];
+    final Object? headline = raw['headline'];
+    final Object? ctaLabel = raw['cta_label'];
+    if (kind is! String || kind.isEmpty) return null;
+    if (headline is! String || headline.isEmpty) return null;
+    if (ctaLabel is! String || ctaLabel.isEmpty) return null;
+    return FormOffer(kind: kind, headline: headline, ctaLabel: ctaLabel);
+  }
+
+  @override
+  List<Object?> get props => <Object?>[kind, headline, ctaLabel];
+}
+
 /// Result of POST /chat/message.
 class ChatReply extends Equatable {
   const ChatReply({
@@ -601,6 +649,7 @@ class ChatReply extends Equatable {
     this.occupationLabel,
     this.ttsText,
     this.lookahead = const <String, PredictedQuestion?>{},
+    this.formOffer,
   });
 
   final String reply;
@@ -708,6 +757,21 @@ class ChatReply extends Equatable {
   /// tap — wait for the round trip", which is exactly today's behaviour.
   final Map<String, PredictedQuestion?> lookahead;
 
+  /// THE INTERVIEW HANDED OVER TO A FORM (`form_offer`, #1339/#1340), or `null`
+  /// on every other turn — see [FormOffer] for the full contract.
+  ///
+  /// Set alongside [sessionEnded] = true and [extractionReady] = false ON
+  /// PURPOSE: a worker choosing between a resume built from nothing and the
+  /// form that fills it is the failure this avoids, so the client must render
+  /// AT MOST ONE terminal CTA on this turn (see `_doneCta` in
+  /// `ChatProfilingScreen`).
+  ///
+  /// ADDITIVE and defaulted null: an older API build, a malformed object, or
+  /// any turn that never hands over all parse to null, and the client then
+  /// shows exactly today's closing bubble — a degraded but coherent screen,
+  /// never a broken one.
+  final FormOffer? formOffer;
+
   /// Parses the `lookahead` map defensively: a non-map, a non-string key, or a
   /// malformed entry is dropped (never thrown), so a bad prediction can never
   /// take down the whole reply (#371). Absent ⇒ empty map.
@@ -785,6 +849,10 @@ class ChatReply extends Equatable {
             : null,
         // Absent / malformed -> empty map ("no predictions"), never thrown (#371).
         lookahead: _parseLookahead(json['lookahead']),
+        // #1339/#1340 — null on a non-map / missing required string / every
+        // ordinary turn (see [FormOffer.fromJson] and the field doc). Never
+        // thrown (#371): a malformed offer degrades to no card, not a lost reply.
+        formOffer: FormOffer.fromJson(json['form_offer']),
       );
 
   @override
@@ -804,6 +872,7 @@ class ChatReply extends Equatable {
         occupationLabel,
         ttsText,
         lookahead,
+        formOffer,
       ];
 }
 
