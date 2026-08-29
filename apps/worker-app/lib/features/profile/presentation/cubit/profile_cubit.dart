@@ -1,12 +1,36 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../../core/di/locator.dart';
 import '../../../../core/error/failure.dart';
 import '../../../profile_tab/domain/profile_summary.dart';
 import '../../../profile_tab/domain/profile_summary_repository.dart';
+import '../../../trade_form/domain/trade_form_models.dart' show TradeForm;
+import '../../../trade_form/domain/trade_form_repository.dart';
 import '../../domain/profile_repository.dart';
 
-enum ProfileStatus { extracting, ready, failed, confirmed, draft }
+enum ProfileStatus {
+  extracting,
+  ready,
+  failed,
+  confirmed,
+  draft,
+
+  /// #1344 (scoped) — a confirmed profile that is checking, over the network,
+  /// whether the worker's trade has a real trade form today before deciding
+  /// where to route them. Brief and unobtrusive; see [ProfileCubit.confirm].
+  routing,
+}
+
+/// #1344 (scoped retirement) — where a [ProfileStatus.confirmed] state routes
+/// next. `tradeForm` when [TradeFormRepository.loadForm] returned a real form
+/// for this worker's trade (server's `TRADE_FORM_KINDS`, growing over time);
+/// `finishing` otherwise — including the network-check-failed fail-safe —
+/// which is EXACTLY the single, unconditional destination this screen used
+/// before this change. Only touch this file / the screen to widen coverage;
+/// server-side trade-form coverage expanding requires zero further client
+/// changes.
+enum ProfileRouteTarget { tradeForm, finishing }
 
 class ProfileState extends Equatable {
   const ProfileState({
@@ -15,6 +39,7 @@ class ProfileState extends Equatable {
     this.summary,
     this.confirming = false,
     this.confirmFailure,
+    this.routeTarget,
   });
 
   final ProfileStatus status;
@@ -41,19 +66,49 @@ class ProfileState extends Equatable {
   /// next attempt clears it.
   final Failure? confirmFailure;
 
+  /// #1344 (scoped) — set only once [status] reaches `confirmed`: which
+  /// screen the listener routes to next. `null` at every other status.
+  final ProfileRouteTarget? routeTarget;
+
   @override
-  List<Object?> get props =>
-      <Object?>[status, failure, summary, confirming, confirmFailure];
+  List<Object?> get props => <Object?>[
+        status,
+        failure,
+        summary,
+        confirming,
+        confirmFailure,
+        routeTarget,
+      ];
 }
 
 /// Drives the profile-preview screen: run the async extraction on open, then
 /// confirm on the worker's tap. Two sequential async actions, no streaming —
 /// hence a Cubit.
+///
+/// #1344 (scoped) — the CUBIT, not the screen's `BlocListener`, owns the
+/// post-confirm trade-form check: it is a network call with its own
+/// loading→ready(ish)→route signal, exactly the shape `TradeFormCubit`/
+/// `FinishingCubit` already establish for "network check then route" in this
+/// codebase. The screen stays a pure function of state + one `context.go`.
 class ProfileCubit extends Cubit<ProfileState> {
-  ProfileCubit(this._repo, this._summaryRepo) : super(const ProfileState());
+  ProfileCubit(
+    this._repo,
+    this._summaryRepo, {
+    TradeFormRepository? tradeFormRepo,
+  })  : _tradeFormRepo = tradeFormRepo,
+        super(const ProfileState());
 
   final ProfileRepository _repo;
   final ProfileSummaryRepository _summaryRepo;
+
+  /// Named + optional (mirrors `AccountDeleteCubit`/`ProfileTabCubit`): the
+  /// existing two-positional-arg `ProfileCubit(repo, summaryRepo)` call site
+  /// in `locator.dart` (#1341) keeps compiling untouched, and tests can still
+  /// inject a fake without a wired DI graph.
+  final TradeFormRepository? _tradeFormRepo;
+  TradeFormRepository get _tradeForm =>
+      _tradeFormRepo ?? locator<TradeFormRepository>();
+
   bool _confirming = false;
 
   Future<void> extract() async {
@@ -105,8 +160,18 @@ class ProfileCubit extends Cubit<ProfileState> {
     try {
       await _repo.confirmProfile();
       if (isClosed) return;
+      // #1344 (scoped) — the confirm write landed; now decide WHERE to route,
+      // which needs its own round trip. Announce it (routing) rather than
+      // holding the worker on the prior frame with no signal at all — the
+      // #360 lesson (an unbound wait at the last step reads as a dead app).
+      emit(ProfileState(status: ProfileStatus.routing, summary: state.summary));
+      final ProfileRouteTarget target = await _resolveRouteTarget();
+      if (isClosed) return;
       emit(ProfileState(
-          status: ProfileStatus.confirmed, summary: state.summary));
+        status: ProfileStatus.confirmed,
+        summary: state.summary,
+        routeTarget: target,
+      ));
     } on Failure catch (failure) {
       if (isClosed) return;
       // #360 — this used to emit NOTHING ("no confirm-error affordance in the
@@ -122,6 +187,29 @@ class ProfileCubit extends Cubit<ProfileState> {
       ));
     } finally {
       _confirming = false;
+    }
+  }
+
+  /// #1344 (scoped retirement ruling) — `null` from [TradeFormRepository.loadForm]
+  /// is the clean, expected "this worker's trade has no form yet" (404) signal
+  /// and means [ProfileRouteTarget.finishing], exactly the app's one prior
+  /// destination. A non-null [TradeForm] means the opposite: this trade IS
+  /// covered today, so route to it instead.
+  ///
+  /// EVERYTHING ELSE — a thrown [Failure], a timeout, any unexpected
+  /// exception — is NOT a clean "no form" result and must never be read as
+  /// one. This is a routing PRE-CHECK, not a user-facing operation the worker
+  /// can retry from here; at the very last step of onboarding, ambiguity
+  /// always resolves to the one path already proven to work, never to a
+  /// stuck spinner or an error screen. Hence the bare `catch` below.
+  Future<ProfileRouteTarget> _resolveRouteTarget() async {
+    try {
+      final TradeForm? form = await _tradeForm.loadForm();
+      return form != null
+          ? ProfileRouteTarget.tradeForm
+          : ProfileRouteTarget.finishing;
+    } catch (_) {
+      return ProfileRouteTarget.finishing;
     }
   }
 }

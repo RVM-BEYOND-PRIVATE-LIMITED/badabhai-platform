@@ -42,11 +42,20 @@ class _ProfileView extends StatelessWidget {
           prev.confirmFailure != curr.confirmFailure,
       listener: (BuildContext context, ProfileState state) {
         if (state.status == ProfileStatus.confirmed) {
-          // Profile confirmed — the finishing form (#1296) collects the closed-set
-          // work-history + preferences, THEN generates the resume (Building) and
-          // enters the shell. context.go clears the onboarding stack (point of no
-          // return); the finishing form carries on to Building on completion.
-          context.go(Routes.finishing);
+          // Profile confirmed AND the trade-form pre-check settled (#1344,
+          // SCOPED retirement — full removal of /finishing still waits on
+          // broader server-side trade-form coverage + #1338). Route to the
+          // trade form when the worker's trade has a real one today
+          // (ProfileCubit already resolved this, incl. failing safe to
+          // `finishing` on any check error — never left ambiguous here);
+          // otherwise fall back to /finishing (#1296), EXACTLY the prior,
+          // unconditional destination. Either screen collects the closed-set
+          // work-history + preferences, THEN generates the resume (Building)
+          // and enters the shell. context.go clears the onboarding stack
+          // (point of no return).
+          context.go(state.routeTarget == ProfileRouteTarget.tradeForm
+              ? Routes.tradeForm
+              : Routes.finishing);
           return;
         }
         final Failure? failed = state.confirmFailure;
@@ -97,6 +106,11 @@ class _ProfileView extends StatelessWidget {
               : null,
           body: switch (state.status) {
             ProfileStatus.extracting => _buildWaiting(),
+            // #1344 (scoped) — the brief post-confirm trade-form pre-check.
+            // Reuses BbStatusView's own spinner mode rather than inventing a
+            // new loading widget, matching how `failed`/`draft` already reuse
+            // BbStatusView for this screen's other status views.
+            ProfileStatus.routing => const BbStatusView.loading(),
             ProfileStatus.failed => _buildFailed(context, state),
             ProfileStatus.draft => _buildDraft(context),
             ProfileStatus.ready ||
