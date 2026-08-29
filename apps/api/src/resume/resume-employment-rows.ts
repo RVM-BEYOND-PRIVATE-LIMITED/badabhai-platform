@@ -35,6 +35,14 @@ import type { ResumeEmployment, ResumeRoleStint } from "./resume-renderer.servic
 
 /** One employment as the repository reads it back — employer name already DECRYPTED. */
 export interface WorkerEmploymentRecord {
+  /**
+   * The row id (#1354/#1353) — so a client can reference this exact employment on
+   * `PUT /workers/me/employment/:employmentId/description-source`. Optional here
+   * only because older render-input construction paths (seeded/test fixtures)
+   * predate this field; `toEmployment` below requires it be present to reach the
+   * wire, same posture as {@link WorkerEmploymentRoleRecord.id}.
+   */
+  readonly id?: string;
   /** Already resolved by capture: a company, a site, or the literal "Contract work" (§11 #4). */
   readonly employer: string;
   readonly employerCity: string | null;
@@ -152,6 +160,10 @@ function toEmployment(record: WorkerEmploymentRecord, asOf: Date | null): Resume
   // whose dates differ from the employment's is a real, separate fact and keeps its line.
   const inlineOnly = stints.length === 1 && stints[0]!.when === "";
   return {
+    // The row id (#1353/#1354) — undefined only for the seeded/test fixtures that
+    // predate it (see WorkerEmploymentRecord.id); every real DB-backed record has
+    // one, since loadForResume selects `id: workerEmployment.id` unconditionally.
+    id: record.id,
     employer: record.employer,
     location_suffix: locationSuffix(record),
     // The separator is part of the value, exactly like `location_suffix`, so an absent role

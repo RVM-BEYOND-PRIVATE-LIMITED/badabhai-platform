@@ -260,6 +260,9 @@ export class WorkerEmploymentRepository {
       }
       if (!employer.trim()) continue;
       out.push({
+        // #1353/#1354 — already selected above (`id: workerEmployment.id`); just
+        // wasn't threaded into the render-input record until now.
+        id: e.id,
         employer,
         employerCity: e.employerCity,
         employerState: e.employerState,
