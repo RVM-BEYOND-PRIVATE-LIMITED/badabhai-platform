@@ -26,6 +26,7 @@ import { SEARCHABLE_OPTION_THRESHOLD, TradeFormService } from "./trade-form.serv
  */
 
 const WORKER = "11111111-1111-4111-8111-111111111111";
+const SESSION = "22222222-2222-4222-8222-222222222222";
 
 let order = 0;
 function item(partial: Partial<QuestionPackItem> & { question_key: string }): QuestionPackItem {
@@ -51,11 +52,15 @@ function item(partial: Partial<QuestionPackItem> & { question_key: string }): Qu
   };
 }
 
+// `value` is SPELLED DIFFERENTLY FROM `option_key` on purpose. Every shipped pack happens to
+// spell them the same, which is exactly what allowed the first version of this service to store
+// option KEYS where an interview stores option VALUES and pass its tests anyway. Keeping them
+// distinct here is what makes these assertions able to tell the two apart at all.
 const options = (n: number) =>
   Array.from({ length: n }, (_, i) => ({
     option_key: `k${i}`,
     label_text: `Label ${i}`,
-    value: null,
+    value: `v${i}`,
     implies_skill_id: null,
     is_none_of_above: false,
   }));
@@ -89,6 +94,7 @@ function makeService(
   const written: NewWorkerPackAnswer[] = [];
   const chat = {
     findLatestSessionByWorker: vi.fn(async () => ({
+      id: SESSION,
       conversationState:
         opts.formKind === undefined ? { form_kind: "cnc_turner" } : { form_kind: opts.formKind },
     })),
@@ -100,8 +106,17 @@ function makeService(
       written.push(row);
     }),
   };
-  const service = new TradeFormService(chat as never, packs as never, answers as never);
-  return { service, written, packs, chat };
+  // THE SHEET'S OWN SOURCE. Captured so the tests can assert that a form answer reaches
+  // `worker_attributes` and not only `worker_pack_answer` — the capability zone reads the former,
+  // and the handover switches off the extraction job that used to be its only writer.
+  const upsertMany = vi.fn(async (_rows: unknown[]) => 0);
+  const service = new TradeFormService(
+    chat as never,
+    packs as never,
+    answers as never,
+    { upsertMany } as never,
+  );
+  return { service, written, packs, chat, upsertMany };
 }
 
 const answered = (over: Partial<WorkerPackAnswer>): WorkerPackAnswer =>
@@ -163,7 +178,7 @@ describe("TradeFormService", () => {
 
     it("replays what the worker already said, so a half-finished form comes back filled in", async () => {
       const { service } = await makeService({
-        saved: [answered({ questionKey: "turning_machine", answerOptionKeys: ["k2", "k3"] })],
+        saved: [answered({ questionKey: "turning_machine", answerOptionKeys: ["v2", "v3"] })],
       });
       const schema = await service.schema(WORKER);
       const screens = schema.sections.flatMap((s) => s.screens);
@@ -212,7 +227,7 @@ describe("TradeFormService", () => {
   });
 
   describe("saving an answer", () => {
-    it("writes option keys with source=form and no session", async () => {
+    it("stores the option VALUES an interview would have stored, not the keys", async () => {
       const { service, written } = await makeService();
       await service.answer(WORKER, {
         question_key: "turning_machine",
@@ -223,11 +238,45 @@ describe("TradeFormService", () => {
         packId: "qp_cnc_turning",
         packVersion: 1,
         questionKey: "turning_machine",
-        answerOptionKeys: ["k1", "k2"],
+        // `answer-capture.matchOptions` stores `option.value ?? option.label_text`, and the
+        // resume map is keyed by that value — keys here leave every chip unrenderable.
+        answerOptionKeys: ["v1", "v2"],
         status: "answered",
         source: "form",
-        // Provenance, not ownership: a form answer has no interview behind it.
-        chatSessionId: null,
+        // The interview that handed the worker to this form — honest provenance, not null.
+        chatSessionId: SESSION,
+      });
+    });
+
+    it("puts a SINGLE-select in answer_text, where the interview puts it", async () => {
+      // One question type, one column, one meaning.
+      const { service, written } = await makeService();
+      await service.answer(WORKER, {
+        question_key: "tolerance_band",
+        answer: { kind: "chips", option_keys: ["k3"] },
+      });
+      expect(written[0]).toMatchObject({ answerText: "v3", status: "answered" });
+      expect(written[0]!.answerOptionKeys ?? null).toBeNull();
+    });
+
+    it("writes worker_attributes too — the table the SHEET actually reads", async () => {
+      // THE REGRESSION THIS EXISTS FOR. The capability zone reads `worker_attributes`, and the
+      // handover switches off the extraction job that used to be its only writer. Without this
+      // write a worker answers every question and their sheet prints an empty section.
+      const { service, upsertMany } = await makeService();
+      await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1", "k2"] },
+      });
+      expect(upsertMany).toHaveBeenCalledTimes(1);
+      const rows = upsertMany.mock.calls[0]![0] as Array<Record<string, unknown>>;
+      expect(rows[0]).toMatchObject({
+        workerId: WORKER,
+        attributeKey: "turning_machine",
+        valueKind: "text_list",
+        valueTextList: ["v1", "v2"],
+        packId: "qp_cnc_turning",
+        sessionId: SESSION,
       });
     });
 
@@ -237,7 +286,7 @@ describe("TradeFormService", () => {
         question_key: "turning_machine",
         answer: { kind: "chips", option_keys: ["k1", "k1", "k2"] },
       });
-      expect(written[0]?.answerOptionKeys).toEqual(["k1", "k2"]);
+      expect(written[0]?.answerOptionKeys).toEqual(["v1", "v2"]);
     });
 
     it("treats nothing ticked as a DECLINATION, not an empty answer", async () => {
@@ -249,7 +298,8 @@ describe("TradeFormService", () => {
       // An empty array would violate the table's answered-implies-a-value biconditional, and
       // "none of these apply" is a real answer that must not be re-asked as a blank.
       expect(result.status).toBe("declined");
-      expect(written[0]).toMatchObject({ status: "declined", answerOptionKeys: null });
+      expect(written[0]).toMatchObject({ status: "declined" });
+      expect(written[0]!.answerOptionKeys ?? null).toBeNull();
     });
 
     it("records an explicit skip as declined", async () => {
