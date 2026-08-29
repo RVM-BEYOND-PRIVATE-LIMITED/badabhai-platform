@@ -1062,6 +1062,31 @@ class ApiClient {
   }) =>
       _get('/profiling/session/$sessionId', authToken: authToken);
 
+  // ---- The trade form (#1341) — sectioned, resumable, worker-scoped (NOT
+  // session-scoped: there is no session id on this surface, unlike every
+  // route above). Raw JSON returned, same as the profiling routes above: the
+  // response is a nested tree of sections/screens/questions that is the
+  // trade_form FEATURE'S shape, and this core file must not depend on it —
+  // parsing lives in TradeFormRepositoryImpl, mirroring HttpVoiceFormGateway.
+  // ---------------------------------------------------------------------
+
+  /// GET /profiling/form — the WHOLE form, every already-given answer filled
+  /// in. A 404 (this worker was never handed a form) surfaces as an
+  /// [ApiException] for the caller to distinguish from an empty form.
+  Future<Map<String, dynamic>> getTradeForm({required String authToken}) =>
+      _get('/profiling/form', authToken: authToken);
+
+  /// POST /profiling/form/answer — save ONE answer. [body] is
+  /// `{question_key, answer}`; option KEYS only, never labels. Returns
+  /// `{question_key, status, answered, total}`. Idempotent per question (the
+  /// server upserts on the worker/pack/question unique index), so a client
+  /// retry on a flaky link corrects rather than duplicates.
+  Future<Map<String, dynamic>> submitTradeFormAnswer({
+    required String authToken,
+    required Map<String, dynamic> body,
+  }) =>
+      _post('/profiling/form/answer', body, authToken: authToken);
+
   /// Fetches a registered voice note + its transcript once STT has landed
   /// (GET /voice/:voiceNoteId — WorkerAuthGuard). Worker-scoped: requires
   /// [authToken]; the server checks the note belongs to the token's worker.

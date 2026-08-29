@@ -876,6 +876,175 @@ class MockApiClient extends ApiClient {
   Future<void> markNotificationsRead({required String authToken}) async {
     await _delay();
   }
+
+  // ── #1341 — the trade form. Session-local, no network: a fixed CNC-turner
+  // shape carrying one of every `answer_type` (multi_select, a searchable
+  // multi_select past the 12-option threshold, boolean, text) so every screen
+  // renders in mock mode, plus both marker screens. Answers submitted in this
+  // session are held in [_mockTradeFormAnswers] and replayed back on the next
+  // `getTradeForm`, so mock mode exercises the resumable-fill-in behaviour too
+  // (though, being in-memory only, NOT across an app restart — that guarantee
+  // is the real backend's).
+
+  final Map<String, Map<String, dynamic>> _mockTradeFormAnswers =
+      <String, Map<String, dynamic>>{};
+
+  static const int _kMockTradeFormTotalQuestions = 4;
+
+  Map<String, dynamic> _mockTradeFormQuestion({
+    required String key,
+    required String prompt,
+    required String why,
+    required String answerType,
+    List<List<String>> options = const <List<String>>[],
+    bool searchable = false,
+  }) {
+    return <String, dynamic>{
+      'type': 'question',
+      'question': <String, dynamic>{
+        'question_key': key,
+        'prompt_text': prompt,
+        'why_text': why,
+        'answer_type': answerType,
+        'options': <Map<String, dynamic>>[
+          for (final List<String> o in options)
+            <String, dynamic>{
+              'option_key': o[0],
+              'label_text': o[1],
+              'is_none_of_above': false,
+            },
+        ],
+      },
+      'ui': <String, dynamic>{'searchable': searchable},
+      'answer': _mockTradeFormAnswers[key],
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> getTradeForm({required String authToken}) async {
+    await _delay();
+    return <String, dynamic>{
+      'kind': 'cnc_turner',
+      'pack_id': 'qp_cnc_turning',
+      'pack_version': 1,
+      'sections': <Map<String, dynamic>>[
+        <String, dynamic>{
+          'id': 'capability',
+          'title': 'Machines, controllers & capability',
+          'screens': <Map<String, dynamic>>[
+            _mockTradeFormQuestion(
+              key: 'turning_machine',
+              prompt: 'Aap kaunsi turning machine chalate hain?',
+              why: 'Machine ke hisaab se sahi kaam dikhaya jaata hai.',
+              answerType: 'multi_select',
+              options: const <List<String>>[
+                <String>['cnc_lathe', 'CNC lathe ya turning centre'],
+                <String>['conventional_lathe', 'Khraad ya conventional lathe'],
+                <String>['capstan_lathe', 'Capstan lathe'],
+                <String>['turret_lathe', 'Turret lathe'],
+                <String>['vtl', 'VTL'],
+                <String>['none_of_these', 'In me se koi nahi'],
+              ],
+            ),
+            _mockTradeFormQuestion(
+              key: 'material_worked',
+              prompt: 'Aap kaunsi dhaatu par kaam karte hain?',
+              why: 'Material ke hisaab se sahi factory dikhayi jaati hai.',
+              answerType: 'multi_select',
+              searchable: true,
+              options: const <List<String>>[
+                <String>['mild_steel', 'Mild steel'],
+                <String>['stainless_steel', 'Stainless steel'],
+                <String>['brass', 'Peetal / Brass'],
+                <String>['aluminium', 'Aluminium'],
+                <String>['cast_iron', 'Cast iron'],
+                <String>['copper', 'Taamba / Copper'],
+                <String>['bronze', 'Bronze'],
+                <String>['alloy_steel', 'Alloy steel'],
+                <String>['tool_steel', 'Tool steel'],
+                <String>['titanium', 'Titanium'],
+                <String>['nickel_alloy', 'Nickel alloy'],
+                <String>['plastic', 'Plastic'],
+                <String>['die_steel', 'Die steel'],
+                <String>['none_of_these', 'In me se koi nahi'],
+              ],
+            ),
+            _mockTradeFormQuestion(
+              key: 'drawing_reading',
+              prompt: 'Kya aap engineering drawing padh sakte hain?',
+              why: 'Drawing padhne wale operator ko zyada zimmedari milti hai.',
+              answerType: 'boolean',
+            ),
+          ],
+        },
+        const <String, dynamic>{
+          'id': 'terms',
+          'title': 'Availability & terms',
+          'screens': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'type': 'preferences',
+              'endpoint': 'PUT /workers/me/work-preferences',
+            },
+          ],
+        },
+        const <String, dynamic>{
+          'id': 'work_history',
+          'title': 'Work history',
+          'screens': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'type': 'employment',
+              'endpoint': 'PUT /workers/me/employment',
+            },
+          ],
+        },
+        <String, dynamic>{
+          'id': 'qualifications',
+          'title': 'Qualification, documents & languages',
+          'screens': <Map<String, dynamic>>[
+            _mockTradeFormQuestion(
+              key: 'iti_project_work',
+              prompt: 'ITI me kya banaya tha? Apne shabdon me bataiye.',
+              why: 'Banaya hua job dikhata hai ki aap kya kar sakte hain.',
+              answerType: 'text',
+            ),
+            <String, dynamic>{
+              'type': 'preferences',
+              'endpoint': 'PUT /workers/me/work-preferences',
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> submitTradeFormAnswer({
+    required String authToken,
+    required Map<String, dynamic> body,
+  }) async {
+    await _delay();
+    final String key = body['question_key'] as String? ?? '';
+    final Map<String, dynamic> answer =
+        (body['answer'] as Map).cast<String, dynamic>();
+    final List<dynamic> keys =
+        (answer['option_keys'] as List<dynamic>?) ?? const <dynamic>[];
+    final bool declined =
+        answer['kind'] == 'declined' || (answer['kind'] == 'chips' && keys.isEmpty);
+    final String status = declined ? 'declined' : 'answered';
+    _mockTradeFormAnswers[key] = <String, dynamic>{
+      'status': status,
+      'option_keys': answer['kind'] == 'chips' ? keys : const <dynamic>[],
+      'text': answer['kind'] == 'text' ? answer['text'] : null,
+      'number': null,
+      'bool': answer['kind'] == 'boolean' ? answer['value'] : null,
+    };
+    return <String, dynamic>{
+      'question_key': key,
+      'status': status,
+      'answered': _mockTradeFormAnswers.length,
+      'total': _kMockTradeFormTotalQuestions,
+    };
+  }
 }
 
 /// One canned assistant turn (reply + suggested follow-up chips + the engine's
