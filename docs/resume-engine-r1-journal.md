@@ -2902,3 +2902,207 @@ the miller's measured casualty: `Sector worked`, which the ratified sheet prints
 
 Awaiting a word from the owner: the two legacy scalars §1 found and did not fix, and whether the
 2026-08-12 narrow-field-set ruling still holds now that Zone 5 has already unwound half of it.
+
+---
+
+## §27 — R15: the starved half of the seam, the cue's own boundary, and a guard that had been doing nothing
+
+### 27.1 — §0's new rule, and the one it inherited
+
+R15 §0 adds: **when a suite validates a shipped artifact, say which corpus it runs against.** The
+occasion was `pnpm --filter @badabhai/db test` — 2,333 assertions, every one over a synthetic
+corpus, none of which had ever read `data/question-packs/`, so two illegal `option_key`s shipped
+past it and the runtime registry would have dropped the whole milling pack.
+
+The rule R14 earned is the one that did the work here. R13 read a zero from a generated sweep as
+evidence of absence and nearly shipped two guards instead of three; R14 read the same instrument
+the same way one packet later. **R15 built the counter-corpus first**, before touching anything —
+a third sweep, same size, whose every row OPENS with the cue, because neither existing sweep can
+produce that shape. It is what turned §3.1 from a description into 440 measured rows, and it is
+what caught the 48-row regression the fix caused.
+
+### 27.2 — §1, and the direction that was actually wrong
+
+§1 asked for the diff assertion to be made direction-agnostic, "visibly stronger than the one that
+missed five".
+
+**The static half was already symmetric, and it is what found the five.** Four mutations — a field
+added to one branch only, in each direction; a field stubbed on one side, in each direction — are
+each caught and each names the correct branch. Nothing about its direction needed correcting, and
+saying so is more useful than quietly rewriting it.
+
+**What was one-directional is the RUNTIME half, and it was worse than one-directional.** It was a
+list of hand-written probes, one per known finding, every one asserting a value somebody had
+already gone looking for. A slot starved by the FOURTH SHAPE — present and derived on both
+branches, from different sources, one thinner — had no assertion at all. `experiences` is that
+shape and was held by a single hand-authored line.
+
+It is now a whole-object diff between two drafts carrying the same answers. It compares two objects
+and reports the KEY, not the branch, so it cannot acquire a direction to be blind in. It found two
+asymmetries nobody had looked for, **one pointing each way**:
+
+| slot | starved | why nothing static could see it |
+| --- | --- | --- |
+| `availFactRows.shift` | legacy | `preferences.shiftLine` vs `preferences.shiftLine ?? humanizeShift(rp.shift)` |
+| `certifications` | container | reached Zone 5 raw; the legacy branch resolved it through `labelForTaxonomyId` |
+
+**The eleven, by direction:** six container-starved (the five, plus `responsibilities`), four
+legacy-starved (`preferredLocations`, `expectedSalary`, `ownWords`, `ownWordsRejected`), one
+neither (`axes`). Plus `experiences`, which is not on the allowlist at all because the staleness
+check refuses it — correctly.
+
+**The equivalence fixture is the instrument, and my first draft of it was not equivalent.** It gave
+the legacy side a salary BAND and the container a single figure, a shift to one and not the other,
+and different headline tools. Every one of those surfaced as a "difference" that was mine rather
+than the mapper's, and each would have had to be allowlisted — which is how an allowlist stops
+meaning anything.
+
+### 27.3 — the five, and the invariant that had to be restated rather than quietly broken
+
+`machines`, `education`, `certifications`, `educationLevel`, `educationField`, filled from the
+draft on the container branch. Zone 5's rows and its scalar slots now read ONE binding, which is
+the fix for the defect underneath the five: `bb_trade` prints the rows and `classic.v3` prints the
+scalars, they were computed from two different expressions, and R9 wired the rows and left the
+scalars empty with nothing anywhere reporting that one source gave two answers.
+
+**This crossed a line a test was holding, and the honest thing is to say so.** `resume-render-input.test.ts`
+asserted "a container holding one field wins whole — no merge, no precedence, no field-by-field
+rescue", and offered `machines` and `educationLevel` as the proof. That was stronger than the rule
+it protected, and it was **already false when it was written**: R9's `qualFactRows` reads the
+draft's `educationHeadline` and `certifications` on that very branch. The two fields it named just
+happened to be ones R9 had not reached.
+
+The rule that survives: a container key wins outright — `role_label` beats the legacy role, and an
+EMPTY `skills` on the container is respected as an answer rather than rescued. What changed is the
+case where `ResumeProfileSchema` has no way to express the field at all, so there is no model value
+to outvote and "the container wins" decided nothing. `experienceYears` had already been granted an
+exception by name in R8 §1; it is now an instance of a stated rule instead of a special case.
+
+Q16's general form stays open, per §8. It does not need answering for a field the container cannot
+carry.
+
+### 27.4 — §2, and why Q15 was never a one-line change
+
+`expectedSalary` takes a raw number off the draft. The Verdict Line and the Terms row read
+`legacySalary`, which is gated forty lines up — so wiring the scalar without its own gate would
+have put the worker's asking price on the employer copy, reaching ADR-0032's disclosure from the
+other side. The gate lives in the mapper, not at a call site, for the same reason the photo and the
+real name do. A mutation that drops it is caught by the new employer test and by nothing else.
+
+**Any other hard-coded scalar? No — enumerated rather than asserted.** Two literals remain, and
+neither has a source: `controllers` has no field on `DraftProfileSchema` at all (it exists on the
+rich `WorkerProfileDraft` and is not projected; controllers reach the sheet through the pack's
+capability rows), and `responsibilities` needs a canonical id `toExtractionOutput` never writes.
+
+### 27.5 — §3, and the guard that had been doing nothing for a packet
+
+`' chah'` carried a LEADING SPACE as a proxy for "word start". A space is wrong at both ends: an
+utterance opening with the ask has no character before the cue at all.
+
+Removing it recovered 440 rows and **lost 48**, and the 48 are the finding. Guard (a') clamps the
+backward window to the END of the previous number — which, in `30000 chah raha hu - abhi 25000 …`,
+lands exactly ON the `c` of `chah`. The cue was inside the window and **(a') had excluded nothing**.
+The wrong answer was being blocked by the leading space falling outside the clamp: a typographic
+accident doing a guard's job. R14 wrote "there is no (c') because (a') subsumes it", measured on
+two sweeps neither of which can generate the shape that shows otherwise.
+
+(c') is the ADJACENCY rule R14 predicted §3.2 would need, and it closes both: a cue with only
+whitespace between it and a preceding number belongs to that number.
+
+| sweep, 2,200 monthly rows each, on the SHIPPED detector | before | after |
+| --- | ---: | ---: |
+| A — current pay stated first | 2200 | 2200 |
+| B — ask stated first (§3.2's residual) | 1208 | **2200** |
+| C — cue at offset zero (§3.1) | 1760 | **2200** |
+
+**52-phrasing table: 47/53** — band 3, gazetteer 3, and the `window` class is now EMPTY.
+
+The harness calls `_detect_salary`, the same entry point the orchestrator uses. R14's re-implemented
+the attribution loop inside itself, which was right for comparing guard combinations and wrong for
+measuring a shipped change: a harness that re-implements the thing it measures stops being evidence
+the moment the real code grows a rule the harness does not have.
+
+**Three attempts to write one corpus row.** The word-start row had to contain a cue inside a word,
+inside the window, with no clause terminator between. The first draft put the cue 31 characters
+from the amount — outside the 25-character window. The second put a comma between them, which (b')
+clamps at. Both were green with the guard ON and with it OFF, and a mutation aimed at the guard
+scored it redundant twice. The text that ships is one a probe confirmed discriminates, checked
+before it was written down rather than after.
+
+Each guard is mutation-verified red on **both** engines by exactly its own row, and the engines
+agree row for row.
+
+### 27.6 — §4, and the document that caused the incident
+
+Every generator that writes a committed artifact was audited. **Only `build_lexicon_corpus.py` ever
+had the property**, and it is fixed. The reply closure regenerates byte-identically and asserts it;
+`pack-served-text` carries a drop guard; the published-version ledger is append-only over a union,
+keeps its own header, and has a test for the regeneration erasing its own instructions; the lexicon
+mirror has three parity tests. The persona-harness emitters write evidence that nothing reads back
+as a test input.
+
+**The live defect was documentary.** `__fixtures__/README.md` describes the record shape, says
+"adding, renaming or changing a case turns the other side red" — and named no generator. It read as
+an instruction to edit the artifact, which is exactly what R13 did. The guard now catches the
+delete; the README was still pointing at the wrong file.
+
+That guard fired during this packet, correctly, when a row's text was edited in place. Replacing a
+row's text IS deleting the old case, and the honest path was to reset the artifact and regenerate
+rather than to work around the refusal.
+
+### 27.7 — §5, the alias layer, and the answer that is not the expected one
+
+Reported, nothing armed. Standing it up needs: `SKILL_CANONICALIZE_ENABLED` set as a GitHub Actions
+secret plus a merge to main (deploys run on every push); the FORK-B-1 seam configured — both
+`backend_api_url` and `skills_internal_token`, or `get_skill_store` hands back the `NullSkillStore`
+and the pass is inert whatever the flag says; and a real embed per label, reserved against the
+spend ledger before the pass and refunded on a raise, skipped entirely on a ledger block.
+
+**§5 asked whether the honest answer is "nothing changes until canonicalisation is on, so this is a
+matching-path item". It is not.** `routers/profile.py` ends the pass with
+`for sid in assigned: if sid not in legacy.skills: legacy.skills.append(sid)` — canonical ids are
+APPENDED to the DraftProfile snapshot, and the résumé's legacy branch renders
+`mergeSkillsWithLabels(draft.skills.map(labelForTaxonomyId), draft.skill_labels.map(…))`. The merge
+de-dupes on a normalised string, and a canonical display label does not normalise to the worker's
+raw phrase — so **turning the flag on adds a chip per assigned skill to the printed skills row and
+does not replace the raw one.** The container branch is unaffected: `rp.skills` is Phase C's own
+list.
+
+So it is a résumé-visible change, not only a matching-path one, and the chip row grows rather than
+being canonicalised. That is worth knowing before it is armed.
+
+### 27.8 — §6, and a claim of my own that went stale inside one packet
+
+**§6.1.** R10 §2.5's "five render rules": rule 1 OPEN (`it.fails`, implemented and reverted, blocked
+on Q2 with RVM); rule 3 GREEN, first shipped user the milling map; rule 4 GREEN as a unit and still
+unreachable; rule 5 OPEN, needs a frozen-contract change; rule 6 GREEN; rule 8 OPEN, Phase 2 by
+ruling 3. Three `it.fails` in `yadav-parity.contract.test.ts` today — 123, 293, 601 — plus the new
+Q17 pin. The file's header said "Five" against a file that has only ever had four; R14 corrected it
+to three and added the per-rule table, and that is what made this reconcilable at all.
+
+**And rule 4's allowlist reason was mine and had already gone false.** It read "no pack asks for
+axes yet". `qp_vmc_milling` shipped in #1309, asks `axis_capability` with three options, and
+`trade-resume-map.ts` routes the answer into the machine chip — the sheet prints "VMC · 3-axis"
+today. What is still true is narrower and worse, because it can no longer be waved off as a missing
+question: `buildVerdictLine` accepts an `axes` segment, §6.2 names it, and neither mapper branch
+passes it. A milling worker who answered the axis question cannot get "3 & 4-axis" in his headline.
+The row now says that instead.
+
+**§6.2.** Seventeen open pins, down from twenty: two salary pins closed by §3, two branch-parity
+pins closed by §2, one added for Q17. `sal_018`/`sal_019` still fold into their table pins after the
+corpus ids shifted, and `exp_028` still cross-references the band class.
+
+**§6.3.** `pnpm lint:ci` runs exactly what CI runs, and `lint-gate-parity.test.mjs` reads `ci.yml`
+and fails if the two drift — a note saying "remember to run eslint" is wrong the day CI grows a
+third lint step, and still reassuring. That test **and `pins:test`** now run in CI, where neither
+ran before: an open-pin ledger that nothing executes is the ledger nobody reads, which is the
+failure the pin list exists to prevent, one level up.
+
+### 27.9 — state
+
+**PR #1310.** Q17 opened. Q15 built and closed; Q16 built for the five and still open as a ruling;
+Q2 and Q14 remain with RVM.
+
+Still owed on turner, and named in §7's scorecard rather than buried: the alias layer is inert, the
+`axes` segment reaches no branch, three band phrasings and three gazetteer phrasings are pinned, and
+**real transcripts remain absent and stay absent until RVM runs.**

@@ -250,6 +250,72 @@ function periodPhraseEnd(nearAfter: string): number | null {
 }
 
 /**
+ * First offset in `[start, end)` where `cue` begins at a WORD START, else `-1`.
+ *
+ * R15 §3.1, and the mirror of `_cue_at_word_start` in `signals.py`. The cue list used to encode
+ * this as a leading SPACE on the one stem that needed it (`" chah"`), which fails wherever there
+ * is no space to find: at offset 0, and after a comma or a digit. The preceding character is read
+ * from the FULL string rather than the window, so a window opening mid-word cannot turn that
+ * word's tail into a cue.
+ *
+ * LETTERS, NOT ALPHANUMERICS — `guardedWindowStart` clamps to the end of the previous number, so a
+ * digit precedes the cue exactly when R14's guard (a') has fired.
+ */
+function cueAtWordStart(lower: string, cue: string, start: number, end: number): number {
+  let at = lower.indexOf(cue, start);
+  while (at !== -1 && at + cue.length <= end) {
+    if (at === 0 || !/\p{L}/u.test(lower[at - 1]!)) return at;
+    at = lower.indexOf(cue, at + 1);
+  }
+  return -1;
+}
+
+/**
+ * Does the nearest number BEFORE this cue sit against it, with only blanks between?
+ *
+ * Guard (c'), R15 §3.2 — R14's (c) pointing the other way, and R14 concluded it did not exist:
+ * "no (c') because (a') subsumes it". That was measured on two sweeps neither of which can
+ * produce the shape it is wrong about.
+ *
+ * (a') clamps the backward window to the END of the previous number. When the cue sits
+ * immediately after that number the clamp lands ON the cue rather than past it, so (a') excludes
+ * nothing. It looked subsumed only because the one cue that could show it was written `" chah"`,
+ * whose leading space fell outside the clamped window — a typographic accident doing a guard's
+ * job. In `30000 chah raha hu - abhi 25000 mahina milta hai` the cue trails 30000 and says
+ * nothing about 25000.
+ */
+function cueTrailsANumber(lower: string, cueAt: number, numbers: readonly [number, number][]) {
+  let prevEnd: number | null = null;
+  for (const [, end] of numbers) {
+    if (end <= cueAt && (prevEnd === null || end > prevEnd)) prevEnd = end;
+  }
+  return prevEnd !== null && lower.slice(prevEnd, cueAt).trim() === "";
+}
+
+/**
+ * Is there an expectation cue in the window that belongs to THIS amount?
+ *
+ * The base window straddles the amount, so (c') applies only to cues standing BEFORE the figure —
+ * a cue after it trails this amount by construction, which is why `25000 chahiye` reads as an ask.
+ */
+function anyCueAtWordStart(
+  lower: string,
+  start: number,
+  end: number,
+  numbers: readonly [number, number][],
+  amountAt: number,
+): boolean {
+  for (const cue of SALARY.expectedCues) {
+    let at = cueAtWordStart(lower, cue, start, end);
+    while (at !== -1) {
+      if (at >= amountAt || !cueTrailsANumber(lower, at, numbers)) return true;
+      at = cueAtWordStart(lower, cue, at + 1, end);
+    }
+  }
+  return false;
+}
+
+/**
  * Is there an expectation cue just past this amount's PERIOD phrase? `_cue_after_the_period_phrase`.
  *
  * "35000 mahina chahiye" is an asking price, and the shipped ten-character window never sees the
@@ -281,13 +347,13 @@ function cueAfterThePeriodPhrase(
   if (terminator !== null) limit = anchored + terminator.index; // (b)
   limit = Math.max(baseEnd, limit);
 
-  const extension = lower.slice(windowStart, limit);
   for (const cue of SALARY.expectedCues) {
     // Only cues the BASE window could not already have seen — one inside it would have answered
-    // this question before we were called.
-    const at = extension.indexOf(cue, Math.max(0, baseEnd - windowStart - cue.length + 1));
+    // this question before we were called. R15 §3.1: word-start matched, like the base window, so
+    // the two halves cannot disagree about what counts as a cue.
+    const at = cueAtWordStart(lower, cue, Math.max(windowStart, baseEnd - cue.length + 1), limit);
     if (at === -1) continue;
-    const cueEnd = windowStart + at + cue.length;
+    const cueEnd = at + cue.length;
     // (c) — and ON THIS LINE, for the same reason every other window here is line-clamped.
     if (numbers.some(([start]) => start >= cueEnd && start < lineEnd)) continue;
     return true;
@@ -371,13 +437,14 @@ export function detectSalaries(text: string): SalaryReading {
     // `cueAfterThePeriodPhrase` still reads from the UNGUARDED start because it re-anchors the
     // END and applies its own three guards there; narrowing its start as well is a change no
     // measurement supports.
-    const base = lower.slice(
-      guardedWindowStart(lower, matchStart, digitsAt, numbers, lineStart),
-      baseEnd,
-    );
     const isExpected =
-      SALARY.expectedCues.some((cue) => base.includes(cue)) ||
-      cueAfterThePeriodPhrase(lower, matchEnd, numbers, windowStart, baseEnd, lineEnd);
+      anyCueAtWordStart(
+        lower,
+        guardedWindowStart(lower, matchStart, digitsAt, numbers, lineStart),
+        baseEnd,
+        numbers,
+        digitsAt,
+      ) || cueAfterThePeriodPhrase(lower, matchEnd, numbers, windowStart, baseEnd, lineEnd);
 
     if (isExpected) {
       if (expected === null) expected = reading;

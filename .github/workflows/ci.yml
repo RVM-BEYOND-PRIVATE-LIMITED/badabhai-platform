@@ -881,6 +881,23 @@ jobs:
       - name: Smoke self-test (staging)
         run: node --test scripts/staging-smoke.test.mjs
 
+      # R15 §6.3 — the repo has two linters and only one of them is the gate. `pnpm lint` is
+      # `eslint .`; `lint:oxlint` is a payer-web-only supplementary pass. Reading oxlint's
+      # silence as the gate's silence cost a red CI on #1308. `lint-gate-parity` asserts that
+      # `pnpm lint:ci` chains exactly the lint scripts this workflow runs, so a third lint step
+      # added above without updating that script fails here and names it.
+      #
+      # `pins:test` IS DELIBERATELY NOT HERE, and the reason is worth writing down because the
+      # obvious fix is the wrong one. It was added alongside this step and turned the job red:
+      # `scripts/list-open-pins.mjs` reads the Python table-driven gap suites through
+      # `apps/ai-service/.venv`, which this job does not create — and when the venv is absent the
+      # script THROWS rather than reporting zero pins. That fail-closed behaviour is the whole
+      # point of it ("an absence indistinguishable from a break"), so the fix is never to pass
+      # `--skip-python` here or to soften the throw. Running it needs a job that has both Node and
+      # the ai-service venv, which is its own piece of work. Until then it stays a local command.
+      - name: Repo self-test (lint-gate parity)
+        run: node --test scripts/lint-gate-parity.test.mjs
+
       - name: Build
         run: pnpm build
 

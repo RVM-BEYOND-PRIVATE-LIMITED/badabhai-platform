@@ -355,25 +355,37 @@ CASES: list[tuple[str, str, Slots, Slots | None, str]] = [
         "reversed_no_separator",
         "30k chahiye abhi 25000 mahina milta hai",
         (25000, 30000),
-        (None, 30000),
-        "MEASURED R14 §2.2 — THE RESIDUAL OF THE FIX ABOVE, and the only shape left in its class: "
-        "992 of the reversed sweep's 4,400 monthly rows. Neither clamp can fire — there is no "
-        "punctuation between the two clauses and no number between the cue and this amount — so "
-        "the ask's 'chahiye' still reaches back and marks the current pay as expected. Closing it "
-        "needs an ADJACENCY rule (a cue belongs to the number it touches), which is a different "
-        "mechanism from a clamp and a wider change than §2.2 asked for",
+        None,
+        "CLOSED R15 §3.2 by guard (c') — the ADJACENCY rule R14 said this needed. Neither clamp "
+        "can fire here (no punctuation between the clauses, no number between the cue and this "
+        "amount), so the ask's 'chahiye' reached back and marked the current pay as expected. "
+        "(c') discards a cue with only whitespace between it and a preceding number: 'chahiye' "
+        "trails 30k, so it states 30k's role and says nothing about 25000. 992 of the reversed "
+        "sweep's 4,400 monthly rows recovered, and that sweep is now 2,200/2,200",
     ),
     (
         "cue_at_position_zero",
         "chah raha hu 30000 mahina",
         (None, 30000),
-        (30000, None),
-        "MEASURED R14 §2.2, AND IT PREDATES EVERY GUARD IN THIS FILE. `expectedCues` carries "
-        "' chah' with a LEADING SPACE so the stem cannot fire inside an unrelated word — and a "
-        "cue at offset 0 has no space before it, so an utterance that OPENS with the ask has no "
-        "expectation cue at all and the asking price is filed as current pay. 440 rows of the "
-        "reversed sweep. The fix is a boundary rather than a space, and `expectedCues` is a "
-        "substring list rather than a pattern list, so it is a shape change to the field",
+        None,
+        "CLOSED R15 §3.1. `expectedCues` carried ' chah' with a LEADING SPACE so the stem could "
+        "not fire inside an unrelated word — and a cue at offset 0 has no character before it, so "
+        "an utterance OPENING with the ask carried no expectation cue at all. The space is now a "
+        "word-start test taken against the full string, which also covers a cue after a comma or "
+        "a digit. 440 rows of a third sweep whose every row opens with the cue, all recovered",
+    ),
+    (
+        "ask_then_dash_then_current",
+        "30000 chah raha hu - abhi 25000 mahina milta hai",
+        (25000, 30000),
+        None,
+        "THE ROW THE §3.1 FIX BROKE BEFORE (c') CLOSED IT, kept because it is the only case that "
+        "distinguishes a guard from an accident. This passed for a packet by luck: guard (a') "
+        "clamps the backward window to the END of the previous number, which lands ON the 'c' of "
+        "'chah', so the cue was inside the window and (a') excluded nothing — the wrong answer "
+        "was blocked only by the leading space falling outside the clamp. Removing the space for "
+        "§3.1 lost 48 sweep rows and made the hole visible. R14's 'no (c') because (a') subsumes "
+        "it' was measured on two sweeps neither of which can produce this shape",
     ),
     (
         "daily_wage",
@@ -518,8 +530,6 @@ GAP_CLASS: dict[str, str] = {
     "sp_hajar": "gazetteer",
     "sp_hazzar": "gazetteer",
     "deva_cue": "gazetteer",
-    "reversed_no_separator": "window",
-    "cue_at_position_zero": "gazetteer",
 }
 
 
