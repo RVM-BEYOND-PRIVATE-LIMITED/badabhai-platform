@@ -887,11 +887,16 @@ jobs:
       # `pnpm lint:ci` chains exactly the lint scripts this workflow runs, so a third lint step
       # added above without updating that script fails here and names it.
       #
-      # `pins:test` joins it because it was in the same position: a self-test that existed, was
-      # runnable, and ran nowhere. An open-pin ledger nothing executes is the ledger nobody
-      # reads — the exact failure the pin list exists to prevent, one level up.
-      - name: Repo self-tests (lint-gate parity, open pins)
-        run: node --test scripts/lint-gate-parity.test.mjs scripts/list-open-pins.test.mjs
+      # `pins:test` IS DELIBERATELY NOT HERE, and the reason is worth writing down because the
+      # obvious fix is the wrong one. It was added alongside this step and turned the job red:
+      # `scripts/list-open-pins.mjs` reads the Python table-driven gap suites through
+      # `apps/ai-service/.venv`, which this job does not create — and when the venv is absent the
+      # script THROWS rather than reporting zero pins. That fail-closed behaviour is the whole
+      # point of it ("an absence indistinguishable from a break"), so the fix is never to pass
+      # `--skip-python` here or to soften the throw. Running it needs a job that has both Node and
+      # the ai-service venv, which is its own piece of work. Until then it stays a local command.
+      - name: Repo self-test (lint-gate parity)
+        run: node --test scripts/lint-gate-parity.test.mjs
 
       - name: Build
         run: pnpm build
