@@ -874,6 +874,13 @@ which is the right default for an unmade decision and the wrong resting place fo
 
 ## Q15 · Two slots the legacy branch stubs, with the value sitting in scope (R14 §1)
 
+**Status: RULED (R15 §2) and BUILT.** `preferredLocations` and `expectedSalary` are wired on
+the legacy branch. The ruling asked that `expectedSalary` carry its audience gate, and it does —
+`audience === "worker" ? draft.salary_expectation.amount_min : null`, in the mapper rather than
+at a call site. A test asserts the payer copy stays null and gains no labelled row; a mutation
+that drops the gate is caught by that test and by nothing else. Both `it.fails` pins are flipped
+and both allowlist rows are deleted. The record below is kept for the reasoning.
+
 R14 §1 audited the whole seam between the résumé container and the legacy answer-map shape rather
 than waiting for the next defect to be found by a question. It found eleven asymmetries. Nine are
 explained — an owner ruling, no source on the starved branch, or an unreachable coupling. **Two
@@ -923,6 +930,24 @@ stays self-contradicting until this is answered.
 
 ## Q16 · Does the 2026-08-12 "narrow field set first" ruling still hold? (R14 §1)
 
+**Status: STILL OPEN as a ruling — but the five slots it covered are BUILT (R15 §1).**
+R15 §1 directed the fix and gave the reason: the population. On `classic.v3` an interview-led
+worker's whole Education & Certifications section collapsed while the identical draft rendered
+it for a worker whose interview never ran — the exact population fourteen packets have been
+aimed at.
+
+**What was built is narrower than the question.** The container still wins outright for every
+field it can express: `role_label` beats the legacy role, and an EMPTY `skills` on the container
+is respected as an answer rather than rescued from the answer map. What changed is the case where
+`ResumeProfileSchema` has no way to express the field at all — nine keys, and these five are not
+among them — so there was no model value to outvote and "the container wins" decided nothing.
+`experienceYears` was already this exact case and had been granted an exception by name in
+R8 §1; it is now an instance of a stated rule rather than a special case.
+
+**The general question is untouched and still yours**: does the narrow-field-set ruling still
+hold for anything else, and should `resume.service.ts` still name `classic.v3` at all. Option 3
+below — retire the old templates for new renders — is the one R15 did not touch.
+
 `ResumeProfileSchema`'s docstring records a ruling of yours: _"Education, certifications,
 languages, tools and relocation are captured by the template tail and live on `DraftProfile` — they
 are NOT rendered from here, and that is an accepted, temporary loss (owner decision 2026-08-12):
@@ -959,3 +984,51 @@ Every worker whose interview ran renders a résumé missing his machines, his ed
 certificates, on the template production actually names — and the better his interview went, the
 more he loses. `branch-parity.audit.test.ts` holds the ruling as an allowlist row with this
 citation, so the loss is visible; it is not shrinking on its own.
+
+---
+
+## Q17 · The two branches pick the headline's TOOLS from different sources (R15 §1)
+
+**Status: OPEN. Reported, measured, pinned, not built.** The twelfth asymmetry on the mapper seam
+and the only one left after R15 §1.
+
+`buildVerdictLine` is handed `headlineTools.length > 0 ? headlineTools : legacyMachines` on the
+legacy branch and `… : skillChips` on the container. When a role pack ran they agree — the pack's
+headline row wins on both. When none did, the fallbacks differ, so **one worker's headline strip
+names his machines and another's names his skills, from the same draft**.
+
+It is the fourth shape: both branches pass the argument, neither expression is a bare literal, and
+all six static assertions pass it. The runtime diff added in R15 §1 is what found it.
+
+### Why it was not just fixed
+
+Every other slot R15 §1 touched was a wiring gap — a slot that rendered nothing gaining a source.
+This one renders something already, on both branches, and aligning them **changes what prints for
+profiles that exist today**:
+
+- on the **legacy** branch a worker with no machines would newly show skills, where the segment
+  currently collapses;
+- on the **container** branch machines would displace skills in the headline strip.
+
+That is an output decision, which is what made `expectedSalary` a ruling rather than a one-liner in
+R14, and the same reasoning applies here.
+
+### Options
+
+1. **Both fall back `headlineTools → machines → skills`.** The ratified sheet's headline strip
+   prints machines and controllers, so machines is the better second choice for a machining trade;
+   skills becomes the third rather than being dropped. Strictly additive on the legacy branch.
+2. **Both fall back `headlineTools → skills`.** Keeps the container's current behaviour and gives
+   the legacy branch a fallback where the segment collapses today.
+3. **Leave them different and write down why.** Defensible only if the two populations genuinely
+   want different headlines, which nothing so far suggests.
+
+**Recommendation: option 1.** The container branch only gained a `machines` list in R15 §1, so the
+"the container has nothing to put there" reason the divergence rested on is no longer true.
+
+### Cost of silence
+
+Small and permanent: the headline strip is §5.1's first-ranked element of eleven, and two workers
+with identical answers get different first lines depending on whether their interview ran. It is
+pinned as an `it.fails` in `branch-parity.audit.test.ts`, so it cannot rot, and it is one allowlist
+row away from being invisible again if that pin is ever deleted.
