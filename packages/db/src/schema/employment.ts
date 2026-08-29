@@ -142,6 +142,25 @@ export const workerEmploymentRole = pgTable(
      * source". #1350 is the owner ruling that overrides it, for this one field and no other.
      */
     workDonePolished: text("work_done_polished"),
+    /**
+     * The worker looked at the rewrite and chose their OWN WORDS (#1354).
+     *
+     * A REFUSAL IS NOT THE SAME AS AN ABSENCE, which is the whole reason this is a column and
+     * not just a null polish. The polisher visits every stint whose polish is null, so clearing
+     * {@link workDonePolished} would have the next render simply rewrite it again — "I refused
+     * this" and "not rewritten yet" would be indistinguishable, and the worker's decision would
+     * survive exactly until the next re-render.
+     *
+     * IT IS ALSO THE ONLY FEEDBACK LOOP THIS FEATURE HAS. #1350 overrode section 8 on the
+     * strength of checks on a model, and no test can assert the absence of a plausible-but-false
+     * sentence. A rising decline rate is the one signal that the prompt is producing rewrites
+     * workers do not recognise, and it is measurable only because the refusal is recorded rather
+     * than expressed as a missing value.
+     *
+     * The polish is KEPT when declined, so the worker can change their mind without paying for
+     * another model call.
+     */
+    workDonePolishDeclined: boolean("work_done_polish_declined").notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })

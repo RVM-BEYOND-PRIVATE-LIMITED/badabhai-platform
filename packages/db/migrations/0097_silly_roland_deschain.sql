@@ -1,0 +1,1 @@
+ALTER TABLE "worker_employment_role" ADD COLUMN "work_done_polish_declined" boolean DEFAULT false NOT NULL;

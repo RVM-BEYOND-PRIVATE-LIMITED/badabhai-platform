@@ -125,6 +125,14 @@ export interface TradeSheetResumeDocument extends ResumeDocumentBase {
   readonly headline: { readonly line1: string | null; readonly line2: string | null };
   readonly sections: readonly ResumeDocumentSection[];
   readonly employments: readonly ResumeEmployment[];
+  /**
+   * Each block carries `work` (what PRINTS) and, when a rewrite is what printed,
+   * `work_own_words` (what the worker actually wrote) -- see `ResumeEmployment`.
+   *
+   * BOTH, so a client can show the comparison and offer the choice (#1354). That choice is the
+   * only mitigation the section-8 override in #1350 has: no test can assert the absence of a
+   * plausible-but-false sentence, and only the worker knows whether one is true.
+   */
   /** "and 2 more" when the block budget truncated the history. */
   readonly employmentsMore: string | null;
 }

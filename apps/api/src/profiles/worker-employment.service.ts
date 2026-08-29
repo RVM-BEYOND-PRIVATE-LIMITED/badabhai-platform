@@ -7,7 +7,7 @@ import type { RequestContext } from "../common/request-context";
 import { EventsService } from "../events/events.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { WorkersRepository } from "../workers/workers.repository";
-import type { SetMyEmploymentDto } from "./worker-employment.dto";
+import type { SetDescriptionSourceDto, SetMyEmploymentDto } from "./worker-employment.dto";
 import { WorkerEmploymentRepository } from "./worker-employment.repository";
 
 /**
@@ -110,6 +110,55 @@ export class WorkerEmploymentService {
     await this.enqueueRerender(workerId, ctx);
 
     return { worker_id: workerId, employer_count: rows.length };
+  }
+
+  /**
+   * Record which text prints as one employment's work line (#1354).
+   *
+   * 404 ON ZERO ROWS, and it is not laziness about the status code. The employment id comes
+   * from the client; a 403 would confirm that somebody else's id EXISTS, which is an existence
+   * oracle over another worker's history. Not-found is the honest answer to "you have no such
+   * employment" whether the row belongs to someone else or to nobody.
+   *
+   * RE-RENDERS, because the choice only means anything once it reaches the PDF the worker hands
+   * over. Best-effort on the same terms as an edit: a queue that is down must not fail the
+   * decision, and the previous PDF keeps serving until the next render picks it up.
+   */
+  async setDescriptionSource(
+    workerId: string,
+    employmentId: string,
+    dto: SetDescriptionSourceDto,
+    ctx: RequestContext,
+  ): Promise<{ stints_updated: number }> {
+    const declined = dto.source === "own_words";
+    const updated = await this.employment.setPolishDeclined(workerId, employmentId, declined);
+    if (updated === 0) {
+      throw new NotFoundException(`Employment ${employmentId} not found`);
+    }
+
+    await this.events.emit({
+      event_name: "worker.employment_recorded",
+      actor: { actor_type: "worker", actor_id: workerId },
+      subject: { subject_type: "worker", subject_id: workerId },
+      // PII-FREE, and deliberately the SHAPE of the existing employment event rather than a new
+      // one: what happened is that this worker's history changed in a way the sheet renders.
+      // The counts say how much; nothing says which employer or what either text said.
+      payload: {
+        worker_id: workerId,
+        employer_count: 1,
+        durations_stated: 0,
+        replaced_existing: true,
+      },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    // Counts and the choice only — never the employer, never either version of the text.
+    this.logger.log(
+      `description source set to ${dto.source} for worker ${workerId}: ${updated} stint(s)`,
+    );
+    await this.enqueueRerender(workerId, ctx);
+    return { stints_updated: updated };
   }
 
   /** Best-effort: a queue that is down must not fail the write the worker just made. */

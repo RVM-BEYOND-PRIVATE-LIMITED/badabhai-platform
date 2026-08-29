@@ -339,6 +339,15 @@ export interface ResumeEmployment {
   /** "Jan 2023 – Present · 3 yrs 6 mo" — the EMPLOYMENT's span. */
   when: string;
   work: string;
+  /**
+   * The same line built from the worker's OWN words, when a rewrite is what `work` holds.
+   *
+   * NOT A TEMPLATE SLOT -- no layout prints it, and none should. It exists so a CLIENT can show
+   * a worker what the printed sentence was rewritten from and let them refuse it (#1354), which
+   * is the only mitigation the section-8 override in #1350 actually has: no test can assert the
+   * absence of a plausible-but-false sentence, and only the worker knows whether one is true.
+   */
+  work_own_words?: string;
   roles: ResumeRoleStint[];
 }
 

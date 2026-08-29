@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { type Database, workerEmployment, workerEmploymentRole } from "@badabhai/db";
 
 import { DATABASE } from "../database/database.module";
@@ -143,6 +143,50 @@ export class WorkerEmploymentRepository {
   }
 
   /**
+   * Record the worker's choice of description source for ONE employment (#1354).
+   *
+   * OWNERSHIP IS PROVED IN THE STATEMENT, not checked before it. The employment id comes from
+   * the client, so the UPDATE joins back to `worker_employment` and filters on `worker_id`:
+   * a worker passing somebody else's employment id updates zero rows and is told nothing about
+   * whether it exists. A read-then-write would be the same query twice with a race between
+   * them, and a `WHERE id = ?` alone is the IDOR this codebase's authz review exists to catch.
+   *
+   * PER EMPLOYMENT, THOUGH THE COLUMN IS PER ROLE. The sheet prints ONE work line per employer
+   * — `workLine` joins the distinct descriptions across that employer's stints — so one line is
+   * what a worker sees and one decision is what they can meaningfully make. Setting the flag on
+   * every stint of the employment keeps the data model honest (the text lives on the stint)
+   * without inventing a choice the UI cannot present.
+   *
+   * Returns how many stints were updated: zero means not this worker's employment, and the
+   * caller turns that into a 404 rather than a 403 — no existence oracle.
+   */
+  async setPolishDeclined(
+    workerId: string,
+    employmentId: string,
+    declined: boolean,
+  ): Promise<number> {
+    const updated = await this.db
+      .update(workerEmploymentRole)
+      .set({ workDonePolishDeclined: declined })
+      .where(
+        and(
+          eq(workerEmploymentRole.employmentId, employmentId),
+          // The join that proves ownership. `inArray` over a subquery rather than a SQL join,
+          // because Drizzle's update builder takes a WHERE and not a FROM.
+          inArray(
+            workerEmploymentRole.employmentId,
+            this.db
+              .select({ id: workerEmployment.id })
+              .from(workerEmployment)
+              .where(eq(workerEmployment.workerId, workerId)),
+          ),
+        ),
+      )
+      .returning({ id: workerEmploymentRole.id });
+    return updated.length;
+  }
+
+  /**
    * One worker's history in DISPLAY ORDER (most recent first).
    *
    * ORDERED BY `sort_order`, NEVER BY DATE, and that is the schema's decision restated here so a
@@ -175,6 +219,7 @@ export class WorkerEmploymentRepository {
         endYm: workerEmploymentRole.endYm,
         workDone: workerEmploymentRole.workDone,
         workDonePolished: workerEmploymentRole.workDonePolished,
+        workDonePolishDeclined: workerEmploymentRole.workDonePolishDeclined,
         id: workerEmploymentRole.id,
       })
       .from(workerEmploymentRole)
@@ -196,6 +241,7 @@ export class WorkerEmploymentRepository {
         endYm: role.endYm,
         workDone: role.workDone,
         workDonePolished: role.workDonePolished,
+        workDonePolishDeclined: role.workDonePolishDeclined,
       });
       byEmployment.set(role.employmentId, bucket);
     }

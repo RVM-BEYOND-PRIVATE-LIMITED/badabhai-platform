@@ -72,6 +72,13 @@ export interface WorkerEmploymentRoleRecord {
    * was unavailable, declined, or produced something the far side rejected.
    */
   readonly workDonePolished?: string | null;
+  /**
+   * The worker looked at the rewrite and chose their own words (#1354).
+   *
+   * KEPT BESIDE THE POLISH RATHER THAN CLEARING IT, so the decision survives a re-render and
+   * the worker can change their mind without paying for another model call.
+   */
+  readonly workDonePolishDeclined?: boolean;
 }
 
 /**
@@ -152,6 +159,11 @@ function toEmployment(record: WorkerEmploymentRecord, asOf: Date | null): Resume
     role_inline: inlineOnly ? ` — ${stints[0]!.role}` : "",
     when: spanText(record.startYm, record.endYm, record.durationStated, asOf),
     work: workLine(record.roles),
+    // THE SAME LINE FROM THE WORKER'S OWN WORDS, so a client can show what the printed text
+    // was rewritten FROM (#1354). Composed through the identical joiner rather than
+    // concatenated separately: a comparison between two differently-built strings would show
+    // differences the rewrite did not cause.
+    work_own_words: workLine(record.roles, { ownWordsOnly: true }),
     roles: inlineOnly ? [] : stints,
   };
 }
@@ -268,15 +280,22 @@ function overflowLine(
 }
 
 /** The employment's one work line — see {@link WORK_LINE_MAX_PARTS}. */
-function workLine(roles: readonly WorkerEmploymentRoleRecord[]): string {
+function workLine(
+  roles: readonly WorkerEmploymentRoleRecord[],
+  opts: { readonly ownWordsOnly?: boolean } = {},
+): string {
   const seen = new Set<string>();
   const parts: string[] = [];
   for (const role of roles) {
-    // THE POLISHED LINE WHEN THERE IS ONE, the worker's own words otherwise (#1350). The
-    // fallback is not a degradation to apologise for: it is what this sheet printed before the
-    // owner ruling and what it must keep printing on every path where the model did not run,
-    // declined, or was overruled by the far side's checks.
-    const text = (role.workDonePolished ?? role.workDone)?.trim();
+    // THE POLISHED LINE WHEN THERE IS ONE AND THE WORKER KEPT IT, their own words otherwise
+    // (#1350, #1354). The fallback is not a degradation to apologise for: it is what this sheet
+    // printed before the owner ruling, what it must keep printing on every path where the model
+    // did not run or was overruled by the far side's checks, and — since #1354 — what the
+    // worker themselves can choose. A refusal outranks a rewrite; nobody else is in a position
+    // to know whether a sentence about their work is true.
+    const usePolished =
+      !opts.ownWordsOnly && role.workDonePolished != null && role.workDonePolishDeclined !== true;
+    const text = (usePolished ? role.workDonePolished : role.workDone)?.trim();
     if (!text || seen.has(text)) continue;
     seen.add(text);
     parts.push(text);
