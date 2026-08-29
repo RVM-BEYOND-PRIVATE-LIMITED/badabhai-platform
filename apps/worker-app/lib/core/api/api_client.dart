@@ -715,6 +715,29 @@ class ApiClient {
     return ResumeResult.fromJson(json);
   }
 
+  /// GET /resume/document (#1343) — the worker's OWN latest resume as
+  /// STRUCTURED DATA: the SAME projection the PDF template renders from, so
+  /// the resume tab stops re-parsing `resume_text` for `Label: value` lines.
+  ///
+  /// Worker-scoped: requires [authToken] (WorkerAuthGuard + ConsentGuard on
+  /// the server). NO resume id in the path — unlike [downloadResume] /
+  /// [shareResume], the server derives BOTH the worker AND which resume from
+  /// the session token alone, so there is nothing here to enumerate.
+  ///
+  /// `document: null` in a successful response is an ORDINARY, non-error
+  /// answer (every resume rendered before this column shipped has none, and
+  /// one still pending its first render has none either) — [ResumeDocumentResponse]
+  /// carries it through as null rather than throwing, and the CALLER must fall
+  /// back to the existing `resume_text` rendering on it. A 404 ("no resume row
+  /// at all yet") is left to throw as [ApiException] like any other failure.
+  Future<ResumeDocumentResponse> getResumeDocument({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json =
+        await _get('/resume/document', authToken: authToken);
+    return ResumeDocumentResponse.fromJson(json);
+  }
+
   /// Fetches a short-lived SIGNED url to the worker's own resume PDF
   /// (GET /resume/:id/download — ADR-0009 Stream C / G1c). Worker-scoped:
   /// requires [authToken] (WorkerAuthGuard); the server derives the worker from

@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:share_plus/share_plus.dart';
 
+import '../../../core/api/api_models.dart' show ResumeDocument, TradeSheetResumeDocument;
 import '../../../core/di/locator.dart';
 import '../../../core/error/failure.dart';
 import '../../../core/error/failure_reason.dart';
@@ -31,6 +32,7 @@ import '../domain/resume_edit_repository.dart';
 import '../domain/resume_safe_fields.dart';
 import 'cubit/resume_cubit.dart';
 import 'resume_photo_header.dart';
+import 'widgets/resume_document_view.dart';
 import 'widgets/resume_sections.dart';
 
 /// The shared resume-tab header — title + the Bada Bhai chat entry point — used
@@ -154,6 +156,7 @@ class _ResumeViewState extends State<_ResumeView> {
                 context,
                 state.resumeText,
                 state.nightShiftReady,
+                state.document,
               ),
           };
         },
@@ -169,6 +172,7 @@ class _ResumeViewState extends State<_ResumeView> {
     BuildContext context,
     String resumeText,
     bool nightShiftReady,
+    ResumeDocument? document,
   ) {
     return BbScaffold(
       appBar: _resumeAppBar,
@@ -176,7 +180,9 @@ class _ResumeViewState extends State<_ResumeView> {
       body: Column(
         children: <Widget>[
           _blueBanner(),
-          Expanded(child: _resumeList(context, resumeText, nightShiftReady)),
+          Expanded(
+            child: _resumeList(context, resumeText, nightShiftReady, document),
+          ),
         ],
       ),
     );
@@ -236,16 +242,34 @@ class _ResumeViewState extends State<_ResumeView> {
     BuildContext context,
     String resumeText,
     bool nightShiftReady,
+    ResumeDocument? document,
   ) {
     // Presentation-only transform: the resume body is a deterministic
     // `Label: value` template (ADR-0013), so it is re-structured into the
     // design's grouped sections WITHOUT re-fetching or inventing any data — the
     // same real, per-worker text, laid out instead of dumped as one block. Ids
     // are resolved to display names first (defensive; the server already does).
+    //
+    // ALWAYS parsed, even on the #1343 structured-document path below: this is
+    // still the only source for [ParsedResume.isDraft] (the "WORKER PROFILE
+    // (DRAFT)" banner), which [ResumeDocument] does not carry.
     final ParsedResume parsed = parseResumeText(
       replaceTaxonomyIds(resumeText),
       nightShiftReady: nightShiftReady,
     );
+
+    // #1343 — SWITCH ON FORMAT, NEVER ON `trade`: [ResumeDocument.fromJson]
+    // already dispatched the wire's `format` string into ONE OF TWO Dart
+    // types, so testing the type here (never a `trade` value) is that same
+    // switch. Only `trade_sheet` gets the new structured renderer — it is the
+    // one layout `resume_text` cannot represent at all (zoned rows, not
+    // `Label: value` lines). `document == null` (no structured projection
+    // yet) AND `format: "generic"` both fall through to the SAME, UNCHANGED
+    // text-parsing render below: a non-CNC worker's tab must read exactly as
+    // it did before this landed (#1343 acceptance).
+    final Widget resumeBody = document is TradeSheetResumeDocument
+        ? ResumeDocumentView(document: document)
+        : _legacyResumeBody(resumeText, parsed, nightShiftReady);
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(
@@ -279,29 +303,7 @@ class _ResumeViewState extends State<_ResumeView> {
               const Divider(height: 1, color: AppColors.divider),
               Padding(
                 padding: const EdgeInsets.all(AppSpacing.s5),
-                // Sections when the body parses as the deterministic template;
-                // otherwise fall back to the raw text so an unexpected shape is
-                // shown in full rather than as a blank card (nothing is lost).
-                child: parsed.isEmpty
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(
-                            replaceTaxonomyIds(resumeText),
-                            style:
-                                AppTypography.body(size: AppTypography.sizeMd),
-                          ),
-                          // Night-shift readiness is a worker PREF carried OUTSIDE
-                          // the resume text (workers.resumeNightShiftReady), so it
-                          // must show even when the body falls back to raw prose —
-                          // never dropped just because the text did not parse into
-                          // sections. In the template path it lives in the Location
-                          // section; here it stands on its own so it is NEVER lost.
-                          const SizedBox(height: AppSpacing.s4),
-                          _nightShiftRow(nightShiftReady),
-                        ],
-                      )
-                    : ResumeSectionsView(parsed: parsed),
+                child: resumeBody,
               ),
             ],
           ),
@@ -328,6 +330,37 @@ class _ResumeViewState extends State<_ResumeView> {
         ),
       ],
     );
+  }
+
+  /// The ORIGINAL, UNCHANGED resume body: sections when the text parses as the
+  /// deterministic template, otherwise the raw text so an unexpected shape is
+  /// shown in full rather than as a blank card (nothing is lost). Used for
+  /// `document == null` AND `format: "generic"` alike (#1343) — see the switch
+  /// at the [_resumeList] call site.
+  Widget _legacyResumeBody(
+    String resumeText,
+    ParsedResume parsed,
+    bool nightShiftReady,
+  ) {
+    if (parsed.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            replaceTaxonomyIds(resumeText),
+            style: AppTypography.body(size: AppTypography.sizeMd),
+          ),
+          // Night-shift readiness is a worker PREF carried OUTSIDE the resume
+          // text (workers.resumeNightShiftReady), so it must show even when the
+          // body falls back to raw prose — never dropped just because the text
+          // did not parse into sections. In the template path it lives in the
+          // Location section; here it stands on its own so it is NEVER lost.
+          const SizedBox(height: AppSpacing.s4),
+          _nightShiftRow(nightShiftReady),
+        ],
+      );
+    }
+    return ResumeSectionsView(parsed: parsed);
   }
 
   /// Night-shift readiness rendered as a standalone `Label: Yes/No` line for the

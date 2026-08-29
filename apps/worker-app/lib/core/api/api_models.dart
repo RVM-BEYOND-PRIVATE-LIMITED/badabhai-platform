@@ -1189,6 +1189,482 @@ class ResumeResult extends Equatable {
   List<Object?> get props => <Object?>[resumeId, version, resumeText, isMock];
 }
 
+// ─── GET /resume/document (#1343) — the resume AS STRUCTURED DATA ─────────────
+//
+// Mirrors apps/api/src/resume/resume-document.ts EXACTLY (read there before
+// touching field names). The endpoint's OUTER wrapper is snake_case like every
+// other DTO in this file (`resume_id`), but the nested `document` object is
+// camelCase — it is written straight from the server's `ResumeDocument` TS
+// type, unlike every other payload here which the NestJS layer re-cases. ONE
+// exception inside that: [ResumeEmploymentDto]'s `location_suffix` /
+// `role_inline` ride the wire in snake_case even inside the camelCase
+// document, because `toResumeDocument` passes `ResumeEmployment` through
+// verbatim rather than projecting it — see the field-level comment there.
+
+/// One structured work-history line under `format: "generic"`
+/// (`ResumeExperienceLine` in apps/api resume-renderer.service.ts) — the
+/// LLM-led interview's own read of a job, never an employer name (the
+/// contract refuses one at the boundary; there is no field for one here).
+class ResumeExperienceLineDto extends Equatable {
+  const ResumeExperienceLineDto({
+    this.role = '',
+    this.duration = '',
+    this.work = '',
+  });
+
+  final String role;
+  final String duration;
+  final String work;
+
+  factory ResumeExperienceLineDto.fromJson(Map<String, dynamic> json) =>
+      ResumeExperienceLineDto(
+        role: json['role'] as String? ?? '',
+        duration: json['duration'] as String? ?? '',
+        work: json['work'] as String? ?? '',
+      );
+
+  @override
+  List<Object?> get props => <Object?>[role, duration, work];
+}
+
+/// The masthead both document formats share — name / phone / trust badge
+/// (`ResumeDocumentHeader`). PII posture: this is the worker's OWN data,
+/// mirrored back to them on their own resume tab on their own device — the
+/// same self-read the existing [ResumeFieldsDto] name/photo already is.
+class ResumeDocumentHeaderDto extends Equatable {
+  const ResumeDocumentHeaderDto({this.name, this.phone, this.trustBadge});
+
+  final String? name;
+  final String? phone;
+
+  /// The masthead's right-hand slot ("RVM-attested"); null when the worker
+  /// has no attestation. NEVER a raw enum token — the server sends the
+  /// already-humanised string or nothing at all.
+  final String? trustBadge;
+
+  factory ResumeDocumentHeaderDto.fromJson(Map<String, dynamic> json) =>
+      ResumeDocumentHeaderDto(
+        name: json['name'] as String?,
+        phone: json['phone'] as String?,
+        trustBadge: json['trustBadge'] as String?,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[name, phone, trustBadge];
+}
+
+/// A labelled list row on a `format: "trade_sheet"` section — pills
+/// (`chipRows`) or ✓ items (`tickRows`) on the printed sheet
+/// (`ResumeListRow` in apps/api resume-renderer.service.ts).
+///
+/// `key` / `rank` are server-side PROVENANCE the renderer itself never reads
+/// (the backend's own comment: "the renderer never reads either" — they
+/// exist only so the degradation ladder can order rows without re-deriving
+/// the trade map) — deliberately not modelled here for the same reason.
+class ResumeListRowDto extends Equatable {
+  const ResumeListRowDto({this.label = '', this.values = const <String>[]});
+
+  final String label;
+  final List<String> values;
+
+  factory ResumeListRowDto.fromJson(Map<String, dynamic> json) {
+    final List<dynamic> raw =
+        json['values'] as List<dynamic>? ?? const <dynamic>[];
+    return ResumeListRowDto(
+      label: json['label'] as String? ?? '',
+      values: raw.whereType<String>().toList(growable: false),
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[label, values];
+}
+
+/// A labelled single-value row on a `format: "trade_sheet"` section — a
+/// definition row on the printed sheet (`factRows`).
+class ResumeFactRowDto extends Equatable {
+  const ResumeFactRowDto({this.label = '', this.value = ''});
+
+  final String label;
+  final String value;
+
+  factory ResumeFactRowDto.fromJson(Map<String, dynamic> json) =>
+      ResumeFactRowDto(
+        label: json['label'] as String? ?? '',
+        value: json['value'] as String? ?? '',
+      );
+
+  @override
+  List<Object?> get props => <Object?>[label, value];
+}
+
+/// One zoned section of a `format: "trade_sheet"` document — its own heading
+/// plus the three row styles the printed sheet uses.
+///
+/// AN EMPTY SECTION (zero rows across all three arrays) IS A REAL, EXPECTED
+/// SHAPE — the server keeps every zone rather than dropping one with nothing
+/// in it (apps/api `toResumeDocument`'s own comment: "the client decides
+/// whether an empty zone shows a heading"). [hasRows] IS that decision,
+/// made once here so every render site agrees: an empty zone's heading is
+/// HIDDEN — a worker whose sheet has nothing yet under "Availability & terms"
+/// should not see a bare, content-less heading on their own resume.
+class ResumeDocumentSectionDto extends Equatable {
+  const ResumeDocumentSectionDto({
+    this.id = '',
+    this.title = '',
+    this.chipRows = const <ResumeListRowDto>[],
+    this.tickRows = const <ResumeListRowDto>[],
+    this.factRows = const <ResumeFactRowDto>[],
+  });
+
+  final String id;
+  final String title;
+  final List<ResumeListRowDto> chipRows;
+  final List<ResumeListRowDto> tickRows;
+  final List<ResumeFactRowDto> factRows;
+
+  bool get hasRows =>
+      chipRows.isNotEmpty || tickRows.isNotEmpty || factRows.isNotEmpty;
+
+  factory ResumeDocumentSectionDto.fromJson(Map<String, dynamic> json) {
+    List<T> parseList<T>(String key, T Function(Map<String, dynamic>) parse) {
+      final List<dynamic> raw =
+          json[key] as List<dynamic>? ?? const <dynamic>[];
+      return raw
+          .whereType<Map<String, dynamic>>()
+          .map(parse)
+          .toList(growable: false);
+    }
+
+    return ResumeDocumentSectionDto(
+      id: json['id'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      chipRows: parseList('chipRows', ResumeListRowDto.fromJson),
+      tickRows: parseList('tickRows', ResumeListRowDto.fromJson),
+      factRows: parseList('factRows', ResumeFactRowDto.fromJson),
+    );
+  }
+
+  @override
+  List<Object?> get props =>
+      <Object?>[id, title, chipRows, tickRows, factRows];
+}
+
+/// One dated role stint inside a [ResumeEmploymentDto] — a worker who was
+/// promoted at the same employer has one tenure and two titles
+/// (`ResumeRoleStint` in apps/api resume-renderer.service.ts).
+class ResumeEmploymentRoleStintDto extends Equatable {
+  const ResumeEmploymentRoleStintDto({this.role = '', this.when = ''});
+
+  final String role;
+  final String when;
+
+  factory ResumeEmploymentRoleStintDto.fromJson(Map<String, dynamic> json) =>
+      ResumeEmploymentRoleStintDto(
+        role: json['role'] as String? ?? '',
+        when: json['when'] as String? ?? '',
+      );
+
+  @override
+  List<Object?> get props => <Object?>[role, when];
+}
+
+/// One employer on a `format: "trade_sheet"` document's work history
+/// (`ResumeEmployment` in apps/api resume-renderer.service.ts).
+///
+/// [locationSuffix] / [roleInline] READ SNAKE_CASE KEYS (`location_suffix` /
+/// `role_inline`) even though the surrounding document is camelCase — see the
+/// file-level note above. Both are PRE-COMPOSED with their own leading
+/// separator (" · Gurugram, Haryana" / " — CNC Turner") so an absent value
+/// leaves no stray separator when appended to [employer].
+class ResumeEmploymentDto extends Equatable {
+  const ResumeEmploymentDto({
+    this.employer = '',
+    this.locationSuffix,
+    this.roleInline,
+    this.when = '',
+    this.work = '',
+    this.roles = const <ResumeEmploymentRoleStintDto>[],
+  });
+
+  final String employer;
+  final String? locationSuffix;
+  final String? roleInline;
+
+  /// The EMPLOYMENT's own span ("Jan 2023 – Present · 3 yrs 6 mo") — never
+  /// the employer's, distinct from each [roles] stint's own `when`.
+  final String when;
+  final String work;
+  final List<ResumeEmploymentRoleStintDto> roles;
+
+  factory ResumeEmploymentDto.fromJson(Map<String, dynamic> json) {
+    final List<dynamic> rawRoles =
+        json['roles'] as List<dynamic>? ?? const <dynamic>[];
+    return ResumeEmploymentDto(
+      employer: json['employer'] as String? ?? '',
+      locationSuffix: json['location_suffix'] as String?,
+      roleInline: json['role_inline'] as String?,
+      when: json['when'] as String? ?? '',
+      work: json['work'] as String? ?? '',
+      roles: rawRoles
+          .whereType<Map<String, dynamic>>()
+          .map(ResumeEmploymentRoleStintDto.fromJson)
+          .toList(growable: false),
+    );
+  }
+
+  @override
+  List<Object?> get props =>
+      <Object?>[employer, locationSuffix, roleInline, when, work, roles];
+}
+
+/// The two-line verdict a `format: "trade_sheet"` document's masthead prints
+/// — role · years · machines, then city · availability · salary.
+class ResumeSheetHeadlineDto extends Equatable {
+  const ResumeSheetHeadlineDto({this.line1, this.line2});
+
+  final String? line1;
+  final String? line2;
+
+  factory ResumeSheetHeadlineDto.fromJson(Map<String, dynamic> json) =>
+      ResumeSheetHeadlineDto(
+        line1: json['line1'] as String?,
+        line2: json['line2'] as String?,
+      );
+
+  @override
+  List<Object?> get props => <Object?>[line1, line2];
+}
+
+/// THE RESUME AS STRUCTURED DATA (#1343) — what the resume tab draws instead
+/// of parsing `resume_text` for `Label: value` lines. Mirrors apps/api
+/// `ResumeDocument` (resume-document.ts) exactly: TWO shapes, discriminated
+/// by [format].
+///
+/// SWITCH ON [format], NEVER ON `trade` (see [GenericResumeDocument.trade] /
+/// [TradeSheetResumeDocument.trade]) — there are exactly two LAYOUTS, and
+/// `trade` is open-ended: a welder's sheet is the same shape as a turner's
+/// with different rows in it. A Dart branch keyed on trade would need a new
+/// case for every future trade; a sealed switch on format never does.
+sealed class ResumeDocument extends Equatable {
+  const ResumeDocument({required this.header, this.footerMeta});
+
+  final ResumeDocumentHeaderDto header;
+
+  /// The masthead-matching footer line the sheet prints ("Generated 27 August
+  /// 2026 · Ref RK8M2Q"). Null on a document with nothing to print there.
+  final String? footerMeta;
+
+  /// Parses either shape by [format]. An unrecognised/missing `format` value
+  /// defaults to `generic` — the safe choice: a resume-document row this
+  /// client build does not recognise renders as the plain layout rather than
+  /// throwing the whole tab into a blank state.
+  static ResumeDocument fromJson(Map<String, dynamic> json) {
+    return switch (json['format'] as String?) {
+      'trade_sheet' => TradeSheetResumeDocument.fromJson(json),
+      _ => GenericResumeDocument.fromJson(json),
+    };
+  }
+
+  static ResumeDocumentHeaderDto _headerFrom(Map<String, dynamic> json) {
+    final Map<String, dynamic>? raw = json['header'] as Map<String, dynamic>?;
+    return raw == null
+        ? const ResumeDocumentHeaderDto()
+        : ResumeDocumentHeaderDto.fromJson(raw);
+  }
+
+  @override
+  List<Object?> get props => <Object?>[header, footerMeta];
+}
+
+/// `format: "generic"` — the flat, twelve-layout résumé every worker with no
+/// trade sheet renders (`classic`/`modern`/`minimal`/`fallback`).
+class GenericResumeDocument extends ResumeDocument {
+  const GenericResumeDocument({
+    required super.header,
+    super.footerMeta,
+    this.headline,
+    this.summary,
+    this.location,
+    this.availability,
+    this.experienceYears,
+    this.expectedSalary,
+    this.skills = const <String>[],
+    this.machines = const <String>[],
+    this.controllers = const <String>[],
+    this.education = const <String>[],
+    this.certifications = const <String>[],
+    this.preferredLocations = const <String>[],
+    this.experiences = const <ResumeExperienceLineDto>[],
+  });
+
+  /// Role title (`{{headline}}`, e.g. "VMC Operator"). ALWAYS `trade: null`
+  /// on this format server-side (there is no `trade` field on this class at
+  /// all — the generic format structurally cannot label one).
+  final String? headline;
+  final String? summary;
+  final String? location;
+  final String? availability;
+  final int? experienceYears;
+
+  /// Rupees per month, or null to omit the line — never shown to a payer,
+  /// only ever the worker's own copy (server-side `audience` gate).
+  final int? expectedSalary;
+  final List<String> skills;
+  final List<String> machines;
+  final List<String> controllers;
+  final List<String> education;
+  final List<String> certifications;
+  final List<String> preferredLocations;
+  final List<ResumeExperienceLineDto> experiences;
+
+  factory GenericResumeDocument.fromJson(Map<String, dynamic> json) {
+    List<String> strings(String key) =>
+        (json[key] as List<dynamic>? ?? const <dynamic>[])
+            .whereType<String>()
+            .toList(growable: false);
+    final List<dynamic> rawExperiences =
+        json['experiences'] as List<dynamic>? ?? const <dynamic>[];
+    return GenericResumeDocument(
+      header: ResumeDocument._headerFrom(json),
+      footerMeta: json['footerMeta'] as String?,
+      headline: json['headline'] as String?,
+      summary: json['summary'] as String?,
+      location: json['location'] as String?,
+      availability: json['availability'] as String?,
+      experienceYears: (json['experienceYears'] as num?)?.toInt(),
+      expectedSalary: (json['expectedSalary'] as num?)?.toInt(),
+      skills: strings('skills'),
+      machines: strings('machines'),
+      controllers: strings('controllers'),
+      education: strings('education'),
+      certifications: strings('certifications'),
+      preferredLocations: strings('preferredLocations'),
+      experiences: rawExperiences
+          .whereType<Map<String, dynamic>>()
+          .map(ResumeExperienceLineDto.fromJson)
+          .toList(growable: false),
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[
+        ...super.props,
+        headline,
+        summary,
+        location,
+        availability,
+        experienceYears,
+        expectedSalary,
+        skills,
+        machines,
+        controllers,
+        education,
+        certifications,
+        preferredLocations,
+        experiences,
+      ];
+}
+
+/// `format: "trade_sheet"` — the zoned-row layout a worker whose trade has an
+/// authored resume map renders (`bb_trade`). `trade` labels WHICH trade
+/// (e.g. "cnc_turner") but is a raw slug, never shown as-is on screen (the
+/// no-raw-ids rule) — [headline] already carries the human-readable labels,
+/// so the render layer has no need to display [trade] at all.
+class TradeSheetResumeDocument extends ResumeDocument {
+  const TradeSheetResumeDocument({
+    required super.header,
+    super.footerMeta,
+    required this.trade,
+    this.headline = const ResumeSheetHeadlineDto(),
+    this.sections = const <ResumeDocumentSectionDto>[],
+    this.employments = const <ResumeEmploymentDto>[],
+    this.employmentsMore,
+  });
+
+  final String trade;
+  final ResumeSheetHeadlineDto headline;
+
+  /// THE SHEET'S OWN ZONES, in the order it prints them — see
+  /// [ResumeDocumentSectionDto.hasRows] for the empty-zone display rule.
+  final List<ResumeDocumentSectionDto> sections;
+  final List<ResumeEmploymentDto> employments;
+
+  /// "and 2 more" when the block budget truncated the printed history. Null
+  /// when nothing was truncated.
+  final String? employmentsMore;
+
+  factory TradeSheetResumeDocument.fromJson(Map<String, dynamic> json) {
+    final Map<String, dynamic>? rawHeadline =
+        json['headline'] as Map<String, dynamic>?;
+    final List<dynamic> rawSections =
+        json['sections'] as List<dynamic>? ?? const <dynamic>[];
+    final List<dynamic> rawEmployments =
+        json['employments'] as List<dynamic>? ?? const <dynamic>[];
+    return TradeSheetResumeDocument(
+      header: ResumeDocument._headerFrom(json),
+      footerMeta: json['footerMeta'] as String?,
+      trade: json['trade'] as String? ?? '',
+      headline: rawHeadline == null
+          ? const ResumeSheetHeadlineDto()
+          : ResumeSheetHeadlineDto.fromJson(rawHeadline),
+      sections: rawSections
+          .whereType<Map<String, dynamic>>()
+          .map(ResumeDocumentSectionDto.fromJson)
+          .toList(growable: false),
+      employments: rawEmployments
+          .whereType<Map<String, dynamic>>()
+          .map(ResumeEmploymentDto.fromJson)
+          .toList(growable: false),
+      employmentsMore: json['employmentsMore'] as String?,
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[
+        ...super.props,
+        trade,
+        headline,
+        sections,
+        employments,
+        employmentsMore,
+      ];
+}
+
+/// Response of GET /resume/document (apps/api resume.controller.ts
+/// `myDocument`) — the worker's OWN latest resume as structured data.
+///
+/// [document] IS NULL FOR TWO ORDINARY, NON-ERROR REASONS documented
+/// server-side (`ResumeService.myDocument`): every resume rendered before
+/// this column shipped has none, and one still pending its FIRST render has
+/// none either. Callers MUST fall back to the existing `resume_text` parsing
+/// path on null rather than blanking the screen — null here is not "no
+/// resume", it is "no structured projection of this resume yet".
+class ResumeDocumentResponse extends Equatable {
+  const ResumeDocumentResponse({
+    required this.resumeId,
+    required this.version,
+    required this.document,
+  });
+
+  final String resumeId;
+  final int version;
+  final ResumeDocument? document;
+
+  factory ResumeDocumentResponse.fromJson(Map<String, dynamic> json) {
+    final Map<String, dynamic>? doc =
+        json['document'] as Map<String, dynamic>?;
+    return ResumeDocumentResponse(
+      resumeId: json['resume_id'] as String? ?? '',
+      version: (json['version'] as num?)?.toInt() ?? 1,
+      document: doc == null ? null : ResumeDocument.fromJson(doc),
+    );
+  }
+
+  @override
+  List<Object?> get props => <Object?>[resumeId, version, document];
+}
+
 /// The worker-editable resume "safe fields" (GET /workers/me/resume-fields) — the
 /// worker's OWN name spelling + the two display prefs. `fullName` is null until a
 /// name is set; the edit screen renders it as an empty spelling to fill in.

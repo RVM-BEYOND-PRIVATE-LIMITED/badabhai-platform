@@ -2,6 +2,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_repository.dart';
@@ -26,6 +27,9 @@ void main() {
         nightShiftReady: false,
       ),
     );
+    // #1343 — the ORDINARY answer (no structured document yet). Tests below
+    // that care about a real document override this per-test.
+    when(() => repo.loadResumeDocument()).thenAnswer((_) async => null);
   });
 
   // bloc emits the first state even when it equals the initial `loading`.
@@ -227,6 +231,87 @@ void main() {
       await Future.wait<void>(<Future<void>>[cubit.generate(), cubit.refresh()]);
 
       expect(calls, 1, reason: 'the second load must be ignored, not stacked');
+    });
+  });
+
+  // #1343 — the cubit best-effort loads GET /resume/document alongside the
+  // existing resume text, and NEVER lets a hiccup there cost the worker the
+  // text/night-shift state that already resolved.
+  group('structured document (#1343)', () {
+    const ResumeDocument tradeSheet = TradeSheetResumeDocument(
+      header: ResumeDocumentHeaderDto(name: 'Suresh Yadav'),
+      trade: 'cnc_turner',
+    );
+
+    test('generate() carries the repo\'s document onto ready state', () async {
+      when(() => repo.generateResume()).thenAnswer((_) async => 'RESUME TEXT');
+      when(() => repo.loadResumeDocument())
+          .thenAnswer((_) async => tradeSheet);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      addTearDown(cubit.close);
+
+      await cubit.generate();
+
+      expect(cubit.state.status, ResumeStatus.ready);
+      expect(cubit.state.document, same(tradeSheet));
+    });
+
+    test('a document fetch that THROWS never costs the worker their resume '
+        'text (belt-and-suspenders, matching the night-shift pref)', () async {
+      when(() => repo.generateResume()).thenAnswer((_) async => 'RESUME TEXT');
+      when(() => repo.loadResumeDocument())
+          .thenThrow(const NetworkFailure());
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      addTearDown(cubit.close);
+
+      await cubit.generate();
+
+      expect(cubit.state.status, ResumeStatus.ready);
+      expect(cubit.state.resumeText, 'RESUME TEXT');
+      expect(cubit.state.document, isNull);
+    });
+
+    test('showGenerated() also loads the structured document', () async {
+      when(() => repo.loadResumeDocument())
+          .thenAnswer((_) async => tradeSheet);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      addTearDown(cubit.close);
+
+      await cubit.showGenerated('good resume');
+
+      expect(cubit.state.document, same(tradeSheet));
+    });
+
+    test('refreshNightShift() PRESERVES the document — a prefs-only reload '
+        'must not blank a document that was already on screen', () async {
+      when(() => repo.loadResumeDocument())
+          .thenAnswer((_) async => tradeSheet);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      addTearDown(cubit.close);
+      await cubit.showGenerated('good resume');
+      expect(cubit.state.document, same(tradeSheet));
+
+      await cubit.refreshNightShift();
+
+      expect(cubit.state.document, same(tradeSheet));
+    });
+
+    test('refresh() re-fetches and can pick up a document that appeared '
+        'since the last load', () async {
+      when(() => repo.generateResume(force: any(named: 'force')))
+          .thenAnswer((_) async => 'resume text');
+      when(() => repo.loadResumeDocument())
+          .thenAnswer((_) async => null);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      addTearDown(cubit.close);
+      await cubit.generate();
+      expect(cubit.state.document, isNull);
+
+      when(() => repo.loadResumeDocument())
+          .thenAnswer((_) async => tradeSheet);
+      await cubit.refresh();
+
+      expect(cubit.state.document, same(tradeSheet));
     });
   });
 }

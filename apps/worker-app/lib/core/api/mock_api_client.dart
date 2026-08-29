@@ -322,6 +322,25 @@ class MockApiClient extends ApiClient {
     );
   }
 
+  /// #1343 — GET /resume/document. `document: null` is an ORDINARY answer per
+  /// the real contract (see [ApiClient.getResumeDocument]), so returning it
+  /// here is not a stub gap: mock mode simply keeps exercising the existing
+  /// `resume_text` rendering path (which every other mock override in this
+  /// file already feeds via [_cannedResume]) rather than inventing a second,
+  /// parallel canned trade-sheet document that nothing else in mock mode
+  /// would keep honest.
+  @override
+  Future<ResumeDocumentResponse> getResumeDocument({
+    required String authToken,
+  }) async {
+    await _delay();
+    return const ResumeDocumentResponse(
+      resumeId: 'mock-resume-0001',
+      version: 1,
+      document: null,
+    );
+  }
+
   // The `mock://` SCHEME is the downloader's mock sentinel: `downloadSignedPdf`
   // sees it, skips the (impossible) network fetch, and saves a small placeholder
   // PDF instead — so the download flow stays walkable offline. Keep the scheme
