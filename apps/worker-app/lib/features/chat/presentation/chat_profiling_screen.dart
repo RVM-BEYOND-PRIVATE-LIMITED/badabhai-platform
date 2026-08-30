@@ -818,6 +818,26 @@ class _ChatViewState extends State<_ChatView> {
             ),
           ],
         ),
+        // Feedback lives HERE instead of the app-wide floating button on this
+        // screen (both the onboarding chat and the Bada Bhai tab reuse it) —
+        // see the exclusion in feedback_fab.dart. Same action, same icon,
+        // only the position differs.
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => context.push(
+              Routes.feedback,
+              extra: GoRouterState.of(context).uri.path,
+            ),
+            child: Text(
+              'Feedback',
+              style: AppTypography.body(
+                size: AppTypography.sizeSm,
+                weight: FontWeight.w700,
+                color: AppColors.onBlue,
+              ),
+            ),
+          ),
+        ],
       ),
       body: BlocListener<ChatBloc, ChatState>(
         // Fire when a message is appended (length grows) OR when the in-flight

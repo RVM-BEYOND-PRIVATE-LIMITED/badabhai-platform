@@ -20,7 +20,10 @@ const String _kSplash = '/';
 ///    forever (the reported infinite-stack bug), and
 ///  - the PRE-LOGIN screens (login / OTP / PIN) — feedback is worker-authed, so
 ///    with no session token there yet a tap would only 401; a dead button is
-///    worse than no button.
+///    worse than no button, and
+///  - the two `ChatProfilingScreen` routes (onboarding chat + Bada Bhai tab) —
+///    that screen puts its own Feedback action in the header instead, so the
+///    floating one would double up.
 /// Everywhere the worker is logged in (including consent + name onboarding) shows
 /// it.
 const List<String> _kHiddenPrefixes = <String>[
@@ -28,6 +31,8 @@ const List<String> _kHiddenPrefixes = <String>[
   Routes.otpVerify, // /otp
   Routes.pin, // /pin (covers /pin/set, /pin/forgot) — locked, no session token
   Routes.feedback, // don't offer feedback from the feedback page (anti-stack)
+  Routes.chatProfiling, // /chat — header owns Feedback here instead
+  Routes.badaBhai, // /bada-bhai — same screen, same reason
 ];
 
 /// Whether the floating Feedback button should show on [path].
