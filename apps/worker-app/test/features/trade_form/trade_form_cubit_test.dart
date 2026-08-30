@@ -213,6 +213,91 @@ void main() {
     expect(cubit.state.currentStep, isA<TradeFormEmploymentStep>());
   });
 
+  test(
+      'savePreferencesAndAdvance on the LAST step reaches done, never gets '
+      'stuck at submitting (#1367)', () async {
+    // A form whose last step IS the preferences marker — no employment
+    // section after it.
+    const TradeForm formPrefsLast = TradeForm(
+      kind: 'cnc_turner',
+      packId: 'qp_cnc_turning',
+      packVersion: 1,
+      sections: <TradeFormSection>[
+        TradeFormSection(
+          id: 'capability',
+          title: 'Machines, controllers & capability',
+          screens: <TradeFormStep>[
+            TradeFormQuestionStep(question: _q1, searchable: false),
+          ],
+        ),
+        TradeFormSection(
+          id: 'terms',
+          title: 'Availability & terms',
+          screens: <TradeFormStep>[TradeFormPreferencesStep()],
+        ),
+      ],
+    );
+    when(() => repo.loadForm()).thenAnswer((_) async => formPrefsLast);
+    when(() => repo.submitAnswer(
+          questionKey: any(named: 'questionKey'),
+          answer: any(named: 'answer'),
+        )).thenAnswer((_) async => const TradeFormAnswerResult(
+          questionKey: 'turning_machine',
+          status: TradeFormAnswerStatus.answered,
+          answered: 1,
+          total: 1,
+        ));
+    when(() => repo.savePreferences(any())).thenAnswer((_) async {});
+    final TradeFormCubit cubit = build();
+    await cubit.load();
+    await cubit.answerQuestion(
+      cubit.state.currentStep as TradeFormQuestionStep,
+      const TradeFormAnswer.chips(<String>['cnc_lathe']),
+    );
+    expect(cubit.state.currentStep, isA<TradeFormPreferencesStep>());
+    expect(cubit.state.isLastStep, isTrue);
+
+    await cubit.savePreferencesAndAdvance(const TradeFormPreferences());
+
+    verify(() => repo.savePreferences(any())).called(1);
+    expect(cubit.state.status, TradeFormStatus.done);
+    expect(cubit.state.status, isNot(TradeFormStatus.submitting));
+  });
+
+  test(
+      'saveEmploymentAndAdvance on the LAST step reaches done, never gets '
+      'stuck at submitting (#1367)', () async {
+    when(() => repo.loadForm()).thenAnswer((_) async => _form());
+    when(() => repo.submitAnswer(
+          questionKey: any(named: 'questionKey'),
+          answer: any(named: 'answer'),
+        )).thenAnswer((_) async => const TradeFormAnswerResult(
+          questionKey: 'material_worked',
+          status: TradeFormAnswerStatus.answered,
+          answered: 2,
+          total: 2,
+        ));
+    when(() => repo.savePreferences(any())).thenAnswer((_) async {});
+    when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
+    final TradeFormCubit cubit = build();
+    await cubit.load();
+    await cubit.answerQuestion(
+      cubit.state.currentStep as TradeFormQuestionStep,
+      const TradeFormAnswer.chips(<String>['mild_steel']),
+    );
+    await cubit.savePreferencesAndAdvance(const TradeFormPreferences());
+    expect(cubit.state.currentStep, isA<TradeFormEmploymentStep>());
+    expect(cubit.state.isLastStep, isTrue);
+
+    await cubit.saveEmploymentAndAdvance(<TradeFormEmploymentEntry>[
+      const TradeFormEmploymentEntry(employerName: 'Acme', roleLabel: 'Fitter'),
+    ]);
+
+    verify(() => repo.saveEmployment(any())).called(1);
+    expect(cubit.state.status, TradeFormStatus.done);
+    expect(cubit.state.status, isNot(TradeFormStatus.submitting));
+  });
+
   test('saveEmploymentAndAdvance blocks on a partially-typed employer',
       () async {
     when(() => repo.loadForm()).thenAnswer((_) async => _form());

@@ -233,4 +233,58 @@ void main() {
     // Now on the employment marker screen.
     expect(find.text('Aapne pehle kahan kaam kiya?'), findsOneWidget);
   });
+
+  testWidgets(
+      'finishing the LAST marker screen ("Ho gaya") navigates to '
+      'Routes.building instead of spinning forever (#1367)',
+      (WidgetTester tester) async {
+    when(() => repo.loadForm()).thenAnswer((_) async => _form());
+    when(() => repo.submitAnswer(
+          questionKey: any(named: 'questionKey'),
+          answer: any(named: 'answer'),
+        )).thenAnswer((_) async => const TradeFormAnswerResult(
+          questionKey: 'x',
+          status: TradeFormAnswerStatus.answered,
+          answered: 2,
+          total: 2,
+        ));
+
+    final GoRouter router = GoRouter(
+      initialLocation: '/trade-form',
+      routes: <RouteBase>[
+        GoRoute(
+          path: '/trade-form',
+          builder: (_, __) => const TradeFormScreen(),
+        ),
+        GoRoute(
+          path: '/building',
+          builder: (_, __) => const Scaffold(body: Text('BUILDING')),
+        ),
+      ],
+    );
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+
+    // Walk to the employment marker exactly like the previous test.
+    await tester.ensureVisible(find.text('Pata nahi').first);
+    await tester.tap(find.text('Pata nahi').first); // decline q1
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Pata nahi').first);
+    await tester.tap(find.text('Pata nahi').first); // decline q2
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Aage badhein'));
+    await tester.tap(find.text('Aage badhein')); // save preferences
+    await tester.pumpAndSettle();
+    expect(find.text('Aapne pehle kahan kaam kiya?'), findsOneWidget);
+
+    // The employment marker is the LAST step — the button reads "Ho gaya".
+    expect(find.text('Ho gaya'), findsOneWidget);
+    await tester.ensureVisible(find.text('Ho gaya'));
+    await tester.tap(find.text('Ho gaya'));
+    await tester.pumpAndSettle();
+
+    verify(() => repo.saveEmployment(any())).called(1);
+    expect(router.routerDelegate.currentConfiguration.uri.path, '/building');
+    expect(find.text('BUILDING'), findsOneWidget);
+  });
 }
