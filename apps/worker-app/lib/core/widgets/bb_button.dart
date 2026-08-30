@@ -52,6 +52,7 @@ class BbButton extends StatelessWidget {
     this.iconRight,
     this.loading = false,
     this.buttonKey,
+    this.allowMultilineLabel = false,
   }) : assert(
           !(size == BbButtonSize.sm &&
               (variant == BbButtonVariant.primary ||
@@ -80,6 +81,17 @@ class BbButton extends StatelessWidget {
   /// Key applied to the underlying Material button (handy for widget tests).
   final Key? buttonKey;
 
+  /// Opt-in: let [label] wrap onto a second line instead of single-line
+  /// ellipsis truncation. DEFAULT FALSE, unchanged everywhere else — every
+  /// existing call site keeps today's single-line-ellipsis behaviour.
+  /// [Text.overflow] with no `maxLines` set already behaves as `maxLines: 1`
+  /// (Flutter's own documented rule), which is exactly what truncated
+  /// server-supplied copy that can run long (e.g. the trade-form handover
+  /// card's CTA, #1364) — this only widens the ceiling to two lines for the
+  /// caller that opts in, with ellipsis kept as the safety net if it still
+  /// does not fit.
+  final bool allowMultilineLabel;
+
   double get _height => switch (size) {
         BbButtonSize.sm => AppSpacing.controlSm,
         BbButtonSize.md => AppSpacing.controlMd,
@@ -104,6 +116,7 @@ class BbButton extends StatelessWidget {
       iconRight: iconRight,
       loading: loading,
       size: size,
+      allowMultilineLabel: allowMultilineLabel,
     );
 
     final Size minSize = Size(block ? double.infinity : 64, _height);
@@ -249,6 +262,7 @@ class _Content extends StatelessWidget {
     required this.iconRight,
     required this.loading,
     required this.size,
+    required this.allowMultilineLabel,
   });
 
   final String label;
@@ -256,6 +270,7 @@ class _Content extends StatelessWidget {
   final IconData? iconRight;
   final bool loading;
   final BbButtonSize size;
+  final bool allowMultilineLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -278,7 +293,18 @@ class _Content extends StatelessWidget {
           Icon(iconLeft, size: iconSize),
           const SizedBox(width: AppSpacing.s2),
         ],
-        Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
+        Flexible(
+          child: Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            // `overflow: ellipsis` with no `maxLines` already behaves as
+            // `maxLines: 1` (Flutter's documented rule) — the default here,
+            // unchanged. Opting in raises the ceiling to 2 lines with
+            // ellipsis kept as the safety net (#1364).
+            maxLines: allowMultilineLabel ? 2 : null,
+            softWrap: allowMultilineLabel ? true : null,
+          ),
+        ),
         if (iconRight != null) ...<Widget>[
           const SizedBox(width: AppSpacing.s2),
           Icon(iconRight, size: iconSize),
