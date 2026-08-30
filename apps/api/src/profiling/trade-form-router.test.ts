@@ -145,6 +145,21 @@ describe("routeToTradeForm", () => {
       expect(route(null, null, null, "CNC Operator-Turning")).toBe("cnc_turner");
     });
 
+    it('rescues the real "machining" session, where the model spoke but said nothing useful', () => {
+      // A RECORDED SESSION IN THIS REPO ran six turns with domain_label "machining" and a null
+      // role. "machining" is in neither the occupation nor the machine list, and bare "machining"
+      // is deliberately NOT a conflict term either (only "machining centre"/"center" are) — so it
+      // is a non-empty haystack that routes nowhere, indistinguishable from silence.
+      //
+      // Worth its own case because it fails DIFFERENTLY from the null-label turn: the empty-
+      // haystack guard never fires, so a fix that only handled "the model said nothing" would
+      // have left this worker interviewing to the end.
+      expect(route("machining", null, null)).toBeNull();
+      expect(route("machining", null, "fam_cnc_turning", "CNC Operator-Turning")).toBe(
+        "cnc_turner",
+      );
+    });
+
     it("a mis-pinned worker is STILL not routed — the label has to say so", () => {
       // The property the family-alone rule was written to protect, now restated against the
       // label. A cashier wrongly pinned into the turning family contributes "Cashier", which
