@@ -8,6 +8,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_blue_header.dart';
 import '../../../core/widgets/bb_button.dart';
+import '../../../router.dart';
 import '../domain/trade_form_models.dart';
 import 'cubit/trade_form_cubit.dart';
 import 'widgets/trade_form_employment_page.dart';
@@ -46,7 +47,16 @@ class _TradeFormView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<TradeFormCubit, TradeFormState>(
+    return BlocConsumer<TradeFormCubit, TradeFormState>(
+      listenWhen: (TradeFormState p, TradeFormState c) => p.status != c.status,
+      listener: (BuildContext context, TradeFormState state) {
+        if (state.status == TradeFormStatus.done) {
+          // #1367: the last marker save landed — there is no further step in
+          // this walk. Leave via the SAME terminal pipeline every other
+          // profiling path already uses (see profile_preview_screen.dart).
+          context.go(Routes.building);
+        }
+      },
       builder: (BuildContext context, TradeFormState state) {
         switch (state.status) {
           case TradeFormStatus.loading:
@@ -70,6 +80,13 @@ class _TradeFormView extends StatelessWidget {
           case TradeFormStatus.ready:
           case TradeFormStatus.submitting:
             return _WizardScaffold(state: state);
+          case TradeFormStatus.done:
+            // Mid-navigation-away (the listener above fires `go` for this
+            // same state) — one transitional frame, not a stuck screen.
+            return const _StatusScaffold(
+              title: _kNoFormHeader,
+              child: _LoadingBody(),
+            );
         }
       },
     );
