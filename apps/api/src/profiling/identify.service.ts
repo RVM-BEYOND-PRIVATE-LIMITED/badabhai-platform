@@ -222,6 +222,13 @@ export class IdentifyService {
     return {
       patch: {
         occupation: pin,
+        // THE SAME KEY THE AUTO PATH RECORDS, and it was missing here. `pin()` says the family is
+        // written "at the one place a pin is minted, so the chip path and the auto path cannot
+        // disagree about which family a worker was placed in" — but there are TWO places that
+        // mint a pin and only that one set it, so a worker who TAPPED their occupation ended the
+        // turn with a null family. That is the highest-quality signal in the system, per the
+        // comment above, arriving with less state than a lexical guess.
+        occupationFamilyId: tapped.familyId ?? null,
         needsDisambiguation: false,
         disambiguationOffer: [],
         catalogVersion: described.catalogVersion,

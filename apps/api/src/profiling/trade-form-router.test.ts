@@ -14,11 +14,13 @@ function route(
   role: string | null,
   familyId: string | null = null,
   occupationLabel: string | null = null,
+  workerText: string | null = null,
 ): TradeFormKind | null {
   return routeToTradeForm({
     draft: { domain_label: domain, role_label: role, skills: [], experiences: [] },
     occupationFamilyId: familyId,
     occupationLabel,
+    workerText,
   });
 }
 
@@ -176,6 +178,48 @@ describe("routeToTradeForm", () => {
     it("an empty pin changes nothing", () => {
       expect(route("Retail", "Cashier", null, null)).toBeNull();
       expect(route("CNC Machining", "CNC Turner", null, null)).toBe("cnc_turner");
+    });
+  });
+
+  /**
+   * ═══ THE WORKER'S OWN WORDS, FOR THE VETO ONLY ═══
+   *
+   * Raw worker text may make this router more reluctant and never more willing. That asymmetry is
+   * what makes reading free text safe here at all: matching occupation or machine terms against it
+   * would be the machine-plus-function fabrication the module refuses to do at the top.
+   */
+  describe("a conflict the worker states out loud", () => {
+    it('does not hand over "cnc turning aur vmc dono karta hoon"', () => {
+      // THE CASE THE PINNED LABEL OPENED UP. Retrieval pins the longest exact alias span, so this
+      // pins cleanly on "cnc turning"; bare "vmc" is not an alias, contributes no rival candidate,
+      // and the pin returns auto at high confidence. The label is then "CNC Operator-Turning" and
+      // the model's draft is still empty — so every surface the veto could read says "turner",
+      // and the worker's own "vmc" lives only in the sentence they typed.
+      expect(
+        route(null, null, "fam_cnc_turning", "CNC Operator-Turning", "cnc turning aur vmc dono karta hoon"),
+      ).toBeNull();
+    });
+
+    it("still hands over a worker who mentions no competing machine", () => {
+      // The discriminating case: without it the assertion above would pass against a router that
+      // had stopped handing over at all once it started reading worker text.
+      expect(
+        route(null, null, "fam_cnc_turning", "CNC Operator-Turning", "main cnc turning karta hoon"),
+      ).toBe("cnc_turner");
+    });
+
+    it("worker text can never CAUSE a handover, only prevent one", () => {
+      // The asymmetry, asserted directly. A worker whose sentence is full of turning words but
+      // whom nothing has pinned and whom the model has not labelled routes nowhere — otherwise
+      // "cnc turning ka kaam dhoondh raha hoon" (LOOKING for turning work) would hand a job
+      // seeker eighteen questions about a machine they may never have touched.
+      expect(route(null, null, null, null, "cnc turner turning lathe khraad")).toBeNull();
+    });
+
+    it("vetoes on the worker's words even when the model wrote a clean label", () => {
+      expect(
+        route("CNC Machining", "CNC Turner", null, null, "turning aur milling dono karta hoon"),
+      ).toBeNull();
     });
   });
 
