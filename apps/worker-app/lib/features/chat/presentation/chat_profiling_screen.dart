@@ -20,6 +20,7 @@ import '../../../core/widgets/bb_chat_bubble.dart';
 import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_progress_bar.dart';
 import '../../../core/widgets/bb_status_view.dart';
+import '../../../core/widgets/bottom_bar_inset.dart';
 import '../../../router.dart';
 import '../../voice/domain/speech_reader.dart';
 import '../../voice/domain/voice_models.dart';
@@ -161,6 +162,19 @@ class _ChatViewState extends State<_ChatView> {
   /// so that fires on the way IN and unlatches before the second tap.
   bool _wasSending = false;
 
+  /// Anchors the bottom composer/CTA segment (the composer-or-hint row plus
+  /// the CTA-or-handover-card row) so its rendered height can be measured and
+  /// published to [bottomBarInset] (#1364). This screen uses a raw [Scaffold],
+  /// not [BbScaffold], so it never otherwise participates in the mechanism
+  /// [FeedbackFabOverlay] reads to float clear of a page's bottom content —
+  /// without this, the FAB sits at its default float height and the (taller)
+  /// #1339/#1340 handover card's headline collides with it. See
+  /// [_publishBottomInset] for the measure-and-publish discipline, copied from
+  /// `BbScaffold._publishInset` (deliberately NOT refactored onto BbScaffold —
+  /// the composer/CTA stack here lives inside a SafeArea > Column inside a
+  /// Stack-based body, not a clean `bottomNavigationBar` slot).
+  final GlobalKey _bottomSegmentKey = GlobalKey();
+
   // ---- Tap-to-talk (voice → text into the composer) -----------------------
   //
   // Tapping the MIC in the send slot ([_composerAction]) runs the DEVICE's own
@@ -206,7 +220,29 @@ class _ChatViewState extends State<_ChatView> {
     _scroll.removeListener(_onScroll);
     _scroll.dispose();
     _controller.dispose();
+    // #1364 — this page is leaving; stop claiming the FAB inset it published.
+    // DEFERRED to after the frame, same reason as `BbScaffold.dispose`:
+    // dispose runs during the build/tree-finalize phase, and writing the
+    // (listened) notifier synchronously here would markNeedsBuild the FAB
+    // overlay mid-build. An overlay that outlives this screen falls back to
+    // its own default float height — never an overlap.
+    WidgetsBinding.instance.addPostFrameCallback((_) => bottomBarInset.value = 0);
     super.dispose();
+  }
+
+  /// Measures [_bottomSegmentKey]'s rendered height and publishes it to
+  /// [bottomBarInset] (#1364) so the app-wide Feedback FAB floats clear of
+  /// whichever is on screen today — the short [_doneCta] row or the taller
+  /// #1339/#1340 handover card. Same measure-and-publish discipline as
+  /// `BbScaffold._publishInset`: deferred to a post-frame callback because the
+  /// render box is only sized after layout, keeping the notifier write out of
+  /// the build phase. `?? 0` covers both the `initializing` branch (the key's
+  /// widget is not in the tree yet) and a frame where layout has not run.
+  void _publishBottomInset() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      bottomBarInset.value = _bottomSegmentKey.currentContext?.size?.height ?? 0;
+    });
   }
 
   /// The dictation controller flipped the waveform on/off — repaint the composer.
@@ -884,42 +920,7 @@ class _ChatViewState extends State<_ChatView> {
                           color: AppColors.textMuted,
                           text: maintenance,
                         ),
-                      // #770 — on an options_only turn the chips above are the
-                      // ONLY answer path, so suppress the composer (and its mic,
-                      // since voice resolves to typed text). GUARDED on non-empty
-                      // followups: a malformed options_only turn with no chips
-                      // must never trap the worker with no way to answer, so the
-                      // composer stays in that case.
-                      //
-                      // #1363 — a form_offer turn is the server CLOSING the
-                      // session (`kind: "close"`, `form_handoff`): typing into it
-                      // would be swallowed, so the composer must never render
-                      // alongside the handover card. `state.formOffer != null`
-                      // alone is a safe gate (unlike options_only, [FormOffer]
-                      // has no "empty list" hazard — its required fields cannot
-                      // be blank; see `FormOffer.fromJson`), so no separate flag
-                      // is needed. Shares the [_optionsOnlyHint] locked-look
-                      // FRAME (via [_lockedComposerBar]) with its own copy,
-                      // rather than leaving a bare gap.
-                      if (state.inputMode == ChatInputMode.optionsOnly &&
-                          state.followups.isNotEmpty)
-                        _optionsOnlyHint()
-                      else if (state.formOffer != null)
-                        _formOfferLockedHint()
-                      else
-                        _inputBar(showVoice),
-                      // #1339/#1340 — the handover card REPLACES the "build my
-                      // profile" CTA on the one turn that hands the worker to a
-                      // trade form, never alongside it. `extraction_ready` is
-                      // already false on that turn (see [ChatState.formOffer]),
-                      // but `_doneCta` renders UNCONDITIONALLY regardless of
-                      // readiness (it only changes label/style) — so this branch,
-                      // not that flag, is what actually keeps the two CTAs from
-                      // both appearing.
-                      if (state.formOffer != null)
-                        _formOfferCard(state.formOffer!)
-                      else
-                        _doneCta(state),
+                      _bottomComposerSegment(state, showVoice),
                     ],
                   ),
                 ),
@@ -928,6 +929,58 @@ class _ChatViewState extends State<_ChatView> {
           },
         ),
       ),
+    );
+  }
+
+  /// The composer-or-hint row plus the CTA-or-handover-card row, as ONE
+  /// measured segment (#1364): wrapped in [_bottomSegmentKey] so
+  /// [_publishBottomInset] can tell the app-wide Feedback FAB how tall
+  /// today's bottom content actually is. Scheduled on every call — which
+  /// tracks the [BlocBuilder] rebuild cadence — because either row's content
+  /// (and so this segment's height) can change from turn to turn.
+  Widget _bottomComposerSegment(ChatState state, bool showVoice) {
+    _publishBottomInset();
+    return Column(
+      key: _bottomSegmentKey,
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        // #770 — on an options_only turn the chips above are the
+        // ONLY answer path, so suppress the composer (and its mic,
+        // since voice resolves to typed text). GUARDED on non-empty
+        // followups: a malformed options_only turn with no chips
+        // must never trap the worker with no way to answer, so the
+        // composer stays in that case.
+        //
+        // #1363 — a form_offer turn is the server CLOSING the
+        // session (`kind: "close"`, `form_handoff`): typing into it
+        // would be swallowed, so the composer must never render
+        // alongside the handover card. `state.formOffer != null`
+        // alone is a safe gate (unlike options_only, [FormOffer]
+        // has no "empty list" hazard — its required fields cannot
+        // be blank; see `FormOffer.fromJson`), so no separate flag
+        // is needed. Shares the [_optionsOnlyHint] locked-look
+        // FRAME (via [_lockedComposerBar]) with its own copy,
+        // rather than leaving a bare gap.
+        if (state.inputMode == ChatInputMode.optionsOnly &&
+            state.followups.isNotEmpty)
+          _optionsOnlyHint()
+        else if (state.formOffer != null)
+          _formOfferLockedHint()
+        else
+          _inputBar(showVoice),
+        // #1339/#1340 — the handover card REPLACES the "build my
+        // profile" CTA on the one turn that hands the worker to a
+        // trade form, never alongside it. `extraction_ready` is
+        // already false on that turn (see [ChatState.formOffer]),
+        // but `_doneCta` renders UNCONDITIONALLY regardless of
+        // readiness (it only changes label/style) — so this branch,
+        // not that flag, is what actually keeps the two CTAs from
+        // both appearing.
+        if (state.formOffer != null)
+          _formOfferCard(state.formOffer!)
+        else
+          _doneCta(state),
+      ],
     );
   }
 
