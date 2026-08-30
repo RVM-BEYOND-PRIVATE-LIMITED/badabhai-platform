@@ -22,6 +22,11 @@ enum TradeFormStatus {
 
   /// A question/preferences/employment write is in flight.
   submitting,
+
+  /// The marker save on the LAST step landed (#1367) — there is no next
+  /// step to walk to, the session is over, and the screen should be
+  /// navigating away (to the résumé pipeline), not sitting on a spinner.
+  done,
 }
 
 /// One entry of the flattened walk order, carrying the SECTION it belongs to
@@ -190,7 +195,14 @@ class TradeFormCubit extends Cubit<TradeFormState> {
   }
 
   void _advanceAfterMarkerSave() {
-    if (state.isLastStep) return;
+    if (state.isLastStep) {
+      // #1367: the write already landed — there is no next step, so this
+      // MUST still emit (leaving state at `submitting` forever is the bug),
+      // just with nowhere further to walk to. The screen reacts to `done`
+      // by navigating away.
+      emit(state.copyWith(status: TradeFormStatus.done, submitError: null));
+      return;
+    }
     emit(state.copyWith(
       status: TradeFormStatus.ready,
       currentIndex: state.currentIndex + 1,
