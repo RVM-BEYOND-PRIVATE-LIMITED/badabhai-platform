@@ -619,6 +619,11 @@ class _ChatViewState extends State<_ChatView> {
               size: BbButtonSize.lg,
               iconLeft: Icons.arrow_forward_rounded,
               onPressed: _openingTradeForm ? null : _openTradeForm,
+              // #1364 — `ctaLabel` is server-supplied copy that can run long
+              // ("Form bharkar resume pura karein") and must never be
+              // shortened client-side; let it wrap to a second line instead
+              // of truncating with an ellipsis.
+              allowMultilineLabel: true,
             ),
           ],
         ),
