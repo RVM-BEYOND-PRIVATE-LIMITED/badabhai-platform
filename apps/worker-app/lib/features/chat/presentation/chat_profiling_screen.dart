@@ -78,6 +78,14 @@ const String kChatBlockedNotice =
 /// PII-free constant copy.
 const String kChatOptionsOnlyHint = 'Upar diye gaye vikalp mein se chunein';
 
+/// Shown in place of the composer on a `form_offer` (handover) turn (#1363):
+/// the server has CLOSED this session (`kind: "close"`, `form_handoff`), so
+/// typing here would go nowhere — tell the worker the button below is the way
+/// forward rather than leave a live-looking field on a dead session. Aap-form,
+/// PII-free constant copy; distinct from [kChatOptionsOnlyHint] because there
+/// are no chips above to point at on this turn.
+const String kChatFormOfferLockedHint = 'Neeche diya button dabakar aage badhein';
+
 /// Nudge-sheet heading.
 ///
 /// PERSONA: was 'Ek minute, bhai'. `bhai` as a VOCATIVE is banned by the Ten
@@ -877,9 +885,22 @@ class _ChatViewState extends State<_ChatView> {
                       // followups: a malformed options_only turn with no chips
                       // must never trap the worker with no way to answer, so the
                       // composer stays in that case.
+                      //
+                      // #1363 — a form_offer turn is the server CLOSING the
+                      // session (`kind: "close"`, `form_handoff`): typing into it
+                      // would be swallowed, so the composer must never render
+                      // alongside the handover card. `state.formOffer != null`
+                      // alone is a safe gate (unlike options_only, [FormOffer]
+                      // has no "empty list" hazard — its required fields cannot
+                      // be blank; see `FormOffer.fromJson`), so no separate flag
+                      // is needed. Shares the [_optionsOnlyHint] locked-look
+                      // FRAME (via [_lockedComposerBar]) with its own copy,
+                      // rather than leaving a bare gap.
                       if (state.inputMode == ChatInputMode.optionsOnly &&
                           state.followups.isNotEmpty)
                         _optionsOnlyHint()
+                      else if (state.formOffer != null)
+                        _formOfferLockedHint()
                       else
                         _inputBar(showVoice),
                       // #1339/#1340 — the handover card REPLACES the "build my
@@ -1029,7 +1050,22 @@ class _ChatViewState extends State<_ChatView> {
   /// that keeps the same paper-bar frame as [_inputBar] (no layout jump) and
   /// tells the worker, in aap-form, to answer from the chips above. No text
   /// field, no send, no mic — the chips are the only way to answer this turn.
-  Widget _optionsOnlyHint() {
+  Widget _optionsOnlyHint() =>
+      _lockedComposerBar(text: kChatOptionsOnlyHint, icon: Icons.touch_app_outlined);
+
+  /// Replaces the composer on a `form_offer` (handover) turn (#1363): the same
+  /// locked-look frame as [_optionsOnlyHint], but pointing at the CTA below
+  /// rather than chips above — this turn has none, only the handover card's
+  /// button.
+  Widget _formOfferLockedHint() => _lockedComposerBar(
+        text: kChatFormOfferLockedHint,
+        icon: Icons.arrow_downward_rounded,
+      );
+
+  /// Shared locked-look composer replacement: same paper-bar frame as
+  /// [_inputBar] (no layout jump when it swaps in), a muted icon and one line
+  /// of muted, aap-form copy. No text field, no send, no mic.
+  Widget _lockedComposerBar({required String text, required IconData icon}) {
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.surfaceCard,
@@ -1043,15 +1079,11 @@ class _ChatViewState extends State<_ChatView> {
       ),
       child: Row(
         children: <Widget>[
-          const Icon(
-            Icons.touch_app_outlined,
-            color: AppColors.textMuted,
-            size: 20,
-          ),
+          Icon(icon, color: AppColors.textMuted, size: 20),
           const SizedBox(width: AppSpacing.s2),
           Expanded(
             child: Text(
-              kChatOptionsOnlyHint,
+              text,
               style: AppTypography.body(
                 size: AppTypography.sizeSm,
               ).copyWith(color: AppColors.textMuted),

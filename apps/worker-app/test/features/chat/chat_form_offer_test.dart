@@ -243,6 +243,50 @@ void main() {
       expect(find.text(kCncOffer.ctaLabel), findsNothing);
     });
 
+    // #1363 — a form_offer turn is the server CLOSING the session
+    // (`kind: "close"`, `form_handoff`). The composer used to keep rendering
+    // alongside the handover card, so the worker could keep typing into a
+    // session the server had already closed.
+    testWidgets(
+        'a form_offer turn HIDES the composer (no TextField/mic) and shows a '
+        'locked hint instead', (WidgetTester tester) async {
+      when(() =>
+              repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async =>
+              const ChatTurn(reply: 'ok', formOffer: kCncOffer));
+      await pumpChat(tester);
+      await sendOneMessage(tester, 'CNC turner hun');
+
+      // The composer (and its mic/send action) is gone — typing here would be
+      // swallowed by a closed session.
+      expect(
+        find.byType(TextField),
+        findsNothing,
+        reason: 'no typing on a closed (form_offer) turn',
+      );
+      expect(find.text(kChatFormOfferLockedHint), findsOneWidget);
+      // The handover card itself is still there.
+      expect(find.text(kCncOffer.headline), findsOneWidget);
+      expect(find.text(kCncOffer.ctaLabel), findsOneWidget);
+    });
+
+    testWidgets(
+        'an ordinary turn (form_offer null) keeps the composer exactly as '
+        'before', (WidgetTester tester) async {
+      when(() =>
+              repo.sendMessage(any(), submissionId: any(named: 'submissionId')))
+          .thenAnswer((_) async => const ChatTurn(reply: 'Aur bataiye.'));
+      await pumpChat(tester);
+      await sendOneMessage(tester, 'Welder hun');
+
+      expect(
+        find.byType(TextField),
+        findsOneWidget,
+        reason: 'a normal turn shows the composer exactly as today',
+      );
+      expect(find.text(kChatFormOfferLockedHint), findsNothing);
+    });
+
     testWidgets(
         'a retried/replayed response carrying the same form_offer redraws '
         'the same card', (WidgetTester tester) async {
