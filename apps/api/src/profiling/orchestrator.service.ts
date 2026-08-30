@@ -1289,6 +1289,11 @@ export class ProfilingOrchestrator {
         const formKind = routeToTradeForm({
           draft: next.llmDraft,
           occupationFamilyId: next.occupationFamilyId,
+          // THE PIN, WHICH IS READY A TURN BEFORE THE MODEL'S DRAFT IS. Retrieval resolves the
+          // worker's first sentence against the catalogue on this same turn, whereas the model
+          // may answer "cnc turning" by asking its next question and leaving `domain_label` null
+          // — which cost a real worker an extra question about materials before the handover.
+          occupationLabel: next.occupation?.label ?? null,
         });
         if (formKind !== null) {
           // SETTLE FIRST, END SECOND. Everything Phase A learned becomes answers before the

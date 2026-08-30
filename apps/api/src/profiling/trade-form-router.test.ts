@@ -13,10 +13,12 @@ function route(
   domain: string | null,
   role: string | null,
   familyId: string | null = null,
+  occupationLabel: string | null = null,
 ): TradeFormKind | null {
   return routeToTradeForm({
     draft: { domain_label: domain, role_label: role, skills: [], experiences: [] },
     occupationFamilyId: familyId,
+    occupationLabel,
   });
 }
 
@@ -106,6 +108,59 @@ describe("routeToTradeForm", () => {
       // The pin corroborates a machine term; it is not evidence by itself. A mis-pin must not be
       // able to end an interview on its own.
       expect(route("Retail", "Cashier", "fam_cnc_turning")).toBeNull();
+    });
+  });
+
+  /**
+   * ═══ THE PINNED LABEL, WHICH IS WHY THE HANDOVER IS NOT A TURN LATE ═══
+   *
+   * Observed in production: a worker answered "cnc turning", and the interview asked which
+   * materials they cut before handing over on the NEXT turn. The model had not filled
+   * `domain_label`/`role_label` yet, so the router had nothing to read — while retrieval had
+   * already pinned the occupation from that same sentence.
+   *
+   * The pin is the only evidence here that is not the model's. It joins the same haystack and is
+   * read by the same two rules, so it widens WHEN the router can decide without widening WHAT it
+   * will decide.
+   */
+  describe("the pinned catalogue label is evidence too", () => {
+    // Every label actually bound to `fam_cnc_turning` in `_families.jsonl` (NCO 7223).
+    const bound: readonly (readonly [string, string | null])[] = [
+      ["Turner/Conventional Turning", null],
+      ["CNC Setter cum Operator-Turning", null],
+      ["CNC Operator-Turning", null],
+      // "Lathe Machinist" is a MACHINE name, so it routes only with the family corroborating —
+      // the same rule that governs a model-supplied "lathe operator", applied to the pin.
+      ["Lathe Machinist", "fam_cnc_turning"],
+    ];
+    for (const [label, family] of bound) {
+      it(`routes on a bare pin of ${JSON.stringify(label)}`, () => {
+        // The model has said NOTHING — both draft labels null, exactly the turn-one state that
+        // cost the worker the extra question.
+        expect(route(null, null, family, label)).toBe("cnc_turner");
+      });
+    }
+
+    it("routes a turner on turn one, with the model still silent", () => {
+      expect(route(null, null, null, "CNC Operator-Turning")).toBe("cnc_turner");
+    });
+
+    it("a mis-pinned worker is STILL not routed — the label has to say so", () => {
+      // The property the family-alone rule was written to protect, now restated against the
+      // label. A cashier wrongly pinned into the turning family contributes "Cashier", which
+      // matches nothing, so the mis-pin cannot end their interview on its own.
+      expect(route("Retail", "Cashier", "fam_cnc_turning", "Cashier")).toBeNull();
+    });
+
+    it("conflict terms veto the pin exactly as they veto the model", () => {
+      // A pin is not a trump card. If the evidence taken together names a competing
+      // specialisation, nobody routes.
+      expect(route(null, "VMC operator", "fam_cnc_turning", "CNC Operator-Turning")).toBeNull();
+    });
+
+    it("an empty pin changes nothing", () => {
+      expect(route("Retail", "Cashier", null, null)).toBeNull();
+      expect(route("CNC Machining", "CNC Turner", null, null)).toBe("cnc_turner");
     });
   });
 
