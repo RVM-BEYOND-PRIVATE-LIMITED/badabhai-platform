@@ -143,23 +143,6 @@ class _SetPinViewState extends State<_SetPinView> {
       _processing = false;
       _step = _Step.confirm;
     });
-    // Explain the confirm step up front so the worker knows they must re-enter
-    // the SAME PIN (not a new one) — the header subtitle alone was easy to miss.
-    _promptConfirm();
-  }
-
-  /// Entering the confirm step — tell the worker, in a centred dialog, to type
-  /// the SAME PIN again. Guarded by [_dialogOpen] like the others; the keypad
-  /// stays behind the modal barrier until they acknowledge.
-  Future<void> _promptConfirm() async {
-    if (_dialogOpen) return;
-    _dialogOpen = true;
-    await showBbAlert(
-      context,
-      title: 'PIN confirm karein',
-      message: 'Wahi PIN dubara daalein jo aapne abhi isse pehle daala tha.',
-    );
-    if (mounted) _dialogOpen = false;
   }
 
   /// Guessable PIN — block it, explain in a dialog, and stay on the enter step.
