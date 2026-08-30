@@ -13,10 +13,14 @@ function route(
   domain: string | null,
   role: string | null,
   familyId: string | null = null,
+  occupationLabel: string | null = null,
+  workerText: string | null = null,
 ): TradeFormKind | null {
   return routeToTradeForm({
     draft: { domain_label: domain, role_label: role, skills: [], experiences: [] },
     occupationFamilyId: familyId,
+    occupationLabel,
+    workerText,
   });
 }
 
@@ -106,6 +110,116 @@ describe("routeToTradeForm", () => {
       // The pin corroborates a machine term; it is not evidence by itself. A mis-pin must not be
       // able to end an interview on its own.
       expect(route("Retail", "Cashier", "fam_cnc_turning")).toBeNull();
+    });
+  });
+
+  /**
+   * ═══ THE PINNED LABEL, WHICH IS WHY THE HANDOVER IS NOT A TURN LATE ═══
+   *
+   * Observed in production: a worker answered "cnc turning", and the interview asked which
+   * materials they cut before handing over on the NEXT turn. The model had not filled
+   * `domain_label`/`role_label` yet, so the router had nothing to read — while retrieval had
+   * already pinned the occupation from that same sentence.
+   *
+   * The pin is the only evidence here that is not the model's. It joins the same haystack and is
+   * read by the same two rules, so it widens WHEN the router can decide without widening WHAT it
+   * will decide.
+   */
+  describe("the pinned catalogue label is evidence too", () => {
+    // Every label actually bound to `fam_cnc_turning` in `_families.jsonl` (NCO 7223).
+    const bound: readonly (readonly [string, string | null])[] = [
+      ["Turner/Conventional Turning", null],
+      ["CNC Setter cum Operator-Turning", null],
+      ["CNC Operator-Turning", null],
+      // "Lathe Machinist" is a MACHINE name, so it routes only with the family corroborating —
+      // the same rule that governs a model-supplied "lathe operator", applied to the pin.
+      ["Lathe Machinist", "fam_cnc_turning"],
+    ];
+    for (const [label, family] of bound) {
+      it(`routes on a bare pin of ${JSON.stringify(label)}`, () => {
+        // The model has said NOTHING — both draft labels null, exactly the turn-one state that
+        // cost the worker the extra question.
+        expect(route(null, null, family, label)).toBe("cnc_turner");
+      });
+    }
+
+    it("routes a turner on turn one, with the model still silent", () => {
+      expect(route(null, null, null, "CNC Operator-Turning")).toBe("cnc_turner");
+    });
+
+    it('rescues the real "machining" session, where the model spoke but said nothing useful', () => {
+      // A RECORDED SESSION IN THIS REPO ran six turns with domain_label "machining" and a null
+      // role. "machining" is in neither the occupation nor the machine list, and bare "machining"
+      // is deliberately NOT a conflict term either (only "machining centre"/"center" are) — so it
+      // is a non-empty haystack that routes nowhere, indistinguishable from silence.
+      //
+      // Worth its own case because it fails DIFFERENTLY from the null-label turn: the empty-
+      // haystack guard never fires, so a fix that only handled "the model said nothing" would
+      // have left this worker interviewing to the end.
+      expect(route("machining", null, null)).toBeNull();
+      expect(route("machining", null, "fam_cnc_turning", "CNC Operator-Turning")).toBe(
+        "cnc_turner",
+      );
+    });
+
+    it("a mis-pinned worker is STILL not routed — the label has to say so", () => {
+      // The property the family-alone rule was written to protect, now restated against the
+      // label. A cashier wrongly pinned into the turning family contributes "Cashier", which
+      // matches nothing, so the mis-pin cannot end their interview on its own.
+      expect(route("Retail", "Cashier", "fam_cnc_turning", "Cashier")).toBeNull();
+    });
+
+    it("conflict terms veto the pin exactly as they veto the model", () => {
+      // A pin is not a trump card. If the evidence taken together names a competing
+      // specialisation, nobody routes.
+      expect(route(null, "VMC operator", "fam_cnc_turning", "CNC Operator-Turning")).toBeNull();
+    });
+
+    it("an empty pin changes nothing", () => {
+      expect(route("Retail", "Cashier", null, null)).toBeNull();
+      expect(route("CNC Machining", "CNC Turner", null, null)).toBe("cnc_turner");
+    });
+  });
+
+  /**
+   * ═══ THE WORKER'S OWN WORDS, FOR THE VETO ONLY ═══
+   *
+   * Raw worker text may make this router more reluctant and never more willing. That asymmetry is
+   * what makes reading free text safe here at all: matching occupation or machine terms against it
+   * would be the machine-plus-function fabrication the module refuses to do at the top.
+   */
+  describe("a conflict the worker states out loud", () => {
+    it('does not hand over "cnc turning aur vmc dono karta hoon"', () => {
+      // THE CASE THE PINNED LABEL OPENED UP. Retrieval pins the longest exact alias span, so this
+      // pins cleanly on "cnc turning"; bare "vmc" is not an alias, contributes no rival candidate,
+      // and the pin returns auto at high confidence. The label is then "CNC Operator-Turning" and
+      // the model's draft is still empty — so every surface the veto could read says "turner",
+      // and the worker's own "vmc" lives only in the sentence they typed.
+      expect(
+        route(null, null, "fam_cnc_turning", "CNC Operator-Turning", "cnc turning aur vmc dono karta hoon"),
+      ).toBeNull();
+    });
+
+    it("still hands over a worker who mentions no competing machine", () => {
+      // The discriminating case: without it the assertion above would pass against a router that
+      // had stopped handing over at all once it started reading worker text.
+      expect(
+        route(null, null, "fam_cnc_turning", "CNC Operator-Turning", "main cnc turning karta hoon"),
+      ).toBe("cnc_turner");
+    });
+
+    it("worker text can never CAUSE a handover, only prevent one", () => {
+      // The asymmetry, asserted directly. A worker whose sentence is full of turning words but
+      // whom nothing has pinned and whom the model has not labelled routes nowhere — otherwise
+      // "cnc turning ka kaam dhoondh raha hoon" (LOOKING for turning work) would hand a job
+      // seeker eighteen questions about a machine they may never have touched.
+      expect(route(null, null, null, null, "cnc turner turning lathe khraad")).toBeNull();
+    });
+
+    it("vetoes on the worker's words even when the model wrote a clean label", () => {
+      expect(
+        route("CNC Machining", "CNC Turner", null, null, "turning aur milling dono karta hoon"),
+      ).toBeNull();
     });
   });
 

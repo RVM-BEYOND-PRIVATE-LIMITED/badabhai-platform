@@ -129,6 +129,44 @@ export interface TradeFormRouteInput {
   readonly draft: LlmInterviewDraft;
   /** The family retrieval pinned, when it pinned one. */
   readonly occupationFamilyId: string | null;
+  /**
+   * The CATALOGUE label retrieval pinned — `OccupationPin.label`, not anything the model wrote.
+   *
+   * WHY IT IS HERE AT ALL. Without it the router could only read labels the MODEL had got round
+   * to filling in, and a model that answers "cnc turning" by asking a follow-up question before
+   * populating `domain_label` costs the worker an extra question they had already answered. That
+   * is exactly what happened in production: the interview asked which materials a CNC turner cuts
+   * and only handed over on the turn after. The pin, by contrast, is derived from the worker's own
+   * first sentence through a closed catalogue with a confidence gate, so it is available on the
+   * SAME turn they say what they do.
+   *
+   * IT IS EVIDENCE, NOT AN OVERRIDE. It joins the same haystack the model's labels do and is read
+   * by the same two rules — so it can only route a worker whose catalogue label actually says
+   * turner, turning or lathe, and the conflict terms veto it exactly as they veto the model. A
+   * mis-pin still cannot end an interview on its own: a cashier pinned into the turning family
+   * contributes the label "Cashier", which matches nothing.
+   */
+  readonly occupationLabel?: string | null;
+  /**
+   * The worker's own message this turn, read for CONFLICT TERMS AND NOTHING ELSE.
+   *
+   * ASYMMETRIC ON PURPOSE, and the asymmetry is the whole safety argument. Raw worker text may
+   * only ever make this router MORE reluctant to hand over; it can never cause a handover. So
+   * "cnc turning ka kaam dhoondh raha hoon" cannot route anybody, while "cnc turning aur vmc
+   * dono karta hoon" stops a handover that would otherwise have happened.
+   *
+   * WHY IT IS NEEDED. Retrieval pins the longest exact alias span it finds, so that second worker
+   * pins cleanly on "cnc turning" — bare "vmc" is not an alias, contributes no rival candidate,
+   * and the pin comes back `auto` at 0.97. The label is then "CNC Operator-Turning", which carries
+   * no conflict term, and the model's draft is still empty. Every surface the veto could read said
+   * "turner"; the only place the worker's own "vmc" appeared was the sentence they typed, which
+   * this router could not see. They would have been handed eighteen turning questions having just
+   * said out loud that they run a machining centre too.
+   *
+   * NEVER READ FOR ROUTING. Matching occupation or machine terms against free text is exactly the
+   * machine-plus-function fabrication this module documents at the top and refuses to do.
+   */
+  readonly workerText?: string | null;
 }
 
 /**
@@ -142,13 +180,28 @@ export interface TradeFormRouteInput {
  * "Operator" in `role_label` has told us the same thing as one that puts "CNC Turner" in the
  * role — splitting the evidence by field would make the route depend on the model's formatting
  * taste. Conflict terms are searched over the same joined string for the same reason.
+ *
+ * THE PINNED LABEL JOINS THAT STRING — see {@link TradeFormRouteInput.occupationLabel}. It is
+ * the only piece of evidence here that does not come from the model, and it is what lets the
+ * handover happen on the turn the worker names their trade rather than the turn after.
  */
 export function routeToTradeForm(input: TradeFormRouteInput): TradeFormKind | null {
-  const haystack = normalise(`${input.draft.domain_label ?? ""} ${input.draft.role_label ?? ""}`);
+  const haystack = normalise(
+    `${input.draft.domain_label ?? ""} ${input.draft.role_label ?? ""} ` +
+      `${input.occupationLabel ?? ""}`,
+  );
   if (haystack.length === 0) return null;
 
+  // THE VETO READS ONE MORE THING THAN THE ROUTE DOES — see `workerText`. Two haystacks rather
+  // than one because the extra text is only ever allowed to withhold a handover, never to cause
+  // one; merging them would silently let free text route a worker.
+  const vetoHaystack = normalise(
+    `${input.draft.domain_label ?? ""} ${input.draft.role_label ?? ""} ` +
+      `${input.occupationLabel ?? ""} ${input.workerText ?? ""}`,
+  );
+
   for (const route of TRADE_FORM_ROUTES) {
-    if (containsAny(haystack, route.conflictTerms)) continue;
+    if (containsAny(vetoHaystack, route.conflictTerms)) continue;
     if (containsAny(haystack, route.occupationTerms)) return route.kind;
     if (
       input.occupationFamilyId === route.corroboratingFamilyId &&

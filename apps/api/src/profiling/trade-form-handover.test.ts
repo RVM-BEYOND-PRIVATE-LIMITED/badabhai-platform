@@ -87,7 +87,11 @@ const UNIVERSAL_PACK: QuestionPack = {
 };
 
 /** What Phase A hands back on the turn it has named the trade. */
-function led(domainLabel: string, roleLabel: string, kind: "ask" | "done" = "ask"): LlmTurnResult {
+function led(
+  domainLabel: string | null,
+  roleLabel: string | null,
+  kind: "ask" | "done" = "ask",
+): LlmTurnResult {
   const patch: Partial<ProfilingEnvelope> = {
     llmStage: kind === "done" ? "done" : "role",
     llmLedTurns: 1,
@@ -104,7 +108,10 @@ function led(domainLabel: string, roleLabel: string, kind: "ask" | "done" = "ask
     : { kind: "ask", reply: "Aur kya kaam karte hain?", chips: [], inputMode: "text", patch };
 }
 
-function makeWorld(turn: LlmTurnResult | null) {
+function makeWorld(
+  turn: LlmTurnResult | null,
+  identifyPatch: Partial<ProfilingEnvelope> = {},
+) {
   const store = new Map<string, TranscriptBuffer>();
   store.set(SESSION, {
     workerId: WORKER,
@@ -142,7 +149,10 @@ function makeWorld(turn: LlmTurnResult | null) {
     resolveForOccupation: vi.fn(async () => null),
   };
   const identify = {
-    identify: vi.fn(async () => ({ patch: {}, offer: null, pinned: null })),
+    // DEFAULTS TO A NO-OP, which is what every pre-existing case here wants -- but it is now
+    // overridable, because a permanent no-op meant no test in this file ever put a real
+    // occupation pin in front of the router, and the pin is half the routing evidence.
+    identify: vi.fn(async () => ({ patch: identifyPatch, offer: null, pinned: null })),
   };
   const chat = {
     findPackPin: vi.fn(async () => null),
@@ -249,6 +259,73 @@ describe("the trade-form handover", () => {
       // and they must not follow the routing decision into the audit log.
       expect(JSON.stringify(emitted?.payload)).not.toContain("Turner");
       expect(JSON.stringify(emitted?.payload)).not.toContain("Machining");
+    });
+  });
+
+  /**
+   * ═══ THE PIN REACHING THE ROUTER, WHICH NOTHING HERE USED TO PROVE ═══
+   *
+   * The bug the owner hit was not in `routeToTradeForm` and not in `identify` — it was that the
+   * one carried evidence the other had already produced and the orchestrator never handed over.
+   * This file could not have caught it: its `identify` stub was a permanent no-op, so no test in
+   * the suite ever put a real occupation pin in front of the router. The interaction that failed
+   * in production was untested by construction, in the file whose whole subject it is.
+   */
+  describe("the occupation pin is routing evidence", () => {
+    const PINNED: Partial<ProfilingEnvelope> = {
+      occupationFamilyId: "fam_cnc_turning",
+      occupation: {
+        job_domain_id: "jd_nco_7223_6002",
+        label: "CNC Operator-Turning",
+        isco_unit_code: "7223",
+        match_status: "matched_lexical",
+        match_score: 0.97,
+        match_layer: "l0_exact",
+        pack_id: null,
+        pack_version: null,
+        catalog_version: "v1",
+      },
+    };
+
+    it("hands over on the pin alone, with the model still silent", async () => {
+      // EXACTLY THE PRODUCTION TURN. The worker types "cnc turning", retrieval pins it, and the
+      // model answers by asking about materials without filling either label. Before the pinned
+      // label was routing evidence this ran on to the next turn and cost the worker a question
+      // they had already answered.
+      const { orchestrator } = makeWorld(led(null, null, "ask"), PINNED);
+      const result = await orchestrator.takeTurn(say("cnc turning"));
+
+      expect(result.kind).toBe("close");
+      expect(result.completionReason).toBe("form_handoff");
+      expect(result.formOffer).toEqual(TRADE_FORM_OFFERS.cnc_turner);
+    });
+
+    it("persists the form kind and switches Phase A off, same as any handover", async () => {
+      const { orchestrator, store } = makeWorld(led(null, null, "ask"), PINNED);
+      await orchestrator.takeTurn(say("cnc turning"));
+      expect(saved(store)?.formKind).toBe("cnc_turner");
+      expect(saved(store)?.llmStage).toBe("done");
+    });
+
+    it("does NOT hand over when the worker names a competing machine in the same breath", async () => {
+      // The veto reads the worker's sentence, which is the only surface their "vmc" appears on:
+      // the pin resolves the longest alias span ("cnc turning"), so the label says turner and the
+      // model has written nothing. Without this they would get eighteen turning questions having
+      // just said they run a machining centre too.
+      const { orchestrator } = makeWorld(led(null, null, "ask"), PINNED);
+      const result = await orchestrator.takeTurn(say("cnc turning aur vmc dono karta hoon"));
+
+      expect(result.kind).not.toBe("close");
+      expect(result.formOffer ?? null).toBeNull();
+    });
+
+    it("a pin into some other family still routes nobody", async () => {
+      const { orchestrator } = makeWorld(led(null, null, "ask"), {
+        occupationFamilyId: "fam_tailoring",
+        occupation: { ...PINNED.occupation!, label: "Tailor", job_domain_id: "jd_x" },
+      });
+      const result = await orchestrator.takeTurn(say("main tailor hoon"));
+      expect(result.formOffer ?? null).toBeNull();
     });
   });
 
