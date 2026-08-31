@@ -16,6 +16,7 @@ import 'package:badabhai_worker_app/core/error/failure_reason.dart';
 import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_button.dart';
+import 'package:badabhai_worker_app/features/profile/domain/profile_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
@@ -25,6 +26,8 @@ import 'package:badabhai_worker_app/features/resume/presentation/resume_preview_
 class MockResumeRepository extends Mock implements ResumeRepository {}
 
 class MockResumeEditRepository extends Mock implements ResumeEditRepository {}
+
+class MockProfileRepository extends Mock implements ProfileRepository {}
 
 /// Records the urls actually requested and serves canned bytes. Injected so no
 /// test touches the network — and so a test can prove the signed url was spent
@@ -102,7 +105,7 @@ void main() {
     // #1343 — the ordinary answer; this file exercises the share flow, not the
     // structured-document render (see resume_document_render_test.dart).
     when(() => repo.loadResumeDocument()).thenAnswer((_) async => null);
-    locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo, editRepo));
+    locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo, editRepo, MockProfileRepository()));
     // The preview screen refetches on tab focus (T4) and resolves this.
     locator.registerLazySingleton<TabFocus>(() => TabFocus());
     // The share button reads the worker's name from here to name the document.

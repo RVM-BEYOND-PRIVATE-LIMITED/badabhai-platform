@@ -10,6 +10,7 @@ import 'package:badabhai_worker_app/core/nav/tab_focus.dart';
 import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_button.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
+import 'package:badabhai_worker_app/features/profile/domain/profile_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
@@ -20,6 +21,8 @@ import 'package:badabhai_worker_app/features/resume/presentation/widgets/resume_
 class MockResumeRepository extends Mock implements ResumeRepository {}
 
 class MockResumeEditRepository extends Mock implements ResumeEditRepository {}
+
+class MockProfileRepository extends Mock implements ProfileRepository {}
 
 /// #1343 — the resume tab drawn from `GET /resume/document`.
 ///
@@ -137,7 +140,7 @@ void main() {
         ),
       );
       when(() => repo.loadResumeDocument()).thenAnswer((_) async => document);
-      locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo, editRepo));
+      locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo, editRepo, MockProfileRepository()));
       locator.registerLazySingleton<TabFocus>(() => TabFocus());
       locator.registerFactory<ResumeEditRepository>(() => editRepo);
 
@@ -267,7 +270,7 @@ void main() {
     /// wiring the real screen uses — the caller stubs `repo.loadResumeDocument`
     /// before calling this.
     Future<void> pumpDocument(WidgetTester tester) async {
-      cubit = ResumeCubit(repo, editRepo);
+      cubit = ResumeCubit(repo, editRepo, MockProfileRepository());
       addTearDown(cubit.close);
       await tester.pumpWidget(MaterialApp(
         home: BlocProvider<ResumeCubit>.value(

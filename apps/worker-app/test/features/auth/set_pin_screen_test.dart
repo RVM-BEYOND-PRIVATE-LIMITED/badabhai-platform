@@ -38,8 +38,6 @@ void main() {
   const String guessMsg =
       '1234 ya 1111 jaisa PIN koi bhi aasani se guess kar sakta hai. '
       'Aisa 4-digit PIN chunein jo sirf aap jaante hain.';
-  const String confirmMsg =
-      'Wahi PIN dubara daalein jo aapne abhi isse pehle daala tha.';
 
   late FakeSetPinCubit cubit;
 
@@ -71,23 +69,25 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Enter a valid first PIN and dismiss the "re-enter the same PIN" dialog,
+  /// Enter a valid first PIN and wait for the processing beat + confirm delay,
   /// landing on the confirm step ready for the second entry.
   Future<void> advanceToConfirm(WidgetTester tester, String pin) async {
     await enterPin(tester, pin);
+    // The processing beat + 2s confirm delay (no dialog to dismiss).
     await tester.pumpAndSettle();
-    await tapOk(tester); // dismiss the confirm-prompt dialog
   }
 
   testWidgets(
-      'entering the confirm step opens a dialog to re-enter the SAME PIN',
+      'entering the confirm step transitions to the confirm header (no dialog)',
       (WidgetTester tester) async {
     await pumpScreen(tester);
     await enterPin(tester, '3927');
-    await tester.pumpAndSettle();
 
-    expect(find.text('PIN confirm karein'), findsOneWidget);
-    expect(find.text(confirmMsg), findsOneWidget);
+    // The confirm dialog was dropped — the header now carries the prompt.
+    // After the processing beat + delay, the confirm header appears directly.
+    await tester.pumpAndSettle();
+    expect(find.text('PIN confirm karein'), findsNothing);
+    expect(find.text('PIN dobara daalein'), findsOneWidget);
   });
 
   testWidgets('the 4th-dot pop plays first, THEN a 2-second loader, THEN confirm',
@@ -107,13 +107,15 @@ void main() {
     expect(find.byType(BbSpinner), findsOneWidget);
     expect(find.text('PIN set kar rahe hain…'), findsOneWidget);
     expect(find.byType(BbPinKeypad), findsNothing);
-    expect(find.text('PIN confirm karein'), findsNothing);
+    expect(find.text('PIN dobara daalein'), findsNothing);
 
-    // After the 2-second delay the loader clears into the confirm prompt.
+    // After the 2-second delay the loader clears into the confirm header.
     await tester.pump(const Duration(seconds: 2));
     await tester.pumpAndSettle();
     expect(find.byType(BbSpinner), findsNothing);
-    expect(find.text('PIN confirm karein'), findsOneWidget);
+    expect(find.text('PIN dobara daalein'), findsOneWidget);
+    // The redundant confirm dialog was dropped — the header carries the prompt.
+    expect(find.text('PIN confirm karein'), findsNothing);
   });
 
   testWidgets('a guessable PIN is blocked with a dialog and never advances',

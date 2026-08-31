@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/api/api_models.dart' show ResumeDocument;
 import '../../../../core/error/failure.dart';
 import '../../../../core/observability/analytics.dart';
+import '../../../profile/domain/profile_repository.dart';
 import '../../domain/resume_edit_repository.dart';
 import '../../domain/resume_repository.dart';
 import '../../domain/resume_safe_fields.dart';
@@ -38,10 +39,12 @@ class ResumeState extends Equatable {
 /// Drives the resume screen: a single generate-on-open action. A failure shows
 /// the app's standard retry view (rather than the original's stuck spinner).
 class ResumeCubit extends Cubit<ResumeState> {
-  ResumeCubit(this._repo, this._editRepo) : super(const ResumeState());
+  ResumeCubit(this._repo, this._editRepo, this._profileRepo)
+      : super(const ResumeState());
 
   final ResumeRepository _repo;
   final ResumeEditRepository _editRepo;
+  final ProfileRepository _profileRepo;
 
   /// True while a load is in flight. The tab-focus refetch and the screen's own
   /// create:-time load can both fire around a first visit, and a second
@@ -109,7 +112,31 @@ class ResumeCubit extends Cubit<ResumeState> {
         nightShiftReady: nightShiftReady,
         document: document,
       ));
-    } on ProfileIncompleteFailure {
+    } on ProfileIncompleteFailure catch (_) {
+      if (isClosed) return;
+      // #1371 — form handover skips extraction, so the profile may not exist
+      // yet. Trigger extraction (idempotent — a normal-profiled worker's call
+      // dedupes server-side) and retry once. A second failure surfaces as
+      // noProfile so the worker is never stuck in a loop.
+      try {
+        await _profileRepo.extractProfile();
+      } catch (_) {
+        // Extraction failed or timed out — fall through to noProfile.
+      }
+      if (isClosed) return;
+      try {
+        final String retryText = await _repo.generateResume(force: false);
+        if (isClosed) return;
+        if (!_isBlank(retryText)) {
+          emit(ResumeState(
+            status: ResumeStatus.ready,
+            resumeText: retryText,
+          ));
+          return;
+        }
+      } catch (_) {
+        // Retry also failed — fall through to noProfile.
+      }
       if (isClosed) return;
       emit(const ResumeState(status: ResumeStatus.noProfile));
     } on Failure catch (_) {

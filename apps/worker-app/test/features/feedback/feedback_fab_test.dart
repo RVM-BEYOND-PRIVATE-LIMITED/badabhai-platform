@@ -9,7 +9,7 @@ import 'package:badabhai_worker_app/router.dart';
 /// including the consent + name onboarding steps.
 void main() {
   group('showFeedbackOn', () {
-    test('hidden on splash, the pre-login auth screens, and self (anti-stack)',
+    test('hidden on splash, the pre-login auth screens, chat routes, and self',
         () {
       for (final String path in <String>[
         '/', // splash
@@ -19,6 +19,8 @@ void main() {
         Routes.setPin, // '/pin/set' — covered by the '/pin' prefix
         Routes.forgotPin, // '/pin/forgot'
         Routes.feedback, // don't offer feedback from the feedback page
+        Routes.chatProfiling, // header owns Feedback here instead
+        Routes.badaBhai, // same screen, same reason
       ]) {
         expect(showFeedbackOn(path), isFalse, reason: 'must hide on $path');
       }
@@ -30,9 +32,7 @@ void main() {
         Routes.name,
         Routes.jobs,
         Routes.resume,
-        Routes.badaBhai,
         Routes.profile,
-        Routes.chatProfiling,
         Routes.voiceNote,
         Routes.invite,
         Routes.alerts,

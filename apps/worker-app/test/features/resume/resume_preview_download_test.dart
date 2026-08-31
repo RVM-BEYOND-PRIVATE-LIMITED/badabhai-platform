@@ -14,6 +14,7 @@ import 'package:badabhai_worker_app/core/theme/app_theme.dart';
 import 'package:badabhai_worker_app/core/util/pdf_downloader.dart';
 import 'package:badabhai_worker_app/core/util/resume_file_name.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_button.dart';
+import 'package:badabhai_worker_app/features/profile/domain/profile_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
@@ -23,6 +24,8 @@ import 'package:badabhai_worker_app/features/resume/presentation/resume_preview_
 class MockResumeRepository extends Mock implements ResumeRepository {}
 
 class MockResumeEditRepository extends Mock implements ResumeEditRepository {}
+
+class MockProfileRepository extends Mock implements ProfileRepository {}
 
 /// The FULL in-app download journey on the REAL screen: tap → busy button +
 /// "shuru ho gaya" notice on the SAME screen → save crosses the platform
@@ -62,7 +65,7 @@ void main() {
     // #1343 — the ordinary answer for a screen not exercising the structured
     // document; this file's own coverage lives in resume_document_render_test.dart.
     when(() => repo.loadResumeDocument()).thenAnswer((_) async => null);
-    locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo, editRepo));
+    locator.registerFactory<ResumeCubit>(() => ResumeCubit(repo, editRepo, MockProfileRepository()));
     // The screen refetches on tab focus (T4) and resolves this from the locator.
     locator.registerLazySingleton<TabFocus>(() => TabFocus());
     locator.registerFactory<ResumeEditRepository>(() => editRepo);
