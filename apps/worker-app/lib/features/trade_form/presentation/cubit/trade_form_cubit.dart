@@ -253,10 +253,23 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         );
       }
       final bool last = state.currentIndex >= next.length - 1;
+      if (last) {
+        // #1375 — the last step is a question (not a marker screen), so
+        // answerQuestion is the terminal write. Emit done so the screen
+        // navigates to the résumé pipeline.
+        emit(state.copyWith(
+          status: TradeFormStatus.done,
+          flatSteps: next,
+          answered: result.answered,
+          total: result.total,
+          submitError: null,
+        ));
+        return;
+      }
       emit(state.copyWith(
         status: TradeFormStatus.ready,
         flatSteps: next,
-        currentIndex: last ? state.currentIndex : state.currentIndex + 1,
+        currentIndex: state.currentIndex + 1,
         answered: result.answered,
         total: result.total,
         submitError: null,
