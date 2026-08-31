@@ -1054,10 +1054,6 @@ class MockApiClient extends ApiClient {
               why: 'Banaya hua job dikhata hai ki aap kya kar sakte hain.',
               answerType: 'text',
             ),
-            <String, dynamic>{
-              'type': 'preferences',
-              'endpoint': 'PUT /workers/me/work-preferences',
-            },
           ],
         },
       ],

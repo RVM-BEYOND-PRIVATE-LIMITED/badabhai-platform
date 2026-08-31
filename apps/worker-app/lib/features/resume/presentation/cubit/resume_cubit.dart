@@ -116,12 +116,19 @@ class ResumeCubit extends Cubit<ResumeState> {
       if (isClosed) return;
       // #1371 — form handover skips extraction, so the profile may not exist
       // yet. Trigger extraction (idempotent — a normal-profiled worker's call
-      // dedupes server-side) and retry once. A second failure surfaces as
-      // noProfile so the worker is never stuck in a loop.
+      // dedupes server-side), confirm it so resume generation can proceed, and
+      // retry once. A second failure surfaces as noProfile so the worker is
+      // never stuck in a loop.
       try {
         await _profileRepo.extractProfile();
       } catch (_) {
         // Extraction failed or timed out — fall through to noProfile.
+      }
+      if (isClosed) return;
+      try {
+        await _profileRepo.confirmProfile();
+      } catch (_) {
+        // Confirm failed — fall through to noProfile.
       }
       if (isClosed) return;
       try {
