@@ -95,7 +95,6 @@ export class TradeFormService {
           title: SECTION_TITLES.qualifications,
           screens: [
             ...leftover.map((item) => this.questionScreen(item, byKey.get(item.question_key))),
-            { type: "preferences", endpoint: "PUT /workers/me/work-preferences" },
           ],
         },
       ],
