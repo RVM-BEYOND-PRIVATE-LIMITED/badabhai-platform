@@ -110,6 +110,11 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
             employments.map((TradeFormEmploymentEntry e) => e.toJson()).toList(),
         authToken: token,
       );
+    } on ApiException catch (error) {
+      if (error.statusCode == 400 && error.message.trim().isNotEmpty) {
+        throw InvalidRequestFailure(error.message);
+      }
+      throw mapError(error);
     } catch (error) {
       throw mapError(error);
     }

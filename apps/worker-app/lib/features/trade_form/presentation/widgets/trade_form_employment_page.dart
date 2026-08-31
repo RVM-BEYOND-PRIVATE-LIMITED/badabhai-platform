@@ -29,6 +29,7 @@ const String _kNotStated = 'Nahi bataya';
 const String _kPickYear = 'Saal chunein';
 const String _kPickMonth = 'Mahina chunein';
 const int _kWorkDoneMax = 300;
+const String _kDateOrderError = 'Khatam hone ki date shuru hone ke baad honi chahiye.';
 
 const List<String> _kMonths = <String>[
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -137,6 +138,20 @@ class _EmployerCard extends StatefulWidget {
   State<_EmployerCard> createState() => _EmployerCardState();
 }
 
+/// Returns -1, 0, or 1 for `a` before, equal, or after `b` in "YYYY-MM" order.
+int _compareYearMonth(String? a, String? b) {
+  if (a == null || b == null) return 0;
+  final List<String> pa = a.split('-');
+  final List<String> pb = b.split('-');
+  if (pa.length != 2 || pb.length != 2) return 0;
+  final int ya = int.tryParse(pa[0]) ?? 0;
+  final int yb = int.tryParse(pb[0]) ?? 0;
+  if (ya != yb) return ya.compareTo(yb);
+  final int ma = int.tryParse(pa[1]) ?? 0;
+  final int mb = int.tryParse(pb[1]) ?? 0;
+  return ma.compareTo(mb);
+}
+
 class _EmployerCardState extends State<_EmployerCard> {
   late final TextEditingController _name =
       TextEditingController(text: widget.entry.employerName);
@@ -241,7 +256,16 @@ class _EmployerCardState extends State<_EmployerCard> {
           _label(_kStartLabel),
           _YearMonthField(
             value: e.startYm,
-            onPicked: (String? ym) => _push(e.copyWith(startYm: ym)),
+            onPicked: (String? ym) {
+              if (ym != null && e.endYm != null &&
+                  _compareYearMonth(ym, e.endYm) > 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text(_kDateOrderError)),
+                );
+                return;
+              }
+              _push(e.copyWith(startYm: ym));
+            },
           ),
           const SizedBox(height: AppSpacing.s3),
           Row(
@@ -265,7 +289,16 @@ class _EmployerCardState extends State<_EmployerCard> {
             _label(_kEndLabel),
             _YearMonthField(
               value: e.endYm,
-              onPicked: (String? ym) => _push(e.copyWith(endYm: ym)),
+              onPicked: (String? ym) {
+                if (ym != null && e.startYm != null &&
+                    _compareYearMonth(ym, e.startYm) < 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text(_kDateOrderError)),
+                  );
+                  return;
+                }
+                _push(e.copyWith(endYm: ym));
+              },
             ),
           ],
           const SizedBox(height: AppSpacing.s3),
