@@ -86,6 +86,18 @@ class _BuildingViewState extends State<_BuildingView> {
               ),
             );
           }
+          if (state.status == ResumeStatus.noProfile) {
+            return BbStatusView(
+              icon: Icons.person_off_outlined,
+              title: 'Profile taiyaar nahi hai.',
+              subtitle:
+                  'Chat mein kuch details share karein, phir dobara try karein.',
+              action: BbButton(
+                label: 'Wapas jaayein',
+                onPressed: () => context.go('/'),
+              ),
+            );
+          }
           return const _BuildingBody();
         },
       ),

@@ -4,6 +4,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:badabhai_worker_app/core/api/api_models.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
+import 'package:badabhai_worker_app/features/profile/domain/profile_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_edit_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_repository.dart';
 import 'package:badabhai_worker_app/features/resume/domain/resume_safe_fields.dart';
@@ -13,13 +14,17 @@ class MockResumeRepository extends Mock implements ResumeRepository {}
 
 class MockResumeEditRepository extends Mock implements ResumeEditRepository {}
 
+class MockProfileRepository extends Mock implements ProfileRepository {}
+
 void main() {
   late MockResumeRepository repo;
   late MockResumeEditRepository editRepo;
+  late MockProfileRepository profileRepo;
 
   setUp(() {
     repo = MockResumeRepository();
     editRepo = MockResumeEditRepository();
+    profileRepo = MockProfileRepository();
     when(() => editRepo.load()).thenAnswer(
       (_) async => const ResumeSafeFields(
         displayName: 'Test',
@@ -37,7 +42,7 @@ void main() {
     'generate success -> ready with the resume text',
     build: () {
       when(() => repo.generateResume()).thenAnswer((_) async => 'RESUME TEXT');
-      return ResumeCubit(repo, editRepo);
+      return ResumeCubit(repo, editRepo, profileRepo);
     },
     act: (ResumeCubit c) => c.generate(),
     expect: () => const <ResumeState>[
@@ -55,7 +60,7 @@ void main() {
     'generate failure -> failed (not a stuck spinner)',
     build: () {
       when(() => repo.generateResume()).thenThrow(const NetworkFailure());
-      return ResumeCubit(repo, editRepo);
+      return ResumeCubit(repo, editRepo, profileRepo);
     },
     act: (ResumeCubit c) => c.generate(),
     expect: () => const <ResumeState>[
@@ -71,7 +76,7 @@ void main() {
     'generate with an EMPTY resume -> failed, never a blank ready (#820)',
     build: () {
       when(() => repo.generateResume()).thenAnswer((_) async => '');
-      return ResumeCubit(repo, editRepo);
+      return ResumeCubit(repo, editRepo, profileRepo);
     },
     act: (ResumeCubit c) => c.generate(),
     expect: () => const <ResumeState>[
@@ -88,7 +93,7 @@ void main() {
     'generate with a WHITESPACE-only resume -> failed (#820)',
     build: () {
       when(() => repo.generateResume()).thenAnswer((_) async => '   \n\t  ');
-      return ResumeCubit(repo, editRepo);
+      return ResumeCubit(repo, editRepo, profileRepo);
     },
     act: (ResumeCubit c) => c.generate(),
     expect: () => const <ResumeState>[
@@ -98,7 +103,7 @@ void main() {
   );
 
   test('showGenerated("") -> failed, not a fake ready (#820)', () async {
-    final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+    final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
     addTearDown(cubit.close);
 
     await cubit.showGenerated('');
@@ -111,7 +116,7 @@ void main() {
       () async {
     when(() => repo.generateResume(force: any(named: 'force')))
         .thenAnswer((_) async => '');
-    final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+    final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
     addTearDown(cubit.close);
 
     await cubit.showGenerated('good resume');
@@ -126,7 +131,7 @@ void main() {
       () async {
     when(() => repo.generateResume(force: any(named: 'force')))
         .thenAnswer((_) async => '');
-    final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+    final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
     addTearDown(cubit.close);
 
     await cubit.refresh();
@@ -137,7 +142,7 @@ void main() {
   test('resolveDownloadUrl returns the signed url on success', () async {
     when(() => repo.resumeDownloadUrl())
         .thenAnswer((_) async => 'https://signed/u?token=x');
-    final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+    final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
     expect(await cubit.resolveDownloadUrl(), 'https://signed/u?token=x');
     verify(() => repo.resumeDownloadUrl()).called(1);
   });
@@ -145,7 +150,7 @@ void main() {
   test('resolveDownloadUrl PROPAGATES the Failure (so the launcher shows the '
       'real reason, not a blank generic line)', () {
     when(() => repo.resumeDownloadUrl()).thenThrow(const UnauthorizedFailure());
-    final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+    final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
     expect(() => cubit.resolveDownloadUrl(), throwsA(isA<UnauthorizedFailure>()));
   });
 
@@ -157,7 +162,7 @@ void main() {
     test('refresh NEVER forces a regenerate', () async {
       when(() => repo.generateResume(force: any(named: 'force')))
           .thenAnswer((_) async => 'resume text');
-      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
 
       await cubit.refresh();
@@ -171,7 +176,7 @@ void main() {
     test('a failed refresh keeps the resume already on screen', () async {
       when(() => repo.generateResume(force: any(named: 'force')))
           .thenThrow(const NetworkFailure());
-      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
 
       // The worker is reading a resume; a background blip must not replace it
@@ -187,7 +192,7 @@ void main() {
         () async {
       when(() => repo.generateResume(force: any(named: 'force')))
           .thenThrow(const NetworkFailure());
-      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
 
       await cubit.refresh();
@@ -201,7 +206,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 20));
         return 'fresh';
       });
-      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
       await cubit.showGenerated('stale');
 
@@ -224,7 +229,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 50));
         return 'resume text';
       });
-      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
 
       // Tab focus can fire while the create:-time generate is still in flight.
@@ -247,7 +252,7 @@ void main() {
       when(() => repo.generateResume()).thenAnswer((_) async => 'RESUME TEXT');
       when(() => repo.loadResumeDocument())
           .thenAnswer((_) async => tradeSheet);
-      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
 
       await cubit.generate();
@@ -261,7 +266,7 @@ void main() {
       when(() => repo.generateResume()).thenAnswer((_) async => 'RESUME TEXT');
       when(() => repo.loadResumeDocument())
           .thenThrow(const NetworkFailure());
-      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
 
       await cubit.generate();
@@ -274,7 +279,7 @@ void main() {
     test('showGenerated() also loads the structured document', () async {
       when(() => repo.loadResumeDocument())
           .thenAnswer((_) async => tradeSheet);
-      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
 
       await cubit.showGenerated('good resume');
@@ -286,7 +291,7 @@ void main() {
         'must not blank a document that was already on screen', () async {
       when(() => repo.loadResumeDocument())
           .thenAnswer((_) async => tradeSheet);
-      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
       await cubit.showGenerated('good resume');
       expect(cubit.state.document, same(tradeSheet));
@@ -302,7 +307,7 @@ void main() {
           .thenAnswer((_) async => 'resume text');
       when(() => repo.loadResumeDocument())
           .thenAnswer((_) async => null);
-      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
       await cubit.generate();
       expect(cubit.state.document, isNull);
@@ -338,7 +343,7 @@ void main() {
             .thenAnswer((_) async {});
         when(() => repo.loadResumeDocument())
             .thenAnswer((_) async => reloadedSheet);
-        return ResumeCubit(repo, editRepo);
+        return ResumeCubit(repo, editRepo, profileRepo);
       },
       seed: () => const ResumeState(
         status: ResumeStatus.ready,
@@ -372,7 +377,7 @@ void main() {
             .thenAnswer((_) async {});
         when(() => repo.loadResumeDocument())
             .thenAnswer((_) async => reloadedSheet);
-        return ResumeCubit(repo, editRepo);
+        return ResumeCubit(repo, editRepo, profileRepo);
       },
       act: (ResumeCubit c) =>
           c.setEmploymentDescriptionSource('emp-1', ownWords: false),
@@ -391,7 +396,7 @@ void main() {
       when(() => repo.setEmploymentDescriptionSource(any(),
               ownWords: any(named: 'ownWords')))
           .thenThrow(const ServerFailure(404));
-      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
 
       await expectLater(
@@ -411,7 +416,7 @@ void main() {
           .thenAnswer((_) async {});
       when(() => repo.loadResumeDocument())
           .thenAnswer((_) async => tradeSheet);
-      final ResumeCubit cubit = ResumeCubit(repo, editRepo);
+      final ResumeCubit cubit = ResumeCubit(repo, editRepo, profileRepo);
       addTearDown(cubit.close);
       await cubit.showGenerated('good resume');
       expect(cubit.state.document, same(tradeSheet));
