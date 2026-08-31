@@ -4,13 +4,16 @@ import 'package:badabhai_worker_app/core/widgets/feedback_fab.dart';
 import 'package:badabhai_worker_app/router.dart';
 
 /// The floating Feedback button hides on the MINIMUM set: the pre-login auth
-/// screens (login, OTP, PIN — no session token yet), the splash, and the feedback
-/// page itself (anti-stack). It shows everywhere the worker is logged in,
-/// including the consent + name onboarding steps.
+/// screens (login, OTP, PIN — no session token yet), the splash, the feedback
+/// page itself (anti-stack), and the two `ChatProfilingScreen` routes (which
+/// put their own Feedback action in the header instead). It shows everywhere
+/// else the worker is logged in, including the consent + name onboarding
+/// steps.
 void main() {
   group('showFeedbackOn', () {
-    test('hidden on splash, the pre-login auth screens, and self (anti-stack)',
-        () {
+    test(
+        'hidden on splash, the pre-login auth screens, self (anti-stack), '
+        'and the two chat routes (header owns Feedback there)', () {
       for (final String path in <String>[
         '/', // splash
         Routes.phoneLogin,
@@ -19,6 +22,8 @@ void main() {
         Routes.setPin, // '/pin/set' — covered by the '/pin' prefix
         Routes.forgotPin, // '/pin/forgot'
         Routes.feedback, // don't offer feedback from the feedback page
+        Routes.chatProfiling, // header owns Feedback here instead
+        Routes.badaBhai, // same screen, same reason
       ]) {
         expect(showFeedbackOn(path), isFalse, reason: 'must hide on $path');
       }
@@ -30,9 +35,7 @@ void main() {
         Routes.name,
         Routes.jobs,
         Routes.resume,
-        Routes.badaBhai,
         Routes.profile,
-        Routes.chatProfiling,
         Routes.voiceNote,
         Routes.invite,
         Routes.alerts,
