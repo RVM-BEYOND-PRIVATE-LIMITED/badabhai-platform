@@ -191,8 +191,18 @@ export class AccountDeletionService {
   /**
    * Erase a worker's account. Idempotent + best-effort-complete (see class doc). Returns
    * silently; the durable record is the `worker.account_deleted` event.
+   *
+   * [opts.setReregistrationCooldown] — whether step 4 writes the `deleted_phone:<hash>`
+   * tombstone that blocks OTP re-registration for ACCOUNT_DELETION_COOLDOWN_SECONDS.
+   * DEFAULTS TO TRUE, so the DPDP grace-elapse sweep (the real deletion path, and the caller
+   * this cool-down was written for) is unchanged and needs no argument. Only the QA immediate
+   * seam passes `false` — see `AuthController.accountDeleteImmediate` for why.
    */
-  async execute(workerId: string): Promise<void> {
+  async execute(
+    workerId: string,
+    opts: { setReregistrationCooldown?: boolean } = {},
+  ): Promise<void> {
+    const { setReregistrationCooldown = true } = opts;
     // FAIL CLOSED ON THE ID BEFORE ANY DESTRUCTIVE PREFIX IS BUILT.
     //
     // This method now composes THREE storage prefixes from `workerId` — voice,
@@ -514,7 +524,23 @@ export class AccountDeletionService {
     // error here must NOT abort the already-completed erasure (the PII is gone). Skip when the
     // cool-down is disabled (0). The KEY value is the keyed HMAC blind index — the only retained
     // phone derivative (§2-permitted, never reversible to a number).
-    if (this.config.ACCOUNT_DELETION_COOLDOWN_SECONDS > 0) {
+    //
+    // …AND SKIP IT ENTIRELY WHEN THE CALLER OPTED OUT. The tombstone answers a neutral 429 to
+    // every OTP send for that number until it expires, and the client maps EVERY 429 to one
+    // string ("OTP bhejne ki limit ho gayi"), so a tombstoned number is indistinguishable from
+    // a rate-limited one. On the QA immediate seam that is a 7-day burn of a test number per
+    // tap — docs/otp-throttles-runbook.md §3 calls it "the QA trap" and it is how #1306 was
+    // reported. The DPDP path (the grace-elapse sweep) passes nothing and keeps the cool-down:
+    // that is the anti-abuse control ADR-0026 Phase 5 asked for, and it is NOT weakened here.
+    if (!setReregistrationCooldown) {
+      // Deliberate, and logged so a "why did re-registration work immediately" question is
+      // answerable from the box's own logs rather than from this comment. PII-FREE: the opaque
+      // 8-char worker prefix only, never the phone or its hash.
+      this.logger.log(
+        `account deletion re-registration cool-down SKIPPED worker=${idPrefix} ` +
+          "(caller opted out — QA immediate seam; the DPDP grace path always sets it)",
+      );
+    } else if (this.config.ACCOUNT_DELETION_COOLDOWN_SECONDS > 0) {
       try {
         const redis = (await this.queue.client) as unknown as RedisDeletionClient;
         await redis.set(

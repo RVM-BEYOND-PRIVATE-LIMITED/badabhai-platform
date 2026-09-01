@@ -557,10 +557,23 @@ export class AuthController {
    * and its fail-open/idempotency contract. A re-run on an already-deleted worker is a clean no-op
    * (execute's own `findById` guard).
    *
-   * The ONLY things this seam still skips, on purpose, are the step-up OTP and the 7-day grace
-   * window — that is the entire point of "immediate" vs. the real DPDP flow, and neither changes
-   * here: no OTP is verified, and the erasure runs synchronously in-request rather than being
-   * scheduled.
+   * The things this seam skips, on purpose, are the step-up OTP, the 7-day grace window, and —
+   * since the QA-loop fix below — the re-registration cool-down. That is the entire point of
+   * "immediate" vs. the real DPDP flow: no OTP is verified, and the erasure runs synchronously
+   * in-request rather than being scheduled.
+   *
+   * NO RE-REGISTRATION COOL-DOWN ON THIS PATH (`setReregistrationCooldown: false`). `execute`
+   * normally writes a `deleted_phone:<phoneHash>` tombstone that answers a neutral 429 to every
+   * OTP send for that number for ACCOUNT_DELETION_COOLDOWN_SECONDS (7 days by default). That is
+   * correct for a REAL deletion — it is the ADR-0026 Phase 5 anti-abuse control, and the graced
+   * DPDP sweep still sets it — but on a seam whose entire purpose is "let QA reproduce a deletion
+   * and then sign back in", it burns a test number for a week per tap. Worse, it is invisible:
+   * `auth_api.dart` maps EVERY 429 to one string, so a tombstoned number looks exactly like a
+   * rate-limited one, and switching to another recently-deleted test number does not help.
+   * docs/otp-throttles-runbook.md §3 names this "the QA trap"; it is how #1306 was reported.
+   *
+   * This narrows ONLY the cool-down, and only on this route. The erasure itself is unchanged and
+   * still complete — sessions revoked, storage swept, row removed, event emitted.
    *
    * BOOT-REFUSAL (#1187, ruled and implemented): `assertAuthConfig` refuses to boot when this flag
    * is true and the RAW NODE_ENV is not explicitly development/test/staging — the same structural
@@ -596,7 +609,7 @@ export class AuthController {
     // The SAME complete erasure the graced DPDP flow runs — sessions + refresh families revoked,
     // every storage prefix swept, THEN the atomic DB delete (see the doc comment). Idempotent —
     // a re-run on an already-deleted worker is a clean no-op.
-    await this.accountDeletion.execute(worker.id);
+    await this.accountDeletion.execute(worker.id, { setReregistrationCooldown: false });
 
     // AUDIT: `execute` already emits the PII-free `worker.account_deleted` event; this line is
     // the QA-box-local marker that the IMMEDIATE (no-OTP, no-grace) seam is what triggered it.

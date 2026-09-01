@@ -274,6 +274,53 @@ describe("AccountDeletionService", () => {
     expect(h.workers.hardDelete).toHaveBeenCalled();
   });
 
+  // ---- The QA-loop opt-out: setReregistrationCooldown (docs/otp-throttles-runbook.md §3) ----
+  //
+  // The tombstone answers a neutral 429 to every OTP send for that number until it expires, and
+  // the client maps EVERY 429 to one string — so on the QA immediate seam it burns a test number
+  // for 7 days per tap with no way to tell it from an ordinary rate limit ("the QA trap", #1306).
+  // The opt-out narrows ONLY the cool-down, only for callers that ask, and the DEFAULT must stay
+  // "set it" so the DPDP grace-elapse sweep is untouched.
+
+  it("setReregistrationCooldown:false — writes NO tombstone, so the number can re-register at once", async () => {
+    const h = make({ sessions: 2, devices: 1 });
+    await h.svc.execute(WORKER_ID, { setReregistrationCooldown: false });
+    expect(h.redisSet).not.toHaveBeenCalled();
+  });
+
+  it("setReregistrationCooldown:false — the ERASURE is otherwise unchanged and still complete", async () => {
+    // The opt-out must narrow the cool-down and NOTHING else: a QA delete has to be a real
+    // delete, or it stops reproducing the flow it exists to reproduce.
+    const h = make({ resumeKeys: ["k1.pdf"], sessions: 2, devices: 1, hadPin: true });
+    await h.svc.execute(WORKER_ID, { setReregistrationCooldown: false });
+
+    expect(h.sessions.revokeAll).toHaveBeenCalledWith(WORKER_ID);
+    expect(h.storage.deletePdf).toHaveBeenCalled();
+    expect(h.workers.hardDelete).toHaveBeenCalledWith(WORKER_ID);
+    expect(h.events.emit).toHaveBeenCalledTimes(1);
+    expect(h.events.emit).toHaveBeenCalledWith(
+      expect.objectContaining({ event_name: "worker.account_deleted" }),
+    );
+  });
+
+  it("DEFAULT is unchanged: no options argument still writes the 7-day tombstone (DPDP path)", async () => {
+    const h = make({ sessions: 0 });
+    await h.svc.execute(WORKER_ID);
+    expect(h.redisSet).toHaveBeenCalledWith(`deleted_phone:${PHONE_HASH}`, "1", "EX", 604800);
+  });
+
+  it("an EXPLICIT setReregistrationCooldown:true behaves exactly like the default", async () => {
+    const h = make({ sessions: 0 });
+    await h.svc.execute(WORKER_ID, { setReregistrationCooldown: true });
+    expect(h.redisSet).toHaveBeenCalledWith(`deleted_phone:${PHONE_HASH}`, "1", "EX", 604800);
+  });
+
+  it("an EMPTY options object behaves like the default — the opt-out is opt-IN only", async () => {
+    const h = make({ sessions: 0 });
+    await h.svc.execute(WORKER_ID, {});
+    expect(h.redisSet).toHaveBeenCalledWith(`deleted_phone:${PHONE_HASH}`, "1", "EX", 604800);
+  });
+
   // ---- ADR-0026 Phase 5 — added coverage (QA gap-closure) ----
 
   it("STRICT ORDER: revokeAll fires BEFORE hardDelete which fires BEFORE the event emit (D4)", async () => {
