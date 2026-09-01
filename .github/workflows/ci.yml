@@ -481,8 +481,39 @@ jobs:
       # above runs no native build) — `ubuntu-latest` ships a preinstalled, license-
       # accepted Android SDK, which is what `flutter build apk` needs beyond Flutter
       # itself.
+      # ---- ENABLE_TEST_DELETE — the Profile tab's "Delete account (test)" button ----
+      #
+      # A DART-DEFINE, NOT AN ENV VAR, and that distinction is the whole reason this line
+      # exists. `kEnableTestDelete` reads `bool.fromEnvironment('ENABLE_TEST_DELETE')`
+      # (apps/worker-app/lib/core/config/app_config.dart), and Dart resolves that against the
+      # COMPILE-TIME define map — never the process environment. A GitHub secret, a job-level
+      # `env:`, or a shell `export` of the same name is invisible to `flutter build`: the const
+      # folds to `false` and the entire button subtree is tree-shaken out of the binary. The
+      # value has to appear on the command line, here, or the button cannot exist in the APK.
+      #
+      # WHAT THIS ARMS, STATED PLAINLY. The button calls POST /auth/account/delete/immediate,
+      # which erases the CALLING worker's account synchronously — no step-up OTP, no ADR-0031
+      # 7-day grace, no undo (AccountDeletionService.execute: sessions revoked, storage swept,
+      # transactional row delete). It is scoped to the caller's own token, so it is never a
+      # path to someone else's account.
+      #
+      # THE BUTTON IS NOT THE GATE, and nobody should read this line as though it were. The
+      # route is ordinary HTTP and the server cannot see which APK a request came from, so once
+      # TEST_IMMEDIATE_DELETE_ENABLED is armed on the box (deploy-lightsail below), ANY
+      # authenticated worker can self-delete whether or not their build carries the button.
+      # This line only decides who can TAP it. The server flag is the real control, and the
+      # optional TEST_IMMEDIATE_DELETE_WORKER_IDS narrowing is the only thing that bounds the
+      # blast radius — deliberately left empty (owner decision, 2026-08-27: the gate is which
+      # APK carries the button, not which account is asking). See `assertAuthConfig` in
+      # packages/config/src/server.ts for that ruling and its accepted consequence.
+      #
+      # THIS ARTIFACT IS PUBLIC: the release step below publishes the APK as a GitHub Release
+      # asset on every push to main. Arming it here puts a one-tap irreversible self-delete in
+      # a sideloadable build. If that trade stops being acceptable, split this into a separate
+      # QA-only build+publish job rather than quietly dropping the flag — a stock
+      # `flutter build apk --release` is what the public artifact should be.
       - name: Build release APK
-        run: flutter build apk --release
+        run: flutter build apk --release --dart-define=ENABLE_TEST_DELETE=true
 
       # Rename with the commit's short SHA so the artifact carries its own provenance
       # in the filename — trivial, obviously-correct traceability. Does not attempt
@@ -1982,6 +2013,19 @@ jobs:
           # to `false`, and `booleanFromString` reads `""` as false. Merging this arms nothing.
           TEST_IMMEDIATE_DELETE_ENABLED: ${{ secrets.TEST_IMMEDIATE_DELETE_ENABLED }}
 
+          # THE OPTIONAL NARROWING, bridged so it is SETTABLE — it was declared in
+          # docker-compose.staging.yml as `${TEST_IMMEDIATE_DELETE_WORKER_IDS:-}` but reached
+          # no `envs:` entry, so it resolved empty on every deploy and a box-level `export` did
+          # not survive the next one. Exactly the boolean's own #1264 gap, one line above.
+          #
+          # UNSET IS THE INTENDED POSTURE AND STAYS THE DEFAULT: an absent secret bridges an
+          # empty string, `uuidListFromString` reads `""` as `[]`, and an empty list is
+          # UNRESTRICTED by design — `assertAuthConfig` (packages/config/src/server.ts) calls it
+          # "an OPTIONAL narrowing, not a requirement". Bridging the name arms nothing; it only
+          # means a future decision to scope the seam to specific worker ids can be made by
+          # setting a secret instead of by editing this file under time pressure.
+          TEST_IMMEDIATE_DELETE_WORKER_IDS: ${{ secrets.TEST_IMMEDIATE_DELETE_WORKER_IDS }}
+
           # ---- GAP-XC-06 (#920): payer-web's external port, box-specific and NOT a
           # secret in the confidentiality sense — bridged through `secrets.*` anyway,
           # for the SAME reason CORS_ALLOWED_ORIGINS above is: consistency with the one
@@ -2030,7 +2074,7 @@ jobs:
           # poll below can never be silently cut short by an upstream default change).
           timeout: 10m
           command_timeout: 10m
-          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED
+          envs: JWT_SECRET,PII_ENCRYPTION_KEY,PII_HASH_PEPPER,PIN_PEPPER,ADMIN_JWT_SECRET,DATABASE_URL,REDIS_URL,INTERNAL_SERVICE_TOKEN,FAST2SMS_API_KEY,FAST2SMS_SENDER_ID,FAST2SMS_DLT_TEMPLATE_ID,ZEPTOMAIL_API_URL,ZEPTOMAIL_API_TOKEN,ZEPTOMAIL_MAIL_AGENT,EMAIL_FROM_ADDRESS,CORS_ALLOWED_ORIGINS,LANGFUSE_PUBLIC_KEY,LANGFUSE_SECRET_KEY,LANGFUSE_TRACING_ENVIRONMENT,LANGFUSE_BASE_URL,AI_ENABLE_REAL_CALLS,WORK_HISTORY_POLISH_ENABLED,GEMINI_FLASH_API_KEY,ANTHROPIC_API_KEY,DOMAIN_MATCH_ENABLED,SKILL_CANONICALIZE_ENABLED,SKILLS_INTERNAL_TOKEN,AI_INTERNAL_TOKEN,PAYER_WEB_PORT,ADMIN_WEB_PORT,AGENCY_PAYOUTS_ENABLED,GH_SHA,GH_ACTOR,GH_REPOSITORY,GHCR_TOKEN,TEST_IMMEDIATE_DELETE_ENABLED,TEST_IMMEDIATE_DELETE_WORKER_IDS
           #
           # ⚠ FIVE LINKS, AND A SECRET ONLY BUYS THE FIRST. A value reaches a container by:
           #   1. existing as a GitHub environment secret
