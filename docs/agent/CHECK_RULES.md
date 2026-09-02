@@ -38,7 +38,7 @@ NEVER infer or invent the INVARIANT. It is stated in your phase brief. If you do
 have it, stop and ask. An invariant you made up is one nobody agreed to, which is the
 same failure as settling a ruling by default.
 
-WHEN YOU FINISH, write docs/qa/evidence/<PHASE-ID></phase>/VERDICT.md containing:
+WHEN YOU FINISH, write docs/qa/evidence/<PHASE-ID>/VERDICT.md containing:
 
 - PASS or FAIL on the first line
 - All raw evidence pasted inline, not summarised, not linked
