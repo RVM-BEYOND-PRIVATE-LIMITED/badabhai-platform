@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 145,
+  "pack_count": 148,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -69,6 +69,14 @@
     "qp_bus_driving@2": {
       "served_text_sha256": "199509d4db3cac3a225c354a60e72abe5951616519a3c9537db5fbf4e39a5a60",
       "served_text_count": 9
+    },
+    "qp_cad_drafting@1": {
+      "served_text_sha256": "7d8199a9e5c451bb048f354605c9aaff8f9131d27a2f01abfc98b12166461e12",
+      "served_text_count": 53
+    },
+    "qp_cam_programming@1": {
+      "served_text_sha256": "6236505db5b8916b5561915970395ea6626af248f8e4d3b04548a6f755c1320e",
+      "served_text_count": 46
     },
     "qp_carpentry@1": {
       "served_text_sha256": "227ed09ca1f2e230ac01ab0a0e7ae8691fc711a90dcfa179824518387c9b7814",
@@ -165,6 +173,10 @@
     "qp_domestic@1": {
       "served_text_sha256": "b487982eea4b9f7dcb33c63fc922a85491941c1114bf0ba846a3a7c22ff44d0c",
       "served_text_count": 15
+    },
+    "qp_draughting@1": {
+      "served_text_sha256": "af09e4c14a19294b43be8c084a8798cb23bb939f5f8891cc798bc4ad5a503a82",
+      "served_text_count": 17
     },
     "qp_driving_heavy@1": {
       "served_text_sha256": "1d5be43de9f3cf4431662715e0516ad109cd0db5ac6a531eb6e8b4c76af227e4",

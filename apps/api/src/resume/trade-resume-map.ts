@@ -794,6 +794,391 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  {
+    /**
+     * THE CAM PROGRAMMER's SHEET — the first map in this file for a role that stands at no
+     * machine, and the shape shows it.
+     *
+     * ITS RANK-2 ROW IS SOFTWARE, NOT A MACHINE. §5.1 rank 2 is "the literal vocabulary of the job
+     * advertisement, highest-signal attribute in the wedge", and for a part programmer that
+     * vocabulary is Mastercam and PowerMill — a programming advertisement names the seat, not the
+     * spindle. So `cam_software` carries `inHeadline`, and the ratified sheet's headline
+     * ("CAM Programmer — Programmer · 7 yrs · Mastercam, PowerMill, SolidCAM") is what
+     * `toolsPhrase`'s three-value cap produces from this row's four.
+     *
+     * NINE ROWS AGAINST A BUDGET OF NINE, and that is the pack's design rather than a coincidence:
+     * `qp_cam_programming` asks exactly the nine questions the ratified sheet prints, plus its
+     * mode split and its tier gate. Nothing sheds for any worker, so `rank` here decides no
+     * outcome today — it is authored anyway, because the day a tenth row is added is the day it
+     * would otherwise be chosen by whoever is editing.
+     *
+     * TWO ANSWERS ARE CAPTURED AND DELIBERATELY NOT PRINTED. `programming_mode` (CAM seat vs
+     * at-machine MDI) is real matching data and the pack's own disambiguator, but the ratified
+     * sheet has no row for it and §8 forbids inventing one. `simulation_work: "none"` is the
+     * `drawing_reading: "none"` precedent exactly: a negative claim does not belong on a worker's
+     * own marketing document.
+     */
+    pack_id: "qp_cam_programming",
+    section_title: "Software, machines programmed & capability",
+    capability: [
+      {
+        from: "cam_software",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "CAM software",
+        kind: "chips",
+        values: {
+          mastercam: "Mastercam",
+          powermill: "PowerMill",
+          solidcam: "SolidCAM",
+          edgecam: "EdgeCAM",
+        },
+      },
+      {
+        from: "machine_programmed",
+        rank: 22,
+        maxValues: 4,
+        label: "Machines programmed",
+        kind: "chips",
+        // THE DIGITS LIVE ONLY HERE. `slugKey` refuses a digit in an `option_key`, so the pack
+        // spells the axis count out (`vmc_three_axis`) and the printed English restores it —
+        // which is the whole reason this dictionary is a separate file from the pack.
+        values: {
+          vmc_three_axis: "VMC 3-axis",
+          vmc_four_axis: "VMC 4-axis",
+          five_axis_trunnion: "5-axis trunnion",
+          turn_mill: "Turn-mill",
+        },
+      },
+      {
+        from: "controller_brand",
+        rank: 23,
+        maxValues: 3,
+        label: "Controllers posted",
+        kind: "chips",
+        // THE SAME ATTRIBUTE KEY AND THE SAME THREE SLUGS AS THE TURNING, MILLING AND GRINDING
+        // MAPS — one vocabulary, so a matcher searching for Fanuc finds an operator and the man
+        // who posts his programs under one key. Only the ROW LABEL differs, because on this sheet
+        // the fact is which controller the program is posted for.
+        values: {
+          fanuc: "Fanuc",
+          heidenhain: "Heidenhain",
+          siemens: "Siemens",
+        },
+      },
+      {
+        from: "programming_work",
+        rank: 41,
+        label: "Programming work",
+        kind: "ticks",
+        values: {
+          two_d_three_d_toolpath: "2D & 3D toolpath",
+          multi_axis_toolpath: "Multi-axis toolpath",
+          tool_library: "Tool library management",
+          cycle_time: "Cycle-time optimisation",
+          strategy_selection: "Machining strategy selection",
+          tryout_support: "Shop-floor tryout support",
+        },
+      },
+      {
+        from: "cad_model_handling",
+        rank: 42,
+        label: "CAD model handling",
+        kind: "ticks",
+        values: {
+          step_iges_import: "STEP / IGES import",
+          parasolid_import: "Parasolid import",
+          model_repair: "Model repair",
+          fixture_modelling: "Fixture modelling",
+        },
+      },
+      {
+        from: "post_processor_work",
+        rank: 43,
+        label: "Post-processors",
+        kind: "fact",
+        // A BAND, PRINTED AS THE CAPABILITY SENTENCE IT IS. The reference sheet reads "Edits and
+        // tests post-processors — Fanuc and Heidenhain"; the controller half of that sentence is
+        // the Controllers row's fact and is NOT re-composed here. Joining two rows' answers into
+        // one printed clause would assert a pairing the worker never stated — which controller he
+        // has posted for — and that is the fabrication §8 forbids.
+        values: {
+          use_only: "Uses supplied post-processors",
+          edit_post: "Edits post-processors",
+          edit_and_test: "Edits and tests post-processors",
+          write_post: "Writes new post-processors",
+        },
+      },
+      {
+        from: "simulation_work",
+        rank: 44,
+        label: "Simulation",
+        kind: "fact",
+        // `none` HAS NO ENTRY ON PURPOSE, the `drawing_reading: "none"` precedent. "Does not
+        // simulate" is real matching data and is stored; it is not something a worker's own
+        // document should say about him.
+        values: {
+          in_cam_check: "In-CAM collision check before release",
+          vericut: "Vericut verification before release",
+          both_checks: "Vericut and in-CAM collision check before release",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 45,
+        label: "Drawings",
+        kind: "fact",
+        // Same two labels as the turning, milling and grinding maps, and `none` unlabelled for the
+        // same reason it is unlabelled on all three.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 71,
+        maxValues: 3,
+        label: "Sector worked",
+        kind: "fact",
+        // `tool_room` IS NEW TO THIS SECTOR DICTIONARY and the reference sheet is why: it prints
+        // "Auto components and tool room". No machining map carries it, because a turner answers
+        // the sector he cut parts FOR; a programmer answers the shop he programmed IN.
+        values: {
+          automotive: "Auto components",
+          tool_room: "Tool room",
+          die_mould: "Die and mould",
+          general_engg: "General engineering / job shop",
+          defence: "Defence / aerospace",
+        },
+      },
+    ],
+  },
+  {
+    /**
+     * THE CAD DRAUGHTSMAN's SHEET — the only map in this file written for a FRESHER first.
+     *
+     * WHY THAT CHANGES THE RANKING AND NOT JUST THE ROWS. `qp_cad_drafting` asks all six of the
+     * ratified sheet's capability rows at tier 0, ungated, so a student answers exactly the six
+     * rows below plus `sector_studied` — seven, against a budget of nine — and his sheet is the
+     * ratified page (Pooja Chaudhary) with nothing shed. An eight-year designer answers eleven and
+     * loses two. The ranking therefore has to be right at the TOP for the fresher and right at the
+     * BOTTOM for the senior, which is what the two sector keys and the two 6x rows below settle.
+     *
+     * TWELVE ROWS, ELEVEN REACHABLE BY ANY ONE WORKER. `sector_studied` (`lte 1`) and
+     * `sector_drawn` (`gte 2`) are mutually exclusive by their gates, so no sheet ever prints
+     * both — they are two rows because a student who has drawn nothing for money must not be
+     * asked, or shown, what he has "worked".
+     *
+     * ONE ANSWER IS CAPTURED AND DELIBERATELY NOT PRINTED: `drawing_check_work: "check_none"`
+     * ("only looks at his own drawings"). It is stored as ITSELF rather than collapsed into the
+     * `unknown` escape — that would have been data loss dressed up as a decision — and it simply
+     * carries no label here, so §5b rule 1 drops it. `drawing_type: "tracing"` by contrast DOES
+     * print: tracing and updating existing drawings is the Tracer's actual trade (NCO 3118.0800),
+     * the bottom rung of this ladder rather than the absence of one. `cad_training_source` is
+     * likewise unmapped, and it PRINTS ON NO ROW OF THE SHEET AT ALL — it is captured for
+     * matching only. The fresher block's heading is NOT chosen from it: `buildFresherRows` reads
+     * `TRAINING_LABEL[packId]`, keyed by pack, and this role's descriptor sets the constant
+     * `fresher.trainingLabel: "CAD training"`. That constant was chosen precisely BECAUSE the
+     * answer is not printed — one heading has to be true of all five chips at once, and an ITI
+     * heading would over-claim for the private-institute and self-taught student.
+     */
+    pack_id: "qp_cad_drafting",
+    section_title: "Software, drawing work & capability",
+    capability: [
+      {
+        from: "cad_software",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Software",
+        kind: "chips",
+        // THE HEADLINE's THIRD SEGMENT COMES FROM HERE — "CAD Designer / Draughtsman —
+        // Draughtsman · Fresher · AutoCAD, SolidWorks, Fusion 360" — because for a desk trade the
+        // package IS the advertised vocabulary, exactly as the controller is for a turner.
+        // `toolsPhrase` caps the headline at three; the row itself prints up to four.
+        values: {
+          autocad: "AutoCAD",
+          solidworks: "SolidWorks",
+          fusion: "Fusion 360",
+          creo: "Creo / Pro-E",
+          catia: "CATIA",
+        },
+      },
+      {
+        from: "cad_modules",
+        rank: 22,
+        maxValues: 4,
+        label: "Modules",
+        kind: "chips",
+        values: {
+          two_d_drafting: "2D drafting",
+          three_d_modelling: "3D modelling",
+          assembly_module: "Assembly",
+          sheet_metal: "Sheet-metal module",
+          surface_module: "Surface modelling",
+        },
+      },
+      {
+        from: "drawing_work",
+        rank: 41,
+        label: "Drawing work",
+        kind: "ticks",
+        values: {
+          part_modelling: "Part modelling",
+          assembly_mating: "Assembly mating",
+          views_sections: "Drawing views & sections",
+          flat_pattern: "Sheet-metal flat pattern",
+          dimensioning: "Dimensioning",
+          revision_control: "Revision control",
+        },
+      },
+      {
+        from: "drawing_standards",
+        rank: 42,
+        label: "Standards & detailing",
+        kind: "ticks",
+        values: {
+          gdt_symbols: "GD&T symbols",
+          iso_standard: "ISO drawing standard",
+          title_block: "Title block & BOM",
+          tolerance_stack: "Tolerance stack basics",
+          projection_angle: "First & third angle projection",
+        },
+      },
+      {
+        from: "drawing_type",
+        rank: 43,
+        label: "Drawing type",
+        kind: "fact",
+        values: {
+          two_d_only: "Prepares 2D production drawings",
+          model_to_drawing: "Prepares 2D production drawings from 3D models",
+          model_and_drawing: "Models in 3D and prepares production drawings",
+          tracing: "Traces and updates existing drawings",
+        },
+      },
+      {
+        from: "output_produced",
+        rank: 44,
+        label: "Output produced",
+        kind: "fact",
+        values: {
+          part_drawing: "Part drawings",
+          assembly_drawing: "Assembly drawings",
+          bom: "BOM",
+          dxf_cutting: "DXF for laser cutting",
+          fabrication_drawing: "Fabrication / welding drawings",
+        },
+      },
+      {
+        from: "design_work",
+        rank: 45,
+        label: "Design work",
+        kind: "ticks",
+        // THE TOP OF THIS ROLE's LADDER, and §5.1 rank 4's own words are why it sits with the
+        // drawing rows rather than below them: it "separates a button-presser from a man who can
+        // set the job". Material selection and bend allowance are what make a draughtsman a
+        // design engineer.
+        values: {
+          material_selection: "Material selection",
+          standard_parts: "Standard part selection — bearings, fasteners",
+          bend_allowance: "Sheet-metal bend allowance",
+          fixture_design: "Jig & fixture design",
+          cost_weight: "Weight / cost estimation",
+        },
+      },
+      {
+        from: "design_input_source",
+        rank: 46,
+        label: "Design input",
+        kind: "fact",
+        // EVERY LABEL IN THIS FILE IS PRONOUN-FREE, and this row is where that stopped being an
+        // accident. `own_design` read "Designs it himself" — the only gendered string among the
+        // printed labels of all five maps, on the one role whose ratified reference sheet is a
+        // woman's and whose supply the taxonomy calls RVM's core student profile. No question in
+        // any pack captures sex, so the English asserted a fact the worker never stated (§8),
+        // while the source chip — "Khud design karta hoon" — carries no third-person claim at all.
+        values: {
+          hand_sketch: "Works from hand sketches",
+          sample_part: "Measures a sample part and draws it",
+          senior_model: "Works from a senior's 3D model or drawing",
+          own_design: "Designs it independently",
+        },
+      },
+      {
+        from: "drawing_check_work",
+        rank: 61,
+        label: "Drawing checking",
+        kind: "fact",
+        // `check_none` HAS NO LABEL — see the entry header. Checking another man's drawing is the
+        // clearest seniority signal this trade has, which is why it outranks the instruments below
+        // it even though §5.1 ranks measuring instruments 5th: that ranking was written for the
+        // machining wedge, where an operator's gauges are how the job is judged. In a drawing
+        // office they are an occasional tool. Trade truth, flagged for RVM redline like every
+        // other ordering in this file.
+        values: {
+          check_regular: "Checks other draughtsmen's drawings",
+          check_sometimes: "Checks other draughtsmen's drawings occasionally",
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 62,
+        label: "Measuring instruments",
+        kind: "ticks",
+        // ITS OWN DICTIONARY, not the turner's. `TURNING_MEASURING_TOOLS` carries a plug / ring
+        // gauge and a bore dial gauge, which check a bore the man just cut; a draughtsman reaches
+        // for a rule and a vernier to reverse-engineer a sample part. Same attribute key, and the
+        // reuse would have looked safe — which is the mistake the milling map records.
+        values: {
+          vernier: "Vernier",
+          micrometer: "Micrometer",
+          height_gauge: "Height gauge",
+          steel_rule: "Steel rule & measuring tape",
+          dial_indicator: "Dial indicator",
+        },
+      },
+      {
+        from: "sector_studied",
+        rank: 71,
+        maxValues: 3,
+        label: "Sector studied",
+        kind: "fact",
+        // "STUDIED", NOT "WORKED", AND THE ROW EXISTS TWICE FOR THAT ONE WORD. The ratified
+        // fresher sheet prints "Sector studied — General engineering · course projects", and
+        // printing "worked" over a student's course projects would state employment he has not
+        // had. The pack asks the two with different wording behind exclusive gates; this map
+        // keeps them two rows so neither label can reach the wrong worker.
+        values: {
+          general_engg: "General engineering",
+          auto_parts: "Automotive / auto parts",
+          sheet_metal_fab: "Sheet metal and fabrication",
+          civil_building: "Civil / building drawing",
+          course_project: "Course projects",
+        },
+      },
+      {
+        from: "sector_drawn",
+        rank: 72,
+        maxValues: 3,
+        label: "Sector worked",
+        kind: "fact",
+        // §4.3 puts the sector tag at the bottom of the survival order — "display only. Never a
+        // matching input — locked" — so for an eleven-row senior this is one of the two that
+        // sheds, along with the instruments. The fresher never reaches that budget, so his
+        // `sector_studied` row above always prints.
+        values: {
+          general_engg: "General engineering / job shop",
+          auto_parts: "Automotive / auto parts",
+          sheet_metal_fab: "Sheet metal and fabrication",
+          tool_room: "Tool room, die and mould",
+          machine_building: "Machine / SPM building",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

@@ -87,12 +87,17 @@ describe.each(TRADE_RESUME_MAPS.map((m) => m.pack_id))("trade resume map — %s"
 });
 
 describe("trade resume map — qp_cnc_turning", () => {
-  it("exists alongside the milling map, and only real pack ids resolve", () => {
+  it("exists alongside every other shipped map, and only real pack ids resolve", () => {
+    // PINNED BY VALUE, IN DECLARATION ORDER. A map that vanished would empty one trade's whole
+    // capability section with nothing else failing, so "which maps exist" is asserted rather than
+    // counted. Batch 1 closed with the two desk trades: part programming and the drawing office.
     expect(map).toBeDefined();
     expect(TRADE_RESUME_MAPS.map((m) => m.pack_id)).toEqual([
       "qp_cnc_turning",
       "qp_vmc_milling",
       "qp_cnc_grinding",
+      "qp_cam_programming",
+      "qp_cad_drafting",
     ]);
     expect(tradeResumeMapFor("qp_welding")).toBeUndefined();
     expect(tradeResumeMapFor(null)).toBeUndefined();
@@ -608,5 +613,270 @@ describe("R16 §1 — the chip and the headline state the axis fact ONCE, the sa
       both,
       "this row would print its configuration twice in one headline — split the row or drop one flag",
     ).toEqual([]);
+  });
+});
+
+/**
+ * PART PROGRAMMING, AGAINST THE RATIFIED SHEET.
+ *
+ * The same discipline the milling block above applies, and it is the only thing that turns "the
+ * map looks right" into "the map reproduces a page a human signed". Batch 1 shipped both desk
+ * trades with no such block and a claim that the two sheets rendered byte-for-byte; two rows do
+ * not, and the deltas are asserted below rather than described, so the next editor inherits a
+ * measurement instead of a belief.
+ */
+describe("trade resume map — qp_cam_programming against the ratified sample", () => {
+  /** Nitin Deshmukh's capability answers, transcribed from the ratified sheet. */
+  const DESHMUKH = {
+    cam_software: ["mastercam", "powermill", "solidcam", "edgecam"],
+    machine_programmed: ["vmc_three_axis", "vmc_four_axis", "five_axis_trunnion", "turn_mill"],
+    controller_brand: ["fanuc", "heidenhain", "siemens"],
+    programming_work: [
+      "two_d_three_d_toolpath",
+      "multi_axis_toolpath",
+      "tool_library",
+      "cycle_time",
+      "strategy_selection",
+      "tryout_support",
+    ],
+    cad_model_handling: [
+      "step_iges_import",
+      "parasolid_import",
+      "model_repair",
+      "fixture_modelling",
+    ],
+    post_processor_work: "edit_and_test",
+    simulation_work: "both_checks",
+    drawing_reading: "gdt",
+    sector_worked: ["automotive", "tool_room"],
+    // Captured, and deliberately printed nowhere — see the map entry's header.
+    programming_mode: "cam_software",
+  };
+
+  it("prints the sample's nine capability rows, and sheds nothing", () => {
+    const rows = buildTradeCapabilityRows("qp_cam_programming", DESHMUKH);
+    const kept = [
+      ...rows.chipRows.map((r) => r.label),
+      ...rows.tickRows.map((r) => r.label),
+      ...rows.factRows.map((r) => r.label),
+    ];
+    // Nine rows against a budget of nine: this worker answers everything the pack asks and loses
+    // none of it, which is the pack's design rather than a coincidence.
+    expect(kept.slice().sort()).toEqual(
+      [
+        "CAM software",
+        "Machines programmed",
+        "Controllers posted",
+        "Programming work",
+        "CAD model handling",
+        "Post-processors",
+        "Simulation",
+        "Drawings",
+        "Sector worked",
+      ].sort(),
+    );
+    expect(kept).toHaveLength(CAPABILITY_ROW_BUDGET);
+    expect(rows.sectionTitle).toBe("Software, machines programmed & capability");
+  });
+
+  it("prints the sample's values on every row it carries", () => {
+    const rows = buildTradeCapabilityRows("qp_cam_programming", DESHMUKH);
+    const chips = new Map(rows.chipRows.map((r) => [r.label, r.values]));
+    const ticks = new Map(rows.tickRows.map((r) => [r.label, r.values]));
+    const facts = new Map(rows.factRows.map((r) => [r.label, r.value]));
+
+    expect(chips.get("CAM software")).toEqual(["Mastercam", "PowerMill", "SolidCAM", "EdgeCAM"]);
+    expect(chips.get("Machines programmed")).toEqual([
+      "VMC 3-axis",
+      "VMC 4-axis",
+      "5-axis trunnion",
+      "Turn-mill",
+    ]);
+    expect(chips.get("Controllers posted")).toEqual(["Fanuc", "Heidenhain", "Siemens"]);
+    expect(ticks.get("Programming work")).toEqual([
+      "2D & 3D toolpath",
+      "Multi-axis toolpath",
+      "Tool library management",
+      "Cycle-time optimisation",
+      "Machining strategy selection",
+      "Shop-floor tryout support",
+    ]);
+    expect(ticks.get("CAD model handling")).toEqual([
+      "STEP / IGES import",
+      "Parasolid import",
+      "Model repair",
+      "Fixture modelling",
+    ]);
+    expect(facts.get("Simulation")).toBe("Vericut and in-CAM collision check before release");
+    expect(facts.get("Drawings")).toBe("Reads 2D drawings and GD&T");
+  });
+
+  it("RECORDS the two places this sheet does not reproduce the ratified page verbatim", () => {
+    // NOT A DEFECT AND NOT A FIX — the two deltas, pinned, so the ruling is made against the
+    // strings rather than against a memory of the page.
+    //
+    // 1. Post-processors. The page reads "Edits and tests post-processors — Fanuc and
+    //    Heidenhain". The controller clause is the Controllers row's own answer and is NOT
+    //    re-composed here: joining two rows would assert WHICH controller he has posted for, a
+    //    pairing the worker never stated. That is the R8 decision the map entry documents.
+    // 2. Sector worked. The page reads "Auto components and tool room" — hand-set prose. A fact
+    //    row joins its values with this file's separator, and the two other maps that print a
+    //    multi-value sector row (grinding, and this role's own "Sector studied") use the same
+    //    " · ". Setting `join: " and "` here would buy one page's punctuation at the cost of the
+    //    file carrying three separators for one kind of row, and would still not match, because
+    //    the label is "Tool room" and the page lower-cases it.
+    const rows = buildTradeCapabilityRows("qp_cam_programming", DESHMUKH);
+    const facts = new Map(rows.factRows.map((r) => [r.label, r.value]));
+    expect(facts.get("Post-processors")).toBe("Edits and tests post-processors");
+    expect(facts.get("Sector worked")).toBe("Auto components · Tool room");
+  });
+
+  it("leads the Verdict Line with CAM SOFTWARE, as the sample's headline does", () => {
+    // "CAM Programmer — Programmer · 7 yrs · Mastercam, PowerMill, SolidCAM" — for a desk trade
+    // the seat is the advertised vocabulary, so `inHeadline` sits on software and not on a
+    // machine. The row carries four values; `toolsPhrase` caps the printed headline at three.
+    const rows = buildTradeCapabilityRows("qp_cam_programming", DESHMUKH);
+    expect(rows.headlineTools).toEqual(["Mastercam", "PowerMill", "SolidCAM", "EdgeCAM"]);
+  });
+});
+
+/**
+ * THE DRAWING OFFICE, AGAINST THE RATIFIED SHEET — and the only ratified page in this programme
+ * with NO WORK-HISTORY SECTION AT ALL.
+ *
+ * The reference worker is a fresher, which is this role's PRIMARY path rather than its fallback,
+ * so the fixture is a student's answers and the assertion is that his seven rows print with
+ * nothing shed. A senior's shedding is measured separately at the end.
+ */
+describe("trade resume map — qp_cad_drafting against the ratified fresher sample", () => {
+  /** Pooja Chaudhary's capability answers, transcribed from the ratified sheet. */
+  const CHAUDHARY = {
+    cad_software: ["autocad", "solidworks", "fusion"],
+    cad_modules: ["two_d_drafting", "three_d_modelling", "assembly_module", "sheet_metal"],
+    drawing_work: [
+      "part_modelling",
+      "assembly_mating",
+      "views_sections",
+      "flat_pattern",
+      "dimensioning",
+      "revision_control",
+    ],
+    drawing_standards: ["gdt_symbols", "iso_standard", "title_block", "tolerance_stack"],
+    drawing_type: "model_to_drawing",
+    output_produced: ["part_drawing", "assembly_drawing", "bom", "dxf_cutting"],
+    sector_studied: ["general_engg", "course_project"],
+    // Captured and printed on no row: the fresher block's heading is a role-level constant.
+    cad_training_source: "private_institute",
+  };
+
+  it("prints the sample's seven capability rows, with nothing shed", () => {
+    const rows = buildTradeCapabilityRows("qp_cad_drafting", CHAUDHARY);
+    const kept = [
+      ...rows.chipRows.map((r) => r.label),
+      ...rows.tickRows.map((r) => r.label),
+      ...rows.factRows.map((r) => r.label),
+    ];
+    expect(kept.slice().sort()).toEqual(
+      [
+        "Software",
+        "Modules",
+        "Drawing work",
+        "Standards & detailing",
+        "Drawing type",
+        "Output produced",
+        "Sector studied",
+      ].sort(),
+    );
+    expect(kept.length).toBeLessThanOrEqual(CAPABILITY_ROW_BUDGET);
+    expect(rows.sectionTitle).toBe("Software, drawing work & capability");
+  });
+
+  it("prints the sample's values on every row it carries", () => {
+    const rows = buildTradeCapabilityRows("qp_cad_drafting", CHAUDHARY);
+    const chips = new Map(rows.chipRows.map((r) => [r.label, r.values]));
+    const ticks = new Map(rows.tickRows.map((r) => [r.label, r.values]));
+    const facts = new Map(rows.factRows.map((r) => [r.label, r.value]));
+
+    expect(chips.get("Software")).toEqual(["AutoCAD", "SolidWorks", "Fusion 360"]);
+    expect(chips.get("Modules")).toEqual([
+      "2D drafting",
+      "3D modelling",
+      "Assembly",
+      "Sheet-metal module",
+    ]);
+    expect(ticks.get("Drawing work")).toEqual([
+      "Part modelling",
+      "Assembly mating",
+      "Drawing views & sections",
+      "Sheet-metal flat pattern",
+      "Dimensioning",
+      "Revision control",
+    ]);
+    expect(ticks.get("Standards & detailing")).toEqual([
+      "GD&T symbols",
+      "ISO drawing standard",
+      "Title block & BOM",
+      "Tolerance stack basics",
+    ]);
+    expect(facts.get("Drawing type")).toBe("Prepares 2D production drawings from 3D models");
+    // "Sector STUDIED", never "worked": printing employment over a student's course projects is
+    // the claim the two mutually-gated sector rows exist to keep apart.
+    expect(facts.get("Sector studied")).toBe("General engineering · Course projects");
+    expect(facts.has("Sector worked")).toBe(false);
+  });
+
+  it("RECORDS where this sheet does not reproduce the ratified page verbatim", () => {
+    // The page reads "Part and assembly drawings · BOM · DXF for laser cutting" — it folds two
+    // chips into one English phrase. A `fact` row joins whole dictionary labels, so no separator
+    // reproduces that; the alternative is a compound label that lies whenever the worker taps
+    // only one of the two. Pinned, not fixed.
+    const rows = buildTradeCapabilityRows("qp_cad_drafting", CHAUDHARY);
+    const facts = new Map(rows.factRows.map((r) => [r.label, r.value]));
+    expect(facts.get("Output produced")).toBe(
+      "Part drawings · Assembly drawings · BOM · DXF for laser cutting",
+    );
+  });
+
+  it("leads the Verdict Line with SOFTWARE, as the sample's headline does", () => {
+    // "CAD Designer / Draughtsman — Draughtsman · Fresher · AutoCAD, SolidWorks, Fusion 360".
+    const rows = buildTradeCapabilityRows("qp_cad_drafting", CHAUDHARY);
+    expect(rows.headlineTools).toEqual(["AutoCAD", "SolidWorks", "Fusion 360"]);
+  });
+
+  it("MEASURES what a senior draughtsman sheds — and that he never prints BOTH sector rows", () => {
+    // The fresher answers seven of twelve rows. A designer with years answers eleven, is over the
+    // nine-row budget, and rank decides. `sector_studied` and `sector_drawn` are mutually
+    // exclusive by their gates, so the pair can never both reach a sheet — asserted here because
+    // two rows sharing one printed label is the kind of thing a later edit merges by accident.
+    const senior = {
+      cad_software: ["autocad", "solidworks", "creo"],
+      cad_modules: ["two_d_drafting", "three_d_modelling", "assembly_module", "surface_module"],
+      drawing_work: ["part_modelling", "assembly_mating", "views_sections", "dimensioning"],
+      drawing_standards: ["gdt_symbols", "iso_standard", "title_block", "projection_angle"],
+      drawing_type: "model_and_drawing",
+      output_produced: ["part_drawing", "assembly_drawing", "fabrication_drawing"],
+      design_work: ["material_selection", "standard_parts", "fixture_design"],
+      design_input_source: "own_design",
+      drawing_check_work: "check_regular",
+      measuring_tools: ["vernier", "height_gauge", "steel_rule"],
+      sector_drawn: ["tool_room", "machine_building"],
+    };
+    const rows = buildTradeCapabilityRows("qp_cad_drafting", senior);
+    const kept = new Set([
+      ...rows.chipRows.map((r) => r.label),
+      ...rows.tickRows.map((r) => r.label),
+      ...rows.factRows.map((r) => r.label),
+    ]);
+    expect(kept.size).toBe(CAPABILITY_ROW_BUDGET);
+    // R4 §3 puts the display-only sector tag at the bottom of the survival order, so it and the
+    // instruments are what a senior loses — never his checking capability.
+    expect(kept.has("Sector worked")).toBe(false);
+    expect(kept.has("Sector studied")).toBe(false);
+    expect(kept.has("Drawing checking")).toBe(true);
+    expect(kept.has("Design work")).toBe(true);
+
+    // AND THE PRONOUN-FREE LABEL, on the row that carried this file's only gendered string.
+    const facts = new Map(rows.factRows.map((r) => [r.label, r.value]));
+    expect(facts.get("Design input")).toBe("Designs it independently");
   });
 });

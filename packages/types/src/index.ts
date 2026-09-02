@@ -485,7 +485,8 @@ export const TRADE_FORM_KINDS_ALL = Object.freeze([
   "cnc_turner", // qp_cnc_turning — the first form-first trade, enabled
   "vmc_milling", // qp_vmc_milling — declared; pack and résumé map already shipped
   "cnc_grinding", // declared
-  "cam_programmer", // declared — a desk role, in the `design` cluster rather than `machining`
+  "cam_programmer", // qp_cam_programming — enabled in Batch 1; a desk role in the `design` cluster
+  "cad_draughtsman", // qp_cad_drafting — enabled in Batch 1; the fresher-first drawing-office role
 ] as const);
 
 export type TradeFormKindName = (typeof TRADE_FORM_KINDS_ALL)[number];

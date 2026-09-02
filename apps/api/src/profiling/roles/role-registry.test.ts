@@ -89,19 +89,40 @@ describe("the role registry", () => {
     });
 
     it("enables exactly the forms that ship, and nothing merely declared", () => {
-      // BATCH 1 ADDED `vmc_milling` (promotion only), then `cnc_grinding` with its own authored
-      // pack. The list is what `z.enum` validates against on two surfaces, so it must never carry
-      // a kind with no pack behind it — that is a 503 waiting for the first worker whose session
-      // happens to name it, which is why this is pinned by VALUE rather than by count.
-      expect([...TRADE_FORM_KINDS]).toEqual(["cnc_turner", "vmc_milling", "cnc_grinding"]);
+      // BATCH 1 ADDED `vmc_milling` (promotion only), then `cnc_grinding`, and finally the two
+      // desk trades — `cam_programmer` with the part-programming pack and `cad_draughtsman` with
+      // the drawing-office one. The list is what `z.enum` validates against on two surfaces, so it
+      // must never carry a kind with no pack behind it — that is a 503 waiting for the first
+      // worker whose session happens to name it, which is why this is pinned by VALUE rather than
+      // by count.
+      expect([...TRADE_FORM_KINDS]).toEqual([
+        "cnc_turner",
+        "vmc_milling",
+        "cnc_grinding",
+        "cam_programmer",
+        "cad_draughtsman",
+      ]);
     });
 
-    it("keeps CAM declared but NOT enabled", () => {
-      // The other half of the same property, and the one a careless "just add them all" would
-      // break. CAM exists so its vocabulary can veto the machining roles; it has no pack, so it
-      // may not be routable. A descriptor is declared long before it is served — grinding made
-      // exactly that journey in Batch 1, and CAM has not made it yet.
-      expect([...TRADE_FORM_KINDS]).not.toContain("cam_programmer");
+    it("still refuses to enable a role that is only DECLARED", () => {
+      // THE PROPERTY THAT USED TO BE PINNED ON CAM, AND NOW HAS TO BE PINNED ON A FAKE. CAM was
+      // the registry's one declared-not-enabled role — it existed so its vocabulary could veto its
+      // cluster, with no pack to serve — and closing Batch 1 gave it one. Every declared role is
+      // now enabled, so asserting this against the real registry would assert nothing at all: the
+      // filter it exercises can no longer remove anybody.
+      //
+      // A SYNTHETIC ROLE KEEPS IT HONEST, the same move every invariant test in this file makes.
+      // The next batch declares its roles before it builds their packs, and the day it does, this
+      // is the check that stops "just add them all" from putting a kind with no pack behind it
+      // onto `z.enum`.
+      const declaredOnly = fake({ kind: "declared_only", formEnabled: false });
+      const enabled = [declaredOnly, ...ROLE_FORM_DESCRIPTORS].filter((d) => d.formEnabled);
+      expect(enabled.map((d) => d.kind)).not.toContain("declared_only");
+      // …while its vocabulary still reaches its cluster siblings, which is the whole reason a
+      // role is declarable before it is enabled.
+      expect(
+        conflictTermsFor(fake({ kind: "rival" }), [fake({ kind: "rival" }), declaredOnly]),
+      ).toContain("declared_only");
     });
 
     it("composes the handover copy byte-for-byte, including its sentence casing", () => {

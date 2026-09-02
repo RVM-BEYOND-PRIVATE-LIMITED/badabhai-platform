@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 552,
+  "clip_count": 627,
   "producers": {
-    "clarify": 194,
-    "prompt": 163,
-    "why": 175,
+    "clarify": 223,
+    "prompt": 187,
+    "why": 193,
     "constant": 8,
-    "retry": 12
+    "retry": 16
   },
   "clips": [
     {
@@ -65,9 +65,19 @@
       "producer": "constant"
     },
     {
+      "id": "067f737f21db6304",
+      "text": "Drawing banane ka tarika employer ko aapka kaam samjhata hai.",
+      "producer": "why"
+    },
+    {
       "id": "06bdba1a550388e6",
       "text": "Machine ka naam employer poochte hain. Aap kaunsi machine chalate hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "0748706b5628ff0e",
+      "text": "Post-processor ke saath aap kitna kaam karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "075db7e58945ef13",
@@ -85,6 +95,11 @@
       "producer": "clarify"
     },
     {
+      "id": "07a18548d2028586",
+      "text": "Kis line ki drawing banayi hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "0801eb8a50f219ec",
       "text": "Fine kaam wale ka rate zyada hota hai.",
       "producer": "why"
@@ -97,6 +112,16 @@
     {
       "id": "0822cffd9e9de65a",
       "text": "Kya aap export line par kaam kar chuke hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "084b95ae603059cd",
+      "text": "CAD kahaan se seekha hai?",
+      "producer": "prompt"
+    },
+    {
+      "id": "087cfe20f18d1734",
+      "text": "Program banate waqt kaunsa kaam karte hain?",
       "producer": "prompt"
     },
     {
@@ -290,9 +315,24 @@
       "producer": "clarify"
     },
     {
+      "id": "16ca887399c7dfc5",
+      "text": "Program release se pehle simulation kaise karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "173ce6222a4f2e70",
+      "text": "Post-processor theek karne wale programmer kam milte hain. Post-processor ke saath aap kitna kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "17f6e39c6d40b559",
       "text": "Kaam ke hisaab se jagah dhoondhte hain.",
       "producer": "why"
+    },
+    {
+      "id": "187713d8ac9a7ca6",
+      "text": "Aap kaunsa CAD software chalate hain?",
+      "producer": "prompt"
     },
     {
       "id": "191b970c765438c0",
@@ -302,6 +342,11 @@
     {
       "id": "191e8ca3df36fd89",
       "text": "Unchai wale kaam ka rate zyada hai. Kya aap unchai par kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "19244a39c2c468cf",
+      "text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain. Drawing ka kaunsa kaam khud karte hain?",
       "producer": "clarify"
     },
     {
@@ -338,6 +383,11 @@
       "id": "1d152a0f7aa1a57b",
       "text": "Plant me shift badalti rehti hai. Kya aap rotating shift kar sakte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "1d15a13aab940555",
+      "text": "Aap kaunsa CAM software chalate hain?",
+      "producer": "prompt"
     },
     {
       "id": "1d9e2941e63dddbe",
@@ -390,6 +440,11 @@
       "producer": "clarify"
     },
     {
+      "id": "208bab55d5b7eeef",
+      "text": "Module se pata chalta hai aap kis tarah ki drawing banate hain. Software ke kaunse module par kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "20dc85faba6c0f57",
       "text": "Material ka tajurba employer ke liye alag mayne rakhta hai. Kaunse material par kaam kiya hai?",
       "producer": "clarify"
@@ -430,6 +485,11 @@
       "producer": "clarify"
     },
     {
+      "id": "2640f66a2cab0bf4",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Drawing aur CAD ke kaam ka kitna tajurba hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "26621fb095b49ba8",
       "text": "Chemical wale kaam ki training hoti hai.",
       "producer": "why"
@@ -445,6 +505,11 @@
       "producer": "clarify"
     },
     {
+      "id": "27834fb75ccd1738",
+      "text": "Isse pata chalta hai aap sirf drawing banate hain ya design bhi karte hain. Drawing banane ke liye aapko kya milta hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "27d03801c8c3ccc7",
       "text": "Aap in mein se kaun sa kaam karte hain?",
       "producer": "constant"
@@ -453,6 +518,11 @@
       "id": "27e2921340c682d2",
       "text": "Hath aur machine packing alag hai. Aap kaise packing karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "28037ef196fd567a",
+      "text": "Lagbhag kitne saal programming ka kaam kiya hai?",
+      "producer": "retry"
     },
     {
       "id": "29d7b854668860c0",
@@ -620,6 +690,11 @@
       "producer": "why"
     },
     {
+      "id": "350abad484bca81e",
+      "text": "Design ka kaunsa kaam aap karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "3527f189b599f33d",
       "text": "Kya aap garmi wali jagah kaam kar sakte hain?",
       "producer": "prompt"
@@ -700,9 +775,19 @@
       "producer": "why"
     },
     {
+      "id": "3cff61820f0f1470",
+      "text": "Software ke kaunse module par kaam kiya hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "3df67ebd161ec97a",
       "text": "Aap kaunsi gaadi chalate hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "3e5b202b34a2ef34",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal programming ka kaam kiya hai?",
+      "producer": "clarify"
     },
     {
       "id": "3f3c1edaeac58d61",
@@ -713,6 +798,11 @@
       "id": "3f621743c8d8204e",
       "text": "Aapki mehnat samajh aati hai. Thoda aur batayiye.",
       "producer": "constant"
+    },
+    {
+      "id": "40341d5e9f9ab30a",
+      "text": "Kis line ki drawing par padhai ki hai?",
+      "producer": "prompt"
     },
     {
       "id": "4110788e0572982c",
@@ -835,9 +925,19 @@
       "producer": "clarify"
     },
     {
+      "id": "49a2e9413f3c41a7",
+      "text": "Output dekhkar employer samajhta hai aap kya kaam de sakte hain.",
+      "producer": "why"
+    },
+    {
       "id": "4a473ba1bb0cb405",
       "text": "Trade test ka kya status hai?",
       "producer": "retry"
+    },
+    {
+      "id": "4aa35b8fe5b5d6b5",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Programming ka kitna tajurba hai?",
+      "producer": "clarify"
     },
     {
       "id": "4b3d94dd81fadc18",
@@ -847,6 +947,11 @@
     {
       "id": "4b4483662f2d19dd",
       "text": "Fitting ke kai tarah hote hain.",
+      "producer": "why"
+    },
+    {
+      "id": "4b7552dd447ad9a6",
+      "text": "Jis line ki drawing seekhi hai, wahi employer aapko dhoondhte hain.",
       "producer": "why"
     },
     {
@@ -882,6 +987,11 @@
     {
       "id": "4f89f2fee57b9d27",
       "text": "Aap kaunsa karghah chalate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "50acfc50ab1be732",
+      "text": "Aap mechanical, civil ya electrical, kis line me kaam karte hain?",
       "producer": "prompt"
     },
     {
@@ -1100,9 +1210,19 @@
       "producer": "prompt"
     },
     {
+      "id": "617f30ee9475e7c7",
+      "text": "Design ka kaam jaanne wale ko design engineer banaya jaata hai.",
+      "producer": "why"
+    },
+    {
       "id": "618a9edd1ef9297b",
       "text": "Aap kaunsa kachra uthate hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "62f4f0a73df0796b",
+      "text": "Sector ka tajurba usi line ke employer dhoondhte hain. Kis line ki drawing banayi hai?",
+      "producer": "clarify"
     },
     {
       "id": "63269c6fc35a3893",
@@ -1118,6 +1238,11 @@
       "id": "637857c4559deecb",
       "text": "Material ka tajurba employer ke liye alag mayne rakhta hai.",
       "producer": "why"
+    },
+    {
+      "id": "6398fab16c7055f1",
+      "text": "Training me kaunsa kaam khud kiya hai?",
+      "producer": "prompt"
     },
     {
       "id": "649b829837dc22be",
@@ -1165,6 +1290,11 @@
       "producer": "clarify"
     },
     {
+      "id": "67b66c7f694ad04e",
+      "text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain. Program banate waqt kaunsa kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "67b7218b090c3900",
       "text": "Programme wale operator ko zyada vetan milta hai.",
       "producer": "why"
@@ -1200,6 +1330,11 @@
       "producer": "retry"
     },
     {
+      "id": "6bd8c0c3ca93511c",
+      "text": "Doosron ki banayi drawing check karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "6c268c71c7b5d677",
       "text": "Bhatti ke paas kaam mushkil hota hai. Kya aap garmi wali jagah kaam kar sakte hain?",
       "producer": "clarify"
@@ -1215,8 +1350,23 @@
       "producer": "why"
     },
     {
+      "id": "6cd8a7b87ec9ac8b",
+      "text": "Part naap kar drawing banane wale ki alag zaroorat hoti hai.",
+      "producer": "why"
+    },
+    {
       "id": "6d43d155d309df67",
       "text": "Industry jaanne se milti julti company dikhayi jaati hai.",
+      "producer": "why"
+    },
+    {
+      "id": "6d85b273c306029b",
+      "text": "Lagbhag kitne saal drawing ka kaam ya course kiya hai?",
+      "producer": "retry"
+    },
+    {
+      "id": "6dbf1af94d9f9b45",
+      "text": "Isse pata chalta hai aap sirf drawing banate hain ya design bhi karte hain.",
       "producer": "why"
     },
     {
@@ -1238,6 +1388,11 @@
       "id": "6e318970f8747257",
       "text": "Kya aap kachra gaadi chalate hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "6e3c36dda175d138",
+      "text": "Dono tarah ke programmer ki alag jagah zaroorat hoti hai. CAM software par ya machine par MDI se program banate hain?",
+      "producer": "clarify"
     },
     {
       "id": "6e83af1496ea88e2",
@@ -1335,6 +1490,11 @@
       "producer": "prompt"
     },
     {
+      "id": "7544fc6cfcba761b",
+      "text": "Har line ki drawing ka kaam alag hota hai. Kis line ki drawing banate hain, machine ki ya building ki?",
+      "producer": "clarify"
+    },
+    {
       "id": "755cbb615c93f115",
       "text": "Badi jagah English maangi jaati hai. Kya aap English bol lete hain?",
       "producer": "clarify"
@@ -1360,9 +1520,19 @@
       "producer": "prompt"
     },
     {
+      "id": "789b46d30f482f54",
+      "text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
+      "producer": "why"
+    },
+    {
       "id": "78cc6a0b0b24438a",
       "text": "Abhi thodi dikkat aa rahi hai. Ek minute baad dobara bhejiye.",
       "producer": "constant"
+    },
+    {
+      "id": "78cc72eb078fff59",
+      "text": "Dono tarah ke programmer ki alag jagah zaroorat hoti hai.",
+      "producer": "why"
     },
     {
       "id": "78fd6cfb106d4661",
@@ -1405,6 +1575,11 @@
       "producer": "why"
     },
     {
+      "id": "7e855443a251df34",
+      "text": "Module se pata chalta hai aap kis tarah ki drawing banate hain.",
+      "producer": "why"
+    },
+    {
       "id": "7e9b24dcb31ce351",
       "text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain. Machine par kaunsa kaam karte hain?",
       "producer": "clarify"
@@ -1413,6 +1588,11 @@
       "id": "7eec597ab28d909a",
       "text": "Job pakadna turning ka sabse zaroori hissa hai. Job pakadne ke liye kya use karte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "7f456fde7fa5093b",
+      "text": "CAM software par ya machine par MDI se program banate hain?",
+      "producer": "retry"
     },
     {
       "id": "7fa1afd7885c903a",
@@ -1520,6 +1700,11 @@
       "producer": "prompt"
     },
     {
+      "id": "866d0b10384fec66",
+      "text": "Output dekhkar employer samajhta hai aap kya kaam de sakte hain. Aap kaunsa output banakar dete hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "871eef517f4dba25",
       "text": "Spray ka kaam alag hunar hai. Kya aap spray gun chalate hain?",
       "producer": "clarify"
@@ -1552,6 +1737,11 @@
     {
       "id": "8948d9c6bb3a4534",
       "text": "Wheel chunna grinding ka asli hunar hai.",
+      "producer": "why"
+    },
+    {
+      "id": "8986f18bd200ee0a",
+      "text": "Model theek kar lena programmer ka apna hunar hai.",
       "producer": "why"
     },
     {
@@ -1620,8 +1810,18 @@
       "producer": "prompt"
     },
     {
+      "id": "8e98e2dbdaf93e4c",
+      "text": "Software ke hisaab se sahi kaam dikhaya jaata hai. Aap kaunsa CAD software chalate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "8eee066a7d0bbb95",
       "text": "Bhatti aur mill ka kaam alag hai. Aap plant me kya karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "8f042b0e8c412b91",
+      "text": "Simulation se machine aur job ka nuksaan bachta hai. Program release se pehle simulation kaise karte hain?",
       "producer": "clarify"
     },
     {
@@ -1635,8 +1835,18 @@
       "producer": "prompt"
     },
     {
+      "id": "90ed56b9f939c742",
+      "text": "Har line ki drawing ka kaam alag hota hai. Aap mechanical, civil ya electrical, kis line me kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "90f5cc39c3b8a970",
       "text": "Factory wale safety training wale ko pehle rakhte hain. Kya aapne safety training li hai?",
+      "producer": "clarify"
+    },
+    {
+      "id": "910329d8d8dea748",
+      "text": "Design ka kaam jaanne wale ko design engineer banaya jaata hai. Design ka kaunsa kaam aap karte hain?",
       "producer": "clarify"
     },
     {
@@ -1652,6 +1862,11 @@
     {
       "id": "92c019cc888a9950",
       "text": "Machine wale ko badi jagah kaam milta hai.",
+      "producer": "why"
+    },
+    {
+      "id": "92f27ab3d1ba65e8",
+      "text": "Simulation se machine aur job ka nuksaan bachta hai.",
       "producer": "why"
     },
     {
@@ -1680,6 +1895,11 @@
       "producer": "retry"
     },
     {
+      "id": "9551345a8bfe769a",
+      "text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "producer": "why"
+    },
+    {
       "id": "95e04ac6d49c634d",
       "text": "Setting ka kaunsa kaam khud karte hain?",
       "producer": "prompt"
@@ -1688,6 +1908,11 @@
       "id": "968d415276e0c358",
       "text": "Breakdown wale ko turant kaam milta hai.",
       "producer": "why"
+    },
+    {
+      "id": "96fe776f95698842",
+      "text": "Drawing aur CAD ke kaam ka kitna tajurba hai?",
+      "producer": "prompt"
     },
     {
       "id": "987415f0e1349e95",
@@ -1725,8 +1950,18 @@
       "producer": "why"
     },
     {
+      "id": "9afd4c6a97751a1b",
+      "text": "Aap kaunsa output banakar dete hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "9b08f465f1b94121",
       "text": "Kya aap kapda cutting karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "9b51702e6f5ea001",
+      "text": "Course ya ITI me kya banaya tha? Apne shabdon me bataiye.",
       "producer": "prompt"
     },
     {
@@ -1758,6 +1993,11 @@
       "id": "9e21d3becf1b1333",
       "text": "Lagbhag kitne saal milling ka kaam kiya hai?",
       "producer": "retry"
+    },
+    {
+      "id": "9e7d29a1c2fb9a31",
+      "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Kaunsi machine ke liye program banate hain?",
+      "producer": "clarify"
     },
     {
       "id": "9eb2ecc17772d089",
@@ -1810,6 +2050,11 @@
       "producer": "clarify"
     },
     {
+      "id": "a17f93e822c6b0fb",
+      "text": "Drawing check karne wale ko senior maana jaata hai. Doosron ki banayi drawing check karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "a1a235fa11580e95",
       "text": "Course wale ko parlour jaldi rakhta hai.",
       "producer": "why"
@@ -1850,6 +2095,16 @@
       "producer": "prompt"
     },
     {
+      "id": "a55c73c1749e049a",
+      "text": "Aap kis tarah ki drawing banate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "a5d06d934fcd7f33",
+      "text": "Banaya hua project dikhata hai ki aap kya kar sakte hain. Course ya ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "producer": "clarify"
+    },
+    {
       "id": "a61ce4780d94cc82",
       "text": "Aap kya bunte hain?",
       "producer": "prompt"
@@ -1870,6 +2125,11 @@
       "producer": "why"
     },
     {
+      "id": "a6a255f318e68eac",
+      "text": "Kaunsi machine ke liye program banate hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "a6eef2e98b7bc02a",
       "text": "Aap kaunsa oven chalate hain?",
       "producer": "prompt"
@@ -1878,6 +2138,11 @@
       "id": "a764258176c7c562",
       "text": "Kya gaadi aapki apni hai?",
       "producer": "prompt"
+    },
+    {
+      "id": "a7cc5b4eb3be225c",
+      "text": "Post-processor theek karne wale programmer kam milte hain.",
+      "producer": "why"
     },
     {
       "id": "a7df40d1365d5d05",
@@ -1902,6 +2167,11 @@
     {
       "id": "aa3bbc93ae03556c",
       "text": "HMV bina badi gaadi nahi chala sakte.",
+      "producer": "why"
+    },
+    {
+      "id": "aa4329aae9b282c3",
+      "text": "Software ke hisaab se sahi kaam dikhaya jaata hai.",
       "producer": "why"
     },
     {
@@ -1933,6 +2203,11 @@
       "id": "adff3bf1965b7744",
       "text": "Billing wale ko counter milta hai. Kya aap billing machine chala lete hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "ae8358ed3014f829",
+      "text": "Drawing me kaunse standard ka istemaal karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "aeb1cf1983f81cbd",
@@ -2010,6 +2285,11 @@
       "producer": "prompt"
     },
     {
+      "id": "b66fa078e6fb67f4",
+      "text": "CAD model ke saath kaunsa kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "b68ab768170d1091",
       "text": "Machine par kaunsa controller lagaa hai?",
       "producer": "prompt"
@@ -2062,6 +2342,16 @@
     {
       "id": "bb34f950d21862c1",
       "text": "Cash wale par bharosa chahiye hota hai.",
+      "producer": "why"
+    },
+    {
+      "id": "bb5d3e283b3ebaf9",
+      "text": "Training kahaan hui, ye employer sabse pehle dekhte hain.",
+      "producer": "why"
+    },
+    {
+      "id": "bb5ee07257212552",
+      "text": "Standard ke hisaab se bani drawing seedha production me chali jaati hai.",
       "producer": "why"
     },
     {
@@ -2158,6 +2448,11 @@
       "id": "c1dcfa840b84423a",
       "text": "Mistri ke hisaab se kaam milta hai.",
       "producer": "why"
+    },
+    {
+      "id": "c1df9ccf664946ac",
+      "text": "Part naap kar drawing banane wale ki alag zaroorat hoti hai. Kaunse measuring instrument chala lete hain?",
+      "producer": "clarify"
     },
     {
       "id": "c1f30db22a3d9d92",
@@ -2265,9 +2560,19 @@
       "producer": "clarify"
     },
     {
+      "id": "cb37da29f57e4606",
+      "text": "Har line ki drawing ka kaam alag hota hai.",
+      "producer": "why"
+    },
+    {
       "id": "cb7d9d64c5b01200",
       "text": "Kya aap design bana lete hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "cbd821f5dbab71c2",
+      "text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain. Training me kaunsa kaam khud kiya hai?",
+      "producer": "clarify"
     },
     {
       "id": "cc14b83a81bc5069",
@@ -2278,6 +2583,11 @@
       "id": "cc819d40d58b9189",
       "text": "Zyada axis wali machine chalane wale kam milte hain. Machine kitne axis ki hai?",
       "producer": "clarify"
+    },
+    {
+      "id": "cca1500897f28094",
+      "text": "Kis line ki drawing banate hain, machine ki ya building ki?",
+      "producer": "retry"
     },
     {
       "id": "ccfcd85175830e94",
@@ -2297,6 +2607,11 @@
     {
       "id": "cd6cf956103868ca",
       "text": "Aap kahaan khana banate hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "ce11c36b3e77dcc8",
+      "text": "Drawing ka kaunsa kaam khud karte hain?",
       "producer": "prompt"
     },
     {
@@ -2330,8 +2645,18 @@
       "producer": "why"
     },
     {
+      "id": "d061cc1cf8937bfb",
+      "text": "Dono tarah ke programmer ki alag jagah zaroorat hoti hai. Program aap CAM software par banate hain ya machine par?",
+      "producer": "clarify"
+    },
+    {
       "id": "d0cb3c3c10f69ee4",
       "text": "Har gaadi ka kaam alag hota hai. Aap kaunsi gaadi thik karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "d0fd2686cb1167ec",
+      "text": "Training kahaan hui, ye employer sabse pehle dekhte hain. CAD kahaan se seekha hai?",
       "producer": "clarify"
     },
     {
@@ -2353,6 +2678,11 @@
       "id": "d307bd88ae564b5c",
       "text": "Lambi duri ka paisa alag hota hai.",
       "producer": "why"
+    },
+    {
+      "id": "d34a8a1b09fadba7",
+      "text": "Program aap CAM software par banate hain ya machine par?",
+      "producer": "prompt"
     },
     {
       "id": "d374cada09738c91",
@@ -2442,6 +2772,11 @@
     {
       "id": "dc78002e6b0e17d1",
       "text": "Kya aap level aur sutli se kaam karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "dcd3d460a0070088",
+      "text": "Programming ka kitna tajurba hai?",
       "producer": "prompt"
     },
     {
@@ -2535,6 +2870,11 @@
       "producer": "why"
     },
     {
+      "id": "e512c82bb98270a2",
+      "text": "Model theek kar lena programmer ka apna hunar hai. CAD model ke saath kaunsa kaam karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "e60226cfc8ab1ad3",
       "text": "Har khane ka alag hunar hota hai.",
       "producer": "why"
@@ -2547,6 +2887,11 @@
     {
       "id": "e69799f0a3543c3a",
       "text": "Har service ka alag hunar hota hai. Aap kaunsi service dete hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "e6a8cb92b4015026",
+      "text": "Standard ke hisaab se bani drawing seedha production me chali jaati hai. Drawing me kaunse standard ka istemaal karte hain?",
       "producer": "clarify"
     },
     {
@@ -2565,6 +2910,11 @@
       "producer": "prompt"
     },
     {
+      "id": "e75794bb33ad5782",
+      "text": "Drawing banane ka tarika employer ko aapka kaam samjhata hai. Aap kis tarah ki drawing banate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "e766822b0dbe5125",
       "text": "Aap kahaan loading karte hain?",
       "producer": "prompt"
@@ -2572,6 +2922,11 @@
     {
       "id": "e7a95f1af488f9be",
       "text": "Export line ka tajurba zyada maanga jaata hai.",
+      "producer": "why"
+    },
+    {
+      "id": "e7aaed7dd535a2d3",
+      "text": "Drawing check karne wale ko senior maana jaata hai.",
       "producer": "why"
     },
     {
@@ -2625,6 +2980,11 @@
       "producer": "prompt"
     },
     {
+      "id": "ed561d1c8b8afc64",
+      "text": "Drawing banane ke liye aapko kya milta hai?",
+      "producer": "prompt"
+    },
+    {
       "id": "edef2e9107faca99",
       "text": "Machine CNC hai ya conventional?",
       "producer": "prompt"
@@ -2655,9 +3015,19 @@
       "producer": "clarify"
     },
     {
+      "id": "efd9c2739e91b1f7",
+      "text": "Software ke hisaab se sahi kaam dikhaya jaata hai. Aap kaunsa CAM software chalate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "f1db9f33aa56f716",
       "text": "Kya aap lakdi ki machine chalate hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "f20183847d85847f",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal drawing ka kaam ya course kiya hai?",
+      "producer": "clarify"
     },
     {
       "id": "f21d39b3c32db933",
@@ -2697,6 +3067,11 @@
     {
       "id": "f6b5de62d33ffd95",
       "text": "Kai jagah sirf veg cook chahiye. Aap veg banate hain ya non-veg bhi?",
+      "producer": "clarify"
+    },
+    {
+      "id": "f74119ccf35824ac",
+      "text": "Jis line ki drawing seekhi hai, wahi employer aapko dhoondhte hain. Kis line ki drawing par padhai ki hai?",
       "producer": "clarify"
     },
     {

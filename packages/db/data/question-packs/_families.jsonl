@@ -35,6 +35,31 @@
 {"kind":"family","family_id":"fam_cnc_turning","label_en":"Turning (CNC and conventional)","label_hi":"टर्निंग और खराद","canonical_role_id":"role_cnc_turner_operator","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_vmc_milling","label_en":"Milling (VMC and conventional)","label_hi":"मिलिंग और वीएमसी","canonical_role_id":"role_cnc_operator","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_cnc_grinding","label_en":"Grinding (CNC and conventional)","label_hi":"ग्राइंडिंग और घिसाई","canonical_role_id":"role_cnc_grinding_operator","industry_id":"ind_industrial_manufacturing"}
+
+# ── Batch 1, the desk trades: part programming and the drawing office ─────────
+#
+# THE REVIEW NOTE THAT HAS NOWHERE ELSE TO GO. `question_pack.review_note` is a column;
+# `profiling_family` has none, so the three rows below carry their draft status HERE rather
+# than in a JSON field the seeder would drop on the floor. THE LABELS, THE BINDINGS AND THE
+# ALIAS TRANCHE THAT REACHES THEM ARE DRAFTED AND NOT YET RATIFIED — no practising part
+# programmer or draughtsman has corrected this vocabulary. See
+# docs/registers/trade-content-ratification.md, and the `review_note` on each of the three
+# packs, which says the same thing where a column exists to say it.
+#
+# canonical_role_id IS SET ON TWO OF THE THREE, against this file's usual null. The header
+# above explains why most rows leave it null — the match engine's role space simply has no id
+# for a tailor or a cook. It has one here: `role_cam_programmer` (dom_programming) and
+# `role_designer` (dom_design) are both live in @badabhai/taxonomy ROLES, so filling the column
+# crosswalks these two trades into ranking instead of leaving them invisible to it.
+#
+# fam_draughting KEEPS BOTH COLUMNS NULL, and that is the same rule applied honestly rather
+# than an omission. It is the unit-3118 router: it holds twelve occupations spanning civil,
+# architectural, electrical, structural and topographical draughting plus the tracer and the
+# blue printer. `role_designer` would over-claim eleven of them and `ind_industrial_
+# manufacturing` is false for every civil one, so both stay null until the role space widens.
+{"kind":"family","family_id":"fam_cam_programming","label_en":"Part Programming (CAM and MDI)","label_hi":"पार्ट प्रोग्रामिंग","canonical_role_id":"role_cam_programmer","industry_id":"ind_industrial_manufacturing"}
+{"kind":"family","family_id":"fam_cad_drafting","label_en":"CAD Draughting (Mechanical)","label_hi":"सीएडी और ड्राफ्टिंग","canonical_role_id":"role_designer","industry_id":"ind_industrial_manufacturing"}
+{"kind":"family","family_id":"fam_draughting","label_en":"Draughting and Drawing Office","label_hi":"ड्राफ्टिंग और नक्शा"}
 {"kind":"family","family_id":"fam_fitting","label_en":"Fitting and Machine Maintenance","label_hi":"फिटर और मेंटेनेंस","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_toolmaking","label_en":"Tool and Die Making","label_hi":"टूल और डाई मेकिंग","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_auto_mechanic","label_en":"Automobile Mechanic","label_hi":"गाड़ी मैकेनिक"}
@@ -94,6 +119,31 @@
 {"kind":"binding","family_id":"fam_cnc_grinding","job_domain_id":"jd_nco_7224_0400"}
 {"kind":"binding","family_id":"fam_cnc_grinding","job_domain_id":"jd_nco_7224_0402"}
 {"kind":"binding","family_id":"fam_cnc_grinding","job_domain_id":"jd_nco_7224_0500"}
+
+# ── Batch 1, the desk trades ─────────────────────────────────────────────────
+#
+# PART PROGRAMMING IS BOUND AS ONE TRADE WITH TWO WORK SURFACES (owner ruling, this session).
+# NCO 7223.6003 defines a CNC Programmer as producing the component program "using manual data
+# input or by use of a remote computer", which is the desk CAM programmer AND the man typing
+# the program into the controller. Binding only a desk reading of the role would have left
+# every MDI programmer on fam_machining's six generic questions; qp_cam_programming's first
+# question splits the two surfaces, the way qp_machining's machine_type splits the machine.
+# One code, so one binding: 7223.6003 is the only NCO occupation in the unit whose whole
+# definition is writing the program. 7223.5001 ("CNC Operator") stays on fam_machining, for
+# the same reason the turner does not claim it.
+{"kind":"binding","family_id":"fam_cam_programming","job_domain_id":"jd_nco_7223_6003"}
+#
+# DRAUGHTING IS THE FIRST TWO-TIER SPLIT THIS FILE HAS OUTSIDE UNIT 7223, and it is the same
+# shape: fam_cad_drafting takes the two MECHANICAL codes at job-domain specificity 50, and
+# fam_draughting takes the whole unit at 40 for everybody else. Unit 3118 holds fourteen
+# occupations; without the @40 router the other twelve — civil, electrical, architectural,
+# structural, topographical, plumbing, tracer, blue printer, lithographic designer and the
+# unit's own generic "Draftsman" (3118.0301) — fall past every family to fam_universal@0 and
+# get eight trade-agnostic questions with not one drawing question among them. Measured live
+# this session, before this row existed: "draftsman" -> jd_nco_3118_0301 -> fam_universal@0.
+{"kind":"binding","family_id":"fam_cad_drafting","job_domain_id":"jd_nco_3118_0401"}
+{"kind":"binding","family_id":"fam_cad_drafting","job_domain_id":"jd_nco_3118_0402"}
+{"kind":"binding","family_id":"fam_draughting","isco_unit_code":"3118"}
 {"kind":"binding","family_id":"fam_fitting","isco_unit_code":"7233"}
 {"kind":"binding","family_id":"fam_toolmaking","isco_unit_code":"7222"}
 {"kind":"binding","family_id":"fam_auto_mechanic","isco_unit_code":"7231"}

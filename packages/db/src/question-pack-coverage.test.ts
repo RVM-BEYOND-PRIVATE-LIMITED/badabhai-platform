@@ -52,6 +52,13 @@ function bindingsOf(): ResolvableBinding[] {
   }));
 }
 
+/** Every job domain a binding claims, in binding order. Narrowed so callers need no null check. */
+function boundJobDomainsOf(bindings: readonly ResolvableBinding[]): string[] {
+  return bindings
+    .map((b) => b.jobDomainId)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+}
+
 /** family_id → true when that family has an ACTIVE pack. Reach means a pack, not a binding. */
 function familiesWithActivePack(): Set<string> {
   const corpus = loadQuestionPackCorpus();
@@ -62,6 +69,7 @@ describe("every blue-collar occupation reaches a real question pack", () => {
   const occupations = blueCollarOccupations();
   const bindings = bindingsOf();
   const active = familiesWithActivePack();
+  const boundJobDomains = () => boundJobDomainsOf(bindings);
 
   // NOTE the id below is DERIVED via `jobDomainIdFor`, the same helper the seeder uses.
   // `JobDomainSeedRecord` carries no `job_domain_id` field, so reading one directly hands
@@ -132,6 +140,30 @@ describe("every blue-collar occupation reaches a real question pack", () => {
     // the catalogue (it would resolve nothing and silently fall to the unit tier) or that two
     // bindings name the same one — both are dead role packs, which is the failure this whole file
     // exists to make visible.
-    expect(mix.get(50) ?? 0).toBe(bindings.filter((b) => b.jobDomainId).length);
+    //
+    // SCOPED TO THE OCCUPATIONS THIS SUITE COUNTS, which stopped being every job-domain binding
+    // the day a role pack was authored outside majors 5–9. `fam_cad_drafting` binds
+    // jd_nco_3118_0401 and _0402 — mechanical draughting, ISCO major 3 — and the drawing office is
+    // a real target of this programme even though it sits outside the blue-collar span this file
+    // measures. Comparing against EVERY job-domain binding would have made a correct new role read
+    // as two dead ones; comparing against none of them would have dropped the check. The identity
+    // that still holds, and the one worth asserting, is over the occupations actually counted.
+    const scoped = new Set(occupations.map(jobDomainIdFor));
+    expect(mix.get(50) ?? 0).toBe(boundJobDomains().filter((id) => scoped.has(id)).length);
+  });
+
+  it("EVERY job-domain binding names an occupation that exists — in or out of the blue-collar span", () => {
+    // THE OTHER HALF OF THE CHECK ABOVE, AND NOW THE STRONGER ONE. The 50-tier identity can only
+    // speak for the occupations this suite counts; a binding on a MISTYPED job domain outside
+    // majors 5–9 would resolve nothing, silently fall to its unit tier, and be invisible there.
+    // This reads the whole catalogue, so a dead role pack fails wherever it was authored.
+    const catalogue = new Set(loadJobDomainCorpus().map(jobDomainIdFor));
+    const claimed = boundJobDomains();
+    expect(
+      claimed.filter((id) => !catalogue.has(id)),
+      "bindings pointing at a job domain the catalogue does not have",
+    ).toEqual([]);
+    // And no two families may name one occupation — most-specific-wins would pick one silently.
+    expect(claimed.length, "two bindings name the same job domain").toBe(new Set(claimed).size);
   });
 });

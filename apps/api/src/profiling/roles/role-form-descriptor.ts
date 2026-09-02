@@ -106,6 +106,22 @@ export interface RoleFresherVocabulary {
   readonly workshopMachines: Readonly<Record<string, string>>;
   /** Trade-test status slug → the printed clause. A status with no entry prints nothing. */
   readonly tradeTest: Readonly<Record<string, string>>;
+  /**
+   * The ROLE LINE printed over the fresher's Zone 4 block, when "ITI workshop training" is wrong.
+   *
+   * OPTIONAL, AND THE DEFAULT IS THE SHIPPED LITERAL. `buildFresherRows` printed
+   * "ITI workshop training" for every role, which is true of the four machining trades: a turner,
+   * a miller, a grinder and a programmer all learn on an ITI workshop floor. It is FALSE for the
+   * drawing office. `qp_cad_drafting` asks where the worker trained and offers ITI, diploma,
+   * engineering college, PRIVATE CAD INSTITUTE and self-taught — and a large part of that supply
+   * answers the fourth. Heading his training block "ITI workshop training" asserts a credential he
+   * has not got, on his own resume, which is the §8 fabrication rule and not a wording preference.
+   *
+   * A FIELD RATHER THAN A RENAME, because the four shipped roles are correct as they are and this
+   * is a role-level fact like every other string on this descriptor. Absent keeps today's output
+   * byte-for-byte.
+   */
+  readonly trainingLabel?: string;
 }
 
 export interface RoleFormDescriptor {

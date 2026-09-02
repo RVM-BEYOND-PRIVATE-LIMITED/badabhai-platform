@@ -1,0 +1,737 @@
+{
+  "_why": "Role track for CAD DRAUGHTING / MECHANICAL DESIGN, authored under docs/profiling/role-pack-authoring-guide.md as the last role of Batch 1. It binds the two mechanical draughting occupations of NCO unit 3118 -- jd_nco_3118_0401 'Draughtsperson, Mechanical' and jd_nco_3118_0402 'Draughtsman-Mechanical' -- at job-domain specificity 50. The other twelve codes in that unit (civil, electrical, architectural, structural, topographical, tracer, blue printer, other) land on fam_draughting @40 and get qp_draughting, the router beside this pack. Neither existed before Batch 1: measured this session, 'draftsman' resolved to jd_nco_3118_0301 and fell to fam_universal@0, and 'cad', 'autocad', 'solidworks' and 'draughtsman' resolved to golf caddies, garment designers or nothing at all.",
+  "_reachability": "THIS PACK IS NOT REACHABLE UNTIL THE ALIAS TRANCHE LANDS, and that is the §2b trap stated plainly rather than discovered later. Verified live this session with resolveOccupation + resolveFamily: 'cad' and 'cad operator' -> jd_nco_9621_0300 'Caddie' (GOLF); 'cad designer', 'designer' and 'mechanical designer' -> jd_nco_7532_0100 'Designer (Garment)'; 'autocad', 'solidworks', 'catia', 'draughtsman' and every Devanagari form -> NO MATCH; 'draftsman' -> jd_nco_3118_0301, which this pack deliberately does NOT claim (it is the unit's generic title and belongs to the router). So a structurally green pack here would still meet zero workers. The alias tranche routed for human ratification alongside this pack is what makes it reachable, and packages/db/src/question-pack-reachability.test.ts is where that becomes a pinned fact rather than a claim.",
+  "_scope": "MECHANICAL DRAUGHTING AND MECHANICAL DESIGN, one role across the whole ladder Draughtsman -> CAD Designer -> Design Engineer (taxonomy p1). The rungs are not three occupations; they are the same person with more capability, which is why the ladder is expressed by the depth tiers below rather than by three packs. A worker who only traces and dimensions another man's model answers tier 0 honestly and stops there; the man who selects materials and checks juniors' drawings reaches tier 2.",
+  "_fresher_first": "THIS ROLE IS FRESHER-FIRST AND THE PACK IS SHAPED AROUND THAT. The taxonomy calls it RVM's core student profile and the highest-volume warm supply we own, and the ratified reference sheet (Pooja Chaudhary, CAD Designer / Draughtsman -- Draughtsman, Fresher) HAS NO WORK-HISTORY SECTION AT ALL. Three consequences, all structural: (1) every one of the sheet's capability rows is asked at TIER 0, ungated, so a fresher fills the entire Section B without ever passing an experience gate -- nothing a fresher needs sits behind 'gte 2'; (2) the fresher branch carries FIVE items and is flagged is_core, more than the experienced branches, because for this role it is the primary path and not a fallback; (3) the sector row is SECTOR STUDIED, a separate question_key with its own wording, never sector_worked with the word 'worked' in it -- a student who has drawn nothing for money must not be asked what he has 'banaya'. §8's fabrication rule is tightest here: a fresher has no employer to corroborate against, so every chip is a closed-vocabulary label he tapped himself and iti_project_work prints in his own words, with no third source anywhere.",
+  "_fresher_keys": "iti_workshop_machines, trade_test_status and iti_project_work are REUSED KEY-FOR-KEY from qp_cnc_turning / qp_vmc_milling / qp_cnc_grinding because resume-fresher-rows.ts reads those three attribute names LITERALLY (buildFresherRows, apps/api). A CAD-shaped rename -- training_equipment, course_project_work -- would be better English and would render NOTHING, silently, on the one role whose primary worker is a fresher: the same class of defect as the trade-resume-map key bug that shipped twice on grinding. The WORDING diverges where the shared wording would be false: a CAD student's training is a drawing board and a computer lab, and a large part of this supply learns at a private institute rather than an ITI, so 'ITI ke workshop me kaunsi machine par kaam kiya hai' would be answered 'maine ITI nahi ki' by exactly the workers we most want. Key reuse is what renders; prompt reuse is what shares TTS audio; they are separate decisions and this item makes them separately.",
+  "_depth": "THE TIER GATE IS drafting_experience, asked FIRST. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber ?? valueBool, so adding a value_text would make the answer a STRING; every gte below would then compare a string to a number, compare() returns null, and the predicate is false forever -- a question that is never asked, silently, which is the #776 defect that sat in qp_welding for the life of the pack. THE FRESHER BAND IS 'lte 1', NOT 'lte 0' as in grinding and milling, and the difference is deliberate: this gate has TWO fresher chips ('Course kiya hai, kaam ka tajurba nahi' = 0 and '1 saal se kam' = 1) because 'Fresher' is a status a student states, not the absence of a number, and the two must stay distinguishable in the stored value. lte 1 / gte 2 / gte 5 still partition the ladder exactly, with no band that falls through every branch.",
+  "_budget": "MAX_ENGINE_ASKS is 28 and qp_universal spends 8. Tier 0 is 7 items (15 with the universal tail): the gate plus the six ungated capability rows the ratified sheet prints. The FRESHER path adds 5 (20). The EXPERIENCED path adds 3 at gte 2 and 2 at gte 5 (20). The branches are mutually exclusive by construction, so both the student and the eight-year designer finish at 20 of 28 and neither pays for the other's depth.",
+  "_sheet": "SECTION B IS READ OFF THE RATIFIED REFERENCE SHEET (Pooja Chaudhary), not invented. Section title 'Software, drawing work & capability'. Its seven rows are Software, Modules, Drawing work, Standards & detailing, Drawing type, Output produced and Sector studied, and every one has a question here that fills it. RANK ORDER FOR THE MAPPER, because CAPABILITY_ROW_BUDGET is 9 and an experienced worker can fill eleven: (1) cad_software, (2) cad_modules, (3) drawing_work, (4) drawing_standards, (5) drawing_type, (6) output_produced, (7) sector_studied OR sector_drawn -- never both, the gates are exclusive, (8) design_work, (9) design_input_source, then measuring_tools and drawing_check_work shed first. The six highest rows are the fresher's, which is the ranking this role's supply argues for.",
+  "_omission": "ONE ANSWER IS CAPTURED AND DELIBERATELY NOT PRINTED, on the precedent of drawing_reading:'none' in qp_cnc_turning: drawing_check_work:'check_none' ('Nahi, sirf apni drawing dekhta hoon'). It is real matching data -- so it is stored as ITSELF rather than collapsed to the 'unknown' escape value, which would have been data loss dressed up as a decision -- but 'does not check other people's drawings' is a negative claim, and a worker's own marketing sheet is not where a negative claim belongs. The mapper simply carries no label for that slug and §5b rule 1 drops it. Omission is a decision, so it is written down. drawing_type:'tracing' by contrast DOES print: tracing and updating existing drawings is the Tracer's actual trade (NCO 3118.0800), the lowest rung of the ladder rather than the absence of one.",
+  "pack_id": "qp_cad_drafting",
+  "version": 1,
+  "family_id": "fam_cad_drafting",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "DRAFTED, NOT RATIFIED. Shop-floor and drawing-office vocabulary here -- and the alias tranche that makes this pack reachable at all -- is drafted for human ratification and has NOT yet been corrected by a practising draughtsman. See docs/registers/trade-content-ratification.md.",
+  "items": [
+    {
+      "question_key": "drafting_experience",
+      "prompt_text": "Drawing aur CAD ke kaam ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal drawing ka kaam ya course kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "drafting_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "fresher_course",
+          "label_text": "Course kiya hai, kaam ka tajurba nahi",
+          "value_number": 0
+        },
+        {
+          "option_key": "under_one",
+          "label_text": "1 saal se kam",
+          "value_number": 1
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_seven",
+          "label_text": "3 se 7 saal",
+          "value_number": 5
+        },
+        {
+          "option_key": "over_seven",
+          "label_text": "7 saal se zyada",
+          "value_number": 10
+        }
+      ]
+    },
+    {
+      "question_key": "cad_software",
+      "prompt_text": "Aap kaunsa CAD software chalate hain?",
+      "why_text": "Software ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "cad_software",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "autocad",
+          "label_text": "AutoCAD",
+          "value_text": "autocad"
+        },
+        {
+          "option_key": "solidworks",
+          "label_text": "SolidWorks",
+          "value_text": "solidworks"
+        },
+        {
+          "option_key": "fusion",
+          "label_text": "Fusion 360",
+          "value_text": "fusion"
+        },
+        {
+          "option_key": "creo",
+          "label_text": "Creo ya Pro-E",
+          "value_text": "creo"
+        },
+        {
+          "option_key": "catia",
+          "label_text": "CATIA",
+          "value_text": "catia"
+        },
+        {
+          "option_key": "other_software",
+          "label_text": "Koi aur software",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "cad_modules",
+      "prompt_text": "Software ke kaunse module par kaam kiya hai?",
+      "why_text": "Module se pata chalta hai aap kis tarah ki drawing banate hain.",
+      "target_kind": "attribute",
+      "target_field": "cad_modules",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "two_d_drafting",
+          "label_text": "2D drafting",
+          "value_text": "two_d_drafting"
+        },
+        {
+          "option_key": "three_d_modelling",
+          "label_text": "3D modelling",
+          "value_text": "three_d_modelling"
+        },
+        {
+          "option_key": "assembly_module",
+          "label_text": "Assembly",
+          "value_text": "assembly_module"
+        },
+        {
+          "option_key": "sheet_metal",
+          "label_text": "Sheet metal module",
+          "value_text": "sheet_metal"
+        },
+        {
+          "option_key": "surface_module",
+          "label_text": "Surface modelling",
+          "value_text": "surface_module"
+        },
+        {
+          "option_key": "other_module",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_work",
+      "prompt_text": "Drawing ka kaunsa kaam khud karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "drawing_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "part_modelling",
+          "label_text": "Part modelling",
+          "value_text": "part_modelling"
+        },
+        {
+          "option_key": "assembly_mating",
+          "label_text": "Assembly mating",
+          "value_text": "assembly_mating"
+        },
+        {
+          "option_key": "views_sections",
+          "label_text": "Drawing view aur section banana",
+          "value_text": "views_sections"
+        },
+        {
+          "option_key": "flat_pattern",
+          "label_text": "Sheet metal flat pattern",
+          "value_text": "flat_pattern"
+        },
+        {
+          "option_key": "dimensioning",
+          "label_text": "Dimensioning",
+          "value_text": "dimensioning"
+        },
+        {
+          "option_key": "revision_control",
+          "label_text": "Revision control",
+          "value_text": "revision_control"
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_standards",
+      "prompt_text": "Drawing me kaunse standard ka istemaal karte hain?",
+      "why_text": "Standard ke hisaab se bani drawing seedha production me chali jaati hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_standards",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "gdt_symbols",
+          "label_text": "GD aur T symbol",
+          "value_text": "gdt_symbols"
+        },
+        {
+          "option_key": "iso_standard",
+          "label_text": "ISO drawing standard",
+          "value_text": "iso_standard"
+        },
+        {
+          "option_key": "title_block",
+          "label_text": "Title block aur BOM",
+          "value_text": "title_block"
+        },
+        {
+          "option_key": "tolerance_stack",
+          "label_text": "Tolerance stack basics",
+          "value_text": "tolerance_stack"
+        },
+        {
+          "option_key": "projection_angle",
+          "label_text": "First aur third angle projection",
+          "value_text": "projection_angle"
+        },
+        {
+          "option_key": "no_standard",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_type",
+      "prompt_text": "Aap kis tarah ki drawing banate hain?",
+      "why_text": "Drawing banane ka tarika employer ko aapka kaam samjhata hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_type",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "two_d_only",
+          "label_text": "Sirf 2D drawing banata hoon",
+          "value_text": "two_d_only"
+        },
+        {
+          "option_key": "model_to_drawing",
+          "label_text": "3D model se 2D production drawing banata hoon",
+          "value_text": "model_to_drawing"
+        },
+        {
+          "option_key": "model_and_drawing",
+          "label_text": "3D model bhi banata hoon aur drawing bhi",
+          "value_text": "model_and_drawing"
+        },
+        {
+          "option_key": "tracing",
+          "label_text": "Purani drawing se tracing ya update karta hoon",
+          "value_text": "tracing"
+        }
+      ]
+    },
+    {
+      "question_key": "output_produced",
+      "prompt_text": "Aap kaunsa output banakar dete hain?",
+      "why_text": "Output dekhkar employer samajhta hai aap kya kaam de sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "output_produced",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "part_drawing",
+          "label_text": "Part drawing",
+          "value_text": "part_drawing"
+        },
+        {
+          "option_key": "assembly_drawing",
+          "label_text": "Assembly drawing",
+          "value_text": "assembly_drawing"
+        },
+        {
+          "option_key": "bom",
+          "label_text": "BOM, bill of material",
+          "value_text": "bom"
+        },
+        {
+          "option_key": "dxf_cutting",
+          "label_text": "DXF file, laser cutting ke liye",
+          "value_text": "dxf_cutting"
+        },
+        {
+          "option_key": "fabrication_drawing",
+          "label_text": "Fabrication ya welding drawing",
+          "value_text": "fabrication_drawing"
+        },
+        {
+          "option_key": "other_output",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sector_drawn",
+      "prompt_text": "Kis line ki drawing banayi hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_drawn",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "drafting_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job shop",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "auto_parts",
+          "label_text": "Automotive ya auto parts",
+          "value_text": "auto_parts"
+        },
+        {
+          "option_key": "sheet_metal_fab",
+          "label_text": "Sheet metal aur fabrication",
+          "value_text": "sheet_metal_fab"
+        },
+        {
+          "option_key": "tool_room",
+          "label_text": "Tool room, die aur mould",
+          "value_text": "tool_room"
+        },
+        {
+          "option_key": "machine_building",
+          "label_text": "Machine ya SPM banane wali company",
+          "value_text": "machine_building"
+        },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "design_input_source",
+      "prompt_text": "Drawing banane ke liye aapko kya milta hai?",
+      "why_text": "Isse pata chalta hai aap sirf drawing banate hain ya design bhi karte hain.",
+      "target_kind": "attribute",
+      "target_field": "design_input_source",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "drafting_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "hand_sketch",
+          "label_text": "Haath se bani sketch",
+          "value_text": "hand_sketch"
+        },
+        {
+          "option_key": "sample_part",
+          "label_text": "Sample part, naap kar drawing banata hoon",
+          "value_text": "sample_part"
+        },
+        {
+          "option_key": "senior_model",
+          "label_text": "Senior ka 3D model ya drawing",
+          "value_text": "senior_model"
+        },
+        {
+          "option_key": "own_design",
+          "label_text": "Khud design karta hoon",
+          "value_text": "own_design"
+        }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "prompt_text": "Kaunse measuring instrument chala lete hain?",
+      "why_text": "Part naap kar drawing banane wale ki alag zaroorat hoti hai.",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "drafting_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "vernier",
+          "label_text": "Vernier caliper",
+          "value_text": "vernier"
+        },
+        {
+          "option_key": "micrometer",
+          "label_text": "Micrometer",
+          "value_text": "micrometer"
+        },
+        {
+          "option_key": "height_gauge",
+          "label_text": "Height gauge",
+          "value_text": "height_gauge"
+        },
+        {
+          "option_key": "steel_rule",
+          "label_text": "Steel rule aur measuring tape",
+          "value_text": "steel_rule"
+        },
+        {
+          "option_key": "dial_indicator",
+          "label_text": "Dial indicator",
+          "value_text": "dial_indicator"
+        },
+        {
+          "option_key": "other_instrument",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_check_work",
+      "prompt_text": "Doosron ki banayi drawing check karte hain?",
+      "why_text": "Drawing check karne wale ko senior maana jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_check_work",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "drafting_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "check_regular",
+          "label_text": "Haan, roz check karta hoon",
+          "value_text": "check_regular"
+        },
+        {
+          "option_key": "check_sometimes",
+          "label_text": "Kabhi kabhi check karta hoon",
+          "value_text": "check_sometimes"
+        },
+        {
+          "option_key": "check_none",
+          "label_text": "Nahi, sirf apni drawing dekhta hoon",
+          "value_text": "check_none"
+        }
+      ]
+    },
+    {
+      "question_key": "design_work",
+      "prompt_text": "Design ka kaunsa kaam aap karte hain?",
+      "why_text": "Design ka kaam jaanne wale ko design engineer banaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "design_work",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "drafting_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "material_selection",
+          "label_text": "Material selection",
+          "value_text": "material_selection"
+        },
+        {
+          "option_key": "standard_parts",
+          "label_text": "Bearing aur fastener jaise standard part chunna",
+          "value_text": "standard_parts"
+        },
+        {
+          "option_key": "bend_allowance",
+          "label_text": "Sheet metal bend allowance nikalna",
+          "value_text": "bend_allowance"
+        },
+        {
+          "option_key": "fixture_design",
+          "label_text": "Jig aur fixture design",
+          "value_text": "fixture_design"
+        },
+        {
+          "option_key": "cost_weight",
+          "label_text": "Weight ya cost nikalna",
+          "value_text": "cost_weight"
+        },
+        {
+          "option_key": "no_design",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "cad_training_source",
+      "prompt_text": "CAD kahaan se seekha hai?",
+      "why_text": "Training kahaan hui, ye employer sabse pehle dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "cad_training_source",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "drafting_experience"
+        },
+        "right": {
+          "const": 1
+        }
+      },
+      "options": [
+        {
+          "option_key": "iti_draughtsman",
+          "label_text": "ITI draughtsman course",
+          "value_text": "iti_draughtsman"
+        },
+        {
+          "option_key": "diploma",
+          "label_text": "Diploma, mechanical ya civil",
+          "value_text": "diploma"
+        },
+        {
+          "option_key": "engg_college",
+          "label_text": "Engineering college",
+          "value_text": "engg_college"
+        },
+        {
+          "option_key": "private_institute",
+          "label_text": "Private CAD institute",
+          "value_text": "private_institute"
+        },
+        {
+          "option_key": "self_taught",
+          "label_text": "Khud seekha, video dekhkar",
+          "value_text": "self_taught"
+        }
+      ]
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "prompt_text": "Training me kaunsa kaam khud kiya hai?",
+      "why_text": "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "drafting_experience"
+        },
+        "right": {
+          "const": 1
+        }
+      },
+      "options": [
+        {
+          "option_key": "drawing_board",
+          "label_text": "Drawing board par hand drafting",
+          "value_text": "drawing_board"
+        },
+        {
+          "option_key": "cad_lab",
+          "label_text": "CAD lab me computer par drawing",
+          "value_text": "cad_lab"
+        },
+        {
+          "option_key": "plotter_print",
+          "label_text": "Plotter se drawing print karna",
+          "value_text": "plotter_print"
+        },
+        {
+          "option_key": "machine_shop",
+          "label_text": "Machine shop me kaam dekha hai",
+          "value_text": "machine_shop"
+        },
+        {
+          "option_key": "measuring_practice",
+          "label_text": "Vernier aur micrometer se naap",
+          "value_text": "measuring_practice"
+        },
+        {
+          "option_key": "unknown_machine",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "trade_test_status",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "drafting_experience"
+        },
+        "right": {
+          "const": 1
+        }
+      },
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ]
+    },
+    {
+      "question_key": "sector_studied",
+      "prompt_text": "Kis line ki drawing par padhai ki hai?",
+      "why_text": "Jis line ki drawing seekhi hai, wahi employer aapko dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_studied",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "drafting_experience"
+        },
+        "right": {
+          "const": 1
+        }
+      },
+      "options": [
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "auto_parts",
+          "label_text": "Automotive ya auto parts",
+          "value_text": "auto_parts"
+        },
+        {
+          "option_key": "sheet_metal_fab",
+          "label_text": "Sheet metal aur fabrication",
+          "value_text": "sheet_metal_fab"
+        },
+        {
+          "option_key": "civil_building",
+          "label_text": "Civil ya building drawing",
+          "value_text": "civil_building"
+        },
+        {
+          "option_key": "course_project",
+          "label_text": "Sirf course ke project",
+          "value_text": "course_project"
+        },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "iti_project_work",
+      "prompt_text": "Course ya ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua project dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "is_core": true,
+      "max_asks": 1,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "drafting_experience"
+        },
+        "right": {
+          "const": 1
+        }
+      }
+    }
+  ]
+}
