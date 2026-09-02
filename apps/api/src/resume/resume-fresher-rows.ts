@@ -1,5 +1,6 @@
 import type { ResumeExperienceLine } from "./resume-renderer.service";
 import type { WorkerAttributeValues } from "./trade-resume-map";
+import { ROLE_FORM_DESCRIPTORS } from "../profiling/roles/role-registry";
 
 /**
  * ══════════════════════════════════════════════════════════════════════════════════════
@@ -42,17 +43,21 @@ import type { WorkerAttributeValues } from "./trade-resume-map";
  * a slug list authored for one trade silently mislabelling another's answers is exactly the
  * failure this scoping exists to prevent. A pack with no entry gets no fresher block, which is
  * the same drop-the-unknown rule every dictionary on this sheet follows.
+ *
+ * READ OFF THE ROLE DESCRIPTOR NOW, because "which packs have a fresher vocabulary" was the sort
+ * of fact that is only ever wrong by omission. `qp_vmc_milling` asks `iti_workshop_machines` and
+ * `trade_test_status` exactly as turning does, and had no entry here — so a VMC pass-out answered
+ * both questions and still met the empty History heading that §11 #1 forbids. Keeping the
+ * vocabulary beside the role that asks for it is what makes that omission visible: the descriptor
+ * has one `fresher` field, and a role either fills it or deliberately does not.
  */
-const WORKSHOP_MACHINES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
-  qp_cnc_turning: {
-    conventional_lathe: "Conventional lathe",
-    cnc_lathe: "CNC lathe / turning centre",
-    milling: "Milling machine",
-    drilling: "Drilling machine",
-    grinding: "Grinding machine",
-    shaper: "Shaper / planer",
-  },
-};
+const WORKSHOP_MACHINES: Readonly<Record<string, Readonly<Record<string, string>>>> =
+  Object.fromEntries(
+    ROLE_FORM_DESCRIPTORS.filter((role) => role.fresher !== undefined).map((role) => [
+      role.packId,
+      role.fresher!.workshopMachines,
+    ]),
+  );
 
 /**
  * Trade-test status → the printed clause.
@@ -62,12 +67,12 @@ const WORKSHOP_MACHINES: Readonly<Record<string, Readonly<Record<string, string>
  * employer nothing he would not assume. `appeared` DOES print — a man who sat the test and is
  * waiting has done something, and saying so is the honest version of the same fact.
  */
-const TRADE_TEST: Readonly<Record<string, Readonly<Record<string, string>>>> = {
-  qp_cnc_turning: {
-    passed: "Trade test passed",
-    appeared: "Trade test taken, result awaited",
-  },
-};
+const TRADE_TEST: Readonly<Record<string, Readonly<Record<string, string>>>> = Object.fromEntries(
+  ROLE_FORM_DESCRIPTORS.filter((role) => role.fresher !== undefined).map((role) => [
+    role.packId,
+    role.fresher!.tradeTest,
+  ]),
+);
 
 /** The most machines a fresher's line prints, so one row cannot wrap into three. */
 const MAX_WORKSHOP_MACHINES = 4;
