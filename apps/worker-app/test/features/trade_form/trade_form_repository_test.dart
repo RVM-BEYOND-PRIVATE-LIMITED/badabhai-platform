@@ -366,4 +366,179 @@ void main() {
       );
     });
   });
+
+  group('TradeFormRepositoryImpl.loadQualificationOptions', () {
+    test('parses the slug->label maps, preserving order', () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          expect(req.url.path, '/workers/me/qualifications/options');
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'education_credential': <String, String>{
+                'below_10': 'Below 10th',
+                'iti': 'ITI',
+              },
+              'education_council': <String, String>{'ncvt': 'NCVT'},
+            }),
+            200,
+          );
+        }),
+      );
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(api, _session());
+
+      final QualificationOptionsDto options = await repo.loadQualificationOptions();
+
+      expect(options.educationCredential, <String, String>{
+        'below_10': 'Below 10th',
+        'iti': 'ITI',
+      });
+      expect(options.educationCouncil, <String, String>{'ncvt': 'NCVT'});
+    });
+  });
+
+  group('TradeFormRepositoryImpl.saveQualifications — the tri-state PUT body',
+      () {
+    /// Captures the body of the single PUT this test drives.
+    Future<Map<String, dynamic>> putAndCapture(
+      TradeFormQualifications qualifications,
+    ) async {
+      Map<String, dynamic>? sent;
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          expect(req.method, 'PUT');
+          expect(req.url.path, '/workers/me/qualifications');
+          sent = jsonDecode(req.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode(<String, dynamic>{
+              'ok': true,
+              'certificate_count': 0,
+              'education_count': 0,
+            }),
+            200,
+          );
+        }),
+      );
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(api, _session());
+      await repo.saveQualifications(qualifications);
+      return sent!;
+    }
+
+    test('an untouched section is OMITTED from the body entirely, never sent '
+        'as []', () async {
+      final Map<String, dynamic> body = await putAndCapture(
+        const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[
+            TradeFormCertificateEntry(name: 'Fanuc Oi-TF Programming'),
+          ],
+          certificatesTouched: true,
+          // educations left at defaults: untouched, empty.
+        ),
+      );
+
+      expect(body.containsKey('certificates'), isTrue);
+      expect(body.containsKey('educations'), isFalse);
+      expect(body['certificates'], <Map<String, dynamic>>[
+        <String, dynamic>{
+          'name': 'Fanuc Oi-TF Programming',
+          'issuer': null,
+          'year': null,
+        },
+      ]);
+    });
+
+    test('a touched section with zero rows is sent as [] — "I have none" is '
+        'a real answer', () async {
+      final Map<String, dynamic> body = await putAndCapture(
+        const TradeFormQualifications(
+          certificatesTouched: true, // added then removed every row
+          educationsTouched: true,
+        ),
+      );
+
+      expect(body['certificates'], <Map<String, dynamic>>[]);
+      expect(body['educations'], <Map<String, dynamic>>[]);
+    });
+
+    test('a populated list is sent in the CALLER\'S order, never re-sorted',
+        () async {
+      final Map<String, dynamic> body = await putAndCapture(
+        const TradeFormQualifications(
+          educations: <TradeFormEducationEntry>[
+            TradeFormEducationEntry(
+              credential: 'diploma',
+              field: 'Mechanical',
+              council: 'aicte',
+              year: 2015,
+              institute: 'Govt. Polytechnic',
+            ),
+            TradeFormEducationEntry(
+              credential: 'iti',
+              field: 'Machinist',
+              council: 'ncvt',
+              year: 2018, // EARLIER display position, LATER year — order wins.
+              institute: 'Govt. ITI, Faridabad',
+            ),
+          ],
+          educationsTouched: true,
+        ),
+      );
+
+      final List<dynamic> educations = body['educations'] as List<dynamic>;
+      expect(educations, hasLength(2));
+      expect((educations[0] as Map<String, dynamic>)['institute'],
+          'Govt. Polytechnic'); // first in the caller's list, not by year
+      expect((educations[1] as Map<String, dynamic>)['institute'],
+          'Govt. ITI, Faridabad');
+    });
+
+    test('both sections touched sends both keys', () async {
+      final Map<String, dynamic> body = await putAndCapture(
+        const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[
+            TradeFormCertificateEntry(
+                name: 'Welder Qualification Test — 3G',
+                issuer: 'RVM CAD',
+                year: 2019),
+          ],
+          certificatesTouched: true,
+          educations: <TradeFormEducationEntry>[
+            TradeFormEducationEntry(credential: 'iti'),
+          ],
+          educationsTouched: true,
+        ),
+      );
+
+      expect(body.containsKey('certificates'), isTrue);
+      expect(body.containsKey('educations'), isTrue);
+    });
+
+    test('a 400 naming a phone/email shape surfaces the server message',
+        () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async => http.Response(
+            jsonEncode(<String, dynamic>{
+              'message': 'remove contact details from the issuer',
+            }),
+            400)),
+      );
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(api, _session());
+
+      await expectLater(
+        repo.saveQualifications(const TradeFormQualifications(
+          certificates: <TradeFormCertificateEntry>[
+            TradeFormCertificateEntry(name: 'ITI', issuer: '9876543210'),
+          ],
+          certificatesTouched: true,
+        )),
+        throwsA(isA<InvalidRequestFailure>().having(
+          (InvalidRequestFailure f) => f.message,
+          'message',
+          contains('issuer'),
+        )),
+      );
+    });
+  });
 }
