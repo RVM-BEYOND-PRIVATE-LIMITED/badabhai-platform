@@ -252,6 +252,9 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
           : TradeFormAnswerStatus.answered,
       answered: (json['answered'] as num?)?.toInt() ?? 0,
       total: (json['total'] as num?)?.toInt() ?? 0,
+      // #1382 — absent on the wire today (backend work in progress);
+      // missing/null reads as false, the current, correct behaviour.
+      schemaStale: json['schema_stale'] as bool? ?? false,
     );
   }
 }
