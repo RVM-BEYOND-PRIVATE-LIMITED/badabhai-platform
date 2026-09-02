@@ -21,13 +21,28 @@ enum VoiceQuestionKind {
 /// One selectable option: the engine's [key] (what is submitted, never the
 /// label) and the [label] shown on the chip.
 class VoiceChoice extends Equatable {
-  const VoiceChoice({required this.key, required this.label});
+  const VoiceChoice({
+    required this.key,
+    required this.label,
+    this.isNoneOfAbove = false,
+  });
 
   final String key;
   final String label;
 
+  /// Server-owned (`is_none_of_above` on the wire, #1382) — true when this
+  /// option means "nothing here applies" rather than a real pick. ADDITIVE,
+  /// DEFAULT FALSE: every existing call site that builds a [VoiceChoice]
+  /// without naming this stays byte-identical. A multi-select renderer uses
+  /// it to keep this option and every other option MUTUALLY EXCLUSIVE — see
+  /// `applyNoneOfAboveRule` (`voice_choice_chips.dart`) — because ticking
+  /// both "CNC lathe" and "none of these" is a contradiction the resume
+  /// mapper silently resolves to `unknown`, dropping the fact that the
+  /// worker's tap disagreed with itself.
+  final bool isNoneOfAbove;
+
   @override
-  List<Object?> get props => <Object?>[key, label];
+  List<Object?> get props => <Object?>[key, label, isNoneOfAbove];
 }
 
 /// One question in the voice-profiling form.
