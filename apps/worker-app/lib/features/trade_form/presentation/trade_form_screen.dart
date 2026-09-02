@@ -14,6 +14,7 @@ import 'cubit/trade_form_cubit.dart';
 import 'widgets/trade_form_employment_page.dart';
 import 'widgets/trade_form_preferences_page.dart';
 import 'widgets/trade_form_progress_bar.dart';
+import 'widgets/trade_form_qualifications_page.dart';
 import 'widgets/trade_form_question_body.dart';
 
 // ---- Copy. aap-form, no `!`, safe verbs only. Scanned by
@@ -215,6 +216,8 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
       GlobalKey<TradeFormPreferencesPageState>();
   final GlobalKey<TradeFormEmploymentPageState> _empKey =
       GlobalKey<TradeFormEmploymentPageState>();
+  final GlobalKey<TradeFormQualificationsPageState> _qualsKey =
+      GlobalKey<TradeFormQualificationsPageState>();
 
   @override
   Widget build(BuildContext context) {
@@ -283,7 +286,8 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                     ),
                   ),
                   if (step is TradeFormPreferencesStep ||
-                      step is TradeFormEmploymentStep)
+                      step is TradeFormEmploymentStep ||
+                      step is TradeFormQualificationsStep)
                     _MarkerBottomBar(
                       isLast: state.isLastStep,
                       isSubmitting: state.isSubmitting,
@@ -292,6 +296,8 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                           _prefsKey.currentState?.save();
                         } else if (step is TradeFormEmploymentStep) {
                           _empKey.currentState?.save();
+                        } else if (step is TradeFormQualificationsStep) {
+                          _qualsKey.currentState?.save();
                         }
                       },
                     ),
@@ -332,6 +338,15 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         key: _empKey,
         enabled: enabled,
         onSave: cubit.saveEmploymentAndAdvance,
+      );
+    }
+    if (step is TradeFormQualificationsStep) {
+      return TradeFormQualificationsPage(
+        key: _qualsKey,
+        suggestedCertificates: step.suggestedCertificates,
+        enabled: enabled,
+        loadOptions: cubit.loadQualificationOptions,
+        onSave: cubit.saveQualificationsAndAdvance,
       );
     }
     return const SizedBox.shrink();
