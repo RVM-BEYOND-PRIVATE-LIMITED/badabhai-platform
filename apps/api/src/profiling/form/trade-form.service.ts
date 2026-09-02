@@ -16,6 +16,12 @@ import { packAnswerRowFor } from "../pack-answer-row";
 import { TRADE_RESUME_MAPS } from "../../resume/trade-resume-map";
 import { PackRegistryService } from "../pack-registry.service";
 import { familyForTradeForm, TRADE_FORM_KINDS, type TradeFormKind } from "../trade-form-router";
+import { descriptorForKind } from "../roles/role-registry";
+import {
+  answerMapFromRows,
+  gateKeysOf,
+  isFormQuestionVisible,
+} from "./form-eligibility";
 import { TradeFormRepository } from "./trade-form.repository";
 import type {
   TradeFormAnswerDto,
@@ -65,7 +71,15 @@ export class TradeFormService {
     const saved = await this.answers.listAnswers(workerId, pack.pack_id);
     const byKey = new Map(saved.map((row) => [row.questionKey, row]));
 
-    const { ordered, leftover } = this.orderBySheet(pack);
+    // WHAT THE WORKER HAS ALREADY SETTLED DECIDES WHAT ELSE THEY ARE ASKED (#1378). On a first
+    // fetch nothing is settled, every gate is unresolved, and `isFormQuestionVisible` shows
+    // everything — which is exactly today's behaviour. It narrows on the next fetch, once the
+    // tier question has an answer to narrow it with.
+    const answers = answerMapFromRows(saved);
+    const visible = (items: readonly QuestionPackItem[]): QuestionPackItem[] =>
+      items.filter((item) => isFormQuestionVisible(item, answers));
+
+    const { ordered, leftover } = this.orderBySheet(pack, kind);
     const capabilityTitle =
       TRADE_RESUME_MAPS.find((map) => map.pack_id === pack.pack_id)?.section_title ??
       "Machines, controllers & capability";
@@ -78,7 +92,9 @@ export class TradeFormService {
         {
           id: "capability",
           title: capabilityTitle,
-          screens: ordered.map((item) => this.questionScreen(item, byKey.get(item.question_key))),
+          screens: visible(ordered).map((item) =>
+            this.questionScreen(item, byKey.get(item.question_key)),
+          ),
         },
         {
           id: "terms",
@@ -94,7 +110,9 @@ export class TradeFormService {
           id: "qualifications",
           title: SECTION_TITLES.qualifications,
           screens: [
-            ...leftover.map((item) => this.questionScreen(item, byKey.get(item.question_key))),
+            ...visible(leftover).map((item) =>
+              this.questionScreen(item, byKey.get(item.question_key)),
+            ),
           ],
         },
       ],
@@ -181,11 +199,27 @@ export class TradeFormService {
     }
 
     const saved = await this.answers.listAnswers(workerId, pack.pack_id);
+    const answers = answerMapFromRows(saved);
+    const visibleItems = pack.items.filter((candidate) =>
+      isFormQuestionVisible(candidate, answers),
+    );
     return {
       question_key: item.question_key,
       status: row.status === "answered" ? "answered" : "declined",
       answered: saved.filter((candidate) => candidate.status !== "unanswered").length,
-      total: pack.items.length,
+      // COUNTED OVER WHAT IS STILL ASKED, not over the whole pack. A senior turner is not asked
+      // the three fresher questions, and a progress rail whose denominator includes them can
+      // never reach its own end — the worker finishes the form at 15/18 and is told they have not.
+      total: visibleItems.length,
+      /**
+       * The screen list the client is holding no longer matches the one this server would serve.
+       *
+       * A FORM IS ONE ROUND TRIP, so answering a gate changes a list the client already has. It
+       * cannot know that without being told, and it must not have to re-implement the predicates
+       * to work it out. A client that ignores this behaves exactly as it does today — which is
+       * what lets the server ship ahead of the app rather than in lockstep with it.
+       */
+      schema_stale: gateKeysOf(pack.items).has(item.question_key),
     };
   }
 
@@ -258,13 +292,30 @@ export class TradeFormService {
    * sequence is a second definition of "what matters about this trade", free to drift from the
    * one that actually prints.
    */
-  private orderBySheet(pack: QuestionPack): {
+  private orderBySheet(
+    pack: QuestionPack,
+    kind: TradeFormKind,
+  ): {
     ordered: QuestionPackItem[];
     leftover: QuestionPackItem[];
   } {
     const map = TRADE_RESUME_MAPS.find((candidate) => candidate.pack_id === pack.pack_id);
     const byKey = new Map(pack.items.map((item) => [item.question_key, item]));
     const ordered: QuestionPackItem[] = [];
+
+    // THE TIER GATE LEADS, whatever the sheet does with it (#1377, #1378).
+    //
+    // It has no capability row — the sheet prints tenure in the Verdict Line, not as a capability
+    // — so `orderBySheet` used to file it under "whatever the sheet has no row for" and ask it
+    // DEAD LAST, after the three fresher questions it is supposed to gate. The pack's own `_depth`
+    // note says the opposite in as many words: "THE TIER GATE IS turning_experience, and it is
+    // asked FIRST." A gate asked after the questions it gates is not a gate.
+    const gate = byKey.get(descriptorForKind(kind)?.tenureQuestionKey ?? "");
+    if (gate) {
+      ordered.push(gate);
+      byKey.delete(gate.question_key);
+    }
+
     for (const row of map?.capability ?? []) {
       const item = byKey.get(row.from);
       // A map row whose question the pack no longer defines is skipped rather than fatal: the two

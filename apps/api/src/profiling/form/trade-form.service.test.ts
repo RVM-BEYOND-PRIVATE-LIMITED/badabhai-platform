@@ -417,4 +417,145 @@ describe("TradeFormService", () => {
       expect(result).toMatchObject({ answered: 2, total: PACK.items.length });
     });
   });
+
+  /**
+   * ═══ THE TIER GATE (#1377, #1378) ═══
+   *
+   * The form served every pack item regardless of `ask_if`, so a turner with eight years of
+   * employment was asked the three FRESHER questions — and then had all three silently dropped by
+   * the renderer, which only builds a fresher block for a worker with no employments. Three
+   * questions asked, three answers stored, nothing printed, nothing failed.
+   *
+   * The gate itself was asked LAST, because it has no capability row and `orderBySheet` files
+   * anything the sheet does not print after everything it does. The pack's own `_depth` note says
+   * the opposite in as many words: "THE TIER GATE IS turning_experience, and it is asked FIRST."
+   */
+  describe("the tier gate", () => {
+    /** A pack shaped like the real one: a numeric gate, plus items gated both ways off it. */
+    const GATED: QuestionPack = {
+      ...PACK,
+      items: [
+        item({ question_key: "turning_machine", answer_type: "multi_select", options: options(6) }),
+        item({
+          question_key: "turning_experience",
+          answer_type: "single_select",
+          is_core: true,
+          options: [
+            { option_key: "under_one", label_text: "1 saal se kam", value: 0, implies_skill_id: null, is_none_of_above: false },
+            { option_key: "over_seven", label_text: "7 saal se zyada", value: 10, implies_skill_id: null, is_none_of_above: false },
+          ] as never,
+        }),
+        // Senior-only depth.
+        item({
+          question_key: "tolerance_band",
+          answer_type: "single_select",
+          options: options(5),
+          ask_if: { op: "gte", left: { field: "turning_experience" }, right: { const: 2 } } as never,
+        }),
+        // Fresher-only, the three that were being dropped.
+        item({
+          question_key: "iti_project_work",
+          answer_type: "text",
+          ask_if: { op: "lte", left: { field: "turning_experience" }, right: { const: 0 } } as never,
+        }),
+      ],
+    };
+
+    const gate = (over: Partial<WorkerPackAnswer> = {}) =>
+      answered({ questionKey: "turning_experience", answerOptionKeys: null, answerNumber: 10, ...over });
+
+    const keysOf = async (saved: WorkerPackAnswer[]) => {
+      const { service } = await makeService({ pack: GATED, saved });
+      const schema = await service.schema(WORKER);
+      return schema.sections
+        .flatMap((s) => s.screens)
+        .flatMap((s) => (s.type === "question" ? [s.question.question_key] : []));
+    };
+
+    it("asks the gate FIRST, ahead of the capability rows it gates", async () => {
+      const { service } = await makeService({ pack: GATED });
+      const capability = (await service.schema(WORKER)).sections.find((s) => s.id === "capability");
+      const asked = capability?.screens.map((s) =>
+        s.type === "question" ? s.question.question_key : s.type,
+      );
+      expect(asked?.[0]).toBe("turning_experience");
+    });
+
+    it("shows every gated question while the gate is UNANSWERED — a form is one round trip", async () => {
+      // The interview's fail direction (unevaluatable → skip) would serve a first-time worker only
+      // the ungated questions, hiding the tiered depth from exactly the seniors the pack is for.
+      expect(await keysOf([])).toEqual([
+        "turning_experience",
+        "turning_machine",
+        "tolerance_band",
+        "iti_project_work",
+      ]);
+    });
+
+    it("drops the fresher questions once the worker states real tenure", async () => {
+      const keys = await keysOf([gate()]);
+      expect(keys).toContain("tolerance_band");
+      expect(keys).not.toContain("iti_project_work");
+    });
+
+    it("drops the senior depth for a fresher, and keeps the fresher block", async () => {
+      const keys = await keysOf([gate({ answerNumber: 0 })]);
+      expect(keys).toContain("iti_project_work");
+      expect(keys).not.toContain("tolerance_band");
+    });
+
+    it("keeps a question the worker ALREADY answered, even once it is no longer eligible", async () => {
+      // Otherwise the answer sits in `worker_attributes` where the worker can no longer reach it
+      // to correct or withdraw it — worse than an extra screen.
+      const keys = await keysOf([
+        gate(),
+        answered({ questionKey: "iti_project_work", answerOptionKeys: null, answerText: "Bush banaya" }),
+      ]);
+      expect(keys).toContain("iti_project_work");
+    });
+
+    it("shows the tiered depth when a MIS-AUTHORED gate cannot be ordered, instead of hiding it", async () => {
+      // THE #776 SHAPE. A gate option carrying `value_text` next to its `value_number` stores the
+      // answer as the STRING "10"; `compare()` refuses to order a string against a number and
+      // returns null, so every `gte` in the pack is false forever and every tiered question is
+      // silently never asked. That defect sat in `qp_welding` for the life of the pack.
+      //
+      // A type mismatch is an UNANSWERABLE comparison, not a false one, so the form shows the
+      // question. The authoring slip then costs one extra screen rather than all of the depth.
+      //
+      // NOT VACUOUS, unlike the `??`-ordering assertion this replaced: `wpa_answer_shape_chk` is a
+      // biconditional, so exactly one answer column is ever non-null and the read order cannot
+      // matter. Which COLUMN the value lands in is the thing that can go wrong, and this is it.
+      const keys = await keysOf([
+        gate({ answerNumber: null, answerText: "10" }),
+      ]);
+      expect(keys).toContain("tolerance_band");
+      expect(keys).toContain("iti_project_work");
+    });
+
+    it("counts progress over what is still ASKED, not over the whole pack", async () => {
+      const { service } = await makeService({ pack: GATED, saved: [gate()] });
+      const result = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+      // Four items in the pack, but a senior is never asked `iti_project_work` — a denominator of
+      // 4 is one this worker can never reach.
+      expect(result.total).toBe(3);
+    });
+
+    it("tells the client its schema is stale when a GATE is answered, and only then", async () => {
+      const { service } = await makeService({ pack: GATED });
+      const onGate = await service.answer(WORKER, {
+        question_key: "turning_experience",
+        answer: { kind: "chips", option_keys: ["over_seven"] },
+      });
+      const onOrdinary = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+      expect(onGate.schema_stale).toBe(true);
+      expect(onOrdinary.schema_stale).toBe(false);
+    });
+  });
 });

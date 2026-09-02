@@ -137,6 +137,27 @@ export const TradeFormAnswerResponse = z.object({
   status: z.enum(["answered", "declined"]),
   /** How many of this form's pack questions are now settled, for the client's progress rail. */
   answered: z.number().int().nonnegative(),
+  /**
+   * How many questions this worker is STILL ASKED — not how many the pack defines.
+   *
+   * A senior turner is not asked the three fresher questions, so a denominator of "every item in
+   * the pack" is one the worker can never reach: they finish the form at 15/18 and are told they
+   * have not finished.
+   */
   total: z.number().int().nonnegative(),
+  /**
+   * The screen list the client fetched no longer matches what the server would serve now.
+   *
+   * WHY A FLAG AND NOT A NEW SCHEMA IN THE RESPONSE. The form is one round trip precisely so a
+   * worker on 2G in a basement can fill it without a request per screen; returning the whole
+   * schema on every answer would undo that. The flag is a few bytes and lets the client decide —
+   * refetch now, or at the section boundary.
+   *
+   * DEFAULTED, SO AN OLDER CLIENT IS UNAFFECTED. A client that never reads it behaves exactly as
+   * it does today: it keeps the list it has, which is a superset of the questions still relevant.
+   * That is the pre-existing behaviour, not a regression, which is what lets this ship before the
+   * app does.
+   */
+  schema_stale: z.boolean().default(false),
 });
 export type TradeFormAnswerResponse = z.infer<typeof TradeFormAnswerResponse>;
