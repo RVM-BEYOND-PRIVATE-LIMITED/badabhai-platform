@@ -1,6 +1,7 @@
 import 'package:badabhai_worker_app/core/api/api_client.dart'
-    show WorkPrefOptionsDto;
+    show QualificationOptionsDto, WorkPrefOptionsDto;
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_repository.dart';
@@ -139,6 +140,30 @@ const WorkPrefOptionsDto _prefOptions = WorkPrefOptionsDto(
   shift: <String, String>{'day': 'Day'},
 );
 
+const QualificationOptionsDto _qualOptions = QualificationOptionsDto(
+  educationCredential: <String, String>{'iti': 'ITI', 'diploma': 'Diploma'},
+  educationCouncil: <String, String>{'ncvt': 'NCVT'},
+);
+
+/// A single-section form whose ONLY (and therefore LAST) step is the
+/// qualifications marker — the #1384 tests below reach it on the very first
+/// pump, no walking required.
+TradeForm _qualificationsForm({List<String> suggested = const <String>[]}) =>
+    TradeForm(
+      kind: 'cnc_turner',
+      packId: 'qp_cnc_turning',
+      packVersion: 1,
+      sections: <TradeFormSection>[
+        TradeFormSection(
+          id: 'qualifications',
+          title: 'Qualification, documents & languages',
+          screens: <TradeFormStep>[
+            TradeFormQualificationsStep(suggestedCertificates: suggested),
+          ],
+        ),
+      ],
+    );
+
 void main() {
   late _MockRepo repo;
 
@@ -146,6 +171,7 @@ void main() {
     registerFallbackValue(const TradeFormAnswer.declined());
     registerFallbackValue(const TradeFormPreferences());
     registerFallbackValue(<TradeFormEmploymentEntry>[]);
+    registerFallbackValue(const TradeFormQualifications());
   });
 
   setUp(() async {
@@ -154,6 +180,8 @@ void main() {
     when(() => repo.loadPreferenceOptions()).thenAnswer((_) async => _prefOptions);
     when(() => repo.savePreferences(any())).thenAnswer((_) async {});
     when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
+    when(() => repo.loadQualificationOptions()).thenAnswer((_) async => _qualOptions);
+    when(() => repo.saveQualifications(any())).thenAnswer((_) async {});
     locator.registerFactory<TradeFormCubit>(() => TradeFormCubit(repo));
   });
 
@@ -707,6 +735,168 @@ void main() {
       expect(find.text('Aapne pehle kahan kaam kiya?'), findsOneWidget);
       expect(_progressBar(tester).answered, 4);
       expect(_progressBar(tester).total, 4);
+    });
+  });
+
+  group('the qualifications marker screen (#1384/#1385)', () {
+    Future<GoRouter> pumpToBuilding(WidgetTester tester) async {
+      final GoRouter router = GoRouter(
+        initialLocation: '/trade-form',
+        routes: <RouteBase>[
+          GoRoute(path: '/trade-form', builder: (_, __) => const TradeFormScreen()),
+          GoRoute(
+              path: '/building', builder: (_, __) => const Scaffold(body: Text('BUILDING'))),
+        ],
+      );
+      await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+      await tester.pumpAndSettle();
+      return router;
+    }
+
+    testWidgets(
+        'suggested-certificate chips render and tapping one fills the name '
+        'field — autocomplete, not a closed set', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm(
+            suggested: <String>[
+              'Fanuc Oi-TF Programming',
+              'Mastercam Advanced Multiaxis',
+            ],
+          ));
+
+      await pump(tester);
+      await tester.ensureVisible(find.text('Aur ek certificate jodein'));
+      await tester.tap(find.text('Aur ek certificate jodein'));
+      await tester.pumpAndSettle();
+
+      // Both suggestions show (browsable before typing anything).
+      expect(find.text('Fanuc Oi-TF Programming'), findsOneWidget);
+      expect(find.text('Mastercam Advanced Multiaxis'), findsOneWidget);
+
+      await tester.tap(find.text('Fanuc Oi-TF Programming'));
+      await tester.pumpAndSettle();
+
+      // Now matches TWICE: the suggestion chip AND the filled text field.
+      expect(find.text('Fanuc Oi-TF Programming'), findsNWidgets(2));
+    });
+
+    testWidgets(
+        'a worker can add up to the 8-certificate cap; the add affordance '
+        'disappears there and returns after a removal',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
+
+      await pump(tester);
+      for (int i = 0; i < 8; i++) {
+        await tester.ensureVisible(find.text('Aur ek certificate jodein'));
+        await tester.tap(find.text('Aur ek certificate jodein'));
+        await tester.pumpAndSettle();
+      }
+
+      expect(find.text('Aur ek certificate jodein'), findsNothing);
+      expect(find.byTooltip('Hataayein'), findsNWidgets(8));
+
+      await tester.ensureVisible(find.byTooltip('Hataayein').first);
+      await tester.tap(find.byTooltip('Hataayein').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Aur ek certificate jodein'), findsOneWidget);
+    });
+
+    testWidgets(
+        'a worker can add up to the 4-education cap; the add affordance '
+        'disappears there', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
+
+      await pump(tester);
+      for (int i = 0; i < 4; i++) {
+        await tester.ensureVisible(find.text('Aur ek entry jodein'));
+        await tester.tap(find.text('Aur ek entry jodein'));
+        await tester.pumpAndSettle();
+      }
+
+      expect(find.text('Aur ek entry jodein'), findsNothing);
+    });
+
+    testWidgets(
+        'education credential/council chips render from '
+        'loadQualificationOptions and become selected on tap',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
+
+      await pump(tester);
+      await tester.ensureVisible(find.text('Aur ek entry jodein'));
+      await tester.tap(find.text('Aur ek entry jodein'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('ITI'), findsOneWidget);
+      expect(find.text('NCVT'), findsOneWidget);
+      expect(_chipSelected(tester, 'ITI'), isFalse);
+
+      await tester.tap(find.text('ITI'));
+      await tester.pumpAndSettle();
+
+      expect(_chipSelected(tester, 'ITI'), isTrue);
+    });
+
+    testWidgets(
+        'a server 400 (e.g. a phone number in a free-text field) is '
+        'surfaced with the server\'s own message, not swallowed',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
+      when(() => repo.saveQualifications(any())).thenThrow(
+          const InvalidRequestFailure('remove contact details from the issuer'));
+
+      await pump(tester);
+      await tester.ensureVisible(find.text('Aur ek certificate jodein'));
+      await tester.tap(find.text('Aur ek certificate jodein'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'ITI Certificate');
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('remove contact details from the issuer'), findsOneWidget);
+    });
+
+    testWidgets(
+        'touching only certificates saves with certificatesTouched true and '
+        'educationsTouched false, then finishes (#1367)',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
+
+      final GoRouter router = await pumpToBuilding(tester);
+      await tester.ensureVisible(find.text('Aur ek certificate jodein'));
+      await tester.tap(find.text('Aur ek certificate jodein'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'ITI Certificate');
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      final TradeFormQualifications sent = verify(
+              () => repo.saveQualifications(captureAny()))
+          .captured
+          .single as TradeFormQualifications;
+      expect(sent.certificatesTouched, isTrue);
+      expect(sent.certificates.single.name, 'ITI Certificate');
+      expect(sent.educationsTouched, isFalse);
+      expect(router.routerDelegate.currentConfiguration.uri.path, '/building');
+    });
+
+    testWidgets(
+        'leaving both sections untouched still finishes, without ever '
+        'calling saveQualifications', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
+
+      final GoRouter router = await pumpToBuilding(tester);
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      verifyNever(() => repo.saveQualifications(any()));
+      expect(router.routerDelegate.currentConfiguration.uri.path, '/building');
     });
   });
 }
