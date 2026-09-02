@@ -6,6 +6,7 @@ import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_repository.dart';
 import 'package:badabhai_worker_app/features/trade_form/presentation/cubit/trade_form_cubit.dart';
 import 'package:badabhai_worker_app/features/trade_form/presentation/trade_form_screen.dart';
+import 'package:badabhai_worker_app/features/trade_form/presentation/widgets/trade_form_progress_bar.dart';
 import 'package:badabhai_worker_app/features/voice_form/domain/voice_form_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -24,6 +25,13 @@ bool _chipSelected(WidgetTester tester, String label) {
       ))
       .selected;
 }
+
+/// The mounted [TradeFormProgressBar]'s own `answered`/`total` — used by the
+/// #1384 "tracks the whole walk" tests to assert the rendered fraction
+/// directly rather than inferring it from `FractionallySizedBox.widthFactor`
+/// internals.
+TradeFormProgressBar _progressBar(WidgetTester tester) =>
+    tester.widget<TradeFormProgressBar>(find.byType(TradeFormProgressBar));
 
 const VoiceQuestion _plainQuestion = VoiceQuestion(
   id: 'turning_machine',
@@ -81,6 +89,48 @@ TradeForm _form() => const TradeForm(
         ),
       ],
     );
+
+/// A multi-select question carrying a none-of-above option — hoisted to file
+/// scope (was local to the #1382 none-of-above group) so the #1384
+/// saved-answer pre-fill tests below can reuse it too.
+const VoiceQuestion _questionWithNoneOfAbove = VoiceQuestion(
+  id: 'turning_machine',
+  prompt: 'Aap kaunsi turning machine chalate hain?',
+  kind: VoiceQuestionKind.multiSelect,
+  options: <VoiceChoice>[
+    VoiceChoice(key: 'cnc_lathe', label: 'CNC lathe'),
+    VoiceChoice(key: 'conventional_lathe', label: 'Conventional lathe'),
+    VoiceChoice(
+        key: 'none_of_these', label: 'In me se koi nahi', isNoneOfAbove: true),
+  ],
+);
+
+/// The searchable equivalent of [_questionWithNoneOfAbove] — past
+/// `BbSearchableMultiSelect`'s trigger, same shape as [_searchableQuestion]
+/// plus a none-of-above option, for the #1384 searchable-path pre-fill test.
+const VoiceQuestion _searchableQuestionWithNoneOfAbove = VoiceQuestion(
+  id: 'material_worked',
+  prompt: 'Aap kaunsi dhaatu par kaam karte hain?',
+  kind: VoiceQuestionKind.multiSelect,
+  options: <VoiceChoice>[
+    VoiceChoice(key: 'mild_steel', label: 'Mild steel'),
+    VoiceChoice(key: 'stainless_steel', label: 'Stainless steel'),
+    VoiceChoice(key: 'brass', label: 'Brass'),
+    VoiceChoice(key: 'aluminium', label: 'Aluminium'),
+    VoiceChoice(key: 'cast_iron', label: 'Cast iron'),
+    VoiceChoice(key: 'copper', label: 'Copper'),
+    VoiceChoice(key: 'bronze', label: 'Bronze'),
+    VoiceChoice(key: 'alloy_steel', label: 'Alloy steel'),
+    VoiceChoice(key: 'tool_steel', label: 'Tool steel'),
+    VoiceChoice(key: 'titanium', label: 'Titanium'),
+    VoiceChoice(key: 'nickel_alloy', label: 'Nickel alloy'),
+    VoiceChoice(key: 'plastic', label: 'Plastic'),
+    VoiceChoice(key: 'die_steel', label: 'Die steel'),
+    VoiceChoice(key: 'ceramic', label: 'Ceramic'),
+    VoiceChoice(
+        key: 'none_of_these', label: 'In me se koi nahi', isNoneOfAbove: true),
+  ],
+);
 
 const WorkPrefOptionsDto _prefOptions = WorkPrefOptionsDto(
   languages: <String, String>{'hindi': 'Hindi'},
@@ -301,20 +351,6 @@ void main() {
   });
 
   group('none-of-above mutual exclusion, end to end (#1382)', () {
-    const VoiceQuestion questionWithNoneOfAbove = VoiceQuestion(
-      id: 'turning_machine',
-      prompt: 'Aap kaunsi turning machine chalate hain?',
-      kind: VoiceQuestionKind.multiSelect,
-      options: <VoiceChoice>[
-        VoiceChoice(key: 'cnc_lathe', label: 'CNC lathe'),
-        VoiceChoice(key: 'conventional_lathe', label: 'Conventional lathe'),
-        VoiceChoice(
-            key: 'none_of_these',
-            label: 'In me se koi nahi',
-            isNoneOfAbove: true),
-      ],
-    );
-
     testWidgets(
         'tapping the none-of-above chip clears real selections and submits '
         'only itself', (WidgetTester tester) async {
@@ -328,7 +364,7 @@ void main() {
                 title: 'Machines, controllers & capability',
                 screens: <TradeFormStep>[
                   const TradeFormQuestionStep(
-                      question: questionWithNoneOfAbove, searchable: false),
+                      question: _questionWithNoneOfAbove, searchable: false),
                   // A trailing step (a DIFFERENT question id — never
                   // `turning_machine`) so answering the above never hits
                   // `done` (this test is about the exclusion rule, not
@@ -494,6 +530,183 @@ void main() {
       expect(find.text('ITI me kya banaya tha?'), findsOneWidget);
       expect(find.text('Bush banaya tha'), findsOneWidget,
           reason: 'the saved text answer must pre-fill the field, not be blank');
+    });
+
+    testWidgets(
+        'a declined non-searchable answer pre-selects the none-of-above '
+        'chip after goBack, not blank (#1384)', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => TradeForm(
+            kind: 'cnc_turner',
+            packId: 'qp_cnc_turning',
+            packVersion: 1,
+            sections: <TradeFormSection>[
+              TradeFormSection(
+                id: 'capability',
+                title: 'Machines, controllers & capability',
+                screens: <TradeFormStep>[
+                  const TradeFormQuestionStep(
+                    question: _questionWithNoneOfAbove,
+                    searchable: false,
+                    // A declined save is how BOTH the "Pata nahi" button and
+                    // the none-of-above chip land on the wire (see
+                    // TradeFormAnswerStatus.declined's own doc) — optionKeys
+                    // deliberately left empty here, matching what a real GET
+                    // returns for either origin.
+                    answer: TradeFormSavedAnswer(
+                      status: TradeFormAnswerStatus.declined,
+                    ),
+                  ),
+                  const TradeFormQuestionStep(
+                      question: _searchableQuestion, searchable: true),
+                ],
+              ),
+            ],
+          ));
+
+      await pump(tester);
+      expect(find.text('Aap kaunsi dhaatu par kaam karte hain?'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
+      expect(_chipSelected(tester, 'In me se koi nahi'), isTrue,
+          reason: 'a declined saved answer must render the none-of-above '
+              'chip selected, not blank/untouched');
+      expect(_chipSelected(tester, 'CNC lathe'), isFalse);
+    });
+
+    testWidgets(
+        'a declined searchable answer pre-selects the none-of-above chip '
+        'after goBack, not blank (#1384)', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => TradeForm(
+            kind: 'cnc_turner',
+            packId: 'qp_cnc_turning',
+            packVersion: 1,
+            sections: <TradeFormSection>[
+              TradeFormSection(
+                id: 'capability',
+                title: 'Machines, controllers & capability',
+                screens: <TradeFormStep>[
+                  const TradeFormQuestionStep(
+                    question: _searchableQuestionWithNoneOfAbove,
+                    searchable: true,
+                    answer: TradeFormSavedAnswer(
+                      status: TradeFormAnswerStatus.declined,
+                    ),
+                  ),
+                  const TradeFormQuestionStep(
+                      question: _plainQuestion, searchable: false),
+                ],
+              ),
+            ],
+          ));
+
+      await pump(tester);
+      expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Aap kaunsi dhaatu par kaam karte hain?'), findsOneWidget);
+      expect(_chipSelected(tester, 'In me se koi nahi'), isTrue,
+          reason: 'a declined saved answer must render the none-of-above '
+              'chip selected, not blank/untouched');
+      expect(_chipSelected(tester, 'Brass'), isFalse);
+    });
+
+    testWidgets(
+        'a declined answer on a question with NO none-of-above option '
+        'stays blank, not a crash (#1384)', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => TradeForm(
+            kind: 'cnc_turner',
+            packId: 'qp_cnc_turning',
+            packVersion: 1,
+            sections: <TradeFormSection>[
+              TradeFormSection(
+                id: 'capability',
+                title: 'Machines, controllers & capability',
+                screens: <TradeFormStep>[
+                  const TradeFormQuestionStep(
+                    question: _plainQuestion, // no isNoneOfAbove option
+                    searchable: false,
+                    answer: TradeFormSavedAnswer(
+                      status: TradeFormAnswerStatus.declined,
+                    ),
+                  ),
+                  const TradeFormQuestionStep(
+                      question: _searchableQuestion, searchable: true),
+                ],
+              ),
+            ],
+          ));
+
+      await pump(tester);
+      expect(find.text('Aap kaunsi dhaatu par kaam karte hain?'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
+      expect(_chipSelected(tester, 'CNC lathe'), isFalse,
+          reason: 'nothing to guess at when the question has no '
+              'none-of-above option — no crash, no false selection');
+    });
+  });
+
+  group('progress bar tracks the whole walk, not just answered questions '
+      '(#1384)', () {
+    testWidgets(
+        'the bar advances through a MARKER-SCREEN save even though '
+        'state.answered/state.total (question-only) do not change',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.declined,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      // _form() flattens to 4 steps: 2 questions + preferences + employment.
+      // On the very first step (currentIndex 0) the bar reads a sliver, not
+      // empty.
+      expect(_progressBar(tester).answered, 1);
+      expect(_progressBar(tester).total, 4);
+
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first); // decline q1
+      await tester.pumpAndSettle();
+      expect(_progressBar(tester).answered, 2);
+      expect(_progressBar(tester).total, 4);
+
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first); // decline q2
+      await tester.pumpAndSettle();
+
+      // Now on the preferences marker screen. `state.answered`/`state.total`
+      // are the server's question-only counters (2/2 per the mock above,
+      // #1375) — frozen from here on — but the bar still reads 3/4, the
+      // worker's actual position in the walk.
+      expect(find.text('Hindi'), findsOneWidget);
+      expect(_progressBar(tester).answered, 3);
+      expect(_progressBar(tester).total, 4);
+
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // save preferences
+      await tester.pumpAndSettle();
+      verify(() => repo.savePreferences(any())).called(1);
+
+      // THE REGRESSION CHECK: a pure marker-screen save (no question
+      // answered) still moved the bar — onto the employment marker, reading
+      // fully complete rather than frozen at 3/4.
+      expect(find.text('Aapne pehle kahan kaam kiya?'), findsOneWidget);
+      expect(_progressBar(tester).answered, 4);
+      expect(_progressBar(tester).total, 4);
     });
   });
 }
