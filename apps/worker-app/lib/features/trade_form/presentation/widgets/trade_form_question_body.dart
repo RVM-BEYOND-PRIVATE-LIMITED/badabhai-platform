@@ -47,6 +47,7 @@ class TradeFormQuestionBody extends StatefulWidget {
     required this.onSubmitBoolean,
     required this.onSubmitText,
     required this.onDecline,
+    required this.isLastStep,
   });
 
   final TradeFormQuestionStep step;
@@ -59,6 +60,15 @@ class TradeFormQuestionBody extends StatefulWidget {
   final ValueChanged<bool> onSubmitBoolean;
   final ValueChanged<String> onSubmitText;
   final VoidCallback onDecline;
+
+  /// #1384 item 3 — `TradeFormState.isLastStep`, threaded down so whichever
+  /// sub-widget renders this question's actual submit BUTTON (a multi-select
+  /// or open-answer question; single-select/boolean submit via a [BbChip]
+  /// tap with no button surface to style — see [VoiceChoiceChips.isFinalStep]'s
+  /// own doc) can show the green/[kVoiceFinalSubmit] treatment ONLY when
+  /// this question is truly the walk's last step — #1376 made that a
+  /// reliable signal (see `TradeFormCubit.answerQuestion`'s own doc on why).
+  final bool isLastStep;
 
   @override
   State<TradeFormQuestionBody> createState() => _TradeFormQuestionBodyState();
@@ -105,6 +115,7 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
         // `_kind` mapping), so `text` is the only field this widget renders.
         initialText: widget.step.answer?.text,
         onSubmit: widget.onSubmitText,
+        isLastStep: widget.isLastStep,
       );
     }
     if (widget.step.searchable) {
@@ -112,6 +123,7 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
         key: ValueKey<String>('${q.id}-searchable'),
         step: widget.step,
         onSubmitChips: widget.onSubmitChips,
+        isLastStep: widget.isLastStep,
       );
     }
     return VoiceChoiceChips(
@@ -123,6 +135,10 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
       initialSelected: _seedOptionKeys(widget.step.answer, q.options),
       onChips: widget.onSubmitChips,
       onBoolean: widget.onSubmitBoolean,
+      // #1384 item 3 — only the MULTI-select submit button reads this (see
+      // `VoiceChoiceChips.isFinalStep`'s own doc); harmless to pass on a
+      // single-select/boolean question, which never renders that button.
+      isFinalStep: widget.isLastStep,
     );
   }
 }
@@ -177,10 +193,16 @@ class _SearchableChoiceBody extends StatefulWidget {
     super.key,
     required this.step,
     required this.onSubmitChips,
+    required this.isLastStep,
   });
 
   final TradeFormQuestionStep step;
   final ValueChanged<List<String>> onSubmitChips;
+
+  /// #1384 item 3 — see `TradeFormQuestionBody.isLastStep`'s doc; only the
+  /// MULTI-select submit button below reads this (a single-select tap
+  /// submits immediately via [_onChanged], no button to style).
+  final bool isLastStep;
 
   @override
   State<_SearchableChoiceBody> createState() => _SearchableChoiceBodyState();
@@ -247,7 +269,13 @@ class _SearchableChoiceBodyState extends State<_SearchableChoiceBody> {
         if (q.isMultiSelect) ...<Widget>[
           const SizedBox(height: AppSpacing.s4),
           BbButton(
-            label: kVoiceMultiSubmit,
+            // #1384 item 3 — see `VoiceChoiceChips`'s own identical
+            // treatment; this is the searchable-question equivalent of that
+            // same button.
+            label: widget.isLastStep ? kVoiceFinalSubmit : kVoiceMultiSubmit,
+            variant: widget.isLastStep
+                ? BbButtonVariant.success
+                : BbButtonVariant.primary,
             block: true,
             onPressed: _selected.isEmpty
                 ? null
@@ -262,12 +290,20 @@ class _SearchableChoiceBodyState extends State<_SearchableChoiceBody> {
 /// The `open` branch (`text`/`number` `answer_type`) — a plain text field;
 /// neither chip widget applies since these questions ship no options.
 class _OpenAnswerField extends StatefulWidget {
-  const _OpenAnswerField({super.key, required this.onSubmit, this.initialText});
+  const _OpenAnswerField({
+    super.key,
+    required this.onSubmit,
+    this.initialText,
+    required this.isLastStep,
+  });
   final ValueChanged<String> onSubmit;
 
   /// A saved `text` answer to pre-fill (#1382) — null/omitted starts empty,
   /// today's behaviour.
   final String? initialText;
+
+  /// #1384 item 3 — see `TradeFormQuestionBody.isLastStep`'s doc.
+  final bool isLastStep;
 
   @override
   State<_OpenAnswerField> createState() => _OpenAnswerFieldState();
@@ -308,7 +344,12 @@ class _OpenAnswerFieldState extends State<_OpenAnswerField> {
           valueListenable: _controller,
           builder: (BuildContext context, TextEditingValue value, _) {
             return BbButton(
-              label: _kTextSubmit,
+              // #1384 item 3 — same green/final treatment as the two chip
+              // submit buttons, for the open-answer question type.
+              label: widget.isLastStep ? kVoiceFinalSubmit : _kTextSubmit,
+              variant: widget.isLastStep
+                  ? BbButtonVariant.success
+                  : BbButtonVariant.primary,
               block: true,
               onPressed: value.text.trim().isEmpty ? null : _submit,
             );

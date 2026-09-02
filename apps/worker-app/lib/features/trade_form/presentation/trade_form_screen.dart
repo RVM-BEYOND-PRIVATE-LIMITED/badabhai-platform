@@ -417,6 +417,10 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         onSubmitText: (String text) =>
             cubit.answerQuestion(step, TradeFormAnswer.text(text)),
         onDecline: () => cubit.declineQuestion(step),
+        // #1384 item 3 — reliable per #1376's fix to `answerQuestion`: a
+        // question on the walk's true last step emits `done` directly on
+        // submit rather than silently advancing.
+        isLastStep: state.isLastStep,
       );
     }
     if (step is TradeFormPreferencesStep) {
@@ -475,6 +479,11 @@ class _MarkerBottomBar extends StatelessWidget {
       ),
       child: BbButton(
         label: isLast ? _kFinish : _kNext,
+        // #1384 item 3 — [isLast] here already means "the true final save"
+        // (see the `_MarkerBottomBar(...)` call site's own comment) —
+        // green, reserved for exactly this ("Money / WhatsApp / done ONLY",
+        // `bb_button.dart`'s own doc on `BbButtonVariant.success`).
+        variant: isLast ? BbButtonVariant.success : BbButtonVariant.primary,
         block: true,
         loading: isSubmitting,
         onPressed: isSubmitting ? null : onPressed,

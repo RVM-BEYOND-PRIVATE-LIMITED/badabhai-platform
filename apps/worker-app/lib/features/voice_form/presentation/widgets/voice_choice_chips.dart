@@ -10,6 +10,13 @@ const String kVoiceBooleanYes = 'Haan';
 const String kVoiceBooleanNo = 'Nahi';
 const String kVoiceMultiSubmit = 'Aage badhein';
 
+/// #1384 item 3 — the copy for the ONE true final-submit button of a walk
+/// (trade form or, if ever wired, the voice form), when it lands on a
+/// multi-select question rather than a marker screen. Reserved for a button
+/// ALSO styled [BbButtonVariant.success] — never shown alongside
+/// [kVoiceMultiSubmit]'s ordinary primary/haldi styling.
+const String kVoiceFinalSubmit = 'Submit karein';
+
 /// The "none of the above" tap rule (#1382), shared by every multi-select
 /// selection surface that renders [VoiceChoice.isNoneOfAbove] options —
 /// today [VoiceChoiceChips]' own `_multi` and the trade form's searchable
@@ -67,6 +74,7 @@ class VoiceChoiceChips extends StatefulWidget {
     required this.onChips,
     required this.onBoolean,
     this.initialSelected,
+    this.isFinalStep = false,
   });
 
   final VoiceQuestion question;
@@ -83,6 +91,16 @@ class VoiceChoiceChips extends StatefulWidget {
   /// behaviour for every existing caller (voice_form never had a saved
   /// answer to seed from).
   final List<String>? initialSelected;
+
+  /// #1384 item 3 — true when THIS question is the true final step of the
+  /// whole walk (only meaningful for the multi-select submit button; a
+  /// single-select/boolean tap submits immediately via a [BbChip], which has
+  /// no "final" surface to style). DEFAULT FALSE, unchanged everywhere else
+  /// — [voice_form_screen.dart]'s two call sites never pass this (that
+  /// screen is unwired dark code today, #1321, with no last-step concept of
+  /// its own). Styles [BbButtonVariant.success] with [kVoiceFinalSubmit]'s
+  /// copy instead of the ordinary [kVoiceMultiSubmit] "Aage badhein".
+  final bool isFinalStep;
 
   @override
   State<VoiceChoiceChips> createState() => _VoiceChoiceChipsState();
@@ -184,7 +202,14 @@ class _VoiceChoiceChipsState extends State<VoiceChoiceChips> {
         ),
         const SizedBox(height: AppSpacing.s4),
         BbButton(
-          label: kVoiceMultiSubmit,
+          // #1384 item 3 — the ONE true final-submit button of the whole
+          // walk is green with distinct copy; every other multi-select
+          // submit (including on a non-final question) stays the ordinary
+          // primary/haldi "Aage badhein".
+          label: widget.isFinalStep ? kVoiceFinalSubmit : kVoiceMultiSubmit,
+          variant: widget.isFinalStep
+              ? BbButtonVariant.success
+              : BbButtonVariant.primary,
           block: true,
           // Disabled until at least one option is chosen — a zero-key submit is
           // never a valid multi-select answer.
