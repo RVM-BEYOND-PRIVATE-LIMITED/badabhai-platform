@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Put, UseGuards } from "@nestjs/common";
+import { Ctx, type RequestContext } from "../common/request-context";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 import { MatchingCatalogService } from "./matching-catalog.service";
@@ -49,7 +50,10 @@ export class MatchingCatalogController {
    * validation — and it is never stored, so it can never become active.
    */
   @Put()
-  publish(@Body(new ZodValidationPipe(PublishCatalogSchema)) dto: PublishCatalogDto) {
-    return this.catalog.publish(dto);
+  publish(
+    @Body(new ZodValidationPipe(PublishCatalogSchema)) dto: PublishCatalogDto,
+    @Ctx() ctx: RequestContext,
+  ) {
+    return this.catalog.publish(dto, ctx);
   }
 }

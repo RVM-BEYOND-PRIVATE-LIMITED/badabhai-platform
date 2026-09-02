@@ -2,12 +2,16 @@ import "reflect-metadata";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { BadRequestException } from "@nestjs/common";
 import { FIXTURE_CATALOG, type CatalogIssue } from "@badabhai/matching-catalog";
+import { MatchingCatalogPublishedPayload } from "@badabhai/event-schema";
 import { MatchingCatalogService } from "./matching-catalog.service";
 import type { MatchingCatalogRepository } from "./matching-catalog.repository";
+import type { EventsService } from "../events/events.service";
+import type { RequestContext } from "../common/request-context";
 import { MatchingCatalogController } from "./matching-catalog.controller";
 import { InternalServiceGuard } from "../common/guards/internal-service.guard";
 
 const PUBLISHER = "3f1b7a2c-0d4e-4f8a-9b6c-2e5d8a1c7b40";
+const CTX = { correlationId: "corr-1", requestId: "req-1" } as RequestContext;
 const clone = () => structuredClone(FIXTURE_CATALOG) as Record<string, unknown>;
 
 function make(overrides: Partial<MatchingCatalogRepository> = {}) {
@@ -26,7 +30,12 @@ function make(overrides: Partial<MatchingCatalogRepository> = {}) {
     insertInactive: vi.fn(),
     ...overrides,
   } as unknown as MatchingCatalogRepository;
-  return { service: new MatchingCatalogService(repo), repo };
+  const events = { emit: vi.fn(async (_e: unknown) => undefined) };
+  return {
+    service: new MatchingCatalogService(repo, events as unknown as EventsService),
+    repo,
+    events,
+  };
 }
 
 /** Pull the named-path issues off a thrown BadRequestException. */
@@ -57,11 +66,12 @@ describe("INVARIANT — an invalid catalog never reaches the database", () => {
     (catalog.adjacency as Array<{ to: string }>)[0]!.to = "role_does_not_exist";
 
     const issues = await issuesFrom(() =>
-      ctx.service.publish({ updated_by: PUBLISHER, catalog }),
+      ctx.service.publish({ updated_by: PUBLISHER, catalog }, CTX),
     );
     expect(issues.some((i) => i.path === "adjacency[0].to" && i.code === "unknown_role")).toBe(true);
     // The point of the whole phase: the repository was never called.
     expect(ctx.repo.publish).not.toHaveBeenCalled();
+    expect(ctx.events.emit).not.toHaveBeenCalled();
   });
 
   it("2. a multiplier of 1.4 — rejected, path named, NOT stored", async () => {
@@ -69,10 +79,11 @@ describe("INVARIANT — an invalid catalog never reaches the database", () => {
     (catalog.adjacency as Array<{ multiplier: number }>)[0]!.multiplier = 1.4;
 
     const issues = await issuesFrom(() =>
-      ctx.service.publish({ updated_by: PUBLISHER, catalog }),
+      ctx.service.publish({ updated_by: PUBLISHER, catalog }, CTX),
     );
     expect(issues.some((i) => i.path === "adjacency[0].multiplier")).toBe(true);
     expect(ctx.repo.publish).not.toHaveBeenCalled();
+    expect(ctx.events.emit).not.toHaveBeenCalled();
   });
 
   it("3. a role with no family — rejected, path named, NOT stored", async () => {
@@ -80,10 +91,11 @@ describe("INVARIANT — an invalid catalog never reaches the database", () => {
     delete (catalog.roles as Array<Record<string, unknown>>)[0]!.familyId;
 
     const issues = await issuesFrom(() =>
-      ctx.service.publish({ updated_by: PUBLISHER, catalog }),
+      ctx.service.publish({ updated_by: PUBLISHER, catalog }, CTX),
     );
     expect(issues.some((i) => i.path === "roles[0].familyId")).toBe(true);
     expect(ctx.repo.publish).not.toHaveBeenCalled();
+    expect(ctx.events.emit).not.toHaveBeenCalled();
   });
 
   it("4. a function value outside the locked enum — rejected, path named, NOT stored", async () => {
@@ -91,10 +103,11 @@ describe("INVARIANT — an invalid catalog never reaches the database", () => {
     (catalog.roles as Array<{ functions: string[] }>)[0]!.functions = ["operator", "chief_wizard"];
 
     const issues = await issuesFrom(() =>
-      ctx.service.publish({ updated_by: PUBLISHER, catalog }),
+      ctx.service.publish({ updated_by: PUBLISHER, catalog }, CTX),
     );
     expect(issues.some((i) => i.path === "roles[0].functions[1]")).toBe(true);
     expect(ctx.repo.publish).not.toHaveBeenCalled();
+    expect(ctx.events.emit).not.toHaveBeenCalled();
   });
 
   it("every rejection carries a path — none is a bare 'invalid catalog'", async () => {
@@ -103,7 +116,7 @@ describe("INVARIANT — an invalid catalog never reaches the database", () => {
     (catalog.adjacency as Array<{ to: string }>)[0]!.to = "role_nope";
 
     const issues = await issuesFrom(() =>
-      ctx.service.publish({ updated_by: PUBLISHER, catalog }),
+      ctx.service.publish({ updated_by: PUBLISHER, catalog }, CTX),
     );
     expect(issues.length).toBeGreaterThanOrEqual(2);
     for (const i of issues) {
@@ -114,9 +127,76 @@ describe("INVARIANT — an invalid catalog never reaches the database", () => {
   });
 
   it("a VALID catalog does reach the repository — the gate is not simply refusing everything", async () => {
-    const res = await ctx.service.publish({ updated_by: PUBLISHER, catalog: clone() });
+    const res = await ctx.service.publish({ updated_by: PUBLISHER, catalog: clone() }, CTX);
     expect(ctx.repo.publish).toHaveBeenCalledOnce();
     expect(res.revision).toBe(4);
+  });
+});
+
+// ===========================================================================
+// matching_catalog.published — counts and a revision, never the catalog.
+// ===========================================================================
+describe("matching_catalog.published", () => {
+  it("emits once on a successful publish, chaining to the revision it replaced", async () => {
+    const { service, events } = make({
+      getActive: vi.fn(async () => ({
+        id: "old",
+        catalog: {},
+        revision: 3,
+        isActive: true,
+        updatedBy: PUBLISHER,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })),
+    } as never);
+
+    await service.publish({ updated_by: PUBLISHER, catalog: clone() }, CTX);
+
+    expect(events.emit).toHaveBeenCalledOnce();
+    const arg = events.emit.mock.calls[0]![0] as unknown as {
+      event_name: string;
+      subject: { subject_type: string };
+      payload: Record<string, unknown>;
+    };
+    expect(arg.event_name).toBe("matching_catalog.published");
+    expect(arg.subject.subject_type).toBe("matching_catalog");
+    expect(arg.payload).toEqual({
+      revision: 4,
+      previous_revision: 3,
+      schema_version: FIXTURE_CATALOG.schemaVersion,
+      role_count: FIXTURE_CATALOG.roles.length,
+      domain_count: FIXTURE_CATALOG.domains.length,
+      family_count: FIXTURE_CATALOG.families.length,
+      adjacency_edge_count: FIXTURE_CATALOG.adjacency.length,
+      published_by: PUBLISHER,
+    });
+  });
+
+  it("previous_revision is null on the FIRST publish into an empty table", async () => {
+    const { service, events } = make({ getActive: vi.fn(async () => null) } as never);
+    await service.publish({ updated_by: PUBLISHER, catalog: clone() }, CTX);
+    const arg = events.emit.mock.calls[0]![0] as unknown as { payload: { previous_revision: unknown } };
+    expect(arg.payload.previous_revision).toBeNull();
+  });
+
+  it("the CATALOG never rides the spine — no role ids, labels or multipliers in the payload", async () => {
+    const { service, events } = make();
+    await service.publish({ updated_by: PUBLISHER, catalog: clone() }, CTX);
+    const arg = events.emit.mock.calls[0]![0] as unknown as { payload: unknown };
+    const serialized = JSON.stringify(arg.payload);
+    expect(serialized).not.toContain("role_placeholder");
+    expect(serialized).not.toContain("dom_placeholder");
+    expect(serialized).not.toContain("fam_placeholder");
+    expect(serialized).not.toContain("Placeholder");
+    // and it is not vacuous — the counts really are in there
+    expect(serialized).toContain("role_count");
+  });
+
+  it("the payload validates against the registry contract", async () => {
+    const { service, events } = make();
+    await service.publish({ updated_by: PUBLISHER, catalog: clone() }, CTX);
+    const arg = events.emit.mock.calls[0]![0] as unknown as { payload: unknown };
+    expect(() => MatchingCatalogPublishedPayload.parse(arg.payload)).not.toThrow();
   });
 });
 

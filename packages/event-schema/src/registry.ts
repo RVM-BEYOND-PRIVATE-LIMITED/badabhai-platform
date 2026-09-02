@@ -978,6 +978,22 @@ export const EVENT_REGISTRY = {
     domain: "profile",
     payload: p.ProfileFormCompletedPayload,
   },
+
+  // Migration 0099 — an RVM-ratified matching catalog revision went live. The taxonomy that
+  // decides which workers are visible for which jobs changed, platform-wide, which makes this
+  // the matching-side analogue of `pricing.changed` and just as audit-worthy.
+  //
+  // The BLOB DOES NOT RIDE THE SPINE. A revision number, the revision it replaced, the schema
+  // version, four counts and an opaque actor — a consumer that needs the catalog reads
+  // `GET /matching-catalog` behind InternalServiceGuard. The counts exist because the validator
+  // can reject a MALFORMED catalog but not a merely WRONG one: a publish that drops from
+  // twenty-one roles to two passes every gate, and this is where that becomes visible at the
+  // moment it happens. v1.
+  "matching_catalog.published": {
+    version: 1,
+    domain: "matching_catalog",
+    payload: p.MatchingCatalogPublishedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

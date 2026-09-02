@@ -3828,3 +3828,52 @@ export const FeedbackSubmittedPayload = z
   })
   .strict();
 export type FeedbackSubmittedPayload = z.infer<typeof FeedbackSubmittedPayload>;
+
+/**
+ * A MATCHING CATALOG REVISION WAS PUBLISHED — the RVM taxonomy that decides which workers
+ * are visible for which jobs changed, platform-wide (migration 0099).
+ *
+ * ═══ COUNTS AND THE REVISION, NEVER THE CATALOG ═══
+ *
+ * The blob itself does not ride the spine. Not because it is PII — it is machine ids,
+ * labels and numbers, and carries none — but because it is roughly two thousand cells,
+ * and an event that carries its whole subject is a copy, not a notification. A consumer
+ * that needs the catalog reads `GET /matching-catalog` behind the guard; the event says
+ * only that there is something new to read.
+ *
+ * `revision` is the CITATION. It is unique and never reused (`matching_catalog_revision_uq`),
+ * so "catalog revision 7" names exactly one blob forever, in an RVM sign-off packet and on
+ * the spine alike. `previous_revision` is null on the first publish and otherwise names what
+ * this replaced, so the audit trail is a chain rather than a set of disconnected stamps.
+ *
+ * ═══ WHY THE FOUR COUNTS ═══
+ *
+ * They are the cheapest possible smoke alarm. The validator rejects a catalog that is
+ * malformed or dangling, but it cannot reject one that is merely WRONG — a publish that
+ * drops from twenty-one roles to two is structurally perfect and passes every gate. The
+ * counts make that visible on the spine at the moment it happens rather than as
+ * "matching seems off" a fortnight later.
+ *
+ * No role ids, no labels, no multipliers, no adjacency pairs. v1.
+ */
+export const MatchingCatalogPublishedPayload = z
+  .object({
+    /** The new revision number. Unique and never reused — the stable citation. */
+    revision: z.number().int().min(1),
+    /** What this replaced. Null on the first publish into an empty table. */
+    previous_revision: z.number().int().min(1).nullable(),
+    /** Which `@badabhai/matching-catalog` contract the blob validated against. */
+    schema_version: z.number().int().min(1),
+    /** How many roles the published catalog declares. */
+    role_count: z.number().int().min(0),
+    /** How many domains it declares. */
+    domain_count: z.number().int().min(0),
+    /** How many families it declares. */
+    family_count: z.number().int().min(0),
+    /** How many directed adjacency edges it declares. */
+    adjacency_edge_count: z.number().int().min(0),
+    /** Opaque ops/RVM actor who published it. No PII — mirrors `matching_catalog.updated_by`. */
+    published_by: uuidSchema,
+  })
+  .strict();
+export type MatchingCatalogPublishedPayload = z.infer<typeof MatchingCatalogPublishedPayload>;

@@ -4,6 +4,9 @@ import {
   validateMatchingCatalog,
   type MatchingCatalog,
 } from "@badabhai/matching-catalog";
+import type { PayloadInputOf } from "@badabhai/event-schema";
+import type { RequestContext } from "../common/request-context";
+import { EventsService } from "../events/events.service";
 import { MatchingCatalogRepository } from "./matching-catalog.repository";
 import type { PublishCatalogDto } from "./matching-catalog.dto";
 
@@ -48,7 +51,10 @@ export type ReadCatalogResult = ActiveCatalog | NoActiveCatalog;
 export class MatchingCatalogService {
   private readonly logger = new Logger(MatchingCatalogService.name);
 
-  constructor(private readonly repo: MatchingCatalogRepository) {}
+  constructor(
+    private readonly repo: MatchingCatalogRepository,
+    private readonly events: EventsService,
+  ) {}
 
   /**
    * The active catalog, validated on read.
@@ -89,20 +95,53 @@ export class MatchingCatalogService {
    * adjacent and unconditional; there is no branch in which an invalid catalog reaches
    * `repo.publish`.
    */
-  async publish(dto: PublishCatalogDto): Promise<{ revision: number; updatedAt: Date }> {
+  async publish(
+    dto: PublishCatalogDto,
+    ctx: RequestContext,
+  ): Promise<{ revision: number; updatedAt: Date }> {
     const result = validateMatchingCatalog(dto.catalog);
     if (!result.ok) {
       // 400 with every offending path, not just the first — a publisher fixing one
       // cell per round-trip across a 22-role taxonomy is a bad afternoon.
+      //
+      // NOTE the ordering: this throws BEFORE the repository is touched and before any
+      // event is emitted. A rejected catalog leaves no row and no event — the spine
+      // never records a publish that did not happen.
       throw new BadRequestException({
         message: "matching catalog rejected",
         issues: result.issues,
       });
     }
 
+    // Read the outgoing revision BEFORE publishing, so the event can chain to it.
+    // `getActive()` returns null on an empty table, which is `previous_revision: null`
+    // — a first publish, not a missing one.
+    const previous = await this.repo.getActive();
+
     const row = await this.repo.publish({
       catalog: result.catalog,
       updatedBy: dto.updated_by,
+    });
+
+    // The catalog itself never rides the spine — a revision, four counts and an actor.
+    // A consumer that needs the blob reads GET /matching-catalog behind the guard.
+    const payload: PayloadInputOf<"matching_catalog.published"> = {
+      revision: row.revision,
+      previous_revision: previous?.revision ?? null,
+      schema_version: result.catalog.schemaVersion,
+      role_count: result.catalog.roles.length,
+      domain_count: result.catalog.domains.length,
+      family_count: result.catalog.families.length,
+      adjacency_edge_count: result.catalog.adjacency.length,
+      published_by: dto.updated_by,
+    };
+    await this.events.emit({
+      event_name: "matching_catalog.published",
+      actor: { actor_type: "ops", actor_id: dto.updated_by },
+      subject: { subject_type: "matching_catalog", subject_id: row.id },
+      payload,
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
     });
 
     this.logger.log(`published matching_catalog revision ${row.revision}`);

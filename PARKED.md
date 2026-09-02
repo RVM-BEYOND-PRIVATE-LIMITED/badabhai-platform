@@ -40,31 +40,30 @@ snapshots — any change here should be made deliberately, not as a side effect.
 
 ---
 
-## P-002 · No `matching_catalog.published` event — the event catalog is frozen
+## P-002 · ~~No `matching_catalog.published` event~~ — **UNPARKED AND BUILT 2026-09-02**
 
-**Found:** 2026-09-02, phase P1 (`matching_catalog`)
-**Location:** [apps/api/src/match/matching-catalog.service.ts](apps/api/src/match/matching-catalog.service.ts) `publish()` — the point where a sibling service would emit
-**Owner ruling:** parked by Prakash, 2026-09-02
+**Status: RESOLVED.** The premise was wrong and the owner corrected it.
 
-**What is missing.** Every important business action emits a validated event
-(engineering contract §3, "Event First"). Publishing a matching catalog is one: it
-changes, platform-wide, which workers are visible for which jobs. The sibling path
-emits `pricing.changed` on exactly the analogous write.
+**What the park claimed.** That the event catalog was frozen under ADR-0014 with CEO
+signature, so adding an event type — additive or not — was not an engineering decision.
 
-**Why it is not built.** The event schema is frozen under ADR-0014 with CEO signature.
-Additive or not, a new event type is a change to a frozen catalog, and that is not an
-engineering decision to make inside a build phase.
+**Why that was wrong.** ADR-0014 says the opposite, in its own words: _"we are **NOT
+hard-freezing** the schema … additive-only + versioned migration. (Additive Phase-2
+growth continues; **this is a guardrail, not a freeze**.)"_ Commit `6f377032` on `main`
+confirms it in practice — it added `profile.form_completed` and
+`worker.qualifications_recorded` to the same registry.
 
-**What ships instead.** The publish path logs the new revision at INFO
-(`MatchingCatalogService`) and the row itself is the durable record — `revision` is
-unique and never reused, `updated_by` and `updated_at` are stamped, and no revision is
-ever deleted. So the audit trail exists in the table; what is missing is the
-_notification_, not the record.
+**What shipped instead.** `matching_catalog.published`, v1, built strictly under the
+ADR's own terms and verified mechanically as additive — `git diff --numstat` over
+`packages/event-schema/` reports **11/0, 49/0, 16/0**: seventy-six lines added, **zero
+deleted**. No existing payload, event definition or enum member was mutated; the registry
+entry is appended at the end, matching the append-only protocol that commit documented.
 
-**The specific thing to watch for.** No consumer needs cache invalidation on publish
-today, because nothing reads `matching_catalog` yet — P2's tier resolver is the first
-consumer and is not built. **If a consumer caches the active catalog, this stops being
-a documentation gap and becomes a correctness bug**: a published revision would not
-take effect until restart, with no signal that it had not. The standing instruction is
-to HALT and raise it rather than work around it, because a cache that needs
-invalidation changes the answer on whether the event is optional.
+**The one design point worth keeping.** The catalog blob does not ride the spine — the
+payload is a revision, the revision it replaced, the schema version, four counts and an
+opaque actor. The counts are there because the validator can reject a _malformed_ catalog
+but not a merely _wrong_ one: a publish that drops from twenty-one roles to two passes
+every gate, and the count is where that becomes visible at the moment it happens.
+
+**Lesson worth more than the fix:** the park was reasoned from a remembered summary of an
+ADR rather than from the ADR. Reading it took one grep.

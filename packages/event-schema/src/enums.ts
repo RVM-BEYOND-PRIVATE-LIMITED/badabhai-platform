@@ -137,6 +137,13 @@ export const EVENT_DOMAINS = [
   // category, a LENGTH and a build stamp — the words themselves live in `worker_feedback`
   // and never in an event.
   "feedback",
+  // RVM-ratified matching taxonomy published as config (migration 0099). The role registry,
+  // domains, families, adjacency and multiplier tables. Kept OUT of `skill`/`occupation`,
+  // whose own comments explain why they stay separate: those two are the unresolved-phrase
+  // GROWTH QUEUES and a consumer reading the spine must be able to tell a phrase miss from a
+  // taxonomy publish. Kept out of `pricing` for the obvious reason. PII-FREE: a revision
+  // number, four counts and an opaque actor — the catalog itself never rides the spine.
+  "matching_catalog",
 ] as const;
 export const EventDomain = z.enum(EVENT_DOMAINS);
 export type EventDomain = z.infer<typeof EventDomain>;
@@ -276,6 +283,10 @@ export const SUBJECT_TYPES = [
   // "what did this admin do" but not "what happened to this candidate", and the second question is
   // the one a taxonomy decision has to survive being asked years later.
   "skill_candidate",
+  // A published matching-catalog revision (migration 0099). The subject_id is the opaque
+  // `matching_catalog` row id; carries NO PII (machine ids, labels and numbers only, and the
+  // blob itself never appears in a payload). The subject of `matching_catalog.published`.
+  "matching_catalog",
 ] as const;
 export const SubjectType = z.enum(SUBJECT_TYPES);
 export type SubjectType = z.infer<typeof SubjectType>;

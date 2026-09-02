@@ -3042,8 +3042,8 @@ describe("chat.session_abandoned (idle sweep — COUNTS ONLY, no transcript)", (
 });
 
 describe("registry", () => {
-  it("exposes all 173 event names (171 prior + credentials recorded + the form completed)", () => {
-    expect(EVENT_NAMES).toHaveLength(173);
+  it("exposes all 174 event names (173 prior + the matching catalog publish)", () => {
+    expect(EVENT_NAMES).toHaveLength(174);
     // The interview recognised a trade with its own form, stopped, and handed the worker over.
     // PII-FREE by shape and deliberately by omission: the routing evidence is two free-text
     // labels the model wrote about a named worker, and neither follows the decision onto the
