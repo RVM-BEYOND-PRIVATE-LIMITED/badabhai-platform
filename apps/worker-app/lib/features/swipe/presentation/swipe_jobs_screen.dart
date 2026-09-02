@@ -310,10 +310,15 @@ class _FeedViewState extends State<_FeedView> {
         _header(context, state),
         Expanded(
           child: Padding(
+            // Horizontal: ZERO here — [BbJobCard]'s own built-in `s3` margin
+            // is the ONLY horizontal inset, exactly like `_feed`'s ListView
+            // (also zero of its own). Adding gutter here on top of the
+            // card's own margin was stacking both, so a deck card rendered
+            // narrower than the SAME card in list view.
             padding: EdgeInsets.fromLTRB(
-              AppSpacing.gutter,
+              0,
               AppSpacing.s3,
-              AppSpacing.gutter,
+              0,
               AppSpacing.s3 + MediaQuery.of(context).padding.bottom,
             ),
             child: JobDeck(
