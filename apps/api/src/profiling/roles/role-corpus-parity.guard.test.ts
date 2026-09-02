@@ -46,7 +46,13 @@ interface CorpusPack {
   pack_id: string;
   version: number;
   family_id: string;
-  items: { question_key: string; answer_type: string; options?: unknown[] }[];
+  items: {
+    question_key: string;
+    answer_type: string;
+    is_mandatory?: boolean;
+    ask_if?: unknown;
+    options?: { option_key?: string; value_text?: string; value_number?: number }[];
+  }[];
 }
 
 function loadPack(packId: string): CorpusPack {
@@ -132,5 +138,124 @@ describe("every enabled role agrees with the pack corpus", () => {
     }
     const shared = [...byPack.entries()].filter(([, kinds]) => kinds.length > 1);
     expect(shared).toEqual([]);
+  });
+  /**
+   * ═══ THE STORED-VALUE RULE, CHECKED OVER EVERY DICTIONARY A ROLE OWNS ═══
+   *
+   * A pack option carries BOTH an `option_key` and a `value_text`, and every dictionary downstream
+   * is keyed by the `value_text` — because that is what `pack-registry.service.ts` resolves
+   * (`valueText ?? valueNumber ?? valueBool`) and therefore what is actually stored against the
+   * worker. Keying one by `option_key` renders NOTHING, silently: the form still asks, the answer
+   * is still stored, the row is simply absent from the sheet. It has now shipped twice on
+   * `qp_cnc_grinding` — once on the résumé map and once on the fresher block, whose keys were
+   * authored before the pack existed and matched none of it.
+   *
+   * WHY THIS LIVES HERE AND NOT ONLY IN `trade-resume-map.test.ts`. That file parametrises over
+   * TRADE_RESUME_MAPS and checks the résumé direction well. It knows nothing about
+   * `RoleFresherVocabulary`, which is the SAME rule over two more dictionaries and the one that
+   * was unguarded — and it cannot know, because the fresher vocabulary hangs off the descriptor
+   * rather than off the map. Checking every dictionary a ROLE owns, in one loop, is what makes
+   * the rule the rule rather than a property of whichever file happened to be written first.
+   */
+  const storedValuesOf = (pack: CorpusPack, questionKey: string): Set<string> =>
+    new Set(
+      (pack.items.find((i) => i.question_key === questionKey)?.options ?? [])
+        .map((o) => (o as { value_text?: string }).value_text)
+        .filter((v): v is string => typeof v === "string"),
+    );
+
+  it.each(ENABLED_ROLE_DESCRIPTORS.map((d) => [d.kind, d] as const))(
+    "%s — every résumé-map label is keyed by a STORED option value, not an option_key",
+    (_kind, descriptor) => {
+      const pack = loadPack(descriptor.packId);
+      const map = TRADE_RESUME_MAPS.find((m) => m.pack_id === descriptor.packId);
+      expect(map, `no résumé map for ${descriptor.packId}`).toBeDefined();
+      const orphans: string[] = [];
+      for (const row of map!.capability) {
+        const real = storedValuesOf(pack, row.from);
+        for (const slug of Object.keys(row.values ?? {})) {
+          if (!real.has(slug)) orphans.push(`${row.from}.${slug}`);
+        }
+        if (row.configFrom !== undefined) {
+          const configReal = storedValuesOf(pack, row.configFrom);
+          for (const slug of Object.keys(row.configValues ?? {})) {
+            if (!configReal.has(slug)) orphans.push(`${row.configFrom}.${slug}`);
+          }
+        }
+      }
+      expect(orphans, `labels that can never render in ${pack.pack_id}`).toEqual([]);
+    },
+  );
+
+  it.each(ENABLED_ROLE_DESCRIPTORS.map((d) => [d.kind, d] as const))(
+    "%s — the fresher vocabulary is keyed by a STORED option value too",
+    (_kind, descriptor) => {
+      // A ROLE WITHOUT A FRESHER BLOCK IS LEGAL and asserts nothing here — `buildFresherRows`
+      // yields no rows for a pack with no vocabulary, which is the drop-the-unknown rule every
+      // dictionary on this sheet follows. What is NOT legal is a block whose keys match nothing.
+      if (descriptor.fresher === undefined) return;
+      const pack = loadPack(descriptor.packId);
+      // The two attribute keys `buildFresherRows` reads LITERALLY. A pack that renames either one
+      // to fit its own trade renders an empty History heading — §11 #1 — so the rename is refused
+      // here rather than discovered on a fresher's sheet.
+      for (const key of ["iti_workshop_machines", "trade_test_status"]) {
+        expect(
+          pack.items.some((i) => i.question_key === key),
+          `${pack.pack_id} has a fresher block but does not ask ${key}`,
+        ).toBe(true);
+      }
+      const machines = storedValuesOf(pack, "iti_workshop_machines");
+      const tests = storedValuesOf(pack, "trade_test_status");
+      expect(
+        Object.keys(descriptor.fresher.workshopMachines).filter((k) => !machines.has(k)),
+        `${descriptor.kind}: workshopMachines keys that match no stored value`,
+      ).toEqual([]);
+      expect(
+        Object.keys(descriptor.fresher.tradeTest).filter((k) => !tests.has(k)),
+        `${descriptor.kind}: tradeTest keys that match no stored value`,
+      ).toEqual([]);
+      // The escape chip must stay unlabelled here for the same reason it is unlabelled on the
+      // résumé map: a worker's non-answer must never print as an answer.
+      expect(Object.keys(descriptor.fresher.workshopMachines)).not.toContain("unknown");
+    },
+  );
+
+  it("every enabled role's tier gate is the pack's FIRST mandatory item, or the tiers never fire", () => {
+    // WHY THE ORDER MATTERS AND NOT JUST THE EXISTENCE. `selectItem` serves mandatory items first,
+    // in `display_order`; every `ask_if` in a role pack reads the gate's stored value, so a gate
+    // that is not reached before its dependants leaves each of them evaluating against an absent
+    // field — false, silently, for the whole interview.
+    //
+    // "FIRST MANDATORY", NOT "FIRST ITEM". `qp_cam_programming` deliberately puts its CAM-versus-
+    // MDI split ahead of the gate: the split decides how every later answer should be read, and
+    // both are mandatory, so the gate is second in the file and still first among the items whose
+    // answers anything depends on. Asserting `items[0]` would have refused that pack for a
+    // property it does not violate.
+    for (const descriptor of ENABLED_ROLE_DESCRIPTORS) {
+      const pack = loadPack(descriptor.packId);
+      const gated = new Set(
+        pack.items
+          .filter((i) => (i as { ask_if?: unknown }).ask_if !== undefined)
+          .map((i) => i.question_key),
+      );
+      const gateIndex = pack.items.findIndex(
+        (i) => i.question_key === descriptor.tenureQuestionKey,
+      );
+      const firstGatedIndex = pack.items.findIndex((i) => gated.has(i.question_key));
+      expect(
+        gateIndex,
+        `${descriptor.kind}: the gate is not in its own pack`,
+      ).toBeGreaterThanOrEqual(0);
+      expect(
+        (pack.items[gateIndex] as { is_mandatory?: boolean }).is_mandatory,
+        `${descriptor.kind}: the tier gate is not mandatory, so a worker can skip past every tier`,
+      ).toBe(true);
+      if (firstGatedIndex >= 0) {
+        expect(
+          gateIndex,
+          `${descriptor.kind}: the gate is asked after a question that depends on it`,
+        ).toBeLessThan(firstGatedIndex);
+      }
+    }
   });
 });

@@ -315,6 +315,69 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Setting ka kaunsa kaam khud karte hain?": "सेटिंग का कौन सा काम खुद करते हैं?",
   "Kitna surface finish nikaal lete hain?": "कितना सरफेस फिनिश निकाल लेते हैं?",
   "Wheel dressing kaise karte hain?": "व्हील ड्रेसिंग कैसे करते हैं?",
+  // --- qp_cam_programming@1 (role pack, part programming — CAM seat and at-machine MDI) — Batch 1
+  //
+  // TEN PROMPTS AND TWO RETRIES ACROSS TEN KEYS. The pack has fourteen items; the other four
+  // (`controller_brand`, `drawing_reading`, `trade_test_status`, `iti_project_work`) ask the same
+  // thing as the turning, milling and grinding packs in the same words, so their twins are already
+  // above. That reuse is the corpus hygiene this file exists to reward: one wording per attribute
+  // key means one clip to keep in step, forever.
+  //
+  // "कैम" AND "कैड" ARE DEVANAGARI WHILE "MDI" IS LATIN, and the split is about how the words are
+  // SAID rather than about how they are spelled. The rule in this file's header keeps an
+  // initialism Latin when a Hindi speaker spells it out letter by letter — CNC, MIG, TIG, and MDI
+  // here. CAM and CAD are not spelled out; a programmer says them as words, which is also how the
+  // alias corpus writes them (कैम प्रोग्रामर, कैड). Left Latin they would be read as English.
+  "Program aap CAM software par banate hain ya machine par?":
+    "प्रोग्राम आप कैम सॉफ्टवेयर पर बनाते हैं या मशीन पर?",
+  "CAM software par ya machine par MDI se program banate hain?":
+    "कैम सॉफ्टवेयर पर या मशीन पर MDI से प्रोग्राम बनाते हैं?",
+  "Programming ka kitna tajurba hai?": "प्रोग्रामिंग का कितना तजुर्बा है?",
+  "Lagbhag kitne saal programming ka kaam kiya hai?": "लगभग कितने साल प्रोग्रामिंग का काम किया है?",
+  "Aap kaunsa CAM software chalate hain?": "आप कौनसा कैम सॉफ्टवेयर चलाते हैं?",
+  "Kaunsi machine ke liye program banate hain?": "कौनसी मशीन के लिए प्रोग्राम बनाते हैं?",
+  "Program banate waqt kaunsa kaam karte hain?": "प्रोग्राम बनाते वक़्त कौनसा काम करते हैं?",
+  "CAD model ke saath kaunsa kaam karte hain?": "कैड मॉडल के साथ कौनसा काम करते हैं?",
+  "Post-processor ke saath aap kitna kaam karte hain?":
+    "पोस्ट-प्रोसेसर के साथ आप कितना काम करते हैं?",
+  "Program release se pehle simulation kaise karte hain?":
+    "प्रोग्राम रिलीज़ से पहले सिमुलेशन कैसे करते हैं?",
+  // --- qp_cad_drafting@1 and qp_draughting@1 (the drawing office) — Batch 1 -------------------
+  //
+  // TWO PACKS, ONE BLOCK, BECAUSE THEY SHARE SIX OF THEIR SERVED STRINGS. `qp_draughting` is the
+  // unit-3118 router that catches the civil, electrical, architectural and structural draughtsmen
+  // `qp_cad_drafting` deliberately does not claim, and it asks its software, drawing-type and
+  // drawing-work questions in the mechanical pack's exact words — only its OPTION lists diverge.
+  // Filing them together is what makes the sharing visible to the next author instead of inviting
+  // a second phrasing of "Aap kis tarah ki drawing banate hain?".
+  //
+  // "आईटीआई" MATCHES ITS OWN SIBLING, the turner's "ITI me kya banaya tha?" twin above, rather
+  // than the Latin-initialism rule that keeps CNC and MDI in Latin. The two conventions already
+  // sit side by side in this table; a THIRD spelling of ITI in one file would be worse than the
+  // inconsistency.
+  "Drawing aur CAD ke kaam ka kitna tajurba hai?": "ड्रॉइंग और कैड के काम का कितना तजुर्बा है?",
+  "Lagbhag kitne saal drawing ka kaam ya course kiya hai?":
+    "लगभग कितने साल ड्रॉइंग का काम या कोर्स किया है?",
+  "Aap kaunsa CAD software chalate hain?": "आप कौनसा कैड सॉफ्टवेयर चलाते हैं?",
+  "Software ke kaunse module par kaam kiya hai?": "सॉफ्टवेयर के कौनसे मॉड्यूल पर काम किया है?",
+  "Drawing ka kaunsa kaam khud karte hain?": "ड्रॉइंग का कौनसा काम खुद करते हैं?",
+  "Drawing me kaunse standard ka istemaal karte hain?":
+    "ड्रॉइंग में कौनसे स्टैंडर्ड का इस्तेमाल करते हैं?",
+  "Aap kis tarah ki drawing banate hain?": "आप किस तरह की ड्रॉइंग बनाते हैं?",
+  "Aap kaunsa output banakar dete hain?": "आप कौनसा आउटपुट बनाकर देते हैं?",
+  "Kis line ki drawing banayi hai?": "किस लाइन की ड्रॉइंग बनाई है?",
+  "Drawing banane ke liye aapko kya milta hai?": "ड्रॉइंग बनाने के लिए आपको क्या मिलता है?",
+  "Doosron ki banayi drawing check karte hain?": "दूसरों की बनाई ड्रॉइंग चेक करते हैं?",
+  "Design ka kaunsa kaam aap karte hain?": "डिज़ाइन का कौनसा काम आप करते हैं?",
+  "CAD kahaan se seekha hai?": "कैड कहाँ से सीखा है?",
+  "Training me kaunsa kaam khud kiya hai?": "ट्रेनिंग में कौनसा काम खुद किया है?",
+  "Kis line ki drawing par padhai ki hai?": "किस लाइन की ड्रॉइंग पर पढ़ाई की है?",
+  "Course ya ITI me kya banaya tha? Apne shabdon me bataiye.":
+    "कोर्स या आईटीआई में क्या बनाया था? अपने शब्दों में बताइए।",
+  "Aap mechanical, civil ya electrical, kis line me kaam karte hain?":
+    "आप मैकेनिकल, सिविल या इलेक्ट्रिकल, किस लाइन में काम करते हैं?",
+  "Kis line ki drawing banate hain, machine ki ya building ki?":
+    "किस लाइन की ड्रॉइंग बनाते हैं, मशीन की या बिल्डिंग की?",
 };
 
 /**
@@ -549,6 +612,58 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "फिनिश ग्राइंडिंग के काम की सबसे बड़ी पहचान है।",
   "Dressing ka tarika wheel ki umar aur finish tay karta hai.":
     "ड्रेसिंग का तरीका व्हील की उम्र और फिनिश तय करता है।",
+  // --- qp_cam_programming@1 (role pack) — Batch 1 --------------------------------------------
+  //
+  // FIVE WHY-TEXTS. The pack's other nine are the turner's, miller's and grinder's verbatim and
+  // are already above — including "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.", which
+  // every role pack's tier gate now shares. Statements take the danda; only questions keep the
+  // Latin "?".
+  "Dono tarah ke programmer ki alag jagah zaroorat hoti hai.":
+    "दोनों तरह के प्रोग्रामर की अलग जगह ज़रूरत होती है।",
+  "Software ke hisaab se sahi kaam dikhaya jaata hai.":
+    "सॉफ्टवेयर के हिसाब से सही काम दिखाया जाता है।",
+  "Model theek kar lena programmer ka apna hunar hai.":
+    "मॉडल ठीक कर लेना प्रोग्रामर का अपना हुनर है।",
+  "Post-processor theek karne wale programmer kam milte hain.":
+    "पोस्ट-प्रोसेसर ठीक करने वाले प्रोग्रामर कम मिलते हैं।",
+  "Simulation se machine aur job ka nuksaan bachta hai.":
+    "सिमुलेशन से मशीन और जॉब का नुक़सान बचता है।",
+  // --- qp_cad_drafting@1 and qp_draughting@1 (the drawing office) — Batch 1 -------------------
+  //
+  // THIRTEEN WHY-TEXTS FOR THE TWO PACKS TOGETHER. "Software ke hisaab se sahi kaam dikhaya jaata
+  // hai." is above with the CAM block — all three packs ask their software question with the same
+  // explanation, which is one clip rather than three.
+  //
+  // TWO PAIRS HERE LOOK ALIKE AND ARE NOT. `sector_studied`'s "Jis line ki drawing seekhi hai…"
+  // is the FRESHER's, and `sector_drawn`'s is the machining packs' "Sector ka tajurba usi line ke
+  // employer dhoondhte hain." already above; likewise `iti_workshop_machines` diverges from the
+  // machining wording because a CAD student's training is a drawing board and a computer lab. The
+  // divergence is deliberate and costs exactly the two clips below.
+  "Module se pata chalta hai aap kis tarah ki drawing banate hain.":
+    "मॉड्यूल से पता चलता है आप किस तरह की ड्रॉइंग बनाते हैं।",
+  "Standard ke hisaab se bani drawing seedha production me chali jaati hai.":
+    "स्टैंडर्ड के हिसाब से बनी ड्रॉइंग सीधा प्रोडक्शन में चली जाती है।",
+  "Drawing banane ka tarika employer ko aapka kaam samjhata hai.":
+    "ड्रॉइंग बनाने का तरीका एम्प्लॉयर को आपका काम समझाता है।",
+  "Output dekhkar employer samajhta hai aap kya kaam de sakte hain.":
+    "आउटपुट देखकर एम्प्लॉयर समझता है आप क्या काम दे सकते हैं।",
+  "Isse pata chalta hai aap sirf drawing banate hain ya design bhi karte hain.":
+    "इससे पता चलता है आप सिर्फ़ ड्रॉइंग बनाते हैं या डिज़ाइन भी करते हैं।",
+  "Part naap kar drawing banane wale ki alag zaroorat hoti hai.":
+    "पार्ट नाप कर ड्रॉइंग बनाने वाले की अलग ज़रूरत होती है।",
+  "Drawing check karne wale ko senior maana jaata hai.":
+    "ड्रॉइंग चेक करने वाले को सीनियर माना जाता है।",
+  "Design ka kaam jaanne wale ko design engineer banaya jaata hai.":
+    "डिज़ाइन का काम जानने वाले को डिज़ाइन इंजीनियर बनाया जाता है।",
+  "Training kahaan hui, ye employer sabse pehle dekhte hain.":
+    "ट्रेनिंग कहाँ हुई, ये एम्प्लॉयर सबसे पहले देखते हैं।",
+  "Training me kiya hua kaam bhi tajurba hai, employer ise dekhte hain.":
+    "ट्रेनिंग में किया हुआ काम भी तजुर्बा है, एम्प्लॉयर इसे देखते हैं।",
+  "Jis line ki drawing seekhi hai, wahi employer aapko dhoondhte hain.":
+    "जिस लाइन की ड्रॉइंग सीखी है, वही एम्प्लॉयर आपको ढूँढते हैं।",
+  "Banaya hua project dikhata hai ki aap kya kar sakte hain.":
+    "बनाया हुआ प्रोजेक्ट दिखाता है कि आप क्या कर सकते हैं।",
+  "Har line ki drawing ka kaam alag hota hai.": "हर लाइन की ड्रॉइंग का काम अलग होता है।",
 };
 
 /** Every atomic pair, normalized once at module load — see {@link ttsTextFor}. */

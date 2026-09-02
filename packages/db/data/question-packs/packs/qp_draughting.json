@@ -1,0 +1,207 @@
+{
+  "_why": "THE UNIT-LEVEL DISAMBIGUATOR FOR DRAUGHTING, and it exists for one measured reason: NCO unit 3118 holds FOURTEEN draughting occupations and Batch 1 authors a role pack for exactly two of them. Bound to isco_unit_code '3118' at specificity 40, this pack catches the other twelve -- Draughtsperson Architectural / Civil / Electrical / Topographical / Structural, Plumbing Draftsman, Physical Design Engineer, Draftsman, Tracer, Blue Printer, Lithographic Designer, Draughtspersons Other -- while fam_cad_drafting sits above it at 50 on jd_nco_3118_0401 and jd_nco_3118_0402 and takes the mechanical pair. Without this family those twelve codes keep resolving to fam_universal@0: measured live this session, 'draftsman' -> jd_nco_3118_0301 -> fam_universal@0, which is a civil or electrical draughtsman getting eight trade-agnostic questions and no drawing question at all.",
+  "_structure": "STRUCTURALLY IDENTICAL TO fam_machining (unit 7223 @40) BENEATH fam_cnc_turning / fam_vmc_milling / fam_cnc_grinding (@50), and deliberately so -- that shape is proven by three role packs and needs no new engine behaviour. Most-specific-wins is the whole activation mechanism: a mechanical draughtsman lands on qp_cad_drafting, everyone else in the unit lands here, and nothing is special-cased anywhere in code. Two families may never claim the same target, so this pack owns unit 3118 alone.",
+  "_router_not_interview": "THIS IS A ROUTER AND IT IS KEPT SHORT ON PURPOSE. Five items, 13 asks with the universal tail against a MAX_ENGINE_ASKS of 28. Its job is to (a) settle WHICH draughting line a worker is in, in his own words, and (b) capture the four facts that are true of every line -- software, drawing type, drawing work, workplace. Depth belongs in the role pack for a line once that line earns one; a civil-specific question here would be depth authored for a trade nobody has reviewed, which is the failure mode qp_machining avoids by asking machine_type and stopping. There is NO TIER GATE for the same reason: tiers exist to give a senior a different interview, and this pack does not claim to know what a senior architectural draughtsman should be asked.",
+  "_first_question": "draughting_field IS THE DISAMBIGUATOR and is asked first, is_core + is_mandatory, exactly as machine_type is in qp_machining: retrieval pins the FAMILY, this settles which occupation within it. Its five real chips are the owner-decided split -- mechanical / civil / electrical / architectural / structural -- and the sixth is the escape a topographical draughtsman, tracer or blue printer needs so he is not forced to claim a line he does not work in. It routes to an ATTRIBUTE, not to rfs 'skills': a single_select writes one string, the skills field declares an array, and keepIfWellTyped REFUSES a chip whose value contradicts its field's declared type -- a chip the worker can tap with nothing recorded. An attribute has no declared type to contradict.",
+  "_shared_text": "EVERY SERVED STRING HERE IS SHARED WITH A PACK THAT ALREADY HAS IT, which is the TTS point: audio is keyed by sha256(text) and shared across workers, so identical wording costs no new Devanagari twin. cad_software, drawing_type and drawing_work carry qp_cad_drafting's prompt and why_text verbatim; drawing_work's why_text is qp_vmc_milling's; workplace_type's prompt and why_text are qp_machining's, verbatim, and two of its labels with them. Only the OPTION SETS diverge, because a civil draughtsman's software is Revit and STAAD where a mechanical one's is SolidWorks -- and every dictionary that reads these attribute names is keyed by pack_id (R12 §2), so the divergence is expressible without a milling worker's answers being read through a turner's vocabulary.",
+  "pack_id": "qp_draughting",
+  "version": 1,
+  "family_id": "fam_draughting",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "DRAFTED, NOT RATIFIED. The draughting-line vocabulary here -- and the alias tranche that makes unit 3118 reachable at all -- is drafted for human ratification and has NOT yet been corrected by a practising draughtsman. See docs/registers/trade-content-ratification.md.",
+  "items": [
+    {
+      "question_key": "draughting_field",
+      "prompt_text": "Aap mechanical, civil ya electrical, kis line me kaam karte hain?",
+      "why_text": "Har line ki drawing ka kaam alag hota hai.",
+      "retry_text": "Kis line ki drawing banate hain, machine ki ya building ki?",
+      "target_kind": "attribute",
+      "target_field": "draughting_field",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "mechanical",
+          "label_text": "Mechanical, machine parts ki drawing",
+          "value_text": "mechanical"
+        },
+        {
+          "option_key": "civil",
+          "label_text": "Civil, building aur site drawing",
+          "value_text": "civil"
+        },
+        {
+          "option_key": "electrical",
+          "label_text": "Electrical, wiring aur panel drawing",
+          "value_text": "electrical"
+        },
+        {
+          "option_key": "architectural",
+          "label_text": "Architectural, naksha banana",
+          "value_text": "architectural"
+        },
+        {
+          "option_key": "structural",
+          "label_text": "Structural, steel aur RCC drawing",
+          "value_text": "structural"
+        },
+        {
+          "option_key": "other_field",
+          "label_text": "Koi aur line",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "cad_software",
+      "prompt_text": "Aap kaunsa CAD software chalate hain?",
+      "why_text": "Software ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "cad_software",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "autocad",
+          "label_text": "AutoCAD",
+          "value_text": "autocad"
+        },
+        {
+          "option_key": "revit",
+          "label_text": "Revit",
+          "value_text": "revit"
+        },
+        {
+          "option_key": "solidworks",
+          "label_text": "SolidWorks",
+          "value_text": "solidworks"
+        },
+        {
+          "option_key": "sketchup",
+          "label_text": "SketchUp",
+          "value_text": "sketchup"
+        },
+        {
+          "option_key": "staad_etabs",
+          "label_text": "STAAD ya ETABS",
+          "value_text": "staad_etabs"
+        },
+        {
+          "option_key": "other_software",
+          "label_text": "Koi aur software",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_type",
+      "prompt_text": "Aap kis tarah ki drawing banate hain?",
+      "why_text": "Drawing banane ka tarika employer ko aapka kaam samjhata hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "two_d_only",
+          "label_text": "Sirf 2D drawing banata hoon",
+          "value_text": "two_d_only"
+        },
+        {
+          "option_key": "model_to_drawing",
+          "label_text": "3D model se 2D production drawing banata hoon",
+          "value_text": "model_to_drawing"
+        },
+        {
+          "option_key": "model_and_drawing",
+          "label_text": "3D model bhi banata hoon aur drawing bhi",
+          "value_text": "model_and_drawing"
+        },
+        {
+          "option_key": "tracing",
+          "label_text": "Purani drawing se tracing ya update karta hoon",
+          "value_text": "tracing"
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_work",
+      "prompt_text": "Drawing ka kaunsa kaam khud karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "drawing_work",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "new_drawing",
+          "label_text": "Nayi drawing banana",
+          "value_text": "new_drawing"
+        },
+        {
+          "option_key": "revision_update",
+          "label_text": "Purani drawing update karna",
+          "value_text": "revision_update"
+        },
+        {
+          "option_key": "detailing",
+          "label_text": "Detailing aur dimensioning",
+          "value_text": "detailing"
+        },
+        {
+          "option_key": "quantity_bom",
+          "label_text": "BOM ya quantity nikalna",
+          "value_text": "quantity_bom"
+        },
+        {
+          "option_key": "site_survey",
+          "label_text": "Site ya part se naap lena",
+          "value_text": "site_survey"
+        },
+        {
+          "option_key": "other_work",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "workplace_type",
+      "prompt_text": "Aap kahaan kaam karte hain?",
+      "why_text": "Jagah ke hisaab se sahi naukri dikhate hain.",
+      "target_kind": "attribute",
+      "target_field": "workplace_type",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "office",
+          "label_text": "Design ya drawing office",
+          "value_text": "office"
+        },
+        {
+          "option_key": "factory",
+          "label_text": "Factory ya workshop",
+          "value_text": "factory"
+        },
+        {
+          "option_key": "site",
+          "label_text": "Site par",
+          "value_text": "site"
+        },
+        {
+          "option_key": "home",
+          "label_text": "Ghar se, freelance kaam",
+          "value_text": "home"
+        }
+      ]
+    }
+  ]
+}

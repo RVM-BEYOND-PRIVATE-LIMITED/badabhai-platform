@@ -21,6 +21,7 @@ import {
   type RoleFormDescriptor,
 } from "./role-form-descriptor";
 
+import { CAD_DRAUGHTSMAN } from "./cad-draughtsman.role";
 import { CAM_PROGRAMMER } from "./cam-programmer.role";
 import { CNC_GRINDING } from "./cnc-grinding.role";
 import { CNC_MACHINING_CENTRE } from "./cnc-machining-centre.role";
@@ -35,7 +36,13 @@ import { CNC_TURNER } from "./cnc-turner.role";
  * boolean on one line instead of an edit to every other role's conflict list — which is the
  * difference between twenty additive changes and four hundred and twenty ordered pairs.
  */
-const DECLARED = [CNC_TURNER, CNC_MACHINING_CENTRE, CNC_GRINDING, CAM_PROGRAMMER] as const;
+const DECLARED = [
+  CNC_TURNER,
+  CNC_MACHINING_CENTRE,
+  CNC_GRINDING,
+  CAM_PROGRAMMER,
+  CAD_DRAUGHTSMAN,
+] as const;
 
 /**
  * The registry as CONSUMERS see it — one uniform interface, not a union of four literal shapes.

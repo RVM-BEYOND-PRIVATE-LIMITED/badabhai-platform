@@ -74,6 +74,31 @@ const TRADE_TEST: Readonly<Record<string, Readonly<Record<string, string>>>> = O
   ]),
 );
 
+/**
+ * The role line over a fresher block, per pack.
+ *
+ * SEE {@link DEFAULT_TRAINING_LABEL}. Read off the descriptor for the same reason the two
+ * vocabularies above are: "which packs need a different heading" is a fact only the role knows,
+ * and a table here would be the eleventh hand-maintained one this registry exists to delete.
+ */
+const TRAINING_LABEL: Readonly<Record<string, string>> = Object.fromEntries(
+  ROLE_FORM_DESCRIPTORS.filter((role) => role.fresher?.trainingLabel !== undefined).map((role) => [
+    role.packId,
+    role.fresher!.trainingLabel!,
+  ]),
+);
+
+/**
+ * What the block is called when a role does not say otherwise.
+ *
+ * TRUE OF EVERY MACHINING TRADE AND FALSE OF THE DRAWING OFFICE, which is why it became a default
+ * rather than staying a literal. A turner, a miller, a grinder and a part programmer all train on
+ * an ITI workshop floor. A CAD student very often trains at a private institute, and heading his
+ * block "ITI workshop training" would state a credential he has not got — on the one role whose
+ * primary worker is a fresher. See {@link RoleFresherVocabulary.trainingLabel}.
+ */
+const DEFAULT_TRAINING_LABEL = "ITI workshop training";
+
 /** The most machines a fresher's line prints, so one row cannot wrap into three. */
 const MAX_WORKSHOP_MACHINES = 4;
 
@@ -128,10 +153,10 @@ export function buildFresherRows(
   if (work === "") return [];
   return [
     {
-      // THE ROLE IS A LITERAL, not a claim about him. "ITI workshop training" is what the block
-      // IS; it is not a job title he is asserting and it cannot be read as employment because it
-      // carries no employer and no dates.
-      role: "ITI workshop training",
+      // THE ROLE IS A LABEL, not a claim about him. It names what the block IS; it is not a job
+      // title he is asserting and it cannot be read as employment because it carries no employer
+      // and no dates. Per-role where the default would be false — see {@link TRAINING_LABEL}.
+      role: (packId === null ? undefined : TRAINING_LABEL[packId]) ?? DEFAULT_TRAINING_LABEL,
       // §11 #3's rule does not apply: this is not a tenure he stated and failed to have recorded,
       // it is a block that has no duration by nature. An empty string collapses the span.
       duration: "",

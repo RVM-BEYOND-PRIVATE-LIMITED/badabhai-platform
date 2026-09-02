@@ -1,0 +1,451 @@
+{
+  "_why": "Role track for PART PROGRAMMING, the fourth pack authored under docs/profiling/role-pack-authoring-guide.md and one of the last two roles of Batch 1. fam_machining stays the generic machining interview bound at ISCO unit 7223; fam_cam_programming binds the NCO programming occupation directly (job_domain specificity 50 beats unit 40), so a part programmer gets programming depth and every other machining worker is untouched.",
+  "_scope": "PART PROGRAMMING IN GENERAL, NOT DESK-CAM-ONLY -- owner ruling of this session. NCO 7223.6003 'CNC Programmer' defines the occupation as producing the component program 'using manual data input or by use of a remote computer', which is one trade with two work surfaces: the man at a CAM seat and the man typing the program into the controller at the machine. Binding only a desk-CAM reading of the role would have left every MDI programmer on fam_machining's six generic questions. That ruling is what makes programming_mode the FIRST item rather than the experience gate: it is this pack's disambiguator, exactly as machine_type is qp_machining's, and every row below reads honestly for both surfaces because each carries an escape chip.",
+  "_first_question": "programming_mode is is_core AND is_mandatory and sits at display_order 0, so selectItem serves it before the tier gate -- mandatory items are found first, in display_order. Two mandatory items is a deliberate divergence from the turner/miller/grinder shape: the CAM-versus-MDI split decides how every later answer should be read, so an unanswered split is a fail-closed condition, not a missing nice-to-have. ask-budget.guard.test.ts charges one retry per mandatory item, so this pack costs 14 items + 2 retries + qp_universal's 8 + 2 = 26 of MAX_ENGINE_ASKS 28 -- the same worst case as qp_cnc_turning.",
+  "_depth": "THE TIER GATE IS programming_experience, asked SECOND, immediately after the split. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber ?? valueBool, so adding a value_text would make the answer a STRING; every gte below would then compare a string to a number, compare() returns null, and the predicate is false forever. A permanently-false ask_if is a question that is never asked, silently -- the #776 defect that sat in qp_welding for the life of the pack.",
+  "_budget": "MAX_ENGINE_ASKS is 28 and qp_universal spends 8. Tier 0 is 7 items (15 total), tier 1 adds 2 (17), tier 2 adds 2 (19). This pack is SMALLER than its siblings on purpose: the ratified sheet prints NINE capability rows, CAPABILITY_ROW_BUDGET is 9, and this pack asks exactly the nine questions those rows need plus the split and the gate. Padding to the turner's fifteen would buy attributes that nothing renders. The three fresher items are gated on programming_experience <= 0 and a senior never sees them; a fresher skips tiers 1 and 2 entirely, so his worst case is 15 + 3 = 18. The tiers are mutually exclusive by construction, which is why the fresher branch costs the senior nothing.",
+  "_sheet": "SECTION B IS READ OFF THE RATIFIED REFERENCE SHEET (Nitin Deshmukh, CAM Programmer -- Programmer, 7 yrs), not invented. Its section title is 'Software, machines programmed & capability' and its nine rows are CAM software, Machines programmed, Controllers posted, Programming work, CAD model handling, Post-processors, Simulation, Drawings and Sector worked. Every row has exactly one question here that fills it, and there is no question here that no row needs. Post-processors and Simulation are BANDED single-selects rather than free text: the sheet prints a capability sentence ('Edits and tests post-processors', 'Vericut and in-CAM collision check before release'), which is a band, and a banded chip keeps a low-literacy worker tapping instead of typing while avoiding the answer_type 'number' path that has no Flutter widget. A 7-year programmer clears both tier gates, so the reference sheet's nine rows are all reachable for exactly the worker it was written from -- which is the parity check.",
+  "_shared_attribute_names": "controller_brand, drawing_reading, sector_worked, iti_workshop_machines, trade_test_status and iti_project_work are attribute names and served strings this pack takes VERBATIM from qp_cnc_turning / qp_vmc_milling / qp_cnc_grinding. Verbatim matters twice over. Each divergent string is a Devanagari TTS twin that has to be authored and rendered forever -- aligning qp_cnc_grinding's shared items to the turner and miller wording cut its twins from 50 to 13 -- and a shared attribute NAME lets a matcher looking for Fanuc find this worker under the same key as a turner or a miller. controller_brand keeps its sibling wording even though the sheet row is titled 'Controllers posted', because the fact is the same fact: which controller sits on the machine this program runs on. The printed English is the resume map's job, not the chip's.",
+  "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half, and its fresher.workshopMachines is keyed by the STORED VALUE of iti_workshop_machines -- which is why the option values here match the sibling packs character for character.",
+  "pack_id": "qp_cam_programming",
+  "version": 1,
+  "family_id": "fam_cam_programming",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Drafted for owner review (Prakash). The chip vocabulary in this pack is DRAFTED AND NOT YET RATIFIED -- neither the CAM software list, the machine and controller lists, nor the programming-work, post-processor and simulation ladders have been corrected by a practising part programmer. Same open redline as qp_cnc_turning, qp_vmc_milling and qp_cnc_grinding; see docs/registers/trade-content-ratification.md.",
+  "items": [
+    {
+      "_why": "THE DISAMBIGUATOR, and the load-bearing item of the pack. fam_cam_programming is scoped as part programming in general, so this splits the desk CAM programmer from the man doing manual data input at the controller before a single capability question is asked. Modelled on qp_machining's machine_type, which settles the occupation inside a family retrieval has already pinned. The escape chip exists because a worker can be routed here by an alias and still not be the one who writes the program -- 'Program koi aur banata hai' is a real answer, and a pack that could not record it would be inventing one.",
+      "question_key": "programming_mode",
+      "prompt_text": "Program aap CAM software par banate hain ya machine par?",
+      "why_text": "Dono tarah ke programmer ki alag jagah zaroorat hoti hai.",
+      "retry_text": "CAM software par ya machine par MDI se program banate hain?",
+      "target_kind": "attribute",
+      "target_field": "programming_mode",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "cam_software",
+          "label_text": "CAM software par program banata hoon",
+          "value_text": "cam_software"
+        },
+        {
+          "option_key": "machine_mdi",
+          "label_text": "Machine par hi MDI se banata hoon",
+          "value_text": "machine_mdi"
+        },
+        {
+          "option_key": "both_modes",
+          "label_text": "Dono tarah se banata hoon",
+          "value_text": "both_modes"
+        },
+        {
+          "option_key": "no_programming",
+          "label_text": "Program koi aur banata hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "_why": "THE TIER GATE. value_number ONLY on every option -- see _depth. why_text is taken verbatim from all three sibling packs so it shares their rendered TTS clip.",
+      "question_key": "programming_experience",
+      "prompt_text": "Programming ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal programming ka kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "programming_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "under_one", "label_text": "1 saal se kam", "value_number": 0 },
+        { "option_key": "one_to_three", "label_text": "1 se 3 saal", "value_number": 2 },
+        { "option_key": "three_to_seven", "label_text": "3 se 7 saal", "value_number": 5 },
+        { "option_key": "over_seven", "label_text": "7 saal se zyada", "value_number": 10 }
+      ]
+    },
+    {
+      "_why": "Sheet row 'CAM software'. The four names are the sheet's own closed vocabulary; the escape chip carries value_text 'unknown' so an MDI-only programmer's non-answer resolves to nothing and the row simply does not print.",
+      "question_key": "cam_software",
+      "prompt_text": "Aap kaunsa CAM software chalate hain?",
+      "why_text": "Software ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "cam_software",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "mastercam", "label_text": "Mastercam", "value_text": "mastercam" },
+        { "option_key": "powermill", "label_text": "PowerMill", "value_text": "powermill" },
+        { "option_key": "solidcam", "label_text": "SolidCAM", "value_text": "solidcam" },
+        { "option_key": "edgecam", "label_text": "EdgeCAM", "value_text": "edgecam" },
+        {
+          "option_key": "other_software",
+          "label_text": "Koi aur software",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "_why": "Sheet row 'Machines programmed'. NO DIGITS IN AN option_key -- slugKey enforces ^[a-z_]+$ at runtime and a key like vmc_3_axis makes the whole pack unparseable, so the axis count is spelled out in the key and printed in the label. why_text is the sibling packs' machine-question line, verbatim.",
+      "question_key": "machine_programmed",
+      "prompt_text": "Kaunsi machine ke liye program banate hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "machine_programmed",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "vmc_three_axis",
+          "label_text": "VMC 3-axis",
+          "value_text": "vmc_three_axis"
+        },
+        {
+          "option_key": "vmc_four_axis",
+          "label_text": "VMC 4-axis",
+          "value_text": "vmc_four_axis"
+        },
+        {
+          "option_key": "five_axis_trunnion",
+          "label_text": "5-axis trunnion",
+          "value_text": "five_axis_trunnion"
+        },
+        { "option_key": "turn_mill", "label_text": "Turn-mill", "value_text": "turn_mill" },
+        {
+          "option_key": "other_machine",
+          "label_text": "Koi aur machine",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "_why": "Sheet row 'Controllers posted'. Attribute name AND both served strings are the sibling packs' controller question verbatim -- same fact, same clip, and a matcher searching for Fanuc finds turners, millers, grinders and programmers under one key. See _shared_attribute_names.",
+      "question_key": "controller_brand",
+      "prompt_text": "Machine par kaunsa controller lagaa hai?",
+      "why_text": "Controller jaanne wale operator ko jaldi kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "controller_brand",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "fanuc", "label_text": "Fanuc", "value_text": "fanuc" },
+        { "option_key": "heidenhain", "label_text": "Heidenhain", "value_text": "heidenhain" },
+        { "option_key": "siemens", "label_text": "Siemens", "value_text": "siemens" },
+        {
+          "option_key": "controller_unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "_why": "Sheet row 'Programming work' -- the six chips are the sheet's own list. why_text is qp_vmc_milling's operation line, verbatim. No escape chip: a worker who does none of these has already said so on the split question with 'Program koi aur banata hai'.",
+      "question_key": "programming_work",
+      "prompt_text": "Program banate waqt kaunsa kaam karte hain?",
+      "why_text": "Kaam ke naam se employer samajhta hai aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "programming_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "two_d_three_d_toolpath",
+          "label_text": "2D aur 3D toolpath",
+          "value_text": "two_d_three_d_toolpath"
+        },
+        {
+          "option_key": "multi_axis_toolpath",
+          "label_text": "Multi-axis toolpath",
+          "value_text": "multi_axis_toolpath"
+        },
+        {
+          "option_key": "tool_library",
+          "label_text": "Tool library manage karna",
+          "value_text": "tool_library"
+        },
+        {
+          "option_key": "cycle_time",
+          "label_text": "Cycle time kam karna",
+          "value_text": "cycle_time"
+        },
+        {
+          "option_key": "strategy_selection",
+          "label_text": "Machining strategy chunna",
+          "value_text": "strategy_selection"
+        },
+        {
+          "option_key": "tryout_support",
+          "label_text": "Shop floor tryout support",
+          "value_text": "tryout_support"
+        }
+      ]
+    },
+    {
+      "_why": "Sheet row 'Drawings' -- prints 'Reads 2D drawings and GD&T'. Item taken verbatim from the three sibling packs, options included: same question, same clip, same stored values, so one dictionary reads them all. 'none' is left unmapped by design -- a worker's own marketing document is not where a negative claim belongs.",
+      "question_key": "drawing_reading",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "no_drawing", "label_text": "Nahi padh pata", "value_text": "none" },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        { "option_key": "gdt", "label_text": "GD aur T bhi samajhta hoon", "value_text": "gdt" }
+      ]
+    },
+    {
+      "_why": "TIER 1. Sheet row 'CAD model handling'. Importing and repairing a supplied model is the work that separates a programmer from a trainee running someone else's file, so it is gated at two years rather than asked of everyone.",
+      "question_key": "cad_model_handling",
+      "prompt_text": "CAD model ke saath kaunsa kaam karte hain?",
+      "why_text": "Model theek kar lena programmer ka apna hunar hai.",
+      "target_kind": "attribute",
+      "target_field": "cad_model_handling",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": { "field": "programming_experience" },
+        "right": { "const": 2 }
+      },
+      "options": [
+        {
+          "option_key": "step_iges_import",
+          "label_text": "STEP ya IGES import",
+          "value_text": "step_iges_import"
+        },
+        {
+          "option_key": "parasolid_import",
+          "label_text": "Parasolid import",
+          "value_text": "parasolid_import"
+        },
+        {
+          "option_key": "model_repair",
+          "label_text": "Model repair karna",
+          "value_text": "model_repair"
+        },
+        {
+          "option_key": "fixture_modelling",
+          "label_text": "Fixture modelling",
+          "value_text": "fixture_modelling"
+        },
+        {
+          "option_key": "no_model_work",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "_why": "TIER 1. Sheet row 'Sector worked' -- prints 'Auto components and tool room'. Both served strings and four of the six chips are the sibling packs' sector question verbatim; tool_room is added because this sheet prints it and no sibling sector list carries it.",
+      "question_key": "sector_worked",
+      "prompt_text": "Kis industry ke parts banaye hain?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": { "field": "programming_experience" },
+        "right": { "const": 2 }
+      },
+      "options": [
+        {
+          "option_key": "automotive",
+          "label_text": "Automotive ya auto parts",
+          "value_text": "automotive"
+        },
+        { "option_key": "tool_room", "label_text": "Tool room", "value_text": "tool_room" },
+        {
+          "option_key": "die_mould",
+          "label_text": "Die aur mould banane wala",
+          "value_text": "die_mould"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job shop",
+          "value_text": "general_engg"
+        },
+        { "option_key": "defence", "label_text": "Defence ya aerospace", "value_text": "defence" },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "_why": "TIER 2. Sheet row 'Post-processors' -- prints 'Edits and tests post-processors'. A BANDED single_select, not free text and not answer_type 'number': the sheet's string is a capability level, and a band is what a low-literacy worker can tap. Gated at five years because editing and proving a post is the senior half of the ladder Junior Programmer -> Programmer -> Senior Programmer.",
+      "question_key": "post_processor_work",
+      "prompt_text": "Post-processor ke saath aap kitna kaam karte hain?",
+      "why_text": "Post-processor theek karne wale programmer kam milte hain.",
+      "target_kind": "attribute",
+      "target_field": "post_processor_work",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": { "field": "programming_experience" },
+        "right": { "const": 5 }
+      },
+      "options": [
+        {
+          "option_key": "use_only",
+          "label_text": "Bane hue post ka istemaal karta hoon",
+          "value_text": "use_only"
+        },
+        {
+          "option_key": "edit_post",
+          "label_text": "Post-processor edit kar leta hoon",
+          "value_text": "edit_post"
+        },
+        {
+          "option_key": "edit_and_test",
+          "label_text": "Post edit karke test bhi karta hoon",
+          "value_text": "edit_and_test"
+        },
+        {
+          "option_key": "write_post",
+          "label_text": "Naya post-processor banata hoon",
+          "value_text": "write_post"
+        },
+        {
+          "option_key": "post_unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "_why": "TIER 2. Sheet row 'Simulation' -- prints 'Vericut and in-CAM collision check before release'. Banded single_select for the same reason as the post-processor row. 'none' is stored honestly and left unmapped on the sheet: a programmer who does not simulate is real matching data, but a negative claim does not belong on his own resume.",
+      "question_key": "simulation_work",
+      "prompt_text": "Program release se pehle simulation kaise karte hain?",
+      "why_text": "Simulation se machine aur job ka nuksaan bachta hai.",
+      "target_kind": "attribute",
+      "target_field": "simulation_work",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": { "field": "programming_experience" },
+        "right": { "const": 5 }
+      },
+      "options": [
+        {
+          "option_key": "no_simulation",
+          "label_text": "Simulation nahi karta",
+          "value_text": "none"
+        },
+        {
+          "option_key": "in_cam_check",
+          "label_text": "CAM me hi collision check karta hoon",
+          "value_text": "in_cam_check"
+        },
+        {
+          "option_key": "vericut",
+          "label_text": "Vericut par verify karta hoon",
+          "value_text": "vericut"
+        },
+        {
+          "option_key": "both_checks",
+          "label_text": "CAM check aur Vericut, dono",
+          "value_text": "both_checks"
+        }
+      ]
+    },
+    {
+      "_why": "FRESHER BRANCH, gated the other way (lte 0) so a senior never sees it. Both served strings and every stored value are the sibling packs' verbatim -- resume-fresher-rows.ts reads fresher.workshopMachines by STORED VALUE, so a divergent value here would render nothing while looking correct.",
+      "question_key": "iti_workshop_machines",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": { "field": "programming_experience" },
+        "right": { "const": 0 }
+      },
+      "options": [
+        { "option_key": "vmc", "label_text": "VMC ya machining centre", "value_text": "vmc" },
+        {
+          "option_key": "conventional_lathe",
+          "label_text": "Khraad ya conventional lathe",
+          "value_text": "conventional_lathe"
+        },
+        { "option_key": "milling", "label_text": "Milling machine", "value_text": "milling" },
+        { "option_key": "drilling", "label_text": "Drilling machine", "value_text": "drilling" },
+        { "option_key": "grinding", "label_text": "Grinding machine", "value_text": "grinding" },
+        {
+          "option_key": "unknown_machine",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "_why": "FRESHER BRANCH. Verbatim from the sibling packs, options included.",
+      "question_key": "trade_test_status",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": { "field": "programming_experience" },
+        "right": { "const": 0 }
+      },
+      "options": [
+        { "option_key": "passed", "label_text": "Haan, pass kiya", "value_text": "passed" },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        { "option_key": "not_yet", "label_text": "Abhi nahi diya", "value_text": "not_yet" }
+      ]
+    },
+    {
+      "_why": "FRESHER BRANCH. Verbatim from the sibling packs. The only free-text item in the pack, and deliberately so: a project is the worker's own words, which section 8 allows as a printed source.",
+      "question_key": "iti_project_work",
+      "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": { "field": "programming_experience" },
+        "right": { "const": 0 }
+      },
+      "options": []
+    }
+  ]
+}
