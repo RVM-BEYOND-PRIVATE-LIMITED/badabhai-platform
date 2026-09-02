@@ -1,6 +1,7 @@
 import 'package:badabhai_worker_app/core/api/api_client.dart'
     show WorkPrefOptionsDto;
 import 'package:badabhai_worker_app/core/di/locator.dart';
+import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_repository.dart';
 import 'package:badabhai_worker_app/features/trade_form/presentation/cubit/trade_form_cubit.dart';
@@ -12,6 +13,17 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockRepo extends Mock implements TradeFormRepository {}
+
+/// [BbChip.selected] for the chip carrying [label] — used by the #1382
+/// saved-answer-prefill and none-of-above tests below to assert selection
+/// state directly rather than inferring it from colour/decoration.
+bool _chipSelected(WidgetTester tester, String label) {
+  return tester
+      .widget<BbChip>(find.byWidgetPredicate(
+        (Widget w) => w is BbChip && w.label == label,
+      ))
+      .selected;
+}
 
 const VoiceQuestion _plainQuestion = VoiceQuestion(
   id: 'turning_machine',
@@ -286,5 +298,202 @@ void main() {
     verify(() => repo.saveEmployment(any())).called(1);
     expect(router.routerDelegate.currentConfiguration.uri.path, '/building');
     expect(find.text('BUILDING'), findsOneWidget);
+  });
+
+  group('none-of-above mutual exclusion, end to end (#1382)', () {
+    const VoiceQuestion questionWithNoneOfAbove = VoiceQuestion(
+      id: 'turning_machine',
+      prompt: 'Aap kaunsi turning machine chalate hain?',
+      kind: VoiceQuestionKind.multiSelect,
+      options: <VoiceChoice>[
+        VoiceChoice(key: 'cnc_lathe', label: 'CNC lathe'),
+        VoiceChoice(key: 'conventional_lathe', label: 'Conventional lathe'),
+        VoiceChoice(
+            key: 'none_of_these',
+            label: 'In me se koi nahi',
+            isNoneOfAbove: true),
+      ],
+    );
+
+    testWidgets(
+        'tapping the none-of-above chip clears real selections and submits '
+        'only itself', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => TradeForm(
+            kind: 'cnc_turner',
+            packId: 'qp_cnc_turning',
+            packVersion: 1,
+            sections: <TradeFormSection>[
+              TradeFormSection(
+                id: 'capability',
+                title: 'Machines, controllers & capability',
+                screens: <TradeFormStep>[
+                  const TradeFormQuestionStep(
+                      question: questionWithNoneOfAbove, searchable: false),
+                  // A trailing step (a DIFFERENT question id — never
+                  // `turning_machine`) so answering the above never hits
+                  // `done` (this test is about the exclusion rule, not
+                  // #1367's last-step navigation).
+                  const TradeFormQuestionStep(
+                      question: _searchableQuestion, searchable: true),
+                ],
+              ),
+            ],
+          ));
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'turning_machine',
+            status: TradeFormAnswerStatus.answered,
+            answered: 1,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await tester.tap(find.text('CNC lathe'));
+      await tester.tap(find.text('Conventional lathe'));
+      await tester.pump();
+      expect(_chipSelected(tester, 'CNC lathe'), isTrue);
+
+      await tester.tap(find.text('In me se koi nahi'));
+      await tester.pump();
+
+      expect(_chipSelected(tester, 'CNC lathe'), isFalse);
+      expect(_chipSelected(tester, 'Conventional lathe'), isFalse);
+      expect(_chipSelected(tester, 'In me se koi nahi'), isTrue);
+
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+
+      final TradeFormAnswer sent = verify(() => repo.submitAnswer(
+            questionKey: 'turning_machine',
+            answer: captureAny(named: 'answer'),
+          )).captured.single as TradeFormAnswer;
+      expect(sent.optionKeys, <String>['none_of_these']);
+    });
+  });
+
+  group('saved-answer pre-fill + goBack round trip (#1382)', () {
+    const VoiceQuestion textQuestion = VoiceQuestion(
+      id: 'iti_project_work',
+      prompt: 'ITI me kya banaya tha?',
+      kind: VoiceQuestionKind.open,
+    );
+
+    testWidgets(
+        'a saved non-searchable multi-select answer is pre-selected after '
+        'goBack, not blank', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => TradeForm(
+            kind: 'cnc_turner',
+            packId: 'qp_cnc_turning',
+            packVersion: 1,
+            sections: <TradeFormSection>[
+              TradeFormSection(
+                id: 'capability',
+                title: 'Machines, controllers & capability',
+                screens: <TradeFormStep>[
+                  const TradeFormQuestionStep(
+                    question: _plainQuestion,
+                    searchable: false,
+                    answer: TradeFormSavedAnswer(
+                      status: TradeFormAnswerStatus.answered,
+                      optionKeys: <String>['cnc_lathe'],
+                    ),
+                  ),
+                  const TradeFormQuestionStep(
+                      question: _searchableQuestion, searchable: true),
+                ],
+              ),
+            ],
+          ));
+
+      await pump(tester);
+      // Resumability skips the answered turning_machine question — lands on
+      // the unanswered searchable one first.
+      expect(find.text('Aap kaunsi dhaatu par kaam karte hain?'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
+      expect(_chipSelected(tester, 'CNC lathe'), isTrue,
+          reason: 'the saved answer must render pre-selected, not blank');
+    });
+
+    testWidgets(
+        'a saved searchable multi-select answer is pre-selected after '
+        'goBack, not blank', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => TradeForm(
+            kind: 'cnc_turner',
+            packId: 'qp_cnc_turning',
+            packVersion: 1,
+            sections: <TradeFormSection>[
+              TradeFormSection(
+                id: 'capability',
+                title: 'Machines, controllers & capability',
+                screens: <TradeFormStep>[
+                  const TradeFormQuestionStep(
+                    question: _searchableQuestion,
+                    searchable: true,
+                    answer: TradeFormSavedAnswer(
+                      status: TradeFormAnswerStatus.answered,
+                      optionKeys: <String>['brass'],
+                    ),
+                  ),
+                  const TradeFormQuestionStep(
+                      question: _plainQuestion, searchable: false),
+                ],
+              ),
+            ],
+          ));
+
+      await pump(tester);
+      expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Aap kaunsi dhaatu par kaam karte hain?'), findsOneWidget);
+      expect(_chipSelected(tester, 'Brass'), isTrue,
+          reason: 'the saved answer must render pre-selected, not blank');
+    });
+
+    testWidgets(
+        'a saved text answer pre-fills the open field after goBack, not '
+        'blank', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => TradeForm(
+            kind: 'cnc_turner',
+            packId: 'qp_cnc_turning',
+            packVersion: 1,
+            sections: <TradeFormSection>[
+              TradeFormSection(
+                id: 'qualifications',
+                title: 'Qualification, documents & languages',
+                screens: <TradeFormStep>[
+                  const TradeFormQuestionStep(
+                    question: textQuestion,
+                    searchable: false,
+                    answer: TradeFormSavedAnswer(
+                      status: TradeFormAnswerStatus.answered,
+                      text: 'Bush banaya tha',
+                    ),
+                  ),
+                  const TradeFormQuestionStep(
+                      question: _plainQuestion, searchable: false),
+                ],
+              ),
+            ],
+          ));
+
+      await pump(tester);
+      expect(find.text('Aap kaunsi turning machine chalate hain?'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('ITI me kya banaya tha?'), findsOneWidget);
+      expect(find.text('Bush banaya tha'), findsOneWidget,
+          reason: 'the saved text answer must pre-fill the field, not be blank');
+    });
   });
 }
