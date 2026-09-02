@@ -152,14 +152,34 @@ authoritative, the compose block mirrors it.
 
 ## 3. Deleted-phone tombstone (`reason=deleted_phone_tombstone`)
 
-Hard-deleting an account sets `deleted_phone:<phoneHash>` with a 7-day TTL (ADR-0026 Phase 5,
-DPDP re-registration cool-down). Any OTP send to that number returns the neutral 429 for a week.
+The DPDP deletion path — the grace-elapse sweep that erases an account once its ADR-0031 window
+runs out — sets `deleted_phone:<phoneHash>` with a 7-day TTL (ADR-0026 Phase 5, DPDP
+re-registration cool-down). Any OTP send to that number returns the neutral 429 for a week.
 
-**This is the QA trap.** With `TEST_IMMEDIATE_DELETE_ENABLED` armed on staging (#1264), every test
-number QA deletes is unreachable for 7 days — and switching to *another* recently-deleted test
-number does not help. It presents exactly as "429 on the first send to a fresh number", which is
-how #1306 was reported. Note the tombstone is keyed **per phone hash**: it can only explain the
-symptom for a number that was itself deleted. A genuinely new number 429ing is a different cause.
+Note the tombstone is keyed **per phone hash**: it can only explain the symptom for a number that
+was itself deleted. A genuinely new number 429ing is a different cause.
+
+### The QA trap — FIXED, and what to expect now
+
+This **used to** be the first thing to suspect. With `TEST_IMMEDIATE_DELETE_ENABLED` armed
+(#1264), the QA "Delete account (test)" button set the same tombstone, so every test number QA
+deleted was unreachable for 7 days — and switching to *another* recently-deleted test number did
+not help. It presented exactly as "429 on the first send to a fresh number", which is how #1306
+was reported.
+
+**`POST /auth/account/delete/immediate` no longer sets the tombstone.** It calls
+`AccountDeletionService.execute` with `setReregistrationCooldown: false`, so a number deleted
+through the QA button can re-register immediately. The erasure itself is unchanged and still
+complete — sessions revoked, storage swept, row removed, event emitted; only the cool-down is
+skipped. The graced DPDP path passes no options and still sets it: that control is not weakened.
+
+So on a current build, `reason=deleted_phone_tombstone` after a QA delete means something is
+wrong — most likely the box is running an image that predates this change. Check the deployed
+`GIT_COMMIT_SHA` on `/health` before hunting further. A tombstone from a REAL (graced) deletion is
+still expected and still correct.
+
+Tombstones written before this shipped do not expire retroactively — clear them with §3's
+commands below.
 
 ### Clear the tombstones (unblocks the numbers immediately)
 
