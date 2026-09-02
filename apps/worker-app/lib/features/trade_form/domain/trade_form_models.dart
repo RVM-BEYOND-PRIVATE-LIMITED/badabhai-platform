@@ -526,6 +526,13 @@ class TradeFormCertificateEntry extends Equatable {
       (issuer == null || issuer!.trim().isEmpty) &&
       year == null;
 
+  /// The server's own requirement: `name` is the one non-nullable field on
+  /// `CertificateEntrySchema`. Callers filter [isBlank] rows out first, then
+  /// check this on what remains — a row with an issuer/year typed but no
+  /// name is neither blank nor complete, and must block the save with an
+  /// honest message rather than reach the server as a 400.
+  bool get isComplete => name.trim().isNotEmpty;
+
   TradeFormCertificateEntry copyWith({
     String? name,
     Object? issuer = _sentinel,
