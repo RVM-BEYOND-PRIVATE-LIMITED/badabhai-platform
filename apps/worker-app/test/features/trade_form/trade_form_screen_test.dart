@@ -2,6 +2,7 @@ import 'package:badabhai_worker_app/core/api/api_client.dart'
     show QualificationOptionsDto, WorkPrefOptionsDto;
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
+import 'package:badabhai_worker_app/core/widgets/bb_button.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_chip.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_models.dart';
 import 'package:badabhai_worker_app/features/trade_form/domain/trade_form_repository.dart';
@@ -1194,6 +1195,91 @@ void main() {
       expect(sent[0].roleLabel, 'Fitter');
       expect(sent[1].employerName, 'Beta Corp');
       expect(sent[1].roleLabel, 'Welder');
+    });
+  });
+
+  group('the true final-submit button is green + distinct (#1384 item 3)', () {
+    testWidgets(
+        'a marker-is-last-step case renders BbButtonVariant.success',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first); // decline q1
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first); // decline q2
+      await tester.pumpAndSettle();
+      await _walkThroughPreferencesPages(tester);
+
+      // Employment (no employers yet) is the walk's LAST step, on its own
+      // (only) internal page — the TRUE final button.
+      expect(find.text('Aapne pehle kahan kaam kiya?'), findsOneWidget);
+      final BbButton finalButton = tester.widget<BbButton>(
+        find.widgetWithText(BbButton, 'Ho gaya'),
+      );
+      expect(finalButton.variant, BbButtonVariant.success);
+    });
+
+    testWidgets(
+        'a question-is-last-step case renders green "Submit karein", not '
+        'haldi "Aage badhein"', (WidgetTester tester) async {
+      final TradeForm questionOnlyForm = TradeForm(
+        kind: 'cnc_turner',
+        packId: 'qp_cnc_turning',
+        packVersion: 1,
+        sections: <TradeFormSection>[
+          TradeFormSection(
+            id: 'capability',
+            title: 'Machines, controllers & capability',
+            screens: <TradeFormStep>[
+              const TradeFormQuestionStep(
+                  question: _plainQuestion, searchable: false),
+            ],
+          ),
+        ],
+      );
+      when(() => repo.loadForm()).thenAnswer((_) async => questionOnlyForm);
+
+      await pump(tester);
+      // _plainQuestion is multi-select — a chip tap only selects; the
+      // submit button appears alongside it.
+      await tester.tap(find.text('CNC lathe'));
+      await tester.pump();
+
+      expect(find.text('Submit karein'), findsOneWidget);
+      expect(find.text('Aage badhein'), findsNothing);
+      final BbButton finalButton = tester.widget<BbButton>(
+        find.widgetWithText(BbButton, 'Submit karein'),
+      );
+      expect(finalButton.variant, BbButtonVariant.success);
+    });
+
+    testWidgets(
+        'a non-last question step stays primary with "Aage badhein"',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+
+      await pump(tester);
+      // _form()'s first question (turning_machine, multi-select) is NOT the
+      // walk's last step — two more questions and two markers follow.
+      await tester.tap(find.text('CNC lathe'));
+      await tester.pump();
+
+      final BbButton nextButton = tester.widget<BbButton>(
+        find.widgetWithText(BbButton, 'Aage badhein'),
+      );
+      expect(nextButton.variant, BbButtonVariant.primary);
     });
   });
 }
