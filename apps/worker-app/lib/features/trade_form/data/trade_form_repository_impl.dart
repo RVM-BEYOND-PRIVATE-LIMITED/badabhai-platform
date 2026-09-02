@@ -120,6 +120,40 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
     }
   }
 
+  @override
+  Future<QualificationOptionsDto> loadQualificationOptions() async {
+    final String token = _requireToken();
+    try {
+      return await _api.getQualificationOptions(authToken: token);
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
+  @override
+  Future<void> saveQualifications(
+    TradeFormQualifications qualifications,
+  ) async {
+    final String token = _requireToken();
+    try {
+      await _api.updateQualifications(
+        fields: qualifications.toJson(),
+        authToken: token,
+      );
+    } on ApiException catch (error) {
+      // A 400 here is most often the phone/email-shape screen naming the
+      // offending field ("remove contact details from the issuer") — surface
+      // the server's own message honestly, same convention as every other
+      // write on this repository.
+      if (error.statusCode == 400 && error.message.trim().isNotEmpty) {
+        throw InvalidRequestFailure(error.message);
+      }
+      throw mapError(error);
+    } catch (error) {
+      throw mapError(error);
+    }
+  }
+
   // ---- wire → domain, mirrors HttpVoiceFormGateway's defensive parsing:
   // a malformed section/screen/question is DROPPED rather than thrown, so one
   // bad row never takes the whole form down for a worker who can still fill
@@ -172,6 +206,13 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
         return const TradeFormPreferencesStep();
       case 'employment':
         return const TradeFormEmploymentStep();
+      case 'qualifications':
+        return TradeFormQualificationsStep(
+          suggestedCertificates: (json['suggested_certificates'] as List<dynamic>?)
+                  ?.whereType<String>()
+                  .toList() ??
+              const <String>[],
+        );
       default:
         return null;
     }

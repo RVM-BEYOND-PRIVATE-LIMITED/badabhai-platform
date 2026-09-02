@@ -1845,6 +1845,48 @@ class WorkPrefOptionsDto extends Equatable {
       <Object?>[languages, documentsReady, jobType, shift];
 }
 
+/// GET /workers/me/qualifications/options (#1384/#1385, migration 0098) — the
+/// closed-set chip vocabulary for the `qualifications` marker's education
+/// rows. Same shape and same reasoning as [WorkPrefOptionsDto]: each map is
+/// `slug → English label`, and chips render from THIS rather than a
+/// hard-coded copy that could drift from the server's zod enum
+/// (`worker-preferences.vocabulary.ts`'s `EDUCATION_QUALIFICATIONS` /
+/// `EDUCATION_COUNCILS`, served here verbatim).
+///
+/// Certificate names are deliberately ABSENT from this response — they are
+/// free text, not a closed set, and ride the form schema's per-trade
+/// `suggested_certificates` instead (see `TradeFormQualificationsStep`).
+class QualificationOptionsDto extends Equatable {
+  const QualificationOptionsDto({
+    required this.educationCredential,
+    required this.educationCouncil,
+  });
+
+  final Map<String, String> educationCredential;
+  final Map<String, String> educationCouncil;
+
+  static Map<String, String> _labelMap(dynamic raw) {
+    if (raw is! Map) return const <String, String>{};
+    // Preserve insertion order (the server's intended chip order — the
+    // credential slugs are ordered lowest rung first) and coerce every value
+    // to a String, skipping any malformed non-string label.
+    final Map<String, String> out = <String, String>{};
+    raw.forEach((dynamic k, dynamic v) {
+      if (k is String && v is String) out[k] = v;
+    });
+    return out;
+  }
+
+  factory QualificationOptionsDto.fromJson(Map<String, dynamic> json) =>
+      QualificationOptionsDto(
+        educationCredential: _labelMap(json['education_credential']),
+        educationCouncil: _labelMap(json['education_council']),
+      );
+
+  @override
+  List<Object?> get props => <Object?>[educationCredential, educationCouncil];
+}
+
 /// Result of POST /workers/me/photo/upload-url (ADR-0032) — a signed slot for the
 /// profile-photo bytes. Mirrors [VoiceUploadTicket].
 ///

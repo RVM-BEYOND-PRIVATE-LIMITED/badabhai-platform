@@ -660,6 +660,42 @@ class ApiClient {
     );
   }
 
+  /// GET /workers/me/qualifications/options (#1384/#1385, migration 0098) —
+  /// the slug→label vocabulary for the `qualifications` marker's education
+  /// chips. Same contract shape as [getWorkPreferenceOptions] and for the
+  /// same reason: render chips from THIS, never a hard-coded copy. Worker
+  /// from [authToken].
+  Future<QualificationOptionsDto> getQualificationOptions({
+    required String authToken,
+  }) async {
+    final Map<String, dynamic> json = await _get(
+      '/workers/me/qualifications/options',
+      authToken: authToken,
+    );
+    return QualificationOptionsDto.fromJson(json);
+  }
+
+  /// PUT /workers/me/qualifications (#1384/#1385, migration 0098) — the
+  /// worker's own certificates + education rows. [fields] is the already
+  /// TRI-STATE-shaped body the repository builds
+  /// (`TradeFormQualifications.toJson`): a key OMITTED leaves the stored rows
+  /// for that half alone, `[]` clears them ("I have none" — a real answer),
+  /// and a populated list REPLACES them in the given order (stored as
+  /// `sort_order`, never re-sorted). Sending neither key is a deliberate 400
+  /// the server names explicitly — see `worker-qualifications.dto.ts`.
+  /// Worker from [authToken]; the response carries only counts, so nothing is
+  /// parsed back.
+  Future<void> updateQualifications({
+    required Map<String, dynamic> fields,
+    required String authToken,
+  }) async {
+    await _put(
+      '/workers/me/qualifications',
+      fields,
+      authToken: authToken,
+    );
+  }
+
   /// POST /workers/me/photo/upload-url (ADR-0032) — mints a signed slot for the
   /// profile-photo bytes. Worker from [authToken]; the body is empty JSON — the
   /// SERVER chooses the object key. The bytes are then PUT to `upload_url`
