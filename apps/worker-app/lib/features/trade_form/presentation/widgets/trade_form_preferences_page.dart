@@ -71,11 +71,21 @@ class TradeFormPreferencesPage extends StatefulWidget {
     required this.loadOptions,
     required this.enabled,
     required this.onSave,
+    this.initialPreferences,
   });
 
   final Future<WorkPrefOptionsDto> Function() loadOptions;
   final bool enabled;
   final ValueChanged<TradeFormPreferences> onSave;
+
+  /// The cubit's own memory of the last successful save for THIS marker
+  /// (#1384 item 1, `TradeFormState.savedPreferences`) — null the first time
+  /// a worker ever reaches this screen, non-null when they `goBack()` into
+  /// an already-passed one. Seeds every field below instead of the blank
+  /// constructor default, which is what a bare `GlobalKey` cannot do once
+  /// this widget has been fully unmounted (see the doc on
+  /// `TradeFormState.savedPreferences`).
+  final TradeFormPreferences? initialPreferences;
 
   @override
   State<TradeFormPreferencesPage> createState() =>
@@ -85,11 +95,14 @@ class TradeFormPreferencesPage extends StatefulWidget {
 class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   WorkPrefOptionsDto? _options;
   String? _loadError;
-  TradeFormPreferences _prefs = const TradeFormPreferences();
+  late TradeFormPreferences _prefs =
+      widget.initialPreferences ?? const TradeFormPreferences();
 
   final TextEditingController _city = TextEditingController();
-  final TextEditingController _year = TextEditingController();
-  final TextEditingController _institute = TextEditingController();
+  late final TextEditingController _year = TextEditingController(
+      text: widget.initialPreferences?.educationYear?.toString() ?? '');
+  late final TextEditingController _institute = TextEditingController(
+      text: widget.initialPreferences?.educationInstitute ?? '');
 
   @override
   void initState() {

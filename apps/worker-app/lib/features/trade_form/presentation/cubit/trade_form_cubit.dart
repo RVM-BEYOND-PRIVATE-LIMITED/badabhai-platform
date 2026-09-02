@@ -55,6 +55,9 @@ class TradeFormState extends Equatable {
     this.total = 0,
     this.loadError,
     this.submitError,
+    this.savedPreferences,
+    this.savedEmployment,
+    this.savedQualifications,
   });
 
   final TradeFormStatus status;
@@ -74,6 +77,21 @@ class TradeFormState extends Equatable {
   /// A transient submit error (e.g. a 400 naming an unknown option_key) —
   /// shown inline while the worker stays on the same question and can retry.
   final String? submitError;
+
+  /// The LAST successfully-saved value for each marker screen (#1384 item 1)
+  /// — markers carry no server-side "already filled" signal on this contract
+  /// (see this class' own doc), so unlike a question's `step.answer`, this is
+  /// the CUBIT's own memory of what a marker widget last sent, kept purely so
+  /// a worker who `goBack()`s into an already-passed marker sees it filled
+  /// in rather than reset to a blank constructor default. Set the moment a
+  /// marker save succeeds (see `_advanceAfterMarkerSave`) — a worker can only
+  /// `goBack()` into a marker that already saved successfully once, so "the
+  /// last successful save" is always available by the time it would be read.
+  /// Never sent anywhere; purely a local re-hydration seed for
+  /// `trade_form_screen.dart`'s `_stepBody()`.
+  final TradeFormPreferences? savedPreferences;
+  final List<TradeFormEmploymentEntry>? savedEmployment;
+  final TradeFormQualifications? savedQualifications;
 
   TradeFormStep? get currentStep =>
       currentIndex >= 0 && currentIndex < flatSteps.length
@@ -97,6 +115,9 @@ class TradeFormState extends Equatable {
     int? total,
     Object? loadError = _sentinel,
     Object? submitError = _sentinel,
+    Object? savedPreferences = _sentinel,
+    Object? savedEmployment = _sentinel,
+    Object? savedQualifications = _sentinel,
   }) {
     return TradeFormState(
       status: status ?? this.status,
@@ -107,6 +128,15 @@ class TradeFormState extends Equatable {
       loadError: loadError == _sentinel ? this.loadError : loadError as String?,
       submitError:
           submitError == _sentinel ? this.submitError : submitError as String?,
+      savedPreferences: savedPreferences == _sentinel
+          ? this.savedPreferences
+          : savedPreferences as TradeFormPreferences?,
+      savedEmployment: savedEmployment == _sentinel
+          ? this.savedEmployment
+          : savedEmployment as List<TradeFormEmploymentEntry>?,
+      savedQualifications: savedQualifications == _sentinel
+          ? this.savedQualifications
+          : savedQualifications as TradeFormQualifications?,
     );
   }
 
@@ -119,6 +149,9 @@ class TradeFormState extends Equatable {
         total,
         loadError,
         submitError,
+        savedPreferences,
+        savedEmployment,
+        savedQualifications,
       ];
 }
 
@@ -210,19 +243,41 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     emit(state.copyWith(currentIndex: state.currentIndex - 1, submitError: null));
   }
 
-  void _advanceAfterMarkerSave() {
+  /// Advances past the just-saved marker screen — and, per #1384 item 1,
+  /// banks whichever [savedPreferences]/[savedEmployment]/[savedQualifications]
+  /// the caller passes as this cubit's own memory of "the last successful
+  /// save" for that marker kind (see [TradeFormState]'s doc). Every caller
+  /// passes exactly ONE of the three (the marker it just saved); the other
+  /// two default to the shared [_sentinel], which `copyWith` reads as "leave
+  /// this field exactly as it already is" — so advancing past, say, the
+  /// employment marker never touches whatever preferences value is already
+  /// banked.
+  void _advanceAfterMarkerSave({
+    Object? savedPreferences = _sentinel,
+    Object? savedEmployment = _sentinel,
+    Object? savedQualifications = _sentinel,
+  }) {
     if (state.isLastStep) {
       // #1367: the write already landed — there is no next step, so this
       // MUST still emit (leaving state at `submitting` forever is the bug),
       // just with nowhere further to walk to. The screen reacts to `done`
       // by navigating away.
-      emit(state.copyWith(status: TradeFormStatus.done, submitError: null));
+      emit(state.copyWith(
+        status: TradeFormStatus.done,
+        submitError: null,
+        savedPreferences: savedPreferences,
+        savedEmployment: savedEmployment,
+        savedQualifications: savedQualifications,
+      ));
       return;
     }
     emit(state.copyWith(
       status: TradeFormStatus.ready,
       currentIndex: state.currentIndex + 1,
       submitError: null,
+      savedPreferences: savedPreferences,
+      savedEmployment: savedEmployment,
+      savedQualifications: savedQualifications,
     ));
   }
 
@@ -410,7 +465,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     emit(state.copyWith(status: TradeFormStatus.submitting, submitError: null));
     try {
       await _repo.savePreferences(prefs);
-      _advanceAfterMarkerSave();
+      _advanceAfterMarkerSave(savedPreferences: prefs);
     } on Failure catch (f) {
       emit(state.copyWith(status: TradeFormStatus.ready, submitError: f.message));
     } catch (_) {
@@ -434,7 +489,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     emit(state.copyWith(status: TradeFormStatus.submitting, submitError: null));
     try {
       await _repo.saveEmployment(kept);
-      _advanceAfterMarkerSave();
+      _advanceAfterMarkerSave(savedEmployment: kept);
     } on Failure catch (f) {
       emit(state.copyWith(status: TradeFormStatus.ready, submitError: f.message));
     } catch (_) {
@@ -487,13 +542,13 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     );
 
     if (!toSend.hasAnyTouch) {
-      _advanceAfterMarkerSave();
+      _advanceAfterMarkerSave(savedQualifications: toSend);
       return;
     }
     emit(state.copyWith(status: TradeFormStatus.submitting, submitError: null));
     try {
       await _repo.saveQualifications(toSend);
-      _advanceAfterMarkerSave();
+      _advanceAfterMarkerSave(savedQualifications: toSend);
     } on Failure catch (f) {
       emit(state.copyWith(status: TradeFormStatus.ready, submitError: f.message));
     } catch (_) {

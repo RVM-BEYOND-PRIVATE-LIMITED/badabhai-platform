@@ -282,7 +282,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.fromLTRB(AppSpacing.gutter,
                           AppSpacing.s4, AppSpacing.gutter, AppSpacing.s4),
-                      child: _stepBody(step, cubit, enabled),
+                      child: _stepBody(step, cubit, enabled, state),
                     ),
                   ),
                   if (step is TradeFormPreferencesStep ||
@@ -310,7 +310,12 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
     );
   }
 
-  Widget _stepBody(TradeFormStep? step, TradeFormCubit cubit, bool enabled) {
+  Widget _stepBody(
+    TradeFormStep? step,
+    TradeFormCubit cubit,
+    bool enabled,
+    TradeFormState state,
+  ) {
     if (step is TradeFormQuestionStep) {
       return TradeFormQuestionBody(
         key: ValueKey<String>(step.question.id),
@@ -331,6 +336,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         enabled: enabled,
         loadOptions: cubit.loadPreferenceOptions,
         onSave: cubit.savePreferencesAndAdvance,
+        initialPreferences: state.savedPreferences,
       );
     }
     if (step is TradeFormEmploymentStep) {
@@ -338,6 +344,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         key: _empKey,
         enabled: enabled,
         onSave: cubit.saveEmploymentAndAdvance,
+        initialEntries: state.savedEmployment,
       );
     }
     if (step is TradeFormQualificationsStep) {
@@ -347,6 +354,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         enabled: enabled,
         loadOptions: cubit.loadQualificationOptions,
         onSave: cubit.saveQualificationsAndAdvance,
+        initialQualifications: state.savedQualifications,
       );
     }
     return const SizedBox.shrink();
