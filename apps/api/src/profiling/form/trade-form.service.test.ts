@@ -6,6 +6,8 @@ import type { QuestionPack, QuestionPackItem } from "@badabhai/ai-contracts";
 import type { NewWorkerPackAnswer, WorkerPackAnswer } from "@badabhai/db";
 
 import { TRADE_RESUME_MAPS } from "../../resume/trade-resume-map";
+import { CNC_TURNER } from "../roles/cnc-turner.role";
+import { TradeFormSchemaResponse } from "./trade-form.dto";
 import { SEARCHABLE_OPTION_THRESHOLD, TradeFormService } from "./trade-form.service";
 
 /**
@@ -110,13 +112,22 @@ function makeService(
   // `worker_attributes` and not only `worker_pack_answer` — the capability zone reads the former,
   // and the handover switches off the extraction job that used to be its only writer.
   const upsertMany = vi.fn(async (_rows: unknown[]) => 0);
+  // The completion half of the form funnel. Captured rather than stubbed to a no-op so the tests
+  // can assert BOTH directions: that finishing the form emits exactly once, and that answering a
+  // question mid-form emits nothing.
+  const emitted: { event_name: string; payload: Record<string, unknown> }[] = [];
+  const emit = vi.fn(async (params: { event_name: string; payload: Record<string, unknown> }) => {
+    emitted.push(params);
+    return {};
+  });
   const service = new TradeFormService(
     chat as never,
     packs as never,
     answers as never,
     { upsertMany } as never,
+    { emit } as never,
   );
-  return { service, written, packs, chat, upsertMany };
+  return { service, written, packs, chat, upsertMany, emitted, emit };
 }
 
 const answered = (over: Partial<WorkerPackAnswer>): WorkerPackAnswer =>
@@ -213,6 +224,39 @@ describe("TradeFormService", () => {
         type: "employment",
         endpoint: "PUT /workers/me/employment",
       });
+    });
+
+    it("ends the qualifications section with the credentials marker, carrying this TRADE's suggestions", async () => {
+      const { service } = await makeService();
+      const quals = (await service.schema(WORKER)).sections.find((s) => s.id === "qualifications");
+      // LAST, after the leftover questions rather than before them. Every one of those can vanish
+      // for a senior — the tier gate below hides all three fresher items — and this marker is
+      // what stops the section from being a heading with nothing under it while the Certificates
+      // row on that same worker sheet still has no source at all.
+      expect(quals?.screens.at(-1)).toEqual({
+        type: "qualifications",
+        endpoint: "PUT /workers/me/qualifications",
+        suggested_certificates: [...CNC_TURNER.suggestedCertificates],
+      });
+      // READ OFF THE ROLE, never restated here: these strings are ratified résumé content, and a
+      // second copy in this file would go on passing after the role list was redlined. Non-empty
+      // is the load-bearing half — an empty array is exactly what a role declaring no
+      // certificates serves, so a lookup that silently missed the descriptor would look identical.
+      expect(CNC_TURNER.suggestedCertificates.length).toBeGreaterThan(0);
+    });
+
+    it("still validates against the wire schema, marker and all", async () => {
+      // NOTHING PARSES THIS SCHEMA IN PRODUCTION — the controller returns the object as the
+      // service built it — so this test is the only thing that ever RUNS the contract. That
+      // matters for a FOURTH variant in particular: `z.discriminatedUnion` fails closed on a
+      // `type` it does not carry, and the Flutter parser is written from this declaration, so a
+      // screen the union does not name is a screen no reader can read. Constructing one and
+      // returning it is not evidence that the contract admits it.
+      const { service } = await makeService();
+      const parsed = TradeFormSchemaResponse.safeParse(await service.schema(WORKER));
+      // The issues rather than the boolean, so a failure names the offending field instead of
+      // asserting that `false` should have been `true`.
+      expect(parsed.success ? [] : parsed.error.issues).toEqual([]);
     });
 
     it("404s a worker who was never handed a form, rather than serving an empty one", async () => {
@@ -583,6 +627,171 @@ describe("TradeFormService", () => {
       });
       expect(onGate.schema_stale).toBe(true);
       expect(onOrdinary.schema_stale).toBe(false);
+    });
+  });
+
+  /**
+   * ═══ profile.form_completed (#0.6) ═══
+   *
+   * The funnel had a first step and no last one. `profile.form_mode_entered` records that a worker
+   * was SENT to a form; nothing recorded whether anyone ever came out of one, so abandonment at
+   * question fourteen of a badly ordered pack and completion in one sitting produced identical
+   * telemetry — on a surface about to carry twenty-one packs whose ordering is exactly what this
+   * number would judge.
+   */
+  describe("finishing the form", () => {
+    /**
+     * A tiered pack in miniature: the gate, one capability question, and one fresher question the
+     * gate hides. THREE items, TWO of them ever asked — the arithmetic the whole event turns on.
+     */
+    const TIERED: QuestionPack = {
+      ...PACK,
+      items: [
+        item({ question_key: "turning_experience", answer_type: "number" }),
+        item({ question_key: "turning_machine", answer_type: "multi_select", options: options(6) }),
+        item({
+          question_key: "iti_project_work",
+          answer_type: "text",
+          ask_if: {
+            op: "lte",
+            left: { field: "turning_experience" },
+            right: { const: 0 },
+          } as never,
+        }),
+      ],
+    };
+
+    /** Ten years on the lathe — so the fresher question is gated away for this worker. */
+    const senior = () =>
+      answered({ questionKey: "turning_experience", answerOptionKeys: null, answerNumber: 10 });
+
+    it("stays silent while a visible question is still unanswered", async () => {
+      // The discriminating half of the pair. Without it, a service that emitted on every answer
+      // would satisfy the test below and still report a finished form for a worker who has
+      // settled one question of two.
+      const { service, emitted } = await makeService({ pack: TIERED, saved: [senior()] });
+      await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+      expect(emitted).toEqual([]);
+    });
+
+    it("announces completion at the VISIBLE denominator, the only one this worker can reach", async () => {
+      const { service, emitted, emit } = await makeService({
+        pack: TIERED,
+        saved: [senior(), answered({ questionKey: "turning_machine" })],
+      });
+      const result = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+
+      expect(emitted).toHaveLength(1);
+      expect(emitted[0]?.event_name).toBe("profile.form_completed");
+      // `toEqual`, NOT `toMatchObject`. Counts and slugs only is the discipline
+      // `profile.form_mode_entered` keeps and for the same reason — the answers are what one
+      // specific worker said about themselves — and a subset match would pass a payload that had
+      // quietly grown a label or a value.
+      expect(emitted[0]?.payload).toEqual({
+        worker_id: WORKER,
+        form_kind: "cnc_turner",
+        pack_id: "qp_cnc_turning",
+        pack_version: 1,
+        answered: 2,
+        total: 2,
+      });
+      // THE POINT OF THE EVENT, in one assertion. The pack holds three items and this worker is
+      // asked two; counted against the pack an experienced turner could never satisfy the
+      // condition at all, and the funnel would report that only freshers ever finish.
+      expect(TIERED.items).toHaveLength(3);
+      // The rail the worker watches and the number the funnel reports have to be the same total,
+      // or the two disagree about what finishing this form means.
+      expect(result.total).toBe(2);
+
+      const call = emit.mock.calls[0]![0] as {
+        event_name: string;
+        payload: Record<string, unknown>;
+        idempotencyKey: string;
+      };
+      // ONCE PER (WORKER, PACK), and deliberately not per VERSION. The completion condition stays
+      // true for every subsequent answer, so a worker who finishes and then corrects one chip
+      // satisfies it again — without the key the funnel numerator climbs past its denominator.
+      expect(call.idempotencyKey).toBe(`profile.form_completed:${WORKER}:qp_cnc_turning`);
+    });
+
+    it("ignores a retired answer entirely rather than counting it past the denominator", async () => {
+      // THE STALE-ROW CASE, AND WHY IT COUNTS IN NEITHER NUMBER. Answers are listed by PACK ID and
+      // never by version, so a question dropped in v2 leaves its v1 row behind forever — this
+      // worker has three settled answers and is asked two. Counting the retired row in the
+      // numerator alone (which is what shipped, and what reached the progress rail) makes the rail
+      // read 3/2: a worker told they are 150% finished, and a funnel whose numerator can climb
+      // past its own denominator.
+      //
+      // The worker DID answer it. It is simply not a question this form asks any more, so it
+      // belongs to neither side of "how far through are you" — and excluding it is also what makes
+      // the completion condition an equality the worker can actually reach, rather than one they
+      // satisfy through a row they can neither see nor remove.
+      //
+      // A GATED-AWAY ANSWER WILL NOT PRODUCE THIS STATE, which is why the fixture is shaped this
+      // way and not the obvious way: `isFormQuestionVisible` returns true for anything already
+      // settled, precisely so a worker can still change it, so a question the tier gate hides is
+      // counted in BOTH numbers. A retired key is the only shape that lands in one and not the
+      // other.
+      const { service, emitted } = await makeService({
+        pack: TIERED,
+        saved: [
+          senior(),
+          answered({ questionKey: "turning_machine" }),
+          answered({ questionKey: "coolant_type", answerOptionKeys: null, answerText: "soluble" }),
+        ],
+      });
+      // The premise, asserted rather than assumed: if a later edit ever adds `coolant_type` to
+      // TIERED, this test would go on passing while testing nothing at all.
+      expect(TIERED.items.map((entry) => entry.question_key)).not.toContain("coolant_type");
+
+      const result = await service.answer(WORKER, {
+        question_key: "turning_machine",
+        answer: { kind: "chips", option_keys: ["k1"] },
+      });
+
+      // THE EVENT STILL FIRES — the retired row must not cost this worker their completion.
+      expect(emitted).toHaveLength(1);
+      // BOTH NUMBERS RANGE OVER THE SAME SET, which is the property this test exists for. Three
+      // rows are stored and two are asked; the numerator reports two, NOT three. `answered: 3`
+      // here would be the shipped defect, and it is what this assertion is watching for. The rest
+      // of the payload is the sibling test's to own — these two numbers are this one's.
+      expect(emitted[0]?.payload).toMatchObject({ answered: 2, total: 2 });
+      // The progress rail agrees with the funnel, and can never exceed 100%.
+      expect(result.answered).toBe(2);
+      expect(result.total).toBe(2);
+    });
+
+    it("keeps the answer when the emit throws", async () => {
+      // BEST-EFFORT BY DESIGN, and this assertion is what holds that design in place. The answer
+      // is durably written before the emitter runs, so throwing here would fail a request whose
+      // work succeeded and send the client back to retry an answer it had already saved — a
+      // stored answer traded for a telemetry row. The log line is the fallback record.
+      const { service, written, emit } = await makeService({
+        pack: TIERED,
+        saved: [senior(), answered({ questionKey: "turning_machine" })],
+      });
+      emit.mockImplementationOnce(async () => {
+        throw new Error("event store unreachable");
+      });
+
+      await expect(
+        service.answer(WORKER, {
+          question_key: "turning_machine",
+          answer: { kind: "chips", option_keys: ["k1"] },
+        }),
+      ).resolves.toMatchObject({
+        question_key: "turning_machine",
+        status: "answered",
+        answered: 2,
+        total: 2,
+      });
+      expect(written).toHaveLength(1);
     });
   });
 });

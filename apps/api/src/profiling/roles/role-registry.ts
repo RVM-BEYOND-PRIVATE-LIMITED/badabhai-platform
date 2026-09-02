@@ -14,6 +14,7 @@
  * property that makes order irrelevant rather than merely unimportant.
  */
 import {
+  assertEventSpineCanNameEveryRole,
   assertRegistryIsCoherent,
   conflictTermsFor,
   nonEmptyTuple,
@@ -49,6 +50,11 @@ const DECLARED = [CNC_TURNER, CNC_MACHINING_CENTRE, CNC_GRINDING, CAM_PROGRAMMER
 export const ROLE_FORM_DESCRIPTORS: readonly RoleFormDescriptor[] = DECLARED;
 
 assertRegistryIsCoherent(ROLE_FORM_DESCRIPTORS);
+// AT MODULE LOAD, like the coherence check above and for the same reason: the failure it replaces
+// is a funnel that goes quietly to zero for the newest trade, reported by one log line that both
+// emitters write on their way to swallowing the error. Failing at boot is the cheap version of
+// finding out.
+assertEventSpineCanNameEveryRole(ROLE_FORM_DESCRIPTORS);
 
 /**
  * A role whose form actually ships — narrowed by the LITERAL `formEnabled: true`.

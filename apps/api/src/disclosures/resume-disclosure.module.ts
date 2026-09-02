@@ -7,6 +7,7 @@ import { ResumeDisclosureRepository } from "./resume-disclosure.repository";
 import { ResumeRenderer } from "../resume/resume-renderer.service";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
+import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
 
 /**
  * Resume Disclosure (ADR-0013 Decision C / the resume-disclosure threat-model
@@ -32,6 +33,12 @@ import { WorkerEmploymentRepository } from "../profiles/worker-employment.reposi
  * `WorkerEmploymentRepository` is provided on exactly the same terms and feeds Zone 4. Its two
  * dependencies — the @Global DATABASE and the @Global CryptoModule's PiiCryptoService — are both
  * already resolvable here, so it adds no edge either.
+ *
+ * `WorkerQualificationsRepository` (migration 0098) is the third on the same terms and feeds Zone
+ * 5's Education and Certificates rows. Its ONLY dependency is the @Global DATABASE — it stores no
+ * ciphertext, so it does not even need PiiCryptoService — which is why providing it here is
+ * strictly cheaper than importing ProfilesModule and is what keeps this surface's boot
+ * independent of the profiles subtree.
  */
 @Module({
   imports: [ConsentModule, StorageModule],
@@ -42,6 +49,7 @@ import { WorkerEmploymentRepository } from "../profiles/worker-employment.reposi
     ResumeRenderer,
     WorkerAttributesRepository,
     WorkerEmploymentRepository,
+    WorkerQualificationsRepository,
   ],
   // Exported so the payer portal can mount a PayerAuthGuard'd disclosure surface
   // (PayerDisclosureController) over the SAME chokepoint, exactly as ReachModule exports

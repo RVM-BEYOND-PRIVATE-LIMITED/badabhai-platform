@@ -9,7 +9,9 @@ import { WorkersRepository } from "../workers/workers.repository";
 import { PiiCryptoService } from "../common/pii-crypto.service";
 import { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
+import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
 import { WorkerTranscriptRepository } from "../profiles/worker-transcript.repository";
+import { qualificationFactsFrom } from "./resume-qualification-rows";
 import { StorageService } from "../storage/storage.service";
 import { ResumeRepository } from "./resume.repository";
 import { FontResolutionError } from "../common/pdf/font-resolution";
@@ -44,6 +46,9 @@ export class ResumeRenderProcessor extends WorkerHost {
     private readonly storage: StorageService,
     private readonly attributes: WorkerAttributesRepository,
     private readonly employments: WorkerEmploymentRepository,
+    // Migration 0098 — Zone 5's credentials. The Certificates row has never had a writer on this
+    // path, so it has never printed for a form-first worker.
+    private readonly qualifications: WorkerQualificationsRepository,
     private readonly transcript: WorkerTranscriptRepository,
     // #1350 — the one field on this sheet the model may compose. Off by two independent
     // locks by default; see `WORK_HISTORY_POLISH_ENABLED`.
@@ -223,6 +228,24 @@ export class ResumeRenderProcessor extends WorkerHost {
       );
     }
 
+    // ZONE 5's CREDENTIALS — a SIXTH independent load, on the same degrade as the five above.
+    //
+    // WHY IT IS WORTH ITS OWN try/catch RATHER THAN RIDING THE ATTRIBUTE LOAD. Education has a
+    // second source (the four `education_*` scalars on `worker_attributes`) and certificates have
+    // none at all, so a failure here costs the Certificates row and leaves the education line
+    // exactly as it was. Failing the render instead would trade a missing row for no PDF.
+    //
+    // NEVER LOGGED. A certificate name, an issuer and an institute are the worker's own strings;
+    // the catch names the worker id and nothing from the rows reaches a log line or an event.
+    let qualification: ReturnType<typeof qualificationFactsFrom>;
+    try {
+      qualification = qualificationFactsFrom(await this.qualifications.loadForResume(workerId));
+    } catch {
+      this.logger.warn(
+        `could not load credentials for worker ${workerId}; rendering Zone 5 from the draft`,
+      );
+    }
+
     // ALWAYS A CONTEXT, never null. `packId`/`attributes` carry the empty defaults so a failed
     // attribute load collapses the capability section and costs exactly that.
     const tradeSheet: TradeSheetContext = {
@@ -233,6 +256,10 @@ export class ResumeRenderProcessor extends WorkerHost {
       // #1350 item 4 — the renderer half of the kill switch. Flipping this false reverts every
       // resume to the worker's own words on the next render, with no deploy and no data loss.
       polishEnabled: this.config.WORK_HISTORY_POLISH_ENABLED,
+      // `undefined` WHEN THE WORKER HAS NO ROWS, and that is load-bearing rather than a tidy
+      // default: Zone 5 resolves with `??`, so an empty ARRAY would assert "this worker has no
+      // certificates" and suppress whatever the extraction found. See `qualificationFactsFrom`.
+      qualification,
       workerSaid,
       // ONE CLOCK PER RENDER, shared with the footer below, so a sheet generated at midnight
       // cannot date its footer one day and compute a current job's tenure against the next.

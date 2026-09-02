@@ -13,8 +13,10 @@ import type { ResumeRenderer } from "./resume-renderer.service";
 import type { StorageService } from "../storage/storage.service";
 import type { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import type { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
+import type { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
 import type { WorkerTranscriptRepository } from "../profiles/worker-transcript.repository";
 import type { WorkerEmploymentRecord } from "./resume-employment-rows";
+import type { WorkerCertificateRecord, WorkerEducationRecord } from "./resume-qualification-rows";
 import type { ResumeRenderJobData } from "../queue/queue.constants";
 
 const RESUME_ID = "res-1";
@@ -86,6 +88,12 @@ function setup(
     // Zone 4 — seeded `worker_employment` rows, and the failure mode of reading them.
     employments?: WorkerEmploymentRecord[];
     empThrows?: boolean;
+    // Zone 5 (0098) — seeded credentials, and the failure mode of reading them.
+    qualifications?: {
+      certificates: WorkerCertificateRecord[];
+      educations: WorkerEducationRecord[];
+    };
+    qualThrows?: boolean;
     // R8 §2/§4 — the worker's own turns, and the failure mode of reading them.
     workerSaid?: string[];
     transcriptThrows?: boolean;
@@ -136,6 +144,16 @@ function setup(
       return opts.employments ?? [];
     }),
   };
+  // Zone 5 (migration 0098). Same degrade contract again: a failed credential read must cost the
+  // Education and Certificates rows, never the PDF. Empty by default, which is `undefined` after
+  // `qualificationFactsFrom` — i.e. no override, and every assertion below sees exactly the sheet
+  // it saw before this repository existed.
+  const qualifications = {
+    loadForResume: vi.fn(async () => {
+      if (opts.qualThrows) throw new Error("qualification boom");
+      return opts.qualifications ?? { certificates: [], educations: [] };
+    }),
+  };
   // R8 §2/§4. Same degrade contract as the two reads above: a failed transcript load must cost
   // the quote block and the veto, never the PDF.
   const transcript = {
@@ -156,6 +174,7 @@ function setup(
     storage as unknown as StorageService,
     attributes as unknown as WorkerAttributesRepository,
     employments as unknown as WorkerEmploymentRepository,
+    qualifications as unknown as WorkerQualificationsRepository,
     transcript as unknown as WorkerTranscriptRepository,
     // #1350 — a pass-through by default. These tests are about the render lifecycle, and the
     // polish is off unless WORK_HISTORY_POLISH_ENABLED is set; its own behaviour has its own
@@ -314,9 +333,9 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
   it("never references EventsService (no events.emit reachable from this processor)", () => {
     // Static guard: a future refactor that wires events into the render processor would break the
     // 'render emits no event' guarantee. The constructor arity must stay at exactly the
-    // NON-EVENT deps, currently ten:
-    //   resumes · workers · pii · renderer · storage · attributes · employments · transcript
-    //   · polish · config
+    // NON-EVENT deps, currently eleven:
+    //   resumes · workers · pii · renderer · storage · attributes · employments · qualifications
+    //   · transcript · polish · config
     // `attributes` (WorkerAttributesRepository) joined in 2026-08-28 for the trade sheet's
     // capability block, and `employments` (WorkerEmploymentRepository) the same day for Zone 4.
     // `transcript` (WorkerTranscriptRepository) joined for R8 §2/§4 — the worker's own turns,
@@ -328,9 +347,15 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
     // WorkerEmploymentRepository; NEITHER has an event surface, which is the property this
     // test actually protects and which was checked before the number below was bumped.
     //
+    // `qualifications` (WorkerQualificationsRepository) joined for migration 0098 — Zone 5's
+    // Education and Certificates rows, the second of which had never had a writer. Its ONLY
+    // dependency is the @Global DATABASE; it holds no ciphertext and reaches no service, so it
+    // has no event surface either. Checked before the number below was bumped, exactly as the
+    // three above were.
+    //
     // ARITY ALONE IS A PROXY, so the real property is asserted directly below it: a number can be
     // bumped to make this pass while wiring in exactly the dependency it exists to keep out.
-    expect(ResumeRenderProcessor.length).toBe(10);
+    expect(ResumeRenderProcessor.length).toBe(11);
     const source = readFileSync(join(__dirname, "resume-render.processor.ts"), "utf8");
     expect(source, "an events dependency reached the render processor").not.toMatch(
       /EventsService|events\.emit/,

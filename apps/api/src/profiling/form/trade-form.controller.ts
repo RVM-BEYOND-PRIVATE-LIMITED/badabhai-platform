@@ -6,6 +6,7 @@ import {
   CurrentWorker,
   type AuthenticatedWorker,
 } from "../../auth/worker-auth.guard";
+import { Ctx, type RequestContext } from "../../common/request-context";
 import { ZodValidationPipe } from "../../common/pipes/zod-validation.pipe";
 import { TradeFormService } from "./trade-form.service";
 import { TradeFormAnswerSchema, type TradeFormAnswerDto } from "./trade-form.dto";
@@ -46,7 +47,8 @@ export class TradeFormController {
   answer(
     @CurrentWorker() worker: AuthenticatedWorker,
     @Body(new ZodValidationPipe(TradeFormAnswerSchema)) dto: TradeFormAnswerDto,
+    @Ctx() ctx: RequestContext,
   ) {
-    return this.form.answer(worker.id, dto);
+    return this.form.answer(worker.id, dto, ctx);
   }
 }

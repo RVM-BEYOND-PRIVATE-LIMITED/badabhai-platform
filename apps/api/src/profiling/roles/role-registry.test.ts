@@ -21,6 +21,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  assertEventSpineCanNameEveryRole,
   assertRegistryIsCoherent,
   conflictTermsFor,
   type RoleFormDescriptor,
@@ -30,6 +31,7 @@ import {
   descriptorForKind,
   descriptorForPack,
   ENABLED_ROLE_DESCRIPTORS,
+  ROLE_FORM_DESCRIPTORS,
   TRADE_FORM_KINDS,
 } from "./role-registry";
 import { TRADE_FORM_OFFERS } from "../trade-form-router";
@@ -273,6 +275,52 @@ describe("the role registry", () => {
         detection: { occupationTerms: [], machineTerms: ["thing"], levelTerms: [] },
       });
       expect(() => assertRegistryIsCoherent([declared])).not.toThrow();
+    });
+  });
+
+  /**
+   * ═══ EVERY DECLARED ROLE MUST BE NAMEABLE ON THE EVENT SPINE ═══
+   *
+   * `form_kind` crosses `profile.form_mode_entered` and `profile.form_completed` as a
+   * `z.enum(TRADE_FORM_KINDS_ALL)`. A kind that list has never heard of makes `emit` throw at
+   * validation — and BOTH emitters swallow their own failure on purpose, correctly: neither a
+   * handover that has already happened in the envelope nor an answer already written to the
+   * database may be rolled back to protect a telemetry row. So a missing kind costs the ENTIRE
+   * funnel for the newest trade and announces itself with one log line, in a repo with no log
+   * shipping and no log search.
+   */
+  describe("the event spine can name every declared role", () => {
+    // Nothing about this descriptor is malformed EXCEPT the one thing under test: `fake` gives it
+    // a pack, a family and an occupation term, so a failure can only be about the kind.
+    const rogue = fake({ kind: "alpha" });
+
+    it("accepts the shipped registry", () => {
+      // `role-registry.ts` runs this at module load, so a real break would already have failed
+      // this file at IMPORT. Asserted by name anyway, because "cnc_grinding is not in
+      // TRADE_FORM_KINDS_ALL" and "the suite could not import a module" are the same afternoon
+      // apart.
+      expect(() => assertEventSpineCanNameEveryRole(ROLE_FORM_DESCRIPTORS)).not.toThrow();
+    });
+
+    it("throws for a kind the spine does not carry, and names it", () => {
+      expect(() => assertEventSpineCanNameEveryRole([rogue])).toThrow(/alpha/);
+      // The message has to name the LIST as well as the kind: the fix is one line in
+      // `@badabhai/types` and this error is the only thing that will ever say so.
+      expect(() => assertEventSpineCanNameEveryRole([rogue])).toThrow(/TRADE_FORM_KINDS_ALL/);
+      // DECLARED IS ENOUGH — a role whose form is not enabled yet is still rejected. Narrowing
+      // this to enabled roles would defer the check to the commit that flips `formEnabled`, which
+      // is precisely the commit where nobody is thinking about events.
+      const declaredOnly = fake({ kind: "alpha", formEnabled: false });
+      expect(() => assertEventSpineCanNameEveryRole([declaredOnly])).toThrow(/alpha/);
+    });
+
+    it("leaves that same descriptor perfectly COHERENT — two checks, deliberately", () => {
+      // WHY THEY ARE NOT ONE FUNCTION. Coherence is a property of ANY set of descriptors, which
+      // is what lets every test above build synthetic ones; spine parity is a property of the
+      // REAL registry, which no fake can satisfy. Folded together, the coherence rules would be
+      // untestable with a fake at all — each case above would fail on its invented kind rather
+      // than on the rule it exists to pin.
+      expect(() => assertRegistryIsCoherent([rogue])).not.toThrow();
     });
   });
 

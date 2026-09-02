@@ -945,6 +945,39 @@ export const EVENT_REGISTRY = {
     domain: "job_posting",
     payload: p.JobPostingReachWidenExpiredPayload,
   },
+
+  // APPENDED AT THE END, never inserted among the entries above — the registry is append-only by
+  // protocol, because an edited entry is a mutated event schema and consumers version off these
+  // definitions.
+
+  // Migration 0098 — the worker recorded their certificates and education on the finishing form's
+  // qualifications page. NOT more counts on `worker.preferences_recorded`: that payload counts
+  // ATTRIBUTE KEYS and is bounded at sixteen because `PREFERENCE_KEYS` has sixteen entries, while
+  // these are rows in their own tables behind their own endpoint. Same shape as
+  // `worker.employment_recorded`, for a table of the same kind. Two counts and one flag. No
+  // credential names, no issuers, no institutes — an issuer can BE an employer, which is exactly
+  // the disclosure the employment event withholds by carrying a count instead of a name. v1.
+  "worker.qualifications_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerQualificationsRecordedPayload,
+  },
+
+  // The other end of the form funnel. `profile.form_mode_entered` says a worker was SENT to a
+  // form; nothing said whether they ever came out of one, because `POST /profiling/form/answer`
+  // emitted nothing at all. Abandonment at question fourteen of a badly ordered pack and
+  // completion in one sitting produce identical telemetry today — and the platform is about to
+  // have twenty-one of these funnels.
+  //
+  // Once per (worker, pack): a worker who reopens a finished form to correct one answer has not
+  // completed it twice. `total` is the VISIBLE question count, never the pack's item count — a
+  // senior turner is not asked the three fresher questions and can never reach 18/18. Two counts,
+  // one pack key, one closed-set kind. No labels, no answers. v1.
+  "profile.form_completed": {
+    version: 1,
+    domain: "profile",
+    payload: p.ProfileFormCompletedPayload,
+  },
 } as const satisfies Record<string, EventDefinition>;
 
 /** Union of all known event names. */

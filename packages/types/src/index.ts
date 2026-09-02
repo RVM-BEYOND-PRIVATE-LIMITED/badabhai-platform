@@ -448,6 +448,48 @@ export function isWorkerAppScreenTemplate(value: unknown): value is WorkerAppScr
   return typeof value === "string" && WORKER_APP_SCREEN_TEMPLATE_SET.has(value);
 }
 
+/**
+ * EVERY TRADE FORM THE PLATFORM DECLARES — the closed set behind `form_kind` on the spine.
+ *
+ * ═══ WHY IT LIVES HERE AND NOT WHERE THE AUTHORITY IS ═══
+ *
+ * The authority is `ROLE_FORM_DESCRIPTORS` in `apps/api/src/profiling/roles/` — one descriptor per
+ * role, from which the router's routes, the offers, the résumé maps and the conflict vocabulary
+ * are all derived. `packages/event-schema` cannot import from an app: the dependency runs the
+ * other way and must keep doing so, because an event contract has to be readable by a consumer
+ * that has never seen the API.
+ *
+ * So the SET sits in the one package both sides already depend on, exactly as
+ * {@link WORKER_APP_SCREEN_TEMPLATES} does for the Flutter route table — `payloads.ts` builds its
+ * `z.enum` from this, `role-registry.ts` asserts every declared role kind appears in it, and there
+ * is one list rather than two that can disagree.
+ *
+ * ═══ IT COVERS DECLARED ROLES, NOT ENABLED ONES ═══
+ *
+ * A role is DECLARED before its form is enabled — it contributes veto vocabulary to the router
+ * while its pack is still being authored. Listing only the enabled ones would mean this had to be
+ * edited in the same commit that flips `formEnabled`, which is precisely the edit that gets
+ * forgotten: the TypeScript type widens, the zod enum does not, `emit` throws,
+ * `recordFormHandoff` swallows it, and the handover goes invisible for the trade just launched.
+ *
+ * ═══ WIDENING IS ADDITIVE. NARROWING IS NOT ═══
+ *
+ * Adding a value leaves every historical payload valid and every consumer switching on `form_kind`
+ * working — it gains a case. REMOVING one is the breaking change, and needs a v2 payload beside
+ * the v1 rather than an edit in place.
+ *
+ * Frozen for the same reason the screen table is: a consumer that pushed onto it would widen the
+ * set of values allowed onto the event spine at runtime.
+ */
+export const TRADE_FORM_KINDS_ALL = Object.freeze([
+  "cnc_turner", // qp_cnc_turning — the first form-first trade, enabled
+  "vmc_milling", // qp_vmc_milling — declared; pack and résumé map already shipped
+  "cnc_grinding", // declared
+  "cam_programmer", // declared — a desk role, in the `design` cluster rather than `machining`
+] as const);
+
+export type TradeFormKindName = (typeof TRADE_FORM_KINDS_ALL)[number];
+
 // ---- Branded id helpers (lightweight; not enforced at runtime) ----
 export type Uuid = string;
 export type Iso8601 = string;

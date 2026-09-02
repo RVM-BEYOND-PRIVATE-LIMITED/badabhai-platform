@@ -31,6 +31,7 @@
  * pack, one form kind — so the descriptor carries all three ids and the collision stops being
  * ambiguous rather than being renamed.
  */
+import { TRADE_FORM_KINDS_ALL, type TradeFormKindName } from "@badabhai/types";
 
 /**
  * Which roles COMPETE for the same worker, and therefore veto each other's handover.
@@ -172,6 +173,42 @@ export interface RoleFormDescriptor {
    */
   readonly tenureQuestionKey: string;
   readonly fresher?: RoleFresherVocabulary;
+  /**
+   * Certificates a worker in THIS trade is likely to hold — the qualifications page's search box.
+   *
+   * ═══ A SUGGESTION, NEVER A VALIDATION SET ═══
+   *
+   * `PUT /workers/me/qualifications` accepts any name the worker types, and it must: the reference
+   * sheets carry "Mastercam Advanced Multiaxis", "Welder Qualification Test — 3G, MS plate",
+   * "Internal Auditor — IATF 16949" and "Wireman / Electrician Licence", issued by a training
+   * centre, an OEM, a certification body and a state licensing board respectively. There is no
+   * register to validate against, and a closed set would silently drop every credential not on it
+   * — which is the one failure mode worse than making the worker type.
+   *
+   * So this is autocomplete. It exists because a low-literacy worker should not have to spell
+   * "Fanuc Programming" from memory on a phone keyboard, and because a suggested list is what
+   * makes two workers with the same certificate store the same string — which is what makes the
+   * field searchable for an employer at all.
+   *
+   * ═══ WHY IT IS ON THE ROLE AND NOT ON THE ENDPOINT ═══
+   *
+   * The suggestions are per-trade and the FORM SCHEMA is the only response that already knows
+   * which trade the worker is on. `me/qualifications/options` would have to serve all twenty-one
+   * lists to everybody, and the client would then have to know which one applied — a routing
+   * decision the server has already made.
+   *
+   * ═══ OPTIONAL, LIKE {@link fresher} AND FOR THE SAME REASON ═══
+   *
+   * A required field here would break the `as const satisfies` on every role file and the `fake()`
+   * helper in `role-registry.test.ts`, turning "add a role by adding a file and a line" back into
+   * "edit every role" — the exact property this registry exists to provide. A role with no list
+   * serves an empty array and the worker types freely, which is today's behaviour everywhere.
+   *
+   * REVIEWED STATIC CONTENT. These strings are printed on résumés once a worker taps one, so they
+   * are ratification material like chip labels (`docs/registers/trade-content-ratification.md`),
+   * not typing.
+   */
+  readonly suggestedCertificates?: readonly string[];
 }
 
 /** Every rung, machine word and occupation word this role answers to. */
@@ -270,5 +307,47 @@ export function assertRegistryIsCoherent(all: readonly RoleFormDescriptor[]): vo
     if (descriptor.formEnabled && descriptor.detection.occupationTerms.length === 0) {
       throw new Error(`${descriptor.kind} is form-enabled but names no occupation terms`);
     }
+  }
+}
+
+/**
+ * EVERY DECLARED ROLE MUST BE NAMEABLE ON THE EVENT SPINE.
+ *
+ * ═══ WHAT BREAKS WITHOUT IT, AND WHY NOTHING WOULD SAY SO ═══
+ *
+ * `profile.form_mode_entered` and `profile.form_completed` both carry `form_kind` as a
+ * `z.enum(TRADE_FORM_KINDS_ALL)`. A role this list has never heard of makes `emit` throw at
+ * validation — and BOTH emitters swallow their own failure on purpose. `recordFormHandoff` does
+ * it because the handover has already happened in the envelope and throwing there would roll a
+ * worker back into an interview that had correctly ended, to protect a telemetry row;
+ * `recordCompletion` does it because the worker's answer is already durably written. Correct
+ * decisions both, and together they mean a missing kind costs the ENTIRE funnel for the newest
+ * trade and announces itself with one log line, in a repo with no log shipping or search.
+ *
+ * ═══ CHECKED FOR DECLARED ROLES, NOT ENABLED ONES ═══
+ *
+ * The commit that flips `formEnabled` is the commit where nobody is thinking about events, so the
+ * list has to be right before then. Declaring is when the kind first exists, so declaring is when
+ * this is checked.
+ *
+ * ═══ SEPARATE FROM {@link assertRegistryIsCoherent}, DELIBERATELY ═══
+ *
+ * That function checks whether a set of descriptors is INTERNALLY consistent, which is a property
+ * of any set — its tests build synthetic ones to prove each rule fires. This checks a descriptor
+ * against an external contract, which only the REAL registry can satisfy: a synthetic `alpha`
+ * role in a unit test has no business being on the event spine. Folding the two together would
+ * make the coherence checker unusable with a fake, which is the only way its own rules are
+ * testable at all.
+ */
+export function assertEventSpineCanNameEveryRole(all: readonly RoleFormDescriptor[]): void {
+  const unnamed = all
+    .map((descriptor) => descriptor.kind)
+    .filter((kind) => !TRADE_FORM_KINDS_ALL.includes(kind as TradeFormKindName));
+  if (unnamed.length > 0) {
+    throw new Error(
+      `role kind(s) ${unnamed.join(", ")} are not in TRADE_FORM_KINDS_ALL (@badabhai/types) — ` +
+        `the event spine cannot carry a form_kind it does not declare, and both emitters swallow ` +
+        `the failure, so the funnel would go silent rather than loud`,
+    );
   }
 }

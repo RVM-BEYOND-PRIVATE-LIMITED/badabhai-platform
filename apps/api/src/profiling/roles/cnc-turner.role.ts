@@ -58,4 +58,26 @@ export const CNC_TURNER = {
       appeared: "Trade test taken, result awaited",
     },
   },
+  /**
+   * AUTOCOMPLETE FOR THE QUALIFICATIONS PAGE, NOT A CLOSED SET. The endpoint stores whatever the
+   * worker types; these are what a turner is most likely to be reaching for.
+   *
+   * READ OFF THE REFERENCE SHEETS AND THE CONTROLS A TURNER ACTUALLY MEETS. The first is the one
+   * both RVM student sheets lead with. The controller entries are here because "Fanuc" and
+   * "Siemens" are the words a worker uses for a course they took, and because a certificate
+   * naming the control is worth more to a supervisor than a generic "CNC course" — the same
+   * argument that makes the controller its own capability row on this trade's sheet.
+   */
+  suggestedCertificates: [
+    "CNC Turning & Fanuc Programming",
+    "CNC Turning Operator — NSQF",
+    "Fanuc Oi-TF Programming",
+    "Siemens Sinumerik 828D Programming",
+    "CNC Setter cum Programmer (Turning)",
+    "Advanced CNC Turning — Live Tooling",
+    "Metrology & Inspection",
+    "Trade Test — Turner",
+    "Fire & Safety Awareness",
+    "First Aid",
+  ],
 } as const satisfies RoleFormDescriptor;
