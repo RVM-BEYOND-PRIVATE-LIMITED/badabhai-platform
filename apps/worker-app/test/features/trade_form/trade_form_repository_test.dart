@@ -153,6 +153,52 @@ void main() {
       expect(openQ.question.kind, VoiceQuestionKind.open);
     });
 
+    test('is_none_of_above (#1382) is carried onto VoiceChoice, not parsed away',
+        () async {
+      final Map<String, dynamic> json = _formJson();
+      (((json['sections'] as List<dynamic>)[0] as Map<String, dynamic>)['screens']
+          as List<dynamic>)[1] = <String, dynamic>{
+        'type': 'question',
+        'question': <String, dynamic>{
+          'question_key': 'material_worked',
+          'prompt_text': 'Aap kaunsi dhaatu par kaam karte hain?',
+          'why_text': null,
+          'answer_type': 'multi_select',
+          'options': <dynamic>[
+            <String, dynamic>{
+              'option_key': 'mild_steel',
+              'label_text': 'Mild steel',
+              'is_none_of_above': false,
+            },
+            <String, dynamic>{
+              'option_key': 'none_of_these',
+              'label_text': 'In me se koi nahi',
+              'is_none_of_above': true,
+            },
+          ],
+        },
+        'ui': <String, dynamic>{'searchable': true},
+        'answer': null,
+      };
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient(
+            (http.Request req) async => http.Response(jsonEncode(json), 200)),
+      );
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(api, _session());
+
+      final TradeForm? form = await repo.loadForm();
+
+      final TradeFormQuestionStep step =
+          form!.sections[0].screens[1] as TradeFormQuestionStep;
+      final List<VoiceChoice> options = step.question.options;
+      expect(options.firstWhere((VoiceChoice c) => c.key == 'mild_steel').isNoneOfAbove,
+          isFalse);
+      expect(
+          options.firstWhere((VoiceChoice c) => c.key == 'none_of_these').isNoneOfAbove,
+          isTrue);
+    });
+
     test('a declined answer is NOT confused with an unanswered one', () async {
       final Map<String, dynamic> json = _formJson();
       (((json['sections'] as List<dynamic>)[0] as Map<String, dynamic>)['screens']
@@ -257,6 +303,42 @@ void main() {
       expect(bodies[3]['answer'], <String, dynamic>{'kind': 'declined'});
       expect(declined.answered, 4);
       expect(declined.total, 4);
+    });
+
+    test(
+        'schema_stale (#1382) parses true when present and defaults false '
+        'when absent from the wire', () async {
+      final ApiClient api = ApiClient(
+        baseUrl: 'http://test',
+        client: MockClient((http.Request req) async {
+          final Map<String, dynamic> body =
+              jsonDecode(req.body) as Map<String, dynamic>;
+          final bool stale = body['question_key'] == 'turning_machine';
+          final Map<String, dynamic> response = <String, dynamic>{
+            'question_key': body['question_key'],
+            'status': 'answered',
+            'answered': 1,
+            'total': 2,
+          };
+          // Only ONE of the two requests below carries the key — mirrors the
+          // real wire today, where the field does not exist at all yet.
+          if (stale) response['schema_stale'] = true;
+          return http.Response(jsonEncode(response), 200);
+        }),
+      );
+      final TradeFormRepositoryImpl repo = TradeFormRepositoryImpl(api, _session());
+
+      final TradeFormAnswerResult stale = await repo.submitAnswer(
+        questionKey: 'turning_machine',
+        answer: const TradeFormAnswer.chips(<String>['cnc_lathe']),
+      );
+      final TradeFormAnswerResult notStale = await repo.submitAnswer(
+        questionKey: 'material_worked',
+        answer: const TradeFormAnswer.chips(<String>['mild_steel']),
+      );
+
+      expect(stale.schemaStale, isTrue);
+      expect(notStale.schemaStale, isFalse);
     });
 
     test('a 400 naming an unknown option_key surfaces the server message',

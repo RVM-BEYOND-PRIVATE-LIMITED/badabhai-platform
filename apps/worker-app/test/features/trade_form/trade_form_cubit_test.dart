@@ -298,6 +298,150 @@ void main() {
     expect(cubit.state.status, isNot(TradeFormStatus.submitting));
   });
 
+  group('schema_stale (#1382 — forward-compatible groundwork)', () {
+    test(
+        'schema_stale absent/false does NOT re-fetch — loadForm is called '
+        'exactly once (the initial load)', () async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'material_worked',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+      final TradeFormCubit cubit = build();
+      await cubit.load();
+
+      await cubit.answerQuestion(
+        cubit.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['mild_steel']),
+      );
+
+      verify(() => repo.loadForm()).called(1);
+      expect(cubit.state.currentStep, isA<TradeFormPreferencesStep>());
+    });
+
+    test(
+        'schema_stale: true re-fetches and lands on the correct NEXT step, '
+        'never resetting to the first unanswered question overall', () async {
+      // The initial form: q1 unanswered, q2 unanswered, then a THIRD
+      // question a real ask_if-filtered pack would have removed once q1 is
+      // answered — simulated by the re-fetched form below being SHORTER.
+      const VoiceQuestion q3 = VoiceQuestion(
+        id: 'iti_fresher_only',
+        prompt: 'ITI fresher wala sawaal',
+        kind: VoiceQuestionKind.boolean,
+      );
+      final TradeForm initial = TradeForm(
+        kind: 'cnc_turner',
+        packId: 'qp_cnc_turning',
+        packVersion: 1,
+        sections: <TradeFormSection>[
+          TradeFormSection(
+            id: 'capability',
+            title: 'Machines, controllers & capability',
+            screens: <TradeFormStep>[
+              const TradeFormQuestionStep(question: _q1, searchable: false),
+              const TradeFormQuestionStep(question: _q2, searchable: false),
+              const TradeFormQuestionStep(question: q3, searchable: false),
+            ],
+          ),
+        ],
+      );
+      // Re-fetched AFTER answering q1: q1 now answered, q3 (the fresher-only
+      // question) is GATED OUT entirely by ask_if — a real server response,
+      // not a client guess. The worker must land on q2, not q3, and not
+      // back at q1.
+      final TradeForm refetched = TradeForm(
+        kind: 'cnc_turner',
+        packId: 'qp_cnc_turning',
+        packVersion: 1,
+        sections: <TradeFormSection>[
+          TradeFormSection(
+            id: 'capability',
+            title: 'Machines, controllers & capability',
+            screens: <TradeFormStep>[
+              const TradeFormQuestionStep(
+                question: _q1,
+                searchable: false,
+                answer: TradeFormSavedAnswer(
+                  status: TradeFormAnswerStatus.answered,
+                  optionKeys: <String>['cnc_lathe'],
+                ),
+              ),
+              const TradeFormQuestionStep(question: _q2, searchable: false),
+            ],
+          ),
+        ],
+      );
+      when(() => repo.loadForm()).thenAnswer((_) async => initial);
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'turning_machine',
+            status: TradeFormAnswerStatus.answered,
+            answered: 1,
+            total: 2,
+            schemaStale: true,
+          ));
+      final TradeFormCubit cubit = build();
+      await cubit.load();
+      expect(cubit.state.currentIndex, 0); // starts on q1, nothing answered
+
+      // The re-fetch happens on the NEXT loadForm() call — swap the stub so
+      // the resync sees the post-answer schema.
+      when(() => repo.loadForm()).thenAnswer((_) async => refetched);
+      await cubit.answerQuestion(
+        cubit.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['cnc_lathe']),
+      );
+
+      verify(() => repo.loadForm()).called(2); // initial load + resync
+      expect(cubit.state.status, TradeFormStatus.ready);
+      expect((cubit.state.currentStep as TradeFormQuestionStep).question.id,
+          'material_worked'); // q2 — never q1 (backward) or q3 (gone)
+      expect(cubit.state.answered, 1); // server's own count, not recomputed
+      expect(cubit.state.total, 2);
+    });
+
+    test(
+        'schema_stale: true whose refetch fails falls back to the '
+        'locally-banked answer rather than losing it', () async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'turning_machine',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+            schemaStale: true,
+          ));
+      final TradeFormCubit cubit = build();
+      await cubit.load();
+
+      when(() => repo.loadForm())
+          .thenThrow(const NetworkFailure('offline'));
+      await cubit.answerQuestion(
+        cubit.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['mild_steel']),
+      );
+
+      expect(cubit.state.status, TradeFormStatus.ready);
+      expect(cubit.state.submitError, isNotNull);
+      final TradeFormQuestionStep banked = cubit.state.flatSteps
+          .map((TradeFormFlatStep f) => f.step)
+          .whereType<TradeFormQuestionStep>()
+          .firstWhere((TradeFormQuestionStep q) => q.question.id == 'material_worked');
+      expect(banked.isAnswered, isTrue); // the submit that DID land is kept
+    });
+  });
+
   test('saveEmploymentAndAdvance blocks on a partially-typed employer',
       () async {
     when(() => repo.loadForm()).thenAnswer((_) async => _form());
