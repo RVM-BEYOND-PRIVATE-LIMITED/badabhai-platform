@@ -12,14 +12,20 @@ import '../../domain/finishing_models.dart';
 const String _kNameLabel = 'Company ka naam';
 const String _kNameHint = 'Jaise: Sandhar Technologies';
 const String _kRoleLabel = 'Aapka kaam / role';
-const String _kRoleHint = 'Jaise: CNC Turner';
+// Trade-neutral (#1382). Duplicated verbatim in
+// `trade_form/presentation/widgets/trade_form_employment_page.dart`; keep
+// both in sync if this ever changes.
+const String _kRoleHint = 'Jaise: Operator';
 const String _kCityLabel = 'Sheher';
 const String _kStateLabel = 'State';
 const String _kStartLabel = 'Kab shuru kiya';
 const String _kEndLabel = 'Kab tak';
 const String _kStillWorking = 'Abhi yahin kaam kar rahe hain';
 const String _kWorkLabel = 'Aap kya kaam karte the?';
-const String _kWorkHint = 'Jaise: Twin-spindle lathe par steering housing';
+// Trade-neutral (#1382). Duplicated verbatim in
+// `trade_form/presentation/widgets/trade_form_employment_page.dart`; keep
+// both in sync if this ever changes.
+const String _kWorkHint = 'Jaise: Naye parts banate the aur quality check karte the';
 const String _kNotStated = 'Nahi bataya';
 const String _kPickYear = 'Saal chunein';
 const String _kPickMonth = 'Mahina chunein';
