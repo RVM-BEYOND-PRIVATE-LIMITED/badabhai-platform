@@ -14,6 +14,9 @@ import { MatchApplyService } from "./match-apply.service";
 import { MatchCandidatesService } from "./match-candidates.service";
 import { FreeTierService } from "./free-tier.service";
 import { MatchConfigRepository } from "./match-config.repository";
+import { MatchingCatalogController } from "./matching-catalog.controller";
+import { MatchingCatalogService } from "./matching-catalog.service";
+import { MatchingCatalogRepository } from "./matching-catalog.repository";
 
 /**
  * DI WIRING CONTRACT for the Matching V1 layer (ADR-0036).
@@ -51,8 +54,11 @@ describe("MatchModule — the @Global matching layer's wiring", () => {
     expect(getMeta("imports", MatchModule)).toContain(PayersModule);
   });
 
-  it("declares the posting-form controller", () => {
-    expect(getMeta("controllers", MatchModule)).toEqual([MatchSkillsController]);
+  it("declares the posting-form controller and the matching-catalog controller", () => {
+    expect(getMeta("controllers", MatchModule)).toEqual([
+      MatchSkillsController,
+      MatchingCatalogController,
+    ]);
   });
 
   it("provides every service the six moments need, including both repositories", () => {
@@ -69,6 +75,8 @@ describe("MatchModule — the @Global matching layer's wiring", () => {
       MatchApplyService,
       MatchCandidatesService,
       FreeTierService,
+      MatchingCatalogRepository,
+      MatchingCatalogService,
     ]) {
       expect(providers, `${p.name} must be provided`).toContain(p);
     }
@@ -89,6 +97,17 @@ describe("MatchModule — the @Global matching layer's wiring", () => {
       MatchCandidatesService,
       FreeTierService,
     ]);
+  });
+
+  it("keeps the matching-catalog pair INTERNAL — nothing outside this module injects them yet", () => {
+    // Deliberately NOT exported. The only consumer today is MatchingCatalogController,
+    // which lives in this module. P2's tier resolver is the first outside consumer;
+    // adding the export then is one reviewable line, and until then an unused export
+    // would make the assertion above ("exactly the surface the five consumers inject")
+    // quietly false.
+    const exports = getMeta("exports", MatchModule);
+    expect(exports).not.toContain(MatchingCatalogService);
+    expect(exports).not.toContain(MatchingCatalogRepository);
   });
 
   it("keeps MatchConfigRepository INTERNAL — config is read through the cached service", () => {

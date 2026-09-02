@@ -1,0 +1,26 @@
+{
+  "name": "@badabhai/matching-catalog",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Typed Zod contract for the matching_catalog config blob (spec §A4 / master-context §32) — role registry, domains, families, adjacency, function multipliers, collar-tier bands, per-role whitelists. Owns the SHAPE and the publish-time validator; RVM owns the VALUES. Pure, PII-free, no LLM.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rimraf --glob dist .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  }
+}

@@ -118,6 +118,9 @@ importers:
       '@badabhai/match-engine':
         specifier: workspace:*
         version: link:../../packages/match-engine
+      '@badabhai/matching-catalog':
+        specifier: workspace:*
+        version: link:../../packages/matching-catalog
       '@badabhai/pricing':
         specifier: workspace:*
         version: link:../../packages/pricing
@@ -355,6 +358,12 @@ importers:
       '@badabhai/taxonomy':
         specifier: workspace:*
         version: link:../taxonomy
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+
+  packages/matching-catalog:
+    dependencies:
       zod:
         specifier: ^3.24.1
         version: 3.25.76

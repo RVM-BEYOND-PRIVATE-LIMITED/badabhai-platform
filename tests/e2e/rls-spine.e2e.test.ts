@@ -91,6 +91,7 @@ const LOCKED_TABLES = [
   "worker_industry_tenure", // 0053: per-(worker, industry) calendar tenure (opaque worker_id + integer months); RLS+FORCE+REVOKE in migration 0053
   "job_reach", // 0055: materialized (posting, worker) reach set — PII-free but the densest worker-linkage table in the system; RLS+FORCE+REVOKE in migration 0055
   "match_config", // 0057: single-active-row rank-rule config (pricing_catalog clone — ops-editable, PII-free); RLS+FORCE+REVOKE in migration 0057
+  "matching_catalog", // 0099: single-active-row RVM taxonomy config (pricing_catalog clone — role registry/adjacency/multipliers, PII-free); RLS+FORCE+REVOKE in migration 0099
   "payment_orders", // 0058: payment intents — opaque payer/provider ids + ₹ integers, NO card/UPI/bank data; RLS+FORCE+REVOKE in migration 0058
   "referral_bonus_accruals", // 0058: one accrual per referred worker (two opaque worker ids + ₹); RLS+FORCE+REVOKE in migration 0058
   // ── B4 attribution (migration 0060) ─────────────────────────────────────────

@@ -4,6 +4,9 @@ import { PayersModule } from "../payers/payers.module";
 import { REACH_WIDEN_EXPIRY_QUEUE } from "../queue/queue.constants";
 import { MatchConfigRepository } from "./match-config.repository";
 import { MatchConfigService } from "./match-config.service";
+import { MatchingCatalogRepository } from "./matching-catalog.repository";
+import { MatchingCatalogService } from "./matching-catalog.service";
+import { MatchingCatalogController } from "./matching-catalog.controller";
 import { WorkerSkillsRepository } from "./worker-skills.repository";
 import { WorkerSkillsService } from "./worker-skills.service";
 import { MatchSkillsController } from "./match-skills.controller";
@@ -41,10 +44,12 @@ import { FreeTierService } from "./free-tier.service";
     // and nothing else produces to it.
     BullModule.registerQueue({ name: REACH_WIDEN_EXPIRY_QUEUE }),
   ],
-  controllers: [MatchSkillsController],
+  controllers: [MatchSkillsController, MatchingCatalogController],
   providers: [
     MatchConfigRepository,
     MatchConfigService,
+    MatchingCatalogRepository,
+    MatchingCatalogService,
     WorkerSkillsRepository,
     WorkerSkillsService,
     MatchSkillsService,

@@ -19,6 +19,7 @@
     "@badabhai/db": "workspace:*",
     "@badabhai/event-schema": "workspace:*",
     "@badabhai/match-engine": "workspace:*",
+    "@badabhai/matching-catalog": "workspace:*",
     "@badabhai/pricing": "workspace:*",
     "@badabhai/profiling-lexicon": "workspace:*",
     "@badabhai/reach-engine": "workspace:*",

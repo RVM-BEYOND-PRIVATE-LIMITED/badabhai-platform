@@ -98,6 +98,7 @@ import {
   jobReach,
   jobReachWiden,
   matchConfig,
+  matchingCatalog,
   workerIndustryTenure,
   workerSkills,
 } from "./match";
@@ -374,6 +375,7 @@ export const schema = {
   workerPackAnswers,
   jobReach,
   matchConfig,
+  matchingCatalog,
   paymentOrders,
   referralBonusAccruals,
   unresolvedPhrases,

@@ -135,6 +135,15 @@ export const OPS_ROUTES = [
   ["PUT", "/pricing/catalog", {}],
   ["GET", "/pricing/quote"],
 
+  // ── matching catalog (0095) — the same two shapes as pricing, and the same stakes.
+  // The PUT republishes the taxonomy: adjacency, families, per-role function/collar
+  // sets. An open one silently changes which workers are visible for which jobs,
+  // platform-wide. The GET hands over the entire adjacency graph, which is a map of
+  // how to phrase a posting to reach a pool you should not reach. Body stays
+  // deliberately invalid so a pass is the GUARD rejecting, never the validator.
+  ["GET", "/matching-catalog"],
+  ["PUT", "/matching-catalog", {}],
+
   // ── agency KYC ops (financial PII) ──
   ["GET", "/ops/agency-kyc/pending"],
   ["POST", `/ops/agency-kyc/${ABSENT_ID}/verify`, {}],

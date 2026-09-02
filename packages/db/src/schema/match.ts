@@ -279,3 +279,87 @@ export const matchConfig = pgTable(
 export type MatchConfig = typeof matchConfig.$inferSelect;
 export type NewMatchConfig = typeof matchConfig.$inferInsert;
 
+
+// ---------------------------------------------------------------------------
+// matching_catalog (migration 0099) — RVM-RATIFIED DOMAIN TRUTH as published config.
+//
+// The role registry, domains, families, directed adjacency multipliers, the
+// function/collar-tier matrices and the per-role attribute whitelists. Master-context
+// §32 keeps every one of these OUTSIDE the schema on purpose: after this table exists,
+// taxonomy churn is a data publish with RVM sign-off, not a deploy. Spec §D step 2
+// calls it "the highest-leverage single change" in the matching plan.
+//
+// WHY THIS IS A SEPARATE TABLE FROM `match_config`, WHICH HAS THE IDENTICAL SHAPE
+// (owner ruling, 2026-09-02 — recorded so this reads as a rejection, not an oversight):
+//   - Different sign-off authority. `match_config` is engineering knobs; this is RVM
+//     domain truth. Publishing a taxonomy version must not require republishing engine
+//     knobs, or the reverse.
+//   - Different cadence. Knobs move during tuning; taxonomy moves when RVM signs.
+//   - Decisive: bundled, every `boost_supply_floor` tweak would rewrite a new row
+//     carrying the whole taxonomy blob, and the audit trail stops telling you what
+//     actually changed. Config rows that move on different clocks do not share a row.
+//
+// COLUMN NAMES mirror `pricing_catalog` and `match_config` exactly — `catalog` /
+// `revision` / `updated_by`, not `catalog_json` / `version` / `published_by`. The
+// convention is 2-0 in the codebase; a third config table with its own vocabulary is a
+// permanent tax and triples the cost of ever extracting a shared config-catalog module.
+// `updated_by` is also simply accurate: flipping `is_active` IS an update to the row.
+//
+// PII-FREE by shape: machine ids, display labels and numbers only. Invariant #4 — these
+// are DETERMINISTIC matching parameters; an LLM neither writes nor reads them, and it
+// may never produce a canonical id.
+// ---------------------------------------------------------------------------
+export const matchingCatalog = pgTable(
+  "matching_catalog",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // The whole taxonomy blob. Loose jsonb here (like pricing_catalog.catalog and
+    // match_config.config); @badabhai/matching-catalog owns the Zod shape and the
+    // publish-time validator. Never trusted unvalidated.
+    catalog: jsonb("catalog").notNull(),
+    // Monotonic catalog revision, bumped on each RVM publish. UNIQUE — a revision
+    // number is a citation in a sign-off packet, so it must never be reusable.
+    revision: integer("revision").notNull().default(1),
+    // AT MOST ONE active row (partial unique index below). Deliberately NOT
+    // "exactly one": the fixture ships inactive and a fresh database legitimately has
+    // ZERO active catalogs, which is the state `getActive()` reports as null.
+    isActive: boolean("is_active").notNull().default(false),
+    // Opaque ops/RVM actor who published this revision (no PII). Mirrors
+    // pricing_catalog.updated_by and match_config.updated_by.
+    updatedBy: uuid("updated_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // At most one active catalog row (mirrors pricing_catalog_active_uq).
+    uniqueIndex("matching_catalog_active_uq")
+      .on(t.isActive)
+      .where(sql`${t.isActive}`),
+    // A revision number is never reused, active or not.
+    uniqueIndex("matching_catalog_revision_uq").on(t.revision),
+    check("matching_catalog_revision_positive_chk", sql`${t.revision} >= 1`),
+    // STRUCTURAL TEETH ON THE P1 INVARIANT — an invalid catalog cannot become active.
+    // Deliberately shallow: it pins the top-level container types only, so a row that
+    // is structurally garbage cannot be flipped active by a hand-written UPDATE that
+    // bypasses the API. Semantic validity (dangling adjacency edges, out-of-range
+    // multipliers, illegal function values) is NOT expressible here without a
+    // PL/pgSQL trigger, and is enforced by validateMatchingCatalog() at publish time.
+    // Bumping MATCHING_CATALOG_SCHEMA_VERSION in a way that changes these containers
+    // REQUIRES a follow-up migration to this constraint.
+    check(
+      "mc_active_shape_chk",
+      sql`${t.isActive} = false OR (
+        jsonb_typeof(${t.catalog} -> 'schemaVersion') = 'number'
+        AND jsonb_typeof(${t.catalog} -> 'domains') = 'array'
+        AND jsonb_typeof(${t.catalog} -> 'families') = 'array'
+        AND jsonb_typeof(${t.catalog} -> 'roles') = 'array'
+        AND jsonb_typeof(${t.catalog} -> 'adjacency') = 'array'
+        AND jsonb_typeof(${t.catalog} -> 'functionMultiplier') = 'object'
+        AND jsonb_typeof(${t.catalog} -> 'collarTierBand') = 'object'
+      )`,
+    ),
+  ],
+).enableRLS(); // RLS tracked in the model; FORCE + REVOKE carried by migration 0099
+
+export type MatchingCatalogRow = typeof matchingCatalog.$inferSelect;
+export type NewMatchingCatalogRow = typeof matchingCatalog.$inferInsert;
