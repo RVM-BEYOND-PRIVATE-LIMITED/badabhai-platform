@@ -98,6 +98,12 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
     if (q.kind == VoiceQuestionKind.open) {
       return _OpenAnswerField(
         key: ValueKey<String>('${q.id}-text'),
+        // #1382 — a saved `text` answer pre-fills the field so a worker who
+        // navigates back to an answered question does not see it blank.
+        // Boolean/number answers never reach this branch (`answer_type` maps
+        // them to `boolean`/never ships `number` — see `VoiceQuestionKind`'s
+        // `_kind` mapping), so `text` is the only field this widget renders.
+        initialText: widget.step.answer?.text,
         onSubmit: widget.onSubmitText,
       );
     }
@@ -111,6 +117,9 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
     return VoiceChoiceChips(
       key: ValueKey<String>('${q.id}-chips'),
       question: q,
+      // #1382 — a saved multi-select answer pre-ticks its chips on mount.
+      // Harmless for boolean/single-select, which never read this list.
+      initialSelected: widget.step.answer?.optionKeys,
       onChips: widget.onSubmitChips,
       onBoolean: widget.onSubmitBoolean,
     );
@@ -154,15 +163,42 @@ class _SearchableChoiceBody extends StatefulWidget {
 class _SearchableChoiceBodyState extends State<_SearchableChoiceBody> {
   List<String> _selected = const <String>[];
 
+  @override
+  void initState() {
+    super.initState();
+    // #1382 — a saved multi-select answer pre-ticks its chips on mount, the
+    // same guarantee VoiceChoiceChips gives the non-searchable path. This
+    // widget is rebuilt fresh (a new `ValueKey` per question — see the
+    // parent's `_body`), so `initState` runs on every question change; no
+    // `didUpdateWidget` re-seed is needed the way `VoiceChoiceChips` needs
+    // one for its own, key-less, voice_form call site.
+    _selected = widget.step.answer?.optionKeys ?? const <String>[];
+  }
+
   void _onChanged(List<String> next) {
-    if (!widget.step.question.isMultiSelect) {
+    final VoiceQuestion q = widget.step.question;
+    if (!q.isMultiSelect) {
       // Single-select via a searchable list: one tap settles the question —
       // submit immediately with only the LAST tapped key, exactly like
       // VoiceChoiceChips' own single-select tap-to-submit.
       if (next.isNotEmpty) widget.onSubmitChips(<String>[next.last]);
       return;
     }
-    setState(() => _selected = next);
+    if (next.length <= _selected.length) {
+      // A deselect (or no-op) — never needs the none-of-above exclusion
+      // rule (see `applyNoneOfAboveRule`'s own doc), so `next` is accepted
+      // as-is.
+      setState(() => _selected = next);
+      return;
+    }
+    // A select — BbSearchableMultiSelect always APPENDS a new pick, so the
+    // just-tapped key is the last element of `next` (see its own doc on
+    // "Selected chips never disappear" / tap-order accumulation).
+    setState(() => _selected = applyNoneOfAboveRule(
+          current: _selected,
+          key: next.last,
+          options: q.options,
+        ));
   }
 
   @override
@@ -199,15 +235,22 @@ class _SearchableChoiceBodyState extends State<_SearchableChoiceBody> {
 /// The `open` branch (`text`/`number` `answer_type`) — a plain text field;
 /// neither chip widget applies since these questions ship no options.
 class _OpenAnswerField extends StatefulWidget {
-  const _OpenAnswerField({super.key, required this.onSubmit});
+  const _OpenAnswerField({super.key, required this.onSubmit, this.initialText});
   final ValueChanged<String> onSubmit;
+
+  /// A saved `text` answer to pre-fill (#1382) — null/omitted starts empty,
+  /// today's behaviour.
+  final String? initialText;
 
   @override
   State<_OpenAnswerField> createState() => _OpenAnswerFieldState();
 }
 
 class _OpenAnswerFieldState extends State<_OpenAnswerField> {
-  final TextEditingController _controller = TextEditingController();
+  // Same seed-from-widget-on-construction shape `_EmployerCardState` already
+  // uses for its own text controllers (`trade_form_employment_page.dart`).
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initialText ?? '');
 
   @override
   void dispose() {

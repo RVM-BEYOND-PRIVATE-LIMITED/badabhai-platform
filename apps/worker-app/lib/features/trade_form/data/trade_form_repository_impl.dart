@@ -212,6 +212,10 @@ class TradeFormRepositoryImpl implements TradeFormRepository {
         .map((Map<dynamic, dynamic> o) => VoiceChoice(
               key: o['option_key'] as String? ?? '',
               label: o['label_text'] as String? ?? '',
+              // #1382 — carried onto the domain model so a multi-select
+              // renderer can keep this option mutually exclusive with every
+              // other one; previously parsed away entirely.
+              isNoneOfAbove: o['is_none_of_above'] as bool? ?? false,
             ))
         .where((VoiceChoice c) => c.key.isNotEmpty)
         .toList();
