@@ -117,13 +117,39 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
     return VoiceChoiceChips(
       key: ValueKey<String>('${q.id}-chips'),
       question: q,
-      // #1382 — a saved multi-select answer pre-ticks its chips on mount.
-      // Harmless for boolean/single-select, which never read this list.
-      initialSelected: widget.step.answer?.optionKeys,
+      // #1382/#1384 — a saved multi-select answer pre-ticks its chips on
+      // mount. Harmless for boolean/single-select, which never read this
+      // list. See `_seedOptionKeys` for the declined/none-of-above case.
+      initialSelected: _seedOptionKeys(widget.step.answer, q.options),
       onChips: widget.onSubmitChips,
       onBoolean: widget.onSubmitBoolean,
     );
   }
+}
+
+/// #1384 item 2 — the pre-fill seed for a saved answer's option keys.
+///
+/// A saved answer with [TradeFormSavedAnswer.isDeclined] is a REAL, SETTLED
+/// choice ("nothing here applies"), not silence — see the doc on
+/// [TradeFormAnswerStatus.declined] (`trade_form_models.dart`): it covers
+/// BOTH the explicit "Pata nahi" decline AND a multi-select where the worker
+/// tapped the none-of-above chip, which the server ALSO records as a
+/// declined save with an empty `option_keys`. Re-seeding blank in that case
+/// would render the none-of-above chip unselected — indistinguishable from a
+/// genuinely untouched question. So: when [answer] is declined AND the
+/// question offers a none-of-above option, seed THAT option's key. A
+/// question with no none-of-above option (or a genuinely-answered save) has
+/// nothing special to do and falls back to the raw saved [optionKeys].
+List<String> _seedOptionKeys(
+  TradeFormSavedAnswer? answer,
+  List<VoiceChoice> options,
+) {
+  if (answer == null) return const <String>[];
+  if (!answer.isDeclined) return answer.optionKeys;
+  for (final VoiceChoice option in options) {
+    if (option.isNoneOfAbove) return <String>[option.key];
+  }
+  return answer.optionKeys;
 }
 
 class _WhyText extends StatelessWidget {
@@ -166,13 +192,14 @@ class _SearchableChoiceBodyState extends State<_SearchableChoiceBody> {
   @override
   void initState() {
     super.initState();
-    // #1382 — a saved multi-select answer pre-ticks its chips on mount, the
-    // same guarantee VoiceChoiceChips gives the non-searchable path. This
+    // #1382/#1384 — a saved multi-select answer pre-ticks its chips on
+    // mount, the same guarantee VoiceChoiceChips gives the non-searchable
+    // path (see `_seedOptionKeys` for the declined/none-of-above case). This
     // widget is rebuilt fresh (a new `ValueKey` per question — see the
     // parent's `_body`), so `initState` runs on every question change; no
     // `didUpdateWidget` re-seed is needed the way `VoiceChoiceChips` needs
     // one for its own, key-less, voice_form call site.
-    _selected = widget.step.answer?.optionKeys ?? const <String>[];
+    _selected = _seedOptionKeys(widget.step.answer, widget.step.question.options);
   }
 
   void _onChanged(List<String> next) {
