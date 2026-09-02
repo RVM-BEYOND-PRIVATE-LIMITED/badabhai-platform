@@ -688,6 +688,13 @@
       "when": 1788004428926,
       "tag": "0097_silly_roland_deschain",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1788331576411,
+      "tag": "0098_worker_qualifications",
+      "breakpoints": true
     }
   ]
 }

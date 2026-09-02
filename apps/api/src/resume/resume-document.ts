@@ -1,4 +1,5 @@
 import { TRADE_RESUME_MAPS } from "./trade-resume-map";
+import { ROLE_FORM_DESCRIPTORS } from "../profiling/roles/role-registry";
 import type {
   ResumeEmployment,
   ResumeFactRow,
@@ -38,11 +39,15 @@ export type ResumeFormat = (typeof RESUME_FORMATS)[number];
  * DERIVED FROM THE PACK, not stored and not asked. `TRADE_RESUME_MAPS` already answers "does this
  * pack have a sheet", and a second list of trade ids would be free to disagree with it — a pack
  * with a map but no id here would render a sheet the client could not name.
+ *
+ * AND NOW DERIVED FROM THE ROLE REGISTRY TOO, so the disagreement is not merely discouraged but
+ * impossible: `pack → kind` is the same fact as `kind → pack`, which the registry already holds
+ * for routing, and this was the second copy of it. `role-registry.ts` asserts pack ids are unique
+ * across roles at load, which is what makes the inversion total rather than lossy.
  */
-export const TRADE_KIND_BY_PACK: Readonly<Record<string, string>> = {
-  qp_cnc_turning: "cnc_turner",
-  qp_vmc_milling: "vmc_milling",
-};
+export const TRADE_KIND_BY_PACK: Readonly<Record<string, string>> = Object.freeze(
+  Object.fromEntries(ROLE_FORM_DESCRIPTORS.map((role) => [role.packId, role.kind])),
+);
 
 /** Does this pack print the trade sheet? */
 export function packHasTradeSheet(packId: string | null): boolean {

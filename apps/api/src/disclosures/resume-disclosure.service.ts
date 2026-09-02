@@ -14,6 +14,8 @@ import { ResumeRenderer } from "../resume/resume-renderer.service";
 import { buildResumeRenderInput, type TradeSheetContext } from "../resume/resume-render-input";
 import type { WorkerEmploymentRecord } from "../resume/resume-employment-rows";
 import { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
+import { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
+import { qualificationFactsFrom } from "../resume/resume-qualification-rows";
 import { maskInitials } from "../resume/mask-initials";
 import { neutralUnavailable, type NeutralUnavailableResponse } from "../unlocks/unlock-response";
 import { ResumeDisclosureRepository, type Tx } from "./resume-disclosure.repository";
@@ -76,6 +78,11 @@ export class ResumeDisclosureService {
     private readonly storage: StorageService,
     private readonly attributes: WorkerAttributesRepository,
     private readonly employments: WorkerEmploymentRepository,
+    // Migration 0098 — Zone 5's credentials. THE SAME ROWS THE WORKER'S OWN COPY PRINTS: a
+    // certificate is a qualification, not identity or negotiating position, so it crosses on
+    // exactly the reasoning the capability block and the work history already cross on. The three
+    // things this surface withholds stay three: the real name, the photo, the expected salary.
+    private readonly qualifications: WorkerQualificationsRepository,
     private readonly events: EventsService,
     @Inject(SERVER_CONFIG) private readonly config: ServerConfig,
   ) {}
@@ -273,6 +280,23 @@ export class ResumeDisclosureService {
         polishEnabled: this.config.WORK_HISTORY_POLISH_ENABLED,
         asOf: new Date(),
       };
+    }
+
+    // ZONE 5's CREDENTIALS (migration 0098). SEPARATE try/catch, and separate from the two loads
+    // above, on the same rule: either source failing must cost only its own section.
+    //
+    // A SEPARATE `if` RATHER THAN A THIRD BRANCH OF THE ONE ABOVE, because a worker can hold a
+    // certificate and no work history at all — a fresher, which is exactly the case the CAD
+    // draughtsman reference sheet is built from. Folding this into `employments.length > 0` would
+    // print their certificate only if they had a job to go with it.
+    let qualification: ReturnType<typeof qualificationFactsFrom>;
+    try {
+      qualification = qualificationFactsFrom(await this.qualifications.loadForResume(workerId));
+    } catch {
+      this.logger.warn(`could not load credentials for worker ${workerId}; rendering without`);
+    }
+    if (qualification !== undefined) {
+      tradeSheet = { packId: null, attributes: {}, ...tradeSheet, qualification };
     }
 
     // ADR-0032: photoDataUri is STRUCTURALLY null here — the worker's photo is for

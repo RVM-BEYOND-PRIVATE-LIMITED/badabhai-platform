@@ -349,6 +349,45 @@ describe("§8 — every printed digit is stated or is arithmetic over stated dat
       out.add(String(Math.floor(totalMonths / 12)));
       out.add(String(Math.round((totalMonths / 12 - Math.floor(totalMonths / 12)) * 12)));
     }
+
+    // ── AND THE SAME TOTAL FROM THE OTHER SOURCE (#1377) ──────────────────────────────
+    //
+    // A FORM-FIRST WORKER HAS NO `duration_months` AT ALL. The router can hand them the form on
+    // their first message, so the universal experience question is never asked and extraction
+    // never runs — while the work-history screen they then fill collects exact dated employments.
+    // The headline now sums THOSE when the container's own figure is absent.
+    //
+    // THIS IS A WIDENING OF THE GATE, so it is deliberately narrow. It admits exactly one more
+    // number — the sum over TOP-LEVEL employment spans, which is the same deterministic
+    // arithmetic over stated dates that the per-employment figures above already are (§8 stage 4).
+    // Role stints are excluded because they subdivide an employment the loop has already counted;
+    // including them would double-count a promotion and quietly admit a number nobody can derive.
+    //
+    // RECOMPUTED FROM THE FIXTURE, like everything else here. Reading the mapper's own total back
+    // would make the rule circular and an off-by-one would validate itself.
+    const employmentMonths = (shape.tradeSheet?.employments ?? []).map((e) => {
+      const end =
+        e.endYm ??
+        (asOf
+          ? `${asOf.getUTCFullYear()}-${String(asOf.getUTCMonth() + 1).padStart(2, "0")}`
+          : null);
+      if (!e.durationStated || !e.startYm || !end) return null;
+      return (
+        (Number(end.slice(0, 4)) - Number(e.startYm.slice(0, 4))) * 12 +
+        (Number(end.slice(5, 7)) - Number(e.startYm.slice(5, 7))) +
+        1
+      );
+    });
+    if (employmentMonths.length > 0 && employmentMonths.every((m) => m !== null)) {
+      const months = employmentMonths.reduce((s: number, m) => s + (m ?? 0), 0);
+      // The pipeline's own rounding, step for step: months → one-decimal years
+      // (`totalEmployedYears`) → whole/remainder split (`yearsPhrase`). Doing the split off the
+      // raw months instead would admit a different pair of digits from the one that prints.
+      const years = Math.round((months / 12) * 10) / 10;
+      const whole = Math.floor(years);
+      out.add(String(whole));
+      out.add(String(Math.round((years - whole) * 12)));
+    }
     return out;
   }
 

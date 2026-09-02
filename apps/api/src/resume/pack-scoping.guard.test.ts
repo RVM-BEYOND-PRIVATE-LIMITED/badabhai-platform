@@ -7,6 +7,7 @@ import {
   PACK_ATTRIBUTE_SKILLS,
 } from "../match/pack-attribute-skills";
 import { buildFresherRows } from "./resume-fresher-rows";
+import { descriptorForPack } from "../profiling/roles/role-registry";
 import { applyTranscriptVeto, CAPABILITY_TERMS } from "./resume-transcript-veto";
 
 /**
@@ -166,8 +167,13 @@ describe("R12 §2.3 — a trade dictionary is reachable ONLY from its own pack",
   it.each(PACKS.map((p) => p.pack_id))("the fresher block is empty for a %s worker", (packId) => {
     const pack = PACKS.find((p) => p.pack_id === packId)!;
     const rows = buildFresherRows(packId, everyAnswer(pack));
-    if (packId === "qp_cnc_turning") {
-      expect(rows.length, "the turner's own fresher block must still build").toBe(1);
+    // WHICH PACKS OWN A FRESHER VOCABULARY IS NOW DATA, so this asks the registry rather than
+    // naming turning. The property under test never was "only the turner has one" — it is "only
+    // the packs that AUTHORED one have one", and spelling that as a literal meant the guard would
+    // have to be edited by whoever added the second, which is the moment it is least likely to be
+    // read carefully.
+    if (descriptorForPack(packId)?.fresher !== undefined) {
+      expect(rows.length, `${packId} authored a fresher vocabulary but built no block`).toBe(1);
     } else {
       expect(rows, `${packId} has no authored fresher vocabulary`).toEqual([]);
     }
@@ -248,12 +254,29 @@ describe("R12 §2.3 — a trade dictionary is reachable ONLY from its own pack",
       expect(attributes).toBe(bag);
 
       // The same foreign pack against the other two dictionaries.
-      expect(
-        buildFresherRows(foreignPackId, {
-          iti_workshop_machines: ["conventional_lathe", "milling"],
-          trade_test_status: "passed",
-        }),
-      ).toEqual([]);
+      //
+      // THE MILLING ROW HAS MOVED, exactly as the note above said it would have to once milling
+      // authored a fresher vocabulary of its own. Asserting an empty block would now be asserting
+      // the bug — a VMC pass-out who stood at a lathe and a mill in the ITI workshop SHOULD get
+      // that printed. The scoping property is unchanged and is what is tested instead: a slug
+      // only TURNING defines must not resolve to turning's label under somebody else's pack.
+      const turnerMachines = descriptorForPack("qp_cnc_turning")!.fresher!.workshopMachines;
+      const foreignMachines = descriptorForPack(foreignPackId)?.fresher?.workshopMachines ?? {};
+      const turnerOnly = Object.keys(turnerMachines).filter((slug) => !(slug in foreignMachines));
+      expect(turnerOnly.length, "the probe is vacuous unless turning owns a slug alone").toBeGreaterThan(0);
+
+      const printed = buildFresherRows(foreignPackId, {
+        iti_workshop_machines: turnerOnly,
+        trade_test_status: "passed",
+      })
+        .map((row) => row.work)
+        .join(" · ");
+      for (const slug of turnerOnly) {
+        expect(
+          printed,
+          `a turner's fresher vocabulary labelled "${slug}" for a ${foreignPackId} worker`,
+        ).not.toContain(turnerMachines[slug]!);
+      }
       expect(
         corpusSkillsForPackAttributes(
           Object.entries(PACK_ATTRIBUTE_SKILLS.qp_cnc_turning ?? {}).map(

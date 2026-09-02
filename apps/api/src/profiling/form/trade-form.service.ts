@@ -10,12 +10,16 @@ import type { AnswerRecord, QuestionPack, QuestionPackItem } from "@badabhai/ai-
 import type { WorkerPackAnswer } from "@badabhai/db";
 
 import { ChatRepository } from "../../chat/chat.repository";
+import type { RequestContext } from "../../common/request-context";
+import { EventsService } from "../../events/events.service";
 import { WorkerAttributesRepository } from "../../profiles/worker-attributes.repository";
 import { projectProfile } from "../answer-map-projector";
 import { packAnswerRowFor } from "../pack-answer-row";
 import { TRADE_RESUME_MAPS } from "../../resume/trade-resume-map";
 import { PackRegistryService } from "../pack-registry.service";
 import { familyForTradeForm, TRADE_FORM_KINDS, type TradeFormKind } from "../trade-form-router";
+import { descriptorForKind } from "../roles/role-registry";
+import { answerMapFromRows, gateKeysOf, isFormQuestionVisible } from "./form-eligibility";
 import { TradeFormRepository } from "./trade-form.repository";
 import type {
   TradeFormAnswerDto,
@@ -50,6 +54,8 @@ export class TradeFormService {
     private readonly answers: TradeFormRepository,
     // THE SECOND DESTINATION, and the one the SHEET actually reads. See `answer()`.
     private readonly attributes: WorkerAttributesRepository,
+    // The completion half of the form funnel. See `recordCompletion`.
+    private readonly events: EventsService,
   ) {}
 
   /**
@@ -65,7 +71,15 @@ export class TradeFormService {
     const saved = await this.answers.listAnswers(workerId, pack.pack_id);
     const byKey = new Map(saved.map((row) => [row.questionKey, row]));
 
-    const { ordered, leftover } = this.orderBySheet(pack);
+    // WHAT THE WORKER HAS ALREADY SETTLED DECIDES WHAT ELSE THEY ARE ASKED (#1378). On a first
+    // fetch nothing is settled, every gate is unresolved, and `isFormQuestionVisible` shows
+    // everything — which is exactly today's behaviour. It narrows on the next fetch, once the
+    // tier question has an answer to narrow it with.
+    const answers = answerMapFromRows(saved);
+    const visible = (items: readonly QuestionPackItem[]): QuestionPackItem[] =>
+      items.filter((item) => isFormQuestionVisible(item, answers));
+
+    const { ordered, leftover } = this.orderBySheet(pack, kind);
     const capabilityTitle =
       TRADE_RESUME_MAPS.find((map) => map.pack_id === pack.pack_id)?.section_title ??
       "Machines, controllers & capability";
@@ -78,7 +92,9 @@ export class TradeFormService {
         {
           id: "capability",
           title: capabilityTitle,
-          screens: ordered.map((item) => this.questionScreen(item, byKey.get(item.question_key))),
+          screens: visible(ordered).map((item) =>
+            this.questionScreen(item, byKey.get(item.question_key)),
+          ),
         },
         {
           id: "terms",
@@ -94,7 +110,29 @@ export class TradeFormService {
           id: "qualifications",
           title: SECTION_TITLES.qualifications,
           screens: [
-            ...leftover.map((item) => this.questionScreen(item, byKey.get(item.question_key))),
+            ...visible(leftover).map((item) =>
+              this.questionScreen(item, byKey.get(item.question_key)),
+            ),
+            // ZONE 5's CREDENTIALS (migration 0098). A MARKER, like the two above:
+            // `PUT /workers/me/qualifications` owns the vocabulary, the caps and the
+            // three-state contract, and restating them here would be a second contract for one
+            // page.
+            //
+            // THIS SECTION COULD ALREADY RENDER EMPTY, and that is why it goes here rather than
+            // anywhere else. For an EXPERIENCED turner all three leftover items are the
+            // fresher-gated ones, so `visible()` removes every screen and the section is a
+            // heading with nothing under it — while the Certificates row on their sheet has
+            // never had a source at all. A client on an older build drops this marker (it fails
+            // soft on an unknown `type`) and sees exactly what it sees today, which is what lets
+            // the server land ahead of the app.
+            {
+              type: "qualifications" as const,
+              endpoint: "PUT /workers/me/qualifications" as const,
+              // PER-TRADE, AND THIS IS THE ONLY RESPONSE THAT KNOWS THE TRADE. Empty for a role
+              // that declares none — the worker types freely, which is the behaviour everywhere
+              // today. Never a validation list; see the descriptor field.
+              suggested_certificates: [...(descriptorForKind(kind)?.suggestedCertificates ?? [])],
+            },
           ],
         },
       ],
@@ -105,6 +143,16 @@ export class TradeFormService {
   async answer(
     workerId: string,
     dto: TradeFormAnswerDto,
+    /**
+     * OPTIONAL, AND DELIBERATELY SO. The tracing ids only reach the completion event, and a
+     * missing correlation id must never be the reason a worker's answer is not saved — the
+     * emitter below is best-effort for exactly the same reason. The controller always passes one.
+     *
+     * NAMED `requestCtx`, not `ctx`, because `ctx` inside this method is already the FORM context
+     * — the kind and the session id `contextFor` resolved. Two different things called `ctx` in
+     * one method is how the wrong one gets passed.
+     */
+    requestCtx?: RequestContext,
     _now: Date = new Date(),
   ): Promise<TradeFormAnswerResponse> {
     const ctx = await this.contextFor(workerId);
@@ -181,15 +229,135 @@ export class TradeFormService {
     }
 
     const saved = await this.answers.listAnswers(workerId, pack.pack_id);
+    const answers = answerMapFromRows(saved);
+    const visibleItems = pack.items.filter((candidate) =>
+      isFormQuestionVisible(candidate, answers),
+    );
+    // SETTLED **AND STILL ASKED** — the intersection, not every row stored for this pack.
+    //
+    // THE DEFECT THIS CLOSES, which predates the completion event and reaches the progress rail.
+    // `total` has always been the VISIBLE count while `answered` counted every settled row, and
+    // the two range over different sets — so the numerator could exceed its own denominator.
+    // Nothing failed, because nothing compared them.
+    //
+    // A GATED-AWAY ANSWER IS NOT THE CAUSE, and assuming it was is the easy mistake here:
+    // `isFormQuestionVisible` returns true for anything already settled, precisely so a worker can
+    // still change an answer the tier gate would otherwise hide, which means such a question is
+    // counted in BOTH numbers and stays consistent.
+    //
+    // A RETIRED KEY IS. Answers are listed by `pack_id` and never by version, so a question
+    // dropped in v2 leaves its v1 `worker_pack_answer` row behind forever. That row is in `saved`
+    // and in no version of `pack.items` — counted in the numerator alone, and the rail reads 3/2.
+    //
+    // COUNTING IT IN NEITHER IS THE HONEST ANSWER: the worker did answer it, but it is not a
+    // question this form asks any more, so it belongs to neither side of "how far through are
+    // you". It also makes the completion check below an equality the worker can actually reach,
+    // rather than one they satisfy through a row they cannot see and cannot remove.
+    const visibleKeys = new Set(visibleItems.map((candidate) => candidate.question_key));
+    const answeredCount = saved.filter(
+      (candidate) => candidate.status !== "unanswered" && visibleKeys.has(candidate.questionKey),
+    ).length;
+
+    // THE FORM IS FINISHED — the other end of the funnel `profile.form_mode_entered` opens.
+    //
+    // COUNTED AGAINST WHAT IS STILL ASKED, and that is what makes the check reachable at all. A
+    // senior turner is never asked the three fresher questions, so "answered === pack.items.length"
+    // is a condition they can never satisfy and this event would fire for nobody but a fresher.
+    //
+    // `>=` RATHER THAN `===` even though the intersection above makes them equivalent today. The
+    // fail-safe direction for telemetry is to emit: if `saved` ever carried two rows for one key,
+    // `===` would silently never fire and the completion would be lost, while `>=` still reports
+    // it. The idempotency key is what makes over-reporting harmless.
+    if (visibleItems.length > 0 && answeredCount >= visibleItems.length) {
+      await this.recordCompletion(workerId, ctx.kind, pack, requestCtx, {
+        answered: answeredCount,
+        total: visibleItems.length,
+      });
+    }
+
     return {
       question_key: item.question_key,
       status: row.status === "answered" ? "answered" : "declined",
-      answered: saved.filter((candidate) => candidate.status !== "unanswered").length,
-      total: pack.items.length,
+      answered: answeredCount,
+      // COUNTED OVER WHAT IS STILL ASKED, not over the whole pack. A senior turner is not asked
+      // the three fresher questions, and a progress rail whose denominator includes them can
+      // never reach its own end — the worker finishes the form at 15/18 and is told they have not.
+      total: visibleItems.length,
+      /**
+       * The screen list the client is holding no longer matches the one this server would serve.
+       *
+       * A FORM IS ONE ROUND TRIP, so answering a gate changes a list the client already has. It
+       * cannot know that without being told, and it must not have to re-implement the predicates
+       * to work it out. A client that ignores this behaves exactly as it does today — which is
+       * what lets the server ship ahead of the app rather than in lockstep with it.
+       */
+      schema_stale: gateKeysOf(pack.items).has(item.question_key),
     };
   }
 
   // ── internals ───────────────────────────────────────────────────────────────
+
+  /**
+   * The form is finished — the countable half of that fact (#0.6).
+   *
+   * ═══ WHY IT NEEDED AN EVENT AT ALL ═══
+   *
+   * `POST /profiling/form/answer` emitted NOTHING. `profile.form_mode_entered` records that a
+   * worker was sent to a form and nothing recorded whether they ever came out of one, so the only
+   * measurable fact about the entire form-first funnel was its first step. Abandonment at question
+   * fourteen of a badly ordered pack and completion in one sitting produce identical telemetry —
+   * and the platform is about to have twenty-one of these funnels, each with its own pack whose
+   * ordering is exactly what this number would judge.
+   *
+   * ═══ SWALLOWS ITS OWN FAILURE, LIKE `recordFormHandoff` ═══
+   *
+   * The worker's answer is already durably written by the time this runs. Throwing here would
+   * fail a request whose work succeeded, and the client would retry an answer that is already
+   * saved — trading a stored answer for a telemetry row. The log line is the fallback record.
+   *
+   * ═══ ONCE PER (WORKER, PACK) ═══
+   *
+   * The completion condition is true for EVERY subsequent answer too: a worker who finishes and
+   * then corrects one chip satisfies it again. Without the key, a worker who edits their form five
+   * times reports five completions and the funnel's numerator exceeds its denominator. The pack
+   * VERSION is deliberately not in the key — a v2 of the same pack is the same worker finishing
+   * the same form, and `pack_version` in the payload is what tells the two apart on read.
+   */
+  private async recordCompletion(
+    workerId: string,
+    formKind: TradeFormKind,
+    pack: QuestionPack,
+    requestCtx: RequestContext | undefined,
+    counts: { answered: number; total: number },
+  ): Promise<void> {
+    try {
+      await this.events.emit({
+        event_name: "profile.form_completed",
+        actor: { actor_type: "worker", actor_id: workerId },
+        subject: { subject_type: "worker", subject_id: workerId },
+        // COUNTS AND SLUGS ONLY. Never an answer, never a label — the identical discipline
+        // `profile.form_mode_entered` keeps, and for the identical reason: the answers are what a
+        // specific worker said about themselves.
+        payload: {
+          worker_id: workerId,
+          form_kind: formKind,
+          pack_id: pack.pack_id,
+          pack_version: pack.version,
+          answered: counts.answered,
+          total: counts.total,
+        },
+        idempotencyKey: `profile.form_completed:${workerId}:${pack.pack_id}`,
+        correlationId: requestCtx?.correlationId,
+        requestId: requestCtx?.requestId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `the ${formKind} form completion for worker ${workerId} was not recorded; their answers ` +
+          `are saved but the funnel will read as an abandonment: ` +
+          `${(error as Error).message}`,
+      );
+    }
+  }
 
   /**
    * Which form this worker was handed, from the durable record the handover wrote.
@@ -258,13 +426,30 @@ export class TradeFormService {
    * sequence is a second definition of "what matters about this trade", free to drift from the
    * one that actually prints.
    */
-  private orderBySheet(pack: QuestionPack): {
+  private orderBySheet(
+    pack: QuestionPack,
+    kind: TradeFormKind,
+  ): {
     ordered: QuestionPackItem[];
     leftover: QuestionPackItem[];
   } {
     const map = TRADE_RESUME_MAPS.find((candidate) => candidate.pack_id === pack.pack_id);
     const byKey = new Map(pack.items.map((item) => [item.question_key, item]));
     const ordered: QuestionPackItem[] = [];
+
+    // THE TIER GATE LEADS, whatever the sheet does with it (#1377, #1378).
+    //
+    // It has no capability row — the sheet prints tenure in the Verdict Line, not as a capability
+    // — so `orderBySheet` used to file it under "whatever the sheet has no row for" and ask it
+    // DEAD LAST, after the three fresher questions it is supposed to gate. The pack's own `_depth`
+    // note says the opposite in as many words: "THE TIER GATE IS turning_experience, and it is
+    // asked FIRST." A gate asked after the questions it gates is not a gate.
+    const gate = byKey.get(descriptorForKind(kind)?.tenureQuestionKey ?? "");
+    if (gate) {
+      ordered.push(gate);
+      byKey.delete(gate.question_key);
+    }
+
     for (const row of map?.capability ?? []) {
       const item = byKey.get(row.from);
       // A map row whose question the pack no longer defines is skipped rather than fatal: the two

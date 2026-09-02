@@ -8,6 +8,11 @@ import type { WorkersRepository } from "../workers/workers.repository";
 import type { PiiCryptoService } from "../common/pii-crypto.service";
 import type { WorkerAttributesRepository } from "../profiles/worker-attributes.repository";
 import type { WorkerEmploymentRepository } from "../profiles/worker-employment.repository";
+import type { WorkerQualificationsRepository } from "../profiles/worker-qualifications.repository";
+import type {
+  WorkerCertificateRecord,
+  WorkerEducationRecord,
+} from "../resume/resume-qualification-rows";
 import type { WorkerEmploymentRecord } from "../resume/resume-employment-rows";
 import type { StorageService } from "../storage/storage.service";
 import type { ResumeRenderer, ResumeRenderInput } from "../resume/resume-renderer.service";
@@ -45,6 +50,12 @@ interface SetupOpts {
   // identity nor negotiating position.
   tradeSheet?: { packId: string | null; attributes: Record<string, unknown> };
   employments?: WorkerEmploymentRecord[];
+  // Zone 5's credentials (0098), which the payer also sees — a certificate is a qualification,
+  // not identity or negotiating position.
+  qualifications?: {
+    certificates: WorkerCertificateRecord[];
+    educations: WorkerEducationRecord[];
+  };
 }
 
 function setup(opts: SetupOpts = {}) {
@@ -140,6 +151,12 @@ function setup(opts: SetupOpts = {}) {
   const employments = {
     loadForResume: vi.fn(async () => opts.employments ?? []),
   };
+  // Zone 5 (migration 0098) — read-only, degrades to absence. Empty by default, which
+  // `qualificationFactsFrom` turns into `undefined`, so every assertion below sees exactly the
+  // masked sheet it saw before this repository existed.
+  const qualifications = {
+    loadForResume: vi.fn(async () => opts.qualifications ?? { certificates: [], educations: [] }),
+  };
 
   const service = new ResumeDisclosureService(
     repo as unknown as ResumeDisclosureRepository,
@@ -150,6 +167,7 @@ function setup(opts: SetupOpts = {}) {
     storage as unknown as StorageService,
     attributes as unknown as WorkerAttributesRepository,
     employments as unknown as WorkerEmploymentRepository,
+    qualifications as unknown as WorkerQualificationsRepository,
     events as unknown as EventsService,
     CONFIG,
   );

@@ -88,6 +88,33 @@ const ScreenSchema = z.discriminatedUnion("type", [
   }),
   /** Work history. Same argument: `PUT /workers/me/employment` owns it. */
   z.object({ type: z.literal("employment"), endpoint: z.literal("PUT /workers/me/employment") }),
+  /**
+   * Zone 5's credentials — certificates and education (migration 0098).
+   *
+   * A MARKER, LIKE THE TWO ABOVE, because `PUT /workers/me/qualifications` owns the vocabulary,
+   * the caps and the three-state contract. Restating those here would be a second definition of
+   * one page.
+   *
+   * SAFE TO SERVE BEFORE THE APP SHIPS. `trade_form_repository_impl.dart:175` fails SOFT on a
+   * `type` it does not know — the screen is dropped, not fatal to the rest of the form — so an
+   * existing build renders exactly the form it renders today. That property is what lets the
+   * server land this without waiting on the client, and it is the reason this is a fourth
+   * variant rather than a widening of one of the three.
+   *
+   * `suggested_certificates` IS THE ONE THING THE ENDPOINT CANNOT SERVE. A certificate name is
+   * free text and cannot be a closed set — the reference sheets carry training-centre courses,
+   * OEM certifications, an IATF auditor qualification and a state wireman's licence — but a
+   * worker should not have to type "Fanuc Programming" from memory. The suggestions are
+   * PER-TRADE and this is the only response that already knows which trade the worker is on;
+   * serving them from `me/qualifications/options` would mean serving all twenty-one lists to
+   * everybody. They are a SEARCH BOX'S CONTENTS, never a validation list: the endpoint accepts
+   * anything the worker settles on.
+   */
+  z.object({
+    type: z.literal("qualifications"),
+    endpoint: z.literal("PUT /workers/me/qualifications"),
+    suggested_certificates: z.array(z.string()),
+  }),
 ]);
 
 const SectionSchema = z.object({
@@ -137,6 +164,27 @@ export const TradeFormAnswerResponse = z.object({
   status: z.enum(["answered", "declined"]),
   /** How many of this form's pack questions are now settled, for the client's progress rail. */
   answered: z.number().int().nonnegative(),
+  /**
+   * How many questions this worker is STILL ASKED — not how many the pack defines.
+   *
+   * A senior turner is not asked the three fresher questions, so a denominator of "every item in
+   * the pack" is one the worker can never reach: they finish the form at 15/18 and are told they
+   * have not finished.
+   */
   total: z.number().int().nonnegative(),
+  /**
+   * The screen list the client fetched no longer matches what the server would serve now.
+   *
+   * WHY A FLAG AND NOT A NEW SCHEMA IN THE RESPONSE. The form is one round trip precisely so a
+   * worker on 2G in a basement can fill it without a request per screen; returning the whole
+   * schema on every answer would undo that. The flag is a few bytes and lets the client decide —
+   * refetch now, or at the section boundary.
+   *
+   * DEFAULTED, SO AN OLDER CLIENT IS UNAFFECTED. A client that never reads it behaves exactly as
+   * it does today: it keeps the list it has, which is a superset of the questions still relevant.
+   * That is the pre-existing behaviour, not a regression, which is what lets this ship before the
+   * app does.
+   */
+  schema_stale: z.boolean().default(false),
 });
 export type TradeFormAnswerResponse = z.infer<typeof TradeFormAnswerResponse>;

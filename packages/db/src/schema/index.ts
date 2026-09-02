@@ -62,6 +62,7 @@ import {
   workerAttributes,
 } from "./profiling";
 import { workerEmployment, workerEmploymentRole } from "./employment";
+import { workerCertificates, workerEducations } from "./qualification";
 import {
   generatedResumes,
   profileQuestions,
@@ -144,6 +145,7 @@ export * from "./chat";
 export * from "./pack-answer";
 export * from "./profiling";
 export * from "./employment";
+export * from "./qualification";
 export * from "./profile";
 export * from "./job";
 export * from "./payer";
@@ -383,6 +385,8 @@ export const schema = {
   workerAttributes,
   workerEmployment,
   workerEmploymentRole,
+  workerCertificates,
+  workerEducations,
   profilingVoiceAnswers,
   workerAiCostTotals,
   sessionAiCostTotals,
