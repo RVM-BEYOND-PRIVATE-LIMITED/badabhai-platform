@@ -606,6 +606,194 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+  {
+    /**
+     * CNC GRINDING — Batch 1's first NEW pack, and the third shipped map.
+     *
+     * READ OFF THE RATIFIED REFERENCE SHEET (Sanjay Kamble, CNC Grinding Operator — Setter), row
+     * for row and in the sheet's own order. Its ten rows are Machines, Controllers, Materials,
+     * Setting, Measuring instruments, Wheels dressed, Drawings, Tolerance held, Surface finish
+     * held and Sector worked. Every one has a question behind it; none was invented to fill a gap.
+     *
+     * WHAT IT SHARES WITH MILLING, AND WHERE THE VOCABULARY STILL DIVERGES. Ten attribute NAMES
+     * are common to the machining packs, and this map re-keys three of them because a grinder's
+     * answers are not a miller's:
+     *   · `material_worked` leads with EN31 and case-hardened steel — the bearing-race and
+     *     gear stock a grinder actually finishes — where milling leads with EN8 and MS.
+     *   · `measuring_tools` carries a SURFACE ROUGHNESS TESTER and SLIP GAUGES, neither of which
+     *     appears on a milling sheet, and drops the height gauge that does.
+     *   · `tolerance_band` is a FINER LADDER. Milling tops out at "0.01 mm or finer"; this sheet
+     *     prints ±0.005 mm as an ordinary claim, so the bands run to 0.002. Sharing milling's
+     *     dictionary would have compressed a grinder's headline skill into its coarsest bucket.
+     *
+     * TWO ROWS THE OTHER MACHINING MAPS DO NOT HAVE. `Surface finish held` and `Wheels dressed`
+     * are what a grinding employer scans for — the sheet prints "Ra 0.4 µm" and "Aluminium oxide
+     * and CBN · single-point diamond dressing" — and neither has any meaning on a lathe or a
+     * machining centre.
+     *
+     * ROW COUNT AND THE BUDGET. Eleven rows are defined and `CAPABILITY_ROW_BUDGET` is 9, so two
+     * drop by rank. The tens digit is the guideline's §5.1 rank; it is not bent to make the page
+     * fit, for the same reason the milling map records.
+     */
+    pack_id: "qp_cnc_grinding",
+    section_title: "Machines, wheels & capability",
+    capability: [
+      {
+        from: "grinding_machine",
+        rank: 21,
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          cylindrical: "CNC cylindrical grinder",
+          surface: "Surface grinder",
+          centreless: "Centreless grinder",
+          internal: "Internal grinder",
+          tool_cutter: "Tool and cutter grinder",
+        },
+      },
+      {
+        from: "controller_brand",
+        rank: 22,
+        inHeadline: true,
+        maxValues: 3,
+        label: "Controllers",
+        kind: "chips",
+        values: {
+          fanuc: "Fanuc",
+          siemens: "Siemens",
+          mitsubishi: "Mitsubishi",
+          // A GRINDING CONTROL THE OTHER MACHINING MAPS DO NOT CARRY. Studer is the reference
+          // cylindrical-grinder make and effectively absent from lathes and machining centres.
+          studer: "Studer",
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        // DICTIONARY ORDER IS THE SHEET'S ORDER, as on the milling map: values render in the
+        // order this object lists them, and the sheet leads with the bearing and gear stock.
+        values: {
+          en_thirty_one: "EN31",
+          case_hardened: "Case-hardened steel",
+          hchcr: "HCHCr",
+          cast_iron: "Cast iron",
+          stainless: "Stainless steel",
+          carbide: "Carbide",
+        },
+      },
+      {
+        from: "setting_work",
+        rank: 41,
+        label: "Setting",
+        kind: "ticks",
+        values: {
+          wheel_mounting: "Wheel mounting & balancing",
+          diamond_dressing: "Diamond dressing",
+          workhead_alignment: "Work-head alignment",
+          steady_rest: "Steady rest setting",
+          coolant_setting: "Coolant setting",
+          magnetic_chuck: "Magnetic chuck setup",
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          micrometer: "Micrometer",
+          bore_gauge: "Bore dial gauge",
+          slip_gauge: "Slip gauges",
+          dial_indicator: "Dial gauge",
+          roughness_tester: "Surface roughness tester",
+          vernier: "Vernier",
+        },
+      },
+      {
+        from: "wheel_type",
+        rank: 43,
+        maxValues: 3,
+        label: "Wheels dressed",
+        kind: "chips",
+        values: {
+          aluminium_oxide: "Aluminium oxide",
+          silicon_carbide: "Silicon carbide",
+          cbn: "CBN",
+          diamond: "Diamond",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` has no entry ON PURPOSE, exactly as on the turner's and miller's maps. "Cannot
+        // read drawings" is a true answer that belongs in matching data, not on the worker's own
+        // document.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "tolerance_band",
+        rank: 62,
+        label: "Tolerance held",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE, not the option key — the pack's `value_text` is the numeric
+        // string. Keying this by `point_zero_zero_five` would render nothing at all, silently,
+        // for every grinder who answered.
+        values: {
+          "0.02": "±0.02 mm",
+          "0.01": "±0.01 mm",
+          "0.005": "±0.005 mm",
+          "0.002": "±0.002 mm or finer",
+        },
+      },
+      {
+        from: "surface_finish",
+        rank: 63,
+        label: "Surface finish held",
+        kind: "fact",
+        values: {
+          "1.6": "Ra 1.6 µm",
+          "0.8": "Ra 0.8 µm",
+          "0.4": "Ra 0.4 µm",
+          "0.2": "Ra 0.2 µm or finer",
+        },
+      },
+      {
+        from: "dressing_method",
+        rank: 64,
+        label: "Dressing",
+        kind: "ticks",
+        values: {
+          single_point: "Single-point diamond",
+          rotary_dresser: "Rotary dresser",
+          form_dressing: "Form dressing",
+          auto_dressing: "Auto dressing cycle",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 71,
+        maxValues: 3,
+        label: "Sector worked",
+        kind: "fact",
+        values: {
+          bearings: "Bearings",
+          transmission: "Transmission components",
+          automotive: "Automotive",
+          die_mould: "Die and mould",
+          general_engg: "General engineering / job shop",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

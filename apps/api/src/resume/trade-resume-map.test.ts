@@ -89,7 +89,11 @@ describe.each(TRADE_RESUME_MAPS.map((m) => m.pack_id))("trade resume map — %s"
 describe("trade resume map — qp_cnc_turning", () => {
   it("exists alongside the milling map, and only real pack ids resolve", () => {
     expect(map).toBeDefined();
-    expect(TRADE_RESUME_MAPS.map((m) => m.pack_id)).toEqual(["qp_cnc_turning", "qp_vmc_milling"]);
+    expect(TRADE_RESUME_MAPS.map((m) => m.pack_id)).toEqual([
+      "qp_cnc_turning",
+      "qp_vmc_milling",
+      "qp_cnc_grinding",
+    ]);
     expect(tradeResumeMapFor("qp_welding")).toBeUndefined();
     expect(tradeResumeMapFor(null)).toBeUndefined();
   });

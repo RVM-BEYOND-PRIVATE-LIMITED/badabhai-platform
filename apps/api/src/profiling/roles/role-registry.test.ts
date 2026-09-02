@@ -89,18 +89,18 @@ describe("the role registry", () => {
     });
 
     it("enables exactly the forms that ship, and nothing merely declared", () => {
-      // BATCH 1 ADDED `vmc_milling`. The list is what `z.enum` validates against on two surfaces,
-      // so it must never contain a kind with no pack behind it — that is a 503 waiting for the
-      // first worker whose session happens to carry it, which is why this is pinned by value
-      // rather than by count.
-      expect([...TRADE_FORM_KINDS]).toEqual(["cnc_turner", "vmc_milling"]);
+      // BATCH 1 ADDED `vmc_milling` (promotion only), then `cnc_grinding` with its own authored
+      // pack. The list is what `z.enum` validates against on two surfaces, so it must never carry
+      // a kind with no pack behind it — that is a 503 waiting for the first worker whose session
+      // happens to name it, which is why this is pinned by VALUE rather than by count.
+      expect([...TRADE_FORM_KINDS]).toEqual(["cnc_turner", "vmc_milling", "cnc_grinding"]);
     });
 
-    it("keeps grinding and CAM declared but NOT enabled", () => {
+    it("keeps CAM declared but NOT enabled", () => {
       // The other half of the same property, and the one a careless "just add them all" would
-      // break. Both roles exist so their vocabulary can veto turning and milling; neither has a
-      // pack, so neither may be routable. A descriptor is declared long before it is served.
-      expect([...TRADE_FORM_KINDS]).not.toContain("cnc_grinding");
+      // break. CAM exists so its vocabulary can veto the machining roles; it has no pack, so it
+      // may not be routable. A descriptor is declared long before it is served — grinding made
+      // exactly that journey in Batch 1, and CAM has not made it yet.
       expect([...TRADE_FORM_KINDS]).not.toContain("cam_programmer");
     });
 
