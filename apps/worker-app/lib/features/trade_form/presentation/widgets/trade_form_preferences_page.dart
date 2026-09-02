@@ -61,10 +61,14 @@ const int _kYearMin = 1950;
 const int _kYearMax = 2100;
 
 /// The `type: "preferences"` marker screen (#1341) — the closed-set fields
-/// `PUT /workers/me/work-preferences` owns, condensed onto ONE scrollable
-/// page rather than `features/finishing`'s five-page wizard (that feature is
-/// out of scope here; see `trade_form_models.dart`'s doc on the deliberate
-/// duplication). Every field is optional.
+/// `PUT /workers/me/work-preferences` owns. #1384 item 2 split what was
+/// originally ONE long scrollable page (rather than `features/finishing`'s
+/// five-page wizard — that feature is out of scope here; see
+/// `trade_form_models.dart`'s doc on the deliberate duplication) into FOUR
+/// short INTERNAL pages, walked via [goToNextPage]/[goToPreviousPage] — see
+/// this class' own doc for why the pagination lives entirely inside this
+/// widget rather than growing `TradeFormCubit.flatSteps`. Every field stays
+/// optional; this is a scroll-length change, not a scope cut.
 class TradeFormPreferencesPage extends StatefulWidget {
   const TradeFormPreferencesPage({
     super.key,
@@ -72,6 +76,7 @@ class TradeFormPreferencesPage extends StatefulWidget {
     required this.enabled,
     required this.onSave,
     this.initialPreferences,
+    this.onPageChanged,
   });
 
   final Future<WorkPrefOptionsDto> Function() loadOptions;
@@ -87,12 +92,29 @@ class TradeFormPreferencesPage extends StatefulWidget {
   /// `TradeFormState.savedPreferences`).
   final TradeFormPreferences? initialPreferences;
 
+  /// #1384 item 2 — reports `(currentPage, pageCount)` every time this
+  /// widget's OWN internal page changes, including once right after this
+  /// widget's first frame. `trade_form_screen.dart` uses it to decide what
+  /// the ONE shared sticky bottom bar should do on tap (advance an internal
+  /// page vs the true save-and-advance-the-outer-walk) and how the header's
+  /// back arrow should behave — see `_WizardScaffoldState`'s own doc. Null is
+  /// fine for a test that constructs this page directly and does not care;
+  /// every production call site passes one.
+  final void Function(int page, int pageCount)? onPageChanged;
+
   @override
   State<TradeFormPreferencesPage> createState() =>
       TradeFormPreferencesPageState();
 }
 
 class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
+  /// Page 0: languages + documents · 1: shift + job type + cities ·
+  /// 2: relocate + accommodation + salary · 3: education. Fixed — this
+  /// marker's field groups never change size at runtime (contrast
+  /// `TradeFormEmploymentPageState.pageCount`, which is driven by a
+  /// repeat-row list).
+  static const int pageCount = 4;
+
   WorkPrefOptionsDto? _options;
   String? _loadError;
   late TradeFormPreferences _prefs =
@@ -104,10 +126,20 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   late final TextEditingController _institute = TextEditingController(
       text: widget.initialPreferences?.educationInstitute ?? '');
 
+  int _page = 0;
+  bool get isFirstPage => _page <= 0;
+  bool get isLastPage => _page >= pageCount - 1;
+
   @override
   void initState() {
     super.initState();
     _load();
+    // The parent cannot be told about a child's state from inside the
+    // child's OWN build phase — deferred to right after the first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.onPageChanged?.call(_page, pageCount);
+    });
   }
 
   Future<void> _load() async {
@@ -132,8 +164,21 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     super.dispose();
   }
 
-  /// Called by the screen's sticky bottom bar.
+  /// Called by the screen's sticky bottom bar ONLY on this marker's LAST
+  /// internal page — see `_WizardScaffoldState`'s routing.
   void save() => widget.onSave(_prefs);
+
+  void goToNextPage() {
+    if (isLastPage) return;
+    setState(() => _page += 1);
+    widget.onPageChanged?.call(_page, pageCount);
+  }
+
+  void goToPreviousPage() {
+    if (isFirstPage) return;
+    setState(() => _page -= 1);
+    widget.onPageChanged?.call(_page, pageCount);
+  }
 
   Set<String> _toggled(Set<String> set, String slug) {
     final Set<String> next = Set<String>.of(set);
@@ -176,136 +221,173 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
       ignoring: !widget.enabled,
       child: Opacity(
         opacity: widget.enabled ? 1 : 0.5,
-        child: Column(
+        child: _pageContent(options),
+      ),
+    );
+  }
+
+  Widget _pageContent(WorkPrefOptionsDto options) {
+    switch (_page) {
+      case 0:
+        return _languagesAndDocumentsPage(options);
+      case 1:
+        return _shiftJobTypeCitiesPage(options);
+      case 2:
+        return _relocateAccommodationSalaryPage();
+      default:
+        return _educationPage();
+    }
+  }
+
+  Widget _languagesAndDocumentsPage(WorkPrefOptionsDto options) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(_kOptionalNote,
+            style: AppTypography.body(
+                size: AppTypography.sizeSm, color: AppColors.textMuted)),
+        const SizedBox(height: AppSpacing.s5),
+        _label(_kLangLabel),
+        _multiChips(options.languages, _prefs.languages,
+            (String slug) => setState(() => _prefs = _prefs.copyWith(
+                languages: _toggled(_prefs.languages, slug)))),
+        const SizedBox(height: AppSpacing.s5),
+        _label(_kDocLabel),
+        _multiChips(options.documentsReady, _prefs.documentsReady,
+            (String slug) => setState(() => _prefs = _prefs.copyWith(
+                documentsReady: _toggled(_prefs.documentsReady, slug)))),
+      ],
+    );
+  }
+
+  Widget _shiftJobTypeCitiesPage(WorkPrefOptionsDto options) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _label(_kShiftLabel),
+        _singleChips(options.shift, _prefs.shift,
+            (String slug) => setState(() => _prefs = _prefs.copyWith(
+                shift: _prefs.shift == slug ? null : slug))),
+        const SizedBox(height: AppSpacing.s5),
+        _label(_kJobTypeLabel),
+        _singleChips(options.jobType, _prefs.jobType,
+            (String slug) => setState(() => _prefs = _prefs.copyWith(
+                jobType: _prefs.jobType == slug ? null : slug))),
+        const SizedBox(height: AppSpacing.s5),
+        _label(_kCitiesLabel),
+        Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(_kOptionalNote,
-                style: AppTypography.body(
-                    size: AppTypography.sizeSm, color: AppColors.textMuted)),
-            const SizedBox(height: AppSpacing.s5),
-            _label(_kLangLabel),
-            _multiChips(options.languages, _prefs.languages,
-                (String slug) => setState(() => _prefs = _prefs.copyWith(
-                    languages: _toggled(_prefs.languages, slug)))),
-            const SizedBox(height: AppSpacing.s5),
-            _label(_kDocLabel),
-            _multiChips(options.documentsReady, _prefs.documentsReady,
-                (String slug) => setState(() => _prefs = _prefs.copyWith(
-                    documentsReady:
-                        _toggled(_prefs.documentsReady, slug)))),
-            const SizedBox(height: AppSpacing.s5),
-            _label(_kShiftLabel),
-            _singleChips(options.shift, _prefs.shift,
-                (String slug) => setState(() => _prefs = _prefs.copyWith(
-                    shift: _prefs.shift == slug ? null : slug))),
-            const SizedBox(height: AppSpacing.s5),
-            _label(_kJobTypeLabel),
-            _singleChips(options.jobType, _prefs.jobType,
-                (String slug) => setState(() => _prefs = _prefs.copyWith(
-                    jobType: _prefs.jobType == slug ? null : slug))),
-            const SizedBox(height: AppSpacing.s5),
-            _label(_kCitiesLabel),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Expanded(
-                  child: TradeFormTextField(
-                    controller: _city,
-                    hint: _kCityHint,
-                    textInputAction: TextInputAction.done,
-                    onSubmitted: (_) => _addCity(),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.s2),
-                BbButton(
-                  label: '+',
-                  variant: BbButtonVariant.secondary,
-                  size: BbButtonSize.md,
-                  onPressed: _addCity,
-                ),
-              ],
-            ),
-            if (_prefs.preferredCities.isNotEmpty) ...<Widget>[
-              const SizedBox(height: AppSpacing.s3),
-              Wrap(
-                spacing: AppSpacing.s2,
-                runSpacing: AppSpacing.s2,
-                children: <Widget>[
-                  for (final String c in _prefs.preferredCities)
-                    BbChip(
-                      label: c,
-                      selected: true,
-                      icon: Icons.close,
-                      onTap: () => setState(() => _prefs = _prefs.copyWith(
-                          preferredCities: _prefs.preferredCities
-                              .where((String x) => x != c)
-                              .toList())),
-                    ),
-                ],
+            Expanded(
+              child: TradeFormTextField(
+                controller: _city,
+                hint: _kCityHint,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _addCity(),
               ),
-            ],
-            const SizedBox(height: AppSpacing.s4),
-            _toggleRow(_kRelocateLabel, _prefs.willingToRelocate,
-                (bool v) => setState(() => _prefs = _prefs.copyWith(willingToRelocate: v))),
-            const SizedBox(height: AppSpacing.s3),
-            _toggleRow(_kAccommodationLabel, _prefs.accommodationNeeded,
-                (bool v) => setState(() => _prefs = _prefs.copyWith(accommodationNeeded: v))),
-            const SizedBox(height: AppSpacing.s5),
-            _label(_kSalaryLabel),
-            Wrap(
-              spacing: AppSpacing.s2,
-              runSpacing: AppSpacing.s2,
-              children: <Widget>[
-                for (final MapEntry<int, String> e in _kSalaryBands.entries)
-                  BbChip(
-                    label: e.value,
-                    selected: _prefs.salaryExpectedMax == e.key,
-                    icon: _prefs.salaryExpectedMax == e.key ? Icons.check : null,
-                    onTap: () => setState(() => _prefs = _prefs.copyWith(
-                        salaryExpectedMax:
-                            _prefs.salaryExpectedMax == e.key ? null : e.key)),
-                  ),
-              ],
             ),
-            const SizedBox(height: AppSpacing.s5),
-            _label(_kCredentialLabel),
-            _singleChips(_kCredentials, _prefs.educationCredential,
-                (String slug) => setState(() => _prefs = _prefs.copyWith(
-                    educationCredential:
-                        _prefs.educationCredential == slug ? null : slug))),
-            const SizedBox(height: AppSpacing.s5),
-            _label(_kCouncilLabel),
-            _singleChips(_kCouncils, _prefs.educationCouncil,
-                (String slug) => setState(() => _prefs = _prefs.copyWith(
-                    educationCouncil:
-                        _prefs.educationCouncil == slug ? null : slug))),
-            const SizedBox(height: AppSpacing.s5),
-            _label(_kEduYearLabel),
-            TradeFormTextField(
-              controller: _year,
-              hint: _kEduYearHint,
-              label: _kEduYearLabel,
-              keyboardType: TextInputType.number,
-              onChanged: (String v) => setState(() => _prefs = _prefs.copyWith(
-                  educationYear: _inRange(v, _kYearMin, _kYearMax))),
-            ),
-            const SizedBox(height: AppSpacing.s5),
-            _label(_kInstituteLabel),
-            TradeFormTextField(
-              controller: _institute,
-              hint: _kInstituteHint,
-              label: _kInstituteLabel,
-              maxLength: 120,
-              textInputAction: TextInputAction.done,
-              onChanged: (String v) {
-                final String trimmed = v.trim();
-                setState(() => _prefs = _prefs.copyWith(
-                    educationInstitute: trimmed.isEmpty ? null : trimmed));
-              },
+            const SizedBox(width: AppSpacing.s2),
+            BbButton(
+              label: '+',
+              variant: BbButtonVariant.secondary,
+              size: BbButtonSize.md,
+              onPressed: _addCity,
             ),
           ],
         ),
-      ),
+        if (_prefs.preferredCities.isNotEmpty) ...<Widget>[
+          const SizedBox(height: AppSpacing.s3),
+          Wrap(
+            spacing: AppSpacing.s2,
+            runSpacing: AppSpacing.s2,
+            children: <Widget>[
+              for (final String c in _prefs.preferredCities)
+                BbChip(
+                  label: c,
+                  selected: true,
+                  icon: Icons.close,
+                  onTap: () => setState(() => _prefs = _prefs.copyWith(
+                      preferredCities: _prefs.preferredCities
+                          .where((String x) => x != c)
+                          .toList())),
+                ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _relocateAccommodationSalaryPage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _toggleRow(_kRelocateLabel, _prefs.willingToRelocate,
+            (bool v) => setState(() => _prefs = _prefs.copyWith(willingToRelocate: v))),
+        const SizedBox(height: AppSpacing.s3),
+        _toggleRow(_kAccommodationLabel, _prefs.accommodationNeeded,
+            (bool v) => setState(() => _prefs = _prefs.copyWith(accommodationNeeded: v))),
+        const SizedBox(height: AppSpacing.s5),
+        _label(_kSalaryLabel),
+        Wrap(
+          spacing: AppSpacing.s2,
+          runSpacing: AppSpacing.s2,
+          children: <Widget>[
+            for (final MapEntry<int, String> e in _kSalaryBands.entries)
+              BbChip(
+                label: e.value,
+                selected: _prefs.salaryExpectedMax == e.key,
+                icon: _prefs.salaryExpectedMax == e.key ? Icons.check : null,
+                onTap: () => setState(() => _prefs = _prefs.copyWith(
+                    salaryExpectedMax:
+                        _prefs.salaryExpectedMax == e.key ? null : e.key)),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _educationPage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _label(_kCredentialLabel),
+        _singleChips(_kCredentials, _prefs.educationCredential,
+            (String slug) => setState(() => _prefs = _prefs.copyWith(
+                educationCredential:
+                    _prefs.educationCredential == slug ? null : slug))),
+        const SizedBox(height: AppSpacing.s5),
+        _label(_kCouncilLabel),
+        _singleChips(_kCouncils, _prefs.educationCouncil,
+            (String slug) => setState(() => _prefs = _prefs.copyWith(
+                educationCouncil:
+                    _prefs.educationCouncil == slug ? null : slug))),
+        const SizedBox(height: AppSpacing.s5),
+        _label(_kEduYearLabel),
+        TradeFormTextField(
+          controller: _year,
+          hint: _kEduYearHint,
+          label: _kEduYearLabel,
+          keyboardType: TextInputType.number,
+          onChanged: (String v) => setState(() => _prefs = _prefs.copyWith(
+              educationYear: _inRange(v, _kYearMin, _kYearMax))),
+        ),
+        const SizedBox(height: AppSpacing.s5),
+        _label(_kInstituteLabel),
+        TradeFormTextField(
+          controller: _institute,
+          hint: _kInstituteHint,
+          label: _kInstituteLabel,
+          maxLength: 120,
+          textInputAction: TextInputAction.done,
+          onChanged: (String v) {
+            final String trimmed = v.trim();
+            setState(() => _prefs = _prefs.copyWith(
+                educationInstitute: trimmed.isEmpty ? null : trimmed));
+          },
+        ),
+      ],
     );
   }
 

@@ -219,12 +219,84 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
   final GlobalKey<TradeFormQualificationsPageState> _qualsKey =
       GlobalKey<TradeFormQualificationsPageState>();
 
+  // #1384 item 2 — the currently-mounted marker's own INTERNAL page state,
+  // mirrored up here so the ONE shared sticky bottom bar / header back arrow
+  // can act on the right target: an internal "Aage badhein" that only moves
+  // within this marker, vs the true save that reaches `widget.onSave(...)`
+  // and advances the OUTER walk (`TradeFormCubit.flatSteps`/`currentIndex`,
+  // which this pagination never touches — see the marker widgets' own class
+  // docs). A marker widget cannot call `setState` on this DIFFERENT State
+  // object from inside its own build phase, so it reports through
+  // `onPageChanged` instead (see `TradeFormPreferencesPage.onPageChanged`'s
+  // doc) — deferred via `addPostFrameCallback` for the very first report,
+  // called directly on every later page change (a normal button tap, never
+  // mid-build).
+  //
+  // Defaults deliberately assume "more than one page, not yet on the last
+  // one" — `_markerPage(0) < _markerPageCount(2) - 1` — so the ONE transient
+  // frame before a freshly-mounted marker's real page count arrives never
+  // shows the true-final (green/"Ho gaya") treatment prematurely; the worse
+  // case is a harmless one-frame "Aage badhein" on a marker that turns out
+  // to be single-page (`TradeFormEmploymentPageState.pageCount` with no
+  // entries yet), self-corrected the instant the post-frame callback fires.
+  int _markerPage = 0;
+  int _markerPageCount = 2;
+
+  @override
+  void didUpdateWidget(covariant _WizardScaffold oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.state.currentIndex != widget.state.currentIndex) {
+      // A freshly (re)mounted marker widget always starts its own internal
+      // `_page` at 0 (a brand-new State object — see `_prefsKey`'s doc on
+      // why a GlobalKey cannot survive the unmount) — mirror that here so
+      // this frame's bottom-bar label never reads stale from the PREVIOUS
+      // step, before the new marker's own post-frame report (if any) lands.
+      _markerPage = 0;
+      _markerPageCount = 2;
+    }
+  }
+
+  bool _isMarkerStep(TradeFormStep? step) =>
+      step is TradeFormPreferencesStep ||
+      step is TradeFormEmploymentStep ||
+      step is TradeFormQualificationsStep;
+
+  void _onMarkerPageChanged(int page, int pageCount) {
+    if (!mounted) return;
+    setState(() {
+      _markerPage = page;
+      _markerPageCount = pageCount;
+    });
+  }
+
+  void _goToNextMarkerPage(TradeFormStep? step) {
+    if (step is TradeFormPreferencesStep) {
+      _prefsKey.currentState?.goToNextPage();
+    } else if (step is TradeFormEmploymentStep) {
+      _empKey.currentState?.goToNextPage();
+    } else if (step is TradeFormQualificationsStep) {
+      _qualsKey.currentState?.goToNextPage();
+    }
+  }
+
+  void _goToPreviousMarkerPage(TradeFormStep? step) {
+    if (step is TradeFormPreferencesStep) {
+      _prefsKey.currentState?.goToPreviousPage();
+    } else if (step is TradeFormEmploymentStep) {
+      _empKey.currentState?.goToPreviousPage();
+    } else if (step is TradeFormQualificationsStep) {
+      _qualsKey.currentState?.goToPreviousPage();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final TradeFormCubit cubit = context.read<TradeFormCubit>();
     final TradeFormState state = widget.state;
     final TradeFormStep? step = state.currentStep;
     final bool enabled = !state.isSubmitting;
+    final bool isMarkerStep = _isMarkerStep(step);
+    final bool markerOnLastInternalPage = _markerPage >= _markerPageCount - 1;
 
     return Scaffold(
       backgroundColor: AppColors.canvas,
@@ -232,7 +304,14 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         children: <Widget>[
           BbBlueHeader(
             title: state.currentSectionTitle ?? '',
-            onBack: state.isFirstStep ? () => context.pop() : cubit.goBack,
+            // #1384 item 2 — a marker mid-way through its own internal pages
+            // walks BACKWARD through those first; only once it is back on
+            // its own first internal page does the SAME back arrow fall
+            // through to the outer-step behaviour every other step already
+            // has.
+            onBack: (isMarkerStep && _markerPage > 0)
+                ? () => _goToPreviousMarkerPage(step)
+                : (state.isFirstStep ? () => context.pop() : cubit.goBack),
           ),
           Expanded(
             child: SafeArea(
@@ -285,13 +364,23 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                       child: _stepBody(step, cubit, enabled, state),
                     ),
                   ),
-                  if (step is TradeFormPreferencesStep ||
-                      step is TradeFormEmploymentStep ||
-                      step is TradeFormQualificationsStep)
+                  if (isMarkerStep)
                     _MarkerBottomBar(
-                      isLast: state.isLastStep,
+                      // #1384 item 2 — "the true final button for THIS
+                      // marker" now requires BOTH: the outer walk has
+                      // nothing after it (`state.isLastStep`, unchanged) AND
+                      // this marker itself is on its own last internal page.
+                      // Every internal-pagination "next" tap — including on
+                      // a marker whose outer step happens to be last — stays
+                      // the ordinary advance button; only the one tap that
+                      // ACTUALLY calls `.save()` gets the last-step styling.
+                      isLast: state.isLastStep && markerOnLastInternalPage,
                       isSubmitting: state.isSubmitting,
                       onPressed: () {
+                        if (!markerOnLastInternalPage) {
+                          _goToNextMarkerPage(step);
+                          return;
+                        }
                         if (step is TradeFormPreferencesStep) {
                           _prefsKey.currentState?.save();
                         } else if (step is TradeFormEmploymentStep) {
@@ -337,6 +426,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         loadOptions: cubit.loadPreferenceOptions,
         onSave: cubit.savePreferencesAndAdvance,
         initialPreferences: state.savedPreferences,
+        onPageChanged: _onMarkerPageChanged,
       );
     }
     if (step is TradeFormEmploymentStep) {
@@ -345,6 +435,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         enabled: enabled,
         onSave: cubit.saveEmploymentAndAdvance,
         initialEntries: state.savedEmployment,
+        onPageChanged: _onMarkerPageChanged,
       );
     }
     if (step is TradeFormQualificationsStep) {
@@ -355,6 +446,7 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
         loadOptions: cubit.loadQualificationOptions,
         onSave: cubit.saveQualificationsAndAdvance,
         initialQualifications: state.savedQualifications,
+        onPageChanged: _onMarkerPageChanged,
       );
     }
     return const SizedBox.shrink();

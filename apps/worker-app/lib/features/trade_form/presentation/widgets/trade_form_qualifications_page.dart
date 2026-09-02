@@ -45,8 +45,12 @@ const int _kMaxSuggestionChips = 6;
 
 /// The `type: "qualifications"` marker screen (#1384/#1385, migration 0098)
 /// — the certificates + education rows `PUT /workers/me/qualifications`
-/// owns. Two independent repeatable sections on one scrollable page, mirroring
+/// owns. Two independent repeatable sections, mirroring
 /// `TradeFormEmploymentPage`'s add/remove-row pattern.
+///
+/// #1384 item 2 — the two sections are now separate INTERNAL pages (page 0:
+/// certificates, page 1: education) rather than stacked on one scroll — the
+/// natural two-subsection split this widget already had.
 ///
 /// TRI-STATE, NOT "always send both lists" (see `trade_form_models.dart`'s
 /// `TradeFormQualifications` doc): this widget's only job is to track,
@@ -62,6 +66,7 @@ class TradeFormQualificationsPage extends StatefulWidget {
     required this.enabled,
     required this.onSave,
     this.initialQualifications,
+    this.onPageChanged,
   });
 
   /// Per-trade certificate-name suggestions from the form schema
@@ -79,6 +84,10 @@ class TradeFormQualificationsPage extends StatefulWidget {
   /// alone cannot carry this across a `goBack()`.
   final TradeFormQualifications? initialQualifications;
 
+  /// #1384 item 2 — see `TradeFormPreferencesPage.onPageChanged`'s doc; the
+  /// same contract, off a fixed [pageCount] of 2 (certificates, education).
+  final void Function(int page, int pageCount)? onPageChanged;
+
   @override
   State<TradeFormQualificationsPage> createState() =>
       TradeFormQualificationsPageState();
@@ -86,6 +95,10 @@ class TradeFormQualificationsPage extends StatefulWidget {
 
 class TradeFormQualificationsPageState
     extends State<TradeFormQualificationsPage> {
+  /// Page 0: certificates · 1: education. Fixed — this marker's two
+  /// sub-sections never change count at runtime.
+  static const int pageCount = 2;
+
   QualificationOptionsDto? _options;
   String? _optionsLoadError;
 
@@ -102,10 +115,30 @@ class TradeFormQualificationsPageState
   late bool _educationsTouched =
       widget.initialQualifications?.educationsTouched ?? false;
 
+  int _page = 0;
+  bool get isFirstPage => _page <= 0;
+  bool get isLastPage => _page >= pageCount - 1;
+
   @override
   void initState() {
     super.initState();
     _loadOptions();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.onPageChanged?.call(_page, pageCount);
+    });
+  }
+
+  void goToNextPage() {
+    if (isLastPage) return;
+    setState(() => _page += 1);
+    widget.onPageChanged?.call(_page, pageCount);
+  }
+
+  void goToPreviousPage() {
+    if (isFirstPage) return;
+    setState(() => _page -= 1);
+    widget.onPageChanged?.call(_page, pageCount);
   }
 
   Future<void> _loadOptions() async {
@@ -122,7 +155,8 @@ class TradeFormQualificationsPageState
     }
   }
 
-  /// Called by the screen's sticky bottom bar.
+  /// Called by the screen's sticky bottom bar ONLY on this marker's LAST
+  /// internal page — see `_WizardScaffoldState`'s routing.
   void save() => widget.onSave(TradeFormQualifications(
         certificates: _certificates,
         certificatesTouched: _certificatesTouched,
@@ -200,46 +234,57 @@ class TradeFormQualificationsPageState
       ignoring: !widget.enabled,
       child: Opacity(
         opacity: widget.enabled ? 1 : 0.5,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(_kCertTitle, style: AppTypography.display(size: AppTypography.sizeLg)),
-            const SizedBox(height: AppSpacing.s2),
-            Text(_kCertSubtitle,
-                style: AppTypography.body(
-                    size: AppTypography.sizeSm, color: AppColors.textMuted)),
-            const SizedBox(height: AppSpacing.s4),
-            for (int i = 0; i < _certificates.length; i++) ...<Widget>[
-              _CertificateCard(
-                key: ValueKey<int>(i),
-                entry: _certificates[i],
-                suggestions: widget.suggestedCertificates,
-                onChanged: (TradeFormCertificateEntry e) =>
-                    _updateCertificate(i, e),
-                onRemove: () => _removeCertificate(i),
-              ),
-              const SizedBox(height: AppSpacing.s3),
-            ],
-            if (_certificates.length < kTradeFormMaxCertificates)
-              BbButton(
-                label: _kAddCertificate,
-                variant: BbButtonVariant.outline,
-                size: BbButtonSize.md,
-                iconLeft: Icons.add,
-                block: true,
-                onPressed: _addCertificate,
-              ),
-            const SizedBox(height: AppSpacing.s6),
-            Text(_kEduTitle, style: AppTypography.display(size: AppTypography.sizeLg)),
-            const SizedBox(height: AppSpacing.s2),
-            Text(_kEduSubtitle,
-                style: AppTypography.body(
-                    size: AppTypography.sizeSm, color: AppColors.textMuted)),
-            const SizedBox(height: AppSpacing.s4),
-            _educationSection(),
-          ],
-        ),
+        child: _page == 0 ? _certificatesPage() : _educationPage(),
       ),
+    );
+  }
+
+  Widget _certificatesPage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(_kCertTitle, style: AppTypography.display(size: AppTypography.sizeLg)),
+        const SizedBox(height: AppSpacing.s2),
+        Text(_kCertSubtitle,
+            style: AppTypography.body(
+                size: AppTypography.sizeSm, color: AppColors.textMuted)),
+        const SizedBox(height: AppSpacing.s4),
+        for (int i = 0; i < _certificates.length; i++) ...<Widget>[
+          _CertificateCard(
+            key: ValueKey<int>(i),
+            entry: _certificates[i],
+            suggestions: widget.suggestedCertificates,
+            onChanged: (TradeFormCertificateEntry e) =>
+                _updateCertificate(i, e),
+            onRemove: () => _removeCertificate(i),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+        ],
+        if (_certificates.length < kTradeFormMaxCertificates)
+          BbButton(
+            label: _kAddCertificate,
+            variant: BbButtonVariant.outline,
+            size: BbButtonSize.md,
+            iconLeft: Icons.add,
+            block: true,
+            onPressed: _addCertificate,
+          ),
+      ],
+    );
+  }
+
+  Widget _educationPage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(_kEduTitle, style: AppTypography.display(size: AppTypography.sizeLg)),
+        const SizedBox(height: AppSpacing.s2),
+        Text(_kEduSubtitle,
+            style: AppTypography.body(
+                size: AppTypography.sizeSm, color: AppColors.textMuted)),
+        const SizedBox(height: AppSpacing.s4),
+        _educationSection(),
+      ],
     );
   }
 
