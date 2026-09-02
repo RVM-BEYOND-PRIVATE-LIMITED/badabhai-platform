@@ -296,6 +296,25 @@ const QUESTION_TTS_TEXT: Readonly<Record<string, string>> = {
   "Lagbhag kitne saal milling ka kaam kiya hai?": "लगभग कितने साल मिलिंग का काम किया है?",
   "3-axis, 4-axis ya 5-axis, kaunsi machine par kaam kiya hai?":
     "3-एक्सिस, 4-एक्सिस या 5-एक्सिस, कौनसी मशीन पर काम किया है?",
+  // --- qp_cnc_grinding@1 (role pack, CNC and conventional grinding) — Batch 1 -----------
+  //
+  // SEVEN PROMPTS AND ONE RETRY. The pack has eighteen items; the other eleven ask the same
+  // thing as the turner and milling packs and reuse their served text VERBATIM, so their twins
+  // are already above. That reuse is deliberate corpus hygiene rather than laziness: one
+  // question wording per attribute key means one twin, and a second phrasing of "Kya aap
+  // drawing padh lete hain?" would be a second clip to keep in step forever.
+  //
+  // INITIALISMS STAY LATIN — CNC is spelled out letter by letter by a hi-IN voice, which is how
+  // a worker says it. "Grinding", "wheel", "setting" and "surface finish" are Devanagari:
+  // they are the words the worker actually uses, and a hi-IN voice reads Latin as English.
+  "Grinding ka kitna tajurba hai?": "ग्राइंडिंग का कितना तजुर्बा है?",
+  "Lagbhag kitne saal grinding ka kaam kiya hai?": "लगभग कितने साल ग्राइंडिंग का काम किया है?",
+  "Aap kaunsi grinding machine chalate hain?": "आप कौन सी ग्राइंडिंग मशीन चलाते हैं?",
+  "Machine CNC hai ya conventional?": "मशीन CNC है या कन्वेंशनल?",
+  "Kaunse grinding wheel istemaal karte hain?": "कौन से ग्राइंडिंग व्हील इस्तेमाल करते हैं?",
+  "Setting ka kaunsa kaam khud karte hain?": "सेटिंग का कौन सा काम खुद करते हैं?",
+  "Kitna surface finish nikaal lete hain?": "कितना सरफेस फिनिश निकाल लेते हैं?",
+  "Wheel dressing kaise karte hain?": "व्हील ड्रेसिंग कैसे करते हैं?",
 };
 
 /**
@@ -517,6 +536,19 @@ const WHY_TTS_TEXT: Readonly<Record<string, string>> = {
     "सेक्टर का तजुर्बा उसी लाइन के एम्प्लॉयर ढूँढते हैं।",
   "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai.":
     "दिक्कत सुधारने वाले ऑपरेटर की शॉप पर ज़रूरत रहती है।",
+  // --- qp_cnc_grinding@1 (role pack) — Batch 1 -----------------------------------------
+  //
+  // FIVE WHY-TEXTS. The other thirteen are shared verbatim with the turner and milling packs
+  // and are already above. Statements take the danda; only questions keep the Latin "?".
+  "Dono ka kaam alag hota hai, dono ki demand hai.":
+    "दोनों का काम अलग होता है, दोनों की डिमांड है।",
+  "Wheel chunna grinding ka asli hunar hai.": "व्हील चुनना ग्राइंडिंग का असली हुनर है।",
+  "Setting ka kaam operator aur setter ka farq batata hai.":
+    "सेटिंग का काम ऑपरेटर और सेटर का फ़र्क़ बताता है।",
+  "Finish grinding ke kaam ki sabse badi pehchaan hai.":
+    "फिनिश ग्राइंडिंग के काम की सबसे बड़ी पहचान है।",
+  "Dressing ka tarika wheel ki umar aur finish tay karta hai.":
+    "ड्रेसिंग का तरीका व्हील की उम्र और फिनिश तय करता है।",
 };
 
 /** Every atomic pair, normalized once at module load — see {@link ttsTextFor}. */

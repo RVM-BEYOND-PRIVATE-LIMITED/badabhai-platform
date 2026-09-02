@@ -34,6 +34,7 @@
 {"kind":"family","family_id":"fam_machining","label_en":"Machining and CNC","label_hi":"खराद और सीएनसी","canonical_role_id":"role_cnc_operator","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_cnc_turning","label_en":"Turning (CNC and conventional)","label_hi":"टर्निंग और खराद","canonical_role_id":"role_cnc_turner_operator","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_vmc_milling","label_en":"Milling (VMC and conventional)","label_hi":"मिलिंग और वीएमसी","canonical_role_id":"role_cnc_operator","industry_id":"ind_industrial_manufacturing"}
+{"kind":"family","family_id":"fam_cnc_grinding","label_en":"Grinding (CNC and conventional)","label_hi":"ग्राइंडिंग और घिसाई","canonical_role_id":"role_cnc_grinding_operator","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_fitting","label_en":"Fitting and Machine Maintenance","label_hi":"फिटर और मेंटेनेंस","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_toolmaking","label_en":"Tool and Die Making","label_hi":"टूल और डाई मेकिंग","industry_id":"ind_industrial_manufacturing"}
 {"kind":"family","family_id":"fam_auto_mechanic","label_en":"Automobile Mechanic","label_hi":"गाड़ी मैकेनिक"}
@@ -87,6 +88,12 @@
 {"kind":"binding","family_id":"fam_vmc_milling","job_domain_id":"jd_nco_7223_5005"}
 {"kind":"binding","family_id":"fam_vmc_milling","job_domain_id":"jd_nco_7223_1201"}
 {"kind":"binding","family_id":"fam_vmc_milling","job_domain_id":"jd_nco_7223_1400"}
+{"kind":"binding","family_id":"fam_cnc_grinding","job_domain_id":"jd_nco_7223_2200"}
+{"kind":"binding","family_id":"fam_cnc_grinding","job_domain_id":"jd_nco_7224_0200"}
+{"kind":"binding","family_id":"fam_cnc_grinding","job_domain_id":"jd_nco_7224_0300"}
+{"kind":"binding","family_id":"fam_cnc_grinding","job_domain_id":"jd_nco_7224_0400"}
+{"kind":"binding","family_id":"fam_cnc_grinding","job_domain_id":"jd_nco_7224_0402"}
+{"kind":"binding","family_id":"fam_cnc_grinding","job_domain_id":"jd_nco_7224_0500"}
 {"kind":"binding","family_id":"fam_fitting","isco_unit_code":"7233"}
 {"kind":"binding","family_id":"fam_toolmaking","isco_unit_code":"7222"}
 {"kind":"binding","family_id":"fam_auto_mechanic","isco_unit_code":"7231"}

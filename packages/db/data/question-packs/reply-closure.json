@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "clip_count": 531,
+  "clip_count": 552,
   "producers": {
-    "clarify": 186,
-    "prompt": 156,
-    "why": 170,
+    "clarify": 194,
+    "prompt": 163,
+    "why": 175,
     "constant": 8,
-    "retry": 11
+    "retry": 12
   },
   "clips": [
     {
@@ -360,6 +360,11 @@
       "producer": "prompt"
     },
     {
+      "id": "1e5e72ea10128d12",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Lagbhag kitne saal grinding ka kaam kiya hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "1f0d5b9b4fa96188",
       "text": "Machine ka tajurba employer poochte hain. Aap kaunsi machine par kaam kar chuke hain?",
       "producer": "clarify"
@@ -377,6 +382,11 @@
     {
       "id": "1ffb78ea33c4d7a3",
       "text": "Pump par kai tarah ke kaam hote hain. Aap pump par kya karte hain?",
+      "producer": "clarify"
+    },
+    {
+      "id": "20323100f1c1399b",
+      "text": "Wheel chunna grinding ka asli hunar hai. Kaunse grinding wheel istemaal karte hain?",
       "producer": "clarify"
     },
     {
@@ -640,6 +650,11 @@
       "producer": "why"
     },
     {
+      "id": "38f97d38cef37c7f",
+      "text": "Setting ka kaam operator aur setter ka farq batata hai.",
+      "producer": "why"
+    },
+    {
       "id": "39648da74ad7a5e1",
       "text": "Aap din ki shift chahte hain ya raat ki?",
       "producer": "prompt"
@@ -712,6 +727,11 @@
     {
       "id": "41b8f03cbf848ab8",
       "text": "Aap dairy me kya karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "4259fe63cdc79af7",
+      "text": "Grinding ka kitna tajurba hai?",
       "producer": "prompt"
     },
     {
@@ -980,6 +1000,11 @@
       "producer": "clarify"
     },
     {
+      "id": "599873c51498f19a",
+      "text": "Finish grinding ke kaam ki sabse badi pehchaan hai. Kitna surface finish nikaal lete hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "59e2fd2d7781105a",
       "text": "Aap kaunsi machine chalate hain?",
       "producer": "prompt"
@@ -1160,6 +1185,11 @@
       "producer": "why"
     },
     {
+      "id": "69dba17d6ad47c15",
+      "text": "Dressing ka tarika wheel ki umar aur finish tay karta hai. Wheel dressing kaise karte hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "6a846e2ad54ddece",
       "text": "Kya aap sheher ke raaste jaante hain?",
       "producer": "prompt"
@@ -1300,9 +1330,24 @@
       "producer": "clarify"
     },
     {
+      "id": "74c66a3bab70c276",
+      "text": "Kaunse grinding wheel istemaal karte hain?",
+      "producer": "prompt"
+    },
+    {
       "id": "755cbb615c93f115",
       "text": "Badi jagah English maangi jaati hai. Kya aap English bol lete hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "766f203f7746531e",
+      "text": "Wheel dressing kaise karte hain?",
+      "producer": "prompt"
+    },
+    {
+      "id": "76b9bc08faf44c3a",
+      "text": "Dono ka kaam alag hota hai, dono ki demand hai.",
+      "producer": "why"
     },
     {
       "id": "76d231db42516a8e",
@@ -1348,6 +1393,11 @@
       "id": "7a8f2ed92c5a5c0d",
       "text": "Rehne wale ka vetan alag hota hai. Kya aap ghar par rehkar kaam kar sakte hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "7ae09cc9c37c58c0",
+      "text": "Lagbhag kitne saal grinding ka kaam kiya hai?",
+      "producer": "retry"
     },
     {
       "id": "7c5b051373532235",
@@ -1500,6 +1550,11 @@
       "producer": "prompt"
     },
     {
+      "id": "8948d9c6bb3a4534",
+      "text": "Wheel chunna grinding ka asli hunar hai.",
+      "producer": "why"
+    },
+    {
       "id": "89d7f3e79236a51c",
       "text": "Har kachre ka kaam alag hota hai. Aap kaunsa kachra uthate hain?",
       "producer": "clarify"
@@ -1623,6 +1678,11 @@
       "id": "9522b90c24b1ec06",
       "text": "Workshop me kaunsa job ya project banaya tha?",
       "producer": "retry"
+    },
+    {
+      "id": "95e04ac6d49c634d",
+      "text": "Setting ka kaunsa kaam khud karte hain?",
+      "producer": "prompt"
     },
     {
       "id": "968d415276e0c358",
@@ -1798,6 +1858,11 @@
       "id": "a63262e0ed21784b",
       "text": "Kuch naukri ke liye padhai ka record maanga jaata hai.",
       "producer": "why"
+    },
+    {
+      "id": "a65d5c589003835d",
+      "text": "Aap kaunsi grinding machine chalate hain?",
+      "producer": "prompt"
     },
     {
       "id": "a68992ff01f33a54",
@@ -2020,6 +2085,11 @@
       "producer": "prompt"
     },
     {
+      "id": "bc8eb88cccac5b63",
+      "text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain. Grinding ka kitna tajurba hai?",
+      "producer": "clarify"
+    },
+    {
       "id": "bca52b2c1ecc5460",
       "text": "Har welding alag hoti hai, isse sahi naukri milti hai. Aap kaunsi welding karte hain?",
       "producer": "clarify"
@@ -2100,6 +2170,11 @@
       "producer": "prompt"
     },
     {
+      "id": "c3010fce0e8b9d75",
+      "text": "Finish grinding ke kaam ki sabse badi pehchaan hai.",
+      "producer": "why"
+    },
+    {
       "id": "c36657493137de7e",
       "text": "Gas charging ek alag hunar hai.",
       "producer": "why"
@@ -2130,6 +2205,11 @@
       "producer": "clarify"
     },
     {
+      "id": "c6cec4c63afe3d50",
+      "text": "Dressing ka tarika wheel ki umar aur finish tay karta hai.",
+      "producer": "why"
+    },
+    {
       "id": "c73c8a3e9be370e7",
       "text": "Job pakadne ke liye kya use karte hain?",
       "producer": "prompt"
@@ -2138,6 +2218,11 @@
       "id": "c784b76aedaf3ed8",
       "text": "Aap kaise packing karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "c7913bc5121b4eae",
+      "text": "Dono ka kaam alag hota hai, dono ki demand hai. Machine CNC hai ya conventional?",
+      "producer": "clarify"
     },
     {
       "id": "c7e67c9a76fd660f",
@@ -2335,6 +2420,11 @@
       "producer": "why"
     },
     {
+      "id": "d93fc057d2f0eccb",
+      "text": "Machine ke hisaab se sahi kaam dikhaya jaata hai. Aap kaunsi grinding machine chalate hain?",
+      "producer": "clarify"
+    },
+    {
       "id": "da1d228cfe744d8e",
       "text": "Tolerance se aapke kaam ki fine quality pata chalti hai. Aap kitni tolerance tak kaam kar lete hain?",
       "producer": "clarify"
@@ -2388,6 +2478,11 @@
       "id": "e0185b5fce786c98",
       "text": "Har gaadi ka licence alag hota hai. Aap kaunsi gaadi chalate hain?",
       "producer": "clarify"
+    },
+    {
+      "id": "e01a2ac63560444d",
+      "text": "Kitna surface finish nikaal lete hain?",
+      "producer": "prompt"
     },
     {
       "id": "e0984aa33a590ce6",
@@ -2530,6 +2625,11 @@
       "producer": "prompt"
     },
     {
+      "id": "edef2e9107faca99",
+      "text": "Machine CNC hai ya conventional?",
+      "producer": "prompt"
+    },
+    {
       "id": "ee0cc162a11b8bfe",
       "text": "Har product ki line alag hoti hai. Aap kya assemble karte hain?",
       "producer": "clarify"
@@ -2548,6 +2648,11 @@
       "id": "efabd886813c0c62",
       "text": "Aap kahaan service karte hain?",
       "producer": "prompt"
+    },
+    {
+      "id": "efce48c698239e5a",
+      "text": "Setting ka kaam operator aur setter ka farq batata hai. Setting ka kaunsa kaam khud karte hain?",
+      "producer": "clarify"
     },
     {
       "id": "f1db9f33aa56f716",

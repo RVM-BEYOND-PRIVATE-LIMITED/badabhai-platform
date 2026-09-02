@@ -100,6 +100,18 @@ const TURNING_PHRASES = [
   "machinist",
 ] as const;
 
+/**
+ * The GRINDING vocabulary — Batch 1, and the sharpest contrast with turning in this file.
+ *
+ * Turning went from one reachable phrase to six PURELY by binding, because 7223.0701 already
+ * carried six vernacular aliases. Grinding had no such code: the entire grinding vernacular in the
+ * alias corpus is three phrases, all on 7223.2200 ("Grinder, Tool and Cutter"), plus the
+ * Devanagari ग्राइंडिंग added with the pack. The bare English "grinder" is deliberately NOT an
+ * alias — it is also what an angle-grinder hand in a fabrication shop calls himself, and hanging
+ * it here would route a weld-dresser into questions about work-head alignment and Ra 0.4.
+ */
+const GRINDING_PHRASES = ["grinding machine", "ghisai", "घिसाई", "ग्राइंडिंग"] as const;
+
 describe("role-pack reachability — do a worker's own words reach the pack for their trade", () => {
   it("the fixtures load at all — without this every assertion below is vacuous", () => {
     expect(bindings.length).toBeGreaterThan(0);
@@ -170,5 +182,45 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
     for (const phrase of TURNING_PHRASES) {
       expect(familyFor(phrase), `"${phrase}" falls through to universal`).not.toBe("fam_universal");
     }
+  });
+
+  it("qp_cnc_grinding is bound to a family that the resolver can actually reach", () => {
+    const grinding = corpus.bindings.filter((b) => b.family_id === "fam_cnc_grinding");
+    expect(grinding.length).toBeGreaterThan(0);
+    for (const b of grinding) {
+      expect(b.job_domain_id, "grinding binds by job domain, never by ISCO unit").toBeTruthy();
+      const resolved = resolveFamily(bindings, {
+        jobDomainId: b.job_domain_id as string,
+        iscoUnitCode: iscoUnitOf(b.job_domain_id as string),
+      });
+      expect(resolved?.familyId, `binding ${b.job_domain_id} is shadowed`).toBe("fam_cnc_grinding");
+      expect(resolved?.specificity, "job_domain must outrank the unit bindings").toBe(50);
+    }
+  });
+
+  it("CHARACTERIZES which grinding phrases reach grinding depth today", () => {
+    const routing = Object.fromEntries(GRINDING_PHRASES.map((p) => [p, familyFor(p)]));
+    // Read this as a report. All four reach the pack, and that is the WHOLE reach — a grinder
+    // who types only "grinder" or "surface grinding" still has to be recognised by the
+    // interview, because neither phrase is an alias anywhere in the corpus.
+    expect(routing).toEqual({
+      "grinding machine": "fam_cnc_grinding",
+      ghisai: "fam_cnc_grinding",
+      घिसाई: "fam_cnc_grinding",
+      ग्राइंडिंग: "fam_cnc_grinding",
+    });
+  });
+
+  it("binding grinding did not move a single turning or milling phrase", () => {
+    // THE REGRESSION THAT MATTERS WHEN A THIRD MACHINING ROLE ARRIVES. 7223.2200 sits inside unit
+    // 7223, the same unit fam_machining binds, so a mis-scoped binding here would silently pull
+    // turners or millers off their own packs. Asserted by re-running the turning table rather
+    // than by inspection.
+    expect(familyFor("kharad")).toBe("fam_cnc_turning");
+    expect(familyFor("lathe")).toBe("fam_cnc_turning");
+    expect(familyFor("milling machine")).toBe("fam_vmc_milling");
+    expect(familyFor("vmc operator")).toBe("fam_vmc_milling");
+    // And the machine-agnostic words stay on the disambiguator, as the turning table records.
+    expect(familyFor("cnc operator")).toBe("fam_machining");
   });
 });

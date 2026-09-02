@@ -70,10 +70,10 @@ describe("routeToTradeForm", () => {
       // A rung with no occupation word. "Setter-cum-Operator" is shared vocabulary across every
       // machining role, so it corroborates a pin and never carries a route by itself.
       ["CNC Machining", "VMC Setter-cum-Operator"],
-      // Roles we DECLARE but do not serve. The veto is what keeps them talking to the interview
-      // rather than being handed the nearest enabled form, and it is why a disabled descriptor
-      // is load-bearing rather than a placeholder.
-      ["Manufacturing", "grinding operator"],
+      // A role we DECLARE but do not serve. The veto is what keeps such a worker talking to the
+      // interview rather than being handed the nearest enabled form, and it is why a disabled
+      // descriptor is load-bearing rather than a placeholder. Grinding used to sit here too, and
+      // moved to its own block below when Batch 1 authored its pack.
       ["Manufacturing", "drilling operator"],
       // Ambiguous by the worker's own account: keep talking rather than guess which form fits.
       // BOTH roles are enabled now, and this must STILL reach neither — an enabled rival is a
@@ -119,6 +119,19 @@ describe("routeToTradeForm", () => {
       // when it would quietly stop holding.
       expect(route("Manufacturing", "vmc", null)).toBeNull();
       expect(route("Manufacturing", "vmc", "fam_vmc_milling")).toBe("vmc_milling");
+    });
+
+    it("does not let the machining-centre form claim a grinder", () => {
+      // THE THIRD MACHINING ROLE MAKES THIS SHARPER, not merely longer. Turner and miller vetoed
+      // "grinding" from the day grinding was DECLARED — the whole argument for declaring a role
+      // before building it. Now that grinding is enabled, the same word must ROUTE rather than
+      // only veto, and it must route to grinding and to neither of the other two.
+      expect(route("Manufacturing", "grinding operator", null)).toBe("cnc_grinding");
+      expect(route("Manufacturing", "surface grinder", "fam_cnc_grinding")).toBe("cnc_grinding");
+      expect(route("Manufacturing", "ghisai ka kaam", "fam_cnc_grinding")).toBe("cnc_grinding");
+      // And a worker who claims two of the three still reaches none of them.
+      expect(route("CNC Machining", "grinding aur turning dono", null)).toBeNull();
+      expect(route("CNC Machining", "milling aur grinding", null)).toBeNull();
     });
 
     it("does not let the turner form claim a miller, in either direction", () => {
