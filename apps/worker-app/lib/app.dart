@@ -171,11 +171,11 @@ class _BadaBhaiAppState extends State<BadaBhaiApp> {
             child: content,
           );
         }
-        // Clamp the OS font-scale so an extreme accessibility setting can't
-        // blow the layout apart — the app still scales up to 1.3x for low-vision
-        // users, but no further.
-        return MediaQuery.withClampedTextScaling(
-          maxScaleFactor: 1.3,
+        // Hard-lock text scale to 1.0x, ignoring the OS accessibility font-size
+        // setting entirely — every size on screen is controlled only from code
+        // (explicit product decision, superseding the earlier 1.3x clamp).
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
           child: content,
         );
       },
