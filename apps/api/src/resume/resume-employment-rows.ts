@@ -295,6 +295,48 @@ function overflowLine(
   return [count, `${total} months total`, span].filter((p): p is string => Boolean(p)).join(" · ");
 }
 
+/**
+ * Total years across a worker's structured employment history, or null.
+ *
+ * WHY THE HEADLINE NEEDS IT (#1377). The Verdict Line's years figure is summed from the LLM
+ * draft's `experiences[].duration_months`. A form-first worker has none: the router can hand them
+ * over on their very first message, so the universal `experience_years` question may never be
+ * asked at all, and the handover switches extraction off — while the work-history screen they
+ * then fill collects exact dated employments. The sheet was reading the empty source and ignoring
+ * the full one, so §5.1's highest-ranked element printed a blank where the worker had given a
+ * complete history.
+ *
+ * NOT FROM THE TIER GATE, and this is the part worth being explicit about. `turning_experience`
+ * IS answered by every form worker, which makes it the tempting source — but its options carry
+ * `value_number` 0 / 2 / 5 / 10 as TIER THRESHOLDS, not as years: a worker who taps "7 saal se
+ * zyada" has said "more than seven", and printing "10 yrs" would be a number nobody stated. §8
+ * permits a closed vocabulary label, a number the worker gave, or their own words, and a
+ * threshold dressed as a tenure is none of the three. The gate decides which questions are
+ * asked; it does not get to decide what the headline claims.
+ *
+ * ALL-OR-NOTHING, exactly like {@link overflowLine}'s months segment and for the same reason: a
+ * "total" that quietly omits the two employments whose dates the worker could not give is a false
+ * number on a printed page, and worse than no number because it reads as complete.
+ *
+ * SUMMED, NOT SPANNED. The ratified samples add their employments up — Vinod Sharma's 5 yr 4 mo,
+ * 2 yr 3 mo and 1 yr 11 mo print as "9 yrs 6 mo" — so consecutive jobs accumulate rather than
+ * collapsing into a first-to-last span.
+ */
+export function totalEmployedYears(
+  records: readonly WorkerEmploymentRecord[],
+  asOf: Date | null,
+): number | null {
+  if (records.length === 0) return null;
+  const spans = records.map((r) =>
+    r.durationStated && r.startYm ? monthsBetween(r.startYm, r.endYm ?? ymOf(asOf)) : null,
+  );
+  if (spans.some((m) => m === null)) return null;
+  const months = spans.reduce((sum: number, m) => sum + (m ?? 0), 0);
+  if (months <= 0) return null;
+  // One decimal, matching `totalYearsFrom` — so the two sources cannot disagree about rounding.
+  return Math.round((months / 12) * 10) / 10;
+}
+
 /** The employment's one work line — see {@link WORK_LINE_MAX_PARTS}. */
 function workLine(
   roles: readonly WorkerEmploymentRoleRecord[],

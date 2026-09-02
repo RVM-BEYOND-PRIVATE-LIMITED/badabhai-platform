@@ -5,7 +5,11 @@ import type { ResumeExperienceLine, ResumeRenderInput } from "./resume-renderer.
 import { resolveTradeContent, type TradeContent } from "./trade-content";
 import { buildTradeCapabilityRows, type WorkerAttributeValues } from "./trade-resume-map";
 import { degradeToFit, fitOwnWords } from "./resume-degradation";
-import { buildEmploymentBlock, type WorkerEmploymentRecord } from "./resume-employment-rows";
+import {
+  buildEmploymentBlock,
+  totalEmployedYears,
+  type WorkerEmploymentRecord,
+} from "./resume-employment-rows";
 import { readPreferenceFacts, type ResumePreferenceFacts } from "./resume-preference-facts";
 import { selectOwnWords } from "./resume-own-words";
 import { formatWorkerPhone } from "./resume-phone";
@@ -423,6 +427,7 @@ function buildUndegraded(
       capability.headlineAxes,
       tradeSheet?.qualification,
       hasEmployments,
+      totalEmployedYears(tradeSheet?.employments ?? [], tradeSheet?.asOf ?? null),
       {
         educationHeadline,
         // R15 §1 — THE FIVE STARVED SLOTS, AND THE POPULATION IS WHY THEY WENT FIRST.
@@ -766,6 +771,19 @@ function fromResumeProfile(
    */
   hasEmployments: boolean,
   /**
+   * Total years across the worker's DATED employment history, or null (#1377).
+   *
+   * PASSED IN, NOT REBUILT, on the same terms as `capabilitySlots`: the caller already holds the
+   * `worker_employment` records and this path does not, and a second computation here would be a
+   * second place for the two branches to disagree about how long a worker has worked.
+   *
+   * A FALLBACK ONLY — see its use below. It exists because a form-first worker can be handed the
+   * form on their first message, so the universal `experience_years` question is never asked and
+   * extraction never runs, leaving the highest-ranked element on the sheet blank for a worker who
+   * had just typed in their whole dated history.
+   */
+  employedYears: number | null,
+  /**
    * THE FALLBACK ZONE 5 NEVER HAD. This path read only `qualification`, which no production
    * caller supplies, so education and certificates rendered empty for every worker whose
    * interview ran — even though the answer-map crosswalk carries `education_level`,
@@ -858,7 +876,13 @@ function fromResumeProfile(
   // ONE TOTAL, COMPUTED ONCE. The Verdict Line, the `experienceYears` slot and the summary all
   // read it, and computing it at three call sites is how a sheet ends up saying "8 yrs" at the
   // top and "with 5 years of experience" three lines down.
-  const totalYears = renderedTotalYears(statedYears, totalYearsFrom(rp.experiences));
+  // A FALLBACK, NOT A NEW PRECEDENCE (#1377). The employment dates are consulted only when the
+  // draft's own sum is null, which is precisely the form-first worker whose extraction never ran.
+  // Every profile that already renders a years figure keeps the one it renders today.
+  const totalYears = renderedTotalYears(
+    statedYears,
+    totalYearsFrom(rp.experiences) ?? employedYears,
+  );
 
   // §8.4's verbatim quotes. THE MODEL PROPOSES — these are the sentences it recorded — AND THE
   // TRANSCRIPT DISPOSES: `selectOwnWords` prints a phrase only when the worker's own stored turn
