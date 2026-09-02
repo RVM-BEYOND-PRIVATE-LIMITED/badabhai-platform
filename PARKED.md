@@ -122,3 +122,86 @@ point where there is no second super_admin to ask.
 wrong route name appears in three places plus a refusal path that wants its own test. It is
 a small, clean PR of its own, not a drive-by edit inside a cleanup. `docs/operations/COMMANDS.md`
 now carries the correction so the doc does not repeat the error.
+
+---
+
+## P-005 · `pnpm build` cannot pass on Windows — `admin-web` dies on a symlink
+
+**Found:** 2026-09-02, running the gates after the P1-duplicate cleanup
+**Location:** [apps/admin-web/next.config.ts](apps/admin-web/next.config.ts) — `output: "standalone"`
+**Severity:** none in CI, total locally. **Do not re-investigate this; it is known.**
+
+**What happens.** `pnpm build` reports `15 successful, 17 total` / `Failed:
+@badabhai/admin-web#build`, with:
+
+```
+[Error: EPERM: operation not permitted, symlink
+ '…\node_modules\.pnpm\@jridgewell+trace-mapping@0.3.31\node_modules\@jridgewell\trace-mapping'
+ -> '…\apps\admin-web\.next\standalone\node_modules\…'] { errno: -4048, code: 'EPERM' }
+```
+
+The named package differs run to run — it is whichever dependency the tracer reaches first,
+not a problem with that package.
+
+**It is not a build failure.** The build gets all the way through:
+
+```
+✓ Compiled successfully in 2.1s
+  Checking validity of types ...
+✓ Generating static pages (4/4)
+  Collecting build traces ...
+> Build error occurred
+```
+
+It compiles, type-checks and prerenders every page. It fails only at `Collecting build
+traces`, where Next's `output: "standalone"` copies `node_modules` by **symlink**. Creating a
+symlink on Windows needs Developer Mode or `SeCreateSymbolicLinkPrivilege`; without it every
+attempt is `EPERM`. Deterministic — three consecutive runs, same stage.
+
+**Why it is not a regression.** CI builds this surface on Linux on every push to main
+(`.github/workflows/ci.yml` carries an `admin-web` image row), so the standalone output is
+produced there. Confirmed on a branch whose entire diff versus `origin/main` was
+documentation — 37 files, zero source — meaning `admin-web`'s build inputs were byte-identical
+to upstream and the failure could not have been introduced by the change under test.
+
+**What this means for a local gate.** `pnpm build` is **not** a usable green/red signal on a
+Windows box. Use `pnpm typecheck` (29/29) and `pnpm test` (29/29), and read `admin-web`'s
+build output for `✓ Compiled successfully` rather than its exit code.
+
+**Not fixed because:** the candidate fixes are enabling Windows Developer Mode (a machine
+setting, not a repo change) or dropping `output: "standalone"` (which the staging Dockerfile
+depends on). Neither belongs in a cleanup.
+
+---
+
+## P-006 · `canary-coverage.test.ts` is one slow machine away from reddening CI
+
+**Found:** 2026-09-02, full-suite run during the same cleanup
+**Location:** [apps/api/src/common/canary-coverage.test.ts](apps/api/src/common/canary-coverage.test.ts) — the second test, `probes every ops-internal route`
+**Severity:** low frequency, high blast radius — this test is CI-blocking
+
+**What happens.** Under full-suite load the test times out:
+
+```
+FAIL  src/common/canary-coverage.test.ts > … > probes every ops-internal route
+Error: Test timed out in 30000ms.
+```
+
+Run on its own it finishes in **2.15s** against that same 30s budget, and two subsequent
+full-suite runs were green (`398 passed | 16 skipped (414)`, `7288 passed`). So it is
+load-induced, not a real failure — but the margin is not as wide as 2.15s vs 30s suggests,
+because the cost is not in the test body. It `await import()`s **every** `*.controller.ts`
+on disk — 70 files — and under a parallel vitest run those imports queue behind every other
+worker's transform. The suite reported `transform 104.90s` and `collect 1184.03s` cumulative
+on the failing run versus `transform 29.00s` on a passing one.
+
+**Why it matters.** A green run here is not evidence the guard coverage is intact; it is
+evidence the machine was fast enough. And when it flips, it flips on the one test whose
+whole purpose is to prove no ops route is unguarded — so the failure reads as a security
+regression to whoever sees it in CI.
+
+**Not fixed because:** the fix is a judgement call about the right number
+(`{ timeout: … }` on that `it`, or a `testTimeout` for the file), and raising a timeout to
+silence a red test is exactly the move that needs a deliberate decision rather than a
+drive-by edit inside a cleanup. Raise it when it next bites, not now. Do **not** address this
+by weakening what the test asserts.
