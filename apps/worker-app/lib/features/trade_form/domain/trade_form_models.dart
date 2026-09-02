@@ -216,6 +216,7 @@ class TradeFormAnswerResult extends Equatable {
     required this.status,
     required this.answered,
     required this.total,
+    this.schemaStale = false,
   });
 
   final String questionKey;
@@ -223,8 +224,20 @@ class TradeFormAnswerResult extends Equatable {
   final int answered;
   final int total;
 
+  /// `schema_stale` (#1382) — true when the question just answered gates
+  /// OTHER questions (`ask_if` filtering), meaning the screen list this
+  /// client is holding may now include questions the server would no
+  /// longer ask. FORWARD-COMPATIBLE GROUNDWORK: the key does not exist on
+  /// `TradeFormAnswerResponse` yet (`apps/api/src/profiling/form/`, as of
+  /// #1382 — the ask_if backend work is still in progress), so it is
+  /// ABSENT on every real response today and this defaults to false —
+  /// inert until the backend ships the key, then activates automatically.
+  /// A client that never sees `true` behaves exactly as it does now.
+  final bool schemaStale;
+
   @override
-  List<Object?> get props => <Object?>[questionKey, status, answered, total];
+  List<Object?> get props =>
+      <Object?>[questionKey, status, answered, total, schemaStale];
 }
 
 /// ---- The two marker-screen writes (#1296's endpoints, reused verbatim) ----

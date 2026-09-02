@@ -151,11 +151,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         emit(state.copyWith(status: TradeFormStatus.noForm));
         return;
       }
-      final List<TradeFormFlatStep> flat = <TradeFormFlatStep>[
-        for (final TradeFormSection section in form.sections)
-          for (final TradeFormStep step in section.screens)
-            TradeFormFlatStep(sectionTitle: section.title, step: step),
-      ];
+      final List<TradeFormFlatStep> flat = _flatten(form);
       final int total = form.questionSteps.length;
       final int answeredCount =
           form.questionSteps.where((TradeFormQuestionStep q) => q.isAnswered).length;
@@ -177,14 +173,33 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     }
   }
 
+  List<TradeFormFlatStep> _flatten(TradeForm form) => <TradeFormFlatStep>[
+        for (final TradeFormSection section in form.sections)
+          for (final TradeFormStep step in section.screens)
+            TradeFormFlatStep(sectionTitle: section.title, step: step),
+      ];
+
   int _resumeIndex(List<TradeFormFlatStep> flat) {
-    final int i = flat.indexWhere((TradeFormFlatStep f) {
-      final TradeFormStep s = f.step;
-      if (s is TradeFormQuestionStep) return !s.isAnswered;
-      return true; // any marker screen — see class doc for why.
-    });
+    final int i = _nextStepIndex(flat, from: 0);
     if (i >= 0) return i;
     return flat.isEmpty ? 0 : flat.length - 1;
+  }
+
+  /// The first UNANSWERED question OR marker screen at/after [from] — the
+  /// forward-scan half of resumability. [_resumeIndex] is the FRESH-LOAD
+  /// concept (always scans from 0); this is the shared primitive it and the
+  /// mid-walk `schema_stale` resync (`_resyncAfterStaleSchema`) both use —
+  /// the latter scans from wherever the worker just was, never from the top.
+  int _nextStepIndex(List<TradeFormFlatStep> flat, {required int from}) {
+    for (int i = from; i < flat.length; i++) {
+      final TradeFormStep s = flat[i].step;
+      if (s is TradeFormQuestionStep) {
+        if (!s.isAnswered) return i;
+      } else {
+        return i; // any marker screen — see class doc for why.
+      }
+    }
+    return -1;
   }
 
   // --- Navigation ----------------------------------------------------------
@@ -234,32 +249,28 @@ class TradeFormCubit extends Cubit<TradeFormState> {
         text: answer.text,
         boolValue: answer.boolValue,
       );
-      final List<TradeFormFlatStep> next = List<TradeFormFlatStep>.of(state.flatSteps);
-      // Matched by question_key, NOT list index or Equatable step-equality —
-      // the worker's position may have moved (unlikely, but never assumed)
-      // and two distinct questions could otherwise coincide on every other
-      // field.
-      final int idx = next.indexWhere((TradeFormFlatStep f) =>
-          f.step is TradeFormQuestionStep &&
-          (f.step as TradeFormQuestionStep).question.id == step.question.id);
-      if (idx >= 0) {
-        next[idx] = TradeFormFlatStep(
-          sectionTitle: next[idx].sectionTitle,
-          step: TradeFormQuestionStep(
-            question: step.question,
-            searchable: step.searchable,
-            answer: saved,
-          ),
-        );
+      final List<TradeFormFlatStep> banked =
+          _bankAnswer(state.flatSteps, step, saved);
+
+      if (result.schemaStale) {
+        // #1382 — the just-answered question gates other questions, so the
+        // schema `banked` was built against is now out of date. Re-fetch and
+        // re-flatten the WHOLE form rather than patching one entry — see
+        // `_resyncAfterStaleSchema`'s own doc for why. `banked` is passed as
+        // the fallback so a re-fetch failure never loses the answer that
+        // already landed server-side (the submit above succeeded).
+        await _resyncAfterStaleSchema(result, fallback: banked);
+        return;
       }
-      final bool last = state.currentIndex >= next.length - 1;
+
+      final bool last = state.currentIndex >= banked.length - 1;
       if (last) {
         // #1375 — the last step is a question (not a marker screen), so
         // answerQuestion is the terminal write. Emit done so the screen
         // navigates to the résumé pipeline.
         emit(state.copyWith(
           status: TradeFormStatus.done,
-          flatSteps: next,
+          flatSteps: banked,
           answered: result.answered,
           total: result.total,
           submitError: null,
@@ -268,7 +279,7 @@ class TradeFormCubit extends Cubit<TradeFormState> {
       }
       emit(state.copyWith(
         status: TradeFormStatus.ready,
-        flatSteps: next,
+        flatSteps: banked,
         currentIndex: state.currentIndex + 1,
         answered: result.answered,
         total: result.total,
@@ -279,6 +290,104 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     } catch (_) {
       emit(state.copyWith(
         status: TradeFormStatus.ready,
+        submitError: 'Save nahi hua. Dobara koshish karein.',
+      ));
+    }
+  }
+
+  /// Replays [saved] into [flat] at [step]'s question, banking the reply so
+  /// a re-render shows it as answered even before the next [load] — or,
+  /// under `schema_stale`, before the re-fetch it is only a FALLBACK for.
+  List<TradeFormFlatStep> _bankAnswer(
+    List<TradeFormFlatStep> flat,
+    TradeFormQuestionStep step,
+    TradeFormSavedAnswer saved,
+  ) {
+    final List<TradeFormFlatStep> next = List<TradeFormFlatStep>.of(flat);
+    // Matched by question_key, NOT list index or Equatable step-equality —
+    // the worker's position may have moved (unlikely, but never assumed)
+    // and two distinct questions could otherwise coincide on every other
+    // field.
+    final int idx = next.indexWhere((TradeFormFlatStep f) =>
+        f.step is TradeFormQuestionStep &&
+        (f.step as TradeFormQuestionStep).question.id == step.question.id);
+    if (idx >= 0) {
+      next[idx] = TradeFormFlatStep(
+        sectionTitle: next[idx].sectionTitle,
+        step: TradeFormQuestionStep(
+          question: step.question,
+          searchable: step.searchable,
+          answer: saved,
+        ),
+      );
+    }
+    return next;
+  }
+
+  /// `schema_stale: true` on the answer response (#1382 — forward-compatible
+  /// groundwork; see [TradeFormAnswerResult.schemaStale]'s doc) means the
+  /// screen list this client is holding is out of date: the question just
+  /// answered gates OTHER questions, which the server has already re-filtered
+  /// on its own copy.
+  ///
+  /// PRESERVES POSITION rather than resetting to the first unanswered
+  /// question overall ([_resumeIndex] is a fresh-LOAD concept — reusing it
+  /// here could send the worker backward to something earlier in the walk
+  /// that a re-order or a race could otherwise surface). Instead: re-fetch,
+  /// re-flatten, find the just-answered question's id in the NEW list, and
+  /// walk FORWARD from just after it with the exact same predicate
+  /// `_resumeIndex` uses — never backward (never re-shows the question just
+  /// settled) and never skipped past an unanswered one (the first match
+  /// wins). A question gated OUT by the new schema is simply absent from
+  /// the re-fetched list, so a plain forward scan is enough; nothing here
+  /// re-derives the `ask_if` rule itself, which stays entirely server-side.
+  Future<void> _resyncAfterStaleSchema(
+    TradeFormAnswerResult result, {
+    required List<TradeFormFlatStep> fallback,
+  }) async {
+    try {
+      final TradeForm? form = await _repo.loadForm();
+      if (form == null) {
+        // The form vanished mid-walk — the same honest reading a 404 gets
+        // on the very first load.
+        emit(state.copyWith(status: TradeFormStatus.noForm));
+        return;
+      }
+      final List<TradeFormFlatStep> flat = _flatten(form);
+      final int answeredIdx = flat.indexWhere((TradeFormFlatStep f) =>
+          f.step is TradeFormQuestionStep &&
+          (f.step as TradeFormQuestionStep).question.id == result.questionKey);
+      final int searchFrom = answeredIdx >= 0 ? answeredIdx + 1 : 0;
+      final int nextIdx = _nextStepIndex(flat, from: searchFrom);
+      if (nextIdx < 0) {
+        // The just-answered question was the new schema's last step too.
+        emit(state.copyWith(
+          status: TradeFormStatus.done,
+          flatSteps: flat,
+          answered: result.answered,
+          total: result.total,
+          submitError: null,
+        ));
+        return;
+      }
+      emit(state.copyWith(
+        status: TradeFormStatus.ready,
+        flatSteps: flat,
+        currentIndex: nextIdx,
+        answered: result.answered,
+        total: result.total,
+        submitError: null,
+      ));
+    } on Failure catch (f) {
+      emit(state.copyWith(
+        status: TradeFormStatus.ready,
+        flatSteps: fallback,
+        submitError: f.message,
+      ));
+    } catch (_) {
+      emit(state.copyWith(
+        status: TradeFormStatus.ready,
+        flatSteps: fallback,
         submitError: 'Save nahi hua. Dobara koshish karein.',
       ));
     }
