@@ -109,6 +109,29 @@ class TradeFormEmploymentStep extends TradeFormStep {
   List<Object?> get props => const <Object?>[];
 }
 
+/// `type: "qualifications"` — a MARKER for the credentials page
+/// (`PUT /workers/me/qualifications`, migration 0098 / #1384). Same argument
+/// as [TradeFormPreferencesStep]/[TradeFormEmploymentStep] — the endpoint
+/// owns its own vocabulary, caps and tri-state contract, not this class.
+///
+/// UNLIKE the other two markers, this one carries [suggestedCertificates]:
+/// the per-TRADE autocomplete list for the certificate-name field. It rides
+/// THIS screen entry rather than the options endpoint because
+/// `GET /profiling/form` is the only response that already knows the
+/// worker's trade (`trade-form.service.ts`). NEVER a validation list — the
+/// write endpoint accepts any name the worker types; there is no closed
+/// register of Indian trade certificates to check against.
+class TradeFormQualificationsStep extends TradeFormStep {
+  const TradeFormQualificationsStep({
+    this.suggestedCertificates = const <String>[],
+  });
+
+  final List<String> suggestedCertificates;
+
+  @override
+  List<Object?> get props => <Object?>[suggestedCertificates];
+}
+
 /// One zone of the form (`sections[]`) — a heading the sheet itself prints,
 /// plus the screens that sit under it.
 class TradeFormSection extends Equatable {
@@ -461,6 +484,228 @@ class TradeFormEmploymentEntry extends Equatable {
 
 /// Server render budget, mirrors `features/finishing`'s own cap.
 const int kTradeFormMaxEmployers = 4;
+
+/// ---- The `qualifications` marker's write (#1384/#1385, migration 0098) ----
+///
+/// `PUT /workers/me/qualifications` is TRI-STATE per list, unlike
+/// [TradeFormPreferences]/[TradeFormEmploymentEntry]'s scalars-and-one-list
+/// shapes: a key ABSENT from the body leaves the stored rows for that half
+/// alone, `[]` clears them ("I have none" — a real answer), and a populated
+/// list REPLACES them in the worker's own order. See
+/// `apps/api/src/profiles/worker-qualifications.dto.ts` for the authoritative
+/// contract and why `{}` is a deliberate 400 rather than absorbed silently.
+
+/// Server caps (`CERTIFICATES_MAX`/`EDUCATIONS_MAX` in
+/// `worker-qualifications.dto.ts`) — a plain client-side bound so the "add
+/// another" affordance disappears before a submit could ever be rejected.
+const int kTradeFormMaxCertificates = 8;
+const int kTradeFormMaxEducations = 4;
+
+/// One entry of the `certificates` sub-section — `certificates[]` on the
+/// wire. [name] is the only required field (the server's own
+/// `CertificateEntrySchema` makes it non-nullable); [issuer]/[year] are
+/// optional. PRIVACY: [name]/[issuer] are free text that prints on the
+/// résumé — never logged here (the server screens them for phone/email
+/// shapes; see the DTO).
+class TradeFormCertificateEntry extends Equatable {
+  const TradeFormCertificateEntry({
+    required this.name,
+    this.issuer,
+    this.year,
+  });
+
+  final String name;
+  final String? issuer;
+
+  /// 1950–2100 (`wc_year_chk`) — enforced by the picker sheet that produces
+  /// this value, never re-validated here.
+  final int? year;
+
+  bool get isBlank =>
+      name.trim().isEmpty &&
+      (issuer == null || issuer!.trim().isEmpty) &&
+      year == null;
+
+  TradeFormCertificateEntry copyWith({
+    String? name,
+    Object? issuer = _sentinel,
+    Object? year = _sentinel,
+  }) {
+    return TradeFormCertificateEntry(
+      name: name ?? this.name,
+      issuer: issuer == _sentinel ? this.issuer : issuer as String?,
+      year: year == _sentinel ? this.year : year as int?,
+    );
+  }
+
+  /// Wire shape for one `certificates[]` entry.
+  Map<String, dynamic> toJson() {
+    String? trimOrNull(String? v) {
+      final String? t = v?.trim();
+      return (t == null || t.isEmpty) ? null : t;
+    }
+
+    return <String, dynamic>{
+      'name': name.trim(),
+      'issuer': trimOrNull(issuer),
+      'year': year,
+    };
+  }
+
+  @override
+  List<Object?> get props => <Object?>[name, issuer, year];
+}
+
+/// One entry of the `educations` sub-section — `educations[]` on the wire.
+/// Every field is individually optional; the server's own refinement
+/// rejects a row where all five are null ("an education entry must carry at
+/// least one field") — [isBlank] mirrors that exact rule so the client
+/// filters the same rows the server would 400 on.
+class TradeFormEducationEntry extends Equatable {
+  const TradeFormEducationEntry({
+    this.credential,
+    this.field,
+    this.council,
+    this.year,
+    this.institute,
+  });
+
+  /// A slug from `education_credential`
+  /// (`GET /workers/me/qualifications/options`) — never the printed label.
+  final String? credential;
+
+  /// The trade or stream, in the worker's own words: "Machinist".
+  final String? field;
+
+  /// NCVT, SCVT, a state board — a slug from `education_council`.
+  final String? council;
+
+  /// 1950–2100 (`wed_year_chk`).
+  final int? year;
+
+  /// The institute, as the worker reads it off the certificate. Free text —
+  /// there is no national register of ITI names to validate against.
+  final String? institute;
+
+  bool get isBlank =>
+      credential == null &&
+      (field == null || field!.trim().isEmpty) &&
+      council == null &&
+      year == null &&
+      (institute == null || institute!.trim().isEmpty);
+
+  TradeFormEducationEntry copyWith({
+    Object? credential = _sentinel,
+    Object? field = _sentinel,
+    Object? council = _sentinel,
+    Object? year = _sentinel,
+    Object? institute = _sentinel,
+  }) {
+    return TradeFormEducationEntry(
+      credential:
+          credential == _sentinel ? this.credential : credential as String?,
+      field: field == _sentinel ? this.field : field as String?,
+      council: council == _sentinel ? this.council : council as String?,
+      year: year == _sentinel ? this.year : year as int?,
+      institute:
+          institute == _sentinel ? this.institute : institute as String?,
+    );
+  }
+
+  /// Wire shape for one `educations[]` entry.
+  Map<String, dynamic> toJson() {
+    String? trimOrNull(String? v) {
+      final String? t = v?.trim();
+      return (t == null || t.isEmpty) ? null : t;
+    }
+
+    return <String, dynamic>{
+      'credential': credential,
+      'field': trimOrNull(field),
+      'council': council,
+      'year': year,
+      'institute': trimOrNull(institute),
+    };
+  }
+
+  @override
+  List<Object?> get props =>
+      <Object?>[credential, field, council, year, institute];
+}
+
+/// The `qualifications` marker's write model — certificates + education,
+/// TRI-STATE per list (see the section doc above).
+///
+/// [certificatesTouched]/[educationsTouched] are the ENTIRE mechanism: a
+/// section becomes touched the moment the worker adds, edits, or removes a
+/// row in it (`TradeFormQualificationsPage` owns setting these), and STAYS
+/// touched even if they end up back at zero rows — that is what lets
+/// "add then remove everything" express a real "I have none" rather than
+/// being indistinguishable from never opening the section. [toJson] omits a
+/// key entirely when its section is untouched — NEVER defaults to sending
+/// `[]` for an untouched section, which would silently wipe a previously-
+/// saved list every time a worker passed through this page without
+/// touching one half of it (the exact failure `worker-qualifications.dto.ts`
+/// documents this shape exists to prevent).
+class TradeFormQualifications extends Equatable {
+  const TradeFormQualifications({
+    this.certificates = const <TradeFormCertificateEntry>[],
+    this.certificatesTouched = false,
+    this.educations = const <TradeFormEducationEntry>[],
+    this.educationsTouched = false,
+  });
+
+  final List<TradeFormCertificateEntry> certificates;
+  final bool certificatesTouched;
+  final List<TradeFormEducationEntry> educations;
+  final bool educationsTouched;
+
+  /// True once at least one half of the page has something to send.
+  /// [TradeFormCubit.saveQualificationsAndAdvance] uses this to skip the PUT
+  /// entirely rather than ever send `{}` — the one body this endpoint 400s
+  /// by design (`{}` and `{"certificates": []}` must stay distinguishable).
+  bool get hasAnyTouch => certificatesTouched || educationsTouched;
+
+  TradeFormQualifications copyWith({
+    List<TradeFormCertificateEntry>? certificates,
+    bool? certificatesTouched,
+    List<TradeFormEducationEntry>? educations,
+    bool? educationsTouched,
+  }) {
+    return TradeFormQualifications(
+      certificates: certificates ?? this.certificates,
+      certificatesTouched: certificatesTouched ?? this.certificatesTouched,
+      educations: educations ?? this.educations,
+      educationsTouched: educationsTouched ?? this.educationsTouched,
+    );
+  }
+
+  /// Wire body for `PUT /workers/me/qualifications` — a key is present ONLY
+  /// when its section was touched. Callers must check [hasAnyTouch] before
+  /// sending (an empty map here is the deliberate 400 above).
+  Map<String, dynamic> toJson() {
+    final Map<String, dynamic> body = <String, dynamic>{};
+    if (certificatesTouched) {
+      body['certificates'] = certificates
+          .map((TradeFormCertificateEntry c) => c.toJson())
+          .toList();
+    }
+    if (educationsTouched) {
+      body['educations'] = educations
+          .map((TradeFormEducationEntry e) => e.toJson())
+          .toList();
+    }
+    return body;
+  }
+
+  @override
+  List<Object?> get props => <Object?>[
+        certificates,
+        certificatesTouched,
+        educations,
+        educationsTouched,
+      ];
+}
 
 /// copyWith sentinel so `null` can be passed to CLEAR a nullable field,
 /// distinct from omitting the argument to keep it.
