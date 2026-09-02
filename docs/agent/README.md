@@ -4,7 +4,12 @@ Two sessions per phase. Build, then check. Always separate. Always fresh.
 
 ## 1. Get the commit id
 
+    git fetch origin
+    git rev-parse origin/main
     git rev-parse HEAD
+
+If the last two differ, stop. Rebase or state the delta explicitly in the session
+opener. A phase built on a stale local branch collides with work already merged.
 
 ## 2. Build session — open a NEW session, send this:
 
