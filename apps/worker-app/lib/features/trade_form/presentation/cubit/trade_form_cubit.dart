@@ -1,7 +1,8 @@
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../../../core/api/api_client.dart' show WorkPrefOptionsDto;
+import '../../../../core/api/api_client.dart'
+    show QualificationOptionsDto, WorkPrefOptionsDto;
 import '../../../../core/error/failure.dart';
 import '../../domain/trade_form_models.dart';
 import '../../domain/trade_form_repository.dart';
@@ -433,6 +434,39 @@ class TradeFormCubit extends Cubit<TradeFormState> {
     emit(state.copyWith(status: TradeFormStatus.submitting, submitError: null));
     try {
       await _repo.saveEmployment(kept);
+      _advanceAfterMarkerSave();
+    } on Failure catch (f) {
+      emit(state.copyWith(status: TradeFormStatus.ready, submitError: f.message));
+    } catch (_) {
+      emit(state.copyWith(
+        status: TradeFormStatus.ready,
+        submitError: 'Save nahi hua. Dobara koshish karein.',
+      ));
+    }
+  }
+
+  Future<QualificationOptionsDto> loadQualificationOptions() =>
+      _repo.loadQualificationOptions();
+
+  /// Saves the `qualifications` marker and advances — same submitting/error
+  /// shape as [savePreferencesAndAdvance]/[saveEmploymentAndAdvance], with
+  /// one difference the tri-state contract requires: when
+  /// [TradeFormQualifications.hasAnyTouch] is false (the worker touched
+  /// NEITHER sub-section this visit), the write is skipped entirely rather
+  /// than sent — `{}` is this endpoint's one deliberate 400, and "nothing
+  /// touched" already means "leave both stored lists exactly as they are",
+  /// which skipping the call achieves for free.
+  Future<void> saveQualificationsAndAdvance(
+    TradeFormQualifications qualifications,
+  ) async {
+    if (state.isSubmitting) return;
+    if (!qualifications.hasAnyTouch) {
+      _advanceAfterMarkerSave();
+      return;
+    }
+    emit(state.copyWith(status: TradeFormStatus.submitting, submitError: null));
+    try {
+      await _repo.saveQualifications(qualifications);
       _advanceAfterMarkerSave();
     } on Failure catch (f) {
       emit(state.copyWith(status: TradeFormStatus.ready, submitError: f.message));
