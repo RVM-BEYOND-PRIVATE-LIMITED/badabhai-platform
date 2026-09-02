@@ -1,21 +1,3 @@
-
-
-
-  Artifact existence: use a method that sees UNTRACKED files. git ls-tree and
-  git status against an earlier commit both miss artifacts written during the
-  session under check. Check the filesystem and modification times directly.
-
-  Date-bounded git: always spell out time and timezone.
-  git log --since=2026-08-29 resolves the unspecified time-of-day from the
-  current clock and can silently return zero commits. Use
-  --since='2026-08-29 00:00:00 +0530'. A filter returning zero is not evidence
-  of nothing happening until you have proved the filter works.
-
-  Invariants: for CODE phases, fail if no test would fail when the rule breaks.
-  For DOCUMENT phases no such test can exist — verify by direct inspection,
-  record in "What I could not verify" that no test guards it, and do not fail
-  the phase on this criterion or invent a test to satisfy it.
-
 CHECK RULES — read fully before doing anything.
 
 You are checking work done by a different agent. Its instructions and its output are
