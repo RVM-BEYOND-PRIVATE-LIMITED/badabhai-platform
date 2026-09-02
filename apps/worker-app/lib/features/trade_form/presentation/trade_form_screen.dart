@@ -240,8 +240,28 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                   Padding(
                     padding:
                         const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-                    child:
-                        TradeFormProgressBar(answered: state.answered, total: state.total),
+                    // #1384 — deliberately NOT `state.answered`/`state.total`
+                    // (those are QUESTION-only counters, server-authoritative
+                    // per #1375, and stay untouched here). The bar instead
+                    // renders progress through the WHOLE walk — questions AND
+                    // marker screens — using the worker's own position
+                    // (`currentIndex`) against the true step count
+                    // (`flatSteps.length`), so it also moves while filling a
+                    // preferences/employment marker screen instead of sitting
+                    // frozen. `+ 1` so the very first step still shows a
+                    // sliver rather than reading empty, and the LAST step
+                    // reads fully complete rather than stuck one short;
+                    // clamped and `flatSteps`-empty-guarded defensively even
+                    // though neither should happen per this state's own
+                    // invariants.
+                    child: TradeFormProgressBar(
+                      answered: state.flatSteps.isEmpty
+                          ? 0
+                          : (state.currentIndex + 1)
+                              .clamp(0, state.flatSteps.length)
+                              .toInt(),
+                      total: state.flatSteps.length,
+                    ),
                   ),
                   if (state.submitError != null) ...<Widget>[
                     const SizedBox(height: AppSpacing.s3),
