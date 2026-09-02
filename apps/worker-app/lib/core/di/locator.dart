@@ -102,6 +102,7 @@ import '../../features/resume/domain/resume_edit_repository.dart';
 import '../../features/resume/domain/resume_repository.dart';
 import '../../features/resume/presentation/cubit/resume_cubit.dart';
 import '../../features/resume/presentation/cubit/resume_edit_cubit.dart';
+import '../../features/swipe/data/job_feed_view_store.dart';
 import '../../features/swipe/data/jobs_repository_impl.dart';
 import '../../features/swipe/data/swipe_repository_impl.dart';
 import '../../features/swipe/domain/jobs_repository.dart';
@@ -564,6 +565,7 @@ Future<void> initAuthLocator({
   LocaleStore? localeStore,
   AuthApi? authApi,
   NotificationReadStore? readStore,
+  JobFeedViewStore? jobFeedViewStore,
   PendingReferralStore? pendingReferral,
   bool persistentAuthEnabled = kPersistentAuth,
 }) async {
@@ -588,6 +590,17 @@ Future<void> initAuthLocator({
   if (!locator.isRegistered<NotificationReadStore>()) {
     locator.registerSingleton<NotificationReadStore>(
       readStore ?? const SharedPrefsNotificationReadStore(),
+    );
+  }
+
+  // The Jobs tab's list-vs-deck view preference — same shape as the read store
+  // above, registered here for the identical plugin-free-sync-graph reason. A
+  // test-supplied [jobFeedViewStore] wins, mirroring [readStore]. This is a
+  // device/UI preference, not worker data, so unlike the read store it is
+  // never cleared on logout (same posture as [LocaleStore]).
+  if (!locator.isRegistered<JobFeedViewStore>()) {
+    locator.registerSingleton<JobFeedViewStore>(
+      jobFeedViewStore ?? const SharedPrefsJobFeedViewStore(),
     );
   }
 
