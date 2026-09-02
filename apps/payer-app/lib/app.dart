@@ -43,12 +43,12 @@ class PayerApp extends StatelessWidget {
               child: content,
             );
           }
-          // Clamp the app-wide text scale so a very large system font can't
-          // break fixed-height controls into a RenderFlex overflow. 1.3x
-          // mirrors the worker app (#1072); the payer audience (employers /
-          // agents) is less text-scale-sensitive than workers (#1088).
-          return MediaQuery.withClampedTextScaling(
-            maxScaleFactor: 1.3,
+          // Hard-lock text scale to 1.0x, ignoring the OS accessibility font-size
+          // setting entirely — every size on screen is controlled only from code
+          // (explicit product decision, superseding the earlier 1.3x clamp that
+          // mirrored the worker app, #1072/#1088).
+          return MediaQuery(
+            data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
             child: content,
           );
         },
