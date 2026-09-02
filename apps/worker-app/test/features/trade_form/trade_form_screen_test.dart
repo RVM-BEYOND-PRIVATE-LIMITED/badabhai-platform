@@ -899,4 +899,65 @@ void main() {
       expect(router.routerDelegate.currentConfiguration.uri.path, '/building');
     });
   });
+
+  group('going Back into an already-passed marker keeps what was typed '
+      '(#1384 item 1)', () {
+    testWidgets(
+        'a preferences chip picked, saved, then goBack — the chip is still '
+        'shown selected, not reset to the marker\'s blank default',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first); // decline q1
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first); // decline q2
+      await tester.pumpAndSettle();
+
+      // On the preferences marker — pick a language chip, but do NOT save
+      // yet, so this test also proves the fix is keyed off the CUBIT's own
+      // banked state (only written on a SUCCESSFUL save), not off whatever
+      // the unmounted widget happened to hold in memory.
+      expect(find.text('Hindi'), findsOneWidget);
+      expect(_chipSelected(tester, 'Hindi'), isFalse);
+      await tester.tap(find.text('Hindi'));
+      await tester.pump();
+      expect(_chipSelected(tester, 'Hindi'), isTrue);
+
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // save preferences
+      await tester.pumpAndSettle();
+      final TradeFormPreferences sent = verify(
+              () => repo.savePreferences(captureAny()))
+          .captured
+          .single as TradeFormPreferences;
+      expect(sent.languages, <String>{'hindi'});
+
+      // Now on the employment marker — go back a WHOLE outer step, straight
+      // to the preferences marker. `_prefsKey`'s previous State was fully
+      // unmounted the moment the walk advanced past it (see the class doc
+      // on `_WizardScaffoldState`) — a bare GlobalKey cannot survive that,
+      // so this only passes because `TradeFormState.savedPreferences` seeds
+      // the freshly (re)mounted widget.
+      expect(find.text('Aapne pehle kahan kaam kiya?'), findsOneWidget);
+      await tester.tap(find.byTooltip('Wapas'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Hindi'), findsOneWidget);
+      expect(_chipSelected(tester, 'Hindi'), isTrue,
+          reason: 'a chip already saved once must still show selected after '
+              'goBack, not reset to the marker\'s blank default');
+    });
+  });
 }

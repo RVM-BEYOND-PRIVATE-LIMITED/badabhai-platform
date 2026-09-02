@@ -51,10 +51,17 @@ class TradeFormEmploymentPage extends StatefulWidget {
     super.key,
     required this.enabled,
     required this.onSave,
+    this.initialEntries,
   });
 
   final bool enabled;
   final ValueChanged<List<TradeFormEmploymentEntry>> onSave;
+
+  /// The cubit's own memory of the last successful save for THIS marker
+  /// (#1384 item 1, `TradeFormState.savedEmployment`) — see the doc on
+  /// `TradeFormPreferencesPage.initialPreferences` for why a `GlobalKey`
+  /// alone cannot carry this across a `goBack()`.
+  final List<TradeFormEmploymentEntry>? initialEntries;
 
   @override
   State<TradeFormEmploymentPage> createState() =>
@@ -62,7 +69,8 @@ class TradeFormEmploymentPage extends StatefulWidget {
 }
 
 class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
-  List<TradeFormEmploymentEntry> _entries = const <TradeFormEmploymentEntry>[];
+  late List<TradeFormEmploymentEntry> _entries = List<TradeFormEmploymentEntry>.of(
+      widget.initialEntries ?? const <TradeFormEmploymentEntry>[]);
 
   void save() => widget.onSave(_entries);
 

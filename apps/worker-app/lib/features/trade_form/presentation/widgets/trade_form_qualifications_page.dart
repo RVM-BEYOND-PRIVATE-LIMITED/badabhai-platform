@@ -61,6 +61,7 @@ class TradeFormQualificationsPage extends StatefulWidget {
     required this.loadOptions,
     required this.enabled,
     required this.onSave,
+    this.initialQualifications,
   });
 
   /// Per-trade certificate-name suggestions from the form schema
@@ -72,6 +73,12 @@ class TradeFormQualificationsPage extends StatefulWidget {
   final bool enabled;
   final ValueChanged<TradeFormQualifications> onSave;
 
+  /// The cubit's own memory of the last successful save for THIS marker
+  /// (#1384 item 1, `TradeFormState.savedQualifications`) — see the doc on
+  /// `TradeFormPreferencesPage.initialPreferences` for why a `GlobalKey`
+  /// alone cannot carry this across a `goBack()`.
+  final TradeFormQualifications? initialQualifications;
+
   @override
   State<TradeFormQualificationsPage> createState() =>
       TradeFormQualificationsPageState();
@@ -82,12 +89,18 @@ class TradeFormQualificationsPageState
   QualificationOptionsDto? _options;
   String? _optionsLoadError;
 
-  List<TradeFormCertificateEntry> _certificates =
-      const <TradeFormCertificateEntry>[];
-  bool _certificatesTouched = false;
+  late List<TradeFormCertificateEntry> _certificates =
+      List<TradeFormCertificateEntry>.of(
+          widget.initialQualifications?.certificates ??
+              const <TradeFormCertificateEntry>[]);
+  late bool _certificatesTouched =
+      widget.initialQualifications?.certificatesTouched ?? false;
 
-  List<TradeFormEducationEntry> _educations = const <TradeFormEducationEntry>[];
-  bool _educationsTouched = false;
+  late List<TradeFormEducationEntry> _educations = List<TradeFormEducationEntry>.of(
+      widget.initialQualifications?.educations ??
+          const <TradeFormEducationEntry>[]);
+  late bool _educationsTouched =
+      widget.initialQualifications?.educationsTouched ?? false;
 
   @override
   void initState() {
