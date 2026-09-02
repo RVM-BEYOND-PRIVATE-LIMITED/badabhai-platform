@@ -59,6 +59,28 @@ TradeForm _form({bool q1Answered = true}) => TradeForm(
       ],
     );
 
+/// [_form] extended with a THIRD marker (`qualifications`) as the walk's
+/// actual last step — the #1384 qualifications-marker tests below need a
+/// "Ho gaya" step to reach `done` from. Both questions start unanswered
+/// (unlike [_form]'s own default) so the walk helper can answer each in
+/// turn without a stale `currentStep` cast.
+TradeForm _formWithQualifications() {
+  final TradeForm base = _form(q1Answered: false);
+  return TradeForm(
+    kind: base.kind,
+    packId: base.packId,
+    packVersion: base.packVersion,
+    sections: <TradeFormSection>[
+      ...base.sections,
+      const TradeFormSection(
+        id: 'qualifications',
+        title: 'Qualification, documents & languages',
+        screens: <TradeFormStep>[TradeFormQualificationsStep()],
+      ),
+    ],
+  );
+}
+
 void main() {
   late _MockRepo repo;
 
@@ -66,6 +88,7 @@ void main() {
     registerFallbackValue(const TradeFormAnswer.declined());
     registerFallbackValue(const TradeFormPreferences());
     registerFallbackValue(<TradeFormEmploymentEntry>[]);
+    registerFallbackValue(const TradeFormQualifications());
   });
 
   setUp(() {
@@ -470,5 +493,133 @@ void main() {
 
     expect(cubit.state.submitError, kTradeFormIncompleteEmployerMessage);
     verifyNever(() => repo.saveEmployment(any()));
+  });
+
+  group('saveQualificationsAndAdvance (#1384)', () {
+    /// Walks a fresh [cubit] from load() through both questions and both
+    /// existing markers, landing on the qualifications marker — the exact
+    /// path a worker takes, never reaching into Cubit's protected `emit`.
+    Future<TradeFormCubit> walkToQualifications() async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _formWithQualifications());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+      when(() => repo.savePreferences(any())).thenAnswer((_) async {});
+      when(() => repo.saveEmployment(any())).thenAnswer((_) async {});
+      final TradeFormCubit cubit = build();
+      await cubit.load();
+      await cubit.answerQuestion(
+        cubit.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['cnc_lathe']),
+      );
+      await cubit.answerQuestion(
+        cubit.state.currentStep as TradeFormQuestionStep,
+        const TradeFormAnswer.chips(<String>['mild_steel']),
+      );
+      await cubit.savePreferencesAndAdvance(const TradeFormPreferences());
+      await cubit.saveEmploymentAndAdvance(<TradeFormEmploymentEntry>[]);
+      expect(cubit.state.currentStep, isA<TradeFormQualificationsStep>());
+      expect(cubit.state.isLastStep, isTrue);
+      return cubit;
+    }
+
+    test(
+        'a fully-touched save PUTs then reaches done, never stuck at '
+        'submitting (#1367)', () async {
+      final TradeFormCubit cubit = await walkToQualifications();
+      when(() => repo.saveQualifications(any())).thenAnswer((_) async {});
+
+      await cubit.saveQualificationsAndAdvance(const TradeFormQualifications(
+        certificates: <TradeFormCertificateEntry>[
+          TradeFormCertificateEntry(name: 'Fanuc Oi-TF Programming'),
+        ],
+        certificatesTouched: true,
+      ));
+
+      verify(() => repo.saveQualifications(any())).called(1);
+      expect(cubit.state.status, TradeFormStatus.done);
+      expect(cubit.state.status, isNot(TradeFormStatus.submitting));
+    });
+
+    test(
+        'neither section touched skips the PUT entirely and still advances '
+        '— an empty body would be the server\'s one deliberate 400',
+        () async {
+      final TradeFormCubit cubit = await walkToQualifications();
+
+      await cubit.saveQualificationsAndAdvance(const TradeFormQualifications());
+
+      verifyNever(() => repo.saveQualifications(any()));
+      expect(cubit.state.status, TradeFormStatus.done);
+    });
+
+    test('blank rows are dropped from both lists before the PUT', () async {
+      final TradeFormCubit cubit = await walkToQualifications();
+      when(() => repo.saveQualifications(any())).thenAnswer((_) async {});
+
+      await cubit.saveQualificationsAndAdvance(const TradeFormQualifications(
+        certificates: <TradeFormCertificateEntry>[
+          TradeFormCertificateEntry(name: 'Fanuc Oi-TF Programming'),
+          TradeFormCertificateEntry(name: ''), // added, never filled in
+        ],
+        certificatesTouched: true,
+        educations: <TradeFormEducationEntry>[
+          TradeFormEducationEntry(credential: 'iti'),
+          TradeFormEducationEntry(), // added, never filled in
+        ],
+        educationsTouched: true,
+      ));
+
+      final TradeFormQualifications sent = verify(
+              () => repo.saveQualifications(captureAny()))
+          .captured
+          .single as TradeFormQualifications;
+      expect(sent.certificates, hasLength(1));
+      expect(sent.certificates.single.name, 'Fanuc Oi-TF Programming');
+      expect(sent.educations, hasLength(1));
+      expect(sent.educations.single.credential, 'iti');
+    });
+
+    test(
+        'a certificate missing its required name blocks the save with an '
+        'honest message', () async {
+      final TradeFormCubit cubit = await walkToQualifications();
+
+      await cubit.saveQualificationsAndAdvance(const TradeFormQualifications(
+        certificates: <TradeFormCertificateEntry>[
+          TradeFormCertificateEntry(name: '', issuer: 'RVM CAD'),
+        ],
+        certificatesTouched: true,
+      ));
+
+      expect(cubit.state.submitError, kTradeFormIncompleteCertificateMessage);
+      expect(cubit.state.status, isNot(TradeFormStatus.done));
+      verifyNever(() => repo.saveQualifications(any()));
+    });
+
+    test('a 400 from the server keeps the worker on the same marker',
+        () async {
+      final TradeFormCubit cubit = await walkToQualifications();
+      when(() => repo.saveQualifications(any()))
+          .thenThrow(const InvalidRequestFailure(
+              'remove contact details from the issuer'));
+
+      await cubit.saveQualificationsAndAdvance(const TradeFormQualifications(
+        certificates: <TradeFormCertificateEntry>[
+          TradeFormCertificateEntry(name: 'ITI', issuer: '9876543210'),
+        ],
+        certificatesTouched: true,
+      ));
+
+      expect(cubit.state.submitError, 'remove contact details from the issuer');
+      expect(cubit.state.status, TradeFormStatus.ready);
+      expect(cubit.state.currentStep, isA<TradeFormQualificationsStep>());
+    });
   });
 }
