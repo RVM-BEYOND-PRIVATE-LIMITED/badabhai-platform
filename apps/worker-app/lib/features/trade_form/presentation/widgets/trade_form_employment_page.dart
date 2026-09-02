@@ -46,12 +46,20 @@ const List<String> _kMonths = <String>[
 /// `features/finishing` sends today; #1341 notes the endpoint now also
 /// accepts nested `roles[]`, which is a follow-up, not a blocker (see
 /// `trade_form_models.dart`'s doc on this file's deliberate duplication).
+///
+/// #1384 item 2 — paginated INTERNALLY, one employer per page, rather than
+/// all up to [kTradeFormMaxEmployers] cards stacked on one scroll. A worker
+/// with zero employers still gets exactly ONE page (title + the "add" outline
+/// button, no card) — the same thing this widget rendered before pagination
+/// when [_entries] was empty, so skipping employment entirely needs no more
+/// taps than it did before.
 class TradeFormEmploymentPage extends StatefulWidget {
   const TradeFormEmploymentPage({
     super.key,
     required this.enabled,
     required this.onSave,
     this.initialEntries,
+    this.onPageChanged,
   });
 
   final bool enabled;
@@ -63,6 +71,12 @@ class TradeFormEmploymentPage extends StatefulWidget {
   /// alone cannot carry this across a `goBack()`.
   final List<TradeFormEmploymentEntry>? initialEntries;
 
+  /// #1384 item 2 — see `TradeFormPreferencesPage.onPageChanged`'s doc; the
+  /// same contract, reported here off [pageCount] (which — unlike
+  /// preferences' fixed 4 — changes at runtime as employer cards are
+  /// added/removed).
+  final void Function(int page, int pageCount)? onPageChanged;
+
   @override
   State<TradeFormEmploymentPage> createState() =>
       TradeFormEmploymentPageState();
@@ -72,14 +86,49 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
   late List<TradeFormEmploymentEntry> _entries = List<TradeFormEmploymentEntry>.of(
       widget.initialEntries ?? const <TradeFormEmploymentEntry>[]);
 
+  int _page = 0;
+
+  /// At least 1 (an empty-employer "add or skip" page) — never 0, so there
+  /// is always exactly one page to render even with no employers yet.
+  int get pageCount => _entries.isEmpty ? 1 : _entries.length;
+  bool get isFirstPage => _page <= 0;
+  bool get isLastPage => _page >= pageCount - 1;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      widget.onPageChanged?.call(_page, pageCount);
+    });
+  }
+
+  /// Called by the screen's sticky bottom bar ONLY on this marker's LAST
+  /// internal page — see `_WizardScaffoldState`'s routing.
   void save() => widget.onSave(_entries);
+
+  void goToNextPage() {
+    if (isLastPage) return;
+    setState(() => _page += 1);
+    widget.onPageChanged?.call(_page, pageCount);
+  }
+
+  void goToPreviousPage() {
+    if (isFirstPage) return;
+    setState(() => _page -= 1);
+    widget.onPageChanged?.call(_page, pageCount);
+  }
 
   void _add() {
     if (_entries.length >= kTradeFormMaxEmployers) return;
-    setState(() => _entries = <TradeFormEmploymentEntry>[
-          ..._entries,
-          const TradeFormEmploymentEntry(employerName: '', roleLabel: ''),
-        ]);
+    setState(() {
+      _entries = <TradeFormEmploymentEntry>[
+        ..._entries,
+        const TradeFormEmploymentEntry(employerName: '', roleLabel: ''),
+      ];
+      _page = _entries.length - 1; // land on the newly-added card
+    });
+    widget.onPageChanged?.call(_page, pageCount);
   }
 
   void _update(int index, TradeFormEmploymentEntry entry) {
@@ -92,44 +141,52 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
   void _remove(int index) {
     final List<TradeFormEmploymentEntry> next =
         List<TradeFormEmploymentEntry>.of(_entries)..removeAt(index);
-    setState(() => _entries = next);
+    setState(() {
+      _entries = next;
+      final int maxPage = pageCount - 1; // recomputed off the NEW _entries
+      if (_page > maxPage) _page = maxPage;
+    });
+    widget.onPageChanged?.call(_page, pageCount);
   }
 
   @override
   Widget build(BuildContext context) {
+    final List<Widget> children = <Widget>[];
+    if (_page == 0) {
+      children.addAll(<Widget>[
+        Text(_kTitle, style: AppTypography.display(size: AppTypography.sizeLg)),
+        const SizedBox(height: AppSpacing.s2),
+        Text(_kSubtitle,
+            style: AppTypography.body(
+                size: AppTypography.sizeSm, color: AppColors.textMuted)),
+        const SizedBox(height: AppSpacing.s4),
+      ]);
+    }
+    if (_entries.isNotEmpty) {
+      final int i = _page;
+      children.add(_EmployerCard(
+        key: ValueKey<int>(i),
+        entry: _entries[i],
+        onChanged: (TradeFormEmploymentEntry e) => _update(i, e),
+        onRemove: () => _remove(i),
+      ));
+    }
+    if (isLastPage && _entries.length < kTradeFormMaxEmployers) {
+      if (_entries.isNotEmpty) children.add(const SizedBox(height: AppSpacing.s3));
+      children.add(BbButton(
+        label: _kAddEmployer,
+        variant: BbButtonVariant.outline,
+        size: BbButtonSize.md,
+        iconLeft: Icons.add,
+        block: true,
+        onPressed: _add,
+      ));
+    }
     return IgnorePointer(
       ignoring: !widget.enabled,
       child: Opacity(
         opacity: widget.enabled ? 1 : 0.5,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(_kTitle, style: AppTypography.display(size: AppTypography.sizeLg)),
-            const SizedBox(height: AppSpacing.s2),
-            Text(_kSubtitle,
-                style: AppTypography.body(
-                    size: AppTypography.sizeSm, color: AppColors.textMuted)),
-            const SizedBox(height: AppSpacing.s4),
-            for (int i = 0; i < _entries.length; i++) ...<Widget>[
-              _EmployerCard(
-                key: ValueKey<int>(i),
-                entry: _entries[i],
-                onChanged: (TradeFormEmploymentEntry e) => _update(i, e),
-                onRemove: () => _remove(i),
-              ),
-              const SizedBox(height: AppSpacing.s3),
-            ],
-            if (_entries.length < kTradeFormMaxEmployers)
-              BbButton(
-                label: _kAddEmployer,
-                variant: BbButtonVariant.outline,
-                size: BbButtonSize.md,
-                iconLeft: Icons.add,
-                block: true,
-                onPressed: _add,
-              ),
-          ],
-        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
       ),
     );
   }
