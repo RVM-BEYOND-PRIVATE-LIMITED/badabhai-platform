@@ -88,6 +88,7 @@
 import { normalizeOccupationText } from "@badabhai/profiling-lexicon";
 import { and, eq, inArray, isNotNull, sql as dsql } from "drizzle-orm";
 
+import { chunked } from "./chunk";
 import { createDbClient } from "./client";
 import { parseCommonCli, printCounts, printFooter, printHeader } from "./match-v1-cli";
 import { jobDomains, jobDomainSkills, skillAliases, skills } from "./schema";
@@ -110,14 +111,11 @@ import {
 
 const SCRIPT = "seed:domain-skills";
 
-/** Multi-row inserts. One statement per row is minutes of round-trips at corpus scale. */
+/** Multi-row inserts. One statement per row is minutes of round-trips at corpus scale.
+ *  Safe against Postgres' 65535-parameter Bind ceiling at this literal — the widest
+ *  statement below is 9 columns — which is why it does not need `chunkSizeForColumns`.
+ *  Anything that raises it, or widens a row, does. */
 const CHUNK = 500;
-
-function chunked<T>(rows: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < rows.length; i += size) out.push(rows.slice(i, i + size));
-  return out;
-}
 
 // ===========================================================================
 // Pure planners — everything decidable without a database lives here, so it is
