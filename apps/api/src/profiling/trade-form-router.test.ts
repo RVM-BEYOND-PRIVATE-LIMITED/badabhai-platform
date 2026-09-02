@@ -67,13 +67,18 @@ describe("routeToTradeForm", () => {
 
   describe("a competing specialisation vetoes the route", () => {
     const conflicted: readonly (readonly [string, string])[] = [
-      // The ratified sample's own worker. Milling, not turning — and the sheet proves it.
+      // A rung with no occupation word. "Setter-cum-Operator" is shared vocabulary across every
+      // machining role, so it corroborates a pin and never carries a route by itself.
       ["CNC Machining", "VMC Setter-cum-Operator"],
-      ["CNC Machining", "VMC Operator"],
-      ["Manufacturing", "milling machine operator"],
+      // Roles we DECLARE but do not serve. The veto is what keeps them talking to the interview
+      // rather than being handed the nearest enabled form, and it is why a disabled descriptor
+      // is load-bearing rather than a placeholder.
       ["Manufacturing", "grinding operator"],
       ["Manufacturing", "drilling operator"],
       // Ambiguous by the worker's own account: keep talking rather than guess which form fits.
+      // BOTH roles are enabled now, and this must STILL reach neither — an enabled rival is a
+      // stronger test of the veto than a declared-only one, because there is now a second form
+      // it could wrongly land in.
       ["CNC Machining", "CNC Turner cum VMC Operator"],
       ["CNC Machining", "turner and milling operator"],
     ];
@@ -85,6 +90,43 @@ describe("routeToTradeForm", () => {
 
     it("vetoes even when the turning family is pinned", () => {
       expect(route("CNC Machining", "CNC Turner cum VMC Operator", "fam_cnc_turning")).toBeNull();
+    });
+  });
+
+  describe("the machining-centre form, enabled in Batch 1", () => {
+    // THESE TWO USED TO ASSERT `null`, AND THE CHANGE IS THE FEATURE RATHER THAN A RELAXED TEST.
+    // They sat under "a competing specialisation vetoes the route" for one reason: turning was the
+    // only form that existed, so the only correct thing to do with a miller was to keep them
+    // talking. The assertion that mattered was never "reaches nothing" — it was "must not be
+    // handed the TURNER form", which is why each case below pins the kind rather than merely
+    // asserting non-null.
+    const milling: readonly (readonly [string, string])[] = [
+      ["CNC Machining", "VMC Operator"],
+      ["Manufacturing", "milling machine operator"],
+      ["CNC Machining", "HMC Operator"],
+      ["Manufacturing", "मिलिंग"],
+    ];
+    for (const [domain, role] of milling) {
+      it(`${role} reaches the machining-centre form and not the turner's`, () => {
+        expect(route(domain, role, null)).toBe("vmc_milling");
+      });
+    }
+
+    it("still needs a family pin for a bare machine word", () => {
+      // `vmc` is a MACHINE term, not an occupation: a worker who names the machine has told us
+      // what they stand at, not which of the occupations built around it is theirs. This is the
+      // `signals.py` rule that this router exists to hold, and enabling a second role is exactly
+      // when it would quietly stop holding.
+      expect(route("Manufacturing", "vmc", null)).toBeNull();
+      expect(route("Manufacturing", "vmc", "fam_vmc_milling")).toBe("vmc_milling");
+    });
+
+    it("does not let the turner form claim a miller, in either direction", () => {
+      // The symmetry is the point. Turner vetoes milling's vocabulary and milling vetoes
+      // turning's, both DERIVED from the shared `machining` cluster rather than hand-listed — so
+      // neither can be widened without the other following.
+      expect(route("CNC Machining", "VMC Operator", "fam_cnc_turning")).not.toBe("cnc_turner");
+      expect(route("Manufacturing", "CNC turner", "fam_vmc_milling")).not.toBe("vmc_milling");
     });
   });
 
@@ -196,7 +238,13 @@ describe("routeToTradeForm", () => {
       // the model's draft is still empty — so every surface the veto could read says "turner",
       // and the worker's own "vmc" lives only in the sentence they typed.
       expect(
-        route(null, null, "fam_cnc_turning", "CNC Operator-Turning", "cnc turning aur vmc dono karta hoon"),
+        route(
+          null,
+          null,
+          "fam_cnc_turning",
+          "CNC Operator-Turning",
+          "cnc turning aur vmc dono karta hoon",
+        ),
       ).toBeNull();
     });
 
