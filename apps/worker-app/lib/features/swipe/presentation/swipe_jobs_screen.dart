@@ -20,24 +20,29 @@ import '../../../core/widgets/bb_chip.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_success_stamp.dart';
 import '../../../router.dart';
+import '../data/job_feed_view_store.dart';
 import '../domain/job_detail.dart';
 import '../domain/job_filter.dart';
 import 'bloc/swipe_bloc.dart';
 import 'bloc/swipe_state.dart';
 import 'widgets/filters_sheet.dart';
+import 'widgets/job_deck.dart';
 
-/// The Jobs tab — kit 07 "Job feed" as a VERTICAL LIST (the Tinder swipe deck
-/// is retired). A deep-blue header ("Kaam milega." + the day's job count + a
-/// horizontal row of filter chips) sits over a scrolling [ListView] of
-/// [BbJobCard]s, each with an inline green "APPLY →" and a tappable title that
-/// opens the full posting.
+/// The Jobs tab — kit 07 "Job feed", switchable between TWO layouts via a
+/// header toggle: a scrolling [ListView] of [BbJobCard]s (default — each with
+/// an inline green "APPLY →" and a tappable title that opens the full posting)
+/// and the original Tinder-style [JobDeck] (swipe right to apply, left to
+/// skip). A deep-blue header ("Kaam milega." + the day's job count + a
+/// horizontal row of filter chips) sits above the body in BOTH modes.
 ///
 /// All business logic stays in [SwipeBloc]; this widget renders state and
 /// dispatches events. The real feed contract ([FeedItem] / getFeed) is PII-free
 /// and unchanged — the card shows ONLY real feed fields, no invented
-/// employer/pay (see [_cardData]). Inline apply dispatches [SwipeCardApplied]
-/// (per-card, id-targeted); the title tap opens the detail route exactly as the
-/// deck did (and prunes on an 'applied' pop, H-1).
+/// employer/pay (see [_cardData]). List mode's inline apply dispatches
+/// [SwipeCardApplied] (per-card, id-targeted); deck mode's swipe/buttons
+/// dispatch [SwipeApplied] / [SwipeSkipped] (always the head card,
+/// [SwipeState.current]). The title tap opens the detail route exactly the
+/// same way in both modes (and prunes on an 'applied' pop, H-1).
 class SwipeJobsScreen extends StatelessWidget {
   const SwipeJobsScreen({super.key, this.bloc});
 
@@ -99,10 +104,38 @@ class _FeedViewState extends State<_FeedView> {
   /// sheet does.
   FilterSelection _filters = FilterSelection.initial;
 
+  /// Which body renders — the scrollable list (default) or the swipe deck.
+  /// Starts at [JobFeedViewMode.list] and stays there unless/until a persisted
+  /// `deck` choice loads from [JobFeedViewStore] — eventual consistency, no
+  /// flash-of-wrong-mode requirement, matching how [_filters] is seeded.
+  JobFeedViewMode _viewMode = JobFeedViewMode.list;
+
   @override
   void initState() {
     super.initState();
     context.read<SwipeBloc>().add(const SwipeFeedRequested());
+    unawaited(_loadViewMode());
+  }
+
+  /// Reads the persisted view-mode preference if a store is registered — absent
+  /// under the plugin-free widget-test graph, in which case the default
+  /// [JobFeedViewMode.list] simply stays. Fire-and-forget from [initState].
+  Future<void> _loadViewMode() async {
+    if (!locator.isRegistered<JobFeedViewStore>()) return;
+    final JobFeedViewMode mode = await locator<JobFeedViewStore>().read();
+    if (mounted && mode != _viewMode) setState(() => _viewMode = mode);
+  }
+
+  /// Flips the view mode, repaints, and persists the choice — fire-and-forget,
+  /// never blocking the toggle tap on the write.
+  void _toggleViewMode() {
+    final JobFeedViewMode next = _viewMode == JobFeedViewMode.list
+        ? JobFeedViewMode.deck
+        : JobFeedViewMode.list;
+    setState(() => _viewMode = next);
+    if (locator.isRegistered<JobFeedViewStore>()) {
+      unawaited(locator<JobFeedViewStore>().write(next));
+    }
   }
 
   /// The single write path for filter state: hold it locally (to seed the sheet
@@ -213,7 +246,9 @@ class _FeedViewState extends State<_FeedView> {
           SwipeStatus.empty => SafeArea(child: _empty(context)),
           SwipeStatus.ready => state.filteredOut
               ? SafeArea(child: _noMatch(context))
-              : _feed(context, state),
+              : (_viewMode == JobFeedViewMode.list
+                  ? _feed(context, state)
+                  : _deck(context, state)),
         };
       },
     );
@@ -250,6 +285,49 @@ class _FeedViewState extends State<_FeedView> {
                   onTitleTap: () => _openDetail(context, bloc, item),
                   onApply: () => bloc.add(SwipeCardApplied(item.jobId)),
                 );
+              },
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// The Tinder-style swipe deck (kit 07's original layout). Same header above
+  /// it as [_feed] — only the body swaps. [JobDeck.cards] mirrors
+  /// [SwipeState.visibleQueue] in the SAME order, so `cards.first` always
+  /// matches [SwipeState.current] — the card apply/skip decides. [onApply] /
+  /// [onSkip] fire once the front card commits and take no id, so they
+  /// dispatch [SwipeApplied] / [SwipeSkipped] (which act on `state.current`),
+  /// not the per-id [SwipeCardApplied] the list uses.
+  Widget _deck(BuildContext context, SwipeState state) {
+    final SwipeBloc bloc = context.read<SwipeBloc>();
+    final List<FeedItem> jobs = state.visibleQueue;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _header(context, state),
+        Expanded(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              AppSpacing.gutter,
+              AppSpacing.s3,
+              AppSpacing.gutter,
+              AppSpacing.s3 + MediaQuery.of(context).padding.bottom,
+            ),
+            child: JobDeck(
+              cards: <JobDeckItem>[
+                for (final FeedItem item in jobs)
+                  JobDeckItem(id: item.jobId, data: _cardData(item)),
+              ],
+              deciding: state.deciding,
+              onApply: () => bloc.add(const SwipeApplied()),
+              onSkip: () => bloc.add(const SwipeSkipped()),
+              onTitleTap: (String id) {
+                final FeedItem item =
+                    jobs.firstWhere((FeedItem job) => job.jobId == id);
+                _openDetail(context, bloc, item);
               },
             ),
           ),
@@ -329,6 +407,23 @@ class _FeedViewState extends State<_FeedView> {
               // set) — surface it here so notifications stay reachable from the
               // feed, not only the Resume tab.
               const BbAlertsAction(color: AppColors.onBlue),
+              // List <-> deck toggle. The icon shows the OTHER mode (a visual
+              // hint of what tapping switches TO); the tooltip names the
+              // CURRENT mode so a screen-reader worker isn't told to switch to
+              // the mode they are already in.
+              IconButton(
+                key: const Key('jobFeedViewToggle'),
+                tooltip: _viewMode == JobFeedViewMode.list
+                    ? 'List view'
+                    : 'Card view',
+                icon: Icon(
+                  _viewMode == JobFeedViewMode.list
+                      ? Icons.style_outlined
+                      : Icons.view_agenda_outlined,
+                  color: AppColors.onBlue,
+                ),
+                onPressed: _toggleViewMode,
+              ),
               IconButton(
                 tooltip: 'Filter jobs',
                 icon: Stack(
