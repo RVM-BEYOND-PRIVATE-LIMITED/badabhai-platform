@@ -88,8 +88,20 @@ describe("the role registry", () => {
       expect(SHIPPED_TURNER_CONFLICTS.filter((term) => !derived.includes(term))).toEqual([]);
     });
 
-    it("enables exactly the one form that ships", () => {
-      expect([...TRADE_FORM_KINDS]).toEqual(["cnc_turner"]);
+    it("enables exactly the forms that ship, and nothing merely declared", () => {
+      // BATCH 1 ADDED `vmc_milling`. The list is what `z.enum` validates against on two surfaces,
+      // so it must never contain a kind with no pack behind it — that is a 503 waiting for the
+      // first worker whose session happens to carry it, which is why this is pinned by value
+      // rather than by count.
+      expect([...TRADE_FORM_KINDS]).toEqual(["cnc_turner", "vmc_milling"]);
+    });
+
+    it("keeps grinding and CAM declared but NOT enabled", () => {
+      // The other half of the same property, and the one a careless "just add them all" would
+      // break. Both roles exist so their vocabulary can veto turning and milling; neither has a
+      // pack, so neither may be routable. A descriptor is declared long before it is served.
+      expect([...TRADE_FORM_KINDS]).not.toContain("cnc_grinding");
+      expect([...TRADE_FORM_KINDS]).not.toContain("cam_programmer");
     });
 
     it("composes the handover copy byte-for-byte, including its sentence casing", () => {
