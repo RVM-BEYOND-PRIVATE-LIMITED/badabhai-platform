@@ -450,23 +450,49 @@ class TradeFormCubit extends Cubit<TradeFormState> {
 
   /// Saves the `qualifications` marker and advances — same submitting/error
   /// shape as [savePreferencesAndAdvance]/[saveEmploymentAndAdvance], with
-  /// one difference the tri-state contract requires: when
-  /// [TradeFormQualifications.hasAnyTouch] is false (the worker touched
-  /// NEITHER sub-section this visit), the write is skipped entirely rather
-  /// than sent — `{}` is this endpoint's one deliberate 400, and "nothing
-  /// touched" already means "leave both stored lists exactly as they are",
-  /// which skipping the call achieves for free.
+  /// two differences the tri-state contract and the certificate schema
+  /// require:
+  ///
+  ///  1. Blank rows (mirrors [saveEmploymentAndAdvance]'s own `isBlank`
+  ///     filter) are dropped from EACH list before anything else — a row the
+  ///     worker added and then left empty is not a real answer. A remaining
+  ///     certificate missing its one required field (`name`) blocks the save
+  ///     with an inline message rather than reaching the server as a 400;
+  ///     education has no equivalent case ([TradeFormEducationEntry.isBlank]
+  ///     already IS the server's own completeness rule).
+  ///  2. When [TradeFormQualifications.hasAnyTouch] is false (the worker
+  ///     touched NEITHER sub-section this visit), the write is skipped
+  ///     entirely rather than sent — `{}` is this endpoint's one deliberate
+  ///     400, and "nothing touched" already means "leave both stored lists
+  ///     exactly as they are", which skipping the call achieves for free.
   Future<void> saveQualificationsAndAdvance(
     TradeFormQualifications qualifications,
   ) async {
     if (state.isSubmitting) return;
-    if (!qualifications.hasAnyTouch) {
+    final List<TradeFormCertificateEntry> keptCertificates = qualifications
+        .certificates
+        .where((TradeFormCertificateEntry c) => !c.isBlank)
+        .toList();
+    if (keptCertificates.any((TradeFormCertificateEntry c) => !c.isComplete)) {
+      emit(state.copyWith(submitError: kTradeFormIncompleteCertificateMessage));
+      return;
+    }
+    final List<TradeFormEducationEntry> keptEducations = qualifications
+        .educations
+        .where((TradeFormEducationEntry e) => !e.isBlank)
+        .toList();
+    final TradeFormQualifications toSend = qualifications.copyWith(
+      certificates: keptCertificates,
+      educations: keptEducations,
+    );
+
+    if (!toSend.hasAnyTouch) {
       _advanceAfterMarkerSave();
       return;
     }
     emit(state.copyWith(status: TradeFormStatus.submitting, submitError: null));
     try {
-      await _repo.saveQualifications(qualifications);
+      await _repo.saveQualifications(toSend);
       _advanceAfterMarkerSave();
     } on Failure catch (f) {
       emit(state.copyWith(status: TradeFormStatus.ready, submitError: f.message));
@@ -484,5 +510,11 @@ class TradeFormCubit extends Cubit<TradeFormState> {
 /// persona_neutrality_test.dart.
 const String kTradeFormIncompleteEmployerMessage =
     'Har naukri mein company ka naam aur aapka kaam dono likhein.';
+
+/// Copy shown when a partially-typed certificate card is missing its one
+/// required field (`name`). Persona-neutral, scanned by
+/// persona_neutrality_test.dart.
+const String kTradeFormIncompleteCertificateMessage =
+    'Har certificate ka naam likhein.';
 
 const Object _sentinel = Object();
