@@ -129,9 +129,7 @@ function orderingIsResolvable(
   if (!ORDERING_OPS.has(predicate.op)) return true;
 
   const side = (operand: typeof predicate.left): unknown =>
-    operand?.field !== undefined
-      ? answers[operand.field]?.value_normalized
-      : operand?.const;
+    operand?.field !== undefined ? answers[operand.field]?.value_normalized : operand?.const;
   const left = side(predicate.left);
   const right = side(predicate.right);
   if (left === undefined || right === undefined || left === null || right === null) return true;
@@ -160,7 +158,12 @@ export function isFormQuestionVisible(item: QuestionPackItem, answers: AnswerMap
     return true;
   }
 
-  const ctx: EvaluationContext = { answers, occupation: null, phase: "occupation_specific", turn: 0 };
+  const ctx: EvaluationContext = {
+    answers,
+    occupation: null,
+    phase: "occupation_specific",
+    turn: 0,
+  };
   return isQuestionEligible(item.ask_if, item.skip_if, ctx);
 }
 

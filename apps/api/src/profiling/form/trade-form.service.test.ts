@@ -441,8 +441,20 @@ describe("TradeFormService", () => {
           answer_type: "single_select",
           is_core: true,
           options: [
-            { option_key: "under_one", label_text: "1 saal se kam", value: 0, implies_skill_id: null, is_none_of_above: false },
-            { option_key: "over_seven", label_text: "7 saal se zyada", value: 10, implies_skill_id: null, is_none_of_above: false },
+            {
+              option_key: "under_one",
+              label_text: "1 saal se kam",
+              value: 0,
+              implies_skill_id: null,
+              is_none_of_above: false,
+            },
+            {
+              option_key: "over_seven",
+              label_text: "7 saal se zyada",
+              value: 10,
+              implies_skill_id: null,
+              is_none_of_above: false,
+            },
           ] as never,
         }),
         // Senior-only depth.
@@ -450,19 +462,32 @@ describe("TradeFormService", () => {
           question_key: "tolerance_band",
           answer_type: "single_select",
           options: options(5),
-          ask_if: { op: "gte", left: { field: "turning_experience" }, right: { const: 2 } } as never,
+          ask_if: {
+            op: "gte",
+            left: { field: "turning_experience" },
+            right: { const: 2 },
+          } as never,
         }),
         // Fresher-only, the three that were being dropped.
         item({
           question_key: "iti_project_work",
           answer_type: "text",
-          ask_if: { op: "lte", left: { field: "turning_experience" }, right: { const: 0 } } as never,
+          ask_if: {
+            op: "lte",
+            left: { field: "turning_experience" },
+            right: { const: 0 },
+          } as never,
         }),
       ],
     };
 
     const gate = (over: Partial<WorkerPackAnswer> = {}) =>
-      answered({ questionKey: "turning_experience", answerOptionKeys: null, answerNumber: 10, ...over });
+      answered({
+        questionKey: "turning_experience",
+        answerOptionKeys: null,
+        answerNumber: 10,
+        ...over,
+      });
 
     const keysOf = async (saved: WorkerPackAnswer[]) => {
       const { service } = await makeService({ pack: GATED, saved });
@@ -509,7 +534,11 @@ describe("TradeFormService", () => {
       // to correct or withdraw it — worse than an extra screen.
       const keys = await keysOf([
         gate(),
-        answered({ questionKey: "iti_project_work", answerOptionKeys: null, answerText: "Bush banaya" }),
+        answered({
+          questionKey: "iti_project_work",
+          answerOptionKeys: null,
+          answerText: "Bush banaya",
+        }),
       ]);
       expect(keys).toContain("iti_project_work");
     });
@@ -526,9 +555,7 @@ describe("TradeFormService", () => {
       // NOT VACUOUS, unlike the `??`-ordering assertion this replaced: `wpa_answer_shape_chk` is a
       // biconditional, so exactly one answer column is ever non-null and the read order cannot
       // matter. Which COLUMN the value lands in is the thing that can go wrong, and this is it.
-      const keys = await keysOf([
-        gate({ answerNumber: null, answerText: "10" }),
-      ]);
+      const keys = await keysOf([gate({ answerNumber: null, answerText: "10" })]);
       expect(keys).toContain("tolerance_band");
       expect(keys).toContain("iti_project_work");
     });

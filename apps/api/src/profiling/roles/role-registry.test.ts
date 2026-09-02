@@ -185,8 +185,14 @@ describe("the role registry", () => {
     it("is symmetric inside a cluster", () => {
       // If A vetoes B's word, B must veto A's. An asymmetry means one of the two hands over on
       // evidence the other treats as disqualifying, which is the ambiguity reaching a worker.
-      const a = fake({ kind: "alpha", detection: { occupationTerms: ["alpha"], machineTerms: [], levelTerms: [] } });
-      const b = fake({ kind: "beta", detection: { occupationTerms: ["beta"], machineTerms: [], levelTerms: [] } });
+      const a = fake({
+        kind: "alpha",
+        detection: { occupationTerms: ["alpha"], machineTerms: [], levelTerms: [] },
+      });
+      const b = fake({
+        kind: "beta",
+        detection: { occupationTerms: ["beta"], machineTerms: [], levelTerms: [] },
+      });
       expect(conflictTermsFor(a, [a, b])).toEqual(["beta"]);
       expect(conflictTermsFor(b, [a, b])).toEqual(["alpha"]);
     });
@@ -199,7 +205,12 @@ describe("the role registry", () => {
       const withExtra = fake({
         kind: "alpha",
         cluster: "machining",
-        detection: { occupationTerms: ["alpha"], machineTerms: [], levelTerms: [], extraConflictTerms: ["beta"] },
+        detection: {
+          occupationTerms: ["alpha"],
+          machineTerms: [],
+          levelTerms: [],
+          extraConflictTerms: ["beta"],
+        },
       });
       expect(conflictTermsFor(withExtra, [withExtra, polymer])).toEqual(["beta"]);
     });
@@ -237,7 +248,12 @@ describe("the role registry", () => {
     it("refuses a role that lists its own term as a conflict", () => {
       const self = fake({
         kind: "alpha",
-        detection: { occupationTerms: ["alpha"], machineTerms: [], levelTerms: [], extraConflictTerms: ["alpha"] },
+        detection: {
+          occupationTerms: ["alpha"],
+          machineTerms: [],
+          levelTerms: [],
+          extraConflictTerms: ["alpha"],
+        },
       });
       expect(() => assertRegistryIsCoherent([self])).toThrow(/lists its own term/);
     });

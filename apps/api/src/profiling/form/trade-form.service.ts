@@ -17,11 +17,7 @@ import { TRADE_RESUME_MAPS } from "../../resume/trade-resume-map";
 import { PackRegistryService } from "../pack-registry.service";
 import { familyForTradeForm, TRADE_FORM_KINDS, type TradeFormKind } from "../trade-form-router";
 import { descriptorForKind } from "../roles/role-registry";
-import {
-  answerMapFromRows,
-  gateKeysOf,
-  isFormQuestionVisible,
-} from "./form-eligibility";
+import { answerMapFromRows, gateKeysOf, isFormQuestionVisible } from "./form-eligibility";
 import { TradeFormRepository } from "./trade-form.repository";
 import type {
   TradeFormAnswerDto,

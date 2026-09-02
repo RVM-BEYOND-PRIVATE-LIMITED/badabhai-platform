@@ -103,6 +103,10 @@ export function descriptorForKind(kind: string): RoleFormDescriptor | undefined 
   return ROLE_FORM_DESCRIPTORS.find((descriptor) => descriptor.kind === kind);
 }
 
-export function descriptorForPack(packId: string | null | undefined): RoleFormDescriptor | undefined {
-  return packId ? ROLE_FORM_DESCRIPTORS.find((descriptor) => descriptor.packId === packId) : undefined;
+export function descriptorForPack(
+  packId: string | null | undefined,
+): RoleFormDescriptor | undefined {
+  return packId
+    ? ROLE_FORM_DESCRIPTORS.find((descriptor) => descriptor.packId === packId)
+    : undefined;
 }

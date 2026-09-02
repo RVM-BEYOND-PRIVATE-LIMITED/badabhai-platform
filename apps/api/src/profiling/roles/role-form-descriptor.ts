@@ -261,7 +261,9 @@ export function assertRegistryIsCoherent(all: readonly RoleFormDescriptor[]): vo
     const own = new Set(vocabularyOf(descriptor));
     const selfVeto = (descriptor.detection.extraConflictTerms ?? []).filter((t) => own.has(t));
     if (selfVeto.length > 0) {
-      throw new Error(`${descriptor.kind} lists its own term(s) as conflicts: ${selfVeto.join(", ")}`);
+      throw new Error(
+        `${descriptor.kind} lists its own term(s) as conflicts: ${selfVeto.join(", ")}`,
+      );
     }
     // An enabled role with no occupation term can only ever be reached by corroboration, which
     // means a worker who names it outright is not routed. That is always an authoring slip.
