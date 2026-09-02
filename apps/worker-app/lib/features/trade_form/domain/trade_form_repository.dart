@@ -1,4 +1,5 @@
-import '../../../core/api/api_client.dart' show WorkPrefOptionsDto;
+import '../../../core/api/api_client.dart'
+    show QualificationOptionsDto, WorkPrefOptionsDto;
 import 'trade_form_models.dart';
 
 /// The trade form's data boundary (#1341): read the whole form, save one
@@ -27,4 +28,16 @@ abstract interface class TradeFormRepository {
   /// PUT the work history (REPLACES the whole list; an empty list clears it) —
   /// the `employment` marker's write.
   Future<void> saveEmployment(List<TradeFormEmploymentEntry> employments);
+
+  /// GET the slug→label vocabulary for the `qualifications` marker's
+  /// education chips (`credential`/`council`) — same contract shape as
+  /// [loadPreferenceOptions], for the same reason.
+  Future<QualificationOptionsDto> loadQualificationOptions();
+
+  /// PUT the worker's certificates + education rows (the `qualifications`
+  /// marker's write) — TRI-STATE per list. [qualifications] owns which keys
+  /// are present on the wire (see [TradeFormQualifications.toJson]); the
+  /// caller must not invoke this when [TradeFormQualifications.hasAnyTouch]
+  /// is false, since an empty body is the endpoint's one deliberate 400.
+  Future<void> saveQualifications(TradeFormQualifications qualifications);
 }
