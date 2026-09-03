@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CHARS_PER_LINE,
+  COMPRESSING_LADDER,
   degradeToFit,
   HEADROOM_FLOOR_MM,
   LADDER,
@@ -55,7 +56,11 @@ describe("the cost model is calibrated, and the calibration is stated", () => {
     // is a different rule (§4.3's per-section cap) — the two coexist deliberately.
     expect(rowLines("Machines", "CNC lathe")).toBe(1);
     expect(rowLines("Operations", "x".repeat(CHARS_PER_LINE * 2))).toBe(3);
-    expect(CAPABILITY_ROW_BUDGET).toBe(9);
+    // TEN, RE-MEASURED. Counting the capability rows on all twenty-one pages of
+    // `BadaBhai_21_Role_Resumes.pdf` puts the ceiling at ten — grinding, turning and milling all
+    // reach it. The nine this line used to name came from three sheets, none of which was one of
+    // those three, and the cost of the stale number was the grinder's "Sector worked" row.
+    expect(CAPABILITY_ROW_BUDGET).toBe(10);
   });
 
   it("counts section chrome, because a sheet with fewer sections has more room", () => {
@@ -115,19 +120,51 @@ describe("the ladder", () => {
     expect(JSON.stringify(a.sheet)).toBe(JSON.stringify(b.sheet));
   });
 
-  it("stops at the FIRST stage that fits — it drops the minimum, not the tail", () => {
+  it("stops at the FIRST stage that fits — it compresses the minimum, not the tail", () => {
     // One line over budget must cost one effective step, never a cascade. The failure this
     // catches is a ladder that runs to completion and hands back a sheet stripped to the bone
     // because nothing told it to stop.
+    //
+    // DRIVEN THROUGH EMPLOYMENTS RATHER THAN CAPABILITY ROWS, and the change of fixture is the
+    // 2026-09-03 ruling rather than a convenience: shedding a capability row is now forbidden, so
+    // a sheet made of forty of them exercises no step at all. "Employers beyond three" is the
+    // only compression a sheet can actually spend, which makes it the only fixture that can still
+    // ask this question.
+    const s = sheet({
+      capChipRows: Array.from({ length: 22 }, (_, i) => capRow(`k${i}`, 20 + i)),
+      employments: Array.from({ length: 5 }, () => ({
+        employer: "Sandhar Technologies Limited",
+        location_suffix: ", Manesar",
+        role_inline: " — CNC Turner",
+        when: "Apr 2022 – Present · 3 yrs",
+        work: "Setting and running twin-spindle lathes on steering housings",
+        roles: [],
+      })),
+    });
+    expect(sheetContentLines(s)).toBeGreaterThan(SHEET_LINE_BUDGET);
+    const r = degradeToFit(s);
+    expect(sheetContentLines(r.sheet)).toBeLessThanOrEqual(SHEET_LINE_BUDGET);
+    expect(r.overflows).toBe(false);
+    // It compressed what it needed and then halted, rather than running the tail.
+    expect(r.dropped).toEqual(["employers beyond three"]);
+    expect(r.sheet.capChipRows).toHaveLength(22);
+  });
+
+  it("returns an OVERFLOWING sheet rather than shedding a ratified row (2026-09-03 ruling)", () => {
+    // THE RULING, AS A UNIT TEST. Forty capability rows cannot be compressed by anything the
+    // ladder is still allowed to do — the only steps left match keys no pack defines and an
+    // employment list this sheet does not have. Before the ruling this walked the capability
+    // rungs and returned a stripped sheet that fitted. It must now return the sheet INTACT and
+    // report that it spills.
     const s = sheet({
       capChipRows: Array.from({ length: 40 }, (_, i) => capRow(`k${i}`, 20 + i)),
     });
-    const over = sheetContentLines(s) - SHEET_LINE_BUDGET;
-    expect(over).toBeGreaterThan(0);
     const r = degradeToFit(s);
-    expect(sheetContentLines(r.sheet)).toBeLessThanOrEqual(SHEET_LINE_BUDGET);
-    // It removed what it needed and then halted: one more step would put it under by more.
-    expect(r.dropped.length).toBeLessThanOrEqual(over + 1);
+    expect(r.stage).toBe(0);
+    expect(r.dropped).toEqual([]);
+    expect(r.sheet.capChipRows).toHaveLength(40);
+    expect(r.overflows).toBe(true);
+    expect(r.overBudgetLines).toBe(Number((sheetContentLines(s) - SHEET_LINE_BUDGET).toFixed(2)));
   });
 
   it("takes the turner-pack additions before anything the guideline ranks", () => {
@@ -146,20 +183,21 @@ describe("the ladder", () => {
     expect(order.indexOf("education")).toBeLessThan(order.indexOf("employers beyond three"));
   });
 
-  it("sheds capability rows by DESCENDING §5.1 rank — least decisive first", () => {
+  it("still ORDERS its capability rungs by descending §5.1 rank, though it may no longer run them", () => {
+    // ASSERTED ON THE STEP, NOT THROUGH `degradeToFit`, and that is the ruling rather than a
+    // weakening. The 2026-09-03 ruling forbade EXECUTING these rungs; it did not re-rank them,
+    // and the order is a ruled artefact flagged for RVM redline. Driving this through the ladder
+    // would now assert nothing, because the ladder never reaches the rung — so the rung itself is
+    // asserted, together with the fact that it is forbidden.
+    const rung = LADDER.find((step) => step.what.startsWith("capability row 1"));
+    expect(rung, "the capability rungs must still exist, in order").toBeDefined();
+    expect(rung!.effect).toBe("sheds-a-ratified-row");
+
     const s = sheet({
       capChipRows: [capRow("turning_machine", 21), capRow("sector_worked", 81)],
-      capFactRows: Array.from({ length: 40 }, (_, i) => ({
-        label: `f${i}`,
-        value: "x",
-        key: `f${i}`,
-        rank: 70,
-      })),
     });
-    const r = degradeToFit(s);
-    const survivingKeys = [...(r.sheet.capChipRows ?? []), ...(r.sheet.capFactRows ?? [])].map(
-      (row) => (row as { key?: string }).key,
-    );
+    rung!.apply(s);
+    const survivingKeys = (s.capChipRows ?? []).map((row) => (row as { key?: string }).key);
     // Machines is §5.1 rank 2 — "the literal vocabulary of the job advertisement". It is the last
     // thing that should ever go, and sector_worked (§4.3: display only, never a matching input)
     // is the first.
@@ -184,13 +222,23 @@ describe("the ladder", () => {
       // A man with four jobs whose sheet shows two and says nothing reads as though he hid
       // something. The count line is what makes the drop honest, so it must exist whenever the
       // drop happened.
-      expect(r.sheet.employmentsMore).toMatch(/^\d+ earlier employers/);
+      //
+      // SINGULAR OR PLURAL, and the `s?` is not cosmetic: this fixture collapses four employers
+      // to three, so the count is ONE, and "1 earlier employers" is a grammatical error printed
+      // on a worker's résumé. `overflowLine` in the mapper already singularises; the ladder now
+      // agrees with it.
+      expect(r.sheet.employmentsMore).toMatch(/^\d+ earlier employers?$/);
+      expect(r.sheet.employmentsMore).toBe("1 earlier employer");
     }
   });
 
-  it("runs out of ladder rather than throwing", () => {
+  it("runs out of PERMITTED ladder rather than throwing, and says the sheet spilled", () => {
     // A pathological profile gets a two-page résumé, which is a bad sheet. An exception gets them
     // NO sheet. The harness is what catches this in CI; the runtime has to degrade.
+    //
+    // SINCE THE RULING THIS IS THE ORDINARY EXIT, not the pathological one, and the sheet comes
+    // back at stage 0: there is nothing here a permitted step can compress, so nothing is spent
+    // and nothing is lost. The one thing that must never happen is silence about it.
     const s = sheet({
       capFactRows: Array.from({ length: 400 }, (_, i) => ({
         label: `f${i}`,
@@ -200,7 +248,82 @@ describe("the ladder", () => {
       })),
     });
     expect(() => degradeToFit(s)).not.toThrow();
-    expect(degradeToFit(s).stage).toBeGreaterThan(0);
+    const r = degradeToFit(s);
+    expect(r.stage).toBe(0);
+    expect(r.sheet.capFactRows).toHaveLength(400);
+    expect(r.overflows).toBe(true);
+    expect(r.overBudgetLines).toBeGreaterThan(0);
+  });
+});
+
+describe("the ladder's classification — which steps may still run, and why", () => {
+  /**
+   * THE 2026-09-03 RULING, PINNED. "The ladder still compresses as hard as it can — but when a
+   * sheet STILL will not fit, it SPILLS ONTO PAGE 2 instead of shedding a ratified row."
+   *
+   * Every step was classified against `BadaBhai_21_Role_Resumes.pdf` and against the `gain` it
+   * measurably produces. These tests are what stop the classification drifting back into "the
+   * first few steps are cheap", which is what it looked like before anyone counted.
+   */
+  it("permits exactly three steps, and they are not a prefix of the order", () => {
+    // NOT CONTIGUOUS, and that is the whole reason the tag exists rather than an index. A reader
+    // who assumed "the early steps are the safe ones" would re-admit `sector worked` — which all
+    // twenty-one ratified pages print — while excluding `employers beyond three`, which none of
+    // them can even reach.
+    expect(COMPRESSING_LADDER.map((s) => s.what)).toEqual([
+      "optional volunteered fields",
+      "production mode",
+      "employers beyond three",
+    ]);
+    const order = LADDER.map((s) => s.what);
+    expect(order.indexOf("employers beyond three")).toBeGreaterThan(order.indexOf("languages"));
+  });
+
+  it("gives EVERY step an effect and a stated reason", () => {
+    // A tag with no evidence behind it is an opinion. Re-classifying a step then means arguing
+    // with a recorded measurement rather than editing an enum.
+    for (const step of LADDER) {
+      expect(["compresses", "sheds-a-ratified-row"], step.what).toContain(step.effect);
+      expect(step.why.trim().length, `${step.what}: no reason recorded`).toBeGreaterThan(60);
+    }
+  });
+
+  it("never applies a forbidden step, whatever the sheet", () => {
+    // THE PROPERTY, not a spot check. Anything `degradeToFit` reports having dropped must be a
+    // step the ruling permits — on a sheet built to be far past every budget it has.
+    const forbidden = new Set(
+      LADDER.filter((s) => s.effect === "sheds-a-ratified-row").map((s) => s.what),
+    );
+    const s = sheet({
+      capChipRows: Array.from({ length: 30 }, (_, i) => capRow(`k${i}`, 20 + i, ["a", "b", "c"])),
+      capFactRows: [
+        { label: "Sector worked", value: "Automotive", key: "sector_worked", rank: 81 },
+      ],
+      qualFactRows: [
+        { label: "Education", value: "ITI — Turner · NCVT, 2014" },
+        { label: "Certificates", value: "NTC — Turner — NCVT — 2015" },
+        { label: "Languages spoken", value: "Hindi · Haryanvi" },
+      ],
+      qualTickRows: [{ label: "Documents ready", values: ["Aadhaar", "PAN", "UAN"] }],
+      employments: Array.from({ length: 4 }, () => ({
+        employer: "Rico Auto Industries Limited",
+        location_suffix: ", Gurugram",
+        role_inline: " — CNC Turner",
+        when: "Jun 2019 – Mar 2022 · 2 yrs 10 mo",
+        work: "Bar-fed turning of aluminium housings",
+        roles: [],
+      })),
+    });
+    const r = degradeToFit(s);
+    expect(r.dropped.filter((what) => forbidden.has(what))).toEqual([]);
+    // The rows the forbidden steps would have taken are all still on the sheet.
+    expect((r.sheet.qualFactRows ?? []).map((row) => row.label)).toEqual([
+      "Education",
+      "Certificates",
+      "Languages spoken",
+    ]);
+    expect(r.sheet.qualTickRows).toHaveLength(1);
+    expect((r.sheet.capFactRows ?? []).map((row) => row.label)).toContain("Sector worked");
   });
 });
 
@@ -237,7 +360,10 @@ describe("what may never be dropped", () => {
       })),
     });
     const r = degradeToFit(s);
-    expect(r.stage).toBeGreaterThan(0);
+    // UNDER REAL PAGE PRESSURE, which is what `stage > 0` used to stand in for. Since the ruling
+    // this sheet comes back at stage 0 — there is nothing on it a permitted step may touch — so
+    // the pressure has to be asserted directly, and it is the spill that proves it.
+    expect(r.overflows).toBe(true);
     // §5.1 rank 6 — two of the four things that actually reject a blue-collar candidate. They
     // survive a sheet stripped of everything the ladder is allowed to take.
     expect(r.sheet.availFactRows).toEqual(s.availFactRows);
@@ -252,6 +378,21 @@ describe("what may never be dropped", () => {
   });
 });
 
+/**
+ * THE CREDENTIAL FLOOR (Q2 ruling), AND WHAT THE 2026-09-03 RULING DID TO IT.
+ *
+ * Q2 reserved ONE credential line against a ladder that was allowed to shed the whole credentials
+ * block. The 2026-09-03 ruling forbids shedding those rows at all, so the floor is now a floor
+ * under a floor: the Education row survives INTACT — issuer and year included — and the reserved
+ * line is never reached through `degradeToFit`.
+ *
+ * THE RIDER STAYS, AND SO DO THESE TESTS. `preserveTopQualification` still runs after every step,
+ * because it is the guarantee that survives a future ruling re-permitting a Zone-5 rung; deleting
+ * it would leave the Q2 promise resting on the absence of a step, which is precisely what
+ * `NEVER_DROPPED` exists to say is not a guarantee. What changes below is that the STRONGER
+ * outcome is asserted where the weaker one used to be, and the reserved-line behaviour is
+ * asserted on `topQualificationLine`, which is the part of it that is still reachable.
+ */
 describe("the credential floor — one qualification line is never dropped (Q2 ruling)", () => {
   /** A sheet that is far over budget, with the credential in the Education row. */
   const credentialled = (educationValue: string) =>
@@ -270,45 +411,66 @@ describe("the credential floor — one qualification line is never dropped (Q2 r
       qualTickRows: [{ label: "Documents ready", values: ["Aadhaar", "PAN"] }],
     });
 
-  it("keeps the highest ITI/NCVT line after the whole credentials block is shed", () => {
+  it("now keeps the WHOLE Education row — the credential no longer arrives stripped", () => {
+    // STRICTLY STRONGER THAN WHAT THIS TEST USED TO ASSERT, which was that the block went and one
+    // reserved line came back. Shedding the block is forbidden, so the row survives complete: a
+    // young worker whose certificate IS the signal now reaches the gate with the issuer and the
+    // year on it, not just the four letters. The page pays for that by spilling.
     const r = degradeToFit(credentialled("ITI — Turner · NCVT, 2014 · Government ITI Faridabad"));
-    const values = (r.sheet.qualFactRows ?? []).map((row) => row.value);
-    // The block went; the credential floor did not. A young worker whose certificate IS the
-    // signal must not arrive at the gate with a sheet that no longer mentions it.
-    expect(r.dropped).toContain("education");
-    expect(values.join(" | ")).toContain("ITI — Turner");
-    // The Education ROW is gone; what survives is the reserved line under its own label.
-    expect((r.sheet.qualFactRows ?? []).map((row) => row.label)).toContain("Qualification");
+    expect(r.dropped).not.toContain("education");
+    expect(r.overflows).toBe(true);
+    const rows = new Map((r.sheet.qualFactRows ?? []).map((row) => [row.label, row.value]));
+    expect(rows.get("Education")).toBe("ITI — Turner · NCVT, 2014 · Government ITI Faridabad");
+    // No reserved line was needed, so none was invented — a duplicate credential row would be the
+    // rider firing over a row that never left.
+    expect([...rows.keys()]).not.toContain("Qualification");
   });
 
   it("reserves ONE line, not the row it came from", () => {
-    const r = degradeToFit(credentialled("ITI — Turner · NCVT, 2014 · Government ITI Faridabad"));
-    const values = (r.sheet.qualFactRows ?? []).map((row) => row.value).join(" | ");
-    // ~5mm was the costed price and one line is what that buys. The issuer and the year go.
-    expect(values).not.toContain("Government ITI Faridabad");
-    expect(values).not.toContain("NCVT, 2014");
+    // THE PART OF THE Q2 RIDER THAT IS STILL REACHABLE. `preserveTopQualification` re-inserts
+    // whatever `topQualificationLine` picked, so what "one line, not the row" MEANS is decided
+    // here: the credential segment alone, without the issuer and without the year. ~5 mm was the
+    // costed price and one line is what that buys.
+    const reserved = topQualificationLine(
+      credentialled("ITI — Turner · NCVT, 2014 · Government ITI Faridabad"),
+    );
+    expect(reserved).toBe("ITI — Turner");
+    expect(reserved).not.toContain("Government ITI Faridabad");
+    expect(reserved).not.toContain("2014");
   });
 
   it("protects NOTHING when there is no credential to protect", () => {
     // "10th pass" is not a credential floor, and reserving it would be a larger promise than the
     // one that was ruled — it would also cost a line on the sheets that can least afford one.
+    const schoolingOnly = sheet({
+      qualFactRows: [{ label: "Education", value: "10th pass · Government High School" }],
+    });
+    expect(topQualificationLine(schoolingOnly)).toBeNull();
+    // And where a real certificate exists the reserve falls to THAT rather than to the schooling
+    // line — the fixture below carries an NTC/NCVT certificate alongside the "10th pass".
+    expect(topQualificationLine(credentialled("10th pass · Government High School"))).not.toContain(
+      "10th pass",
+    );
+    // Nothing is invented on the sheet either, now that the row itself is never shed.
     const r = degradeToFit(credentialled("10th pass · Government High School"));
-    const values = (r.sheet.qualFactRows ?? []).map((row) => row.value).join(" | ");
-    expect(r.dropped).toContain("education");
-    expect(values).not.toContain("10th pass");
+    expect((r.sheet.qualFactRows ?? []).map((row) => row.label)).not.toContain("Qualification");
   });
 
   it("falls back to the certificate when education carries no credential", () => {
+    expect(topQualificationLine(credentialled("10th pass"))).toContain("NCVT");
     const r = degradeToFit(credentialled("10th pass"));
     const values = (r.sheet.qualFactRows ?? []).map((row) => row.value).join(" | ");
     expect(values).toContain("NCVT");
   });
 
-  it("survives the deepest stage, like availability and salary do", () => {
+  it("survives a sheet that SPILLS, like availability and salary do", () => {
+    // `stage > 4` used to stand for "the ladder went deep". It cannot any more — the deepest a
+    // permitted ladder reaches on this sheet is stage 0 — so the pressure is asserted where it
+    // now shows: the sheet spills and the credentials are still on it.
     const s = credentialled("ITI — Turner · NCVT, 2014");
     s.availFactRows = [{ label: "Salary expected", value: "₹24,000" }];
     const r = degradeToFit(s);
-    expect(r.stage).toBeGreaterThan(4);
+    expect(r.overflows).toBe(true);
     expect((r.sheet.qualFactRows ?? []).map((row) => row.value).join(" | ")).toContain("ITI");
     expect(r.sheet.availFactRows).toEqual(s.availFactRows);
   });

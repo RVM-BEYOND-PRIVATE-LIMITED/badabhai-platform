@@ -108,5 +108,26 @@ docker build -t bb-weasy:local <dir with a weasyprint Dockerfile>
 docker run --rm -v "<abs-dir>:/work" bb-weasy:local weasyprint /work/sheet.html /work/sheet.pdf
 ```
 
-Then confirm it is **one page**. A structural test cannot: page count is a layout
-outcome, and the Node test environment has no renderer.
+Then confirm the page count — but confirm it **against what the sheet said it would be**,
+not against a flat "one page". A structural test cannot do this at all: page count is a
+layout outcome and the Node test environment has no renderer.
+
+Since the owner ruling of 2026-09-03 the invariant is **one page unless preserving a
+row the ratified corpus prints required two**. So read the render input's two degradation
+fields first, then check the PDF against them:
+
+| `degradationOverflows` | expected pages | a different result means |
+| --- | --- | --- |
+| `false` | 1 | the line model under-counts — `SHEET_LINE_BUDGET` or the per-row costs in `resume-degradation.ts` are wrong |
+| `true` | 2 | 1 page means the model over-counts (the sheet was spilled needlessly); 3+ means content has grown far past anything measured |
+
+`degradationOverBudgetLines` says by how much, in lines of 4.89 mm. The corpus's worst is
+under 3.2 lines, so a spilling sheet should show only a little content on page 2.
+
+**Not yet confirmed by a real render.** The two-page behaviour is asserted through the line
+model only — `sheetContentLines` against `SHEET_LINE_BUDGET`. The template supports it
+(`@page { size: A4; margin: 12mm }`, and `.foot` carries no positioning, so it flows to the
+end of the last page), but no WeasyPrint render of a spilling sheet has been done. Do one
+before release, on these three: **grinding** and the **maximal turner** (both spill by
+~0.2 lines — the interesting case, since they may well still render on one page) and
+**matrix shape 9** (the wrapped 18 pt name, ~2.9 lines over).

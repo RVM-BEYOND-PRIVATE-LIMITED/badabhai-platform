@@ -290,6 +290,11 @@ describe.skipIf(!ENABLED)("persona sheets — five synthetic turners, rendered (
         stage: input.degradationStage ?? 0,
         dropped: input.degradationDropped ?? [],
         trace: input.degradationTrace ?? [],
+        // Since the 2026-09-03 ruling the ladder stops rather than shedding a ratified row, so
+        // `stage: 0` no longer implies the sheet fitted. The Docker headroom measurement has to
+        // be read against which of the two it was.
+        overflows: input.degradationOverflows ?? false,
+        overBudgetLines: input.degradationOverBudgetLines ?? 0,
         lines: Number(sheetContentLines(input).toFixed(2)),
         predictedHeadroomMm: Number(
           ((SHEET_LINE_BUDGET - sheetContentLines(input)) * LINE_MM).toFixed(2),

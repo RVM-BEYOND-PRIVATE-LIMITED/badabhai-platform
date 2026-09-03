@@ -264,6 +264,10 @@ describe("§11 #14 — promoted within one employer", () => {
     // fully-answered turner it wraps: the parity sheet went from `degradationStage: 0` to STAGE 2,
     // shedding the Languages row and two materials chips. The placement is not affordable at
     // `SHEET_LINE_BUDGET = 41`, which R9 §5 measured as un-raiseable. See the parity contract.
+    //
+    // STILL NOT AFFORDABLE AFTER THE 2026-09-03 RULING, and for a restated reason: the ladder may
+    // no longer shed those rows, so the same wrap now buys a SECOND PAGE rather than two §5.1
+    // losses. The price moved; it did not fall.
     const { employments } = buildEmploymentBlock(
       [
         employment({

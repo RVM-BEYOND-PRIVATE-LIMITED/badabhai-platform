@@ -180,10 +180,16 @@ describe("trade resume map — qp_cnc_turning", () => {
       advanced_capability: ["live_tooling", "bar_feeder"],
     });
 
-    // THIS WORKER ANSWERS 12 CAPABILITY ROWS AND THE PAGE HOLDS 9. Before the budget existed this
+    // THIS WORKER ANSWERS 12 CAPABILITY ROWS AND THE PAGE HOLDS 10. Before the budget existed this
     // rendered a two-page PDF, which breaks the one-page product contract (guideline §6.3). The
-    // three lowest-ranked answered rows are dropped: Tolerance held (62), Operations (63) and
-    // Sector worked (81 — §4.3 calls it "display only, never a matching input", so it goes first).
+    // two lowest-ranked answered rows are dropped: Operations (63) and Sector worked (81 — §4.3
+    // calls it "display only, never a matching input", so it goes first).
+    //
+    // TOLERANCE HELD (62) NOW SURVIVES, and that is the budget being re-measured rather than an
+    // expectation edited to match output. At a budget of nine it fell one place below the cut and
+    // this test recorded the loss; counting the capability rows on all twenty-one pages of
+    // `BadaBhai_21_Role_Resumes.pdf` puts the ceiling at TEN — three pages reach it — and rank 62
+    // is the turner's tenth. A turner holding ±0.02 mm now has a sheet that says so.
     //
     // THE ORDER CHANGED ON 2026-08-28 AND THE CHANGE IS TRADE TRUTH, NOT LAYOUT. Turning
     // configuration ("Machine capability": live tooling, bar feeder, sub-spindle, Y-axis) is a
@@ -208,9 +214,10 @@ describe("trade resume map — qp_cnc_turning", () => {
       "Measuring instruments",
       "Programming",
       "Drawings",
+      "Tolerance held",
       "Machine capability",
     ]);
-    expect(CAPABILITY_ROW_BUDGET).toBe(9);
+    expect(CAPABILITY_ROW_BUDGET).toBe(10);
 
     expect(rows.chipRows.map((r) => r.label)).toEqual(["Machines", "Controllers", "Materials"]);
     expect(rows.tickRows.map((r) => r.label)).toEqual([
@@ -226,6 +233,7 @@ describe("trade resume map — qp_cnc_turning", () => {
         rank: 43,
       },
       { label: "Drawings", value: "Reads 2D drawings and GD&T", key: "drawing_reading", rank: 44 },
+      { label: "Tolerance held", value: "±0.02 mm", key: "tolerance_band", rank: 62 },
       {
         label: "Machine capability",
         value: "Live tooling · Bar feeder",
@@ -455,7 +463,15 @@ describe("trade resume map — qp_vmc_milling against the ratified sample", () =
         "Sector worked",
       ].sort(),
     );
-    expect(kept).toHaveLength(CAPABILITY_ROW_BUDGET);
+    // NINE IS WHAT THE SAMPLE ANSWERS, NOT WHAT THE PAGE HOLDS, and the two are no longer the
+    // same number. This line read `toHaveLength(CAPABILITY_ROW_BUDGET)`, which was true by
+    // coincidence while the budget was nine and false the moment it was re-measured to ten
+    // against all twenty-one ratified pages. The property it means to state is that NOTHING IS
+    // SHED — which the row list above already pins exactly — so what belongs beside it is the
+    // relation to the budget: he is INSIDE it, not filling it.
+    expect(kept.length, "the sample's rows all fit — nothing is shed").toBeLessThanOrEqual(
+      CAPABILITY_ROW_BUDGET,
+    );
   });
 
   it("appends the axis configuration to the machine chip, exactly as the sample prints it", () => {
@@ -506,8 +522,12 @@ describe("trade resume map — qp_vmc_milling against the ratified sample", () =
     // NOT A DEFECT AND NOT A FIX — the evidence Q2 needs, computed rather than argued.
     //
     // The sample's worker answers nine capability questions and all nine print. A miller who
-    // answers all thirteen is over the nine-row budget, and rank decides. This asserts WHICH
+    // answers all thirteen is over the ten-row budget, and rank decides. This asserts WHICH
     // rows that costs him, so the ruling is made against a list instead of against a principle.
+    //
+    // THE RE-MEASURED BUDGET BOUGHT ONE ROW BACK. At nine the casualty list opened with
+    // "Operations" (rank 63); at ten — the ceiling counted across the twenty-one ratified pages
+    // — it survives, and the list is one shorter. The row that still goes is the one below.
     const everything = {
       ...YADAV,
       workholding: ["machine_vice", "fixture", "rotary_table"],
@@ -525,7 +545,7 @@ describe("trade resume map — qp_vmc_milling against the ratified sample", () =
 
     const declared = tradeResumeMapFor("qp_vmc_milling")!.capability.map((c) => c.label);
     const dropped = declared.filter((l) => !kept.has(l));
-    expect(dropped).toEqual(["Operations", "Quality", "Troubleshooting", "Sector worked"]);
+    expect(dropped).toEqual(["Quality", "Troubleshooting", "Sector worked"]);
 
     // THE ONE THAT MATTERS: the ratified sheet PRINTS "Sector worked", and a fully-answering
     // miller loses it to "Workholding" (rank 42 beats rank 81). Bending the rank to keep it
@@ -660,8 +680,10 @@ describe("trade resume map — qp_cam_programming against the ratified sample", 
       ...rows.tickRows.map((r) => r.label),
       ...rows.factRows.map((r) => r.label),
     ];
-    // Nine rows against a budget of nine: this worker answers everything the pack asks and loses
-    // none of it, which is the pack's design rather than a coincidence.
+    // Nine rows against a budget of ten: this worker answers everything the pack asks and loses
+    // none of it, which is the pack's design rather than a coincidence. The CAM map defines only
+    // nine rows, so the budget can never bind here however it is measured — which is why the
+    // count below is stated as "inside the budget" rather than "equal to it".
     expect(kept.slice().sort()).toEqual(
       [
         "CAM software",
@@ -679,7 +701,7 @@ describe("trade resume map — qp_cam_programming against the ratified sample", 
         "Sector worked",
       ].sort(),
     );
-    expect(kept).toHaveLength(CAPABILITY_ROW_BUDGET);
+    expect(kept.length, "nothing is shed").toBeLessThanOrEqual(CAPABILITY_ROW_BUDGET);
     expect(rows.sectionTitle).toBe("Software, machines programmed & capability");
   });
 

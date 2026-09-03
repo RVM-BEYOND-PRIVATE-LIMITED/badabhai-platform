@@ -133,6 +133,12 @@ describe("R9 §6 rule 1 — role and detail placement", () => {
     // placement — and R9 §5 measured `SHEET_LINE_BUDGET = 41` as un-raiseable (42 puts two fixture
     // sheets below the floor). So this rule is blocked on the Zone 2 row-budget ruling, not on
     // anyone implementing it.
+    //
+    // THE RULING HAS SINCE BEEN TAKEN (2026-09-03) AND IT DOES NOT UNBLOCK THIS. The ladder may
+    // no longer shed the Languages row at all — it SPILLS onto a second page instead — so the
+    // measured cost of this placement is no longer two §5.1-ranked losses, it is a second page on
+    // a sheet that would otherwise have been one. That is still the worse sheet, and the rule is
+    // still blocked; what changed is which currency it would be paid in.
     const { employments } = buildEmploymentBlock([SINGLE_ROLE], { asOf: AS_OF });
     const emp = employments[0]!;
     expect(emp.role_inline).toBe("");

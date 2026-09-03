@@ -50,7 +50,7 @@ export interface TradeRowSpec {
    *
    * WHY THE SHEET DOES THIS AT ALL. The ratified sample prints `VMC · 3-axis`, `VMC · 4-axis`,
    * `SPM` — the configuration is a property OF the machine, not a separate capability, and giving
-   * it its own row would spend one of nine slots restating what the machine chip already implies.
+   * it its own row would spend one of the section's slots restating what the machine chip implies.
    * Appending costs no row.
    *
    * ONE CONFIG PER CHIP, NOT A CROSS PRODUCT. Two machines and two configurations would otherwise
@@ -130,13 +130,23 @@ export interface TradeRowSpec {
 /**
  * How many capability rows one A4 page holds.
  *
- * MEASURED FROM THE RATIFIED CORPUS, not chosen — and RE-MEASURED, which is why it is 10 and not
- * 9. The first measurement had three sheets to read (the VMC turner's 9 rows in this section,
- * the welder's 9, the car mechanic's 6) and "nine is the observed ceiling" was true of them. It
- * is FALSE of `BadaBhai_21_Role_Resumes.pdf`: counting the rows between each capability heading
- * and "AVAILABILITY & TERMS" across all twenty-one ratified pages gives a maximum of TEN, reached
- * by three of them — grinding ("MACHINES, WHEELS & CAPABILITY"), turning and milling. Nothing in
- * the corpus exceeds ten.
+ * MEASURED FROM THE RATIFIED CORPUS, not chosen — and RE-MEASURED ACROSS ALL TWENTY-ONE PAGES,
+ * which is why it is 10 and not 9. The first measurement had three sheets to read (the VMC
+ * turner's 9 rows in this section, the welder's 9, the car mechanic's 6) and "nine is the
+ * observed ceiling" was true of them. It is FALSE of `BadaBhai_21_Role_Resumes.pdf`.
+ *
+ * THE COUNT, PAGE BY PAGE — rows between the capability heading and "AVAILABILITY & TERMS", with
+ * a wrapped continuation folded into the row it belongs to (`pdftotext -layout`):
+ *
+ *     10  p2 grinding · p3 machining centre · p4 turning        <- the ceiling, three pages
+ *      9  p1 CAM · p16 welder · p18 injection moulding · p21 rubber moulding
+ *      8  p7 p9 p10 p11 p12 p13 p14 p15 p17 p19 p20
+ *      7  p5 CAD draughtsman · p6 assembly · p8 fitter
+ *
+ * Nothing in the corpus exceeds ten. Read against what this constant actually gates — rows a pack
+ * can PRODUCE, so net of the rows the parity test records as capture gaps — grinding is the sole
+ * binding persona at ten askable rows; turning and milling fall to nine (`Turning capacity` and
+ * `Table & travel` are unaskable), CAM is nine and the CAD fresher seven. Both readings give 10.
  *
  * THE COST OF THE STALE NUMBER WAS A ROW A HUMAN HAD SIGNED OFF. The grinder answers ten mapped
  * rows and the ratified page prints all ten; a budget of nine shed the worst-ranked of them
@@ -145,16 +155,43 @@ export interface TradeRowSpec {
  *
  * IT HAS TO EXIST BECAUSE A PACK CAN OUT-PRODUCE THE PAGE. `qp_cnc_turning` alone defines 14
  * capability rows, and a worker who answers everything fills all of them — which rendered a
- * two-page PDF, and "one page" is a product contract, not a target (§6.3). The guideline's answer
- * to overflow is truncation in the mapper, never shrinking type and never a second page.
+ * two-page PDF. This constant is the coarse pre-emptive cap that stops a pack out-producing the
+ * layout, and it is still measured from what a human ratified rather than from what fits.
  *
- * IT IS NOT THE ONE-PAGE CONTRACT ITSELF, and that is why raising it is safe. The contract is
- * `SHEET_LINE_BUDGET` + `degradeToFit` (resume-degradation.ts), which sheds in LINES — the
- * dimension a page is actually measured in, and the one that prices a row by how far it wraps.
- * This constant is the coarse pre-emptive cap that stops a pack out-producing the layout; the
- * ladder below it is what guarantees the page.
+ * IT IS NOT THE ONE-PAGE RULE ITSELF, and that is why raising it is safe. The page is settled in
+ * LINES by `SHEET_LINE_BUDGET` + `degradeToFit` (resume-degradation.ts) — the dimension a page is
+ * actually measured in, and the one that prices a row by how far it wraps.
+ *
+ * ONE PAGE IS THE TARGET, NO LONGER AN ABSOLUTE (owner ruling, 2026-09-03). Raising this to ten
+ * puts the grinder's sheet at 41.19 lines against a budget of 41, and under the ruling that sheet
+ * SPILLS rather than shedding the sector row back off again: the ladder compresses as hard as it
+ * can and then reports `overflows` instead of buying the page with ratified content. An earlier
+ * version of this comment ended "never a second page"; that sentence is what the ruling reversed,
+ * and the reversal is narrow — a sheet that can be compressed onto one page still must be.
+ *
+ * ── THIS CONSTANT IS NOW THE ONLY THING LEFT THAT SHEDS A RATIFIED ROW ─────────────────
+ *
+ * READ THE RULING'S SCOPE BEFORE TRUSTING ITS HEADLINE. "Never shed a ratified row" is true of
+ * `degradeToFit`, which no longer runs a step that deletes one. It is NOT true of the rank slice
+ * below (`.slice(0, CAPABILITY_ROW_BUDGET)` in `buildTradeCapabilityRows`), which runs BEFORE the
+ * ladder ever sees the sheet and is a hard truncation with no ladder, no trace and no
+ * `overflows` flag.
+ *
+ * MEASURED, AND IT STILL COSTS A ROW ALL TWENTY-ONE PAGES PRINT. Every ratified page ends its
+ * capability block with a sector row (twenty "Sector worked", p5 "Sector studied"), and
+ * `sector_worked` is ranked 81 — last — in both the turner and the miller maps. So a turner who
+ * answers all fourteen of his pack's questions and a miller who answers all thirteen both lose
+ * it: `yadav-parity.emit.test.ts` and `trade-resume-map.test.ts` assert that loss as today's
+ * shipped outcome rather than hiding it. Raising this to ten bought back `tolerance_band` (rank
+ * 62) and did not reach rank 81.
+ *
+ * WHY IT IS NOT FIXED HERE. Raising the budget further would put rows on a sheet no human has
+ * ratified at that density, and re-ranking `sector_worked` to save it would be exactly the
+ * substitution of layout preference for trade truth the turner map's own rank comment warns
+ * against — §4.3 calls the sector "display only, never a matching input", which is WHY it ranks
+ * last. Both are pack/ranking rulings (the open Q2 redline), not renderer changes.
  */
-export const CAPABILITY_ROW_BUDGET = 9;
+export const CAPABILITY_ROW_BUDGET = 10;
 
 export interface TradeResumeMap {
   readonly pack_id: string;
@@ -407,13 +444,18 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
      * what R12 §2 fixed. Had this entry been written first, a miller's answers would have been
      * read through a turner's vocabulary and nothing would have said so.
      *
-     * ROW COUNT AND THE Q2 REDLINE. Thirteen rows are defined and `CAPABILITY_ROW_BUDGET` is 9,
-     * so four drop by rank. The nine that survive are NOT the nine the ratified sheet prints —
+     * ROW COUNT AND THE Q2 REDLINE. Thirteen rows are defined and `CAPABILITY_ROW_BUDGET` is 10,
+     * so three drop by rank. The ten that survive are NOT the ten the ratified sheet prints —
      * the sheet shows `Sector worked` and this map's rank order keeps `Workholding` instead. That
      * is a one-row divergence, it is measured rather than asserted (see the map's own test), and
      * it is evidence for Q2 rather than something to fix by inventing a rank. The tens digit is
      * the guideline's §5.1 rank, and bending it to make a page fit is exactly the substitution of
      * layout preference for trade truth that the turner's rank comment warns against.
+     *
+     * RE-MEASURING THE BUDGET TO TEN DID NOT CLOSE THIS. It bought back `Operations` (rank 63)
+     * and stopped there; `sector_worked` is rank 81, last of the thirteen, so the divergence this
+     * paragraph records survives the raise unchanged. See `CAPABILITY_ROW_BUDGET`'s own comment,
+     * which now names this slice as the last place a ratified row is still shed.
      */
     pack_id: "qp_vmc_milling",
     section_title: "Machines, controllers & capability",
@@ -426,8 +468,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         kind: "chips",
         // THE FIRST USE OF `configFrom` BY ANY SHIPPED MAP. The sample prints "VMC · 3-axis",
         // "VMC · 4-axis", "SPM" — the axis count is a property OF the machine, and giving it a
-        // row of its own would spend one of nine slots restating what the machine chip implies.
-        // R10 built this seam for exactly this entry.
+        // row of its own would spend one of the section's slots restating what the machine chip
+        // already implies. R10 built this seam for exactly this entry.
         configFrom: "axis_capability",
         // R16 §1 — and it is the ratified sheet's own headline: "… · Fanuc, Siemens,
         // Mitsubishi · 3 & 4-axis". The axis count is the one configuration a machining
@@ -880,11 +922,17 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
      * ("CAM Programmer — Programmer · 7 yrs · Mastercam, PowerMill, SolidCAM") is what
      * `toolsPhrase`'s three-value cap produces from this row's four.
      *
-     * NINE ROWS AGAINST A BUDGET OF NINE, and that is the pack's design rather than a coincidence:
-     * `qp_cam_programming` asks exactly the nine questions the ratified sheet prints, plus its
-     * mode split and its tier gate. Nothing sheds for any worker, so `rank` here decides no
-     * outcome today — it is authored anyway, because the day a tenth row is added is the day it
-     * would otherwise be chosen by whoever is editing.
+     * NINE ROWS INSIDE A BUDGET OF TEN, and the nine are the pack's design rather than a
+     * coincidence: `qp_cam_programming` asks exactly the nine questions the ratified sheet
+     * prints, plus its mode split and its tier gate. The budget cannot bind here at all — the map
+     * defines fewer rows than the page holds — so `rank` decides no outcome today. It is authored
+     * anyway, because the day an ELEVENTH row is added is the day it would otherwise be chosen by
+     * whoever is editing.
+     *
+     * THIS USED TO READ "NINE AGAINST A BUDGET OF NINE", which was a true coincidence while the
+     * budget was measured from three sheets and a false one after it was re-measured to ten
+     * against all twenty-one. The property that survives is the one asserted in the test: nothing
+     * is shed, stated as "inside the budget" rather than "equal to it".
      *
      * TWO ANSWERS ARE CAPTURED AND DELIBERATELY NOT PRINTED. `programming_mode` (CAM seat vs
      * at-machine MDI) is real matching data and the pack's own disambiguator, but the ratified
@@ -1053,7 +1101,7 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
      *
      * WHY THAT CHANGES THE RANKING AND NOT JUST THE ROWS. `qp_cad_drafting` asks all six of the
      * ratified sheet's capability rows at tier 0, ungated, so a student answers exactly the six
-     * rows below plus `sector_studied` — seven, against a budget of nine — and his sheet is the
+     * rows below plus `sector_studied` — seven, against a budget of ten — and his sheet is the
      * ratified page (Pooja Chaudhary) with nothing shed. An eight-year designer answers eleven and
      * loses two. The ranking therefore has to be right at the TOP for the fresher and right at the
      * BOTTOM for the senior, which is what the two sector keys and the two 6x rows below settle.
@@ -1455,7 +1503,7 @@ export function buildTradeCapabilityRows(
   // (`drawing_check_work: "check_none"`, `simulation_work: "none"`, any bare `unknown`) occupied
   // one of the section's slots and then rendered nothing, pushing a LOWER-ranked row that did have
   // values off the sheet to pay for it. Measured on the CAD draughtsman: a senior answering
-  // everything printed EIGHT rows against a budget of nine with ten printable rows queueing. The
+  // everything printed EIGHT rows against the budget with ten printable rows queueing. The
   // budget is a cap on what the page can hold, and a row that prints nothing occupies none of it.
   const affordable = map.capability
     // The declared position is captured BEFORE filtering — after it, a callback index is the

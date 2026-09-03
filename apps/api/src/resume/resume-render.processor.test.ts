@@ -39,6 +39,125 @@ const SNAPSHOT = {
 
 const PDF = Buffer.from("%PDF-1.7 fake bytes");
 
+// ── A SHEET DENSE ENOUGH TO SPILL, for the degradation-warning tests at the end of this file ──
+//
+// A turner who answered every question his pack asks, three employers, and a full Zone 5. It is
+// the shape the 2026-09-03 owner ruling was taken for: at `CAPABILITY_ROW_BUDGET = 10` it runs
+// past `SHEET_LINE_BUDGET`, and every ladder step that would clear it deletes a row all
+// twenty-one ratified pages print — so the ladder stops and the sheet goes to a second page.
+const SPILLING_TURNER_ATTRIBUTES = {
+  turning_machine: ["cnc_lathe", "conventional_lathe", "vtl", "sliding_head", "spm"],
+  controller_brand: ["fanuc", "siemens", "mitsubishi", "haas", "mazak"],
+  material_worked: ["mild_steel", "alloy_steel", "stainless", "aluminium", "brass", "cast_iron"],
+  turning_operation: ["facing_od", "boring", "threading", "grooving", "drilling", "knurling"],
+  workholding: ["three_jaw", "four_jaw", "collet", "soft_jaw", "tailstock", "steady_rest"],
+  setting_operation: ["tool_offset", "work_offset", "nose_radius", "jaw_change", "first_piece"],
+  measuring_tools: ["vernier", "micrometer", "bore_gauge", "height_gauge", "plug_gauge"],
+  quality_work: ["first_piece_check", "in_process", "spc", "rejection"],
+  troubleshooting: ["tool_wear", "chatter", "size_variation", "surface_finish", "alarm"],
+  programming_level: "write_program",
+  drawing_reading: "gdt",
+  tolerance_band: "0.01",
+  sector_worked: ["automotive", "general_engg", "pump_valve", "oil_gas"],
+  advanced_capability: ["live_tooling", "bar_feeder", "sub_spindle", "c_axis", "y_axis"],
+  // Zone 5's other two rows. Every one of the twenty-one ratified pages prints both, and they are
+  // two of the rows the ruling forbids the ladder to take — so a fixture for the spill has to
+  // carry them or it is not the shape that was ruled on.
+  languages: ["hindi", "haryanvi", "english"],
+  documents_ready: [
+    "aadhaar",
+    "pan",
+    "bank_account",
+    "uan_pf",
+    "iti_certificate",
+    "experience_letter",
+  ],
+};
+
+const SPILLING_EMPLOYMENTS: WorkerEmploymentRecord[] = [
+  {
+    employer: "Sandhar Technologies Limited",
+    employerCity: "Manesar",
+    employerState: "Haryana",
+    startYm: "2022-04",
+    endYm: null,
+    durationStated: true,
+    roles: [
+      {
+        roleLabel: "CNC Turner — Setter",
+        startYm: "2022-04",
+        endYm: null,
+        workDone: "Setting and running twin-spindle lathes on steering housings",
+      },
+    ],
+  },
+  {
+    employer: "Rico Auto Industries Limited",
+    employerCity: "Gurugram",
+    employerState: "Haryana",
+    startYm: "2018-06",
+    endYm: "2022-03",
+    durationStated: true,
+    roles: [
+      {
+        roleLabel: "CNC Turner — Operator",
+        startYm: "2018-06",
+        endYm: "2022-03",
+        workDone: "Bar-fed turning of aluminium housings to ±0.02 mm",
+      },
+    ],
+  },
+  {
+    employer: "Faridabad Precision Components",
+    employerCity: "Faridabad",
+    employerState: "Haryana",
+    startYm: "2015-01",
+    endYm: "2018-05",
+    durationStated: true,
+    roles: [
+      {
+        roleLabel: "Turner",
+        startYm: "2015-01",
+        endYm: "2018-05",
+        workDone: "Conventional lathe work on shafts and bushes",
+      },
+    ],
+  },
+];
+
+// The availability block and the verdict line the ratified pages carry. Without them the sheet is
+// four rows and two section headings short of the density the ruling is about.
+const SPILLING_SNAPSHOT = {
+  ...SNAPSHOT,
+  resume_profile: {
+    domain_label: "CNC machining",
+    role_label: "CNC Turner",
+    skills: ["CNC turning", "Tool offset setting"],
+    experiences: [],
+    shift: "rotational",
+    current_city: "Faridabad",
+    preferred_locations: ["Faridabad", "Gurugram", "Manesar", "Bawal"],
+    availability: "immediate",
+    expected_salary: 26000,
+  },
+};
+
+const SPILLING_QUALIFICATIONS = {
+  educations: [
+    {
+      level: "iti",
+      trade: "Turner",
+      council: "ncvt",
+      completionYear: 2014,
+      instituteName: "Government ITI Faridabad",
+    },
+  ] as unknown as WorkerEducationRecord[],
+  certificates: [
+    { name: "Forklift licence", issuer: "Haryana RTO", issueYear: 2021 },
+    { name: "Safety training", issuer: "Rico Auto Industries Limited", issueYear: 2023 },
+  ] as unknown as WorkerCertificateRecord[],
+};
+
 function makeJob(
   over: {
     attemptsMade?: number;
@@ -389,6 +508,64 @@ describe("ResumeRenderProcessor — security (TD5)", () => {
     const joined = lines.join("\n");
     expect(joined).not.toContain(NAME_TOKEN);
     expect(joined).not.toContain(REAL_NAME);
+  });
+
+  // ── THE 2026-09-03 RULING MADE A TWO-PAGE RÉSUMÉ REACHABLE, SO IT MUST BE COUNTABLE ────
+  //
+  // Before the ruling the degradation ladder always bought the single page, so a spill could not
+  // happen and its absence from the logs cost nothing. Now the ladder stops rather than deleting
+  // a row the ratified corpus prints, and a worker can be handed a two-page PDF. Without a log
+  // line that happens with no event, no metric and no way to measure the rate — and the rate is
+  // what a decision to revisit the ladder's forbidden steps would have to be made against.
+
+  /** Capture every line the processor's own Logger writes, in order. */
+  function captureLogs(proc: ResumeRenderProcessor): string[] {
+    const lines: string[] = [];
+    const instLogger = (
+      proc as unknown as { logger: { warn: (m: string) => void; log: (m: string) => void } }
+    ).logger;
+    instLogger.warn = (m: string) => void lines.push(String(m));
+    instLogger.log = (m: string) => void lines.push(String(m));
+    return lines;
+  }
+
+  it("WARNS when the sheet spills past one page, with the magnitude", async () => {
+    // A fully-answered turner with a full credentials block — the density the ruling was taken
+    // for. The ladder has nothing it is still permitted to spend here (no volunteered fields, and
+    // three employers is already at the collapse floor), so it returns the sheet intact.
+    const { proc, renderer } = setup({
+      fullName: NAME_TOKEN,
+      resume: { ...DEFAULT_ROW, sourceProfileSnapshot: SPILLING_SNAPSHOT },
+      tradeSheet: { packId: "qp_cnc_turning", attributes: SPILLING_TURNER_ATTRIBUTES },
+      employments: SPILLING_EMPLOYMENTS,
+      qualifications: SPILLING_QUALIFICATIONS,
+    });
+    const lines = captureLogs(proc);
+    await proc.process(makeJob());
+
+    // The render input really is over budget — the log line must not be able to pass while the
+    // thing it reports has stopped happening.
+    const input = renderer.renderPdf.mock.calls[0]![0];
+    expect(input.degradationOverflows, "fixture no longer spills — rebuild it").toBe(true);
+
+    const spill = lines.filter((l) => l.includes("spills past one page"));
+    expect(spill).toHaveLength(1);
+    expect(spill[0]).toContain(RESUME_ID);
+    expect(spill[0]).toContain(String(input.degradationOverBudgetLines));
+    // NO PII, on the line that only exists to be shipped to a log sink.
+    expect(spill[0]).not.toContain(NAME_TOKEN);
+    expect(spill[0]).not.toContain(REAL_NAME);
+    expect(spill[0]).not.toContain(REAL_PHONE);
+  });
+
+  it("says NOTHING about degradation when the sheet fits", async () => {
+    // The half that makes the assertion above mean something: a line that always fires is noise,
+    // and a warn on every render would train the sink's readers to filter it out.
+    const { proc, renderer } = setup({ fullName: NAME_TOKEN });
+    const lines = captureLogs(proc);
+    await proc.process(makeJob());
+    expect(renderer.renderPdf.mock.calls[0]![0].degradationOverflows).toBe(false);
+    expect(lines.filter((l) => l.includes("spills past one page"))).toEqual([]);
   });
 });
 

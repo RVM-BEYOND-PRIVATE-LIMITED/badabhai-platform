@@ -327,6 +327,26 @@ export class ResumeRenderProcessor extends WorkerHost {
       this.logger.log(`resume ${resumeId}: transcript veto on ${veto.attributeKey}=${veto.slug}`);
     }
 
+    // A TWO-PAGE RÉSUMÉ IS NOW REACHABLE, SO IT MUST BE COUNTABLE. Before the 2026-09-03 owner
+    // ruling the ladder always bought the single page, so a spill was impossible and its absence
+    // from the logs cost nothing. The ruling made the ladder stop rather than delete a row the
+    // ratified corpus prints, which means a worker can now be handed a two-page PDF — and without
+    // this line that would happen with no log, no event and no way to measure how often.
+    //
+    // WARN, NOT ERROR. The sheet is correct: the ruling says content preservation outranks page
+    // count, so this is the system doing what it was told. It is warned rather than logged
+    // because the RATE is a product signal — if it climbs, the answer is a pack or ranking
+    // change, not a renderer one, and nobody can propose that against a number nobody has.
+    //
+    // NO PII. The resume id and a line count, both already used by every other line in this
+    // method; nothing from the sheet's content reaches the sink.
+    if (input.degradationOverflows) {
+      this.logger.warn(
+        `resume ${resumeId} spills past one page by ${input.degradationOverBudgetLines ?? 0} lines ` +
+          `(stage ${input.degradationStage ?? 0}) — preserving a ratified row, per the 2026-09-03 ruling`,
+      );
+    }
+
     let pdf: Buffer | null = null;
     try {
       pdf = await this.renderer.renderPdf(input);
