@@ -99,6 +99,60 @@ const TRAINING_LABEL: Readonly<Record<string, string>> = Object.fromEntries(
  */
 const DEFAULT_TRAINING_LABEL = "ITI workshop training";
 
+/**
+ * Pack → { the tier question, the stored value that means "no work experience at all" }.
+ *
+ * READ OFF THE ROLE DESCRIPTOR for the same reason the three vocabularies above are: which packs
+ * have a fresher rung at all, and what that rung STORES, is a fact only the role knows, and the
+ * value is not portable — `qp_cad_drafting` stores 0 for "course kiya hai, kaam ka tajurba nahi"
+ * while every other pack stores 0 for "1 saal se kam". See
+ * {@link RoleFresherVocabulary.tenureValue}.
+ */
+const FRESHER_TENURE: Readonly<Record<string, { question: string; value: number }>> =
+  Object.fromEntries(
+    ROLE_FORM_DESCRIPTORS.filter((role) => role.fresher?.tenureValue !== undefined).map((role) => [
+      role.packId,
+      { question: role.tenureQuestionKey, value: role.fresher!.tenureValue! },
+    ]),
+  );
+
+/**
+ * "Fresher", when this worker's own form says he has no work experience — otherwise null.
+ *
+ * WHY THE SHEET NEEDS THIS AT ALL (§6.2, and it is the ratified page). The CAD draughtsman's
+ * reference sheet leads "CAD Designer / Draughtsman — Draughtsman · Fresher · AutoCAD,
+ * SolidWorks, Fusion 360", and the renderer could not produce the word: the tenure segment had
+ * exactly two outputs, "N yrs" and "duration not stated". Pooja's status IS captured — she taps
+ * `fresher_course`, stored as 0 — but nothing carried it to the headline, so the highest-volume
+ * role in the programme printed "duration not stated" over the worker the role exists for.
+ *
+ * A STATUS LABEL, WHICH IS §8's FIRST PERMITTED SOURCE. It is a closed-vocabulary word, not a
+ * derived figure and not a model's sentence, and it is emitted only for the rung whose own chip
+ * says it. Every other rung yields null and the headline keeps saying "duration not stated" —
+ * including `under_one`, which on four of the five packs also stores 0 and means something else
+ * entirely.
+ *
+ * IT DOES NOT OUTRANK A STATED NUMBER. `tenurePhrase` consults it only where the segment would
+ * have said "duration not stated"; a worker who also stated a total still prints his own figure.
+ */
+export function fresherTenureLabel(
+  packId: string | null,
+  attributes: WorkerAttributeValues,
+): string | null {
+  const gate = packId === null ? undefined : FRESHER_TENURE[packId];
+  if (gate === undefined) return null;
+  // STRICT EQUALITY ON A NUMBER, deliberately. `pack-registry.service.ts::toOption` resolves
+  // `value_text ?? value_number ?? value_bool`, so a numeric rung arrives as a number; a string
+  // "0" would be a different pack shape and is not silently coerced into a fresher claim.
+  return attributes[gate.question] === gate.value ? FRESHER_LABEL : null;
+}
+
+/**
+ * The word itself. §6.2's vocabulary, and NOT per-role: a fresher is a fresher in every trade,
+ * and the only per-trade fact is which stored value means it.
+ */
+const FRESHER_LABEL = "Fresher";
+
 /** The most machines a fresher's line prints, so one row cannot wrap into three. */
 const MAX_WORKSHOP_MACHINES = 4;
 

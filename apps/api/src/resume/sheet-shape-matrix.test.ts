@@ -113,7 +113,46 @@ describe.each(SHEET_SHAPES)("shape $n — $name", (shape) => {
     expect(payer.nameDevanagari).toBeNull();
     expect(payer.employments).toEqual(worker.employments);
     expect(payer.capChipRows).toEqual(worker.capChipRows);
-    expect(payer.qualFactRows).toEqual(worker.qualFactRows);
+
+    // ── ZONE 5, AND WHY IT IS NOT A FLAT `toEqual` ────────────────────────────────────────
+    //
+    // WITHHOLDING THE ASKING PRICE MAKES THE PAYER'S COPY ONE LINE SHORTER, and on the densest
+    // shapes that one line buys it a rung of the degradation ladder the worker's own copy cannot
+    // afford. MEASURED, not supposed: shape 6 (nine employers, every turner question answered)
+    // renders at 40.19 lines of a 41-line page on BOTH audiences — the worker having paid for his
+    // asking price with the Certificates row, at ladder stage 4 against the payer's stage 3.
+    //
+    // THAT IS THE LADDER HONOURING §5.1, NOT A DISCLOSURE DIFFERENCE. A certificate is rank 8;
+    // the capability rows it is shed for are ranks 2–6, and `LADDER` drops Zone 5 before it
+    // touches them. Nothing reaches the payer that the worker's own answers did not authorise —
+    // his copy is the SHORTER of the two, which is the opposite of a leak.
+    //
+    // SO THE ASSERTION STATES THE PROPERTY INSTEAD OF THE BYTES: the payer may never be missing a
+    // row the worker has (that would be the fourth omission), and any row it holds that the
+    // worker's copy has shed must be one the ladder is allowed to shed and must be explained by a
+    // lower degradation stage. Both directions are still closed.
+    // JSON, NOT A DELIMITER CHARACTER: a separator byte that can never occur in a label or a
+    // value is exactly the kind of thing `source-hygiene.test.ts` exists to keep out of source.
+    const key = (row: { label: string; value: string }) => JSON.stringify([row.label, row.value]);
+    const workerQual = new Set((worker.qualFactRows ?? []).map(key));
+    const payerQual = new Set((payer.qualFactRows ?? []).map(key));
+    const missingFromPayer = (worker.qualFactRows ?? []).filter((r) => !payerQual.has(key(r)));
+    expect(missingFromPayer, "the payer is missing a qualification row the worker has").toEqual([]);
+    const gainedByPayer = (payer.qualFactRows ?? []).filter((r) => !workerQual.has(key(r)));
+    if (gainedByPayer.length > 0) {
+      expect(
+        payer.degradationStage ?? 0,
+        "an extra payer row with no ladder difference",
+      ).toBeLessThan(worker.degradationStage ?? 0);
+      // The Zone-5 rows `LADDER` may shed, in its own order. A row outside this set appearing on
+      // the payer's copy alone is a real divergence and must fail.
+      expect(gainedByPayer.map((r) => r.label).sort()).toEqual(
+        gainedByPayer
+          .map((r) => r.label)
+          .filter((l) => ["Certificates", "Education", "Languages spoken"].includes(l))
+          .sort(),
+      );
+    }
     // The phone crosses by owner ruling 2026-08-28 — asserted, not assumed.
     expect(payer.phone).toBe(worker.phone);
   });

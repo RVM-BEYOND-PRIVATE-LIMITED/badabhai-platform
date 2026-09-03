@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildFresherRows } from "./resume-fresher-rows";
+import { buildFresherRows, fresherTenureLabel } from "./resume-fresher-rows";
 import { buildResumeRenderInput } from "./resume-render-input";
 
 /**
@@ -102,5 +102,107 @@ describe("the fresher block reaches Zone 4 on a real sheet", () => {
     ]);
     expect(input.employments).toHaveLength(1);
     expect(input.experiences).toEqual([]);
+  });
+});
+
+/**
+ * §6.2's TENURE STATUS — and the one number in this programme that means two different things.
+ *
+ * THE TRAP THIS SUITE EXISTS FOR. `worker_attributes` stores the option's VALUE, never its key,
+ * and the value 0 is not portable between packs:
+ *
+ *   qp_cad_drafting   `fresher_course` = 0   "Course kiya hai, kaam ka tajurba nahi"
+ *                     `under_one`      = 1   "1 saal se kam"
+ *   the other four    `under_one`      = 0   "1 saal se kam"
+ *
+ * A renderer rule of "0 means fresher" would therefore print "Fresher" over a turner, a miller,
+ * a grinder or a part programmer with up to eleven months on a shop floor — deleting real
+ * experience from his own résumé. Every assertion below is that one sentence, made executable
+ * against the REAL descriptors rather than against a fixture.
+ */
+describe("fresherTenureLabel — the status chip, and the packs that must never get one", () => {
+  it("prints Fresher for the CAD draughtsman's own fresher rung", () => {
+    // The ratified page: "CAD Designer / Draughtsman — Draughtsman · Fresher · AutoCAD,
+    // SolidWorks, Fusion 360".
+    expect(fresherTenureLabel("qp_cad_drafting", { drafting_experience: 0 })).toBe("Fresher");
+  });
+
+  it("prints NOTHING for that role's other rungs, including 'under a year'", () => {
+    // `under_one` on this pack stores 1, and 1 is not a claim of no experience.
+    for (const value of [1, 2, 5, 10]) {
+      expect(fresherTenureLabel("qp_cad_drafting", { drafting_experience: value })).toBeNull();
+    }
+  });
+
+  it("prints NOTHING for the four machining packs, whose LOWEST rung also stores 0", () => {
+    // THE ASSERTION THAT MAKES THE FEATURE SAFE. Each of these workers tapped "1 saal se kam" and
+    // has up to eleven months on a shop floor; none of them said he is a fresher, and the sheet
+    // must not say it for him (§8, and §8.3's asymmetry rule).
+    expect(fresherTenureLabel("qp_cnc_turning", { turning_experience: 0 })).toBeNull();
+    expect(fresherTenureLabel("qp_vmc_milling", { milling_experience: 0 })).toBeNull();
+    expect(fresherTenureLabel("qp_cnc_grinding", { grinding_experience: 0 })).toBeNull();
+    expect(fresherTenureLabel("qp_cam_programming", { programming_experience: 0 })).toBeNull();
+  });
+
+  it("prints NOTHING for an unanswered gate, an unmapped pack or no pack at all", () => {
+    expect(fresherTenureLabel("qp_cad_drafting", {})).toBeNull();
+    expect(fresherTenureLabel("qp_welding", { welding_experience: 0 })).toBeNull();
+    expect(fresherTenureLabel(null, { drafting_experience: 0 })).toBeNull();
+  });
+
+  it("does not coerce — a STRING zero is a different pack shape, not a fresher claim", () => {
+    // `pack-registry.service.ts::toOption` resolves `value_text ?? value_number`, so a numeric
+    // rung arrives as a number. A pack that later spells its rung "0" as text is a change that
+    // must be noticed, not silently read as a claim about a worker.
+    expect(fresherTenureLabel("qp_cad_drafting", { drafting_experience: "0" })).toBeNull();
+  });
+
+  it("reaches the rendered headline, and does not disturb a worker who stated years", () => {
+    const fresher = buildResumeRenderInput(
+      { experience: { total_years: null }, role_label: "CAD Designer / Draughtsman" },
+      "Pooja Chaudhary",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+      {
+        packId: "qp_cad_drafting",
+        attributes: { drafting_experience: 0, cad_software: ["autocad"] },
+      },
+    );
+    expect(fresher.headlineLine).toContain("· Fresher ·");
+
+    // SAME WORKER, ONE YEAR LATER. A stated figure wins outright — the label never overwrites a
+    // tenure the worker gave.
+    const stated = buildResumeRenderInput(
+      { experience: { total_years: 1 }, role_label: "CAD Designer / Draughtsman" },
+      "Pooja Chaudhary",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+      {
+        packId: "qp_cad_drafting",
+        attributes: { drafting_experience: 0, cad_software: ["autocad"] },
+      },
+    );
+    expect(stated.headlineLine).toContain("· 1 yr ·");
+    expect(stated.headlineLine).not.toMatch(/fresher/i);
+
+    // AND A TURNER WHO ANSWERED THE LOWEST RUNG STILL READS AS AN UNKNOWN, never as a fresher.
+    const turner = buildResumeRenderInput(
+      { experience: { total_years: null }, role_label: "CNC Turner" },
+      "Vinod Sharma",
+      "bb_trade",
+      null,
+      false,
+      "worker",
+      {
+        packId: "qp_cnc_turning",
+        attributes: { turning_experience: 0, turning_machine: ["cnc_lathe"] },
+      },
+    );
+    expect(turner.headlineLine).toContain("duration not stated");
+    expect(turner.headlineLine).not.toMatch(/fresher/i);
   });
 });

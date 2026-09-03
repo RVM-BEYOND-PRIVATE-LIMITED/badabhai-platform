@@ -665,8 +665,12 @@ describe("trade resume map — qp_cam_programming against the ratified sample", 
     expect(kept.slice().sort()).toEqual(
       [
         "CAM software",
-        "Machines programmed",
-        "Controllers posted",
+        // "for" / "to" restored: the row labels shipped TRUNCATED against the ratified page,
+        // which prints "Machines programmed for" and "Controllers posted to". Without the
+        // preposition they read as participle lists rather than the relation they state, and
+        // neither word can belong to the value — no chip in any pack begins "for " or "to ".
+        "Machines programmed for",
+        "Controllers posted to",
         "Programming work",
         "CAD model handling",
         "Post-processors",
@@ -686,13 +690,19 @@ describe("trade resume map — qp_cam_programming against the ratified sample", 
     const facts = new Map(rows.factRows.map((r) => [r.label, r.value]));
 
     expect(chips.get("CAM software")).toEqual(["Mastercam", "PowerMill", "SolidCAM", "EdgeCAM"]);
-    expect(chips.get("Machines programmed")).toEqual([
-      "VMC 3-axis",
-      "VMC 4-axis",
+    // "VMC · 3-axis", not "VMC 3-axis". The middot is PRINTED CONTENT inside the chip, not a
+    // separator: chips on these sheets are whitespace-separated, and the row directly above
+    // ("CAM software  Mastercam  PowerMill  SolidCAM  EdgeCAM") carries no middot at all. The
+    // decisive corroboration is internal — `appendConfiguration` already emits exactly
+    // "VMC · 3-axis" on the milling sheet, so the platform was printing one fact, a 3-axis VMC,
+    // two different ways on two shipped sheets.
+    expect(chips.get("Machines programmed for")).toEqual([
+      "VMC · 3-axis",
+      "VMC · 4-axis",
       "5-axis trunnion",
       "Turn-mill",
     ]);
-    expect(chips.get("Controllers posted")).toEqual(["Fanuc", "Heidenhain", "Siemens"]);
+    expect(chips.get("Controllers posted to")).toEqual(["Fanuc", "Heidenhain", "Siemens"]);
     expect(ticks.get("Programming work")).toEqual([
       "2D & 3D toolpath",
       "Multi-axis toolpath",

@@ -84,6 +84,15 @@ const SHEET_LABELS: readonly string[] = [
   "Languages spoken",
   "Documents ready",
   "Duration not stated",
+  // §6.2's TENURE STATUS, emitted by `tenurePhrase` when the role's own fresher rung was tapped.
+  // A CLOSED-VOCABULARY LABEL, which is §8's first permitted source — not a figure and not a
+  // sentence — and it is only reachable for a worker whose chip said it (see
+  // `fresherTenureLabel`). LISTED WHILE NO FIXTURE PRINTS IT, deliberately: the shape matrix has
+  // no drawing-office shape at all, so this is dormant exactly the way `configValues` was before
+  // a milling shape existed — and that dormancy is what made the gate call the sheet's own
+  // reviewed dictionary a fabrication the first time one was added. The vocabulary should not
+  // omit a word the renderer can emit.
+  "Fresher",
   "Present",
 ];
 

@@ -122,6 +122,32 @@ export interface RoleFresherVocabulary {
    * byte-for-byte.
    */
   readonly trainingLabel?: string;
+  /**
+   * The STORED VALUE of the tier-gate rung that means "no work experience at all", if this role's
+   * pack has one.
+   *
+   * WHY IT IS A NUMBER ON THE ROLE AND NOT A CONSTANT IN THE RENDERER, and this is the trap: the
+   * renderer sees the stored VALUE, never the option key, and the value 0 does not mean the same
+   * thing in two packs.
+   *
+   *   `qp_cad_drafting`   `fresher_course` = 0  "Course kiya hai, kaam ka tajurba nahi"
+   *                        `under_one`      = 1  "1 saal se kam"
+   *   every other pack     `under_one`      = 0  "1 saal se kam"
+   *
+   * A rule of "0 means fresher" would therefore print "Fresher" over a turner, a miller, a
+   * grinder or a part programmer with up to eleven months on a shop floor — deleting real
+   * experience from his own résumé, which is §8.3's asymmetry rule broken in the direction that
+   * costs him the job. Only the drawing office has a rung that says it, so only the drawing
+   * office declares one. Absent means the headline keeps saying "duration not stated", exactly as
+   * it does today.
+   *
+   * IT IS A STATUS LABEL, NOT A TENURE FIGURE. `resume-employment-rows.ts` forbids reading this
+   * gate as a NUMBER of years — its rungs are thresholds (0 / 2 / 5 / 10), and printing "10 yrs"
+   * for "7 saal se zyada" would be a number nobody stated. That argument binds every rung except
+   * the lowest, which has no interior to be wrong about: a worker who taps "course kiya hai, kaam
+   * ka tajurba nahi" has stated his status exactly, and it renders as the word, never as a figure.
+   */
+  readonly tenureValue?: number;
 }
 
 export interface RoleFormDescriptor {
