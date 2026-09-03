@@ -152,12 +152,12 @@ it._
 | CNC Turner, CNC MC Op, CNC Grinding                         | **Setter-cum-Programmer**                              | No such `function` value exists. This is what `setter_programmer` is proposed for.                                    |                 |
 | CAM Programmer                                              | **Junior**, **Senior Programmer**                      | Seniority words, not functions. Probably collar tier.                                                                 |                 |
 | CAD Designer                                                | **Draughtsman**, **CAD Designer**, **Design Engineer** | None is a `function`. `Engineer` is not in the enum. Whole ladder is unmapped.                                        |                 |
-| Conventional Machinist, Sheet Metal, Assembly Line, Painter | **Helper**, **Skilled**                                | Tier words, not functions. `Helper` → `elementary` or `semi-skilled`? **Affects 8 roles — see R1 sub-question (i).**  |                 |
-| Welder                                                      | **Welder**, **Certified Welder**                       | `Welder` is the role name at journeyman rung. `Certified` is an attribute per the sheet's own "certification" column. |                 |
-| Fitter                                                      | **Fitter**, **Senior Fitter**                          | Role name + seniority.                                                                                                |                 |
+| Conventional Machinist, Sheet Metal, Assembly Line, Painter | **Helper**, **Skilled**                                | Tier words, not functions. `Helper` → `elementary` or `semi-skilled`? **Affects 11 roles — see R1 sub-question (i).**  |                 |
+| Welder                                                      | **Helper**, **Welder**, **Certified Welder**                       | `Welder` is the role name at journeyman rung. `Certified` is an attribute per the sheet's own "certification" column. |                 |
+| Fitter                                                      | **Helper**, **Fitter**, **Senior Fitter**                          | Role name + seniority.                                                                                                |                 |
 | Quality Inspector                                           | **QC Engineer**                                        | `Engineer` is not in the enum.                                                                                        |                 |
-| Maintenance Technician                                      | **Technician**, **Senior Technician**                  | `technician` is a **collar tier**, not a function. Proposed as tier, not function.                                    |                 |
-| Industrial Electrician                                      | **Electrician**, **Senior**                            | Role name + seniority.                                                                                                |                 |
+| Maintenance Technician                                      | **Helper**, **Technician**, **Senior Technician**                  | `technician` is a **collar tier**, not a function. Proposed as tier, not function.                                    |                 |
+| Industrial Electrician                                      | **Helper**, **Electrician**, **Senior**                            | Role name + seniority.                                                                                                |                 |
 | Tool & Die Maker                                            | **Trainee**, **Tool Maker**, **Senior**                | `Trainee` → `?apprentice` is a judgement. `Tool Maker` is the role name.                                              |                 |
 | Press / Machine Operator                                    | **Helper**                                             | See above.                                                                                                            |                 |
 | **Injection Moulding Operator**                             | **Setter-cum-Process Technician**                      | **Not the same as `setter_programmer`.** A process technician is not a programmer. There is no enum value for it.     |                 |
@@ -354,9 +354,12 @@ Also confirmed at HEAD: **no `function` or `collar_tier` column exists on any ta
 ### Sub-questions inside R1 — please answer all three
 
 **(i) `Helper` maps to which collar tier — `elementary` or `semi-skilled`?**
-It appears in **8 of 21 ladders** (Conventional Machinist, Welder, Fitter, Sheet Metal,
-Assembly Line, Maintenance Tech, Industrial Electrician, Press/Machine Op, Blow Moulding,
-Rubber Moulding). One answer settles all of them. Getting it wrong shifts the platform's
+It appears in **11 of 21 ladders** — Conventional Machinist, Welder, Fitter, Sheet Metal
+Worker, Assembly Line Worker, Maintenance Technician, Industrial Electrician, Press/Machine
+Operator, Painter/Powder Coating, Blow Moulding/Extrusion Operator, Rubber
+Moulding/Compression Operator. That is every ladder in `Role_Taxonomy_Master` page 3 whose
+first rung is `Helper`, and the Unmapped-rungs table above now enumerates the same 11. One
+answer settles all of them. Getting it wrong shifts the platform's
 "too low for the platform" floor — §21 Axis B says collar tier is _"also how you decide
 what's too low for the platform."_
 
@@ -642,19 +645,56 @@ Two things, both from the TAX-WELD-1 header comment:
 1. **`role_welder` / `dom_welding` were added to the CLOSED role whitelist and are
    explicitly _"Flagged for review."_** Adding to a closed enumerated set is an RVM/CEO
    act, not an engineering one.
-2. **The Hinglish welding vernacular is deliberately NOT shipped.** The header states:
-   _"ZERO unratified Hinglish/vernacular alias ships active… Any further vernacular
-   ('welding karta hun', 'welding wala kaam', 'gas wali welding') needs RVM ratification
-   (ADR-0030 §7 gate (d)) and is NOT here."_ Only `welding ka kaam` is ratified, via the
-   2026-07-16 wedge packet.
+2. **The Hinglish welding vernacular is unratified on paper — but it already matches in
+   code.** The header states: _"ZERO unratified Hinglish/vernacular alias ships active… Any
+   further vernacular ('welding karta hun', 'welding wala kaam', 'gas wali welding') needs
+   RVM ratification (ADR-0030 §7 gate (d)) and is NOT here."_ Only `welding ka kaam` is
+   ratified, via the 2026-07-16 wedge packet.
+
+   ⚠ **That sentence describes the alias list, not the matcher's behaviour, and the two have
+   diverged.** All three named phrases resolve today. Run against `_WELDING_RE` at HEAD:
+
+   ```
+   'welding karta hun'                    -> ['skill_welder_occupation']
+   'welding wala kaam'                    -> ['skill_welder_occupation']
+   'gas wali welding'                     -> ['skill_welder_occupation']
+   'welding ka kaam'                      -> ['skill_welder_occupation']
+   'TIG aur MIG machine chala leta hun'   -> ['skill_mig_welding', 'skill_tig_welding']
+   'main fitter hun'                      -> NO MATCH          <-- NEGATIVE CONTROL
+   ```
+
+   They match not as ratified aliases but incidentally, because each contains the bare
+   English token, via two word-bounded patterns already in the gazetteer:
+
+   ```
+   pattern={'source': 'welder',  'flags': 'i'} label=welding skill=skill_welder_occupation
+   pattern={'source': 'welding', 'flags': 'i'} label=welding skill=skill_welder_occupation
+   ```
+
+   The TAX-WELD-1 header says so itself: the vernacular _"is covered by the plain 'welding'
+   keyword."_ The negative control returning no match is what stops this being a vacuous
+   check.
+
+   **So the open question is narrower than "should these three ship."** They already behave
+   as if they had. What is open is whether the ratified list should be corrected to say so —
+   and, separately, that any welding vernacular carrying **no** `welding`/`welder` substring
+   is genuinely uncovered and is not among the three named here. Flagging the divergence
+   rather than letting a ratification be signed for a change it would not make.
 
 |         | Option                                                                                                       | What it costs later                                                                                                         |
 | ------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| **(a)** | Ratify `role_welder` + `dom_welding` into the closed set, **and** ratify the three named vernacular phrases. | Welder is fully live. Recall improves on the phrases workers actually use.                                                  |
-| **(b)** | Ratify the id only; hold the vernacular for the main seeding pass.                                           | Welder ships, but a worker saying _"welding karta hun"_ still misses. Recall gap on one of the highest-ITI-supply trades.   |
+| **(a)** | Ratify `role_welder` + `dom_welding` into the closed set, **and** ratify the three named vernacular phrases. | Welder is fully live. **No recall change** — all three phrases already resolve via the plain `welding` keyword (measured above). What it buys is an alias list that matches observed behaviour; what it costs is one ADR-0030 §7 gate (d) ratification spent on phrases that need none. |
+| **(b)** | Ratify the id only; hold the vernacular for the main seeding pass.                                           | Welder ships. **Also no recall change, and no recall gap** — _"welding karta hun"_ does not miss today. The cost is that the ratified list keeps saying these phrases are unshipped while the matcher answers them, so the next reader inherits the same false premise this sheet was corrected for. |
 | **(c)** | Reject `role_welder` as a role; Welder becomes skill-only.                                                   | The acceptance criterion _"non-null role + trade"_ becomes unreachable for welders. Effectively removes Welder from the 21. |
 
-**Engineering recommends (a).** Note the measured cost of a _wrong_ welder assignment,
+**Engineering recommends (a) — on the record, not on recall.** An earlier draft of this block
+recommended (a) because it would _"improve recall on the phrases workers actually use."_ That
+premise was withdrawn: the measurement above shows the phrases already resolve, so neither (a)
+nor (b) moves recall at all. (a) is recommended now for one reason only — it is the option that
+makes the ratified alias list agree with what the matcher does. **Please do not read a recall
+gain into this signature.**
+
+Note the measured cost of a _wrong_ welder assignment,
 already quantified in the test file: scoring one worker against a VMC/turner job with
 `roleId` null vs `role_welder` showed an absolute drop of **0.1647** — because
 `scoreRole` returns `0.4` for a null role ("trade not stated yet") but `0.0` for a
@@ -723,7 +763,7 @@ the hero health metric.
 
 |         | Option                                                                                                                                                                                     | What it costs later                                                                                                                                                                                                  |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **(a)** | **Facet.** `?facet=controller:fanuc` → _same candidate set, same count_; matching candidates lead; badge reads _"14 of 62 match Fanuc."_ Never scored, never ranked, never removes anyone. | Satisfies _"relevance sorts, never blocks"_ while giving the employer what they need **before** spending. Config-driven per role from the closed attribute whitelist.                                                |
+| **(a)** | **Facet.** `?facet=controller:fanuc` → _same candidate set, same count_; matching candidates lead; badge reads _"14 of 62 match Fanuc."_ Never scored, never ranked, never removes anyone. | **Cost:** a per-role facet config against the closed attribute whitelist becomes a thing that must be maintained for every role added after launch, and the badge count becomes a number employers trust — so it inherits the coverage of the underlying attribute. A worker whose `controller` is simply unrecorded is indistinguishable from one who does not match, so on a sparsely-filled attribute _"14 of 62"_ understates the real pool and reads as scarcity that is not there. It is also the only option that is hard to withdraw: once employers sort by it, removing the facet is a visible regression. **Benefit:** satisfies _"relevance sorts, never blocks"_ while giving the employer what they need **before** spending. |
 | **(b)** | Pure display-only (status quo).                                                                                                                                                            | The employer discovers the mismatch **after** paying. Repeat-unlock rate and the hero metric both absorb it.                                                                                                         |
 | **(c)** | Hard filter.                                                                                                                                                                               | Violates _"relevance sorts, never blocks."_ Also shrinks lists below the 70-candidate floor where the hot tag is already suppressed for small-pool honesty — a filtered list of 6 is worse than a sorted list of 62. |
 
