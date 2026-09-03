@@ -65,6 +65,42 @@ describe("the Verdict Line (§6.2)", () => {
     }
   });
 
+  it("prints a stated STATUS where there is no figure, and only then (§6.2)", () => {
+    // THE WORD THE RATIFIED CAD SHEET LEADS WITH — "CAD Designer / Draughtsman — Draughtsman ·
+    // Fresher · AutoCAD, SolidWorks, Fusion 360" — and the renderer could not produce it: this
+    // function had exactly two outputs, a figure and "duration not stated". The caller now carries
+    // the PROVENANCE (`fresherTenureLabel` reads the role's own tier rung), so the word appears
+    // only for a worker whose own chip said it.
+    const fresher = buildVerdictLine({ ...FULL, years: null, tenureLabel: "Fresher" });
+    expect(fresher.headlineLine).toContain("· Fresher ·");
+    expect(fresher.headlineLine).not.toContain("duration not stated");
+  });
+
+  it("lets a STATED FIGURE beat the status label outright (§8.3)", () => {
+    // A fresher who has since stated six months prints "6 mo". Resolving that the other way would
+    // print a status the worker has outgrown and under-describe him on his own résumé, which is
+    // the direction §8.3 says never to resolve an ambiguity in.
+    const both = buildVerdictLine({ ...FULL, years: 0.5, tenureLabel: "Fresher" });
+    expect(both.headlineLine).toContain("6 mo");
+    expect(both.headlineLine).not.toMatch(/fresher/i);
+  });
+
+  it("still says 'duration not stated' when NO label is carried — §11 #3 is untouched", () => {
+    // THE ADDITIVE PROPERTY, ASSERTED. Every existing caller passes no `tenureLabel`, and an
+    // absent or empty one must leave the composed line byte-for-byte what it was — including for
+    // a bare 0, whose wording is a separate ruling that is recorded OPEN and is not taken here
+    // (docs/profiling/persona-ladder-r8.md).
+    for (const tenureLabel of [undefined, null, "", "   "]) {
+      for (const years of [null, 0, -1, Number.NaN]) {
+        const line = buildVerdictLine({ ...FULL, years, tenureLabel })!.headlineLine!;
+        expect(line, `years=${years} label=${JSON.stringify(tenureLabel)}`).toContain(
+          "duration not stated",
+        );
+        expect(line).not.toMatch(/fresher/i);
+      }
+    }
+  });
+
   it("pluralises and carries months", () => {
     expect(buildVerdictLine({ ...FULL, years: 1 }).headlineLine).toContain("1 yr ·");
     expect(buildVerdictLine({ ...FULL, years: 2 }).headlineLine).toContain("2 yrs ·");

@@ -13,7 +13,7 @@ import {
 import { readPreferenceFacts, type ResumePreferenceFacts } from "./resume-preference-facts";
 import { selectOwnWords } from "./resume-own-words";
 import { formatWorkerPhone } from "./resume-phone";
-import { buildFresherRows } from "./resume-fresher-rows";
+import { buildFresherRows, fresherTenureLabel } from "./resume-fresher-rows";
 import { applyTranscriptVeto } from "./resume-transcript-veto";
 import {
   bareAvailability,
@@ -327,6 +327,16 @@ function buildUndegraded(
   const fresherRows = hasEmployments
     ? []
     : buildFresherRows(tradeSheet?.packId ?? null, vettedAttributes);
+  // §6.2's TENURE STATUS, read above the branch for the same reason `capability` and
+  // `preferences` are: both mapper paths compose the Verdict Line, and a fresher whose interview
+  // happened to produce a résumé container must not get a different headline from one whose did
+  // not. Null for every role that declares no fresher rung, which is four of the five shipped.
+  //
+  // NOT GATED ON `hasEmployments`. A worker who taps "course kiya hai, kaam ka tajurba nahi" and
+  // then files an employment row has contradicted himself; the tenure segment resolves that the
+  // way §8.3 requires — see `tenurePhrase`, where a stated figure wins outright — rather than by
+  // this line deciding which of his two answers to believe.
+  const tenureLabel = fresherTenureLabel(tradeSheet?.packId ?? null, vettedAttributes);
   const capabilitySlots = {
     capSectionTitle: capability.sectionTitle,
     capChipRows: capability.chipRows,
@@ -425,6 +435,7 @@ function buildUndegraded(
       capabilitySlots,
       capability.headlineTools,
       capability.headlineAxes,
+      tenureLabel,
       tradeSheet?.qualification,
       hasEmployments,
       totalEmployedYears(tradeSheet?.employments ?? [], tradeSheet?.asOf ?? null),
@@ -531,6 +542,11 @@ function buildUndegraded(
       tools: headlineToolsOrFallback(capability.headlineTools, legacyMachines, legacySkills),
       city: legacyCity,
       availability: legacyAvailability,
+      // §6.2 — see `tenureLabel`'s definition above the branch. THE LEGACY PATH IS THE ONE THAT
+      // MATTERS FIRST: a form-first worker never runs extraction, so this is the branch four of
+      // the five shipped roles actually take, and the CAD draughtsman — whose ratified page IS a
+      // fresher's — takes it always.
+      tenureLabel,
       // WAS HARD `null`, AND IT IS THE SAME MISS AS THE ROW BELOW — found by R12 §1.4, which
       // set out to prove the segment COLLAPSES when there is no figure and found that it
       // collapses when there IS one.
@@ -758,6 +774,14 @@ function fromResumeProfile(
   /** The pack's headline CONFIGURATION values — the Verdict Line's fourth segment (R16 §1). */
   headlineAxes: string[],
   /**
+   * "Fresher", or null — the §6.2 tenure STATUS the worker's own form stated.
+   *
+   * PASSED IN ON THE SAME TERMS AS `headlineTools`: computed once above the branch so the two
+   * mapper paths cannot compose one worker's headline two ways. Consulted only where there is no
+   * stated figure; see `buildVerdictLine.tenureLabel`.
+   */
+  tenureLabel: string | null,
+  /**
    * Zone 5's values from the caller. The worker's own structured answer, never through the model.
    */
   qualification: ResumeQualificationFacts | undefined,
@@ -922,6 +946,7 @@ function fromResumeProfile(
       city: cleanScalar(rp.current_city),
       availability: availabilityLabel,
       salary: salaryText,
+      tenureLabel,
       // R16 §1 — see the legacy branch. PASSED IN rather than read here, for the same reason
       // `headlineTools` is: this function receives `capabilitySlots` (a `Pick` of render-input
       // fields, which cannot carry a non-slot value) and never the `capability` object itself.
@@ -1131,9 +1156,15 @@ function cleanScalar(value: string | null): string | null {
  * What is gone is the case where he stated it plainly and the sheet said nobody asked.
  *
  * A STATED ZERO STILL READS AS "duration not stated", and that is a live question rather than a
- * decision made here — `yearsPhrase` maps 0 to the unknown text, pinned by a test whose comment
- * reserves "fresher" for a worker who SAID he has no experience. The fresh ITI pass-out is
+ * decision made here — `tenurePhrase` maps a bare 0 to the unknown text, pinned by a test whose
+ * comment reserves "fresher" for a worker who SAID he has no experience. The fresh ITI pass-out is
  * exactly that worker. Changing it is a wording ruling; recorded in the gap table, not taken.
+ *
+ * STILL OPEN, AND NARROWED RATHER THAN ANSWERED. `buildVerdictLine.tenureLabel` now lets a worker
+ * whose ROLE FORM carried a fresher rung print "Fresher" — a closed-vocabulary status label with
+ * provenance, not a reading of a bare number. This function still receives `number | null` and
+ * still cannot tell a stated zero from an absent answer, so the ruling above is exactly where it
+ * was: untouched, and asserted untouched in `resume-sheet-rows.test.ts`.
  */
 export function renderedTotalYears(stated: number | null, summed: number | null): number | null {
   const usable = typeof stated === "number" && Number.isFinite(stated) && stated > 0;

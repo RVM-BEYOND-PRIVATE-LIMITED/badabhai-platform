@@ -145,6 +145,15 @@ export const CAD_DRAUGHTSMAN = {
      * as it forbids a fabricated sentence. "CAD training" is true of all five.
      */
     trainingLabel: "CAD training",
+    /**
+     * `fresher_course` STORES 0, AND ON THIS PACK ALONE THAT MEANS A FRESHER — the rung reads
+     * "Course kiya hai, kaam ka tajurba nahi" and `under_one` ("1 saal se kam") is a SEPARATE
+     * rung storing 1. The ratified sheet's headline is "CAD Designer / Draughtsman — Draughtsman ·
+     * Fresher · AutoCAD, SolidWorks, Fusion 360"; see the note at the top of this file — "Fresher"
+     * is a status chip on that sheet, not an absence. See
+     * {@link RoleFresherVocabulary.tenureValue} for why no other role may copy this line.
+     */
+    tenureValue: 0,
   },
   /**
    * AUTOCOMPLETE FOR THE QUALIFICATIONS PAGE, NOT A CLOSED SET — the endpoint stores whatever the

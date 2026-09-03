@@ -130,14 +130,29 @@ export interface TradeRowSpec {
 /**
  * How many capability rows one A4 page holds.
  *
- * MEASURED FROM THE THREE RATIFIED SHEETS, not chosen: the VMC turner's sheet prints 9 rows in
- * this section, the welder's 9, the car mechanic's 6. Nine is the observed ceiling of the locked
- * design, so it is the budget.
+ * MEASURED FROM THE RATIFIED CORPUS, not chosen — and RE-MEASURED, which is why it is 10 and not
+ * 9. The first measurement had three sheets to read (the VMC turner's 9 rows in this section,
+ * the welder's 9, the car mechanic's 6) and "nine is the observed ceiling" was true of them. It
+ * is FALSE of `BadaBhai_21_Role_Resumes.pdf`: counting the rows between each capability heading
+ * and "AVAILABILITY & TERMS" across all twenty-one ratified pages gives a maximum of TEN, reached
+ * by three of them — grinding ("MACHINES, WHEELS & CAPABILITY"), turning and milling. Nothing in
+ * the corpus exceeds ten.
+ *
+ * THE COST OF THE STALE NUMBER WAS A ROW A HUMAN HAD SIGNED OFF. The grinder answers ten mapped
+ * rows and the ratified page prints all ten; a budget of nine shed the worst-ranked of them
+ * (`sector_worked`, rank 71) and the sheet lost it silently, with no error. Every other shipped
+ * role's ratified persona answers at most nine rows, so nothing else moves.
  *
  * IT HAS TO EXIST BECAUSE A PACK CAN OUT-PRODUCE THE PAGE. `qp_cnc_turning` alone defines 14
  * capability rows, and a worker who answers everything fills all of them — which rendered a
  * two-page PDF, and "one page" is a product contract, not a target (§6.3). The guideline's answer
  * to overflow is truncation in the mapper, never shrinking type and never a second page.
+ *
+ * IT IS NOT THE ONE-PAGE CONTRACT ITSELF, and that is why raising it is safe. The contract is
+ * `SHEET_LINE_BUDGET` + `degradeToFit` (resume-degradation.ts), which sheds in LINES — the
+ * dimension a page is actually measured in, and the one that prices a row by how far it wraps.
+ * This constant is the coarse pre-emptive cap that stops a pack out-producing the layout; the
+ * ladder below it is what guarantees the page.
  */
 export const CAPABILITY_ROW_BUDGET = 9;
 
@@ -631,9 +646,15 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
      * and CBN · single-point diamond dressing" — and neither has any meaning on a lathe or a
      * machining centre.
      *
-     * ROW COUNT AND THE BUDGET. Eleven rows are defined and `CAPABILITY_ROW_BUDGET` is 9, so two
-     * drop by rank. The tens digit is the guideline's §5.1 rank; it is not bent to make the page
-     * fit, for the same reason the milling map records.
+     * ROW COUNT AND THE BUDGET. Eleven rows are defined and `CAPABILITY_ROW_BUDGET` is 10, so a
+     * worker who answers everything loses one by rank. The ratified persona answers TEN and keeps
+     * all ten — which he did not while the budget was 9, and `Sector worked` (rank 71, the
+     * worst-ranked row he answers) was the row the page printed and the sheet did not. The tens
+     * digit is the guideline's §5.1 rank; it is not bent to make the page fit, for the same reason
+     * the milling map records.
+     *
+     * THE ELEVENTH ROW IS `Dressing`, AND NO RATIFIED PAGE PRINTS IT — see the open question on
+     * that row's own entry below.
      */
     pack_id: "qp_cnc_grinding",
     section_title: "Machines, wheels & capability",
@@ -641,6 +662,20 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       {
         from: "grinding_machine",
         rank: 21,
+        // THE HEADLINE IS THE GRINDER, NOT THE CONTROL, and this flag was on `controller_brand`
+        // until the parity suite first drove this role end to end. Two reasons, and neither is
+        // layout preference:
+        //   · THE RATIFIED PAGE. "CNC Grinding Operator — Setter · 8 yrs · CNC cylindrical
+        //     grinder, Surface grinder, Centreless grinder" — `toolsPhrase` caps at three, so
+        //     this row's four values produce that headline character for character.
+        //   · THE TRADE. A grinding advertisement is written in grinder types; `controller_brand`
+        //     in this pack offers "Pata nahi ya conventional machine", so a grinder may honestly
+        //     have no controller at all, and pinning the sheet's highest-ranked scan element to a
+        //     row he can legitimately not answer is what `headlineToolsOrFallback` then has to
+        //     paper over. The turner's map leads with controllers because a CNC lathe
+        //     advertisement does; copying that answer here was copying the turner, not reading
+        //     the grinding page.
+        inHeadline: true,
         maxValues: 4,
         label: "Machines",
         kind: "chips",
@@ -655,7 +690,6 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       {
         from: "controller_brand",
         rank: 22,
-        inHeadline: true,
         maxValues: 3,
         label: "Controllers",
         kind: "chips",
@@ -717,8 +751,21 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         from: "wheel_type",
         rank: 43,
         maxValues: 3,
+        // A FACT ROW, NOT PILLS — read off the page rather than inferred, and it is what puts this
+        // row SIXTH instead of fourth. `bb_trade.v1.html` emits all chip rows, then all tick rows,
+        // then all fact rows, so a row's KIND decides its band and only its declared position
+        // decides where it sits inside that band. As `chips` this printed straight after
+        // Materials; the ratified page prints it after Measuring instruments, which is where the
+        // first fact row lands (3 chip rows + 2 tick rows).
+        //
+        // THE EVIDENCE IS TYPOGRAPHIC. On these pages a chip or tick row separates its values with
+        // whitespace — "Machines CNC cylindrical grinder Surface grinder Centreless grinder",
+        // "Controllers Fanuc Siemens" — and a fact row separates them with a literal middot.
+        // "Wheels dressed Aluminium oxide and CBN · single-point diamond dressing" carries the
+        // middot, alongside Drawings / Tolerance held / Surface finish held / Sector worked, which
+        // are facts on every machining page.
         label: "Wheels dressed",
-        kind: "chips",
+        kind: "fact",
         values: {
           aluminium_oxide: "Aluminium oxide",
           silicon_carbide: "Silicon carbide",
@@ -769,6 +816,25 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       {
         from: "dressing_method",
         rank: 64,
+        // ═══ OPEN QUESTION FOR RVM — DO NOT RESOLVE THIS BY EDITING THE MAP ═══
+        //
+        // NO RATIFIED PAGE PRINTS A "Dressing" ROW. The grinding sheet's ten rows are Machines,
+        // Controllers, Materials, Setting, Measuring instruments, Wheels dressed, Drawings,
+        // Tolerance held, Surface finish held and Sector worked. What the page does print is the
+        // dressing METHOD inside the Wheels-dressed cell: "Aluminium oxide and CBN · single-point
+        // diamond dressing".
+        //
+        // SO ONE OF TWO THINGS IS TRUE, and only the owner can say which:
+        //   (a) `dressing_method` belongs INSIDE rank 43's cell, as a trailing clause. That needs
+        //       a seam this file does not have — `configFrom` appends to the FIRST CHIP, and there
+        //       is no equivalent for a fact row's trailing clause — and "single-point diamond
+        //       dressing" is prose built from the label plus a word the pack never says, which is
+        //       a §8 question and not a formatting one.
+        //   (b) it is a real eleventh row that the ratified persona simply did not answer, in
+        //       which case the page is silent about it rather than against it.
+        //
+        // NEITHER IS GUESSED HERE. Until it is ruled, `role-sheet-parity.render.test.ts` leaves
+        // grinding's value assertion RED on this one cell, which is the honest state.
         label: "Dressing",
         kind: "ticks",
         values: {
@@ -784,6 +850,14 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         maxValues: 3,
         label: "Sector worked",
         kind: "fact",
+        // THE PAGE READS "Bearings and transmission components" AND THIS ROW READS
+        // "Bearings · Transmission components" — a recorded divergence, on the same ruling the CAM
+        // sheet's sector row already carries. The ratified pages' sector cells are hand-set prose
+        // ("Enclosures, panels and general fabrication", "Plastics tooling for auto and consumer
+        // goods", "Automotive tier-1 supply" — none of which is an option in any pack), so no
+        // closed-vocabulary dictionary reproduces them and §8 permits nothing else. A
+        // `join: " and "` here would give this file a third separator for one kind of row and
+        // still not match, because it would also have to lower-case the second label.
         values: {
           bearings: "Bearings",
           transmission: "Transmission components",
@@ -839,14 +913,27 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         from: "machine_programmed",
         rank: 22,
         maxValues: 4,
-        label: "Machines programmed",
+        // "for" IS PART OF THE LABEL, and the page is unambiguous about it: "Machines programmed
+        // for VMC · 3-axis …". It cannot belong to the value — no chip in any pack or dictionary
+        // begins "for " — and without it "Machines programmed" reads as a past-participle list
+        // rather than as the relation the row states. Shipped truncated; the page was not.
+        label: "Machines programmed for",
         kind: "chips",
         // THE DIGITS LIVE ONLY HERE. `slugKey` refuses a digit in an `option_key`, so the pack
         // spells the axis count out (`vmc_three_axis`) and the printed English restores it —
         // which is the whole reason this dictionary is a separate file from the pack.
+        //
+        // AND THE MIDDOT IS PRINTED CONTENT, NOT A SEPARATOR. The ratified page reads "VMC ·
+        // 3-axis  VMC · 4-axis  5-axis trunnion  Turn-mill": chips on these pages are separated by
+        // whitespace (the row above, "CAM software Mastercam PowerMill SolidCAM EdgeCAM", carries
+        // no middot at all), and the middot sits INSIDE the machine chip, qualifying it with its
+        // axis count. That is the identical construction `appendConfiguration` emits on the
+        // milling sheet ("Machines VMC · 3-axis VMC · 4-axis …"), and the platform was printing
+        // one fact — a 3-axis VMC — two different ways on two shipped sheets. This pack asks no
+        // separate axis question, so the qualifier has to live in the label.
         values: {
-          vmc_three_axis: "VMC 3-axis",
-          vmc_four_axis: "VMC 4-axis",
+          vmc_three_axis: "VMC · 3-axis",
+          vmc_four_axis: "VMC · 4-axis",
           five_axis_trunnion: "5-axis trunnion",
           turn_mill: "Turn-mill",
         },
@@ -855,7 +942,11 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         from: "controller_brand",
         rank: 23,
         maxValues: 3,
-        label: "Controllers posted",
+        // "to", FOR THE SAME REASON AS "for" ON THE ROW ABOVE: the page reads "Controllers posted
+        // to Fanuc Heidenhain Siemens", no controller label begins "to ", and the comment below
+        // already argues that the fact on this sheet is which controller the program is posted
+        // FOR — while the shipped label dropped the preposition that says so.
+        label: "Controllers posted to",
         kind: "chips",
         // THE SAME ATTRIBUTE KEY AND THE SAME THREE SLUGS AS THE TURNING, MILLING AND GRINDING
         // MAPS — one vocabulary, so a matcher searching for Fanuc finds an operator and the man
@@ -899,7 +990,8 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         label: "Post-processors",
         kind: "fact",
         // A BAND, PRINTED AS THE CAPABILITY SENTENCE IT IS. The reference sheet reads "Edits and
-        // tests post-processors — Fanuc and Heidenhain"; the controller half of that sentence is
+        // tests post-processors · Fanuc and Heidenhain" (a MIDDOT — this comment quoted an em dash
+        // and the page has never printed one); the controller half of that sentence is
         // the Controllers row's fact and is NOT re-composed here. Joining two rows' answers into
         // one printed clause would assert a pairing the worker never stated — which controller he
         // has posted for — and that is the fabrication §8 forbids.
@@ -1064,6 +1156,12 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         rank: 44,
         label: "Output produced",
         kind: "fact",
+        // A RECORDED DIVERGENCE FROM THE PAGE, WHICH READS "Part and assembly drawings · BOM · DXF
+        // for laser cutting". The page folds two chips into one English phrase; a `fact` row joins
+        // whole dictionary labels, so no separator reproduces it. The alternative — a compound
+        // label "Part and assembly drawings" — would print a claim the worker never made every
+        // time he taps only one of the two, and `output_produced` is a multi_select whose
+        // `part_drawing` and `assembly_drawing` options are independent. Pinned, not fixed.
         values: {
           part_drawing: "Part drawings",
           assembly_drawing: "Assembly drawings",
@@ -1147,10 +1245,20 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         label: "Sector studied",
         kind: "fact",
         // "STUDIED", NOT "WORKED", AND THE ROW EXISTS TWICE FOR THAT ONE WORD. The ratified
-        // fresher sheet prints "Sector studied — General engineering · course projects", and
-        // printing "worked" over a student's course projects would state employment he has not
-        // had. The pack asks the two with different wording behind exclusive gates; this map
-        // keeps them two rows so neither label can reach the wrong worker.
+        // fresher sheet prints "Sector studied  General engineering · course projects" (label and
+        // value, no dash between them — this comment used to quote an em dash the page does not
+        // print), and printing "worked" over a student's course projects would state employment
+        // she has not had. The pack asks the two with different wording behind exclusive gates;
+        // this map keeps them two rows so neither label can reach the wrong worker.
+        //
+        // THE PAGE LOWER-CASES "course projects" AND THIS ROW DOES NOT — a recorded divergence.
+        // The ratified pages sentence-case the CONTINUATION of a cell the designer wrote as prose
+        // (the turner's "Automotive components · job shop", the grinder's "single-point diamond
+        // dressing"); they do NOT lower-case cells built from labels, which keep their capitals
+        // ("Preferred locations … · Willing to relocate", "Shift General shift · Permanent"). A
+        // dictionary entry here is a LABEL and is capitalised because it is one; down-casing a
+        // joined label by its position would also down-case a proper noun the moment a sector
+        // dictionary grows one.
         values: {
           general_engg: "General engineering",
           auto_parts: "Automotive / auto parts",
@@ -1295,6 +1403,34 @@ export function appendConfiguration(
   return [...configs.map((c) => `${first} · ${c}`), ...rest];
 }
 
+/**
+ * The English this row would actually print for these answers — [] when it would print nothing.
+ *
+ * ONE EXPRESSION, TWO CALLERS, AND THAT IS THE POINT. The budget filter and the row builder both
+ * have to answer "does this row print?", and while they answered it differently — "was it
+ * answered" for the budget, "does the dictionary know the value" for the build — a row could
+ * spend a slot and then render empty. Deriving both from this function makes that shape
+ * unrepresentable rather than merely fixed.
+ *
+ * Iterates the DICTIONARY, not the worker's answer, so the order is the map's and every slug with
+ * no reviewed English label is dropped (every `unknown` from a none-of-above chip, an answer the
+ * map deliberately leaves unlabelled under §8.3, and any value a later pack version adds before
+ * this map catches up).
+ */
+function printableValues(spec: TradeRowSpec, attributes: WorkerAttributeValues): string[] {
+  const selected = new Set(slugsOf(attributes[spec.from]));
+  if (selected.size === 0) return [];
+  return (
+    Object.entries(spec.values ?? {})
+      .filter(([slug]) => selected.has(slug))
+      .map(([, label]) => label)
+      // §4.3 states the caps per row (machines 4, controllers 3, materials 4). Applied AFTER the
+      // dictionary filter, so a capped row shows the first N values the worker actually selected
+      // rather than the first N the dictionary happens to list.
+      .slice(0, spec.maxValues ?? Number.MAX_SAFE_INTEGER)
+  );
+}
+
 export function buildTradeCapabilityRows(
   packId: string | null | undefined,
   attributes: WorkerAttributeValues,
@@ -1313,29 +1449,26 @@ export function buildTradeCapabilityRows(
   // is the array's, because §7.1 makes field order invariant across skins and roles. Sorting the
   // output by rank would silently reorder the locked sheet, so the survivors are re-sorted back to
   // their declared positions.
+  //
+  // A ROW SPENDS A SLOT ONLY IF IT CAN PRINT. This used to filter on "did he answer this
+  // question", and the dictionary filter ran afterwards — so an answer with no reviewed label
+  // (`drawing_check_work: "check_none"`, `simulation_work: "none"`, any bare `unknown`) occupied
+  // one of the section's slots and then rendered nothing, pushing a LOWER-ranked row that did have
+  // values off the sheet to pay for it. Measured on the CAD draughtsman: a senior answering
+  // everything printed EIGHT rows against a budget of nine with ten printable rows queueing. The
+  // budget is a cap on what the page can hold, and a row that prints nothing occupies none of it.
   const affordable = map.capability
     // The declared position is captured BEFORE filtering — after it, a callback index is the
     // position in the filtered list, which would restore the survivors in the wrong order.
     .map((spec, i) => ({ spec, i }))
-    .filter((e) => slugsOf(attributes[e.spec.from]).length > 0)
+    .filter((e) => printableValues(e.spec, attributes).length > 0)
     .sort((a, b) => a.spec.rank - b.spec.rank)
     .slice(0, CAPABILITY_ROW_BUDGET)
     .sort((a, b) => a.i - b.i)
     .map((e) => e.spec);
 
   for (const spec of affordable) {
-    const selected = new Set(slugsOf(attributes[spec.from]));
-    if (selected.size === 0) continue;
-    // Iterate the DICTIONARY, not the worker's answer: this both fixes the order and drops any
-    // slug with no reviewed English label (every `unknown` from a none-of-above chip, and any
-    // value a later pack version adds before this map catches up).
-    const values = Object.entries(spec.values ?? {})
-      .filter(([slug]) => selected.has(slug))
-      .map(([, label]) => label)
-      // §4.3 states the caps per row (machines 4, controllers 3, materials 4). Applied AFTER the
-      // dictionary filter, so a capped row shows the first N values the worker actually selected
-      // rather than the first N the dictionary happens to list.
-      .slice(0, spec.maxValues ?? Number.MAX_SAFE_INTEGER);
+    const values = printableValues(spec, attributes);
     if (values.length === 0) continue;
 
     // R10 §2.5 rule 3 — the configuration rides the first chip, never its own row.
