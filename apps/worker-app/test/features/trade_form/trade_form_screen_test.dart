@@ -1146,6 +1146,95 @@ void main() {
     });
   });
 
+  group('preferred cities: 5-city cap + horizontal list', () {
+    Future<void> walkToCitiesPage(WidgetTester tester) async {
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first); // decline q1
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first); // decline q2
+      await tester.pumpAndSettle();
+      // Page 0 (languages+documents) -> 1 (shift) -> 2 (jobType) -> 3 (cities).
+      for (int i = 0; i < 3; i++) {
+        await tester.ensureVisible(find.text('Aage badhein'));
+        await tester.tap(find.text('Aage badhein'));
+        await tester.pumpAndSettle();
+      }
+    }
+
+    Future<void> addCityText(WidgetTester tester, String city) async {
+      await tester.enterText(find.byType(TextField).first, city);
+      await tester.tap(find.text('+'));
+      await tester.pump();
+    }
+
+    testWidgets(
+        'a 6th city cannot be added; the add row disappears at the cap and '
+        'only the first 5 reach onSave',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await walkToCitiesPage(tester);
+
+      expect(find.text('Kahan kaam karna chahte hain?'), findsOneWidget);
+      for (final String city in <String>[
+        'Faridabad',
+        'Gurugram',
+        'Noida',
+        'Delhi',
+        'Ghaziabad',
+      ]) {
+        await addCityText(tester, city);
+      }
+
+      // At the 5-city cap: the add row (text field + "+") is gone — the
+      // same "affordance disappears at the cap" convention as certificates/
+      // educations.
+      expect(find.byType(TextField), findsNothing);
+      expect(find.text('+'), findsNothing);
+
+      // Rendered as a horizontal ListView, not a Wrap — the whole point of
+      // this change.
+      final ListView list = tester.widget<ListView>(find.byType(ListView));
+      expect(list.scrollDirection, Axis.horizontal);
+
+      // Removing one must bring the add row back and free a slot.
+      await tester.ensureVisible(find.byIcon(Icons.close).first);
+      await tester.tap(find.byIcon(Icons.close).first);
+      await tester.pump();
+      expect(find.byType(TextField), findsOneWidget);
+      await addCityText(tester, 'Faridabad');
+      expect(find.byType(TextField), findsNothing);
+
+      // Walk to the marker's last internal page and save: page 3 (cities)
+      // -> 4 (relocate) -> 5 (education), then one more tap ON page 5 saves.
+      for (int i = 0; i < 3; i++) {
+        await tester.ensureVisible(find.text('Aage badhein'));
+        await tester.tap(find.text('Aage badhein'));
+        await tester.pumpAndSettle();
+      }
+
+      final TradeFormPreferences sent = verify(
+              () => repo.savePreferences(captureAny()))
+          .captured
+          .single as TradeFormPreferences;
+      expect(sent.preferredCities, hasLength(5));
+      expect(
+          sent.preferredCities,
+          <String>['Gurugram', 'Noida', 'Delhi', 'Ghaziabad', 'Faridabad']);
+    });
+  });
+
   group('employment marker paginated per employer (#1384 item 2)', () {
     testWidgets(
         'two employers each get their own internal page; both reach onSave',
