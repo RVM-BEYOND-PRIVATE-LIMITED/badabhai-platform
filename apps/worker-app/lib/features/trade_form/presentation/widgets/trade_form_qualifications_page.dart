@@ -37,7 +37,8 @@ const String _kOptionsLoadError = 'Kuch gadbad ho gayi. Dobara koshish karein.';
 const String _kRetry = 'Dobara koshish karein';
 
 const int _kYearMin = 1950;
-const int _kYearMax = 2100;
+const String _kYearFutureError = 'Yeh saal abhi aaya nahi — sahi saal likhein';
+const String _kYearInvalidError = 'Sahi saal likhein';
 
 /// The tap-to-fill suggestion row shows at most this many chips at once — a
 /// low-literacy worker scanning a phone screen, not a full picklist.
@@ -341,13 +342,29 @@ class TradeFormQualificationsPageState
   }
 }
 
-/// `1950`–`2100`-bounded year, or null when unparsable/out of range
-/// (`wc_year_chk` / `wed_year_chk`) — a client that only ever produces an
-/// in-range value cannot send one out of range.
+/// Floor `1950` (`wc_year_chk` / `wed_year_chk`'s living-memory bound), ceiling
+/// TODAY'S year, not the server's fixed `2100` — a certificate or an ITI
+/// cannot be dated in the future, so the client shouldn't produce a value the
+/// server would only accept because its own bound is far looser. Null when
+/// unparsable or out of range — a client that only ever produces an in-range
+/// value cannot send one out of range.
 int? _yearInRange(String s) {
   final int? v = int.tryParse(s.trim());
-  if (v == null || v < _kYearMin || v > _kYearMax) return null;
+  if (v == null || v < _kYearMin || v > DateTime.now().year) return null;
   return v;
+}
+
+/// Inline message for the year field, or null while still valid (including
+/// mid-typing a 4-digit year — nothing under 4 digits is flagged yet).
+String? _yearErrorText(String s) {
+  final String t = s.trim();
+  if (t.length < 4) return null;
+  if (t.length > 4) return _kYearInvalidError;
+  final int? v = int.tryParse(t);
+  if (v == null) return _kYearInvalidError;
+  if (v > DateTime.now().year) return _kYearFutureError;
+  if (v < _kYearMin) return _kYearInvalidError;
+  return null;
 }
 
 String? _trimOrNull(String v) {
@@ -418,6 +435,7 @@ class _CertificateCardState extends State<_CertificateCard> {
       TextEditingController(text: widget.entry.issuer ?? '');
   late final TextEditingController _year =
       TextEditingController(text: widget.entry.year?.toString() ?? '');
+  late String? _yearError = _yearErrorText(_year.text);
 
   @override
   void dispose() {
@@ -513,8 +531,11 @@ class _CertificateCardState extends State<_CertificateCard> {
                       label: _kCertYearLabel,
                       keyboardType: TextInputType.number,
                       textInputAction: TextInputAction.done,
-                      onChanged: (String v) =>
-                          _push(e.copyWith(year: _yearInRange(v))),
+                      errorText: _yearError,
+                      onChanged: (String v) => setState(() {
+                        _push(e.copyWith(year: _yearInRange(v)));
+                        _yearError = _yearErrorText(v);
+                      }),
                     ),
                   ],
                 ),
@@ -559,6 +580,7 @@ class _EducationCardState extends State<_EducationCard> {
       TextEditingController(text: widget.entry.year?.toString() ?? '');
   late final TextEditingController _institute =
       TextEditingController(text: widget.entry.institute ?? '');
+  late String? _yearError = _yearErrorText(_year.text);
 
   @override
   void dispose() {
@@ -627,7 +649,11 @@ class _EducationCardState extends State<_EducationCard> {
             label: _kEduYearLabel,
             keyboardType: TextInputType.number,
             textInputAction: TextInputAction.done,
-            onChanged: (String v) => _push(e.copyWith(year: _yearInRange(v))),
+            errorText: _yearError,
+            onChanged: (String v) => setState(() {
+              _push(e.copyWith(year: _yearInRange(v)));
+              _yearError = _yearErrorText(v);
+            }),
           ),
           const SizedBox(height: AppSpacing.s3),
           _fieldLabel(_kInstituteLabel),

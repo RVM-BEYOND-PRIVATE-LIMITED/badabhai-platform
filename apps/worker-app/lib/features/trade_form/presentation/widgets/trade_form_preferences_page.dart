@@ -58,7 +58,8 @@ const Map<int, String> _kSalaryBands = <int, String>{
 };
 
 const int _kYearMin = 1950;
-const int _kYearMax = 2100;
+const String _kYearFutureError = 'Yeh saal abhi aaya nahi — sahi saal likhein';
+const String _kYearInvalidError = 'Sahi saal likhein';
 
 /// The `type: "preferences"` marker screen (#1341) — the closed-set fields
 /// `PUT /workers/me/work-preferences` owns. #1384 item 2 split what was
@@ -108,12 +109,14 @@ class TradeFormPreferencesPage extends StatefulWidget {
 }
 
 class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
-  /// Page 0: languages + documents · 1: shift + job type + cities ·
-  /// 2: relocate + accommodation + salary · 3: education. Fixed — this
-  /// marker's field groups never change size at runtime (contrast
-  /// `TradeFormEmploymentPageState.pageCount`, which is driven by a
-  /// repeat-row list).
-  static const int pageCount = 4;
+  /// Page 0: languages + documents · 1: shift · 2: job type · 3: cities ·
+  /// 4: relocate + accommodation + salary · 5: education. Shift, job type
+  /// and cities were one shared page until the owner flagged a worker
+  /// facing all three questions at once as a single wall — each is its own
+  /// internal page now. Fixed count — this marker's field groups never
+  /// change size at runtime (contrast `TradeFormEmploymentPageState.pageCount`,
+  /// which is driven by a repeat-row list).
+  static const int pageCount = 6;
 
   WorkPrefOptionsDto? _options;
   String? _loadError;
@@ -125,6 +128,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
       text: widget.initialPreferences?.educationYear?.toString() ?? '');
   late final TextEditingController _institute = TextEditingController(
       text: widget.initialPreferences?.educationInstitute ?? '');
+  late String? _yearError = _yearErrorText(_year.text);
 
   int _page = 0;
   bool get isFirstPage => _page <= 0;
@@ -186,10 +190,27 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     return next;
   }
 
-  int? _inRange(String s, int lo, int hi) {
+  /// Floor `1950`, ceiling TODAY'S year, not the server's fixed `2100` — an
+  /// education cannot complete in the future, so the client shouldn't
+  /// produce a value the server would only accept because its own bound is
+  /// far looser.
+  int? _yearInRange(String s) {
     final int? v = int.tryParse(s.trim());
-    if (v == null || v < lo || v > hi) return null;
+    if (v == null || v < _kYearMin || v > DateTime.now().year) return null;
     return v;
+  }
+
+  /// Inline message for the year field, or null while still valid
+  /// (including mid-typing a 4-digit year).
+  static String? _yearErrorText(String s) {
+    final String t = s.trim();
+    if (t.length < 4) return null;
+    if (t.length > 4) return _kYearInvalidError;
+    final int? v = int.tryParse(t);
+    if (v == null) return _kYearInvalidError;
+    if (v > DateTime.now().year) return _kYearFutureError;
+    if (v < _kYearMin) return _kYearInvalidError;
+    return null;
   }
 
   @override
@@ -231,8 +252,12 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
       case 0:
         return _languagesAndDocumentsPage(options);
       case 1:
-        return _shiftJobTypeCitiesPage(options);
+        return _shiftPage(options);
       case 2:
+        return _jobTypePage(options);
+      case 3:
+        return _citiesPage();
+      case 4:
         return _relocateAccommodationSalaryPage();
       default:
         return _educationPage();
@@ -260,7 +285,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     );
   }
 
-  Widget _shiftJobTypeCitiesPage(WorkPrefOptionsDto options) {
+  Widget _shiftPage(WorkPrefOptionsDto options) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -268,12 +293,26 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
         _singleChips(options.shift, _prefs.shift,
             (String slug) => setState(() => _prefs = _prefs.copyWith(
                 shift: _prefs.shift == slug ? null : slug))),
-        const SizedBox(height: AppSpacing.s5),
+      ],
+    );
+  }
+
+  Widget _jobTypePage(WorkPrefOptionsDto options) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
         _label(_kJobTypeLabel),
         _singleChips(options.jobType, _prefs.jobType,
             (String slug) => setState(() => _prefs = _prefs.copyWith(
                 jobType: _prefs.jobType == slug ? null : slug))),
-        const SizedBox(height: AppSpacing.s5),
+      ],
+    );
+  }
+
+  Widget _citiesPage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
         _label(_kCitiesLabel),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -370,8 +409,11 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
           hint: _kEduYearHint,
           label: _kEduYearLabel,
           keyboardType: TextInputType.number,
-          onChanged: (String v) => setState(() => _prefs = _prefs.copyWith(
-              educationYear: _inRange(v, _kYearMin, _kYearMax))),
+          errorText: _yearError,
+          onChanged: (String v) => setState(() {
+            _prefs = _prefs.copyWith(educationYear: _yearInRange(v));
+            _yearError = _yearErrorText(v);
+          }),
         ),
         const SizedBox(height: AppSpacing.s5),
         _label(_kInstituteLabel),
