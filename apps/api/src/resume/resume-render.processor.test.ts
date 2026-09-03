@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, it, expect, vi } from "vitest";
 import type { Job } from "bullmq";
 import type { ServerConfig } from "@badabhai/config";
+import { FontResolutionError } from "../common/pdf/font-resolution";
 import { ResumeRenderProcessor } from "./resume-render.processor";
 import type { ResumeRenderInput } from "./resume-renderer.service";
 import type { ResumeRepository } from "./resume.repository";
@@ -598,10 +599,135 @@ describe("ResumeRenderProcessor — lifecycle (TD5)", () => {
     expect(resumes.markRenderFailed).not.toHaveBeenCalled();
   });
 
-  it("renderer returning null on a NON-final attempt: stays pending, not marked failed", async () => {
-    const { proc, resumes } = setup({ renderResult: null, renderEnabled: true });
+  /**
+   * #1399 — THIS TEST USED TO ASSERT THE BUG.
+   *
+   * It read `const res = await proc.process(...)` / `expect(res).toEqual({ rendered: false })`,
+   * i.e. it pinned "a non-final attempt RESOLVES" as the contract. Resolving is precisely what
+   * told BullMQ the job was done: no retry ran, none of the terminal branches (all gated on
+   * `isFinalAttempt`) was ever reachable on a 3-attempt queue, and the row stayed 'pending'
+   * forever. The half of the assertion that was right — the row must not be marked failed
+   * mid-retry — is kept.
+   */
+  it("renderer returning null on a NON-final attempt: THROWS so BullMQ retries, and leaves the row alone", async () => {
+    const { proc, resumes, storage } = setup({ renderResult: null, renderEnabled: true });
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).rejects.toThrow();
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+    expect(resumes.markRendered).not.toHaveBeenCalled();
+    expect(storage.uploadPdf).not.toHaveBeenCalled();
+  });
+
+  it("NON-final + kill-switch OFF: does NOT throw — the one no-PDF outcome that must not retry", async () => {
+    // Without this, the fix floods the queue with three futile renders per resume for as long
+    // as rendering is deliberately disabled. The carve-out was only ever tested on the FINAL
+    // attempt, so nothing stopped that.
+    const { proc, resumes } = setup({ renderResult: null, renderEnabled: false });
     const res = await proc.process(makeJob({ attemptsMade: 0, attempts: 3 }));
     expect(res).toEqual({ rendered: false });
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+  });
+
+  it("NON-final + forced re-render over a rendered row: THROWS, and TD77 holds across the retry", async () => {
+    // The degrade-open invariant is pinned at the END of the sequence (see the final-attempt
+    // test above); this pins it DURING it. A retry must not downgrade a resume the worker can
+    // still download.
+    const { proc, resumes } = setup({
+      renderResult: null,
+      renderEnabled: true,
+      resume: {
+        id: RESUME_ID,
+        workerId: WORKER_ID,
+        version: 1,
+        renderStatus: "rendered",
+        sourceProfileSnapshot: SNAPSHOT,
+      },
+    });
+    await expect(
+      proc.process(makeJob({ force: true, attemptsMade: 0, attempts: 3 })),
+    ).rejects.toThrow();
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+    expect(resumes.markRendered).not.toHaveBeenCalled();
+  });
+
+  it("NON-final + failClosed over a rendered row: THROWS, and the erasure has NOT landed yet", async () => {
+    // Erasure is terminal, not per-attempt: a retry that succeeds produces a clean PDF, which
+    // beats 409ing the worker's resume. Marking failed here would give up on attempt 1.
+    const { proc, resumes } = setup({
+      renderResult: null,
+      renderEnabled: true,
+      resume: {
+        id: RESUME_ID,
+        workerId: WORKER_ID,
+        version: 1,
+        renderStatus: "rendered",
+        sourceProfileSnapshot: SNAPSHOT,
+      },
+    });
+    await expect(
+      proc.process(makeJob({ force: true, failClosed: true, attemptsMade: 0, attempts: 3 })),
+    ).rejects.toThrow();
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+  });
+
+  it("NON-final + failClosed + kill-switch OFF: marks failed IMMEDIATELY — erasure outranks the carve-out", async () => {
+    // The two rulings collide here and the order is the answer: retrying is futile while the
+    // switch is off, so the erasure lands on attempt 1 instead of after two pointless renders.
+    // A face the worker asked us to erase must stop serving sooner, not later.
+    const { proc, resumes } = setup({
+      renderResult: null,
+      renderEnabled: false,
+      resume: {
+        id: RESUME_ID,
+        workerId: WORKER_ID,
+        version: 1,
+        renderStatus: "rendered",
+        sourceProfileSnapshot: SNAPSHOT,
+      },
+    });
+    const res = await proc.process(
+      makeJob({ force: true, failClosed: true, attemptsMade: 0, attempts: 3 }),
+    );
+    expect(res).toEqual({ rendered: false });
+    expect(resumes.markRenderFailed).toHaveBeenCalledWith(RESUME_ID);
+  });
+
+  it("NON-final + the renderer THROWING: still throws — a spawn failure can never be laundered into a completed job", async () => {
+    const { proc, resumes } = setup({ renderThrows: true, renderEnabled: true });
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).rejects.toThrow();
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+  });
+
+  it("NON-final + a FontResolutionError: retries like any other no-PDF failure (owner ruling: retry ALL)", async () => {
+    // No per-error classification. If that is ever refined — font errors are arguably not
+    // transient, since the IMAGE is wrong — this test is what makes the change deliberate.
+    const { proc, renderer, resumes } = setup({ renderEnabled: true });
+    renderer.renderPdf.mockRejectedValue(new FontResolutionError("bb_trade", ["Inter"], []));
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).rejects.toThrow();
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+  });
+
+  it("attempts: 1 — the first attempt IS final, so it marks failed rather than throwing forever", async () => {
+    // Guards the `job.opts.attempts ?? 1` default: on a single-attempt queue there is no later
+    // attempt to defer the terminal write to.
+    const { proc, resumes } = setup({ renderResult: null, renderEnabled: true });
+    const res = await proc.process(makeJob({ attemptsMade: 0, attempts: 1 }));
+    expect(res).toEqual({ rendered: false });
+    expect(resumes.markRenderFailed).toHaveBeenCalledWith(RESUME_ID);
+  });
+
+  it("the new throw is scoped to the no-PDF block: a MISSING row still resolves on a non-final attempt", async () => {
+    // The cheapest proof the fix was not implemented too broadly — this returns long before the
+    // render (processor `resume not found` guard) and must stay a no-op, not a retry.
+    const { proc } = setup({ resume: null });
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).resolves.toEqual({
+      rendered: false,
+    });
+  });
+
+  it("upload/persist failure on a NON-final attempt also throws — the two failure paths retry alike", async () => {
+    const { proc, storage, resumes } = setup({ renderEnabled: true });
+    storage.uploadPdf.mockRejectedValue(new Error("s3 down"));
+    await expect(proc.process(makeJob({ attemptsMade: 0, attempts: 3 }))).rejects.toThrow();
     expect(resumes.markRenderFailed).not.toHaveBeenCalled();
   });
 

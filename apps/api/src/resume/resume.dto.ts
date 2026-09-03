@@ -61,13 +61,15 @@ export interface GenerateResumeInput {
  * WHAT EACH VALUE ACTUALLY PROMISES — the honest version, because a client is about to build
  * a loop on it:
  *
- *   'pending'  A render is EXPECTED, NOT GUARANTEED. Three states park here permanently and
- *              look identical to "in flight": the render kill-switch being off (a deliberate
- *              steady state), a swallowed enqueue failure when Redis is down, and — today — a
- *              render that simply produced no PDF, because on that path the processor RETURNS
- *              rather than throws, so BullMQ completes the job on its first attempt, the
- *              final-attempt branches that would write 'failed' never run, and nothing retries
- *              (#1399; this endpoint reports the row, it does not fix it).
+ *   'pending'  A render is EXPECTED, NOT GUARANTEED — but far more nearly guaranteed than when
+ *              this contract was first written. #1399 closed the two ways a row parked here
+ *              forever: a render producing no PDF now retries and ends at 'failed', and an
+ *              enqueue failure now marks the row 'failed' instead of leaving it waiting on a job
+ *              that was never created. What remains is the render kill-switch (a deliberate
+ *              steady state, and nothing re-enqueues those rows when it goes back on) and rows
+ *              that were already stranded before #1399 — it fixed the writers and deliberately
+ *              did not backfill. `pnpm db:audit:render-status` counts them.
+ *              SO THE DEADLINE ABOVE IS STILL REQUIRED, just for a smaller set of causes.
  *              `document` may still be non-null and STALE here: the manual-generate overwrite
  *              resets the status and the PDF key but deliberately leaves the previous document
  *              in place, which is why `rendered_at` — reset to null by that same write — is
@@ -82,7 +84,9 @@ export interface GenerateResumeInput {
  *              next screen entry rather than caching the negative, since a later forced
  *              re-render will fill it.
  *
- *   'failed'   Terminal FOR THE PDF, which is not the same as terminal for the document.
+ *   'failed'   Terminal FOR THE PDF, which is not the same as terminal for the document. Since
+ *              #1399 this is also where a render that produced no PDF lands after its retries,
+ *              and where a row whose render job could never be enqueued lands immediately.
  *              `markRenderFailed` writes only the status, so a row can read 'failed' while
  *              holding a perfectly renderable document from an earlier render — the
  *              photo-removal fail-closed path does exactly that, to take PDF bytes carrying

@@ -124,4 +124,29 @@ export class ResumeRepository {
       .set({ renderStatus: "failed" })
       .where(eq(generatedResumes.id, id));
   }
+
+  /**
+   * Flip a row to 'failed' ONLY IF IT IS STILL 'pending' — for a caller that knows the render
+   * was never scheduled, but does not know the row is still waiting for one.
+   *
+   * WHY THE PREDICATE IS IN THE UPDATE AND NOT IN THE CALLER (#1399). The sibling above is
+   * unconditional, which is correct where it is used: the processor has already read the row and
+   * decided, and its `wasRendered` guards are what stop a good PDF being downgraded.
+   * `ResumeService.enqueueRender` has no such read — it holds an id whose row may be a
+   * freshly-inserted 'pending' one OR, on the system auto-generate path, a PRE-EXISTING row that
+   * `createInitial({overwrite:false})` returned from its conflict branch and that may already be
+   * 'rendered' with a live PDF. Marking that failed would 409 a resume the worker could download
+   * a second ago, with no job left to repair it — exactly the TD77 degrade-open rule the
+   * processor protects, broken from the one path that skips the processor entirely.
+   *
+   * A read-then-write in the service would be a race (the render can land between the two) and
+   * would put a business predicate in the wrong layer. One guarded statement is atomic and
+   * idempotent: replaying it cannot move a row that has since rendered.
+   */
+  async markRenderFailedIfPending(id: string): Promise<void> {
+    await this.db
+      .update(generatedResumes)
+      .set({ renderStatus: "failed" })
+      .where(and(eq(generatedResumes.id, id), eq(generatedResumes.renderStatus, "pending")));
+  }
 }
