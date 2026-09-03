@@ -437,17 +437,34 @@ export class TradeFormService {
     const byKey = new Map(pack.items.map((item) => [item.question_key, item]));
     const ordered: QuestionPackItem[] = [];
 
-    // THE TIER GATE LEADS, whatever the sheet does with it (#1377, #1378).
+    // EVERY MANDATORY ITEM LEADS, in the pack's own order (#1377, #1378).
     //
-    // It has no capability row — the sheet prints tenure in the Verdict Line, not as a capability
-    // — so `orderBySheet` used to file it under "whatever the sheet has no row for" and ask it
-    // DEAD LAST, after the three fresher questions it is supposed to gate. The pack's own `_depth`
-    // note says the opposite in as many words: "THE TIER GATE IS turning_experience, and it is
-    // asked FIRST." A gate asked after the questions it gates is not a gate.
-    const gate = byKey.get(descriptorForKind(kind)?.tenureQuestionKey ?? "");
-    if (gate) {
-      ordered.push(gate);
-      byKey.delete(gate.question_key);
+    // A mandatory item has no capability row by nature — the sheet prints tenure in the Verdict
+    // Line, and CAM's CAM-vs-MDI split not at all — so `orderBySheet` files anything the résumé
+    // map has no row for under "ask it last", which put these BEHIND the questions they exist to
+    // gate. Each pack's own `_depth` note says the opposite in as many words: "THE TIER GATE IS
+    // turning_experience, and it is asked FIRST." A gate asked after the questions it gates is
+    // not a gate.
+    //
+    // THIS USED TO HOIST EXACTLY ONE KEY, `descriptor.tenureQuestionKey`, and that was right
+    // only while every pack had exactly one mandatory item. `qp_cam_programming` has two:
+    // `programming_mode` at display_order 0 decides whether the worker programs in CAM software
+    // or by manual data input at the machine, and its own `_first_question` note calls an
+    // unanswered split a fail-closed condition because it "decides how every later answer should
+    // be read". Hoisting only the tenure gate served it ELEVENTH, under the "Qualification,
+    // documents & languages" heading, after all ten capability questions whose reading it
+    // governs. Generalising to `is_mandatory` is behaviour-identical for the four packs whose
+    // only mandatory item IS the tenure gate at order 0, and correct for CAM.
+    //
+    // The tenure key is unioned in rather than assumed mandatory: the descriptor names the gate
+    // the ordering guarantee is owed to, and that guarantee must not depend on a pack author
+    // remembering a flag.
+    const tenureKey = descriptorForKind(kind)?.tenureQuestionKey;
+    for (const item of pack.items) {
+      if (!item.is_mandatory && item.question_key !== tenureKey) continue;
+      if (!byKey.has(item.question_key)) continue;
+      ordered.push(item);
+      byKey.delete(item.question_key);
     }
 
     for (const row of map?.capability ?? []) {
@@ -574,27 +591,70 @@ export class TradeFormService {
   }
 }
 
-/** What an interview stores for a tapped chip — see `answer-capture.matchOptions`. */
-function optionValue(option: QuestionPackItem["options"][number]): string {
-  return typeof option.value === "string" && option.value.length > 0
-    ? option.value
-    : option.label_text;
+/**
+ * What an interview stores for a tapped chip — `answer-capture.matchOptions`, and it must stay
+ * EXPRESSION-FOR-EXPRESSION identical to it.
+ *
+ * IT USED TO READ `typeof option.value === "string" ? option.value : option.label_text`, and that
+ * one clause made every tier gate in every pack inert. A tier-gate rung carries `value_number`
+ * and NOTHING else — deliberately, and `role-corpus-parity.guard.test.ts` enforces exactly that,
+ * because a rung carrying `value_text` is the #776 trap. So `option.value` on a gate is a NUMBER,
+ * the `typeof` test failed, and the form fell through to `label_text` and stored the Hindi chip
+ * caption: `turning_experience = "1 se 3 saal"`.
+ *
+ * Downstream, `{"op":"gte","left":{"field":"turning_experience"},"right":{"const":2}}` then
+ * compared a string to a number, `compare()` returned null, the predicate was UNRESOLVED, and
+ * `isFormQuestionVisible` answers "show it" for anything unresolved — so the failure surfaced as
+ * the form appearing to work while serving 100% of every pack to every worker. An eight-year
+ * turner was asked the ITI-workshop and trade-test questions, answered them, and had all three
+ * silently dropped at render; a fresher was served tier-3 depth he has no honest answer to. That
+ * is #1378 reopened on the form's own answer path, having been fixed only for the chat engine.
+ *
+ * The interview never had the bug: `matchOptions` is `option.value ?? option.label_text` and
+ * keeps the integer. The two paths write the SAME column for the same tap again.
+ *
+ * `typedAnswerColumns` already routes a number to `answer_number` and a boolean to `answer_bool`,
+ * so widening the return type is all that was needed on the write side.
+ *
+ * NARROWED RATHER THAN A BARE `??`. The contract types `option.value` as `z.unknown().nullable()`,
+ * so `value ?? label_text` is `{}` and does not typecheck — and the cast that would silence it is
+ * exactly the wrong move, because this value is written straight into a typed column. The three
+ * branches below are the three shapes `typedAnswerColumns` can actually place; anything else
+ * (an object a pack author nested by mistake) falls back to the label rather than reaching the
+ * database as an unrepresentable value that gets dropped later with no error. Empty strings and
+ * non-finite numbers fall back for the same reason — both would be stored as "an answer" that
+ * says nothing.
+ */
+function optionValue(option: QuestionPackItem["options"][number]): string | number | boolean {
+  const value = option.value;
+  if (typeof value === "string") return value.length > 0 ? value : option.label_text;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "boolean") return value;
+  return option.label_text;
 }
 
 /**
  * The option KEYS a stored answer corresponds to, for pre-selecting chips on a resumed form.
  *
- * Matched on the stored VALUE, which is what both columns actually hold: `answer_text` for a
- * single-select and `answer_option_keys` for a multi-select (the column name predates the
- * distinction and is a misnomer — it holds values).
+ * Matched on the stored VALUE, which is what the columns actually hold: `answer_text`,
+ * `answer_number` or `answer_bool` for a single-select and `answer_option_keys` for a
+ * multi-select (that column name predates the distinction and is a misnomer — it holds values).
+ *
+ * ALL FOUR COLUMNS ARE READ, not just the two text-shaped ones. A tier gate now stores its rung
+ * in `answer_number`, so reading only `answer_text` would leave the gate chip UNSELECTED every
+ * time a worker resumed a part-finished form — they would see their own answer blank and, worse,
+ * re-tapping a different rung would silently re-tier the rest of the interview. Values are
+ * compared by their string form because that is the only representation the four columns share.
  */
 function selectedKeys(item: QuestionPackItem, saved: WorkerPackAnswer): string[] {
   const stored = new Set<string>([
     ...(saved.answerOptionKeys ?? []),
     ...(typeof saved.answerText === "string" ? [saved.answerText] : []),
+    ...(typeof saved.answerNumber === "number" ? [String(saved.answerNumber)] : []),
+    ...(typeof saved.answerBool === "boolean" ? [String(saved.answerBool)] : []),
   ]);
   if (stored.size === 0) return [];
   return item.options
-    .filter((option) => stored.has(optionValue(option)))
+    .filter((option) => stored.has(String(optionValue(option))))
     .map((option) => option.option_key);
 }
