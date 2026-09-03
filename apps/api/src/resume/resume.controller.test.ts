@@ -23,6 +23,13 @@ function make() {
   const resume = {
     generate: vi.fn(async () => ({ resume_id: "r", version: 1 })),
     getById: vi.fn(async () => ({ resume_id: RES_ID })),
+    myDocument: vi.fn(async () => ({
+      resume_id: RES_ID,
+      version: 1,
+      document: null,
+      render_status: "pending",
+      rendered_at: null,
+    })),
     regenerate: vi.fn(async () => ({ resume_id: "r2", version: 3 })),
     download: vi.fn(async () => ({ url: "https://signed/u?token=x", expires_in: 900 })),
     recordShare: vi.fn(async () => ({ ok: true })),
@@ -66,6 +73,37 @@ describe("ResumeController (thin) — delegation", () => {
       controller.generate({ worker_id: OTHER_WORKER_ID, profile_id: "p" } as never, OWNER, CTX),
     ).toThrow(NotFoundException);
     expect(resume.generate).not.toHaveBeenCalled();
+  });
+
+  /**
+   * #1397 — the document route had NO controller coverage, and it just became a route clients
+   * POLL. Three properties its docblock calls load-bearing are asserted here rather than left
+   * as prose: the id is session-derived, the response is uncacheable, and the literal path is
+   * declared before the parameterised one.
+   */
+  it("myDocument delegates with the SESSION worker id — no id is taken from the request", async () => {
+    const { controller, resume } = make();
+    await controller.myDocument(OWNER);
+    expect(resume.myDocument).toHaveBeenCalledWith(OWNER.id);
+    expect(resume.myDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it("myDocument is worker-guarded (unauthenticated → 401 via WorkerAuthGuard)", () => {
+    const guards = (Reflect.getMetadata("__guards__", ResumeController.prototype.myDocument) ??
+      []) as unknown[];
+    expect(guards).toContain(WorkerAuthGuard);
+  });
+
+  it("myDocument sets Cache-Control: no-store — a cached 'pending' is a poll that never ends", () => {
+    const headers = (Reflect.getMetadata("__headers__", ResumeController.prototype.myDocument) ??
+      []) as { name: string; value: string }[];
+    expect(headers).toContainEqual({ name: "Cache-Control", value: "no-store" });
+  });
+
+  it("myDocument is declared BEFORE the :id route — else 'document' is parsed as a uuid and 400s", () => {
+    // Nest matches in declaration order, and method order on the prototype IS declaration order.
+    const methods = Object.getOwnPropertyNames(ResumeController.prototype);
+    expect(methods.indexOf("myDocument")).toBeLessThan(methods.indexOf("get"));
   });
 
   it("get delegates to getById", async () => {

@@ -26,7 +26,7 @@ import { StorageService } from "../storage/storage.service";
 import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.constants";
 import { ResumeRepository } from "./resume.repository";
 import { ResumeRateLimit } from "./resume-rate-limit.service";
-import type { GenerateResumeInput, ShareResumeDto } from "./resume.dto";
+import type { GenerateResumeInput, MyResumeDocumentResponse, ShareResumeDto } from "./resume.dto";
 
 @Injectable()
 export class ResumeService {
@@ -40,20 +40,36 @@ export class ResumeService {
    * client falls back to `resume_text` on null; treating it as an empty resume would blank a
    * screen that has perfectly good content behind it.
    *
+   * WHICH IS PRECISELY WHY THE ENVELOPE CARRIES `render_status` AND `rendered_at` (#1397). The
+   * two nulls above are indistinguishable to a reader — "the render job has not landed yet,
+   * ask again" and "there is nothing here and never will be" arrived as the same byte — so the
+   * app answered with a blind 6×2s retry that both under-waits a slow render and over-waits a
+   * legacy row. Both fields are read off the row already loaded here; see
+   * {@link MyResumeDocumentResponse} for what each value actually promises, and for why
+   * `render_status` alone would still leave the forced-re-render path guessing.
+   *
+   * NOTHING NEW IS EXPOSED. `render_status` already ships to this same worker, under the same
+   * guards and the same `no-store`, on `GET /workers/me/profile`; `rendered_at` is a server
+   * timestamp for the worker's own row. No PII, no storage key, no event — this is a read.
+   *
    * NO OWNERSHIP CHECK BEYOND THE TOKEN, because there is no id in the request: the worker is
    * taken from the bearer token and the query is scoped to them. There is nothing to
    * enumerate, which is the strongest form of the ownership guarantee rather than a missing
    * one.
    */
-  async myDocument(
-    workerId: string,
-  ): Promise<{ resume_id: string; version: number; document: unknown | null }> {
+  async myDocument(workerId: string): Promise<MyResumeDocumentResponse> {
     const latest = await this.workers.latestResume(workerId);
     if (!latest) throw new NotFoundException("no resume yet");
     return {
       resume_id: latest.id,
       version: latest.version,
       document: latest.resumeDocument ?? null,
+      render_status: latest.renderStatus,
+      // `renderedAt` is a Drizzle `timestamp with timezone`, i.e. a Date. Serialized HERE, so
+      // the declared contract is what the client actually receives, and so a client comparing
+      // "the value I held before my write" against this one is comparing two strings produced
+      // the same way rather than trusting the JSON layer to be stable.
+      rendered_at: latest.renderedAt ? latest.renderedAt.toISOString() : null,
     };
   }
 

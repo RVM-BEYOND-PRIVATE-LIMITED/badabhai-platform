@@ -132,10 +132,26 @@ distinct from Class E for that reason. Two agency routes (`admin-kill-switch`'s
 | POST | /voice/upload-url, /upload, /transcribe | WAG,CG (voice_processing purpose) | B | Supabase Storage, ai-service (async STT) | voice-transcription |
 | GET | /voice/:voiceNoteId | WAG,CG | B | - | - |
 | POST | /resume/generate | WAG,CG | A | ai-service | resume-generate → resume-render |
+| GET | /resume/document | WAG,CG | A | - | - |
 | GET | /resume/:id | ISG | C | - | - |
 | POST | /resume/:id/regenerate | ISG | C | ai-service | resume-generate |
 | GET | /resume/:id/download | WAG | A | Storage (signed URL) | - |
-| POST | /resume/:id/share | ISG | C | - | - |
+| POST | /resume/:id/share | WAG,CG | A | - | - |
+
+Two corrections to the resume block, 2026-09-03 (#1397) — both are exactly the failure mode
+this register's own preamble names, a route changing without its row changing:
+
+- **`GET /resume/document` was missing entirely.** It shipped with #1339 — the same PR as
+  migration 0095, which added the column it returns — and had no row; #1343 is the worker-app
+  client that began consuming it, not the route's own change. The
+  worker's own resume as structured data, `Cache-Control: no-store`, declared BEFORE `@Get(":id")`
+  so the literal segment is not parsed as a uuid. Since #1397 it also carries `render_status` and
+  `rendered_at`, so a client can poll the async render on a real signal instead of a fixed retry
+  budget.
+- **`POST /resume/:id/share` said `ISG`/`C`.** `resume.controller.ts` guards it with
+  `WorkerAuthGuard, ConsentGuard` plus a per-IP cap — it was given a worker session when the
+  forgeable-share hole was closed, which makes it a worker product flow (`A`), not
+  service-to-service. Corrected here; no code changed.
 
 ### workers, applications, jobs, job-postings, notifications
 

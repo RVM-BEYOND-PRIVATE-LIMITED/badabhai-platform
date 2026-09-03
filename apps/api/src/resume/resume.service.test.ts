@@ -73,10 +73,14 @@ function setup(
   };
   const workers = {
     findById: vi.fn(async () => ({ id: "w-1", fullName: fullNameToken })),
-    latestResume: vi.fn(async () =>
-      opts.previousVersion != null
-        ? { id: "prev", version: opts.previousVersion, profileId: opts.previousProfileId }
-        : undefined,
+    // Return type WIDENED to the row shape (same trick as `profiles.findById` above), so a
+    // test can re-stub this with the render columns myDocument reads. The default keeps the
+    // three fields `generate` uses to pick the next version.
+    latestResume: vi.fn(
+      async (): Promise<Record<string, unknown> | undefined> =>
+        opts.previousVersion != null
+          ? { id: "prev", version: opts.previousVersion, profileId: opts.previousProfileId }
+          : undefined,
     ),
   };
   const pii = { decrypt: vi.fn(() => NAME) };
@@ -162,6 +166,9 @@ function setup(
     events,
     storage,
     config,
+    // Exposed so the myDocument suite can re-stub `latestResume` per case — that read is the
+    // whole of GET /resume/document, and the harness could not reach it before (#1397).
+    workers,
   };
 }
 
@@ -456,6 +463,161 @@ const ROW = {
   renderStatus: "pending" as string,
   pdfStorageKey: null as string | null,
 };
+
+/**
+ * #1397 — GET /resume/document had NO coverage at all, which is how it shipped a `document`
+ * whose two nulls ("not rendered yet" and "nothing to render, ever") were indistinguishable.
+ *
+ * These cases are written against the STATES THE ROW CAN ACTUALLY REACH, not against the happy
+ * path plus a 404. Each one names the writer that produces it, because the value of the two new
+ * fields is exactly that they tell those states apart.
+ */
+describe("ResumeService.myDocument (#1397 — the render signals a client polls on)", () => {
+  const RENDERED_AT = new Date("2026-09-03T10:15:30.000Z");
+  const DOC = { header: { name: "Asha K." }, sections: [] };
+
+  /** A generated_resumes row as `latestResume` returns it — overrides applied on top. */
+  function row(over: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      id: "r-1",
+      version: 1,
+      resumeDocument: null,
+      renderStatus: "pending",
+      renderedAt: null,
+      // Present on the real row and deliberately NOT projected — see the exposure case below.
+      pdfStorageKey: "resumes/w-1/r-1/v1.pdf",
+      resumeText: "PROFESSIONAL SUMMARY (draft)",
+      ...over,
+    };
+  }
+
+  it("404s when the worker has no resume row at all", async () => {
+    const { svc, workers } = setup(null);
+    workers.latestResume.mockResolvedValue(undefined);
+    await expect(svc.myDocument("w-1")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("reads the LATEST row for the SESSION worker — no id is taken from the request", async () => {
+    const { svc, workers } = setup(null);
+    workers.latestResume.mockResolvedValue(row());
+    await svc.myDocument("w-42");
+    expect(workers.latestResume).toHaveBeenCalledWith("w-42");
+  });
+
+  it("first render in flight: pending, no document, no rendered_at — 'ask again shortly'", async () => {
+    const { svc, workers } = setup(null);
+    workers.latestResume.mockResolvedValue(row());
+    await expect(svc.myDocument("w-1")).resolves.toEqual({
+      resume_id: "r-1",
+      version: 1,
+      document: null,
+      render_status: "pending",
+      rendered_at: null,
+    });
+  });
+
+  it("rendered: the document and the timestamp written by the SAME update both surface", async () => {
+    const { svc, workers } = setup(null);
+    workers.latestResume.mockResolvedValue(
+      row({ renderStatus: "rendered", resumeDocument: DOC, renderedAt: RENDERED_AT, version: 2 }),
+    );
+    await expect(svc.myDocument("w-1")).resolves.toEqual({
+      resume_id: "r-1",
+      version: 2,
+      document: DOC,
+      render_status: "rendered",
+      rendered_at: "2026-09-03T10:15:30.000Z",
+    });
+  });
+
+  it("LEGACY row (rendered before migration 0095): rendered + document null — stop polling THIS render", async () => {
+    const { svc, workers } = setup(null);
+    workers.latestResume.mockResolvedValue(
+      row({ renderStatus: "rendered", resumeDocument: null, renderedAt: RENDERED_AT }),
+    );
+    const res = await svc.myDocument("w-1");
+    // The combination is the whole point: a client that waits on this burns its retry budget
+    // for a document THIS render will never produce, which is the behaviour #1396 shipped as a
+    // stopgap. (A later forced re-render does fill the column, so the answer is "re-read next
+    // time", not "cache the negative".)
+    expect(res.render_status).toBe("rendered");
+    expect(res.document).toBeNull();
+    expect(res.rendered_at).toBe("2026-09-03T10:15:30.000Z");
+  });
+
+  it("STALE-under-pending: a manual regenerate resets the status and rendered_at but leaves the old document", async () => {
+    // `ResumeRepository.createInitial({overwrite:true})` sets renderStatus 'pending',
+    // pdfStorageKey null and renderedAt null — and omits resumeDocument from the SET list, so
+    // the previous render's document survives. rendered_at:null is what marks it stale.
+    const { svc, workers } = setup(null);
+    workers.latestResume.mockResolvedValue(
+      row({ renderStatus: "pending", resumeDocument: DOC, renderedAt: null }),
+    );
+    const res = await svc.myDocument("w-1");
+    expect(res).toMatchObject({ render_status: "pending", document: DOC, rendered_at: null });
+  });
+
+  it("failed rows may still HOLD a renderable document — 'failed' is terminal for the PDF, not for the document", async () => {
+    // The fail-closed photo-removal path (`markRenderFailed`) writes only render_status, to
+    // take PDF bytes carrying an erased face out of service. The document carries no photo.
+    const { svc, workers } = setup(null);
+    workers.latestResume.mockResolvedValue(
+      row({ renderStatus: "failed", resumeDocument: DOC, renderedAt: RENDERED_AT }),
+    );
+    const res = await svc.myDocument("w-1");
+    expect(res.render_status).toBe("failed");
+    expect(res.document).toEqual(DOC);
+  });
+
+  it("FORCED RE-RENDER: render_status never leaves 'rendered', so ONLY rendered_at can signal the new document", async () => {
+    // THE CASE THAT DECIDED THE SHAPE OF THIS RESPONSE. A description-source change enqueues a
+    // forced re-render over an already-'rendered' row and nothing ever writes 'pending', so a
+    // client polling render_status alone stops on the FIRST read, holding the OLD document.
+    const { svc, workers } = setup(null);
+    const before = new Date("2026-09-03T10:00:00.000Z");
+    workers.latestResume.mockResolvedValue(
+      row({ renderStatus: "rendered", resumeDocument: { v: "old" }, renderedAt: before }),
+    );
+    const first = await svc.myDocument("w-1");
+
+    workers.latestResume.mockResolvedValue(
+      row({ renderStatus: "rendered", resumeDocument: { v: "new" }, renderedAt: RENDERED_AT }),
+    );
+    const second = await svc.myDocument("w-1");
+
+    expect(first.render_status).toBe(second.render_status); // 'rendered' throughout — no signal
+    expect(second.rendered_at).not.toBe(first.rendered_at); // the only thing that moved
+    expect(second.document).toEqual({ v: "new" });
+  });
+
+  it("rendered_at reaches the wire as an ISO-8601 STRING, not a Date", async () => {
+    // The declared contract says `string | null`; serializing in the service rather than
+    // leaving a Date for the JSON layer is what makes that true, and makes the client's
+    // "has it changed since my write?" a plain string comparison.
+    const { svc, workers } = setup(null);
+    workers.latestResume.mockResolvedValue(row({ renderedAt: RENDERED_AT }));
+    const res = await svc.myDocument("w-1");
+    expect(typeof res.rendered_at).toBe("string");
+    expect(res.rendered_at).toBe(RENDERED_AT.toISOString());
+  });
+
+  it("projects five fields and NOTHING else — no storage key, no resume_text, no raw row", async () => {
+    const { svc, workers } = setup(null);
+    workers.latestResume.mockResolvedValue(
+      row({ renderStatus: "rendered", resumeDocument: DOC, renderedAt: RENDERED_AT }),
+    );
+    const res = await svc.myDocument("w-1");
+    expect(Object.keys(res).sort()).toEqual([
+      "document",
+      "render_status",
+      "rendered_at",
+      "resume_id",
+      "version",
+    ]);
+    // `pdf_storage_key` is a private-bucket object key; it must never ride a worker response.
+    expect(JSON.stringify(res)).not.toContain("resumes/w-1/r-1/v1.pdf");
+  });
+});
 
 describe("ResumeService.getById (ops read view)", () => {
   it("returns the resume shaped snake_case and PII-free", async () => {
