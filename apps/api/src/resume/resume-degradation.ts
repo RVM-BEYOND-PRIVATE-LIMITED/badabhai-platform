@@ -26,6 +26,42 @@ import { TRADE_RESUME_MAPS } from "./trade-resume-map";
  *
  * MINIMAL. The ladder stops at the FIRST stage that fits. A sheet that needs one row dropped
  * loses one row, never the whole tail of the order.
+ *
+ * ── THE 2026-09-03 OWNER RULING — CONTENT PRESERVATION NOW OUTRANKS PAGE COUNT ────────
+ *
+ * "Single page stays the TARGET. The degradation ladder still compresses as hard as it can — but
+ * when a sheet STILL will not fit, it SPILLS ONTO PAGE 2 instead of shedding a ratified row."
+ *
+ * WHY IT WAS NEEDED, AND IT IS A MEASUREMENT RATHER THAN A PREFERENCE. The ratified corpus
+ * (`BadaBhai_21_Role_Resumes.pdf`) contains sheets this module could not reproduce EITHER WAY.
+ * The grinder's page prints ten capability rows ending in "Sector worked"; at
+ * `CAPABILITY_ROW_BUDGET = 9` that row was shed before the ladder ever ran, and at 10 the sheet
+ * measures 41.19 lines against a budget of 41 and the ladder shed it again — the only step that
+ * cleared the overflow being the one that deletes the very row the budget raise restored. A
+ * fully-answered turner reaches the same 41.19 and paid for it with "Languages spoken", which
+ * every one of the twenty-one pages prints. `SHEET_LINE_BUDGET` is FITTED (see below) and
+ * recorded as un-raiseable without a second page, so there was no third option.
+ *
+ * WHAT IT DOES NOT MEAN. Two pages are not acceptable in general. A sheet that could have fitted
+ * by compressing MUST still be compressed to one, which is why the compressing steps still run,
+ * still run in the ruled order, and still stop at the first stage that fits. What changed is the
+ * END of the ladder: it now returns an OVERFLOWING sheet — flagged as such on the result, see
+ * {@link DegradationResult.overflows} — instead of walking on into steps that delete rows a human
+ * signed off.
+ *
+ * AND A COMPRESSION IS ONLY CHARGED WHEN IT BUYS THE PAGE. The corollary, and it is the ruling
+ * applied to the ladder's own instrument: a step that shortens a sheet which spills anyway has
+ * cost a worker real content — an employer's name, dates and work line — in exchange for nothing,
+ * since page 2 exists either way. So `degradeToFit` discards a compression that fails to achieve
+ * the fit and hands the sheet back as it arrived. See its own header for the measurement, which
+ * puts the SAME step on both sides of that line within one shape.
+ *
+ * NOT VISUALLY CONFIRMED. This module models the page in LINES; only WeasyPrint measures
+ * millimetres, and it is Docker-only on the development host (see `templates/README.md`). The
+ * spill is believed correct because `bb_trade.v1.html` sets `@page { size: A4; margin: 12mm }`
+ * and its footer is a NORMAL-FLOW element carrying no positioning, so a long sheet breaks and the
+ * footer lands at the end of page 2 — read from the template, not assumed. A real two-page render
+ * is still required before release.
  */
 
 /**
@@ -152,10 +188,12 @@ const SECTION_CHROME_LINES = 9.1 / LINE_MM;
  * immutable, so the model matches the template rather than the other way round.
  */
 function ownWordsLines(phrases: readonly string[] | undefined): number {
-  return (phrases ?? [])
-    .filter((p) => p.trim().length > 0)
-    // The rendered item carries a pair of curly quotes the phrase itself does not.
-    .reduce((n, p) => n + rowLines("", `“${p}”`), 0);
+  return (
+    (phrases ?? [])
+      .filter((p) => p.trim().length > 0)
+      // The rendered item carries a pair of curly quotes the phrase itself does not.
+      .reduce((n, p) => n + rowLines("", `“${p}”`), 0)
+  );
 }
 
 /** The shape the ladder operates on — every variable region of the sheet, and nothing else. */
@@ -301,14 +339,47 @@ function preserveTopQualification(s: DegradableSheet, line: string): void {
  * `qp_cnc_turning.json` nor `trade-resume-map.ts`, so steps 1 and 2 match nothing today. They are
  * built in their correct positions anyway: when those fields land they must drop FIRST, and a
  * ladder that acquires them later would otherwise acquire them at the end.
+ *
+ * WHY THE FULL ORDER SURVIVES THE 2026-09-03 RULING EVEN THOUGH MOST OF IT NO LONGER RUNS. The
+ * order is the ruled artefact; the ruling forbade EXECUTING the steps that delete a ratified row,
+ * it did not re-rank them. So every step keeps its place and carries an {@link LadderEffect} tag,
+ * and what `degradeToFit` walks is {@link COMPRESSING_LADDER} — a filter on that tag, never an
+ * index range. Re-permitting a step is then one tag, and the precedence it re-enters is still the
+ * one the shop floor ruled on.
  */
 const OPTIONAL_VOLUNTEERED = ["surface_finish_ra", "fit_class_held", "bar_diameter_range_mm"];
 
 /** The widest capability section any trade map can produce — the ladder must be able to empty it. */
 const MAX_CAPABILITY_ROWS = TRADE_RESUME_MAPS.reduce((n, m) => Math.max(n, m.capability.length), 0);
 
+/**
+ * WHAT A STEP DOES TO THE SHEET, and therefore whether the 2026-09-03 ruling still lets it run.
+ *
+ * `compresses` — the step makes the sheet shorter WITHOUT deleting a row any ratified page
+ *   prints. It may still run, and under the ruling it is the only thing that may.
+ *
+ * `sheds-a-ratified-row` — the step removes a row that `BadaBhai_21_Role_Resumes.pdf` prints.
+ *   FORBIDDEN. The step stays in the list, tagged and reasoned, so its status is READ off the
+ *   source rather than inferred from where it sits in an array.
+ *
+ * THE TAG IS EVIDENCE, NOT POSITION. It was decided per step against the twenty-one ratified
+ * pages and against the measured `gain` each step produces on the two sheets that actually
+ * overflow, which is why it does not follow the ladder's order: step 9 compresses while steps 3
+ * and 4 — earlier, and therefore "cheaper" by the old reading — do not. Each step's `why`
+ * carries that evidence.
+ */
+export type LadderEffect = "compresses" | "sheds-a-ratified-row";
+
 interface LadderStep {
   readonly what: string;
+  /** Whether this step may still run. See {@link LadderEffect}. */
+  readonly effect: LadderEffect;
+  /**
+   * The EVIDENCE behind {@link effect} — which ratified pages print the row this step touches,
+   * and what the step measurably gains. Present on every step so that re-classifying one means
+   * arguing with a recorded measurement rather than editing a bare enum.
+   */
+  readonly why: string;
   readonly apply: (s: DegradableSheet) => void;
 }
 
@@ -332,11 +403,47 @@ function dropHighestRank(s: DegradableSheet): void {
 }
 
 export const LADDER: readonly LadderStep[] = [
-  { what: "optional volunteered fields", apply: (s) => dropByKey(s, OPTIONAL_VOLUNTEERED) },
-  { what: "production mode", apply: (s) => dropByKey(s, ["production_mode"]) },
-  { what: "sector worked", apply: (s) => dropByKey(s, ["sector_worked"]) },
+  {
+    what: "optional volunteered fields",
+    effect: "compresses",
+    why:
+      "No ratified page prints these three. `surface_finish_ra`, `fit_class_held` and " +
+      "`bar_diameter_range_mm` appear in no pack JSON and no trade map, so the step matches " +
+      "nothing and measures a gain of 0.00 on both overflowing sheets. IT IS A COMPRESSION ONLY " +
+      "WHILE THAT IS TRUE: page 2 prints a 'Surface finish held' row, which today comes from the " +
+      "DIFFERENT key `surface_finish` (grinding, rank 63). If `surface_finish_ra` ever lands and " +
+      "maps to that row, this tag must flip to `sheds-a-ratified-row` in the same change.",
+    apply: (s) => dropByKey(s, OPTIONAL_VOLUNTEERED),
+  },
+  {
+    what: "production mode",
+    effect: "compresses",
+    why:
+      "Same as the step above and for the same reason: `production_mode` is defined by no pack " +
+      "and no map, no ratified page prints such a row, and the measured gain is 0.00.",
+    apply: (s) => dropByKey(s, ["production_mode"]),
+  },
+  {
+    what: "sector worked",
+    effect: "sheds-a-ratified-row",
+    why:
+      "ALL TWENTY-ONE ratified pages end their capability block with a sector row — twenty print " +
+      "'Sector worked', the CAD fresher's prints 'Sector studied'. It is also the exact row " +
+      "`CAPABILITY_ROW_BUDGET = 10` exists to restore, so leaving it runnable makes the fix " +
+      "circular: the budget admits the grinder's tenth row and this step deletes it again, for a " +
+      "gain of 1.00 that lands the sheet back where the raise found it.",
+    apply: (s) => dropByKey(s, ["sector_worked"]),
+  },
   {
     what: "materials chips beyond two",
+    effect: "sheds-a-ratified-row",
+    why:
+      "IT KEEPS THE ROW AND STILL DELETES THE WORKER'S CLAIMS, and it buys nothing: measured " +
+      "gain 0.00 lines on BOTH overflowing sheets, because four short chips and two short chips " +
+      "wrap to the same single line. On the fully-answered turner the old ladder ran this step, " +
+      "gained nothing, and then shed 'Languages spoken' anyway. Unlike `collapseEmployments` it " +
+      "leaves NO count of what it removed, which is precisely the silent deletion §11 #7 " +
+      "forbids — and pages 2, 3 and 4 each print four material chips.",
     apply: (s) => {
       s.capChipRows = (s.capChipRows ?? []).map((r) =>
         (r as { key?: string }).key === "material_worked" && r.values.length > 2
@@ -346,14 +453,73 @@ export const LADDER: readonly LadderStep[] = [
     },
   },
   // Zone 5, reverse §5.1: languages (10), documents (9), certificates then education (8).
-  { what: "languages", apply: (s) => dropQual(s, "Languages spoken") },
-  { what: "documents ready", apply: (s) => dropQual(s, "Documents ready") },
-  { what: "certificates", apply: (s) => dropQual(s, "Certificates") },
-  { what: "education", apply: (s) => dropQual(s, "Education") },
+  {
+    what: "languages",
+    effect: "sheds-a-ratified-row",
+    why:
+      "All twenty-one ratified pages print 'Languages spoken'. This is the step that fired on " +
+      "the fully-answered turner and took Haryanvi off his sheet — the loss the ruling names.",
+    apply: (s) => dropQual(s, "Languages spoken"),
+  },
+  {
+    what: "documents ready",
+    effect: "sheds-a-ratified-row",
+    why: "All twenty-one ratified pages print 'Documents ready'. Whole-row deletion, gain 2.00.",
+    apply: (s) => dropQual(s, "Documents ready"),
+  },
+  {
+    what: "certificates",
+    effect: "sheds-a-ratified-row",
+    why:
+      "Fifteen of the twenty-one ratified pages print 'Certificates'. The six that do not are " +
+      "workers who hold none, so the row is suppressed as empty under §11 #1 — an absence, not " +
+      "a precedent for deleting the row from the fifteen who earned it.",
+    apply: (s) => dropQual(s, "Certificates"),
+  },
+  {
+    what: "education",
+    effect: "sheds-a-ratified-row",
+    why:
+      "All twenty-one ratified pages print 'Education'. `preserveTopQualification` softens this " +
+      "step but does not undo it: it re-inserts the credential SEGMENT alone, so the issuer and " +
+      "the year still leave the sheet.",
+    apply: (s) => dropQual(s, "Education"),
+  },
   // Zone 4, §5.1 rank 7. Collapse to the count line rather than deleting silently — §11 #7.
-  { what: "employers beyond three", apply: (s) => collapseEmployments(s, 3) },
-  { what: "employers beyond two", apply: (s) => collapseEmployments(s, 2) },
-  { what: "employers beyond one", apply: (s) => collapseEmployments(s, 1) },
+  {
+    what: "employers beyond three",
+    effect: "compresses",
+    why:
+      "THREE IS THE RATIFIED CEILING: no page in the corpus prints a fourth employer block, so " +
+      "this step can only fire on a shape the ratified pages do not contain. And a COUNT LINE " +
+      "ALONGSIDE THREE BLOCKS is itself ratified presentation — page 16 (welder) is the one page " +
+      "in the corpus that prints one, and it prints exactly that shape. §11 #7's " +
+      "collapse-to-a-count, verified against a page rather than assumed from the comment. " +
+      "WHAT PAGE 16 DOES NOT RATIFY IS THE LINE THIS STEP EMITS: its line reads '2 earlier " +
+      "employers · 44 months total · 2015-2019' and `collapseEmployments` produces '6 earlier " +
+      "employers' — the aggregates go, for the §8 reason argued in that function's doc-comment, " +
+      "which must be read together with this tag. The page ratifies the FORM, not the string.",
+    apply: (s) => collapseEmployments(s, 3),
+  },
+  {
+    what: "employers beyond two",
+    effect: "sheds-a-ratified-row",
+    why:
+      "UNLIKE THE STEP ABOVE, this one can only fire by taking a block off a sheet that has " +
+      "three or fewer — the ratified shape, printed by pages 2, 3, 4, 15 and 16. It turns an " +
+      "employer's name, dates and work line into a bare count: §11 #7's anti-deception property " +
+      "survives, the §5.1 rank-7 CONTENT it exists for does not. OPEN QUESTION FOR THE OWNER — " +
+      "if this and the step below are ruled compression, both overflowing sheets fit at 39.19 " +
+      "and nothing spills at all, which would leave the spill path unexercised by the corpus. " +
+      "That consequence is why it is put rather than decided here.",
+    apply: (s) => collapseEmployments(s, 2),
+  },
+  {
+    what: "employers beyond one",
+    effect: "sheds-a-ratified-row",
+    why: "The same argument as 'employers beyond two', twice over: gain 5.00, three blocks to one.",
+    apply: (s) => collapseEmployments(s, 1),
+  },
   // Capability, by descending rank. One step per row so the ladder sheds a single row at a time
   // and can still shed ALL of them.
   //
@@ -361,11 +527,32 @@ export const LADDER: readonly LadderStep[] = [
   // 14 rows, so a maxed-out worker would have run out of ladder two rows before running out of
   // sheet — the ladder would have returned a still-overflowing page and reported a stage as if it
   // had succeeded. Counting the widest map means adding a row to a pack cannot reintroduce that.
+  //
+  // ALL OF THEM SHED BY CONSTRUCTION. A capability row is what the ratified pages are mostly MADE
+  // of, so there is no reverse-rank position at which taking one stops being the loss the ruling
+  // forbids. They remain, in order, as the record of which row would go first if a future ruling
+  // ever re-permits the rung.
   ...Array.from({ length: MAX_CAPABILITY_ROWS }, (_, i) => ({
     what: `capability row ${i + 1} by reverse §5.1 rank`,
+    effect: "sheds-a-ratified-row" as const,
+    why:
+      "Deletes a whole capability row. Every ratified page prints between seven and ten of " +
+      "them, and `dropHighestRank` takes one from whichever persona it is handed.",
     apply: dropHighestRank,
   })),
 ];
+
+/**
+ * WHAT `degradeToFit` ACTUALLY WALKS — the steps the 2026-09-03 ruling still permits.
+ *
+ * A FILTER ON THE TAG, NEVER A SLICE. The permitted steps are not contiguous — 1, 2 and 9 —
+ * because the classification is evidence about each step's effect on the ratified corpus and not
+ * a prefix of the drop order. Any index arithmetic here would silently re-admit a forbidden step
+ * the next time a row is inserted into the ladder.
+ */
+export const COMPRESSING_LADDER: readonly LadderStep[] = LADDER.filter(
+  (step) => step.effect === "compresses",
+);
 
 function dropQual(s: DegradableSheet, label: string): void {
   s.qualFactRows = (s.qualFactRows ?? []).filter((r) => r.label !== label);
@@ -379,15 +566,28 @@ function dropQual(s: DegradableSheet, label: string): void {
  * with nine jobs in four years reads as unstable if his sheet shows four and says nothing, and
  * reads as honest if it says "5 earlier employers". The count line is one line and is what makes
  * this step worth taking at all.
+ *
+ * THE AGGREGATE SEGMENTS GO, AND THEIR LOSS IS THE HONESTY RULE RATHER THAN AN OVERSIGHT. The
+ * mapper's own count line reads "5 earlier employers · 61 months total · 2011-2016", and those
+ * two trailing segments describe THE EMPLOYERS ALREADY DROPPED. Fold one more employer in and
+ * they no longer describe the set they are printed against, so carrying them forward would print
+ * a stale total as if it were complete — precisely what `overflowLine` refuses to do when a
+ * dropped record has no stated duration. Rebuilding them is not available either: this layer
+ * holds rendered strings, and deriving "44 months total" back out of them would be the renderer
+ * inventing a number (§8). So the line degrades to the part that is still true.
  */
 function collapseEmployments(s: DegradableSheet, keep: number): void {
   const all = s.employments ?? [];
   if (all.length <= keep) return;
   const dropped = all.length - keep;
   s.employments = all.slice(0, keep);
-  const existing = /^(\d+) earlier employers/.exec(s.employmentsMore ?? "");
+  const existing = /^(\d+) earlier employers?/.exec(s.employmentsMore ?? "");
   const total = dropped + (existing ? Number(existing[1]) : 0);
-  s.employmentsMore = `${total} earlier employers`;
+  // SINGULAR WHEN IT IS ONE. `overflowLine` already agrees, and the two must: a sheet that prints
+  // "1 earlier employers" is a printed grammatical error on a worker's résumé. It was unreachable
+  // while the ladder rarely got this far and became ordinary under the 2026-09-03 ruling, which
+  // made this the FIRST step with anything left to spend.
+  s.employmentsMore = `${total} earlier ${total === 1 ? "employer" : "employers"}`;
 }
 
 /** One applied ladder step, with what it cost the sheet and what the sheet needed. */
@@ -415,15 +615,102 @@ export interface DegradationResult<T> {
    * That is a granularity finding, not a bug, and it is only visible if the numbers are kept.
    */
   readonly trace: readonly DegradationStep[];
+  /**
+   * TRUE WHEN THE SHEET SPILLS PAST ONE PAGE — the 2026-09-03 ruling's outcome, stated rather
+   * than left silent.
+   *
+   * Before the ruling this could not happen without the ladder having run to exhaustion, so
+   * "stage" carried the whole story and callers needed no other signal. Now a sheet can come
+   * back at stage 0 and still not fit, because every step that would have cleared it deletes a
+   * row a human signed off. A caller that cannot tell those apart would report a two-page résumé
+   * as a clean render, so the flag rides on the result rather than being re-derived from
+   * `sheetContentLines` by every consumer that remembers to.
+   */
+  readonly overflows: boolean;
+  /**
+   * How far past {@link SHEET_LINE_BUDGET} the returned sheet is, in lines. 0 when it fits.
+   *
+   * THE HARNESS ASSERTION NEEDS THE MAGNITUDE, NOT JUST THE FLAG. "One page unless a ratified row
+   * required two" has to keep failing when sheets balloon for no reason, and a boolean cannot
+   * tell 0.19 lines of overflow — the whole of what the ratified corpus produces — from five.
+   *
+   * READ IT FOR WHAT IT IS. 0.19 lines is 0.93 mm. `SHEET_LINE_BUDGET` was fitted at 41.7 and
+   * ROUNDED DOWN, so a 41.19-line sheet occupies 201.4 mm of the worst measured C = 209.0 and
+   * still clears `HEADROOM_FLOOR_MM`. Such a sheet overflows the integer budget while remaining
+   * inside the millimetre model the integer came from; it very probably renders on one page. The
+   * conservatism is deliberate and must not be fractionalised away to make the number disappear.
+   */
+  readonly overBudgetLines: number;
 }
 
 /**
- * Walk the ladder until the content fits, and stop there.
+ * Close off a result: measure what the ladder actually achieved and say so.
  *
- * RUNS OUT OF LADDER RATHER THAN OUT OF CONTENT. If every step has been applied and the sheet is
- * still over budget, it returns the last stage rather than throwing: a worker with a pathological
+ * ONE PLACE, because `degradeToFit` has three exits — fits immediately, fits mid-ladder, runs out
+ * of permitted steps — and an overflow flag computed at two of the three is the bug this function
+ * exists to make unwritable.
+ */
+function settle<T extends DegradableSheet>(
+  sheet: T,
+  dropped: readonly string[],
+  trace: readonly DegradationStep[],
+): DegradationResult<T> {
+  const over = sheetContentLines(sheet) - SHEET_LINE_BUDGET;
+  return {
+    sheet,
+    stage: dropped.length,
+    dropped,
+    trace,
+    overflows: over > 0,
+    overBudgetLines: over > 0 ? Number(over.toFixed(2)) : 0,
+  };
+}
+
+/**
+ * Compress until the content fits, and stop there — or hand back a sheet that spills, INTACT.
+ *
+ * RUNS OUT OF LADDER RATHER THAN OUT OF CONTENT. If every permitted step has been applied and the
+ * sheet is still over budget, it returns rather than throwing: a worker with a pathological
  * profile gets a two-page résumé, which is a bad sheet, and an exception gets them NO sheet at
  * all. The harness is what catches this in CI; the runtime degrades.
+ *
+ * SINCE THE 2026-09-03 RULING THAT EXIT IS THE ORDINARY ONE, not the pathological one. The ladder
+ * walks {@link COMPRESSING_LADDER} — the steps that shorten the sheet without deleting a row the
+ * ratified pages print — and when those are exhausted it stops and SAYS SO through
+ * {@link DegradationResult.overflows}, rather than continuing into steps that would buy the page
+ * back with a row a human signed off.
+ *
+ * ── A COMPRESSION IS COMMITTED ONLY IF IT BUYS THE PAGE ────────────────────────────────
+ *
+ * THE FALL-THROUGH RETURNS THE SHEET AS IT ARRIVED, not the compressed one, and that is the
+ * ruling applied to the ladder's own instrument rather than a shortcut. Every permitted step
+ * still costs the worker something real: `collapseEmployments` turns an employer's name, dates
+ * and work line into a count, and folding one more employer in also strips the "· N months total
+ * · YYYY–YYYY" aggregates off that count (see its doc-comment). That price is worth paying FOR A
+ * PAGE. It buys nothing at all on a sheet that spills anyway — the second page is already there,
+ * it has ~41 lines of room, and the compression merely leaves more of it blank.
+ *
+ * MEASURED, WHICH IS WHY IT IS WRITTEN THIS WAY ROUND RATHER THAN AS "NEVER COMPRESS A SPILLING
+ * SHEET". The same step lands on both sides of this line within one shape. The EMPLOYER copies of
+ * matrix shapes 5 and 6 measure 42.19 and 43.19 lines, and collapsing to three employers brings
+ * them to 40.19 — one page, bought, committed. The WORKER copies of those two shapes carry one
+ * line more (the asking price the payer's copy withholds), so the same collapse lands them on
+ * 41.19, which still spills; before this rule they paid an employer block for a page they did not
+ * get. Discarding `working` on the fall-through is what makes the cost conditional on the benefit.
+ *
+ * MONOTONICITY IS WHAT MAKES THE PREFIX THE MINIMUM. Every step only ever shortens the sheet, so
+ * the first prefix of the ladder that fits is also the cheapest prefix that fits, and no other
+ * ordering of the permitted steps would have fitted for less. It follows that a sheet returned
+ * overflowing could not have been saved by ANY subset of them — which is the property
+ * `sheet-shape-matrix.test.ts` asserts rather than trusting this paragraph.
+ *
+ * IT IS NOT A PAGE-COUNT MODEL. The only question this function answers is "does it fit ONE
+ * page", because that is the only question `SHEET_LINE_BUDGET` was fitted to answer: the budget
+ * prices page 1 with its masthead and section chrome, and page 2's chrome is different and
+ * unmeasured. A sheet far enough over to reach a THIRD page would therefore not be compressed
+ * either. No corpus shape comes close — the worst is 2.93 lines over a 41-line budget — and
+ * `sheet-shape-matrix.test.ts` asserts that bound, so the gap fails loudly rather than silently
+ * if content ever grows into it.
  */
 export function degradeToFit<T extends DegradableSheet>(input: T): DegradationResult<T> {
   const working: T = { ...input };
@@ -433,12 +720,12 @@ export function degradeToFit<T extends DegradableSheet>(input: T): DegradationRe
   // would destroy the evidence of what was in it.
   const reservedQualification = topQualificationLine(working);
   if (sheetContentLines(working) <= SHEET_LINE_BUDGET) {
-    return { sheet: working, stage: 0, dropped, trace };
+    return settle(working, dropped, trace);
   }
-  for (let i = 0; i < LADDER.length; i += 1) {
+  for (let i = 0; i < COMPRESSING_LADDER.length; i += 1) {
     const before = sheetContentLines(working);
     const shapeBefore = JSON.stringify(working);
-    LADDER[i]!.apply(working);
+    COMPRESSING_LADDER[i]!.apply(working);
     if (reservedQualification) preserveTopQualification(working, reservedQualification);
     const after = sheetContentLines(working);
     // Only a step that actually CHANGED THE SHEET counts as a stage — steps 1 and 2 match nothing
@@ -451,18 +738,26 @@ export function degradeToFit<T extends DegradableSheet>(input: T): DegradationRe
     // lost its issuer and year. Comparing the sheet itself asks the question directly, and a
     // `gain` of 0 in the trace below is then the honest number rather than a missing stage.
     if (JSON.stringify(working) !== shapeBefore) {
-      dropped.push(LADDER[i]!.what);
+      dropped.push(COMPRESSING_LADDER[i]!.what);
       trace.push({
-        what: LADDER[i]!.what,
+        what: COMPRESSING_LADDER[i]!.what,
         over: Number((before - SHEET_LINE_BUDGET).toFixed(2)),
         gain: Number((before - after).toFixed(2)),
       });
     }
     if (after <= SHEET_LINE_BUDGET) {
-      return { sheet: working, stage: dropped.length, dropped, trace };
+      return settle(working, dropped, trace);
     }
   }
-  return { sheet: working, stage: dropped.length, dropped, trace };
+  // OUT OF PERMITTED STEPS AND STILL OVER BUDGET, so `working` is DISCARDED and the sheet goes
+  // back as it arrived. The compressions above were spent and bought no page; under the
+  // 2026-09-03 ruling they are therefore not charged to the worker. See the header for the
+  // measurement that separates this case from the one where the same step does buy the page.
+  //
+  // `dropped` and `trace` are empty because nothing WAS dropped. Reporting the abandoned attempts
+  // as applied stages would stamp the artifact with a drop no reader could find on the sheet, and
+  // `settle` would then be measuring a different sheet from the one it returns.
+  return settle({ ...input }, [], []);
 }
 
 /**

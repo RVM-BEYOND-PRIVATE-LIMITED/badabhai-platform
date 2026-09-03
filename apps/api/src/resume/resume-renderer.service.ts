@@ -146,6 +146,22 @@ export interface ResumeRenderInput {
   degradationTrace?: readonly DegradationStep[];
 
   /**
+   * WHETHER THIS SHEET SPILLS PAST ONE PAGE, and by how many lines.
+   *
+   * DIAGNOSTIC, never rendered — but it is the one diagnostic that cannot be inferred from
+   * `degradationStage`. Under the 2026-09-03 owner ruling the ladder stops rather than shedding a
+   * ratified row, so a sheet can arrive at stage 0 and still not fit. Without these two fields a
+   * two-page résumé and a comfortable one-page résumé are the same render input, and the emitted
+   * matrices that the Docker headroom measurement is read against could not tell them apart.
+   *
+   * `degradationOverBudgetLines` is 0 whenever `degradationOverflows` is false. Both come
+   * straight off `degradeToFit`; see `DegradationResult.overBudgetLines` for how small an
+   * overflow the ratified corpus actually produces and why that must not be rounded away.
+   */
+  degradationOverflows?: boolean;
+  degradationOverBudgetLines?: number;
+
+  /**
    * Chip claims the worker's own transcript withdrew, each with the sentence that withdrew it.
    *
    * DIAGNOSTIC AND AUDITABLE, never rendered. A veto REMOVES a claim from a man's résumé, so

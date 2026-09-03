@@ -252,7 +252,10 @@ export function buildResumeRenderInput(
   // a worker with three quotes and one line of overflow would have the ladder drop his LANGUAGES
   // row — a §5.1-ranked fact — to make room for a quote that ranks nowhere. Zeroed going in,
   // re-fitted after: ranked content settles first and the quotes take what is left.
-  const { sheet, stage, dropped, trace } = degradeToFit({ ...built, ownWords: [] });
+  const { sheet, stage, dropped, trace, overflows, overBudgetLines } = degradeToFit({
+    ...built,
+    ownWords: [],
+  });
   // §8.4's quotes go in LAST, into whatever room is left after the ranked content has settled —
   // see `fitOwnWords`. `built.ownWords` holds everything that earned the right to print; this
   // decides how much of it the page can afford, and a sheet already at the budget affords none.
@@ -261,6 +264,11 @@ export function buildResumeRenderInput(
     degradationStage: stage,
     degradationDropped: dropped,
     degradationTrace: trace,
+    // MEASURED BEFORE THE QUOTES GO IN, and that is the right moment. `fitOwnWords` only adds a
+    // phrase while it fits, so it can never turn a one-page sheet into a spill; an overflow
+    // reported here is one the ranked content caused, which is the only kind the ruling is about.
+    degradationOverflows: overflows,
+    degradationOverBudgetLines: overBudgetLines,
   };
 }
 
