@@ -67,7 +67,7 @@ export interface GenerateResumeInput {
  *              render that simply produced no PDF, because on that path the processor RETURNS
  *              rather than throws, so BullMQ completes the job on its first attempt, the
  *              final-attempt branches that would write 'failed' never run, and nothing retries
- *              (tracked separately; this endpoint reports the row, it does not fix it).
+ *              (#1399; this endpoint reports the row, it does not fix it).
  *              `document` may still be non-null and STALE here: the manual-generate overwrite
  *              resets the status and the PDF key but deliberately leaves the previous document
  *              in place, which is why `rendered_at` — reset to null by that same write — is
