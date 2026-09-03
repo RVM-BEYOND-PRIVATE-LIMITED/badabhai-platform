@@ -17,6 +17,7 @@ import 'package:badabhai_worker_app/core/auth/secure_token_store.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
+import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cubit.dart';
 import 'package:badabhai_worker_app/router.dart';
 
 import '../../core/auth/fakes.dart';
@@ -123,9 +124,18 @@ void main() {
   setUp(() {
     // A roomy canvas so the keypad + dots never clip under the test fallback font.
     // (Re-applied per test via tester.view.)
+    // MockApiClient.getResumeDocument() deliberately always answers
+    // `document: null` (see its own doc) — collapsed to a single attempt so
+    // a route that lands on the Resume tab does not leave a real pending
+    // Timer past this test's fixed pump sequence (see
+    // ResumeCubit.documentPollInterval's own doc).
+    ResumeCubit.documentPollMaxAttempts = 1;
+    ResumeCubit.documentPollInterval = Duration.zero;
   });
 
   tearDown(() async {
+    ResumeCubit.documentPollMaxAttempts = 6;
+    ResumeCubit.documentPollInterval = const Duration(seconds: 2);
     await locator.reset();
   });
 

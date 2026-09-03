@@ -121,6 +121,19 @@ void main() {
   });
 
   group('ResumePreviewScreen — format switch, never blank on document: null (#1343)', () {
+    // `document: null` is exercised deliberately below. Collapsed to a
+    // single attempt (matches the pre-retry behaviour exactly) — a real
+    // retry would leave a pending Timer past this file's fixed pump counts
+    // and trip the widget-test binding's `!timersPending` assertion.
+    setUpAll(() {
+      ResumeCubit.documentPollMaxAttempts = 1;
+      ResumeCubit.documentPollInterval = Duration.zero;
+    });
+    tearDownAll(() {
+      ResumeCubit.documentPollMaxAttempts = 6;
+      ResumeCubit.documentPollInterval = const Duration(seconds: 2);
+    });
+
     late MockResumeRepository repo;
     late MockResumeEditRepository editRepo;
 
