@@ -245,3 +245,191 @@ understating what the matcher already answers.
 so — or it means "no unratified *phrasing* resolves", in which case the bare-token patterns are
 themselves the thing to re-examine. Picking one is settling an open ruling by default, which the
 build rules forbid. R5 in the worksheet now states the divergence and leaves it open.
+
+---
+
+## P-008 · A shipped console is documented as unshippable, and the docblock invites rebuilding it
+
+**Found:** 2026-09-03, PX scoping
+**Location:** [apps/api/src/admin/admin-skill-discovery.controller.ts](apps/api/src/admin/admin-skill-discovery.controller.ts) lines 98-103
+**Severity:** low as a fact, high as a trap
+
+**What it says.** The controller docblock states that `apps/admin-web`'s `ADMIN_CAPABILITIES` +
+exhaustive `CAPABILITY_LABELS` is Frontend Platform's file and that _"until that lands, the
+console has a capability it cannot label, so the review UI cannot ship even though this route
+can. That needs a Frontend issue, not a backend edit."_
+
+**What is true at HEAD `6d1d979e`.** It landed. `review_skill_candidates` is present and
+labelled — [apps/admin-web/src/lib/auth/capabilities.ts](apps/admin-web/src/lib/auth/capabilities.ts)
+lines 50 and 83 (`"Decide skill-discovery candidates"`) — and the console shipped in full:
+`apps/admin-web/src/app/(portal)/skills/discovery/` holds `page.tsx`, `filter-bar.tsx`,
+`loading.tsx`, `page.render.test.tsx`, and its `[id]/` folder holds `page.tsx`,
+`decision-panel.tsx`, `actions.ts`, `actions.test.ts` and its own render test.
+
+**Why it matters more than a stale comment usually would.** It is load-bearing in the wrong
+direction. Any agent scoping work against this surface reads "the review UI cannot ship",
+concludes the review screen is missing, and builds one. `docs/agent/phases/PX_BUILD.md` line 12
+forbids exactly that — _"Do not build a second review screen"_ — and `PX_CHECK.md` line 15 fails
+a phase for it. So the docblock converts a check item that is already PASS into a FAIL, and
+costs a build nobody wanted.
+
+**Not fixed because:** it is a comment in a file this phase does not own a reason to touch, and
+the honest correction also wants a line about what the console now does — a documentation pass
+on the admin surface, not a one-word edit inside a scoping task.
+
+---
+
+## P-009 · The discovery reader ignores `unresolved_phrase.scope`, so occupation misses leak into the skill queue
+
+**Found:** 2026-09-03, PX scoping
+**Location:** [packages/db/src/discover-skills.ts](packages/db/src/discover-skills.ts) lines 384-387
+**Severity:** correctness — it silently undoes the separation 0072 was written to create
+
+**What happens.** The reader selects `id`, `phrase` and `job_domain_id` from `unresolved_phrase`
+with a single predicate, `status = 'open'`. There is no `scope` predicate.
+
+`scope` was added by
+[0072_unresolved_phrase_scope.sql](packages/db/migrations/0072_unresolved_phrase_scope.sql)
+line 49, with a CHECK restricting it to the two values `skill` and `occupation`, and a
+scope-aware unique index at line 47 — precisely so the two queues stay distinct. Every
+occupation-scope miss therefore arrives in the SKILL discovery corpus as if it were a skill
+phrase.
+
+**Why it matters now.** The owner ruled on 2026-09-03 that PX writes `skill_alias` only, and
+that occupation vernacular is never a source for `skill_alias` — the directional rule. This
+query is the one place that rule is not enforced in code: it is the seam through which
+occupation language reaches the skill side.
+
+**A second defect in the same three lines.** `unresolved_phrase.count` is the authoritative
+observation counter — `packages/db/src/schema/skill.ts` line 271, incremented atomically on
+conflict — and it is **not selected**. Downstream, occurrences are recomputed as source-row
+multiplicity, so a phrase forty workers said is indistinguishable from one said once.
+`PX_BUILD.md` line 7 asks for exactly this count.
+
+**Not fixed because:** adding the predicate changes which phrases become candidates, which
+changes a run's `input_fingerprint` and every count derived from it. That wants its own measured
+change with a before-and-after dry run, not a one-line edit inside a scoping task.
+
+---
+
+## P-010 · The consonant-skeleton fold is banned from merging and trusted to silently drop
+
+**Found:** 2026-09-03, PX scoping
+**Location:** [packages/db/src/skill-discovery-match.ts](packages/db/src/skill-discovery-match.ts)
+lines 233-243 (the emit), 274-276 (`isAlreadyCovered`), 322-356 (`MERGE_RELATIONS`), and
+[packages/db/src/skill-discovery-plan.ts](packages/db/src/skill-discovery-plan.ts) line 707
+(`needsDecision`)
+**Severity:** silent — the failure produces no row, no error and no queue entry
+
+**The contradiction, in one file.** A consonant-skeleton collision emits the relation
+`skeleton_surface` with a pinned `SKELETON_SURFACE_SCORE = 0.95` and strength `strong`.
+`isAlreadyCovered` returns true for that relation, the disposition becomes
+`covered_by_existing_skill`, and `needsDecision` returns **false** for that disposition — so the
+phrase never becomes a candidate, never reaches a reviewer, and never lands in
+`unresolved_phrase`. It is simply gone.
+
+One hundred lines lower, the **same fold** is removed from `MERGE_RELATIONS`, with the
+measurement written into the comment: `skeletonKey` drops every interior vowel, so `pile`,
+`pool` and `ply` all reduce to `pl` — producing one cluster holding _"pile-driver operator"_,
+_"swimming pool cleaner"_ and _"ply bander"_ — and `battery` landed beside `butter`. The rung's
+own docblock says it _"GENERATES candidates for L2/L3 to score rather than deciding anything."_
+
+So the same evidence is judged too weak to **merge** two phrases and strong enough to **discard**
+one unseen. Both cannot be right.
+
+**Why a confidence floor cannot catch it.** The drop happens on RELATION, before any number is
+consulted, and the score is pinned rather than measured, so it clears any floor by construction.
+This is the one path in the pipeline where a phrase is lost without a human ever being asked,
+and it is structurally invisible to the mechanism `PX_BUILD.md` line 16 proposes against it.
+
+**Not fixed because:** the fix is a judgement about which side of the contradiction is right —
+demote `skeleton_surface` to weak evidence so it reaches a reviewer, or keep the drop and justify
+the asymmetry. Both change what a run produces, and the second needs the measurement the
+merge-side comment already has and the drop-side does not.
+
+---
+
+## P-011 · Two consumers share one `unresolved_phrase` queue and starve each other with no watermark
+
+**Found:** 2026-09-03, PX scoping
+**Location:** [packages/db/src/discover-skills.ts](packages/db/src/discover-skills.ts) line 386
+and [packages/db/src/growth-cluster.ts](packages/db/src/growth-cluster.ts) lines 26 and 31
+**Severity:** low today, and it gets worse with each consumer added
+
+**What happens.** Both runners read `unresolved_phrase` filtered on `status = 'open'`, and
+`db:growth:cluster --apply` moves the member rows of emitted proposals from `open` to
+`clustered`. Those rows then fall out of `discover-skills`'s predicate. Whichever runner applies
+first removes work from the other — with no error, no log on the losing side, and nothing
+recording that the second consumer saw a smaller queue than the first.
+
+`--reopen-clustered` exists and moves everything back, but that is a recovery for rejected
+proposals rather than coordination: running it un-starves discovery by also undoing growth's
+bookkeeping.
+
+**Why it is worth recording now.** `status` is being used as two things at once — a per-row
+lifecycle, and a per-consumer read watermark. It works while there is one consumer and degrades
+quietly with each addition. Any PX work that reads this queue would be the third.
+
+**Not fixed because:** the fix is a per-consumer watermark or a consumption-log table — a schema
+change plus a migration on a queue two shipped runners already depend on. That is a design
+decision with an owner, not a fix to make inside a scoping task.
+
+---
+
+## P-012 · Should the discovery batch matcher be domain-scoped? An owner ruling, and it needs a measurement first
+
+**Found:** 2026-09-03, PX scoping. Raised by owner ruling ④ (§24 means domain-scoped only).
+**Location:** [packages/db/src/skill-discovery-match.ts](packages/db/src/skill-discovery-match.ts)
+line 214 (`matchExistingSkills`) and
+[packages/db/src/discover-skills.ts](packages/db/src/discover-skills.ts) lines 135-141
+(`EXISTING_SKILL_SQL`)
+**Severity:** not a bug — an inconsistency between a ruling and one layer, with a real cost either way
+
+**The inconsistency.** At runtime, skill search is scope-REFUSING: the repository signature makes
+"neither scope" unrepresentable and the request 400s if a scope is missing or doubled, and the
+ai-service refuses again before spending an embed. In DISCOVERY, matching is GLOBAL-only:
+
+```
+matchExistingSkills(normalized, index, limit = 5)     // no domain parameter
+EXISTING_SKILL_SQL: FROM skill s LEFT JOIN skill_alias a ...
+                    WHERE s.status <> 'deprecated'    // no domain join
+```
+
+Under ruling ④ — domain-scoped only, the global tier retracted — the batch matcher is the one
+place in the system inconsistent with the ruling.
+
+**Why this is a ruling and not a build.** Scoping it is not a post-filter. The match result feeds
+`disposition`, `proposeAction`, `confidenceBand` and `confidenceValue`
+([skill-discovery-plan.ts](packages/db/src/skill-discovery-plan.ts)), so restricting the candidate
+set changes **which phrases become candidates at all** — not merely how they are ranked. A phrase
+whose true match lives in a domain it was not observed in stops being `covered_by_existing_skill`
+and starts being a proposed new skill, which is the direction that mints duplicates.
+
+**THE FIGURE EVERYONE WILL QUOTE IS A DOCUMENTATION CLAIM, NOT A MEASUREMENT.** The number that
+makes this decision look obvious — that roughly **28 of 3,885** active job domains carry any
+`job_domain_skill` edge — appears at
+[docs/architecture/project-control.md](docs/architecture/project-control.md) line 191 and
+[docs/architecture/project-status.md](docs/architecture/project-status.md) lines 41 and 527. It is
+marked VERIFIED and attributed to a probe, but it is a **recorded result from a past run**, not
+something re-measured for this park, and the surrounding table dates from a catalog version stamped
+2026-08-07. **Nobody should act on it until it is re-measured.** If it is still near right, naive
+domain-first matching over the discovery corpus returns nothing for the overwhelming majority of
+trades — which would make scoping the matcher actively harmful rather than merely expensive. If it
+has moved, the whole calculation changes.
+
+**The measurement this needs, before any code.** Three read-only things, in order:
+
+1. Re-run the coverage probe already written down at `project-control.md` line 187-191 — the
+   `count(*) FILTER (WHERE EXISTS ...)` over `job_domain` — and record the date and the SHA.
+2. Count how many rows in the discovery corpus carry a `job_domain_id` at all. A phrase with no
+   domain cannot be domain-scoped, and `unresolved_phrase.job_domain_id` is nullable, so the
+   answer bounds how much of the corpus the change could even reach.
+3. A before-and-after **dry run** of `discover-skills` with and without scoping, comparing
+   candidate counts and the disposition histogram — `covered_by_existing_skill` versus
+   `alias_opportunity` versus proposed-new. The runner is dry-run by default and asserted to
+   contain no mutation verb, so this costs nothing but time.
+
+**Not fixed because:** ruling ④ settled what §24 means; it did not rule on whether the batch
+matcher must follow the runtime, and those are different questions. Answering the second by
+inference from the first is settling a ruling by default. The three measurements above are what
+would let the owner answer it on evidence rather than on the shape of the argument.
