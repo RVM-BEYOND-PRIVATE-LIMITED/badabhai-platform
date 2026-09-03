@@ -35,15 +35,16 @@ bool _chipSelected(WidgetTester tester, String label) {
 TradeFormProgressBar _progressBar(WidgetTester tester) =>
     tester.widget<TradeFormProgressBar>(find.byType(TradeFormProgressBar));
 
-/// #1384 item 2 — the preferences marker is now FOUR internal pages
-/// (languages+documents / shift+jobType+cities / relocate+accommodation+
-/// salary / education), each walked via its own "Aage badhein" tap; only the
-/// FOURTH tap (on the last internal page) actually calls
-/// `TradeFormCubit.savePreferencesAndAdvance` and moves the OUTER walk.
-/// Every test that used to reach/save the preferences marker in one tap
-/// drives all four here instead of duplicating this four-tap sequence.
+/// The preferences marker is now SIX internal pages (languages+documents /
+/// shift / jobType / cities / relocate+accommodation+salary / education —
+/// shift, jobType and cities split from one shared page into three so a
+/// worker faces one question at a time), each walked via its own "Aage
+/// badhein" tap; only the LAST tap (on the last internal page) actually
+/// calls `TradeFormCubit.savePreferencesAndAdvance` and moves the OUTER
+/// walk. Every test that used to reach/save the preferences marker in one
+/// tap drives all six here instead of duplicating this sequence.
 Future<void> _walkThroughPreferencesPages(WidgetTester tester) async {
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < 6; i++) {
     await tester.ensureVisible(find.text('Aage badhein'));
     await tester.tap(find.text('Aage badhein'));
     await tester.pumpAndSettle();
@@ -739,14 +740,14 @@ void main() {
 
       // Walking the preferences marker's OWN internal pages must not move
       // this OUTER bar either — it stays at 3/4 until the marker actually
-      // saves (the 4th internal-page tap).
+      // saves (the LAST internal-page tap).
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein')); // internal page 0 -> 1
       await tester.pumpAndSettle();
       expect(_progressBar(tester).answered, 3);
       expect(_progressBar(tester).total, 4);
 
-      for (int i = 0; i < 3; i++) {
+      for (int i = 0; i < 5; i++) {
         await tester.ensureVisible(find.text('Aage badhein'));
         await tester.tap(find.text('Aage badhein'));
         await tester.pumpAndSettle();
@@ -985,7 +986,7 @@ void main() {
       expect(_chipSelected(tester, 'Hindi'), isTrue);
 
       // Walk the marker's own internal pages (#1384 item 2) — only the
-      // FOURTH tap (the last internal page) actually saves.
+      // LAST tap (the last internal page) actually saves.
       await _walkThroughPreferencesPages(tester);
       final TradeFormPreferences sent = verify(
               () => repo.savePreferences(captureAny()))
@@ -1048,12 +1049,24 @@ void main() {
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
 
-      // Page 1 (shift + job type + cities).
+      // Page 1 (shift) — its own page.
       expect(find.text('Day'), findsOneWidget);
       await tester.tap(find.text('Day'));
       await tester.pump();
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+
+      // Page 2 (job type) — its own page.
+      expect(find.text('Permanent'), findsOneWidget);
       await tester.tap(find.text('Permanent'));
       await tester.pump();
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+
+      // Page 3 (cities) — its own page.
+      expect(find.text('Kahan kaam karna chahte hain?'), findsOneWidget);
       await tester.enterText(find.byType(TextField).first, 'Faridabad');
       await tester.tap(find.text('+'));
       await tester.pump();
@@ -1061,13 +1074,13 @@ void main() {
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
 
-      // Page 2 (relocate + accommodation + salary) — untouched, all optional.
+      // Page 4 (relocate + accommodation + salary) — untouched, all optional.
       expect(find.text('Doosre sheher ja sakte hain?'), findsOneWidget);
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
 
-      // Page 3 (education) — the LAST internal page; this tap actually saves.
+      // Page 5 (education) — the LAST internal page; this tap actually saves.
       expect(find.text('Institute ka naam'), findsOneWidget);
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein'));
@@ -1078,10 +1091,10 @@ void main() {
           .captured
           .single as TradeFormPreferences;
       // Fields entered on page 0 (the EARLIEST page) — the whole point of
-      // this test — survived three MORE internal-page transitions.
+      // this test — survived several MORE internal-page transitions.
       expect(sent.languages, <String>{'hindi'});
       expect(sent.documentsReady, <String>{'aadhaar'});
-      // Fields entered on page 1 also made it through.
+      // Fields entered on pages 1-3 also made it through.
       expect(sent.shift, 'day');
       expect(sent.jobType, 'permanent');
       expect(sent.preferredCities, <String>['Faridabad']);
@@ -1117,9 +1130,9 @@ void main() {
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
 
-      // Now on page 1 (shift + job type + cities) — the outer step never
-      // moved (still the preferences marker), so "Wapas" must go back to
-      // page 0, NOT pop the whole screen or walk to a previous question.
+      // Now on page 1 (shift) — the outer step never moved (still the
+      // preferences marker), so "Wapas" must go back to page 0, NOT pop
+      // the whole screen or walk to a previous question.
       expect(find.text('Day'), findsOneWidget);
       await tester.tap(find.byTooltip('Wapas'));
       await tester.pumpAndSettle();

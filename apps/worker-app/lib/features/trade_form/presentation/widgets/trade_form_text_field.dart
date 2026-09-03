@@ -23,6 +23,7 @@ class TradeFormTextField extends StatelessWidget {
     this.keyboardType,
     this.maxLength,
     this.maxLines = 1,
+    this.errorText,
   });
 
   final TextEditingController controller;
@@ -34,6 +35,11 @@ class TradeFormTextField extends StatelessWidget {
   final TextInputType? keyboardType;
   final int? maxLength;
   final int maxLines;
+
+  /// Inline validation message shown under the field, in place of the
+  /// hint/counter — e.g. a "kis saal" year field rejecting a future year.
+  /// Null (the default) renders exactly as before.
+  final String? errorText;
 
   @override
   Widget build(BuildContext context) {
@@ -51,11 +57,14 @@ class TradeFormTextField extends StatelessWidget {
         style: AppTypography.body(size: AppTypography.sizeBase),
         decoration: InputDecoration(
           hintText: hint,
+          errorText: errorText,
           filled: true,
           fillColor: AppColors.surfaceCard,
           counterText: maxLength == null ? null : '',
           hintStyle: AppTypography.body(
               size: AppTypography.sizeBase, color: AppColors.textFaint),
+          errorStyle: AppTypography.body(
+              size: AppTypography.sizeXs, color: AppColors.danger),
           contentPadding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.s3, vertical: AppSpacing.s3),
           enabledBorder: OutlineInputBorder(
@@ -65,6 +74,14 @@ class TradeFormTextField extends StatelessWidget {
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(AppRadii.md),
             borderSide: const BorderSide(color: AppColors.blue, width: 1.5),
+          ),
+          errorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            borderSide: const BorderSide(color: AppColors.danger, width: 1.5),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(AppRadii.md),
+            borderSide: const BorderSide(color: AppColors.danger, width: 1.5),
           ),
         ),
       ),
