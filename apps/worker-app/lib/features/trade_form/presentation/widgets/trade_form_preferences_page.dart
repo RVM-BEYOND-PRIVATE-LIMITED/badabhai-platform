@@ -17,6 +17,7 @@ const String _kDocLabel = 'Kaun se document taiyaar hain?';
 const String _kShiftLabel = 'Shift';
 const String _kJobTypeLabel = 'Naukri ka type';
 const String _kCitiesLabel = 'Kahan kaam karna chahte hain?';
+const String _kCitiesSubtitle = 'Zyada se zyada 5 sheher jod sakte hain.';
 const String _kCityHint = 'Sheher ka naam likhein';
 const String _kRelocateLabel = 'Doosre sheher ja sakte hain?';
 const String _kAccommodationLabel = 'Rehne ki jagah chahiye?';
@@ -310,47 +311,71 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   }
 
   Widget _citiesPage() {
+    final bool atCityCap =
+        _prefs.preferredCities.length >= kTradeFormMaxPreferredCities;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         _label(_kCitiesLabel),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Expanded(
-              child: TradeFormTextField(
-                controller: _city,
-                hint: _kCityHint,
-                textInputAction: TextInputAction.done,
-                onSubmitted: (_) => _addCity(),
+        Text(_kCitiesSubtitle,
+            style: AppTypography.body(
+                size: AppTypography.sizeSm, color: AppColors.textMuted)),
+        const SizedBox(height: AppSpacing.s3),
+        // The add row itself IS this section's "add another" affordance —
+        // there's no per-city card to hide, so the row disappears at the
+        // cap, same convention as `kTradeFormMaxCertificates`/
+        // `kTradeFormMaxEducations`'s add button.
+        if (!atCityCap)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Expanded(
+                child: TradeFormTextField(
+                  controller: _city,
+                  hint: _kCityHint,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _addCity(),
+                ),
               ),
-            ),
-            const SizedBox(width: AppSpacing.s2),
-            BbButton(
-              label: '+',
-              variant: BbButtonVariant.secondary,
-              size: BbButtonSize.md,
-              onPressed: _addCity,
-            ),
-          ],
-        ),
+              const SizedBox(width: AppSpacing.s2),
+              BbButton(
+                label: '+',
+                variant: BbButtonVariant.secondary,
+                size: BbButtonSize.md,
+                onPressed: _addCity,
+              ),
+            ],
+          ),
         if (_prefs.preferredCities.isNotEmpty) ...<Widget>[
           const SizedBox(height: AppSpacing.s3),
-          Wrap(
-            spacing: AppSpacing.s2,
-            runSpacing: AppSpacing.s2,
-            children: <Widget>[
-              for (final String c in _prefs.preferredCities)
-                BbChip(
-                  label: c,
-                  selected: true,
-                  icon: Icons.close,
-                  onTap: () => setState(() => _prefs = _prefs.copyWith(
-                      preferredCities: _prefs.preferredCities
-                          .where((String x) => x != c)
-                          .toList())),
-                ),
-            ],
+          // Horizontal `ListView.builder`, not a `Wrap` — a picked-cities row
+          // scrolls sideways instead of stacking to a second line, so it
+          // reads the same as every other horizontally-scrolling chip row in
+          // the app (the job feed's header filters).
+          SizedBox(
+            height: AppSpacing.tap,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _prefs.preferredCities.length,
+              itemBuilder: (BuildContext context, int index) {
+                final String c = _prefs.preferredCities[index];
+                final bool isLast =
+                    index == _prefs.preferredCities.length - 1;
+                return Padding(
+                  padding: EdgeInsets.only(
+                      right: isLast ? 0 : AppSpacing.s2),
+                  child: BbChip(
+                    label: c,
+                    selected: true,
+                    icon: Icons.close,
+                    onTap: () => setState(() => _prefs = _prefs.copyWith(
+                        preferredCities: _prefs.preferredCities
+                            .where((String x) => x != c)
+                            .toList())),
+                  ),
+                );
+              },
+            ),
           ),
         ],
       ],
@@ -436,6 +461,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   void _addCity() {
     final String value = _city.text.trim();
     if (value.isEmpty) return;
+    if (_prefs.preferredCities.length >= kTradeFormMaxPreferredCities) return;
     final bool exists = _prefs.preferredCities
         .any((String c) => c.toLowerCase() == value.toLowerCase());
     if (!exists) {

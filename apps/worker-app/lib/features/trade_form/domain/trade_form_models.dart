@@ -275,6 +275,12 @@ class TradeFormAnswerResult extends Equatable {
 /// (`roles[]`) capture, matching the gap `finishing/` has today — a follow-up,
 /// not a blocker.
 
+/// Server cap (`preferredCities`'s `.max(5)` in `worker-preferences.dto.ts`)
+/// — a plain client-side bound so the city-add row disappears before a
+/// submit could ever be rejected, same convention as
+/// `kTradeFormMaxCertificates`/`kTradeFormMaxEducations`.
+const int kTradeFormMaxPreferredCities = 5;
+
 /// The closed-set preferences a worker sets on a `preferences` marker screen.
 class TradeFormPreferences extends Equatable {
   const TradeFormPreferences({
