@@ -205,3 +205,43 @@ regression to whoever sees it in CI.
 silence a red test is exactly the move that needs a deliberate decision rather than a
 drive-by edit inside a cleanup. Raise it when it next bites, not now. Do **not** address this
 by weakening what the test asserts.
+
+---
+
+## P-007 · ADR-0030 §7 gate (d) says zero unratified vernacular ships active — three phrases do
+
+**Found:** 2026-09-02, P0 fix pass, correcting defect 4 of `docs/qa/evidence/P0/VERDICT.md`
+**Location:** [apps/ai-service/app/profiling/signals.py](apps/ai-service/app/profiling/signals.py)
+— the TAX-WELD-1 header comment and the two bare `welding` / `welder` entries in `_WELDING_RE`
+**Severity:** not a matching bug — a record-versus-behaviour divergence in a ratification gate
+
+**What the record says.** The TAX-WELD-1 header states _"ZERO unratified Hinglish/vernacular
+alias ships active… Any further vernacular ('welding karta hun', 'welding wala kaam', 'gas wali
+welding') needs RVM ratification (ADR-0030 §7 gate (d)) and is NOT here."_ Only
+`welding ka kaam` is ratified, via the 2026-07-16 wedge packet.
+
+**What the matcher does.** All three of those phrases resolve today. Measured by the P0 checker
+against `_WELDING_RE` (this pass did not re-run it — see the VERDICT for the executed command):
+
+```
+'welding karta hun'   -> ['skill_welder_occupation']
+'welding wala kaam'   -> ['skill_welder_occupation']
+'gas wali welding'    -> ['skill_welder_occupation']
+'main fitter hun'     -> NO MATCH          <-- negative control, so the check is not vacuous
+```
+
+They match incidentally: each contains the bare English token, and `{'source': 'welding'}` /
+`{'source': 'welder'}` are word-bounded patterns already active. The header says as much itself
+— the vernacular _"is covered by the plain 'welding' keyword."_
+
+**Why it is worth recording.** The gate's guarantee is about aliases; the observable behaviour is
+about phrases. Those are not the same claim, and the sheet's own R5 block was, until this pass,
+offering the CEO a recall gain for ratifying phrases that already resolve. The same shape will
+recur for any trade whose vernacular embeds the English token — the ratified list will keep
+understating what the matcher already answers.
+
+**Not fixed because:** the fix is a ruling, not an edit. Either gate (d) means "no unratified
+*alias entry* is active" — in which case the record is correct and the header wording should say
+so — or it means "no unratified *phrasing* resolves", in which case the bare-token patterns are
+themselves the thing to re-examine. Picking one is settling an open ruling by default, which the
+build rules forbid. R5 in the worksheet now states the divergence and leaves it open.
