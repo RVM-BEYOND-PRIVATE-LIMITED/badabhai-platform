@@ -27,6 +27,7 @@ import 'package:badabhai_worker_app/core/auth/secure_token_store.dart';
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/notifications/data/notification_read_store.dart';
+import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cubit.dart';
 
 import '../../core/auth/fakes.dart';
 
@@ -56,9 +57,18 @@ void main() {
     // transition to loggedOut, without awaiting mock latency inside the test.
     await auth.verifyOtp('+919876500000', '123456'); // new mock user → locked
     await auth.setPin('1234'); // → authenticated
+    // MockApiClient.getResumeDocument() deliberately always answers
+    // `document: null` (see its own doc) — collapsed to a single attempt so
+    // landing on the shell (Resume tab included) does not leave a real
+    // pending Timer past this test's fixed pump sequence (see
+    // ResumeCubit.documentPollInterval's own doc).
+    ResumeCubit.documentPollMaxAttempts = 1;
+    ResumeCubit.documentPollInterval = Duration.zero;
   });
 
   tearDown(() async {
+    ResumeCubit.documentPollMaxAttempts = 6;
+    ResumeCubit.documentPollInterval = const Duration(seconds: 2);
     await locator.reset();
   });
 

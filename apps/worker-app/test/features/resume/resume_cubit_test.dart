@@ -35,6 +35,20 @@ void main() {
     // #1343 — the ORDINARY answer (no structured document yet). Tests below
     // that care about a real document override this per-test.
     when(() => repo.loadResumeDocument()).thenAnswer((_) async => null);
+    // The default answer above is `null` on every call, which would
+    // otherwise run every retrying document fetch through its full real
+    // multi-second backoff on every single test in this file (see
+    // ResumeCubit.documentPollInterval's own doc for why the retry exists).
+    // Collapsed to a single attempt for the whole suite (matches the
+    // pre-retry behaviour exactly); restored in tearDown. A test that wants
+    // to exercise the retry itself overrides both back per-test.
+    ResumeCubit.documentPollMaxAttempts = 1;
+    ResumeCubit.documentPollInterval = Duration.zero;
+  });
+
+  tearDown(() {
+    ResumeCubit.documentPollMaxAttempts = 6;
+    ResumeCubit.documentPollInterval = const Duration(seconds: 2);
   });
 
   // bloc emits the first state even when it equals the initial `loading`.

@@ -100,9 +100,11 @@ class ResumeCubit extends Cubit<ResumeState> {
       }
       // Started together so the document fetch rides alongside the night-shift
       // fetch rather than doubling the wait — both are best-effort UPGRADES
-      // over the resume text already on screen.
+      // over the resume text already on screen. This is a FRESH generation
+      // (not a re-read of an existing resume), so the document is fetched
+      // WITH RETRY — see [_loadDocumentWithRetry].
       final Future<bool> nightShiftFuture = _loadNightShiftReady();
-      final Future<ResumeDocument?> documentFuture = _loadDocument();
+      final Future<ResumeDocument?> documentFuture = _loadDocumentWithRetry();
       final bool nightShiftReady = await nightShiftFuture;
       final ResumeDocument? document = await documentFuture;
       if (isClosed) return;
@@ -228,10 +230,12 @@ class ResumeCubit extends Cubit<ResumeState> {
       return;
     }
     // Show the text immediately; load the night-shift pref + the structured
-    // document in the background.
+    // document in the background. This hands off a JUST-generated resume
+    // (from the Building screen, right after trade-form/chat completion) —
+    // fetched WITH RETRY, see [_loadDocumentWithRetry].
     emit(ResumeState(status: ResumeStatus.ready, resumeText: text));
     final Future<bool> nightShiftFuture = _loadNightShiftReady();
-    final Future<ResumeDocument?> documentFuture = _loadDocument();
+    final Future<ResumeDocument?> documentFuture = _loadDocumentWithRetry();
     final bool nightShiftReady = await nightShiftFuture;
     final ResumeDocument? document = await documentFuture;
     if (isClosed) return;
@@ -287,6 +291,47 @@ class ResumeCubit extends Cubit<ResumeState> {
     }
   }
 
+  /// How many times [_loadDocumentWithRetry] re-checks a `null` document
+  /// before giving up, and how long it waits between checks. `GET
+  /// /resume/document` reads a STORED column (`resumeDocument`) that only a
+  /// server-side async render job writes — the write that triggered this
+  /// load (a fresh generate, or a description-source change) only ENQUEUES
+  /// that job and returns immediately, so a null on the first check is
+  /// routinely just the job not having landed yet, not "no document exists".
+  /// A CEILING to catch the common case, not a tuned value — the real
+  /// number should come from measured render-job p50/p95 (see
+  /// [kProfileExtractWaitBudget]'s own doc for the same caveat on the same
+  /// shape of problem). The principled fix is the server exposing
+  /// `render_status` on this response so the client polls a real signal
+  /// instead of blind-retrying a fixed count; raised as an issue.
+  /// Mutable (not `const`), matching the same test-seam shape as
+  /// `AppTypography.bundledBrandFonts` — a widget/bloc test sets
+  /// [documentPollInterval] to `Duration.zero` (restored in `tearDown`) so
+  /// the whole suite does not sit through real multi-second delays every
+  /// time a test's mock happens to answer the default `null`.
+  static int documentPollMaxAttempts = 6;
+  static Duration documentPollInterval = const Duration(seconds: 2);
+
+  /// [_loadDocument], retried on a `null` result — worst case adds ~10s
+  /// (5 waits × 2s) before accepting null as final. Stops the instant a
+  /// non-null document arrives. See [documentPollMaxAttempts]'s doc for why
+  /// this exists: without it, a worker who just finished the trade form (or
+  /// just changed a description source) can land on the Resume tab before
+  /// the async render job has written the document at all, and see a thin
+  /// generic-text fallback instead of the real trade-sheet content until
+  /// their next tab-focus or app restart happens to land after the job.
+  Future<ResumeDocument?> _loadDocumentWithRetry() async {
+    for (int attempt = 0; attempt < documentPollMaxAttempts; attempt++) {
+      final ResumeDocument? document = await _loadDocument();
+      if (document != null) return document;
+      if (isClosed) return null;
+      if (attempt < documentPollMaxAttempts - 1) {
+        await Future<void>.delayed(documentPollInterval);
+      }
+    }
+    return null;
+  }
+
   /// Resolves a short-lived signed url for the resume PDF, or null if it could
   /// not be fetched (the screen then shows a user-safe message). Does NOT change
   /// [ResumeState] — the resume is already shown; this is a side action. The url
@@ -324,7 +369,11 @@ class ResumeCubit extends Cubit<ResumeState> {
   }) async {
     await _repo.setEmploymentDescriptionSource(employmentId, ownWords: ownWords);
     if (isClosed) return;
-    final ResumeDocument? reloaded = await _loadDocument();
+    // This write ALSO enqueues an async re-render (same
+    // `RESUME_RENDER_QUEUE` the initial generate does — see
+    // `worker-employment.service.ts`'s `setDescriptionSource`), so the same
+    // race [_loadDocumentWithRetry] guards against applies here too.
+    final ResumeDocument? reloaded = await _loadDocumentWithRetry();
     if (isClosed) return;
     emit(ResumeState(
       status: state.status,
