@@ -313,9 +313,26 @@ export class ResumeService {
   }
 
   /**
-   * Enqueue the async PDF render (refs only, no PII). A queue failure must not
-   * fail generation — log a warning and leave render_status 'pending' (a later
-   * regenerate/retry can re-enqueue).
+   * Enqueue the async PDF render (refs only, no PII). A queue failure must not fail
+   * generation — the resume TEXT is already written and already paid for, and losing it over an
+   * unreachable Redis would be the worse outcome.
+   *
+   * #1399 — BUT IT NO LONGER LEAVES THE ROW 'pending'. It used to, on the reasoning that "a
+   * later regenerate/retry can re-enqueue"; there is no such retry. When `add` throws, NO JOB
+   * EXISTS, so nothing will ever move that row: it reports `pending` to `GET /resume/document`
+   * and 409s "still being rendered; please retry shortly" from `download`, both for a render
+   * that was never scheduled. 'pending' there is not a state, it is a lie the row tells forever.
+   *
+   * So mark it 'failed' — the honest terminal value, and the one that lets a client stop
+   * waiting. An ops regenerate is the recovery path, exactly as it is for a render that failed.
+   *
+   * ONLY IF THE ROW IS STILL 'pending', THOUGH. `saved` is not always the row this call just
+   * inserted: on the system auto-generate path `createInitial({overwrite:false})` returns the
+   * PRE-EXISTING row from its conflict branch, which may already be 'rendered' with a live PDF.
+   * Downgrading that would 409 a resume the worker could download a second ago — the TD77
+   * degrade-open rule — from the one path that never reaches the processor's guards. The
+   * predicate lives in the UPDATE (`markRenderFailedIfPending`) rather than a read here, because
+   * a read-then-write races a render that lands between the two.
    */
   private async enqueueRender(
     resumeId: string,
@@ -331,10 +348,22 @@ export class ResumeService {
       });
     } catch (err) {
       this.logger.warn(
-        `could not enqueue resume render for ${resumeId}; leaving render_status pending (reason: ${
+        `could not enqueue resume render for ${resumeId}; marking render_status failed (reason: ${
           err instanceof Error ? err.message : String(err)
         })`,
       );
+      // ITS OWN try/catch, because the whole point of this method is that generation survives.
+      // Redis being down does not imply Postgres is, but if both are, the caller must still get
+      // their resume back rather than a 500 from the bookkeeping about it.
+      try {
+        await this.resumes.markRenderFailedIfPending(resumeId);
+      } catch (markErr) {
+        this.logger.error(
+          `could not mark resume ${resumeId} failed after an enqueue failure; it will sit at pending (reason: ${
+            markErr instanceof Error ? markErr.message : String(markErr)
+          })`,
+        );
+      }
     }
   }
 

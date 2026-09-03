@@ -30,9 +30,21 @@ import { RESUME_RENDER_QUEUE, type ResumeRenderJobData } from "../queue/queue.co
  * emitted on render completion — only the row's render_status flips.
  *
  * Render is degrade-to-null: renderer returns null when the kill-switch is off
- * or WeasyPrint is missing/failed. We only flip the row to 'failed' on the FINAL
- * BullMQ attempt (mirrors the voice processor's terminal-failure handling), so
- * transient issues get retried while the row stays 'pending'.
+ * or WeasyPrint is missing/failed. A no-PDF attempt RETHROWS so BullMQ retries, and the row's
+ * terminal state is decided on the FINAL attempt (mirrors the voice processor's terminal-failure
+ * handling) — so transient issues get retried while the row stays 'pending'.
+ *
+ * THE ONE EXCEPTION IS THE KILL-SWITCH, and it is not a "final attempt" rule: when
+ * RESUME_RENDER_ENABLED is off there is nothing to retry, so the terminal branches run on the
+ * FIRST attempt. The switch alone leaves the row 'pending'; a fail-closed erasure over an
+ * already-rendered row is marked 'failed' immediately, because erasure outranks the switch.
+ *
+ * THE RETRY IS THE `throw` IN THE no-PDF BLOCK, AND IT MUST STAY A THROW (#1399). BullMQ
+ * retries a job that rejects and retires one that returns, so replacing that throw with a
+ * `return` — which is what this code did until #1399 — does not merely skip a retry: it makes
+ * every terminal branch here unreachable on a 3-attempt queue, and every render failure ends as
+ * a row stuck at 'pending' forever. The kill-switch is the deliberate exception, because it is
+ * not a failure and will not have changed by attempt 2.
  */
 @Processor(RESUME_RENDER_QUEUE)
 export class ResumeRenderProcessor extends WorkerHost {
@@ -339,7 +351,40 @@ export class ResumeRenderProcessor extends WorkerHost {
     if (!pdf) {
       // No PDF this run (kill-switch off, binary missing, or render failed). Only
       // mark the row 'failed' on the FINAL attempt so retries can still succeed.
-      if (this.isFinalAttempt(job) && wasRendered && job.data.failClosed) {
+      //
+      // ── #1399: THIS BLOCK USED TO `return` UNCONDITIONALLY ──────────────────────────────
+      // …which silently disabled BOTH the retry and the failure it promises. Every terminal
+      // branch below is gated on `isFinalAttempt` — `attemptsMade + 1 >= attempts` — which is
+      // FALSE on attempt 1 of the queue's `attempts: 3`. So attempt 1 fell past all four
+      // branches to the return, BullMQ marked the job COMPLETE, no retry ever ran, and the row
+      // sat at 'pending' forever. A missing WeasyPrint binary, a render timeout, a
+      // FontResolutionError and a template throw were all laundered into "still rendering" —
+      // the state `GET /resume/document` reports as `pending` and `download` 409s as "please
+      // retry shortly", neither of which would ever change. The sentence at the top of this
+      // class ("transient issues get retried while the row stays 'pending'") described
+      // behaviour that did not exist.
+      //
+      // THROWING IS WHAT MAKES A RETRY HAPPEN: BullMQ retries a job that rejects and retires
+      // one that returns. So a non-final attempt now throws, and only the LAST attempt decides
+      // the row's terminal state — which is what the branches below were always written for.
+      const killSwitchOff = !this.config.RESUME_RENDER_ENABLED;
+
+      // THE KILL-SWITCH IS THE ONE NO-PDF OUTCOME THAT IS NOT A FAILURE, so it is the one that
+      // does not retry: the switch will still be off on attempt 2, and three futile renders per
+      // resume buys nothing but queue load. It keeps its carve-out below — the row stays
+      // 'pending', not 'failed'. Every other no-PDF outcome retries, per the owner's ruling.
+      //
+      // NOTE the interaction with fail-closed erasure: with the switch off we skip straight to
+      // the terminal branches, so a fail-closed re-render marks the row failed on attempt 1
+      // instead of after two futile retries. Erasure still outranks the kill-switch, and now
+      // does so faster.
+      if (!this.isFinalAttempt(job) && !killSwitchOff) {
+        // The id is an opaque uuid and is already logged on every branch below; no PII here.
+        throw new Error(`resume ${resumeId} produced no PDF; retrying`);
+      }
+
+      // ── TERMINAL. The branch ORDER is load-bearing; see each comment. ───────────────────
+      if (wasRendered && job.data.failClosed) {
         // TD77 REMOVE direction: the existing PDF embeds the face the worker asked us
         // to erase, so keeping it in service would keep serving erased PII (§2/DPDP).
         // Take it out of service — a 409 beats serving a removed face.
@@ -356,7 +401,7 @@ export class ResumeRenderProcessor extends WorkerHost {
         this.logger.warn(
           `resume ${resumeId} fail-closed re-render produced no PDF; marked failed rather than serve erased PII`,
         );
-      } else if (this.isFinalAttempt(job) && wasRendered) {
+      } else if (wasRendered) {
         // TD77: a FORCED re-render over an ALREADY-GOOD PDF failed. That PDF is
         // still in storage and still valid, so the row must STAY 'rendered' —
         // marking it 'failed' would 409 a resume the worker could download a second
@@ -366,13 +411,19 @@ export class ResumeRenderProcessor extends WorkerHost {
         this.logger.warn(
           `resume ${resumeId} forced re-render produced no PDF; keeping the existing rendered PDF`,
         );
-      } else if (this.isFinalAttempt(job) && !this.config.RESUME_RENDER_ENABLED) {
+      } else if (killSwitchOff) {
         // Kill-switch off is an expected steady state, not a failure: leave the row
         // 'pending' so it renders once rendering is enabled, rather than marking it failed.
+        //
+        // NOTHING RE-ENQUEUES THESE ROWS when the switch is turned back on — "so it renders
+        // once rendering is enabled" describes an intent, not a mechanism. They wait for the
+        // next event that forces a re-render (a photo, preference, credential or work-history
+        // change) or an ops regenerate. Left as-is deliberately: #1399 was scoped with no
+        // backfill.
         this.logger.log(
           `resume ${resumeId} not rendered (render disabled); leaving status pending`,
         );
-      } else if (this.isFinalAttempt(job)) {
+      } else {
         await this.resumes.markRenderFailed(resumeId);
         this.logger.warn(`resume ${resumeId} render failed after final attempt; marked failed`);
       }

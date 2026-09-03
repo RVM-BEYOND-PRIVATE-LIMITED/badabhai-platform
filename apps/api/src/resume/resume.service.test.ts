@@ -96,6 +96,14 @@ function setup(
     })),
     // findById backs getById/download/regenerate/recordShare; tests override it.
     findById: vi.fn(async (_id: string) => undefined as Record<string, unknown> | undefined),
+    // #1399 — enqueueRender marks the row failed when the queue add throws. Without these on the
+    // fake, that call raised a TypeError that the method's own inner catch swallowed, so the
+    // enqueue-failure test passed while asserting nothing about the row.
+    //
+    // BOTH are stubbed on purpose: the service must use the status-GUARDED one, and the
+    // unguarded sibling is here only so a test can assert it is never reached.
+    markRenderFailedIfPending: vi.fn(async (_id: string) => undefined),
+    markRenderFailed: vi.fn(async (_id: string) => undefined),
   };
   const events = {
     emit: vi.fn(async (params: { event_name: string; payload: Record<string, unknown> }) => params),
@@ -412,6 +420,41 @@ describe("ResumeService — TD5 rate-limit, events, and render enqueue", () => {
     const { svc, renderQueue } = setup(null);
     renderQueue.add.mockRejectedValue(new Error("redis down"));
     const out = await svc.generate(DTO, CTX); // must NOT throw
+    expect(out.resume_id).toBe("res-1");
+  });
+
+  /**
+   * #1399 — the enqueue swallow was the SECOND way a row parked at 'pending' forever, and the
+   * one with no job behind it at all. `add` throwing meant nothing was ever scheduled, so the
+   * row's 'pending' was not a state but a permanent misreport: `GET /resume/document` polls it
+   * and `download` 409s "please retry shortly" for a render that was never queued.
+   */
+  it("a render-enqueue failure marks the row FAILED — 'pending' with no job is a lie", async () => {
+    const { svc, renderQueue, resumes } = setup(null);
+    renderQueue.add.mockRejectedValue(new Error("redis down"));
+    await svc.generate(DTO, CTX);
+    expect(resumes.markRenderFailedIfPending).toHaveBeenCalledWith("res-1");
+  });
+
+  it("uses the status-GUARDED write, never the unconditional one — TD77 degrade-open", async () => {
+    // `saved` is not always the row we just inserted: on the system auto-generate path
+    // `createInitial({overwrite:false})` returns the PRE-EXISTING row from its conflict branch,
+    // which may already be 'rendered' with a live PDF. The unguarded `markRenderFailed` would
+    // 409 that resume permanently, with no job left to repair it — this endpoint never reaches
+    // the processor's `wasRendered` guards, so the predicate has to be in the UPDATE.
+    const { svc, renderQueue, resumes } = setup(null);
+    renderQueue.add.mockRejectedValue(new Error("redis down"));
+    await svc.generate(DTO, CTX);
+    expect(resumes.markRenderFailed).not.toHaveBeenCalled();
+  });
+
+  it("generation still succeeds when BOTH the enqueue AND the failed-marking throw", async () => {
+    // Redis down does not imply Postgres is, but if both are, the worker must still get the
+    // resume text they already paid for rather than a 500 from the bookkeeping about it.
+    const { svc, renderQueue, resumes } = setup(null);
+    renderQueue.add.mockRejectedValue(new Error("redis down"));
+    resumes.markRenderFailedIfPending.mockRejectedValue(new Error("pg down"));
+    const out = await svc.generate(DTO, CTX);
     expect(out.resume_id).toBe("res-1");
   });
 });
