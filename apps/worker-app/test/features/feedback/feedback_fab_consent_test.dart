@@ -144,7 +144,10 @@ void main() {
     expect(find.text('Feedback'), findsOneWidget);
 
     // Settle the ResumePhotoHeader's best-effort resume-fields fetch (ADR-0032,
-    // mock latency 300ms) so no timer outlives the test.
+    // mock latency 300ms) AND the resume document fetch (#1398 —
+    // showGenerated()'s awaitingDocument window, documentPollMaxAttempts=1
+    // so exactly one 300ms mock call) so no timer outlives the test.
+    await tester.pump(const Duration(milliseconds: 700));
     await tester.pump(const Duration(milliseconds: 700));
   });
 
@@ -159,6 +162,7 @@ void main() {
     await _pumpUntil(tester, find.text('Your resume'));
 
     expect(find.text('Feedback'), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 700));
     await tester.pump(const Duration(milliseconds: 700));
   });
 
@@ -176,6 +180,7 @@ void main() {
     await _pumpUntil(tester, find.text('PIN daalein'));
     await _enterPin(tester, '7416');
     await _pumpUntil(tester, find.text('Your resume'));
+    await tester.pump(const Duration(milliseconds: 700));
     await tester.pump(const Duration(milliseconds: 700));
 
     await tester.tap(find.text('Feedback'));

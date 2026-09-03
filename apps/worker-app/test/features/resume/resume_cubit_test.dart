@@ -52,6 +52,12 @@ void main() {
   });
 
   // bloc emits the first state even when it equals the initial `loading`.
+  //
+  // THREE states, not two: `generate()` (#1398) emits `ready` once
+  // IMMEDIATELY with the text (awaitingDocument: true — the structured
+  // document fetch has not resolved yet, so the screen shows a loader, not
+  // this text) and again once the document fetch SETTLES
+  // (awaitingDocument: false) — see ResumeState.awaitingDocument's own doc.
   blocTest<ResumeCubit, ResumeState>(
     'generate success -> ready with the resume text',
     build: () {
@@ -61,6 +67,12 @@ void main() {
     act: (ResumeCubit c) => c.generate(),
     expect: () => const <ResumeState>[
       ResumeState(status: ResumeStatus.loading),
+      ResumeState(
+        status: ResumeStatus.ready,
+        resumeText: 'RESUME TEXT',
+        nightShiftReady: false,
+        awaitingDocument: true,
+      ),
       ResumeState(
         status: ResumeStatus.ready,
         resumeText: 'RESUME TEXT',
