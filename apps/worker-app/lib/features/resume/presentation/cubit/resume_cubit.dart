@@ -19,6 +19,7 @@ class ResumeState extends Equatable {
     this.resumeText = '',
     this.nightShiftReady = false,
     this.document,
+    this.awaitingDocument = false,
   });
 
   final ResumeStatus status;
@@ -31,9 +32,26 @@ class ResumeState extends Equatable {
   /// on null, never treat it as "no resume".
   final ResumeDocument? document;
 
+  /// True for the SHORT window right after a fresh generate/handoff
+  /// (`generate()`/`showGenerated()`) while [document] is still being
+  /// fetched WITH RETRY (see [_loadDocumentWithRetry]) — `status` is already
+  /// `ready` (the text landed) but the authoritative structured render has
+  /// not resolved yet. The screen must show a LOADER while this is true,
+  /// never the [resumeText] fallback — see this class' own doc note on
+  /// [document] for why that fallback under-represents a form-first
+  /// worker's real content, which is exactly the "wrong info flashes then
+  /// gets replaced" symptom this flag exists to prevent.
+  ///
+  /// ALWAYS false outside that one window: never set by [refresh] (a
+  /// tab-focus reread of an ALREADY-shown resume — a loader there would
+  /// regress "a stale resume beats no resume"), and flipped back to `false`
+  /// the moment the retry settles, successfully or not — a worker is never
+  /// left on the loader forever, even if the retry budget runs out.
+  final bool awaitingDocument;
+
   @override
   List<Object?> get props =>
-      <Object?>[status, resumeText, nightShiftReady, document];
+      <Object?>[status, resumeText, nightShiftReady, document, awaitingDocument];
 }
 
 /// Drives the resume screen: a single generate-on-open action. A failure shows
@@ -89,6 +107,10 @@ class ResumeCubit extends Cubit<ResumeState> {
         status: ResumeStatus.ready,
         resumeText: text,
         nightShiftReady: state.nightShiftReady,
+        // A fresh generate — the structured document fetch below has not
+        // resolved yet. The screen shows a loader, not this text, until it
+        // does (see ResumeState.awaitingDocument's own doc).
+        awaitingDocument: true,
       ));
       // B7 funnel milestone — the worker reached a generated resume. Fired from
       // generate() only (never refresh(), which is a tab-focus re-read of an
@@ -113,6 +135,10 @@ class ResumeCubit extends Cubit<ResumeState> {
         resumeText: text,
         nightShiftReady: nightShiftReady,
         document: document,
+        // Settled — successfully or not (the retry budget is bounded; see
+        // _loadDocumentWithRetry's own doc). Never leaves the worker on the
+        // loader forever.
+        awaitingDocument: false,
       ));
     } on ProfileIncompleteFailure catch (_) {
       if (isClosed) return;
@@ -229,11 +255,17 @@ class ResumeCubit extends Cubit<ResumeState> {
       emit(const ResumeState(status: ResumeStatus.failed));
       return;
     }
-    // Show the text immediately; load the night-shift pref + the structured
-    // document in the background. This hands off a JUST-generated resume
-    // (from the Building screen, right after trade-form/chat completion) —
-    // fetched WITH RETRY, see [_loadDocumentWithRetry].
-    emit(ResumeState(status: ResumeStatus.ready, resumeText: text));
+    // This hands off a JUST-generated resume (from the Building screen,
+    // right after trade-form/chat completion). The document fetch below is
+    // WITH RETRY (see [_loadDocumentWithRetry]) — the screen shows a loader
+    // for this window (awaitingDocument), never the bare text, so a
+    // form-first worker's thin fallback narrative never flashes on screen
+    // only to be replaced a moment later by the real structured content.
+    emit(ResumeState(
+      status: ResumeStatus.ready,
+      resumeText: text,
+      awaitingDocument: true,
+    ));
     final Future<bool> nightShiftFuture = _loadNightShiftReady();
     final Future<ResumeDocument?> documentFuture = _loadDocumentWithRetry();
     final bool nightShiftReady = await nightShiftFuture;
@@ -244,6 +276,7 @@ class ResumeCubit extends Cubit<ResumeState> {
       resumeText: text,
       nightShiftReady: nightShiftReady,
       document: document,
+      awaitingDocument: false,
     ));
   }
 

@@ -150,6 +150,17 @@ class _ResumeViewState extends State<_ResumeView> {
                 appBar: _resumeAppBar,
                 body: _buildFailed(context),
               ),
+            // A fresh generate/handoff whose structured document is still
+            // being fetched (see ResumeState.awaitingDocument's own doc) — a
+            // loader, NEVER the resumeText fallback, so a form-first
+            // worker's thin narrative never flashes on screen only to be
+            // replaced a moment later by the real trade-sheet content.
+            ResumeStatus.ready when state.awaitingDocument => const BbScaffold(
+                appBar: _resumeAppBar,
+                body: BbStatusView.loading(
+                  caption: 'Resume taiyaar ho raha hai…',
+                ),
+              ),
             // Kit 06 "Resume ready": a deep-blue status header over the resume
             // artifact card and its download / WhatsApp / edit actions.
             ResumeStatus.ready => _buildReady(
