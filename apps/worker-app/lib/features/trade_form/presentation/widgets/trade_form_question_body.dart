@@ -284,11 +284,12 @@ class _SearchableChoiceBodyState extends State<_SearchableChoiceBody> {
           BbButton(
             // #1384 item 3 — see `VoiceChoiceChips`'s own identical
             // treatment; this is the searchable-question equivalent of that
-            // same button.
+            // same button. navy, not primary/haldi — haldi is IDENTICAL to a
+            // selected BbChip's fill, so this nav button read as an option.
             label: widget.isLastStep ? kVoiceFinalSubmit : kVoiceMultiSubmit,
             variant: widget.isLastStep
                 ? BbButtonVariant.success
-                : BbButtonVariant.primary,
+                : BbButtonVariant.navy,
             block: true,
             onPressed: _selected.isEmpty
                 ? null
@@ -359,10 +360,12 @@ class _OpenAnswerFieldState extends State<_OpenAnswerField> {
             return BbButton(
               // #1384 item 3 — same green/final treatment as the two chip
               // submit buttons, for the open-answer question type.
+              // navy (not primary/haldi) — haldi is IDENTICAL to a selected
+              // BbChip's fill, so this nav button read as just another option.
               label: widget.isLastStep ? kVoiceFinalSubmit : _kTextSubmit,
               variant: widget.isLastStep
                   ? BbButtonVariant.success
-                  : BbButtonVariant.primary,
+                  : BbButtonVariant.navy,
               block: true,
               onPressed: value.text.trim().isEmpty ? null : _submit,
             );
