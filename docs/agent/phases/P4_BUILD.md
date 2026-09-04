@@ -45,9 +45,9 @@ DELETED BY ADR-0036 §5 — "Bump engine_version on job_reach."
   is stamped per APPLICATION (:75) and a bump is CEO-gated, never a build-phase action.
 
 DELETED — the property test over "all 22 roles."
-  No role count is settled: R4-d is unsigned (docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md:616,
-  blank signature line) and apps/api/src/profiling/roles/role-registry.ts:39-45 declares
-  FIVE. Picking 22 settles an open ruling — BUILD_RULES:31.
+  22 was never right: R4-d(a) is ruled 21 (owner, 2026-09-04), and 21 is the taxonomy count,
+  while apps/api/src/profiling/roles/role-registry.ts:39-45 declares FIVE.
+  The count is not why the test goes, though — see below.
   The rule that test would have guarded — boost never crosses a relevance bucket — no
   longer exists: the worker feed's ORDER BY has no relevance bucket, and the candidate
   list has no boost. No test asserts a bucket-crossing rule and none should. The three

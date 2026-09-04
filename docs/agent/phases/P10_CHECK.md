@@ -18,7 +18,8 @@ and exclude *.test.ts / *.test.tsx BY NAME.
    grep -rnE '"(day|night|rotational|immediate|soon|flexible)"'. Any hit is a FAIL — importing
    the constant hardcodes the option set as surely as typing it. RED looks like today's
    posting-form.tsx:260, `options={TRADE_KEYS.map(...)}`. Do NOT grep role names or collar
-   tiers: neither appears in apps/payer-web, and the role count is unsigned R4-d.
+   tiers: neither appears in apps/payer-web, and no count is the client's business — it
+   renders whatever the server serves.
 2. Add a field to the committed fixture whose field_id returns zero hits from
    `grep -rn <field_id> apps/payer-web/src`. Re-run `pnpm --filter @badabhai/payer-web test`.
    Its label must appear in the collected tree (node env, no DOM — house walk/collect at

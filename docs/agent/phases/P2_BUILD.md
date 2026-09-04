@@ -16,7 +16,10 @@ which means the worker is not a candidate."
 DELETED BY ADR-0036:23 ("retire the weighted engine"): the implementation shared with
 reach-engine, and "delete the old tier logic from both engines". reach-engine is
 scheduled for deletion. Do not touch it.
-DELETED: the 22-role golden fixtures — the role count is unsigned ruling R4-d.
+DELETED: the 22-role golden fixtures. R4-d(a) is now ruled — 21 — but 21 is the TAXONOMY
+count, not the implemented one: role-registry.ts:39-45 declares five, all formEnabled. A
+fixture set keyed to any hand-typed number goes stale on the next role; key it to the
+registry.
 
 THE TIER IS {1,2}: CHECK constraints at packages/db/src/schema/match.ts:173 and
 packages/db/src/schema/job.ts:606. Never widen that domain.

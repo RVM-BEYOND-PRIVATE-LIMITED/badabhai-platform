@@ -55,8 +55,8 @@ Paste raw output for each.
    sed -n '774p' docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md (R7, must be blank).
    RED: ADR-0036 superseded, or R7 signed — R7 option (a) puts a reordering facet on the
    employer candidate list, which is this invariant's subject.
-   INFORMATIONAL only, never RED: R4-d at :616 settles a role count and does not bear on
-   the rank key.
+   INFORMATIONAL only, never RED: R4-d (ruled 21, 2026-09-04) settles a role count and does
+   not bear on the rank key.
 
 8. A closed phase produced no code.
    git diff --stat $(git merge-base HEAD origin/main) HEAD -- packages/match-engine apps/api/src/match/match-feed.repository.ts apps/api/src/match/match-candidates.service.ts apps/api/src/match/boost-fences.test.ts apps/api/src/match/rank-parity.test.ts
