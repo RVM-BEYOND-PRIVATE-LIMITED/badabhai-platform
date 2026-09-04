@@ -1808,18 +1808,46 @@ class ResumeFieldsDto extends Equatable {
 /// worker reads is the client's. Rendering chips from THIS (never a hard-coded
 /// list) is what keeps the client and the server enum from drifting into a chip
 /// the server then rejects with nothing naming the cause.
+/// One entry of `WorkPrefOptionsDto.cities` (#1406/#1410) — the preferred-city
+/// gazetteer. Unlike the four label maps above, a city has no slug layer:
+/// [value] is BOTH what the chip shows and what `preferred_cities` must send
+/// (the server's `worker-cities.catalogue.ts` guarantees every [value]
+/// round-trips through the same validator that rejects free text). [aliases]
+/// are lowercase SEARCH KEYS ONLY ("dilli", "bombay", "banglore", "poona") —
+/// never rendered, never submitted; they exist so a worker typing the name
+/// they actually use still finds the city the résumé prints.
+class CityOptionDto extends Equatable {
+  const CityOptionDto({required this.value, required this.aliases});
+
+  final String value;
+  final List<String> aliases;
+
+  factory CityOptionDto.fromJson(Map<String, dynamic> json) => CityOptionDto(
+        value: json['value'] as String? ?? '',
+        aliases: (json['aliases'] as List<dynamic>?)
+                ?.whereType<String>()
+                .toList() ??
+            const <String>[],
+      );
+
+  @override
+  List<Object?> get props => <Object?>[value, aliases];
+}
+
 class WorkPrefOptionsDto extends Equatable {
   const WorkPrefOptionsDto({
     required this.languages,
     required this.documentsReady,
     required this.jobType,
     required this.shift,
+    this.cities = const <CityOptionDto>[],
   });
 
   final Map<String, String> languages;
   final Map<String, String> documentsReady;
   final Map<String, String> jobType;
   final Map<String, String> shift;
+  final List<CityOptionDto> cities;
 
   static Map<String, String> _labelMap(dynamic raw) {
     if (raw is! Map) return const <String, String>{};
@@ -1832,17 +1860,27 @@ class WorkPrefOptionsDto extends Equatable {
     return out;
   }
 
+  static List<CityOptionDto> _cityList(dynamic raw) {
+    if (raw is! List) return const <CityOptionDto>[];
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map(CityOptionDto.fromJson)
+        .where((CityOptionDto c) => c.value.isNotEmpty)
+        .toList();
+  }
+
   factory WorkPrefOptionsDto.fromJson(Map<String, dynamic> json) =>
       WorkPrefOptionsDto(
         languages: _labelMap(json['languages']),
         documentsReady: _labelMap(json['documents_ready']),
         jobType: _labelMap(json['job_type']),
         shift: _labelMap(json['shift']),
+        cities: _cityList(json['cities']),
       );
 
   @override
   List<Object?> get props =>
-      <Object?>[languages, documentsReady, jobType, shift];
+      <Object?>[languages, documentsReady, jobType, shift, cities];
 }
 
 /// GET /workers/me/qualifications/options (#1384/#1385, migration 0098) — the

@@ -1,5 +1,5 @@
 import 'package:badabhai_worker_app/core/api/api_client.dart'
-    show QualificationOptionsDto, WorkPrefOptionsDto;
+    show CityOptionDto, QualificationOptionsDto, WorkPrefOptionsDto;
 import 'package:badabhai_worker_app/core/di/locator.dart';
 import 'package:badabhai_worker_app/core/error/failure.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_button.dart';
@@ -155,6 +155,13 @@ const WorkPrefOptionsDto _prefOptions = WorkPrefOptionsDto(
   documentsReady: <String, String>{'aadhaar': 'Aadhaar'},
   jobType: <String, String>{'permanent': 'Permanent'},
   shift: <String, String>{'day': 'Day'},
+  cities: <CityOptionDto>[
+    CityOptionDto(value: 'Delhi', aliases: <String>['dilli']),
+    CityOptionDto(value: 'Faridabad', aliases: <String>[]),
+    CityOptionDto(value: 'Ghaziabad', aliases: <String>[]),
+    CityOptionDto(value: 'Gurugram', aliases: <String>['gurgaon']),
+    CityOptionDto(value: 'Noida', aliases: <String>[]),
+  ],
 );
 
 const QualificationOptionsDto _qualOptions = QualificationOptionsDto(
@@ -1232,6 +1239,95 @@ void main() {
       expect(
           sent.preferredCities,
           <String>['Gurugram', 'Noida', 'Delhi', 'Ghaziabad', 'Faridabad']);
+    });
+
+    testWidgets(
+        'a city not in the gazetteer shows an inline error and is never '
+        'added (#1406/#1410) — no more silent free text',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await walkToCitiesPage(tester);
+
+      await addCityText(tester, 'Kota');
+
+      expect(
+          find.textContaining('nahi mila'),
+          findsOneWidget,
+          reason: 'the original #1406 bug: a city outside the gazetteer '
+              'must say so, not silently accept it and 400 on save');
+      // The text field is still there (not at the cap) and nothing was
+      // added to the selected-cities list.
+      expect(find.byType(ListView), findsNothing);
+    });
+
+    testWidgets(
+        'typing an alias ("dilli") resolves and adds the canonical spelling '
+        '("Delhi") — never the alias itself',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await walkToCitiesPage(tester);
+
+      await addCityText(tester, 'dilli');
+
+      expect(find.text('Delhi'), findsOneWidget);
+      expect(find.text('dilli'), findsNothing);
+    });
+
+    testWidgets(
+        'tapping a suggestion chip adds that city directly, without typing '
+        'the full name',
+        (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await walkToCitiesPage(tester);
+
+      // Empty query browses the whole (small) gazetteer — tap "Gurugram"
+      // straight off the suggestion row, no typing at all.
+      await tester.tap(find.text('Gurugram'));
+      await tester.pump();
+
+      final ListView list = tester.widget<ListView>(find.byType(ListView));
+      expect(list.scrollDirection, Axis.horizontal);
+      expect(find.descendant(
+              of: find.byType(ListView), matching: find.text('Gurugram')),
+          findsOneWidget);
+      // The suggestion row must not still offer a city already picked.
+      expect(
+          find.descendant(
+              of: find.byType(Wrap), matching: find.text('Gurugram')),
+          findsNothing);
     });
   });
 

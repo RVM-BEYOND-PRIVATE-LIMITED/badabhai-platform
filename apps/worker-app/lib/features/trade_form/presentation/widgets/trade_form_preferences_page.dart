@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/api/api_client.dart' show WorkPrefOptionsDto;
+import '../../../../core/api/api_client.dart'
+    show CityOptionDto, WorkPrefOptionsDto;
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
@@ -19,6 +20,14 @@ const String _kJobTypeLabel = 'Naukri ka type';
 const String _kCitiesLabel = 'Kahan kaam karna chahte hain?';
 const String _kCitiesSubtitle = 'Zyada se zyada 5 sheher jod sakte hain.';
 const String _kCityHint = 'Sheher ka naam likhein';
+const String _kCityNotFoundError =
+    'Yeh sheher list mein nahi mila — neeche diye suggestion mein se chunein.';
+
+/// The tap-to-add suggestion row shows at most this many cities at once —
+/// mirrors `_kMaxSuggestionChips` on the qualifications page's certificate
+/// suggestions (a low-literacy worker scanning a phone screen, not a full
+/// picklist).
+const int _kMaxCitySuggestions = 6;
 const String _kRelocateLabel = 'Doosre sheher ja sakte hain?';
 const String _kAccommodationLabel = 'Rehne ki jagah chahiye?';
 const String _kSalaryLabel = 'Mahine ki salary kitni chahte hain?';
@@ -125,6 +134,13 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
       widget.initialPreferences ?? const TradeFormPreferences();
 
   final TextEditingController _city = TextEditingController();
+
+  /// Set when submitted text doesn't resolve against the server's gazetteer
+  /// (`options.cities`) — never a bare string add any more (#1406/#1410):
+  /// the server's `preferred_cities` 400s on anything outside the same
+  /// catalogue, so accepting an unresolved city client-side would just move
+  /// the dead end from submit-time to save-time.
+  String? _cityError;
   late final TextEditingController _year = TextEditingController(
       text: widget.initialPreferences?.educationYear?.toString() ?? '');
   late final TextEditingController _institute = TextEditingController(
@@ -257,7 +273,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
       case 2:
         return _jobTypePage(options);
       case 3:
-        return _citiesPage();
+        return _citiesPage(options);
       case 4:
         return _relocateAccommodationSalaryPage();
       default:
@@ -310,9 +326,10 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     );
   }
 
-  Widget _citiesPage() {
+  Widget _citiesPage(WorkPrefOptionsDto options) {
     final bool atCityCap =
         _prefs.preferredCities.length >= kTradeFormMaxPreferredCities;
+    final List<CityOptionDto> suggestions = _matchingCities(options);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -325,7 +342,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
         // there's no per-city card to hide, so the row disappears at the
         // cap, same convention as `kTradeFormMaxCertificates`/
         // `kTradeFormMaxEducations`'s add button.
-        if (!atCityCap)
+        if (!atCityCap) ...<Widget>[
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -334,7 +351,9 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
                   controller: _city,
                   hint: _kCityHint,
                   textInputAction: TextInputAction.done,
-                  onSubmitted: (_) => _addCity(),
+                  errorText: _cityError,
+                  onChanged: (String v) => setState(() => _cityError = null),
+                  onSubmitted: (_) => _submitTypedCity(options),
                 ),
               ),
               const SizedBox(width: AppSpacing.s2),
@@ -342,10 +361,22 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
                 label: '+',
                 variant: BbButtonVariant.secondary,
                 size: BbButtonSize.md,
-                onPressed: _addCity,
+                onPressed: () => _submitTypedCity(options),
               ),
             ],
           ),
+          if (suggestions.isNotEmpty) ...<Widget>[
+            const SizedBox(height: AppSpacing.s2),
+            Wrap(
+              spacing: AppSpacing.s2,
+              runSpacing: AppSpacing.s2,
+              children: <Widget>[
+                for (final CityOptionDto c in suggestions)
+                  BbChip(label: c.value, onTap: () => _addResolvedCity(c)),
+              ],
+            ),
+          ],
+        ],
         if (_prefs.preferredCities.isNotEmpty) ...<Widget>[
           const SizedBox(height: AppSpacing.s3),
           // Horizontal `ListView.builder`, not a `Wrap` — a picked-cities row
@@ -458,16 +489,66 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     );
   }
 
-  void _addCity() {
-    final String value = _city.text.trim();
-    if (value.isEmpty) return;
+  /// Chips matching what's typed so far against BOTH `value` and its
+  /// `aliases` (a worker typing "dilli"/"bombay"/"banglore"/"poona" must
+  /// still find the city) — or the first few when the field is empty, so a
+  /// worker can browse without typing at all. Already-picked cities are
+  /// dropped from the pool; there is no reason to suggest adding one twice.
+  List<CityOptionDto> _matchingCities(WorkPrefOptionsDto options) {
+    final String typed = _city.text.trim().toLowerCase();
+    final Set<String> picked =
+        _prefs.preferredCities.map((String c) => c.toLowerCase()).toSet();
+    final Iterable<CityOptionDto> pool = options.cities.where(
+      (CityOptionDto c) =>
+          !picked.contains(c.value.toLowerCase()) &&
+          (typed.isEmpty ||
+              c.value.toLowerCase().contains(typed) ||
+              c.aliases.any((String a) => a.toLowerCase().contains(typed))),
+    );
+    return pool.take(_kMaxCitySuggestions).toList();
+  }
+
+  /// Resolves typed text against the gazetteer — an exact match (`value` OR
+  /// any `alias`, case-insensitive) — or null. There is no fuzzy/partial
+  /// accept: [_matchingCities] is how a worker finds the right chip to tap,
+  /// this is only for pressing "+"/submit with the full name already typed.
+  CityOptionDto? _resolveCity(WorkPrefOptionsDto options, String typed) {
+    final String q = typed.trim().toLowerCase();
+    if (q.isEmpty) return null;
+    for (final CityOptionDto c in options.cities) {
+      if (c.value.toLowerCase() == q) return c;
+      if (c.aliases.any((String a) => a.toLowerCase() == q)) return c;
+    }
+    return null;
+  }
+
+  void _submitTypedCity(WorkPrefOptionsDto options) {
+    final String typed = _city.text.trim();
+    if (typed.isEmpty) return;
+    final CityOptionDto? resolved = _resolveCity(options, typed);
+    if (resolved == null) {
+      setState(() => _cityError = _kCityNotFoundError);
+      return;
+    }
+    _addResolvedCity(resolved);
+  }
+
+  /// Adds the CANONICAL `value` — never the raw typed text — so
+  /// `preferred_cities` always sends exactly the spelling the server's own
+  /// validator already accepted (`worker-cities.catalogue.ts`'s round-trip
+  /// guarantee). Shared by the "+"/submit path (after [_resolveCity]) and a
+  /// direct tap on a suggestion chip (already resolved).
+  void _addResolvedCity(CityOptionDto city) {
     if (_prefs.preferredCities.length >= kTradeFormMaxPreferredCities) return;
     final bool exists = _prefs.preferredCities
-        .any((String c) => c.toLowerCase() == value.toLowerCase());
-    if (!exists) {
-      setState(() => _prefs = _prefs.copyWith(
-          preferredCities: <String>[..._prefs.preferredCities, value]));
-    }
+        .any((String c) => c.toLowerCase() == city.value.toLowerCase());
+    setState(() {
+      _cityError = null;
+      if (!exists) {
+        _prefs = _prefs.copyWith(
+            preferredCities: <String>[..._prefs.preferredCities, city.value]);
+      }
+    });
     _city.clear();
   }
 
