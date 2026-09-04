@@ -472,7 +472,7 @@ def pseudonymize(text: str, max_length: int = DEFAULT_MAX_LENGTH) -> Pseudonymiz
             A CITY IS NOT A NAME, and this rule was masking three of them. ``[A-Z][a-z]+``
             followed by a comma is a good guess at "Ramesh, main welder hoon" and an equally
             good match for "Faridabad, Haryana mein kaam karta hoon" — which came out as
-            ``[PERSON_1], Haryana ...``. Measured: 33 of the 36 canonical cities were masked
+            ``[PERSON_1], Haryana ...``. Measured: 35 of the 38 canonical cities were masked
             this way, the three survivors only because the pattern cannot span a space.
 
             That directly contradicts the owner ruling recorded at step 5 below — cities are a

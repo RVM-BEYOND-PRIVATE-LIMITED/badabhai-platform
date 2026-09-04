@@ -117,3 +117,61 @@ describe("the preferred-city catalogue", () => {
     }
   });
 });
+
+/**
+ * THE GAZETTEER FILE'S OWN HYGIENE (#1409).
+ *
+ * The suites above test what the catalogue DERIVES. These test the source it derives from, and
+ * they exist because #1409 was not a bug in any code — it was a hand-maintained JSON file that
+ * had quietly fallen out of step with the product's own ratified output. The file will keep being
+ * edited by hand, so the edit itself is what needs a gate.
+ *
+ * EACH ASSERTION BELOW IS A WAY THE NEXT EDIT FAILS SILENTLY. None of them throws today; all four
+ * are invisible until something downstream misbehaves for a reason nobody connects to this file.
+ * Python asserts the lowercase rule from its side; nothing asserted any of it from the side an
+ * engineer is actually typing on.
+ */
+describe("the gazetteer file itself", () => {
+  it("holds only lowercase, pre-trimmed tokens", () => {
+    // A capitalised entry SILENTLY DISARMS two things at once: the pseudonymizer's carve-out
+    // (which stops a city being masked as a person's name) and the detector's own matching. It
+    // throws nowhere — the city simply stops being recognised, and a worker's city starts
+    // arriving at the model as [PERSON_n].
+    for (const token of [...ALL_TOKENS, ...Object.values(CITIES_FILE.aliases)]) {
+      expect(token, `"${token}" must be lowercase`).toBe(token.toLowerCase());
+      expect(token, `"${token}" must be pre-trimmed`).toBe(token.trim());
+    }
+  });
+
+  it("keeps canonical and aliases in sorted order", () => {
+    // Not cosmetic. An out-of-order insert makes every future diff of this file unreviewable —
+    // and this is a file whose review IS the privacy gate, because no test can tell you that the
+    // city you just added is also somebody's surname.
+    const canonical = [...CITIES_FILE.canonical];
+    expect(canonical).toEqual([...canonical].sort());
+    const aliasKeys = Object.keys(CITIES_FILE.aliases);
+    expect(aliasKeys).toEqual([...aliasKeys].sort());
+  });
+
+  it("points every alias at a canonical member", () => {
+    // An alias whose target is not canonical does not fail here in the lexicon — it fails at
+    // apps/api BOOT, through the catalogue's round-trip guard, as a crash loop. A unit test is a
+    // better place to learn it than a container that will not start.
+    const canonical = new Set(CITIES_FILE.canonical);
+    for (const [alias, target] of Object.entries(CITIES_FILE.aliases)) {
+      expect(
+        canonical.has(target),
+        `alias "${alias}" points at "${target}", not a canonical city`,
+      ).toBe(true);
+    }
+  });
+
+  it("resolves every token it lists", () => {
+    // The file and the matcher built from it, checked against each other directly. This is the
+    // same drift the catalogue turns into a boot failure — asserted here so it is a red test on
+    // the PR that causes it rather than a red deploy afterwards.
+    for (const token of ALL_TOKENS) {
+      expect(canonicalCity(token), `"${token}" is listed but does not resolve`).not.toBeNull();
+    }
+  });
+});
