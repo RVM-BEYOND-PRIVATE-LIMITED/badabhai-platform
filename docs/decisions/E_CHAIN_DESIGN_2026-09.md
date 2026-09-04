@@ -399,7 +399,12 @@ them: a non-consenting worker does not "rank lower", he is not in the population
 worker a city requires adding a question to the trade form — and the trade form question
 flow is on this session's DO NOT TOUCH list. So **location cannot be delivered by E2 as
 specified, by any route available to a builder.** E2 is briefed to ship without it and to
-label its absence on the screen rather than render a control that filters on nothing. Q2.
+label its absence on the screen rather than render a control that filters on nothing.
+
+**Owner ruling, 2026-09-05: ship E2 without it; the trade-form boundary holds.** What filling
+it would actually require — and why "add a column and backfill it" is not the fix, because the
+missing piece is the QUESTION rather than the column — is parked at `PARKED.md` **P-018**, so
+that the next person does not rediscover it.
 
 ### 3.4 "Roles sought" and "skills" are one axis, not two
 

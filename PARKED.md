@@ -559,3 +559,69 @@ retried/soft-failed distinctly from a real advisory — a timeout and a HIGH CVE
 produce the identical red; and whether it belongs in `ci-required` at all if it cannot be
 executed deterministically. Note the trap in that last one: **removing it from `ci-required`
 to stop it blocking is escaping the gate, not fixing it.**
+
+---
+
+## P-018 · A worker has no city, so the payer's first-named filter cannot be built
+
+**Found:** 2026-09-05, the E-chain design session (PR #1427), measuring the filter set for E2.
+**Owner ruling:** SHIP E2 WITHOUT A LOCATION FILTER and label the absence; do NOT edit the
+trade form question flow to get a city column — Prakash, 2026-09-05. Parked so the next
+person does not rediscover it.
+
+**What is true today.** Location was the FIRST filter the owner named for the candidate
+search, and there is nowhere to read it from.
+
+1. **`workers` has no city column.** The table is `packages/db/src/schema/worker.ts:37-112`;
+   there is no city, no state, no district, no pincode, no coordinate.
+2. **The only worker-side location is a JSONB blob on the retiring engine's table** —
+   `worker_profiles.location_preference` (`packages/db/src/schema/profile.ts:61`), shaped
+   `{current_city, preferred_cities[], willing_to_relocate}`. It carries no index, so even
+   where it is populated a filter over it is a scan.
+3. **Its only writer is the extraction processor**
+   (`apps/api/src/profiles/profile-extraction.processor.ts:402`, and again at `:1347`).
+4. **And the trade form deliberately does not run extraction.** The reason is written at
+   `apps/api/src/profiling/form/trade-form.service.ts:173` — "the trade-form handover
+   deliberately switches extraction OFF (a two-turn transcript yields a container that
+   outranks the answer map and blanks the sheet)". So for a worker who completed a trade
+   form, `location_preference` is never written by anything.
+
+**Therefore: a trade-form worker has no stored city by any path**, and trade-form workers are
+the population E2 exists to sell.
+
+**What filling it would require — this is the part worth not rediscovering.**
+
+The obvious move is "add a `current_city` column and backfill it". That does not work,
+because the column is not the missing piece — **the question is**.
+
+- `current_city` exists as a question in exactly **2 of 148** packs: `qp_universal.json` and
+  `qp_universal@2.json`. It is in **none** of the five packs the shipping roles use
+  (`qp_cnc_turning`, `qp_vmc_milling`, `qp_cnc_grinding`, `qp_cam_programming`,
+  `qp_cad_drafting` — declared at `apps/api/src/profiling/roles/cnc-turner.role.ts:14` and
+  its four siblings).
+- It is `target_kind: "rfs"`, not `"attribute"`, so even when it IS answered it lands in the
+  Resume Field Set draft rather than in `worker_attributes` — which is why the M1 pack-attribute
+  bridge does not reach it either.
+- So filling it means **adding a question to the trade form**, which is the one boundary this
+  session was told to hold. That is a product decision about the 24-ask budget, not a schema
+  change: every question added to the form competes with a question already there.
+
+Three routes exist and each has a real cost:
+  (a) **Add `current_city` to the five shipping packs.** Cheapest technically, but it spends
+      an ask from a budget the owner has already ruled on, and it fills nothing retroactively.
+  (b) **Ask for the city outside the trade form** — at signup, or on a profile screen. Does
+      not touch the question flow, but it is a new worker-facing surface and therefore mobile
+      work under CLAUDE.md §6.
+  (c) **Promote `current_city` to a first-class indexed column on `workers`** and write it
+      from whichever of (a)/(b) lands. Necessary eventually for an indexed filter, useless on
+      its own — a column with no writer is the same empty filter, spelled differently.
+
+**Note, because it argues the other way.** The corpus author already treated city as
+load-bearing: `qp_universal@2.json:3` says *"city and salary are what the match engine
+actually ranks on, so they must be asked before a worker is likely to walk"*, and hoists both
+questions for that reason. That belief is currently unfunded by any shipping pack — which is
+itself the finding.
+
+**Do not "fix" this by filtering on `location_label` from the posting side.** That is the
+JOB's location, not the worker's, and using it as a proxy would silently return workers who
+have never said they would work there.

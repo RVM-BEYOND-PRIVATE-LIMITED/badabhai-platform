@@ -5,8 +5,35 @@ STATUS: BLOCKED — THREE GATES, and each one HALTs a session run today.
       phase before either is signed IS a builder settling R1-R7, which
       docs/agent/BUILD_RULES.md:31 makes a full stop.
   (2) E4 MUST HAVE SHIPPED (owner ruling R-E3). See WHY E4 FIRST.
-  (3) THE SUPPLY DOES NOT EXIST YET. See THE EMPTY-RESULT TRAP.
+  (3) THE SUPPLY DOES NOT EXIST YET. See THE EMPTY-RESULT TRAP, immediately below —
+      it is above the phase title on purpose.
 A correct session today writes a HALT record naming all three and changes no code.
+
+================================================================================
+THE EMPTY-RESULT TRAP. READ THIS BEFORE ANYTHING ELSE, INCLUDING THE REST OF THE STATUS.
+
+A CORRECT, WELL-BUILT E2 RETURNS ZERO ROWS TODAY. That is the world, not your code.
+
+  (a) NO CLIENT REQUESTS `employer_sharing`. The worker app asks for exactly `profiling`,
+      `resume_generation`, `voice_processing`
+      (apps/worker-app/lib/features/consent/presentation/cubit/consent_cubit.dart:52-56).
+      Every real worker therefore has the consent this phase gates on set to FALSE. E4 item 5
+      is what changes that, and it is itself gated on DPDP notice copy that does not exist.
+  (b) A COMPLETED TRADE FORM DERIVES NO `worker_skill` ROWS ON MAIN. The only caller of
+      `rebuildQuietly` is the extraction processor
+      (apps/api/src/profiles/profile-extraction.processor.ts:501), and the trade-form
+      handover deliberately switches extraction OFF. PR #1425 changes that and is open.
+
+**NEVER WIDEN THE `WHERE` CLAUSE TO MAKE RESULTS APPEAR.** Dropping the consent join to
+"see some rows" in local testing is the exact edit that ships as a privacy breach, and while
+you are making it, it will look and feel like debugging. There is no version of this that is
+temporary: a search that returns a worker who never consented to be searched has already
+disclosed him, and no later commit un-discloses him.
+
+An empty result is the PASS condition, not a symptom. E2_CHECK item 3 makes that explicit:
+with consent and `wants` in the `WHERE` clause an empty set PASSES, and before E4 and #1425
+land a non-empty one — outside a seed that deliberately contains a consenting worker — FAILS.
+================================================================================
 
 PHASE E2 — POST /payer/candidates/search. A payer can find a worker.
 
@@ -21,22 +48,6 @@ WHY E4 FIRST, and it is not politeness. `wants` defaults TRUE
 paying stranger by default. Until E4 ships, `setWants` throws
 (apps/api/src/match/worker-skills.service.ts:157-165) and a worker's only exit is deleting
 his account. Ship the exit before the door.
-
-THE EMPTY-RESULT TRAP, and read it before you write a line, because it will make you think
-you have a bug when you have a correct build.
-  (a) NO CLIENT REQUESTS `employer_sharing`. The worker app asks for exactly `profiling`,
-      `resume_generation`, `voice_processing`
-      (apps/worker-app/lib/features/consent/presentation/cubit/consent_cubit.dart:52-56).
-      Every real worker therefore has the consent this phase gates on set to FALSE. E4 item 5
-      is what changes that, and it is itself gated on DPDP notice copy that does not exist.
-  (b) A COMPLETED TRADE FORM DERIVES NO `worker_skill` ROWS ON MAIN. The only caller of
-      `rebuildQuietly` is the extraction processor
-      (apps/api/src/profiles/profile-extraction.processor.ts:501), and the trade-form
-      handover deliberately switches extraction OFF. PR #1425 changes that and is open.
-So a correct, well-built search will return ZERO ROWS. That is the world, not the code.
-**Never widen the WHERE clause to make results appear.** If you find yourself dropping the
-consent join to see rows in local testing, stop — that is the exact edit that ships as a
-privacy breach, and it will look like debugging while you do it.
 
 SOURCE THE POOL FROM `worker_skill`. NOT FROM `worker_profiles`.
   - The pool is `worker_skill` ⋈ `worker_industry_tenure` ⋈ `worker_consents` ⋈ `workers`.
@@ -124,6 +135,11 @@ BUILD THESE SEVEN.
      fills it (`current_city`) is in `qp_universal` only — not in any of the five packs the
      shipping roles use. A trade-form worker has NO stored city by any path. Ship without it
      and SAY SO on the screen; do not render a control that filters on nothing.
+     OWNER RULING 2026-09-05: ship without it, and do NOT edit the trade form question flow
+     to get a city column — that boundary holds. What filling it would actually require is
+     parked at PARKED.md P-018, including why "add a column and backfill it" is not the fix:
+     the missing piece is the QUESTION, not the column. Read P-018 before proposing a
+     location filter; do not re-derive it.
      NULL-SAFETY, in both modes and for every filter: unrecorded is NOT excluded. The
      precedent already ships on the worker feed and is to be copied rather than reinvented —
      apps/api/src/match/match-feed.repository.ts:152-155, whose stated reason is at

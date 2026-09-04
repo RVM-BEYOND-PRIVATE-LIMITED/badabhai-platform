@@ -51,14 +51,37 @@ the exit code for every item.
    say WHY rather than only WHAT: a worker made visible to paying strangers by this phase
    has no exit but account deletion. "E4 not shipped" alone reads as a scheduling nit.
 
-3. [GATE · base: 0 rows derivable from a trade form] Is there any supply at all?
+3. [GATE] THE EMPTY-RESULT TRAP, and it is a real pass/fail item rather than context.
+   Establish the world first:
    grep -n "rebuildQuietly" apps/api/src/profiles/profile-extraction.processor.ts
    grep -rn "rebuildQuietly" apps/api/src/profiling
-   Base: a hit at profile-extraction.processor.ts:501 and exit 1 for the second — so on main
-   a completed trade form derives NO `worker_skill` rows and this search can return nothing
-   for a form worker. PR #1425 changes that.
-   This is CONTEXT, not a FAIL. Record it, so that a zero-result run below is not written up
-   as a broken query.
+   grep -n "employer_sharing" apps/worker-app/lib/features/consent/presentation/cubit/consent_cubit.dart
+   Base: a hit at profile-extraction.processor.ts:501, exit 1 for the second, and exit 1 for
+   the third. So on main a completed trade form derives NO `worker_skill` rows, and no client
+   requests `employer_sharing`, so no worker acquired through the real app has it.
+
+   THE RULE, and it inverts the usual intuition:
+     - AN EMPTY RESULT SET IS A **PASS**, provided `employer_sharing` consent and `wants` are
+       genuinely in the `WHERE` clause (item 5 proves that separately). Zero rows is the
+       correct answer to a correct query against a world with no consenting supply. Do NOT
+       write it up as a broken query, an unfinished build, or a bug.
+     - A NON-EMPTY RESULT SET, run against any database whose workers arrived through the
+       real app while E4 and #1425 have not landed, is a **FAIL**. There is no legitimate way
+       to get rows out of that world, so rows mean a predicate was dropped.
+
+   THE ONE LEGITIMATE EXCEPTION, and state which case you are in before reporting either
+   result: a SEEDED fixture may deliberately insert a consenting worker with `worker_skill`
+   rows, and then a non-empty result is correct and expected. So before judging, print what
+   the seed actually contains — how many seeded workers carry `employer_sharing`, and how many
+   carry a `worker_skill` row with `wants = true`. If those counts are zero and the search
+   returns rows, that is the FAIL. If you cannot read the seed, this item is NOT EXECUTABLE;
+   say so rather than guessing which case you are in.
+
+   PRESCRIBED FAIL SHAPE: say that rows were returned from a population that cannot contain
+   any, and name which predicate is missing from the SQL. Do NOT write "search returned
+   unexpected results" — the whole danger of this failure is that it looks like success, and
+   a sentence that reads as a surprise rather than as a disclosure will be triaged as a
+   fixture problem.
 
 4. [DELIVERABLE · base: RED, exit 1] The route exists.
    grep -rn "payer/candidates" apps/api/src apps/payer-web/src --include=*.ts --include=*.tsx
