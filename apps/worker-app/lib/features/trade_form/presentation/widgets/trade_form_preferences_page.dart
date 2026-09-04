@@ -23,6 +23,7 @@ const String _kCitiesSubtitle = 'Zyada se zyada 5 sheher jod sakte hain.';
 const String _kCityHint = 'Sheher ka naam likhein';
 const String _kCityNotFoundError =
     'Yeh sheher list mein nahi mila — neeche diye suggestion mein se chunein.';
+const String _kCityAddedToast = 'Sheher add ho gaya';
 
 /// The tap-to-add suggestion row shows at most this many cities at once —
 /// mirrors `_kMaxSuggestionChips` on the qualifications page's certificate
@@ -375,27 +376,18 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
         // cap, same convention as `kTradeFormMaxCertificates`/
         // `kTradeFormMaxEducations`'s add button.
         if (!atCityCap) ...<Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(
-                child: TradeFormTextField(
-                  controller: _city,
-                  hint: _kCityHint,
-                  textInputAction: TextInputAction.done,
-                  errorText: _cityError,
-                  onChanged: (String v) => setState(() => _cityError = null),
-                  onSubmitted: (_) => _submitTypedCity(options),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s2),
-              BbButton(
-                label: '+',
-                variant: BbButtonVariant.secondary,
-                size: BbButtonSize.md,
-                onPressed: () => _submitTypedCity(options),
-              ),
-            ],
+          // No "+" add button — a worker cannot enter a custom city (the
+          // server's gazetteer is closed, #1406/#1410), so the ONLY way to
+          // add one is picking a suggestion chip below (or hitting the
+          // keyboard's "Done", which resolves the same exact-match check a
+          // "+" button would have).
+          TradeFormTextField(
+            controller: _city,
+            hint: _kCityHint,
+            textInputAction: TextInputAction.done,
+            errorText: _cityError,
+            onChanged: (String v) => setState(() => _cityError = null),
+            onSubmitted: (_) => _submitTypedCity(options),
           ),
           if (suggestions.isNotEmpty) ...<Widget>[
             const SizedBox(height: AppSpacing.s2),
@@ -597,6 +589,31 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
       }
     });
     _city.clear();
+    if (exists) return; // already in the list — nothing new happened
+    // A MaterialBanner (top), NOT a SnackBar — this screen's sticky bottom
+    // bar owns the bottom edge (see `trade_form_screen.dart`'s
+    // `_showBlockedBanner` doc: a SnackBar here would animate up from the
+    // bottom and cover "Aage badhein").
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    messenger.clearMaterialBanners();
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        backgroundColor: AppColors.success,
+        content: Text(_kCityAddedToast,
+            style: AppTypography.body(
+                size: AppTypography.sizeSm, color: Colors.white)),
+        actions: <Widget>[
+          TextButton(
+            onPressed: messenger.hideCurrentMaterialBanner,
+            child: const Text('Theek hai',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      if (mounted) messenger.hideCurrentMaterialBanner();
+    });
   }
 
   Widget _label(String text) => Padding(
