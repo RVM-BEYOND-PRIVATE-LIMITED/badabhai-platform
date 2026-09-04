@@ -1580,35 +1580,52 @@ void main() {
     }
 
     testWidgets(
-        'a blank entry defaults to the picker — no free-text city/state '
-        'fields until "Khud likhein"', (WidgetTester tester) async {
+        'a blank entry defaults to the picker — both dropdowns show their '
+        'placeholder, no free-text city/state fields until "Khud likhein"',
+        (WidgetTester tester) async {
       await walkToEmploymentPage(tester);
 
+      // Both closed dropdowns render their placeholder text — the options
+      // themselves are inside the (closed) sheet, not inline.
       expect(find.text('STATE CHUNEIN'), findsOneWidget);
-      expect(find.text('Haryana'), findsOneWidget);
-      expect(find.text('Maharashtra'), findsOneWidget);
+      expect(find.text('SHEHER CHUNEIN'), findsOneWidget);
+      expect(find.text('Haryana'), findsNothing);
+      expect(find.text('Maharashtra'), findsNothing);
       // Only name, role, and work-done — no free-text city/state yet.
       expect(find.byType(TextField), findsNWidgets(3));
-      expect(find.text('SHEHER CHUNEIN'), findsNothing);
     });
 
     testWidgets(
-        'picking a state then a city fills employerCity/employerState, '
-        'filtered to that state', (WidgetTester tester) async {
+        'picking a state then a city (via the searchable dropdown sheets) '
+        'fills employerCity/employerState, filtered to that state',
+        (WidgetTester tester) async {
       await walkToEmploymentPage(tester);
 
-      await tester.ensureVisible(find.text('Haryana'));
-      await tester.tap(find.text('Haryana'));
-      await tester.pump();
+      await tester.ensureVisible(find.text('STATE CHUNEIN'));
+      await tester.tap(find.text('STATE CHUNEIN'));
+      await tester.pumpAndSettle();
 
-      expect(find.textContaining('SHEHER CHUNEIN'), findsOneWidget);
+      expect(find.text('Haryana'), findsOneWidget);
+      expect(find.text('Maharashtra'), findsOneWidget);
+
+      await tester.tap(find.text('Haryana'));
+      await tester.pumpAndSettle();
+
+      // The state dropdown now shows the picked value, not the placeholder.
+      expect(find.text('Haryana'), findsOneWidget);
+      expect(find.text('STATE CHUNEIN'), findsNothing);
+
+      await tester.ensureVisible(find.text('SHEHER CHUNEIN'));
+      await tester.tap(find.text('SHEHER CHUNEIN'));
+      await tester.pumpAndSettle();
+
       expect(find.text('Gurugram'), findsOneWidget);
       expect(find.text('Faridabad'), findsOneWidget);
-      // Maharashtra's cities must not leak into Haryana's list.
+      // Maharashtra's cities must not leak into Haryana's sheet.
       expect(find.text('Mumbai'), findsNothing);
 
       await tester.tap(find.text('Gurugram'));
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField).at(0), 'Acme');
       await tester.enterText(find.byType(TextField).at(1), 'Fitter');
@@ -1623,6 +1640,31 @@ void main() {
           .single as List<TradeFormEmploymentEntry>;
       expect(sent.single.employerCity, 'Gurugram');
       expect(sent.single.employerState, 'Haryana');
+    });
+
+    testWidgets(
+        'the city dropdown search box filters to a typed query',
+        (WidgetTester tester) async {
+      await walkToEmploymentPage(tester);
+
+      await tester.ensureVisible(find.text('STATE CHUNEIN'));
+      await tester.tap(find.text('STATE CHUNEIN'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Haryana'));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('SHEHER CHUNEIN'));
+      await tester.tap(find.text('SHEHER CHUNEIN'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Gurugram'), findsOneWidget);
+      expect(find.text('Faridabad'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField).last, 'Fari');
+      await tester.pump();
+
+      expect(find.text('Faridabad'), findsOneWidget);
+      expect(find.text('Gurugram'), findsNothing);
     });
 
     testWidgets(

@@ -5,6 +5,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
+import '../../../../core/widgets/bb_searchable_dropdown_field.dart';
 import '../../../../core/widgets/bb_toggle.dart';
 import '../../domain/trade_form_models.dart';
 import 'trade_form_text_field.dart';
@@ -576,42 +577,45 @@ class _EmployerLocationPickerState extends State<_EmployerLocationPicker> {
 
     final List<String> cities =
         _kDemoEmployerStateCities[_pickedState] ?? const <String>[];
+    final String? cityValue = _cityController.text.isEmpty ? null : _cityController.text;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        _fieldLabel(_kPickStateLabel),
-        const SizedBox(height: AppSpacing.s1),
-        Wrap(
-          spacing: AppSpacing.s2,
-          runSpacing: AppSpacing.s2,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            for (final String state in _kDemoEmployerStateCities.keys)
-              BbChip(
-                label: state,
-                selected: _pickedState == state,
-                icon: _pickedState == state ? Icons.check : null,
-                onTap: () => _pickState(state),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  _fieldLabel(_kStateLabel),
+                  BbSearchableDropdownField(
+                    placeholder: _kPickStateLabel,
+                    options: _kDemoEmployerStateCities.keys.toList(),
+                    selected: _pickedState,
+                    onSelected: _pickState,
+                  ),
+                ],
               ),
+            ),
+            const SizedBox(width: AppSpacing.s2),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  _fieldLabel(_kCityLabel),
+                  BbSearchableDropdownField(
+                    placeholder: _kPickCityLabel,
+                    options: cities,
+                    selected: cityValue,
+                    enabled: _pickedState != null,
+                    onSelected: _pickCity,
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
-        if (_pickedState != null) ...<Widget>[
-          const SizedBox(height: AppSpacing.s3),
-          _fieldLabel(_kPickCityLabel),
-          const SizedBox(height: AppSpacing.s1),
-          Wrap(
-            spacing: AppSpacing.s2,
-            runSpacing: AppSpacing.s2,
-            children: <Widget>[
-              for (final String city in cities)
-                BbChip(
-                  label: city,
-                  selected: _cityController.text == city,
-                  icon: _cityController.text == city ? Icons.check : null,
-                  onTap: () => _pickCity(city),
-                ),
-            ],
-          ),
-        ],
         TextButton(
           onPressed: _switchToManual,
           child: const Text(_kManualEntryLink),
