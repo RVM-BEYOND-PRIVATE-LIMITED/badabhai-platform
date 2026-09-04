@@ -77,7 +77,9 @@ import '../../features/finishing/presentation/cubit/finishing_cubit.dart';
 import '../../features/trade_form/data/trade_form_repository_impl.dart';
 import '../../features/trade_form/domain/trade_form_repository.dart';
 import '../../features/trade_form/presentation/cubit/trade_form_cubit.dart';
+import '../../features/name/data/device_location_lookup.dart';
 import '../../features/name/data/name_repository_impl.dart';
+import '../../features/name/domain/location_lookup.dart';
 import '../../features/name/domain/name_repository.dart';
 import '../../features/name/presentation/cubit/name_cubit.dart';
 import '../../features/profile/data/profile_repository_impl.dart';
@@ -244,6 +246,10 @@ void setupLocator({ApiClient? apiClient, SecureKeyValueStore? secureStore}) {
   locator.registerLazySingleton<NameRepository>(
     () => NameRepositoryImpl(locator<ApiClient>(), locator<SessionRepository>()),
   );
+  // On-device GPS/network -> city/state (no backend round-trip). Registered
+  // unconditionally like the other real repos in this block — nothing here
+  // needs the plugin graph until a widget actually calls resolveCurrent().
+  locator.registerLazySingleton<LocationLookup>(() => DeviceLocationLookup());
   locator.registerLazySingleton<FeedbackRepository>(
     () => FeedbackRepositoryImpl(
         locator<ApiClient>(), locator<SessionRepository>()),

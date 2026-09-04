@@ -21,20 +21,25 @@ class NameState extends Equatable {
   List<Object?> get props => <Object?>[status];
 }
 
-/// Drives the "Your name" onboarding step: submit the name once, then continue
-/// to chat profiling. The name is passed as a method argument (never stored on
-/// the cubit). A failure surfaces a retry rather than a stuck spinner.
+/// Drives the "Your name" onboarding step: submit the name (+ coarse
+/// city/state, if captured) once, then continue to chat profiling. Nothing
+/// is stored on the cubit — everything is a method argument. A failure
+/// surfaces a retry rather than a stuck spinner.
 class NameCubit extends Cubit<NameState> {
   NameCubit(this._repo) : super(const NameState());
 
   final NameRepository _repo;
 
-  Future<void> submit(String fullName) async {
+  Future<void> submit(String fullName, {String? city, String? state}) async {
     final String trimmed = titleCaseName(fullName.trim());
-    if (trimmed.isEmpty || state.isSubmitting) return;
+    if (trimmed.isEmpty || this.state.isSubmitting) return;
+    final String? trimmedCity =
+        (city != null && city.trim().isNotEmpty) ? titleCaseName(city.trim()) : null;
+    final String? trimmedState =
+        (state != null && state.trim().isNotEmpty) ? titleCaseName(state.trim()) : null;
     emit(const NameState(status: NameStatus.submitting));
     try {
-      await _repo.submitName(trimmed);
+      await _repo.submitName(trimmed, city: trimmedCity, state: trimmedState);
       if (isClosed) return;
       emit(const NameState(status: NameStatus.success));
     } on Failure catch (_) {

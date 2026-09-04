@@ -140,8 +140,11 @@ class MockApiClient extends ApiClient {
   Future<void> updateName({
     required String fullName,
     required String authToken,
+    String? city,
+    String? state,
   }) async {
-    // No-op: never stores, echoes, or logs the name (PII-free by construction).
+    // No-op: never stores, echoes, or logs the name/location (PII-free by
+    // construction).
     await _delay();
   }
 
