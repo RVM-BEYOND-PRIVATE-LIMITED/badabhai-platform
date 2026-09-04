@@ -493,3 +493,69 @@ item is scoped in the rewritten P12 to the new wizard's files for exactly this r
 someone later widens it back to the whole app without removing these three lists first, P12
 becomes unpassable** — and the failure will read as a defect in the new wizard rather than in
 code that predates it by months.
+
+---
+
+## P-014 · A PDF converted to Markdown was invisible to ripgrep, and looked exactly like a clean search
+
+**Found:** 2026-09-04, PR #1418, by `apps/api/src/common/source-hygiene.test.ts` in CI.
+**Owner ruling:** PARK the general rule — Prakash, 2026-09-04. The instance is already FIXED
+on PR #1418; what is parked is the practice that must follow every conversion.
+
+**What happened.** `docs/reference/BadaBhai_Role_Taxonomy_Master_2026-08-09.md` — which lives on
+PR #1418 and is NOT on `main` as this entry is written — was converted from a PDF so that
+agents could read a document `docs/agent/BUILD_RULES.md` names. The PDF's
+bullet glyph extracted as raw `0x7f` (DEL) at the head of four prose lines (386, 388, 390,
+392). **ripgrep treats a file containing raw control characters as BINARY and skips it
+silently.** The document committed specifically to be searchable could not be searched at all.
+
+**Why this class is worse than a broken file.** A search over it returned nothing, and a search
+that finds nothing is indistinguishable from a search over a file with nothing in it. There is
+no error, no warning, and no failing step anywhere near the person doing the searching — the
+next agent would have concluded the document does not mention what it in fact says on line 386.
+Same shape as every check that runs, exits 0, and answers a different question than the one
+asked: a real command ran and told the truth about the wrong thing.
+
+**The rule to apply.** A conversion is not done when the text looks right. **Grep-verify it:**
+pick a phrase from the middle of the converted body and confirm `rg` returns it, and scan the
+output for C0/C1 characters before committing. Do not infer searchability from the fact that a
+text editor renders the file — an editor is not ripgrep, and neither is a diff view.
+
+**Why the local run missed it.** The branch was docs-only, so nothing about the diff suggested
+an `apps/api` suite was relevant. The guard that caught it lives there. Relevance was the wrong
+filter; CI does not use one.
+
+---
+
+## P-015 · `deps-audit` is a required check that almost never runs
+
+**Found:** 2026-09-04, PR #1418, when a two-line `package.json` edit woke it.
+**Owner ruling:** PARK, do not fix — Prakash, 2026-09-04.
+
+**What is true today.** `deps-audit` sits in `ci-required`'s `needs` (`.github/workflows/ci.yml`),
+so it can block any merge. It is path-filtered, and on every recent run against `main` it
+reports `skipped` — no row at all. Adding two `scripts` entries to `package.json` — not a
+dependency change — is what made it execute for the first time on that branch.
+
+**And when it executed, it failed.** Three consecutive runs died the same way:
+
+    POST https://registry.npmjs.org/-/npm/v1/security/advisories/bulk error (503)
+    TimeoutError: The operation was aborted due to timeout
+
+Reproduced locally on a different network, so it is npm's advisory API, not the runner and not
+the diff. That is the immediate cause and it will pass; the parked defect is structural.
+
+**Why it is a defect.** A gate that fires only when someone accidentally trips a path filter is
+not a gate. Two things follow, and both are bad on their own:
+
+1. **It is not protecting anything.** Between the filter and this outage, no recent merge to
+   `main` has had its dependencies audited. The check's green record is mostly `skipped`.
+2. **When it does fire, it blocks unrelated work.** It is `ci-required`, so a docs PR that
+   happens to touch `package.json` inherits a network dependency on npm's advisory service.
+
+**What a fix would have to decide** (not settled here): whether the audit runs on a schedule
+against `main` rather than per-PR; whether a registry timeout should fail the job or be
+retried/soft-failed distinctly from a real advisory — a timeout and a HIGH CVE currently
+produce the identical red; and whether it belongs in `ci-required` at all if it cannot be
+executed deterministically. Note the trap in that last one: **removing it from `ci-required`
+to stop it blocking is escaping the gate, not fixing it.**
