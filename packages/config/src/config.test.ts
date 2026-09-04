@@ -502,21 +502,50 @@ describe("OTP per-caller send/verify budgets (#1306)", () => {
     expect(c.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR).not.toBe(c.OTP_MAX_SENDS_PER_DAY);
     // The per-phone caps are what actually bound spend. The DAILY one was raised 10 -> 30 by
     // owner ruling 2026-09-04: 10 was reachable across a failed onboarding plus a PIN reset,
-    // which share one per-phone budget. The HOURLY one stays at 5 deliberately — it is read by
-    // admin-otp.service.ts and payer-otp.service.ts too, so it cannot be moved for workers
-    // alone. Both numbers are pinned here so neither drifts without that reasoning being read.
+    // which share one per-phone budget. The SHARED hourly one stays at 5 — it is read by
+    // admin-otp.service.ts and payer-otp.service.ts, and #1421 split the worker path off it
+    // rather than raising it. All three numbers are pinned so none drifts unread.
     expect(c.OTP_MAX_SENDS_PER_HOUR).toBe(5);
     expect(c.OTP_MAX_SENDS_PER_DAY).toBe(30);
   });
 
-  it("keeps the per-phone HOURLY cap strictly below the DAILY one, or the hourly cap is dead", () => {
+  it("gives the WORKER path its own hourly cap (10), leaving admin + payer on the shared 5", () => {
+    // #1421 — the withdrawn 2026-09-04 ruling, landed on the one surface it was meant for.
+    // PINNED AS A PAIR AND AS AN INEQUALITY, because the whole point of the change is that the
+    // two numbers are no longer the same question: if a later edit collapses them back to one
+    // value, the worker cap has silently become un-raisable again without moving two
+    // authenticated portals with it, and nothing else in the suite would notice.
+    const c = loadServerConfig({});
+    expect(c.WORKER_OTP_MAX_SENDS_PER_HOUR).toBe(10);
+    expect(c.WORKER_OTP_MAX_SENDS_PER_HOUR).toBeGreaterThan(c.OTP_MAX_SENDS_PER_HOUR);
+  });
+
+  it("leaves OTP_MAX_SENDS_PER_HOUR meaning exactly what it meant before the split", () => {
+    // BACKWARD COMPATIBILITY, ASSERTED (§10). A deployment that sets the old name must not have
+    // its worker cap silently move — the new knob is additive and independently defaulted, so
+    // setting one may never change the other in either direction.
+    const onlyOld = loadServerConfig({ OTP_MAX_SENDS_PER_HOUR: "7" });
+    expect(onlyOld.OTP_MAX_SENDS_PER_HOUR).toBe(7);
+    expect(onlyOld.WORKER_OTP_MAX_SENDS_PER_HOUR).toBe(10);
+
+    const onlyNew = loadServerConfig({ WORKER_OTP_MAX_SENDS_PER_HOUR: "12" });
+    expect(onlyNew.WORKER_OTP_MAX_SENDS_PER_HOUR).toBe(12);
+    expect(onlyNew.OTP_MAX_SENDS_PER_HOUR).toBe(5);
+  });
+
+  it("keeps BOTH per-phone HOURLY caps strictly below the DAILY one, or the hourly cap is dead", () => {
     // NOT A STYLE RULE. Both counters INCR on every accepted send (`otp.service.ts`), so if the
     // hourly limit ever equals or exceeds the daily one it can never refuse a request the daily
     // limit would not also refuse inside the same UTC day: it becomes dead configuration that
     // still reads like a live control, and the `phone_hourly_cap` refusal reason stops being
     // reachable in logs. PR #1305 proposed 50/50 and would have shipped precisely that.
+    //
+    // THE WORKER KNOB IS HELD TO THE SAME RULE, and that is the one #1421 could plausibly have
+    // broken: 10 is under 30 today, but the knob exists precisely so someone can raise it, and
+    // the first raise past 30 would ship the dead-config bug the shared knob was protected from.
     const c = loadServerConfig({});
     expect(c.OTP_MAX_SENDS_PER_HOUR).toBeLessThan(c.OTP_MAX_SENDS_PER_DAY);
+    expect(c.WORKER_OTP_MAX_SENDS_PER_HOUR).toBeLessThan(c.OTP_MAX_SENDS_PER_DAY);
   });
 });
 

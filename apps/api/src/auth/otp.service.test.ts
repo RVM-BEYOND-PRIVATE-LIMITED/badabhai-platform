@@ -16,11 +16,15 @@ const config = {
   OTP_TTL_SECONDS: 300,
   OTP_MAX_ATTEMPTS: 500,
   OTP_RESEND_COOLDOWN_SECONDS: 30,
-  OTP_MAX_SENDS_PER_HOUR: 500,
+  // THE SHARED KNOB, deliberately left LOW in this fixture. `OtpService` is the WORKER path
+  // and reads `WORKER_OTP_MAX_SENDS_PER_HOUR` only (#1421); if a future edit ever points it
+  // back at this one, every hourly-cap test below trips at 5 instead of 500 and says so.
+  OTP_MAX_SENDS_PER_HOUR: 5,
+  WORKER_OTP_MAX_SENDS_PER_HOUR: 500,
   // Daily backstop MUST sit at/above the hourly cap (a lower daily is incoherent — it
   // would trip FIRST and make the hourly cap unreachable). Kept above the hourly cap so
-  // the hourly-cap suite — which issues OTP_MAX_SENDS_PER_HOUR sends against one phone —
-  // trips the HOURLY window; the dedicated DAILY-cap suite sets its own low cap (3). TD60.
+  // the hourly-cap suite — which issues WORKER_OTP_MAX_SENDS_PER_HOUR sends against one
+  // phone — trips the HOURLY window; the dedicated DAILY-cap suite sets its own cap (3). TD60.
   OTP_MAX_SENDS_PER_DAY: 1000,
   // Worker OTP is REAL-ONLY (fast2sms; no console fallback), so isRealOtpSmsActive is always
   // true and the global daily breaker ALWAYS enforces. Default a HIGH global cap so the
@@ -197,10 +201,46 @@ describe("OtpService.issueAndSend", () => {
     const { svc, redis } = setup();
     // Drive the hourly counter to the cap by issuing repeatedly (clearing the
     // cooldown between issues so only the hourly cap can trip), then expect 429.
-    for (let i = 0; i < config.OTP_MAX_SENDS_PER_HOUR; i += 1) {
+    for (let i = 0; i < config.WORKER_OTP_MAX_SENDS_PER_HOUR; i += 1) {
       redis.store.delete(cooldownKey);
       await svc.issueAndSend(PHONE);
     }
+    redis.store.delete(cooldownKey);
+    await expect(svc.issueAndSend(PHONE)).rejects.toMatchObject({
+      status: HttpStatus.TOO_MANY_REQUESTS,
+    });
+  });
+
+  it("bounds the worker path by WORKER_OTP_MAX_SENDS_PER_HOUR and IGNORES the shared knob (#1421)", async () => {
+    // THE REGRESSION THIS LOCKS, and it is the whole point of #1421. `OTP_MAX_SENDS_PER_HOUR` is
+    // read by `admin-otp.service.ts` and `payer-otp.service.ts` as well, so while the worker path
+    // also read it there was no way to give a worker more room inside an hour without loosening
+    // two authenticated portals by the same factor — which is why the 2026-09-04 owner ruling of
+    // 10/hour was withdrawn rather than shipped.
+    //
+    // ASSERTED FROM BOTH SIDES, because only one of them is the interesting failure. That the
+    // worker cap TRIPS at its own value is the easy half; that a LOW shared knob does NOT trip
+    // this path is the half that goes quietly wrong if someone later "simplifies" the two names
+    // back into one, and nothing else in this suite would notice.
+    const redis = makeRedis();
+    const queue = { client: Promise.resolve(redis.client) } as unknown as Queue;
+    const sms: SmsProvider = { sendOtp: vi.fn().mockResolvedValue(undefined) };
+    const splitCfg = {
+      ...(config as unknown as Record<string, unknown>),
+      OTP_MAX_SENDS_PER_HOUR: 2, // admin/payer only — must have NO effect on this path
+      WORKER_OTP_MAX_SENDS_PER_HOUR: 6,
+      OTP_MAX_SENDS_PER_DAY: 1000,
+    } as unknown as ServerConfig;
+    const svc = new OtpService(splitCfg, pii, sms, queue);
+
+    // Six sends. Four of them are past the shared knob's value of 2, and every one must be
+    // accepted — if this loop throws, the worker path is still reading the shared number.
+    for (let i = 0; i < 6; i += 1) {
+      redis.store.delete(cooldownKey);
+      await svc.issueAndSend(PHONE);
+    }
+
+    // The seventh is over the WORKER cap, and only now may it refuse.
     redis.store.delete(cooldownKey);
     await expect(svc.issueAndSend(PHONE)).rejects.toMatchObject({
       status: HttpStatus.TOO_MANY_REQUESTS,
@@ -216,7 +256,7 @@ describe("OtpService.issueAndSend", () => {
     const sms: SmsProvider = { sendOtp: vi.fn().mockResolvedValue(undefined) };
     const dailyCfg = {
       ...(config as unknown as Record<string, unknown>),
-      OTP_MAX_SENDS_PER_HOUR: 100,
+      WORKER_OTP_MAX_SENDS_PER_HOUR: 100,
       OTP_MAX_SENDS_PER_DAY: 3,
     } as unknown as ServerConfig;
     const svc = new OtpService(dailyCfg, pii, sms, queue);
@@ -505,7 +545,7 @@ describe("#1019 — a refused OTP names its throttle in the log, and only there"
     // THE BUDGET IS WHAT MAKES IT A DIAGNOSTIC rather than a note. #1019's symptom was a cap
     // tripping far below its configured value — one tap counted three times — and `count=4/3`
     // on a number that was tapped twice is exactly that bug, visible in one line.
-    const { svc, redis } = capped({ OTP_MAX_SENDS_PER_HOUR: 3, OTP_MAX_SENDS_PER_DAY: 1000 });
+    const { svc, redis } = capped({ WORKER_OTP_MAX_SENDS_PER_HOUR: 3, OTP_MAX_SENDS_PER_DAY: 1000 });
     for (let i = 0; i < 3; i += 1) {
       redis.store.delete(cooldownKey);
       await svc.issueAndSend(PHONE);
@@ -519,7 +559,7 @@ describe("#1019 — a refused OTP names its throttle in the log, and only there"
   });
 
   it("names the per-phone DAILY cap — distinct from the hourly one it shares a 429 with", async () => {
-    const { svc, redis } = capped({ OTP_MAX_SENDS_PER_HOUR: 100, OTP_MAX_SENDS_PER_DAY: 3 });
+    const { svc, redis } = capped({ WORKER_OTP_MAX_SENDS_PER_HOUR: 100, OTP_MAX_SENDS_PER_DAY: 3 });
     for (let i = 0; i < 3; i += 1) {
       redis.store.delete(cooldownKey);
       await svc.issueAndSend(PHONE);

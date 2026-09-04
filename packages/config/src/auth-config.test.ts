@@ -188,7 +188,10 @@ describe("throttle/edge knobs (TD25 trust proxy + TD60 per-phone daily cap)", ()
 
   it("OTP_MAX_SENDS_PER_DAY defaults to 30 and must be positive (0-as-kill-switch is the GLOBAL cap's job)", () => {
     // 10 -> 30 by owner ruling, 2026-09-04. Worker-only, and deliberately above the per-phone
-    // HOURLY cap (10) so that cap stays reachable rather than dead.
+    // WORKER hourly cap (WORKER_OTP_MAX_SENDS_PER_HOUR, 10) so that cap stays reachable rather
+    // than dead. This comment used to say "(10)" while the worker path was still on the shared
+    // OTP_MAX_SENDS_PER_HOUR at 5 — it was describing the half of the ruling that was withdrawn.
+    // #1421 shipped that half onto its own knob, so the number is now true as written.
     expect(cfg().OTP_MAX_SENDS_PER_DAY).toBe(30);
     expect(cfg({ OTP_MAX_SENDS_PER_DAY: "25" }).OTP_MAX_SENDS_PER_DAY).toBe(25);
     expect(() => cfg({ OTP_MAX_SENDS_PER_DAY: "0" })).toThrow();

@@ -128,6 +128,10 @@ function make() {
   };
   const config = {
     OTP_MAX_SENDS_PER_HOUR: 5,
+    // The worker-only per-phone hourly budget (#1421). Present here for the same reason as its
+    // shared sibling: it is a per-PHONE SMS budget, so it is one of the numbers the sender cap
+    // must never silently become.
+    WORKER_OTP_MAX_SENDS_PER_HOUR: 10,
     OTP_MAX_SENDS_PER_DAY: 10,
     // The verify budget is DERIVED — sends x attempts — not picked; see the ratio assertion in
     // the #1132/#1306 block below. Mirrors the real defaults so the ratio is exercised here too.
@@ -378,6 +382,7 @@ describe("AuthController", () => {
       .calls[0]![2];
     expect(senderCap).toBe(config.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR);
     expect(senderCap).not.toBe(config.OTP_MAX_SENDS_PER_HOUR);
+    expect(senderCap).not.toBe(config.WORKER_OTP_MAX_SENDS_PER_HOUR);
     expect(senderCap).not.toBe(config.OTP_MAX_SENDS_PER_DAY);
   });
 
