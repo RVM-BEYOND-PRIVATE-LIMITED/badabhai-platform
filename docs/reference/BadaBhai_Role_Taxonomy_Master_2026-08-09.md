@@ -383,13 +383,13 @@ postings, push supply-building for these two immediately.
 ```
 
 What this does to the numbers
-  Phase 1 grows from 4 to 7 roles — the four we planned plus wire-cut/EDM, PLC/SCADA and heat-treatment. All three additions are tool-room-adjacent,
+- Phase 1 grows from 4 to 7 roles — the four we planned plus wire-cut/EDM, PLC/SCADA and heat-treatment. All three additions are tool-room-adjacent,
 so the telecaller list, the industrial estates and the employer relationships stay identical. No new go-to-market.
-  Total taxonomy goes from 22 to roughly 31–33 roles across all stages — but the architecture absorbs it, because every role is the same shape: role +
+- Total taxonomy goes from 22 to roughly 31–33 roles across all stages — but the architecture absorbs it, because every role is the same shape: role +
 level ladder + display-only attributes. The ladder is built once; each role simply declares which rungs apply.
-  Attributes stay display-only under Matching V1. Role and skill drive visibility and rank; controller, axes, certifications, instruments, machine make
+- Attributes stay display-only under Matching V1. Role and skill drive visibility and rank; controller, axes, certifications, instruments, machine make
 and tonnage are shown to the employer to inform the ₹40 unlock decision — never scored, never ranked.
-  One open design fork for engineering: is “CNC Turner (Programmer)” a distinct skill_id from “CNC Turner (Operator)” for matching, or one skill
+- One open design fork for engineering: is “CNC Turner (Programmer)” a distinct skill_id from “CNC Turner (Operator)” for matching, or one skill
 carrying a level attribute? This materially changes both reach and rank behaviour and needs a deliberate ruling — it should not be decided by default
 inside a migration.
 
