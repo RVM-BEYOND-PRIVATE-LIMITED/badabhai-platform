@@ -4,6 +4,7 @@ import '../../../../core/api/api_client.dart' show QualificationOptionsDto;
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
+import '../../../../core/util/title_case.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
 import '../../domain/trade_form_models.dart';
@@ -540,7 +541,7 @@ class TradeFormQualificationsPageState
               maxLength: 120,
               textInputAction: TextInputAction.done,
               onChanged: (String v) =>
-                  _updateEducation(i, e.copyWith(institute: _trimOrNull(v))),
+                  _updateEducation(i, e.copyWith(institute: _titleCaseOrNull(v))),
             ),
           ],
         );
@@ -597,6 +598,15 @@ String? _yearErrorText(String s) {
 String? _trimOrNull(String v) {
   final String t = v.trim();
   return t.isEmpty ? null : t;
+}
+
+/// [_trimOrNull], plus [titleCaseName] — for the institute field ONLY.
+/// Certificate name/issuer and the trade/subject field stay on
+/// [_trimOrNull] verbatim: title-casing is scoped to institute names, never
+/// applied to a description a worker wrote in their own words.
+String? _titleCaseOrNull(String v) {
+  final String? trimmed = _trimOrNull(v);
+  return trimmed == null ? null : titleCaseName(trimmed);
 }
 
 Widget _fieldLabel(String text) => Padding(

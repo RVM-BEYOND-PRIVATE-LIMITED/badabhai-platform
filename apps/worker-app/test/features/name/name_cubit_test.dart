@@ -27,6 +27,20 @@ void main() {
   );
 
   blocTest<NameCubit, NameState>(
+    'submit title-cases an all-lowercase name before sending it',
+    build: () {
+      when(() => repo.submitName(any())).thenAnswer((_) async {});
+      return NameCubit(repo);
+    },
+    act: (NameCubit c) => c.submit('ramesh kumar'),
+    expect: () => const <NameState>[
+      NameState(status: NameStatus.submitting),
+      NameState(status: NameStatus.success),
+    ],
+    verify: (_) => verify(() => repo.submitName('Ramesh Kumar')).called(1),
+  );
+
+  blocTest<NameCubit, NameState>(
     'submit failure -> submitting then failed (not a stuck spinner)',
     build: () {
       when(() => repo.submitName(any())).thenThrow(const NetworkFailure());

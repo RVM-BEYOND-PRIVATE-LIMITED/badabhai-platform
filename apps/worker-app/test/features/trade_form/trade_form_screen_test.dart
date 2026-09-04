@@ -971,6 +971,40 @@ void main() {
       verifyNever(() => repo.saveQualifications(any()));
       expect(router.routerDelegate.currentConfiguration.uri.path, '/building');
     });
+
+    testWidgets(
+        'an institute name typed lowercase is title-cased before it reaches '
+        'saveQualifications', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
+
+      final GoRouter router = await pumpToBuilding(tester);
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // -> credential+subject
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Aur ek entry jodein'));
+      await tester.tap(find.text('Aur ek entry jodein'));
+      await tester.pumpAndSettle();
+
+      for (int i = 0; i < 2; i++) {
+        await tester.ensureVisible(find.text('Aage badhein'));
+        await tester.tap(find.text('Aage badhein'));
+        await tester.pumpAndSettle();
+      }
+      // Now on year+institute. Two fields (year, then institute).
+      expect(find.text('Institute ka naam'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).last, 'rvm cad pvt ltd');
+      await tester.pump();
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      final TradeFormQualifications sent = verify(
+              () => repo.saveQualifications(captureAny()))
+          .captured
+          .single as TradeFormQualifications;
+      expect(sent.educations.single.institute, 'Rvm Cad Pvt Ltd');
+      expect(router.routerDelegate.currentConfiguration.uri.path, '/building');
+    });
   });
 
   group('going Back into an already-passed marker keeps what was typed '
@@ -1123,8 +1157,11 @@ void main() {
       await tester.pumpAndSettle();
 
       // Page 8 (year + institute) — the LAST internal page; this tap
-      // actually saves.
+      // actually saves. Typed lowercase — must reach the server title-cased.
       expect(find.text('Institute ka naam'), findsOneWidget);
+      // Two fields on this page (year, then institute) — institute is last.
+      await tester.enterText(find.byType(TextField).last, 'rvm cad pvt ltd');
+      await tester.pump();
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
@@ -1141,6 +1178,7 @@ void main() {
       expect(sent.shift, 'day');
       expect(sent.jobType, 'permanent');
       expect(sent.preferredCities, <String>['Faridabad']);
+      expect(sent.educationInstitute, 'Rvm Cad Pvt Ltd');
     });
 
     testWidgets(

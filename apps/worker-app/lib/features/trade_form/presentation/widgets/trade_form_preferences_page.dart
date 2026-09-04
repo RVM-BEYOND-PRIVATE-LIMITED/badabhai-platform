@@ -5,6 +5,7 @@ import '../../../../core/api/api_client.dart'
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
+import '../../../../core/util/title_case.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
 import '../../../../core/widgets/bb_toggle.dart';
@@ -527,7 +528,8 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
           onChanged: (String v) {
             final String trimmed = v.trim();
             setState(() => _prefs = _prefs.copyWith(
-                educationInstitute: trimmed.isEmpty ? null : trimmed));
+                educationInstitute:
+                    trimmed.isEmpty ? null : titleCaseName(trimmed)));
           },
         ),
       ],
