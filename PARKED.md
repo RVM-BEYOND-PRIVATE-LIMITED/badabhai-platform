@@ -140,7 +140,7 @@ now carries the correction so the doc does not repeat the error.
 ## P-005 · `pnpm build` cannot pass on Windows — `admin-web` dies on a symlink
 
 **Found:** 2026-09-02, running the gates after the P1-duplicate cleanup
-**Location:** [apps/admin-web/next.config.ts](apps/admin-web/next.config.ts) — `output: "standalone"`
+**Location:** [apps/admin-web/next.config.mjs](apps/admin-web/next.config.mjs) — `output: "standalone"`
 **Severity:** none in CI, total locally. **Do not re-investigate this; it is known.**
 
 **What happens.** `pnpm build` reports `15 successful, 17 total` / `Failed:
