@@ -23,22 +23,50 @@ const String _kRoleLabel = 'Aapka kaam / role';
 const String _kRoleHint = 'Jaise: Operator';
 const String _kCityLabel = 'Sheher';
 const String _kStateLabel = 'State';
+const String _kPickStateLabel = 'STATE CHUNEIN';
+const String _kPickCityLabel = 'SHEHER CHUNEIN';
+const String _kManualEntryLink = 'Khud likhein';
+const String _kBackToPickerLink = 'List se chunein';
+
+/// TEMPORARY demo data (#1429 — the real state-tagged city gazetteer isn't
+/// built yet, KP). Exactly 2 states, 2 cities each, as asked, so this flow
+/// can be shown/demoed before the real backend dataset exists. Delete this
+/// map (and [_EmployerLocationPicker]'s picker branch) once #1429 lands and
+/// wire the real options through instead — [employerCity]/[employerState]
+/// stay plain strings on the wire either way, so nothing downstream changes.
+const Map<String, List<String>> _kDemoEmployerStateCities =
+    <String, List<String>>{
+      'Haryana': <String>['Gurugram', 'Faridabad'],
+      'Maharashtra': <String>['Mumbai', 'Pune'],
+    };
 const String _kStartLabel = 'Kab shuru kiya';
 const String _kEndLabel = 'Kab tak';
 const String _kStillWorking = 'Abhi yahin kaam kar rahe hain';
 const String _kWorkLabel = 'Aap kya kaam karte the?';
 // Trade-neutral (#1382). Duplicated verbatim in
 // `finishing/employer_card.dart`; keep both in sync if this ever changes.
-const String _kWorkHint = 'Jaise: Naye parts banate the aur quality check karte the';
+const String _kWorkHint =
+    'Jaise: Naye parts banate the aur quality check karte the';
 const String _kNotStated = 'Nahi bataya';
 const String _kPickYear = 'Saal chunein';
 const String _kPickMonth = 'Mahina chunein';
 const int _kWorkDoneMax = 300;
-const String _kDateOrderError = 'Khatam hone ki date shuru hone ke baad honi chahiye.';
+const String _kDateOrderError =
+    'Khatam hone ki date shuru hone ke baad honi chahiye.';
 
 const List<String> _kMonths = <String>[
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
 ];
 
 /// The `type: "employment"` marker screen (#1341) — the repeat-card work
@@ -83,8 +111,10 @@ class TradeFormEmploymentPage extends StatefulWidget {
 }
 
 class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
-  late List<TradeFormEmploymentEntry> _entries = List<TradeFormEmploymentEntry>.of(
-      widget.initialEntries ?? const <TradeFormEmploymentEntry>[]);
+  late List<TradeFormEmploymentEntry> _entries =
+      List<TradeFormEmploymentEntry>.of(
+        widget.initialEntries ?? const <TradeFormEmploymentEntry>[],
+      );
 
   int _page = 0;
 
@@ -164,37 +194,50 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
       children.addAll(<Widget>[
         Text(_kTitle, style: AppTypography.display(size: AppTypography.sizeLg)),
         const SizedBox(height: AppSpacing.s2),
-        Text(_kSubtitle,
-            style: AppTypography.body(
-                size: AppTypography.sizeSm, color: AppColors.textMuted)),
+        Text(
+          _kSubtitle,
+          style: AppTypography.body(
+            size: AppTypography.sizeSm,
+            color: AppColors.textMuted,
+          ),
+        ),
         const SizedBox(height: AppSpacing.s4),
       ]);
     }
     if (_entries.isNotEmpty) {
       final int i = _page;
-      children.add(_EmployerCard(
-        key: ValueKey<int>(i),
-        entry: _entries[i],
-        onChanged: (TradeFormEmploymentEntry e) => _update(i, e),
-        onRemove: () => _remove(i),
-      ));
+      children.add(
+        _EmployerCard(
+          key: ValueKey<int>(i),
+          entry: _entries[i],
+          onChanged: (TradeFormEmploymentEntry e) => _update(i, e),
+          onRemove: () => _remove(i),
+        ),
+      );
     }
     if (isLastPage && _entries.length < kTradeFormMaxEmployers) {
-      if (_entries.isNotEmpty) children.add(const SizedBox(height: AppSpacing.s3));
-      children.add(BbButton(
-        label: _kAddEmployer,
-        variant: BbButtonVariant.outline,
-        size: BbButtonSize.md,
-        iconLeft: Icons.add,
-        block: true,
-        onPressed: _add,
-      ));
+      if (_entries.isNotEmpty) {
+        children.add(const SizedBox(height: AppSpacing.s3));
+      }
+      children.add(
+        BbButton(
+          label: _kAddEmployer,
+          variant: BbButtonVariant.outline,
+          size: BbButtonSize.md,
+          iconLeft: Icons.add,
+          block: true,
+          onPressed: _add,
+        ),
+      );
     }
     return IgnorePointer(
       ignoring: !widget.enabled,
       child: Opacity(
         opacity: widget.enabled ? 1 : 0.5,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: children,
+        ),
       ),
     );
   }
@@ -231,16 +274,15 @@ int _compareYearMonth(String? a, String? b) {
 }
 
 class _EmployerCardState extends State<_EmployerCard> {
-  late final TextEditingController _name =
-      TextEditingController(text: widget.entry.employerName);
-  late final TextEditingController _role =
-      TextEditingController(text: widget.entry.roleLabel);
-  late final TextEditingController _city =
-      TextEditingController(text: widget.entry.employerCity ?? '');
-  late final TextEditingController _state =
-      TextEditingController(text: widget.entry.employerState ?? '');
-  late final TextEditingController _work =
-      TextEditingController(text: widget.entry.workDone ?? '');
+  late final TextEditingController _name = TextEditingController(
+    text: widget.entry.employerName,
+  );
+  late final TextEditingController _role = TextEditingController(
+    text: widget.entry.roleLabel,
+  );
+  late final TextEditingController _work = TextEditingController(
+    text: widget.entry.workDone ?? '',
+  );
 
   late bool _stillWorking = widget.entry.endYm == null;
 
@@ -248,8 +290,6 @@ class _EmployerCardState extends State<_EmployerCard> {
   void dispose() {
     _name.dispose();
     _role.dispose();
-    _city.dispose();
-    _state.dispose();
     _work.dispose();
     super.dispose();
   }
@@ -273,10 +313,16 @@ class _EmployerCardState extends State<_EmployerCard> {
             alignment: Alignment.centerRight,
             child: IconButton(
               onPressed: widget.onRemove,
-              icon: const Icon(Icons.close, size: 20, color: AppColors.textMuted),
+              icon: const Icon(
+                Icons.close,
+                size: 20,
+                color: AppColors.textMuted,
+              ),
               tooltip: 'Hataayein',
-              constraints:
-                  const BoxConstraints(minWidth: AppSpacing.tap, minHeight: 32),
+              constraints: const BoxConstraints(
+                minWidth: AppSpacing.tap,
+                minHeight: 32,
+              ),
               padding: EdgeInsets.zero,
             ),
           ),
@@ -296,50 +342,23 @@ class _EmployerCardState extends State<_EmployerCard> {
             onChanged: (String v) => _push(e.copyWith(roleLabel: v)),
           ),
           const SizedBox(height: AppSpacing.s3),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    _label(_kCityLabel),
-                    TradeFormTextField(
-                      controller: _city,
-                      hint: _kCityLabel,
-                      label: _kCityLabel,
-                      onChanged: (String v) => _push(e.copyWith(employerCity: v)),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    _label(_kStateLabel),
-                    TradeFormTextField(
-                      controller: _state,
-                      hint: _kStateLabel,
-                      label: _kStateLabel,
-                      textInputAction: TextInputAction.done,
-                      onChanged: (String v) => _push(e.copyWith(employerState: v)),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+          _EmployerLocationPicker(
+            initialCity: e.employerCity,
+            initialState: e.employerState,
+            onChanged: (String? city, String? state) =>
+                _push(e.copyWith(employerCity: city, employerState: state)),
           ),
           const SizedBox(height: AppSpacing.s3),
           _label(_kStartLabel),
           _YearMonthField(
             value: e.startYm,
             onPicked: (String? ym) {
-              if (ym != null && e.endYm != null &&
+              if (ym != null &&
+                  e.endYm != null &&
                   _compareYearMonth(ym, e.endYm) > 0) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text(_kDateOrderError)),
-                );
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text(_kDateOrderError)));
                 return;
               }
               _push(e.copyWith(startYm: ym));
@@ -349,8 +368,10 @@ class _EmployerCardState extends State<_EmployerCard> {
           Row(
             children: <Widget>[
               Expanded(
-                child: Text(_kStillWorking,
-                    style: AppTypography.body(size: AppTypography.sizeSm)),
+                child: Text(
+                  _kStillWorking,
+                  style: AppTypography.body(size: AppTypography.sizeSm),
+                ),
               ),
               BbToggle(
                 value: _stillWorking,
@@ -368,7 +389,8 @@ class _EmployerCardState extends State<_EmployerCard> {
             _YearMonthField(
               value: e.endYm,
               onPicked: (String? ym) {
-                if (ym != null && e.startYm != null &&
+                if (ym != null &&
+                    e.startYm != null &&
                     _compareYearMonth(ym, e.startYm) < 0) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text(_kDateOrderError)),
@@ -396,11 +418,218 @@ class _EmployerCardState extends State<_EmployerCard> {
   }
 
   Widget _label(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: AppSpacing.s1),
-        child: Text(text,
-            style: AppTypography.body(
-                size: AppTypography.sizeSm, weight: FontWeight.w700)),
+    padding: const EdgeInsets.only(bottom: AppSpacing.s1),
+    child: Text(
+      text,
+      style: AppTypography.body(
+        size: AppTypography.sizeSm,
+        weight: FontWeight.w700,
+      ),
+    ),
+  );
+}
+
+/// Employer city/state — a two-step "pick state, then pick a city filtered
+/// to it" picker, backed by [_kDemoEmployerStateCities], with a "Khud
+/// likhein" fallback to the ORIGINAL free-text fields so a real employer
+/// outside the 2-state demo set is never unenterable. TEMPORARY: once #1429
+/// ships the real backend dataset, replace the demo map with the real
+/// options and delete the manual-fallback toggle (or keep it — that's the
+/// call to make then, not now).
+class _EmployerLocationPicker extends StatefulWidget {
+  const _EmployerLocationPicker({
+    required this.initialCity,
+    required this.initialState,
+    required this.onChanged,
+  });
+
+  final String? initialCity;
+  final String? initialState;
+
+  /// Fires on every change, city and state independently nullable — mirrors
+  /// the two free-text fields this replaces (either can be filled alone).
+  final void Function(String? city, String? state) onChanged;
+
+  @override
+  State<_EmployerLocationPicker> createState() =>
+      _EmployerLocationPickerState();
+}
+
+class _EmployerLocationPickerState extends State<_EmployerLocationPicker> {
+  late bool _manual;
+  String? _pickedState;
+  late final TextEditingController _cityController = TextEditingController(
+    text: widget.initialCity ?? '',
+  );
+  late final TextEditingController _stateController = TextEditingController(
+    text: widget.initialState ?? '',
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _manual = !_matchesDemoData(widget.initialCity, widget.initialState);
+    _pickedState = _kDemoEmployerStateCities.containsKey(widget.initialState)
+        ? widget.initialState
+        : null;
+  }
+
+  /// True for a BLANK entry (nothing typed yet — default to the picker, the
+  /// preferred path) or a value that already matches the demo set. False for
+  /// pre-existing free text that doesn't match it — that data is preserved
+  /// via the manual fields rather than silently hidden.
+  static bool _matchesDemoData(String? city, String? state) {
+    if ((city == null || city.isEmpty) && (state == null || state.isEmpty)) {
+      return true;
+    }
+    final List<String>? cities = _kDemoEmployerStateCities[state];
+    return cities != null && cities.contains(city);
+  }
+
+  @override
+  void dispose() {
+    _cityController.dispose();
+    _stateController.dispose();
+    super.dispose();
+  }
+
+  void _pickState(String state) {
+    setState(() {
+      _pickedState = state;
+      _cityController.clear();
+    });
+    widget.onChanged(null, state);
+  }
+
+  void _pickCity(String city) {
+    _cityController.text = city;
+    setState(() {});
+    widget.onChanged(city, _pickedState);
+  }
+
+  void _switchToManual() {
+    setState(() {
+      _manual = true;
+      _cityController.text = widget.initialCity ?? _cityController.text;
+      _stateController.text = widget.initialState ?? _stateController.text;
+    });
+  }
+
+  void _switchToPicker() {
+    setState(() {
+      _manual = false;
+      _pickedState = null;
+      _cityController.clear();
+    });
+    widget.onChanged(null, null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_manual) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    _fieldLabel(_kCityLabel),
+                    TradeFormTextField(
+                      controller: _cityController,
+                      hint: _kCityLabel,
+                      label: _kCityLabel,
+                      onChanged: (String v) =>
+                          widget.onChanged(v, _stateController.text),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpacing.s2),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    _fieldLabel(_kStateLabel),
+                    TradeFormTextField(
+                      controller: _stateController,
+                      hint: _kStateLabel,
+                      label: _kStateLabel,
+                      textInputAction: TextInputAction.done,
+                      onChanged: (String v) =>
+                          widget.onChanged(_cityController.text, v),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          TextButton(
+            onPressed: _switchToPicker,
+            child: const Text(_kBackToPickerLink),
+          ),
+        ],
       );
+    }
+
+    final List<String> cities =
+        _kDemoEmployerStateCities[_pickedState] ?? const <String>[];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        _fieldLabel(_kPickStateLabel),
+        const SizedBox(height: AppSpacing.s1),
+        Wrap(
+          spacing: AppSpacing.s2,
+          runSpacing: AppSpacing.s2,
+          children: <Widget>[
+            for (final String state in _kDemoEmployerStateCities.keys)
+              BbChip(
+                label: state,
+                selected: _pickedState == state,
+                icon: _pickedState == state ? Icons.check : null,
+                onTap: () => _pickState(state),
+              ),
+          ],
+        ),
+        if (_pickedState != null) ...<Widget>[
+          const SizedBox(height: AppSpacing.s3),
+          _fieldLabel(_kPickCityLabel),
+          const SizedBox(height: AppSpacing.s1),
+          Wrap(
+            spacing: AppSpacing.s2,
+            runSpacing: AppSpacing.s2,
+            children: <Widget>[
+              for (final String city in cities)
+                BbChip(
+                  label: city,
+                  selected: _cityController.text == city,
+                  icon: _cityController.text == city ? Icons.check : null,
+                  onTap: () => _pickCity(city),
+                ),
+            ],
+          ),
+        ],
+        TextButton(
+          onPressed: _switchToManual,
+          child: const Text(_kManualEntryLink),
+        ),
+      ],
+    );
+  }
+
+  Widget _fieldLabel(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: AppSpacing.s1),
+    child: Text(
+      text,
+      style: AppTypography.body(
+        size: AppTypography.sizeSm,
+        weight: FontWeight.w700,
+      ),
+    ),
+  );
 }
 
 /// A month-precision date field, identical in behaviour to
@@ -418,8 +647,9 @@ class _YearMonthField extends StatelessWidget {
     final List<String> parts = v.split('-');
     if (parts.length != 2) return _kNotStated;
     final int? m = int.tryParse(parts[1]);
-    final String month =
-        (m != null && m >= 1 && m <= 12) ? _kMonths[m - 1] : parts[1];
+    final String month = (m != null && m >= 1 && m <= 12)
+        ? _kMonths[m - 1]
+        : parts[1];
     return '$month ${parts[0]}';
   }
 
@@ -432,7 +662,9 @@ class _YearMonthField extends StatelessWidget {
       child: Container(
         constraints: const BoxConstraints(minHeight: AppSpacing.tap),
         padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.s3, vertical: AppSpacing.s3),
+          horizontal: AppSpacing.s3,
+          vertical: AppSpacing.s3,
+        ),
         decoration: BoxDecoration(
           color: AppColors.surfaceCard,
           borderRadius: BorderRadius.circular(AppRadii.md),
@@ -440,7 +672,11 @@ class _YearMonthField extends StatelessWidget {
         ),
         child: Row(
           children: <Widget>[
-            const Icon(Icons.event_outlined, size: 20, color: AppColors.textMuted),
+            const Icon(
+              Icons.event_outlined,
+              size: 20,
+              color: AppColors.textMuted,
+            ),
             const SizedBox(width: AppSpacing.s2),
             Expanded(
               child: Text(
@@ -454,7 +690,11 @@ class _YearMonthField extends StatelessWidget {
             if (set)
               GestureDetector(
                 onTap: () => onPicked(null),
-                child: const Icon(Icons.close, size: 18, color: AppColors.textMuted),
+                child: const Icon(
+                  Icons.close,
+                  size: 18,
+                  color: AppColors.textMuted,
+                ),
               ),
           ],
         ),
@@ -494,13 +734,19 @@ class _YearMonthSheetState extends State<_YearMonthSheet> {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(
-            AppSpacing.gutter, AppSpacing.s5, AppSpacing.gutter, AppSpacing.s5),
+          AppSpacing.gutter,
+          AppSpacing.s5,
+          AppSpacing.gutter,
+          AppSpacing.s5,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(_year == null ? _kPickYear : _kPickMonth,
-                style: AppTypography.display(size: AppTypography.sizeLg)),
+            Text(
+              _year == null ? _kPickYear : _kPickMonth,
+              style: AppTypography.display(size: AppTypography.sizeLg),
+            ),
             const SizedBox(height: AppSpacing.s4),
             if (_year == null)
               Wrap(
@@ -519,8 +765,9 @@ class _YearMonthSheetState extends State<_YearMonthSheet> {
                   for (int m = 1; m <= 12; m++)
                     BbChip(
                       label: _kMonths[m - 1],
-                      onTap: () => Navigator.of(context)
-                          .pop('${_year!}-${m.toString().padLeft(2, '0')}'),
+                      onTap: () => Navigator.of(
+                        context,
+                      ).pop('${_year!}-${m.toString().padLeft(2, '0')}'),
                     ),
                 ],
               ),
