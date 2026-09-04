@@ -97,10 +97,13 @@ the exit code for every item.
 
 8. [GUARD] The migration was WRITTEN and NOT APPLIED, and does not collide.
    ls packages/db/migrations/0099* packages/db/migrations/0100*
-   Base: `0099_overrated_fantastic_four.sql` does NOT exist on main — it is on the open PR
-   #1387 (`origin/p1-matching-catalog`). Expect exactly one new `0100_*.sql` here.
-   FAIL if the new file is numbered 0099: two branches would carry one number and whichever
-   merges second is silently skipped.
+   Base: `0099_overrated_fantastic_four.sql` does NOT exist on main. It lives on
+   `origin/p1-matching-catalog` (a454fac0), whose PR **#1387 is CLOSED and unmerged**
+   (closed 2026-09-04) — so 0099 is free on paper and burned in practice. Expect exactly one
+   new `0100_*.sql` here.
+   FAIL if the new file is numbered 0099. It will not conflict today; it conflicts the day
+   that branch is revived, and then whichever migration is applied second is silently skipped
+   with no error.
    git diff $(git merge-base origin/main HEAD)..HEAD -- packages/db/migrations/meta/_journal.json
    The new entry's `when` must be the largest in the file. A hand-set timestamp below the
    current maximum makes drizzle skip it AND every migration after it, with no error.

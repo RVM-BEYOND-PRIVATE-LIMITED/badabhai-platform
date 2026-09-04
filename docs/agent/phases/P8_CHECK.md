@@ -1,3 +1,18 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+WHAT NO E-PHASE COVERS — dropped visibly, not quietly. Each survived an adversarial
+refutation pass (already-ships / an-E-phase-covers-it / a-signed-ruling-deleted-it):
+  - The disposition of `payer_form_drafts` — built as forward scaffolding for exactly this,
+    claimed by nothing. Closing P8 leaves a signed ADR-0035 amendment pointing at a dead
+    brief.
+  - Optimistic concurrency for the AI job-posting chat draft. Neither candidate table has a
+    version column and `saveTurn`'s UPDATE has no version predicate — last-write-wins,
+    which the code itself names as an unbuilt follow-up.
+  - The checkpoint child table, its append-only trigger, the server-side fold, and the
+    Idempotency-Key-then-`expected_version` 409 envelope.
+
+------------------------------------------------------------------------------
 PHASE-ID: P8
 INVARIANT: draft.payload is recomputed server-side as the fold of that draft's checkpoint
 rows in seq order, and is never taken from a request body.

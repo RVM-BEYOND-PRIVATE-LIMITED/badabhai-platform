@@ -1,3 +1,20 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+WHAT NO E-PHASE COVERS — dropped visibly, not quietly. Each survived an adversarial
+refutation pass (already-ships / an-E-phase-covers-it / a-signed-ruling-deleted-it):
+  - THE VERIFICATION VISIBILITY GATE — owner-RULED as a GATE on 2026-09-04 and still not
+    built. Every read filters on `status='open'` alone and every row defaults
+    'unverified'. No E-phase touches verification. THIS IS THE LARGEST SURVIVOR.
+  - An operable way to verify a posting. `POST /job-postings/:id/verify` exists behind
+    `InternalServiceGuard` and is reachable from NO human surface.
+  - Open owner ruling (f): may a LIVE posting be edited in place, or must an edit go
+    through a draft? The behaviour ships; the decision does not.
+
+P9 is the phase most worth reopening on its own. Its ruling is signed and its
+deliverable is a trust property, not a feature.
+
+------------------------------------------------------------------------------
 STATUS: GATE IT — ruled by the owner, 2026-09-04. Verification becomes a hard visibility
 gate. Six deliverables are still deleted below; four sub-questions are still open and each
 one HALTS the build until answered — see "STILL THE OWNER'S", especially (c), which can

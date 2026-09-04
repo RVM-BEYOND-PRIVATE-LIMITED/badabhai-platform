@@ -1,3 +1,13 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+WHAT NO E-PHASE COVERS — dropped visibly, not quietly. Each survived an adversarial
+refutation pass (already-ships / an-E-phase-covers-it / a-signed-ruling-deleted-it):
+  - The in-app-purchase dependency guard test under `apps/payer-app/test`. The invariant
+    holds today by convention; nothing enforces it. `kShowBuyCreditsOnWeb = false` is a
+    visibility flag, not a dependency gate.
+
+------------------------------------------------------------------------------
 STATUS: BLOCKED ON RULING R6 (unsigned). Do not start.
 STATUS: ALSO BLOCKED — the "Complete on web" hand-off is a CEO store-policy call, and P8's
         draft routes are not on main.
@@ -42,7 +52,8 @@ WHAT IS OWED, once R6 is signed
 2. The schema-driven wizard. GET /payer/job-posting-drafts/schema does not exist
    (`grep -rn job-posting-draft apps packages` finds only a JSON key at
    job_posting_chat_models.dart:456), and P8_BUILD:35-36 sources its chips from
-   matching_catalog, which is NOT on main — open draft PR #1387 carries it. Assert no role
+   matching_catalog, which is NOT on main — PR #1387 carried it and is CLOSED UNMERGED
+   (2026-09-04); the branch survives at a454fac0. Assert no role
    count. Render what the schema serves and nothing else. HALT if it serves shift or benefit
    chips: P1_BUILD:17-26 lists the catalog's contents and neither is in it.
 3. When the wizard replaces the company path, `_trades` (post_job_screen.dart:80-87), `_bands`

@@ -67,10 +67,13 @@ BUILD THESE FIVE.
      WRITE THE MIGRATION FILE ONLY. `docs/agent/BUILD_RULES.md:21` — no `db:push`, no
      `drizzle-kit migrate`, no psql DDL, not even to test. Prakash applies it between the
      build session and the check session.
-     NUMBERING, AND IT IS A REAL COLLISION: `main` stops at
-     `packages/db/migrations/0098_worker_qualifications.sql`, and **0099 is already taken by
-     the open PR #1387** (`0099_overrated_fantastic_four.sql` on `origin/p1-matching-catalog`).
-     Take 0100. Do not hand-edit `packages/db/migrations/meta/_journal.json`'s `when` —
+     NUMBERING, AND IT IS A LIVE HAZARD RATHER THAN A COLLISION TODAY: `main` stops at
+     `packages/db/migrations/0098_worker_qualifications.sql`, so 0099 is technically free.
+     It is NOT free in practice — `0099_overrated_fantastic_four.sql` exists on
+     `origin/p1-matching-catalog` (still at a454fac0), whose PR **#1387 is CLOSED, not merged**
+     (closed 2026-09-04). That branch carries real, finished work the owner may revive, and if
+     it is revived after you take 0099 the two collide with no error — the second one is simply
+     skipped. Take 0100. It costs nothing and removes the hazard. Do not hand-edit `packages/db/migrations/meta/_journal.json`'s `when` —
      drizzle skips any entry below the recorded maximum, so a hand-set timestamp silently
      strands every later migration.
 

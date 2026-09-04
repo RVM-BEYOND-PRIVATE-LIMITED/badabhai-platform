@@ -1,3 +1,18 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+WHAT NO E-PHASE COVERS — dropped visibly, not quietly. Each survived an adversarial
+refutation pass (already-ships / an-E-phase-covers-it / a-signed-ruling-deleted-it):
+  - The disposition of `payer_form_drafts` — built as forward scaffolding for exactly this,
+    claimed by nothing. Closing P8 leaves a signed ADR-0035 amendment pointing at a dead
+    brief.
+  - Optimistic concurrency for the AI job-posting chat draft. Neither candidate table has a
+    version column and `saveTurn`'s UPDATE has no version predicate — last-write-wins,
+    which the code itself names as an unbuilt follow-up.
+  - The checkpoint child table, its append-only trigger, the server-side fold, and the
+    Idempotency-Key-then-`expected_version` 409 envelope.
+
+------------------------------------------------------------------------------
 STATUS: HALF A IS BUILDABLE. The store is ruled — claim payer_form_drafts (owner ruling
 2026-09-04). HALF B (GET /schema) stays deleted from this phase; see the bottom.
 PHASE-ORDER GATE: docs/agent/README.md:47 requires the previous VERDICT to be PASS, and

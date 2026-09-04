@@ -489,18 +489,53 @@ plan.** Four grounds, in increasing order of force.
    statements; it did not make the plan correct, because the plan is the wrong plan rather
    than a mis-ordered one.
 
-**How to close it, concretely, so that nothing is lost:**
+**Owner ruling, 2026-09-05: CLOSE THEM FORMALLY, in this PR.** Done — every `P*_BUILD.md`
+and `P*_CHECK.md` now carries a closure block at the top, in the form `P4_BUILD.md` already
+used, naming what no E-phase covers. The files are NOT deleted: the survey's value is that it
+can be diffed against them.
 
-- Give every `P*_BUILD.md` the header `P4_BUILD.md:1` already uses:
-  `STATUS: CLOSED <date> — superseded by the E-chain. Do not build from this file without
-  reopening the phase.` That form is proven, greppable, and already understood by a check
-  session.
-- **Three P-phases carry deliverables no E-phase does**, and each deserves a named closure
-  line rather than deletion: **P1** (`matching_catalog`, built on PR #1387, still blocked on
-  R1–R4), **P9** (the verification **gate** you ruled on 2026-09-04, which no E-phase
-  touches), and **P3** (`collar_tier` / `function_required`, genuinely unbuilt and still
-  gated on R1).
-- Do **not** delete the files. The survey's value is that it can be diffed against them.
+### CORRECTION TO THIS DOCUMENT — it said three phases; it is nine
+
+The paragraph that stood here named **P1, P3 and P9** as the phases carrying deliverables no
+E-phase covers. That was written from a partial read — four of the fourteen brief pairs — and
+it was wrong in the direction that loses work.
+
+A full pass over all twenty-eight briefs produced twenty-two candidate survivors. Each was
+then attacked on three lenses — *it already ships* / *an E-phase covers it* / *a signed ruling
+already deleted it* — with instructions to refute rather than confirm. **Six were refuted and
+are deliberately not listed anywhere.** Sixteen survived, across **nine** phases:
+
+| Phase | Survives | The one that matters most |
+|---|---|---|
+| **P1** | 3 | The `matching_catalog` table, the publish-time validator (its INVARIANT), and taxonomy-as-published-config. Built on `origin/p1-matching-catalog` (a454fac0) — whose PR **#1387 is CLOSED and unmerged**, 2026-09-04. |
+| **P2** | 1 | `tier-parity.test.ts`, pinning the three SQL writers of `job_reach.match_tier` to `matchTierFor`. The duplication is deliberate; the test keeping the copies honest was never written. |
+| **P3** | 1 | The four `function` / `collar_tier` columns and their no-backfill guard, still gated on R1. |
+| **P5** | 1 | The attribute **facet** as running code. ADR-0040 Decision 7 now *permits* it; `E2_BUILD.md` puts *building* it out of scope. The ruling is covered; the build is not. |
+| **P6** | 2 | The `weekly_payers` cap-pinning test, and boost supply eligibility resolved at the **offer** rather than at purchase (where it also fails **open**). |
+| **P8** | 3 | The disposition of `payer_form_drafts` — closing P8 leaves a **signed ADR-0035 amendment pointing at a dead brief**. Plus optimistic concurrency for the chat draft, and the checkpoint table. |
+| **P9** | 3 | **The verification visibility gate.** Ruled by you as a GATE on 2026-09-04, still unbuilt, and no E-phase touches verification. Also: `POST /job-postings/:id/verify` is reachable from no human surface. |
+| **P11** | 1 | The posting-chat provenance gate — every value written into a draft must be a literal substring of the message the model saw. |
+| **P12** | 1 | The in-app-purchase dependency guard test. The invariant holds by convention; nothing enforces it. |
+
+**P0, P4, P7, P10 and PX close clean** — every deliverable is shipped, deleted by a signed
+ruling, or carried by an E-phase.
+
+Two of these are worth your attention beyond the closure itself:
+
+- **P9 is the largest thing being dropped, and it is not a feature.** You ruled it a GATE.
+  An unverified posting is visible to every worker today, and nothing in the E-chain changes
+  that. **My recommendation: reopen P9 on its own, after E4.** It is the only survivor whose
+  ruling is already signed.
+- **P8 leaves a signed ADR behind.** ADR-0035 Amendment 1 names `payer_form_drafts` as the
+  draft store and points at P8 to build it. Closing P8 without disposing of that amendment
+  leaves a signed decision pointing at a dead file — the same class of defect this whole
+  session exists to remove.
+
+### One thing that closing P0 does NOT do
+
+`docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md` stays **live**. R1 and R4-d are signed, six
+rulings are still open, and R7's blank slot at `:794` is E2's gate. Closing P0 retires the
+**brief**, not the worksheet. Each P0 file says so in its own closure block.
 
 **One thing to fix in the same act, because it is a live false PASS.** `P5_CHECK.md:18` on
 `main` reads `sed -n '774p' …RVM_TAXONOMY_WORKSHEET_2026-09.md` and calls a blank line proof

@@ -10,41 +10,73 @@ gap, so it is not a builder's call. **E2 and E3 wait on this.**
 
 ## 1. The question you asked first: if the résumé stays free, what does a credit buy?
 
-**A `relay_handle`.** That is the artifact, and it is the whole of it.
+**An entitlement record, and a handle that nothing can dial.** I checked this twice, because
+the answer is worse than I expected and it changes the decision.
+
+### 1a. The chain, as it actually runs
 
 ```
-POST /payer/unlocks              → { ok: true, unlock_id, status: "granted", expires_at }
-POST /payer/unlocks/:id/reveal   → { relay_handle, channel: "in_app_relay", expires_at }
+POST /payer/unlocks             → debits 1 credit → { ok, unlock_id, status:"granted", expires_at }
+POST /payer/unlocks/:id/reveal  → FREE, ≤3 attempts → { relay_handle, channel:"in_app_relay", expires_at }
 ```
 
-`apps/api/src/unlocks/unlock-response.ts:52-57` types it and names it in its own words:
-*"an opaque, non-reversible, expiring relay handle ONLY."* It is minted at
-`apps/api/src/unlocks/unlocks.service.ts:435-438`, where the comment on the field reads
-`// opaque, non-reversible, expiring — NOT a phone`.
+The credit is spent at the **grant**, not the reveal — `debitOneCreditWithinTx`
+(`apps/api/src/unlocks/unlocks.service.ts:244`, under the `[3] PAYMENT` comment at `:243`), atomic with the grant, one ledger row with
+`reason: "unlock_debit"`. The window is **14 days** (`packages/db/src/credit-packs.ts:101`).
+Reveals inside it are free, capped at 3 (`packages/config/src/server.ts:1135`).
 
-So, precisely:
+### 1b. The `relay_handle` is inert, and the code says so
+
+`wireInAppRelay` (`apps/api/src/unlocks/unlocks.service.ts:873-886`) decrypts the phone,
+does **nothing with it**, and returns a fresh random string:
+
+```ts
+const phone = this.pii.decrypt(worker.phoneE164);
+// In a real in-app relay this would register a server-side relay session keyed to
+// `phone`. Alpha: we only need to PROVE the relay can be opened without disclosing
+// the number. We deliberately do nothing reversible with `phone`.
+void phone.length; // touch the value (relay-open stand-in); do NOT log/return it.
+return `relay_${unlockId}_${randomUUID()}`;
+```
+
+**Nothing in this repository ever reads that handle back.** Every occurrence of
+`relayHandle` / `relay_handle` / `routingToken` across `apps/api/src` and
+`apps/payer-web/src` is a write, a type declaration, or a render: it is persisted at
+`unlocks.repository.ts:288-300`, returned at `unlocks.service.ts:435`, and displayed as
+monospace text at `apps/payer-web/src/components/unlock/routed-contact-card.tsx:36`. There
+is no relay-resolution route, no proxy-number provider, and no messaging bridge from a payer
+to a worker.
+
+This is deliberate and documented — the docblock says the alpha only needs to prove the relay
+*can* be opened. It is not a bug. But it means the honest statement of what a credit buys
+today is:
 
 | A credit buys | A credit does **not** buy |
 |---|---|
-| One `unlock` grant per (payer, worker), idempotent | The worker's phone number |
-| A routed in-app relay channel to that worker | The worker's name |
-| A 14-day access window (`expires_at`) | The worker's profile |
-| A bounded number of reveal attempts | The résumé |
+| One `unlocks` row — a durable, audited entitlement | Any way to contact the worker **that works today** |
+| A 14-day window and up to 3 reveals | The worker's phone number |
+| An opaque string the payer can look at | The worker's name, profile, or résumé |
 
-**Read plainly: a credit buys the ability to start a conversation, for fourteen days,
-without learning who you are talking to.** The name and the phone stay server-side; the raw
-phone is decrypted at exactly one point, transiently, to wire the relay, and is never
-returned, evented, logged or stored.
+**And there is a copy problem sitting on top of it.** `routed-contact-card.tsx:30-32` tells
+the payer *"Use it in-app to reach the candidate."* Nothing implements that. A paying employer
+who follows that instruction finds no way to follow it. **That is worth fixing before a
+credit is sold for money, and it is a bigger problem than the résumé question.** It is not in
+scope for any E-phase and is not parked anywhere; flagging it here because it surfaced while
+answering this one.
 
-The résumé sits on a different spine entirely. `POST /payer/resume-disclosures` takes a
-`worker_id` directly (`apps/api/src/payer-portal/payer-disclosure.controller.ts:52`) — **it
-does not require an unlock at all**, and it costs nothing.
+### 1c. Which makes the free-résumé asymmetry sharper, not softer
 
-**The gap that follows, and it is the real argument for changing something.** A payer today
-can read a candidate's masked résumé — the work history, the skills, the trade sheet — for
-free, and pay only when they want to *talk*. The résumé is the thing that carries the
-information a hiring decision is made on. We are giving away the evaluation and charging for
-the introduction.
+Meanwhile the **masked résumé is free, needs no credit, and needs no unlock at all** — the
+request body is `worker_id` + optional `job_posting_id` and carries no `unlock_id`
+(`apps/api/src/payer-portal/payer-disclosure.dto.ts:11-14`). payer-web *chooses* to couple
+them client-side by requiring an `unlockId` before offering the button
+(`apps/payer-web/src/app/(portal)/postings/[id]/applicants/actions.ts:77-90`), but the API
+does not require it. A payer calling the API directly gets the résumé without ever spending
+a credit.
+
+So today: **the one artifact with real substance that a payer receives is the short-TTL
+signed URL to the masked résumé PDF — and it is the one we do not charge for.** The credit
+buys the record of a permission whose exercise is not yet built.
 
 ---
 
@@ -75,11 +107,14 @@ Free, masked, capped, and audited:
 
 **Changes:** nothing. E2 and E3 proceed as briefed today.
 **ADRs amended:** none.
-**Cost:** the monetisation gap in §1 stands — we charge for the introduction and give away the
-evaluation. If the first paying employer reads résumés, shortlists, and contacts two people,
-we have sold two credits for a service that did most of its work for free.
+**Cost:** the monetisation gap in §1 stands, and §1b makes it worse than "we charge for the
+introduction". We charge for a permission whose exercise is not built, and give away the
+artifact that carries the value. A first paying employer who reads résumés and buys two
+credits has paid for two rows and two strings.
 **Benefit:** it is the only option with zero privacy delta, zero ADR churn, and zero new
 surface. It is also the only one that is *free to reverse* — nothing has been sold on it yet.
+And it is defensible as a deliberate hold: with the relay unbuilt, repricing anything is
+premature.
 
 ### Option B — credit-gate the résumé; keep the masking.
 
@@ -149,6 +184,12 @@ can see a name before spending is a payer who wastes fewer credits.
 changes nothing about privacy. Option C changes both at once. If the goal is to monetise the
 evaluation, B does it; if the goal is to let a payer see *who* before they spend, only C does,
 and that is a separate ask that happens to be bundled with it in the described flow.
+
+**The relay comes first, whatever you rule.** §1b says the thing a credit buys does not
+function. Whichever option you pick, pricing a résumé or a profile against a credit whose
+existing benefit is inert is deciding the price of a bundle whose other half is missing. If
+only one thing is built next, it should be the relay — not because the résumé question is
+unimportant, but because it cannot be answered well until a credit is worth something.
 
 **A fourth shape exists, and it is not recommended — stated so it is visibly considered
 rather than missed.** Keep the résumé free, and make the *unlock* reveal the name alongside
