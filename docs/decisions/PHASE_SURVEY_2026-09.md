@@ -23,6 +23,23 @@ these rulings. Under ① several phases lose deliverables outright rather than b
 `tradeFactor` are all retired concepts and are deleted, not deferred. The rewritten briefs
 carry the current instruction; **this document is the evidence, not the plan.**
 
+## For the next session: no rewritten invariant has been demonstrated to fail
+
+**Owner instruction, 2026-09-04.** Every invariant in the rewritten briefs was derived by
+reading shipped code. **None has been observed going red.** No test was run, no database was
+touched and no service was started in either the survey or the rewrite, so each invariant is
+*shippable*, not *demonstrated* — and a check item nobody has watched fail is exactly the
+class of defect this survey found six of.
+
+**Therefore: treat the FIRST PASS on any phase as weaker evidence than a later one.** A first
+green run is consistent with a working gate and with a gate that cannot go red at all. The
+rewritten CHECKs are built to tell those apart — several now ask the checker to mutate one
+line and confirm the gate turns red before accepting a green run as evidence. Run that step;
+it is the only part that distinguishes the two.
+
+The first check session under the new migration rule (Prakash applies, between the sessions)
+is what converts these invariants from reasoned to demonstrated.
+
 **P1 was never surveyed, and its build is unchecked.** `P1_BUILD.md` / `P1_CHECK.md` were
 outside this survey's scope, and P1's brief is deliberately NOT rewritten — rewriting a brief
 for code that is already written is backwards. What P1 needs is R1–R4 signed, then a merge,
