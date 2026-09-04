@@ -587,6 +587,24 @@ different questions. P-013 is caught by asking *"can this go red on something I 
 change?"*; this one is caught by asking *"if this fires, is the sentence it makes me write still
 true?"*
 
+**THE DIRECTION MATTERS MORE THAN THE MECHANISM, and a later instance proved it.** Every
+instance of this shape found before 2026-09-05 produced a false **FAIL**: the check goes red for
+the wrong reason, somebody investigates, the truth surfaces on the way. The cost is a wasted
+session, not a wrong belief.
+
+Then `P5_CHECK.md` item 2 turned up. It ran `sed -n '774p'` on the worksheet and read *"dotted
+and blank means R7 is unsigned"*. Signing R1 and R4-d shifted every slot below them by twenty
+lines, so 774 became `### The question` — **neither dotted nor blank**. The predicate evaluates
+false and the checker concludes **R7 IS SIGNED**, on a ruling nobody has signed. That is a false
+**PASS**, and **nobody investigates a green.** It would have sat there certifying a settled
+ruling until someone tried to build on it.
+
+So the rule sharpens: **a citation-drift bug that lands on non-blank text is strictly more
+dangerous than one that lands on nothing.** Landing on nothing is loud. Landing on a different
+real line is silent, and the check keeps reporting with full confidence. When line numbers move,
+the citations to re-verify FIRST are the ones whose surrounding logic tests for *emptiness* —
+those are the ones that flip rather than break.
+
 **Why it is worse than an ordinary stale line.** A stale instruction produces a wrong build,
 which a later check can catch. This produces a wrong RECORD — and the record is what the next
 session reads as evidence. It also launders the error through an obedient agent: the checker did
