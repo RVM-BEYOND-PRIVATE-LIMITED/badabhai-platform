@@ -1540,7 +1540,7 @@ void main() {
     });
 
     testWidgets(
-        'a non-last question step stays primary with "Aage badhein"',
+        'a non-last question step is navy (not haldi) with "Aage badhein"',
         (WidgetTester tester) async {
       when(() => repo.loadForm()).thenAnswer((_) async => _form());
 
@@ -1553,7 +1553,9 @@ void main() {
       final BbButton nextButton = tester.widget<BbButton>(
         find.widgetWithText(BbButton, 'Aage badhein'),
       );
-      expect(nextButton.variant, BbButtonVariant.primary);
+      // navy, not primary/haldi — haldi is identical to a selected BbChip's
+      // fill, which made the nav button read as just another option.
+      expect(nextButton.variant, BbButtonVariant.navy);
     });
   });
 }

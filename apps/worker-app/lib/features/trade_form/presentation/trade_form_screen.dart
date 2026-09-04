@@ -535,7 +535,9 @@ class _MarkerBottomBar extends StatelessWidget {
         // (see the `_MarkerBottomBar(...)` call site's own comment) —
         // green, reserved for exactly this ("Money / WhatsApp / done ONLY",
         // `bb_button.dart`'s own doc on `BbButtonVariant.success`).
-        variant: isLast ? BbButtonVariant.success : BbButtonVariant.primary,
+        // navy (not primary/haldi) — haldi is IDENTICAL to a selected
+        // BbChip's fill, so this nav button read as just another option.
+        variant: isLast ? BbButtonVariant.success : BbButtonVariant.navy,
         block: true,
         loading: isSubmitting,
         onPressed: isSubmitting ? null : onPressed,

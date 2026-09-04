@@ -204,12 +204,13 @@ class _VoiceChoiceChipsState extends State<VoiceChoiceChips> {
         BbButton(
           // #1384 item 3 — the ONE true final-submit button of the whole
           // walk is green with distinct copy; every other multi-select
-          // submit (including on a non-final question) stays the ordinary
-          // primary/haldi "Aage badhein".
+          // submit (including on a non-final question) is navy, not
+          // primary/haldi — haldi is IDENTICAL to a selected BbChip's fill,
+          // so this nav button read as just another option.
           label: widget.isFinalStep ? kVoiceFinalSubmit : kVoiceMultiSubmit,
           variant: widget.isFinalStep
               ? BbButtonVariant.success
-              : BbButtonVariant.primary,
+              : BbButtonVariant.navy,
           block: true,
           // Disabled until at least one option is chosen — a zero-key submit is
           // never a valid multi-select answer.
