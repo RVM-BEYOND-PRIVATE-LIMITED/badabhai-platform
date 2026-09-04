@@ -70,7 +70,7 @@ export interface SenderSource {
  * ROTATING DEVICE IDS IS THE REAL EVASION, and it is bounded elsewhere on purpose: a
  * reinstall mints a new id, so an abuser can too — and this header is unauthenticated, so
  * they need not even reinstall, just send a different string. What that buys them is more
- * DISTINCT buckets, never more SMS to one number — `OTP_MAX_SENDS_PER_HOUR` (10/number/hour),
+ * DISTINCT buckets, never more SMS to one number — `OTP_MAX_SENDS_PER_HOUR` (5/number/hour),
  * `OTP_MAX_SENDS_PER_DAY` (30/number/day) and the platform-wide
  * `OTP_GLOBAL_MAX_SENDS_PER_DAY` breaker are what bound spend, and none of them is keyed on
  * the caller. Per-device is therefore strictly better than per-IP without weakening the

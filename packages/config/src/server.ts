@@ -595,23 +595,27 @@ export const serverEnvSchema = z.object({
   OTP_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   OTP_MAX_ATTEMPTS: z.coerce.number().int().positive().default(5),
   OTP_RESEND_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(30),
-  // PER-PHONE SEND CAP, ONE ROLLING UTC HOUR. Raised 5 -> 10 (owner ruling, 2026-09-04) because
-  // 5 was reachable by an honest worker: the resend cooldown is 30s, so five sends is under three
-  // minutes of a failed onboarding, and PIN reset draws on the SAME per-phone budget
-  // (`pin.service.ts` sends through `AuthService.requestOtp`) — which is the route a worker who
-  // cannot get in reaches for next. 10 is still unreachable by a human at a 30s cooldown.
+  // PER-PHONE SEND CAP, ONE ROLLING UTC HOUR.
+  //
+  // ⚠ THIS KNOB IS NOT WORKER-ONLY, AND THAT IS WHY IT STAYS AT 5. `admin-otp.service.ts:201`
+  // and `payer-otp.service.ts:212` read it for their own per-account hourly caps, so raising it
+  // to give a worker more room would also loosen the admin portal and the payer portal — two
+  // authenticated staff/customer surfaces with a different threat model from a worker's phone.
+  // The 2026-09-04 owner ruling that proposed 5 -> 10 was withdrawn once that sharing surfaced:
+  // the worker budget needs its OWN knob, not a bigger shared number. Until that lands, 5.
+  //
+  // WHAT THIS COSTS TODAY, stated so nobody has to rediscover it: at a 30s resend cooldown five
+  // sends is under three minutes of a failed onboarding, and PIN reset draws on the SAME
+  // per-phone budget (`pin.service.ts` sends through `AuthService.requestOtp`) — the route a
+  // worker who cannot get in reaches for next. The DAILY cap below was raised to 30 because it
+  // is worker-only and could be; this one could not.
   //
   // IT MUST STAY STRICTLY BELOW OTP_MAX_SENDS_PER_DAY, and `config.test.ts` pins that. Both
   // counters increment on every accepted send, so at equal values the hourly cap can never
   // refuse a request the daily one would not also refuse inside the same UTC day — it becomes
   // dead configuration that reads like a live control. PR #1305 proposed setting both to 50 and
   // would have shipped exactly that.
-  //
-  // ⚠ NOT WORKER-ONLY. `admin-otp.service.ts` and `payer-otp.service.ts` read this same knob for
-  // their own per-account hourly caps, so this raise loosens the admin and payer portals too.
-  // OTP_MAX_SENDS_PER_DAY below is worker-only; if a future change wants to move the worker
-  // budget without moving those, it needs its own knob rather than a bigger number here.
-  OTP_MAX_SENDS_PER_HOUR: z.coerce.number().int().positive().default(10),
+  OTP_MAX_SENDS_PER_HOUR: z.coerce.number().int().positive().default(5),
   // THE PRIMARY SENDER GATE on the unauthenticated worker OTP routes (#1035): how many sends
   // one HANDSET may ask for in a rolling UTC hour, keyed on the `X-Device-Id` the worker app
   // already puts on every request. A caller that sends no usable device id falls back to the
@@ -693,7 +697,7 @@ export const serverEnvSchema = z.object({
   // handsets behind carrier NAT. If a real shared network ever hits this, raise it.
   //
   // THE PER-PHONE CAPS ARE WHAT BOUND SMS SPEND: OTP_MAX_SENDS_PER_HOUR
-  // (10/number/hour), OTP_MAX_SENDS_PER_DAY (30/number/day), the resend cooldown, and the
+  // (5/number/hour), OTP_MAX_SENDS_PER_DAY (30/number/day), the resend cooldown, and the
   // platform-wide OTP_GLOBAL_MAX_SENDS_PER_DAY breaker. Raising the per-IP cap widens how
   // many DISTINCT numbers may be tried from one network; it does not let any one number be
   // texted more, so the spend ceiling is untouched.
@@ -767,7 +771,12 @@ export const serverEnvSchema = z.object({
   // gives three times that room while staying an order of magnitude under any abuse volume — and
   // the number that actually bounds platform spend is OTP_GLOBAL_MAX_SENDS_PER_DAY, not this.
   //
-  // 30 > OTP_MAX_SENDS_PER_HOUR (10) BY CONSTRUCTION, not coincidence: see the note on that knob
+  // THIS IS THE HALF OF THAT RULING THAT COULD SHIP. The same ruling proposed raising the hourly
+  // cap 5 -> 10 and that half was withdrawn: OTP_MAX_SENDS_PER_HOUR is shared with the admin and
+  // payer OTP services, so it cannot be moved for workers alone. Giving a worker more room
+  // inside an hour needs a worker-only knob, tracked separately.
+  //
+  // 30 > OTP_MAX_SENDS_PER_HOUR (5) BY CONSTRUCTION, not coincidence: see the note on that knob
   // for why an equal pair silently kills the hourly cap. `config.test.ts` pins the inequality.
   OTP_MAX_SENDS_PER_DAY: z.coerce.number().int().positive().default(30),
   // GLOBAL daily send circuit-breaker for the worker SMS path (OTP-5 — the SPEND

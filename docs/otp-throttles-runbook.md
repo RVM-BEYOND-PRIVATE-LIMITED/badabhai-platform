@@ -52,7 +52,7 @@ dc logs api --since 30m | grep -E "OTP refused|cap reached|failing closed"
 |---|---|---|
 | `deleted_phone_tombstone` | Number was hard-deleted; re-registration cool-down still running | §3 |
 | `resend_cooldown` | Within `OTP_RESEND_COOLDOWN_SECONDS` (30s) of the last send | wait |
-| `phone_hourly_cap` | `OTP_MAX_SENDS_PER_HOUR` (10) for **this number** this UTC hour | §2 |
+| `phone_hourly_cap` | `OTP_MAX_SENDS_PER_HOUR` (5) for **this number** this UTC hour | §2 |
 | `phone_daily_cap` | `OTP_MAX_SENDS_PER_DAY` (30) for **this number** this UTC day | §2 |
 | `Global daily cap reached scope=…` | `OTP_GLOBAL_MAX_SENDS_PER_DAY` — **platform-wide**, everyone is 429ing | §4 |
 | `…failing closed` | Redis is unreachable; limiters reject rather than uncap | §5 |
@@ -119,7 +119,7 @@ and is not.
 | Var | Default | Scope | Principals affected |
 |---|---|---|---|
 | `OTP_MAX_SENDS_PER_DEVICE_PER_HOUR` | 200 | one handset (`X-Device-Id`), per UTC hour | worker + **test-login seam** |
-| `OTP_MAX_SENDS_PER_HOUR` | 10 | one phone/email, per UTC hour | ⚠ worker + **admin** + **payer** |
+| `OTP_MAX_SENDS_PER_HOUR` | 5 | one phone/email, per UTC hour | ⚠ worker + **admin** + **payer** |
 | `OTP_MAX_SENDS_PER_DAY` | 30 | one phone number, per UTC day | worker |
 | `OTP_RESEND_COOLDOWN_SECONDS` | 30 | one phone/email, between sends | ⚠ worker + **admin** + **payer** |
 | `OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR` | 1000 | one handset, verify calls | worker |

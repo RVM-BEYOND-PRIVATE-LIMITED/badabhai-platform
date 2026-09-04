@@ -500,10 +500,12 @@ describe("OTP per-caller send/verify budgets (#1306)", () => {
     const c = loadServerConfig({});
     expect(c.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR).not.toBe(c.OTP_MAX_SENDS_PER_HOUR);
     expect(c.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR).not.toBe(c.OTP_MAX_SENDS_PER_DAY);
-    // The per-phone caps are what actually bound spend. Raised by owner ruling 2026-09-04 —
-    // 5/hour was reachable by an honest worker at a 30s cooldown, and 10/day was reachable
-    // across a failed onboarding plus a PIN reset, which share one per-phone budget.
-    expect(c.OTP_MAX_SENDS_PER_HOUR).toBe(10);
+    // The per-phone caps are what actually bound spend. The DAILY one was raised 10 -> 30 by
+    // owner ruling 2026-09-04: 10 was reachable across a failed onboarding plus a PIN reset,
+    // which share one per-phone budget. The HOURLY one stays at 5 deliberately — it is read by
+    // admin-otp.service.ts and payer-otp.service.ts too, so it cannot be moved for workers
+    // alone. Both numbers are pinned here so neither drifts without that reasoning being read.
+    expect(c.OTP_MAX_SENDS_PER_HOUR).toBe(5);
     expect(c.OTP_MAX_SENDS_PER_DAY).toBe(30);
   });
 
