@@ -450,7 +450,7 @@ would let the owner answer it on evidence rather than on the shape of the argume
 
 ## P-013 · The payer Flutter app hardcodes three role vocabularies, and they disagree
 
-**Found:** 2026-09-04, phase-brief rewrite, while applying owner ruling R4-d(a) (the role
+**Found:** 2026-09-04, phase-brief rewrite, while applying owner ruling R4-d(b) (the role
 count is 21).
 **Owner ruling:** PARK, do not fix — Prakash, 2026-09-04.
 **Location:** [apps/payer-app/lib/features/jobs/presentation/post_job_screen.dart](apps/payer-app/lib/features/jobs/presentation/post_job_screen.dart)
