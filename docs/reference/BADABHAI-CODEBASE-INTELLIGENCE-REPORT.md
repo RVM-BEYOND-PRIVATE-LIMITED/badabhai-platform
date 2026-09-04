@@ -494,8 +494,16 @@ DomainTaxonomy (1) ──▶ (N) DomainAlias
 
 | Method | Route | Purpose | Auth |
 |--------|-------|---------|------|
-| `GET /workers/me/work-preferences/options` | Closed-set option chips | WorkerAuthGuard, ConsentGuard |
+| `GET /workers/me/work-preferences/options` | Closed-set option chips, plus the `cities` catalogue | WorkerAuthGuard, ConsentGuard |
 | `PUT /workers/me/work-preferences` | Record closed-set answers | WorkerAuthGuard, ConsentGuard |
+
+The options response carries five keys: the four slug→label dictionaries (`languages`,
+`documents_ready`, `job_type`, `shift`) and `cities` — a list of `{ value, aliases }` derived from
+the shared gazetteer that `preferred_cities` validates against (#1406). `value` is both the chip
+label and the string the client must submit; `aliases` are lowercase search keys only ("dilli" →
+Delhi), never displayed. Served whole rather than behind a `?q=` route because the gazetteer is 34
+values and ~1.2 KB, so the client filters it in memory — the pattern `SEARCHABLE_OPTION_THRESHOLD`
+already sets for every other long option list.
 
 ## 5.7 Employment APIs
 
