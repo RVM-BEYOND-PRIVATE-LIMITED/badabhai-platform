@@ -1169,7 +1169,9 @@ void main() {
       // fixture (`_prefOptions.cities` includes Faridabad).
       expect(find.text('Kahan kaam karna chahte hain?'), findsOneWidget);
       await tester.enterText(find.byType(TextField).first, 'Faridabad');
-      await tester.tap(find.text('+'));
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      // Flush the resolved-add banner's 2s auto-dismiss timer.
+      await tester.pump(const Duration(seconds: 2));
       await tester.pump();
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein'));
@@ -1265,6 +1267,40 @@ void main() {
   });
 
   group('preferred cities: 5-city cap + horizontal list', () {
+    testWidgets(
+        'no "+" add button — a worker cannot enter a custom city, only pick '
+        'a suggestion', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first);
+      await tester.pumpAndSettle();
+      for (int i = 0; i < 4; i++) {
+        await tester.ensureVisible(find.text('Aage badhein'));
+        await tester.tap(find.text('Aage badhein'));
+        await tester.pumpAndSettle();
+      }
+
+      expect(find.text('Kahan kaam karna chahte hain?'), findsOneWidget);
+      expect(find.text('+'), findsNothing);
+      await tester.enterText(find.byType(TextField).first, 'gurugram');
+      await tester.pump();
+      expect(find.text('+'), findsNothing);
+    });
+
     Future<void> walkToCitiesPage(WidgetTester tester) async {
       await tester.ensureVisible(find.text('Pata nahi').first);
       await tester.tap(find.text('Pata nahi').first); // decline q1
@@ -1283,7 +1319,10 @@ void main() {
 
     Future<void> addCityText(WidgetTester tester, String city) async {
       await tester.enterText(find.byType(TextField).first, city);
-      await tester.tap(find.text('+'));
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      // A resolved add shows a self-dismissing MaterialBanner (2s) — flush
+      // that timer now so it never leaks past this test as a pending timer.
+      await tester.pump(const Duration(seconds: 2));
       await tester.pump();
     }
 
@@ -1316,11 +1355,11 @@ void main() {
         await addCityText(tester, city);
       }
 
-      // At the 5-city cap: the add row (text field + "+") is gone — the
-      // same "affordance disappears at the cap" convention as certificates/
+      // At the 5-city cap: the add row (just the text field — no "+" button,
+      // #1406/#1410 already closed custom free text) is gone — the same
+      // "affordance disappears at the cap" convention as certificates/
       // educations.
       expect(find.byType(TextField), findsNothing);
-      expect(find.text('+'), findsNothing);
 
       // Rendered as a horizontal ListView, not a Wrap — the whole point of
       // this change.
@@ -1430,6 +1469,11 @@ void main() {
       // straight off the suggestion row, no typing at all.
       await tester.tap(find.text('Gurugram'));
       await tester.pump();
+      expect(find.text('Sheher add ho gaya'), findsOneWidget);
+      // Flush the resolved-add banner's 2s auto-dismiss timer.
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+      expect(find.text('Sheher add ho gaya'), findsNothing);
 
       final ListView list = tester.widget<ListView>(find.byType(ListView));
       expect(list.scrollDirection, Axis.horizontal);
