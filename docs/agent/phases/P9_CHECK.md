@@ -1,11 +1,20 @@
 PHASE-ID: P9
-STATUS: BLOCKED ON AN UNSIGNED OWNER RULING (P9_BUILD, "THE OWNER MUST RULE").
-INVARIANT: no plan, payment, or quota is a precondition of ANY transition into status='open'.
+STATUS: gate-or-badge is RULED (GATE, 2026-09-04) and the draft store is RULED
+(payer_form_drafts). FOUR sub-rulings remain open — P9_BUILD "STILL THE OWNER'S" (b), (c),
+(d), (f) — and each one halts the build, so a session run today still ends in a HALT.
+INVARIANT: an unverified posting is never visible to any worker. It is FALSE at HEAD; making
+it true is the phase. Until (b)-(f) are answered, nothing may be built toward it.
 
-EXPECTED ARTIFACT: exactly one — a HALT record naming those rulings. Absent code is NOT "phase
-not built" here: the gate design, the ADR-0035 supersede and the draft-store choice are owner
-acts, so code under apps/ or packages/ is itself the FAIL. A correct run ends VERDICT PASS,
-reason "phase correctly halted".
+EXPECTED ARTIFACT: exactly one — a HALT record naming the four open sub-rulings. Absent code
+is NOT "phase not built" here: where the gate lives, whether it is retroactive, who verifies,
+and whether a live posting is edited in place are owner acts, so code under apps/ or packages/
+is itself the FAIL. A correct run ends VERDICT PASS, reason "phase correctly halted".
+
+0. THE RETROACTIVE TRAP, and it is the one that matters. Every job_postings row defaults
+   'unverified' (packages/db/src/schema/job.ts:95-98). Confirm the build did NOT ship a gate
+   without a backfill ruling: `psql -c "SELECT verification_status, count(*) FROM job_postings
+   GROUP BY 1"`. If a gate is live and the unverified count is non-zero, the feed and search
+   are empty for every worker — report it as a production incident, not a FAIL.
 
 CONVENTION: every grep below PASSES on zero matches, and grep exits 1 on zero matches. Do not
 run them under `set -e`. Paste raw output AND the exit code for each.

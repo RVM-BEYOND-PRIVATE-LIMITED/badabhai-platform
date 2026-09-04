@@ -1,6 +1,16 @@
-STATUS: BLOCKED ON AN UNSIGNED OWNER RULING. Do not start. Six deliverables are deleted
-below. What is left — a verification GATE — is a design change, not a bug fix; building it
-settles a ruling the owner has not made. BUILD_RULES:41 HALT.
+STATUS: GATE IT — ruled by the owner, 2026-09-04. Verification becomes a hard visibility
+gate. Six deliverables are still deleted below; four sub-questions are still open and each
+one HALTS the build until answered — see "STILL THE OWNER'S", especially (c), which can
+empty the feed on the day it ships.
+
+READ THIS BEFORE YOU WRITE A LINE. **This is a design change, not a bug fix.** Verification
+ships today as a BADGE and works correctly as one: the column, the ops verify action and the
+worker-visible "Verified job" chip are all live, `job_postings.verification_status`'s own
+docblock calls it a badge and "NOT a RANK input", and no read path consults it. You are not
+finishing a half-built gate and you are not repairing a bug — you are changing shipped,
+working behaviour, on the owner's ruling, because a trust property cannot be retrofitted
+after the first bad posting reaches a worker's feed. Anything you find that looks like a
+half-finished gate is a badge doing its job. Do not "restore" it.
 
 PHASE P9 — separate publish, verify, and plan.
 
@@ -48,31 +58,40 @@ DO NOT DELETE THE CHAT PUBLISH ROUTE. HALT.
   ADR-0035; a GitHub Issue to the mobile owner (CLAUDE.md §6); both clients shipped off it; then
   the route. The first two are owner acts.
 
-THE OWNER MUST RULE, before any of this is buildable:
-  a. GATE or BADGE? `grep -rn 'verification_status\|verificationStatus' apps/api/src --include=*.ts
+RULED — do not re-open these:
+  a. GATE, not badge. Owner ruling 2026-09-04. Where it bites today, so you can find every
+     site: `grep -rn 'verification_status\|verificationStatus' apps/api/src --include=*.ts
      | grep -v '\.test\.'` returns 20 lines in 6 files — admin-entities.*, the ops verify writer
      (job-postings.service.ts:314-338), the ops/payer read row (job-postings.repository.ts:72),
      and match-feed.repository.ts:24 saying the column is deliberately NOT projected. No reach
      write and no worker read consults it: jobs.repository.ts:176 and :223 and
-     match-feed.repository.ts:143 filter on status='open' alone. admin-web jobs/[id]/page.tsx:83-88
-     prints "Live but unreviewed. This posting is visible to workers". A gate is a design change.
-  b. If a gate, WHERE? Weigh ADR-0037:56, signed: "Moving the row out of `open` means every
+     match-feed.repository.ts:143 filter on status='open' alone. admin-web
+     jobs/[id]/page.tsx:83-88 prints "Live but unreviewed. This posting is visible to workers"
+     — that string becomes false the day the gate lands; raise a Frontend issue, do not edit it
+     (CLAUDE.md §6).
+  e. The draft store is payer_form_drafts (owner ruling 2026-09-04, ADR-0035 Amendment 1).
+     Publish reads from there. P8 builds it; this phase does not.
+
+STILL THE OWNER'S. Each HALTS the build:
+  b. WHERE does the gate live? Weigh ADR-0037:56, signed: "Moving the row out of `open` means every
      existing discovery query excludes it with no edit at all." That is precedent for a
      status-based placement over discovery predicates. The owner picks; do not infer one.
   c. Retroactive? Every row defaults 'unverified' (job.ts:95-98). A hard gate empties search and
      the feed at once unless the ruling names a backfill.
   d. Who verifies, through what? POST /job-postings/:id/verify (job-postings.controller.ts:81)
      sits behind the class-level InternalServiceGuard (:34); admin-web has no caller.
-  e. Publish FROM which draft store? job_posting_drafts does not exist.
-     payer_job_posting_chat_sessions.draft has a draft_ready->published lifecycle
-     (packages/db/src/schema/payer.ts:687, 710, 713); payer_form_drafts (:775) is unclaimed
-     scaffolding whose own note (:765-771) says a claim needs an ADR. P8 is briefed to build a
-     third and is itself blocked on PR #1387.
   f. May a LIVE posting be edited in place, or must an edit go through a draft? Today it is in
      place (prepareUpdate, job-postings.service.ts:621-724). The deleted source_posting_id reopen
      assumed otherwise. That is a product call, not a builder's.
 
-INVARIANT (preservation — true at HEAD, so this phase owes no work on it): money and plan state
+INVARIANT: an unverified posting is never visible to any worker. Not in the feed, not in
+search, not in job_reach, not through a shared link. FALSE AT HEAD — every read filters on
+status='open' alone (jobs.repository.ts:176, :223; match-feed.repository.ts:143) and every
+row defaults 'unverified' (job.ts:95-98). Making it true is the whole phase.
+
+ALSO PRESERVE (true at HEAD — do not break it while building the gate): money and plan state
 never control a posting's discoverability. No plan, payment, or quota is a precondition of ANY
 transition into status='open' — the draft->open publish (job-postings.service.ts:626-628), the
 paused->open resume (:456), or an admin inventory reinstatement (admin-actions.service.ts:199).
+A verification gate is a TRUST gate. If it ends up reachable from a payment state, you have
+built a paywall by accident.
