@@ -288,7 +288,6 @@ bool _hasWord(String text, String word) =>
 List<String> personaViolations(String literal) {
   if (kAllowlist.containsKey(literal)) return const <String>[];
   final String text = scannableText(literal);
-  final String lower = text.toLowerCase();
   final List<String> hits = <String>[];
 
   for (final String w in kBannedVocative) {
@@ -298,7 +297,7 @@ List<String> personaViolations(String literal) {
     if (_hasWord(text, w)) hits.add('informal "$w" (the persona is always aap)');
   }
   for (final String g in kBannedGush) {
-    if (lower.contains(g)) hits.add('gush "$g"');
+    if (_hasWord(text, g)) hits.add('gush "$g"');
   }
   for (final String t in kBannedTumForm) {
     if (_hasWord(text, t)) hits.add('tum-form "$t"');
@@ -405,6 +404,10 @@ void main() {
       expect(personaViolations('Beta version ka nahi'), isNotEmpty); // 'Beta' IS a word here
       expect(personaViolations('Betaal'), isEmpty);
       expect(personaViolations('Autumn'), isEmpty);
+      // Same rule for the gush list — 'Greater Noida' (a real city name) must
+      // not trip 'great' just because it's a substring of 'Greater'.
+      expect(personaViolations('Greater Noida'), isEmpty);
+      expect(personaViolations('That was great'), isNotEmpty);
     });
   });
 
