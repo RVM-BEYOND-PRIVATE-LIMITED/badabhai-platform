@@ -32,6 +32,18 @@ removed silently deletes a real qualification from a worker's profile, which is 
 So the set is **pinned by checksum** in `tests/test_lexicon_parity.py`. If that test fails, the diff
 is a privacy decision and wants a security review — not a re-baselined hash.
 
+`cities.json` has a privacy consequence too — narrower, in the **opposite direction**, and with no
+checksum to stop you. `canonical` and `aliases` become `pseudonymize.KNOWN_CITIES` /
+`CITY_ALIASES`, which is what stops the leading-position heuristic masking a capitalised token as
+a person's name. So **adding a city releases a string the gateway was withholding**, exactly as a
+`VOCABULARY_TOKENS` addition does — and if that city is also a personal name (Surat, Sanand and,
+since #1409, Kota), a worker with that name now reaches a provider unmasked.
+
+Unlike the two files above, this set is **not pinned**, and the property test over it in
+`tests/test_pseudonymize.py` gets **more** green with each addition rather than red. There is no
+failing test to make you think. The gate is the diff and `docs/registers/risks-register.md` R32(1),
+which is why `canonical` is kept sorted and why an addition belongs in its own reviewable commit.
+
 Note also that the stored pattern source for the welding/plumbing/carpentry/design tables is
 **unbounded**: `signals._bounded()` wraps it in `{WB}`/`{WE}` at compile time. That is deliberate,
 because `VOCABULARY_TOKENS` harvests the raw source, and a stored macro name would end up as

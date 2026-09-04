@@ -62,7 +62,7 @@ export class WorkerPreferencesController {
    *
    * `cities` RIDES THIS RESPONSE RATHER THAN A `?q=` SEARCH ROUTE (#1406). It is the same
    * argument, applied to the one field on this page that had no options to serve: the gazetteer
-   * `preferred_cities` validates against is 34 values and 1.2 KB, so the client can hold it and
+   * `preferred_cities` validates against is 36 values and 1.8 KB, so the client can hold it and
    * filter as the worker types — the pattern `SEARCHABLE_OPTION_THRESHOLD` already ratified for
    * every other long option list in the product. A per-keystroke route would put a network round
    * trip between a worker on 3G and his next character, to save a payload smaller than the
