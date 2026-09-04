@@ -47,6 +47,7 @@ NOT AUTHORITIES. docs/reference/ holds historical snapshots, committed so they c
 audited rather than obeyed:
   docs/reference/BadaBhai_MVP_Matching_and_Posting_Execution_Spec_2026-09-01.md
   docs/reference/BadaBhai_MASTER_CONTEXT_2026-07-23.md
+  docs/reference/BadaBhai_Role_Taxonomy_Master_2026-08-09.md
   docs/reference/BADABHAI-CODEBASE-INTELLIGENCE-REPORT.md
 The first two were items 1 and 2 of this list until 2026-09-04, and NEITHER WAS IN THE
 REPOSITORY -- no agent could read what it was told to obey, so nothing forced the phase
