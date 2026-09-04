@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 
+import '../../../core/util/title_case.dart';
 import '../../voice_form/domain/voice_form_models.dart'
     show VoiceChoice, VoiceQuestion;
 
@@ -459,6 +460,12 @@ class TradeFormEmploymentEntry extends Equatable {
   }
 
   /// Wire shape for `PUT /workers/me/employment`.
+  ///
+  /// [employerName] and [roleLabel] go through [titleCaseName] here (never
+  /// [workDone] — a free-text description a worker wrote in their own
+  /// words, not a proper-noun-like label) so "recursive global infotech pvt
+  /// ltd" reaches the resume tab / PDF as "Recursive Global Infotech Pvt
+  /// Ltd", not verbatim-lowercase.
   Map<String, dynamic> toJson() {
     String? trimOrNull(String? v) {
       final String? t = v?.trim();
@@ -466,12 +473,12 @@ class TradeFormEmploymentEntry extends Equatable {
     }
 
     return <String, dynamic>{
-      'employer_name': employerName.trim(),
+      'employer_name': titleCaseName(employerName.trim()),
       'employer_city': trimOrNull(employerCity),
       'employer_state': trimOrNull(employerState),
       'start_ym': startYm,
       'end_ym': endYm,
-      'role_label': roleLabel.trim(),
+      'role_label': titleCaseName(roleLabel.trim()),
       'work_done': trimOrNull(workDone),
     };
   }

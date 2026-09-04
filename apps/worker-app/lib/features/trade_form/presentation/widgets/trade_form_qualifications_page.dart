@@ -498,7 +498,7 @@ class TradeFormQualificationsPageState
               label: _kFieldLabel,
               maxLength: 80,
               onChanged: (String v) =>
-                  _updateEducation(i, e.copyWith(field: _trimOrNull(v))),
+                  _updateEducation(i, e.copyWith(field: _titleCaseOrNull(v))),
             ),
           ],
         );
@@ -600,10 +600,11 @@ String? _trimOrNull(String v) {
   return t.isEmpty ? null : t;
 }
 
-/// [_trimOrNull], plus [titleCaseName] — for the institute field ONLY.
-/// Certificate name/issuer and the trade/subject field stay on
-/// [_trimOrNull] verbatim: title-casing is scoped to institute names, never
-/// applied to a description a worker wrote in their own words.
+/// [_trimOrNull], plus [titleCaseName] — for the institute and trade/subject
+/// fields (both short proper-noun-like labels, e.g. "electric" -> "Electric").
+/// Certificate name/issuer stays on [_trimOrNull] verbatim, along with every
+/// genuine free-text description elsewhere in this walk: title-casing is
+/// never applied to a description a worker wrote in their own words.
 String? _titleCaseOrNull(String v) {
   final String? trimmed = _trimOrNull(v);
   return trimmed == null ? null : titleCaseName(trimmed);
