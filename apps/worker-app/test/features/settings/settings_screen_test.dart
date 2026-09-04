@@ -37,6 +37,11 @@ void main() {
 
     expect(find.text('WhatsApp alerts'), findsOneWidget);
     expect(find.text('Account delete karein'), findsNothing);
+    // scrollUntilVisible — the footer is far enough down the ListView that
+    // it isn't built into the element tree until something scrolls near it.
+    await tester.scrollUntilVisible(
+        find.textContaining('Made in India'), 200,
+        scrollable: find.byType(Scrollable));
     expect(find.textContaining('Made in India'), findsOneWidget);
   });
 
@@ -62,6 +67,13 @@ void main() {
     ));
 
     // Readable inline — 'dev' with no --dart-define=APP_BUILD (a test binary).
+    // scrollUntilVisible, not ensureVisible — the footer is far enough down
+    // the ListView that it isn't built into the element tree at all until
+    // something scrolls near it (ensureVisible needs the element to already
+    // exist to find it).
+    await tester.scrollUntilVisible(
+        find.textContaining('build dev'), 200,
+        scrollable: find.byType(Scrollable));
     expect(find.textContaining('build dev'), findsOneWidget);
 
     await tester.longPress(find.textContaining('build dev'));
@@ -116,5 +128,31 @@ void main() {
 
     expect(find.text('DEVICES SCREEN'), findsOneWidget);
     expect(router.state.uri.toString(), Routes.devices);
+  });
+
+  // #1429 — the state->city preview row must actually reach
+  // Routes.cityStateDemo, not just render.
+  testWidgets('the Sheher/State demo row navigates to Routes.cityStateDemo',
+      (WidgetTester tester) async {
+    final GoRouter router = GoRouter(
+      initialLocation: '/',
+      routes: <RouteBase>[
+        GoRoute(path: '/', builder: (_, __) => const SettingsScreen()),
+        GoRoute(
+          path: Routes.cityStateDemo,
+          builder: (_, __) => const Scaffold(body: Text('CITY STATE DEMO')),
+        ),
+      ],
+    );
+    await tester.pumpWidget(
+        MaterialApp.router(theme: AppTheme.light(), routerConfig: router));
+
+    expect(find.text('Sheher/State demo'), findsOneWidget);
+
+    await tester.tap(find.text('Sheher/State demo'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('CITY STATE DEMO'), findsOneWidget);
+    expect(router.state.uri.toString(), Routes.cityStateDemo);
   });
 }
