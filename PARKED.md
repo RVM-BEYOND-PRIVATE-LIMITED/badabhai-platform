@@ -559,3 +559,49 @@ retried/soft-failed distinctly from a real advisory — a timeout and a HIGH CVE
 produce the identical red; and whether it belongs in `ci-required` at all if it cannot be
 executed deterministically. Note the trap in that last one: **removing it from `ci-required`
 to stop it blocking is escaping the gate, not fixing it.**
+
+---
+
+## P-017 · `db:audit:live-population` targets remote Supabase as `postgres` with `bypassrls=true`
+
+**Found:** 2026-09-05, phase M1, on the first run of a command the phase brief named.
+**Owner ruling:** PARK, do not fix — the owner rules on both the target and the role.
+
+**What the command prints on its own first line:**
+
+```
+$ pnpm --filter @badabhai/db db:audit:live-population
+[audit:live-population] READ-ONLY, ZERO SPEND, NO PII SELECTED.
+  target = SUPABASE (remote)  role=postgres  bypassrls=true
+```
+
+**Why this is a defect and not a configuration detail.** It is a developer-facing command in the
+root workspace, run by name from a brief, and it reaches a REMOTE database as a superuser role
+with RLS bypassed. Three things follow:
+
+1. **The safety is a convention, not a boundary.** The banner says READ-ONLY; the connection is
+   not. `bypassrls=true` means the role can write every table and no row-level policy would stop
+   it. A command that announces a property it does not enforce is the shape that gets trusted.
+2. **The target is implicit.** Nothing in the invocation names an environment. Running
+   `pnpm db:audit:live-population` from a clean checkout, expecting the local compose Postgres,
+   silently reaches production instead — and the local one exists and is what every other
+   `db:*` command in this session used.
+3. **The blast radius is one typo wide.** The nearby `db:*` scripts include seeders and
+   backfills. An engineer or an agent that reaches for the audit and hits an adjacent script name
+   is writing to live with a superuser role.
+
+**Measured, not inferred.** The audit reported live counts (`workers 4`, `worker_profiles 4`,
+`worker_skill 3`, `job_reach 6`) that do not match the local compose database (`workers 2`,
+`worker_profiles 0`, `worker_skill 2`, `job_reach 2`) — which is how the remote target was
+noticed at all. No write was attempted, and phase M1's five end-to-end trade-form runs were
+STOPPED rather than executed, because completing a form creates worker rows.
+
+**What a fix would have to decide** (not settled here): whether the audit reads a target from an
+explicit, named argument rather than ambient environment; whether it refuses to run against a
+non-local host without a confirmation flag; and whether any developer-facing script should ever
+resolve credentials for a `bypassrls` role. Note the trap: making the banner louder is not the
+fix — the banner is already accurate about intent and wrong about capability.
+
+**Consequence for M1:** the phase's verification (five real trade forms end to end, then a
+publish showing `job_reach` move) is UNRUN. It runs against the local database once the owner
+confirms the target, never against the audit's.
