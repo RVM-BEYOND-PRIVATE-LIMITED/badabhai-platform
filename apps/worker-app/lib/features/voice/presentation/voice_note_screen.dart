@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show TextInputFormatter;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -8,6 +9,7 @@ import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/devanagari_guard.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_chat_bubble.dart';
@@ -463,8 +465,23 @@ class _ConfirmViewState extends State<_ConfirmView> {
   /// the cubit (or the server) needs to know about.
   bool _correcting = false;
 
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.transcript);
+  late final TextEditingController _controller;
+
+  /// True once Devanagari has been stripped here — either from the STT
+  /// transcript itself (Sarvam returns Devanagari for Hindi audio; see
+  /// #1411) when the correction panel opens, or from a keystroke the worker
+  /// then types. This box's whole job is "fix the transcript", so unlike the
+  /// read-only confirm chips, it also cleans what it was SEEDED with, not
+  /// just what's typed next.
+  bool _devanagariBlocked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final String romanized = stripDevanagari(widget.transcript);
+    _devanagariBlocked = romanized != widget.transcript;
+    _controller = TextEditingController(text: romanized);
+  }
 
   @override
   void dispose() {
@@ -547,6 +564,11 @@ class _ConfirmViewState extends State<_ConfirmView> {
           maxLines: 6,
           autofocus: true,
           style: AppTypography.body(size: AppTypography.sizeSm),
+          inputFormatters: <TextInputFormatter>[
+            DevanagariBlockFormatter(
+              onBlocked: () => setState(() => _devanagariBlocked = true),
+            ),
+          ],
           decoration: const InputDecoration(
             hintText: kVoiceEditHint,
             contentPadding: EdgeInsets.symmetric(
@@ -555,6 +577,25 @@ class _ConfirmViewState extends State<_ConfirmView> {
             ),
           ),
         ),
+        if (_devanagariBlocked) ...<Widget>[
+          const SizedBox(height: AppSpacing.s2),
+          Row(
+            children: <Widget>[
+              const Icon(Icons.error_outline,
+                  size: 16, color: AppColors.red600),
+              const SizedBox(width: AppSpacing.s2),
+              Expanded(
+                child: Text(
+                  kDevanagariBlockedHint,
+                  style: AppTypography.body(
+                    size: AppTypography.sizeSm,
+                    color: AppColors.red600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: AppSpacing.s4),
         BbButton(
           label: _kSendLabel,
