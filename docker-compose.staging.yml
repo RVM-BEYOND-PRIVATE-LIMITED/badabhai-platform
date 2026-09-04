@@ -477,7 +477,7 @@ services:
       # worker budget is meant, reach for OTP_MAX_SENDS_PER_DAY (worker-only) instead.
       OTP_MAX_SENDS_PER_HOUR: ${OTP_MAX_SENDS_PER_HOUR:-5}
       OTP_RESEND_COOLDOWN_SECONDS: ${OTP_RESEND_COOLDOWN_SECONDS:-30}
-      OTP_MAX_SENDS_PER_DAY: ${OTP_MAX_SENDS_PER_DAY:-10}
+      OTP_MAX_SENDS_PER_DAY: ${OTP_MAX_SENDS_PER_DAY:-30}
       # DERIVED: must stay OTP_MAX_SENDS_PER_DEVICE_PER_HOUR x OTP_MAX_ATTEMPTS. A handset inside
       # its send budget can legitimately produce that many verifies, so moving the send cap alone
       # makes VERIFY the binding constraint — the worse failure, where a worker holds a valid code
