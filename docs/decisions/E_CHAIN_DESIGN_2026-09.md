@@ -455,10 +455,16 @@ other direction, for workers.
 
 ## 4. What each phase owes, in one line
 
+**SEQUENCE, corrected by owner ruling 2026-09-05:** `#1425 → E0 → E4 → E1 → E2`, then P9.
+E3 is built. R-E3 had put E4 first so a visible worker had an exit before a contact channel
+existed; that premise measured false (`E0_RELAY_DECISION_2026-09.md` §C finding 3 — `wants`
+is absent from the unlock ladder, so E4's exit leaves a live unlock running for its remaining
+14 days). The exit R-E3 wanted is now E0's blocking conditions C-2 and C-3.
+
 | Phase | Category | Ships |
 |---|---|---|
-| **E0** (first — owner ruling 2026-09-05) | NOT BUILT | The relay resolves. A `relay_handle` currently dials nothing (`RESUME_DISCLOSURE_DECISION_2026-09.md` §1b), so a credit buys an entitlement and a dead string. Item 0 — correcting payer-web's live-and-false *"Use it in-app to reach the candidate"* — **shipped separately as issue #1430 (2026-09-05)** and did not wait. The rest is HALTed on three unsigned decisions, all costed in `E0_RELAY_DECISION_2026-09.md`. |
-| **E4** (then, per R-E3) | PARTLY BUILT / gated | `setWants` implemented and reconciling `job_reach`; a worker endpoint; a clear-all affordance; a Frontend issue for the UI; `employer_sharing` requested **only once the notice copy exists** |
+| **E0** (first) | NOT BUILT | The relay resolves. A `relay_handle` currently dials nothing (`RESUME_DISCLOSURE_DECISION_2026-09.md` §1b), so a credit buys an entitlement and a dead string. Item 0 — correcting payer-web's live-and-false *"Use it in-app to reach the candidate"* — **shipped separately as issue #1430** and did not wait. Its two questions are **RULED** (`E0_RELAY_DECISION_2026-09.md` §A, §B); it is now gated on **three blocking conditions** (C-1/C-2/C-3), which sit above the phase title in `E0_BUILD.md`. Two of three is a FAIL. |
+| **E4** (second) | PARTLY BUILT / gated | `setWants` implemented and reconciling `job_reach`; a worker endpoint; a clear-all affordance; a Frontend issue for the UI. Carries the DPDP notice copy for `employer_sharing` **and for the NINTH, messaging purpose** ruled in 2026-09-05 — the purpose is requested from a client only once that copy exists. It ships the **findability** half of the exit; the contact half is E0's C-2/C-3. |
 | **E1** | PARTLY BUILT | One call carries pay, city, shift, needed-by and the experience window to the row; role-scoped skills served from the server; the client `TRADE_KEYS` constant retired in favour of the served vocabulary |
 | **E2** | NOT BUILT | `POST /payer/candidates/search` — masked, pseudonymised, paginated; consent and `wants` **in the WHERE clause**; R-E1 ordering; sourced from `worker_skill`, never from `worker_profiles` |
 | **E3** | ALREADY BUILT (re-point) | The existing credits, unlock and résumé surfaces beside the search results. **No new billing object.** |
@@ -525,7 +531,7 @@ ruling, or carried by an E-phase.
 
 ### Two of the nine are NOT closed — owner rulings, 2026-09-05
 
-**P9 — REOPENED, standalone, sequenced after E4.** Closing it would have dropped a trust
+**P9 — REOPENED, standalone, sequenced after E2** (it read "after E4" until the 2026-09-05 reordering). Closing it would have dropped a trust
 property by filing error: it was swept up because no E-phase covers it, which is a fact about
 the E-chain rather than a judgement about P9. Its ruling is already signed, the gate is
 unbuilt, and an unverified posting is visible to every worker today. It does not compete with
@@ -601,9 +607,16 @@ the one direction nobody investigates** (PARKED.md, P-016).
    `P5_BUILD.md:1` stays HALTed on a question you have already answered, and any builder
    implementing E2 is settling an open ruling, which `docs/agent/BUILD_RULES.md:31` makes a
    full stop.
-8. **E0's three decisions — `docs/decisions/E0_RELAY_DECISION_2026-09.md`, signature block
-   blank.** Written 2026-09-05 on your instruction; each is one page-section, costed, with my
-   recommendation stated.
+8. **E0's three decisions — ALL RULED 2026-09-05.** Kept here as a record of what was asked
+   and what came back, not as an open question. Full text and reasoning in
+   `docs/decisions/E0_RELAY_DECISION_2026-09.md`.
+   **Ruled:** (A) `employer_sharing` authorises disclosure only — a ninth, messaging purpose
+   is minted NOW and lands in E4's notice copy, against my recommendation and on the cost
+   asymmetry. (B) templates for the payer's opening message, free text after the worker
+   replies, as recommended — with **intent recorded as unsolved**, which no shape constraint
+   addresses. (C) the three additions are **blocking conditions** on E0, and the sequence is
+   corrected to `#1425 → E0 → E4 → E1 → E2`, then P9.
+   What was asked, and the arguments each answer turned on:
    **(A)** Does `employer_sharing` authorise messaging or only disclosure? I recommend the
    broad reading *conditional on the notice text*, and against a ninth purpose — the
    `whatsapp_messaging` precedent turns on EGRESS to a third party, not on messaging, and the

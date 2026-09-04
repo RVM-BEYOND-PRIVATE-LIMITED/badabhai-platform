@@ -1,14 +1,89 @@
-STATUS: FIRST IN THE E-CHAIN, ahead of E1 (owner ruling, 2026-09-05). ITEM 0 IS DONE AND
-DID NOT WAIT: filed as issue #1430 (payer-web, the frontend owner's layer) with the exact
-replacement copy, 2026-09-05.
-Two questions in this brief are UNSIGNED and each HALTs the build: the free-text question
-(§THE LEAK THIS CHANNEL HAS BY CONSTRUCTION) and the consent question (item 3). BOTH ARE
-WRITTEN UP, COSTED, AND AWAITING A SIGNATURE in docs/decisions/E0_RELAY_DECISION_2026-09.md
-(sections A and B) — read it before asking again; do not pick a sensible-looking default.
-THAT NOTE'S SECTION C IS A THIRD, UNSIGNED CONDITION ON THIS PHASE and it is not one of the
-two HALTs: it measures what a worker experiences when a payer opens a relay (no notification,
-no context, no working exit) and recommends three additions without which this phase should
-not ship. Read it before building item 1.
+STATUS: FIRST IN THE E-CHAIN — ahead of E4, E1 and E2 (owner ruling, 2026-09-05, CORRECTED
+from the ruling of the same day that put E4 first; see WHY THE ORDER CHANGED). Its only
+prerequisite is PR #1425.
+ITEM 0 IS DONE AND DID NOT WAIT: issue #1430 (payer-web, the frontend owner's layer) carries
+the exact replacement copy, filed 2026-09-05.
+THE TWO QUESTIONS THAT HALTED THIS BRIEF ARE NOW RULED — consent (§A) and the free-text shape
+(§B) of docs/decisions/E0_RELAY_DECISION_2026-09.md, owner, 2026-09-05. Both rulings are
+written into the items below. What replaces them is not a question but a gate: the THREE
+BLOCKING CONDITIONS immediately below, above the phase title on purpose.
+
+================================================================================
+THE THREE CONDITIONS. READ THIS BEFORE ANYTHING ELSE, INCLUDING THE REST OF THE STATUS.
+
+**E0 DOES NOT SHIP WITHOUT ALL THREE.** They are not garnish on the relay; they are the half
+of it that makes a relay something a worker consented into rather than something that happens
+to him. Owner ruling, 2026-09-05, on the measurements in
+docs/decisions/E0_RELAY_DECISION_2026-09.md §C.
+
+IF ANY ONE OF THEM IS HARDER THAN SCOPED HERE, THAT IS A HALT, NOT A TRIM. Shipping the relay
+with two of three is the failure this block exists to prevent, and it will present itself as
+a reasonable scope call late in a session.
+
+  C-1. THE WORKER IS TOLD HE WAS UNLOCKED — emit `profile.viewed` from the unlock path.
+       The event is registered (packages/event-schema/src/registry.ts:517) and the faceless
+       notification template already exists
+       (apps/api/src/notifications/notifications.dto.ts:165-172). NOTHING EMITS IT. Without
+       it, the worker's first knowledge that a stranger holds his contact is the stranger's
+       message.
+       THIS IS NOT THE ONE-LINE WIRING JOB IT LOOKS LIKE, and the correction is recorded
+       here rather than left for you to hit mid-session. `ProfileViewedPayload` requires
+       `job_id` (packages/event-schema/src/payloads.ts:2145-2149, NOT optional), while
+       `unlocks.job_id` is NULLABLE — "optional job context (per-profile granularity, so
+       nullable)", packages/db/src/schema/payer.ts:235-236 — and the request DTO defaults it
+       to null (apps/api/src/unlocks/unlocks.dto.ts:23). An unlock with no posting attached
+       therefore CANNOT emit this event as the contract stands, and a search-driven unlock is
+       exactly the case with no posting attached.
+       **THAT IS A HALT, AND IT IS THE ONE THIS CONDITION WILL ACTUALLY HIT.** Three routes
+       exist and none is yours to pick:
+         (i)   emit only when `job_id` is non-null. REJECT THIS ONE ON SIGHT even though it
+               compiles: the workers it silently skips are precisely those found by search
+               with no posting attached, which is the whole of E2's flow.
+         (ii)  loosen `job_id` to nullable in the payload. CLAUDE.md §3 forbids mutating an
+               event schema, and registry.ts:517 pins `version: 1`. The practical risk is nil
+               — zero producers and zero consumers exist — but "nil risk" is an argument for
+               the owner to weigh, not a licence.
+         (iii) mint a distinct event for the unlock notification, with its own template.
+       Collect it with your other questions. Do not settle it by building.
+       DO NOT NAME THE COUNTERPARTY. `apps/api/src/notifications/notifications.service.test.ts:320-326`
+       fails any template copy matching /employer|company|payer/i and `:121-128`
+       asserts the payload never reaches the output. Both guards are correct and stay.
+       The copy that ships is the one already written: "Someone has viewed your profile."
+
+  C-2. A WORKER-FACING EXIT FROM EMPLOYER CONTACT, and it must not cost him anything else.
+       Today the only exits are `POST /consent/withdraw` — all-or-nothing, and it also calls
+       `sessions.revokeAll` (apps/api/src/consent/consent.service.ts:67-72), so the worker
+       loses profiling, resume generation and voice AND is logged out of every device — or
+       account deletion. Neither is an exit from messaging; both are exits from the product.
+       BUILD ONE SWITCH that writes a new consent row omitting BOTH the disclosure purpose
+       (`employer_sharing`) and the messaging purpose ruled in §A. One switch, not two: a
+       worker who is disclosable but unmessageable sells a payer a credit for a handle that
+       dials nothing, which is the exact defect this phase exists to close.
+       THE TRAP, and it is the whole of the risk here. The new row's purposes must be
+       DERIVED SERVER-SIDE from the latest row minus those two — never taken from the client.
+       `ConsentService.accept` writes whatever array it is handed
+       (apps/api/src/consent/consent.service.ts:25-46), so a screen that posts a hand-built
+       list drops `profiling` the first time someone edits it, and consent rows are
+       append-only. Route it through the consent module; do not add a second writer.
+       The Flutter screen is the MOBILE owner's (CLAUDE.md §6): raise the issue, ship the
+       route.
+
+  C-3. THE EXIT REACHES UNLOCKS THAT ARE ALREADY LIVE. Add the check to the use-time ladder
+       in item 1. A worker who leaves must stop receiving messages from payers who unlocked
+       him BEFORE he left — otherwise "stop" means "stop in fourteen days"
+       (packages/db/src/credit-packs.ts:101).
+       THIS IS ALSO WHAT MAKES E4's OPT-OUT REAL. `wants` appears ZERO times in
+       apps/api/src/unlocks/unlocks.service.ts — it is not in the fail-closed ladder
+       (`:67-78`), so E4's `setWants(false)` and its clear-all end FINDABILITY and not
+       CONTACT. That finding is why this phase now runs before E4 rather than after it.
+================================================================================
+
+WHY THE ORDER CHANGED. Ruling R-E3 originally put E4 first, so that a visible-by-default
+worker had a working exit before a contact channel existed. C-3's measurement falsifies the
+premise: E4's exit does not reach a live unlock, so E0-after-E4 still lands messages on
+workers who cannot stop them. The corrected sequence is #1425 → E0 → E4 → E1 → E2, then P9
+(owner ruling, 2026-09-05). The reasoning behind R-E3 is unchanged and is now served by C-2
+and C-3 instead of by E4's position.
 
 PHASE E0 — make the handle dial something.
 
@@ -79,8 +154,11 @@ handle resolve, it does not build a messaging product.
      packages/db/migrations/meta/_journal.json for the current maximum and never hand-set a
      `when`.
      THE ROW MUST NOT CARRY A PHONE, A NAME, OR AN EMPLOYER. It carries the unlock join, a
-     direction, a body, and timestamps. The body is worker-visible text — see the leak
-     section below before you decide what may go in it.
+     direction, a body, and timestamps. THE BODY IS TWO-SHAPED under the §B ruling: a template
+     id plus a closed parameter set for the payer's opening message, free text for everything
+     after the worker's first reply. Model it so the opening shape cannot hold free text —
+     a leak in the first message should be a compile error, not a review miss. Read the leak
+     section below in full, including the two things the ruling does NOT settle.
 
   3. A PAYER SEND ROUTE AND A WORKER READ/REPLY ROUTE. `PayerAuthGuard` on one,
      `WorkerAuthGuard + ConsentGuard` on the other — the pairs every sibling surface uses.
@@ -88,18 +166,34 @@ handle resolve, it does not build a messaging product.
      every controller in apps/api and asserts its guard chain, and write a module boot test
      (apps/api/src/match/match.module.boot.test.ts is the pattern) — a bad module edge fails
      BOOT while typecheck, lint and unit tests all pass.
-     HALT — UNSIGNED: does `employer_sharing` authorise MESSAGING a worker, or only
-     DISCLOSING his routed contact to a payer? The enum's docblock says it "gates whether a
-     worker's routed contact may be disclosed to a paying party"
-     (packages/types/src/index.ts:26-31), which is the disclosure and arguably not the
-     conversation. `communication` is transactional (OTP), and `whatsapp_messaging` exists
-     precisely because messaging over a third party needed its own basis. Adding a NINTH
-     purpose is a NEVER-DO (docs/agent/BUILD_RULES.md:28). So the answer is either "the
-     existing purpose covers it" or "an owner act" — and it is not yours. ASK.
-     BOTH READINGS ARE ALREADY COSTED in docs/decisions/E0_RELAY_DECISION_2026-09.md §A,
-     including the finding that decides the DEADLINE rather than the answer: no worker holds
-     `employer_sharing` today, so a re-consent of the whole base is already owed by E4, and a
-     ninth purpose is nearly free if it lands in E4's notice and expensive if it lands after.
+     RULED, 2026-09-05 — A NINTH CONSENT PURPOSE, AND YOU ARE NOT THE ONE WHO MINTS IT.
+     The question was whether `employer_sharing` authorises MESSAGING or only DISCLOSING the
+     routed contact. The owner ruled: it authorises disclosure only, and messaging gets its
+     own purpose, added NOW rather than later. Reasoning, preserved because it is the part a
+     later session will want to re-litigate — the enum's house rule for splitting a purpose is
+     EGRESS TO A THIRD PARTY, not messaging (`whatsapp_messaging` because the phone reaches
+     Meta, `voice_processing` because the clip reaches Sarvam,
+     packages/types/src/index.ts:33-39, `:56-63`). The in-app relay has neither, so on that
+     rule it would NOT have earned a split. What decided it was the DEADLINE, not the reading:
+     no worker holds `employer_sharing` today, E4 already owes a full re-consent, so the
+     purpose costs one sentence in copy that does not yet exist if it lands now, and a second
+     re-consent over an already-opted-in base if it lands later. That is the `model_training`
+     decision (`:23-24`) taken deliberately a second time.
+     WHAT THIS MEANS FOR YOU. Adding to `consent.purposes[]` is still a NEVER-DO
+     (docs/agent/BUILD_RULES.md:28) and the ruling does not transfer it to you. The string is
+     minted by the owner as a one-line addition to `CONSENT_PURPOSES` with its docblock;
+     `employer_messaging` is the proposed name and the owner confirms it. Your gates key on
+     it. If the string is not in `packages/types/src/index.ts` when you build, HALT — do not
+     add it, and do not fall back to gating on `employer_sharing`.
+     THE ARRAY MUST HOLD NINE MEMBERS WHEN THIS LANDS, not eight. `packages/validators`
+     derives its zod enum from the same array (packages/validators/src/index.ts:88), so the
+     type flows; nothing else needs editing.
+     MINTING IT IS SAFE TO DO BEFORE THE NOTICE COPY EXISTS, and that is the house pattern
+     rather than an exception: a purpose no client requests fails closed for every worker, so
+     the routes stay shut until E4's copy ships and workers actually opt in. `employer_sharing`,
+     `whatsapp_messaging`, `agent_activity_visibility` and `voice_processing` all held exactly
+     that posture (packages/types/src/index.ts:71-73). Requesting it from a client is E4's
+     work, and it must not happen before the copy — see E4_BUILD "THE ORDER THAT MATTERS".
 
   4. THE EVENTS. A message sent and a message read are business actions. PII-FREE: opaque
      ids, a direction enum, counts — never the body, never a name, never a phone. Follow the
@@ -111,25 +205,36 @@ handle resolve, it does not build a messaging product.
      owner's (CLAUDE.md §6). Raise the issue with the route and payload shapes; do not open a
      `.dart` file.
 
-THE LEAK THIS CHANNEL HAS BY CONSTRUCTION — HALT, UNSIGNED, and read it before designing
-item 2's body column. The entire point of the routed relay is that the payer never learns
-the worker's phone number. A free-text channel between them defeats that in one message: the
+THE LEAK THIS CHANNEL HAS BY CONSTRUCTION — RULED 2026-09-05, and read all of it before
+designing item 2's body column, including the two things the ruling does NOT settle. The
+entire point of the routed relay is that the payer never learns the worker's phone number. A free-text channel between them defeats that in one message: the
 payer types "send me your number" and the worker types it back. Nothing in the schema, the
 guards or the events can prevent that, because both parties are legitimate and the text is
 the product.
-Three shapes exist and the choice is the OWNER'S:
-  (a) Free text, and accept that out-of-band exchange happens. Honest, simplest, and it means
-      the no-disclosure property is a default rather than a guarantee — which changes what we
-      may promise a worker.
-  (b) Free text with an outbound scan that blocks or redacts number-shaped strings. Note the
-      known trap before proposing it: a charset cannot say "not an identifier", and every
-      prior attempt at this class of filter in this repository has been measured leaky.
-  (c) Structured messages only — a closed set of templates. Preserves the property
-      completely and may be too rigid to be used at all.
-DO NOT PICK ONE. All three are costed in PRODUCT terms as well as privacy terms in
-docs/decisions/E0_RELAY_DECISION_2026-09.md §B — which also corrects two things in the framing
-above: the property is asymmetric by DIRECTION (a payer volunteering his own number breaks
-nothing the worker was promised), and shape is largely solved while intent is not.
+RULED, 2026-09-05: **(c) FOR THE PAYER'S FIRST MESSAGE, (a) FOR THE THREAD ONCE THE WORKER
+HAS REPLIED.** The payer opens with a structured message from a closed template set — a
+template id plus a closed parameter set in the body column, so a leak in the opening message
+is a compile error rather than a review miss. After the worker has replied — an affirmative
+act, by the party the property protects — the thread is free text both ways.
+  Rejected: (b), an outbound number scan. It costs the most to build, it fires on the
+  product's own vocabulary ("8 saal", "12 logon ki team", a pincode, "VMC 850"), and it buys a
+  guarantee it cannot keep. The spoken-digit redactor already carries that scar in its own
+  docstring (apps/ai-service/app/spoken_digits.py:19-22).
+
+TWO THINGS THE RULING DOES NOT SETTLE, and a later session must not read it as settling them.
+
+  (i) **INTENT REMAINS UNSOLVED, AND NO SHAPE CONSTRAINT ADDRESSES IT.** The ruling constrains
+      the FORM of the opening message. It does nothing about "mera number profile pe hai",
+      "WhatsApp pe naam se search karo", or a number split across two messages — and once the
+      worker has replied, the thread is free text by design. Shape is largely a solved problem
+      (apps/ai-service/app/pseudonymize.py:243 for digits, spoken_digits.py for "nau aath
+      saat"); intent is not solved anywhere, by anyone, in this repository. Do not write copy,
+      a docblock, an ADR or a check item that describes the channel as preventing disclosure.
+      It reduces the opening surface. That is all it does.
+  (ii) **THE PROPERTY IS ASYMMETRIC BY DIRECTION.** It protects the WORKER's number. A payer
+      volunteering his own ("call me on 98765…") breaks nothing the worker was promised. Do
+      not build a constraint that treats both directions alike — it blocks the benign half and
+      is experienced as a broken product.
 
 NEVER DO, each a full stop:
   - Return, log, event, or store the worker's phone. The ONLY decrypt on this path is
@@ -172,5 +277,9 @@ LOCAL DATA and says so in its own text.
 
 INVARIANT: no message crosses between a payer and a worker without a live, unexpired,
 consent-valid unlock joining them — re-checked at send time, not merely at grant time.
+CONSENT-VALID means, after the §A ruling, BOTH the disclosure purpose (`employer_sharing`)
+and the ninth messaging purpose, unrevoked at send time. C-2 and C-3 are what make the
+re-check non-vacuous: without an exit the worker can reach, and without that exit reaching
+unlocks already granted, "re-checked at send time" tests a condition nothing can change.
 FALSE AT HEAD only vacuously: no message can cross at all, because nothing resolves the
 handle. Making it true, and keeping it true, is the phase.

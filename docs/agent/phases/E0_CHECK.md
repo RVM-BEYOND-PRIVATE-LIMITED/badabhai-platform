@@ -1,13 +1,17 @@
 PHASE-ID: E0
-STATUS: TWO QUESTIONS ARE UNSIGNED and each HALTs the build — the free-text question
-(E0_BUILD §THE LEAK THIS CHANNEL HAS BY CONSTRUCTION) and the consent question (E0_BUILD
-item 3). Both are written up and costed in docs/decisions/E0_RELAY_DECISION_2026-09.md
-(§A, §B), whose signature block is BLANK — that file being unsigned IS the halt condition,
-and a check session should read it rather than re-derive the questions. Its §C carries a
-third unsigned condition (what the worker experiences) with three recommended additions.
-A correct session run TODAY ends VERDICT PASS, reason "phase correctly halted", with a HALT
-record naming all three sections. ITEM 0 IS ALREADY DONE — raised as issue #1430 on
-2026-09-05, before any of the rulings; item 1 below now checks that issue, not the work.
+STATUS: THE TWO QUESTIONS THAT HALTED THIS PHASE ARE RULED (owner, 2026-09-05) — §A a ninth
+consent purpose for messaging, §B templates for the payer's opening message and free text
+after the worker replies, both in docs/decisions/E0_RELAY_DECISION_2026-09.md. THIS PHASE NO
+LONGER HALTS ON THEM. What replaces them is a GATE: the three blocking conditions C-1/C-2/C-3
+below, which the same ruling made conditions of shipping rather than nice-to-haves. A build
+that ships the relay with two of the three is a FAIL, not a partial pass — say so in those
+words, because "2 of 3 conditions met" reads like a score and will be accepted as one.
+ITEM 0 IS ALREADY DONE — raised as issue #1430 on 2026-09-05, before any ruling; item 1 below
+checks that issue, not the work.
+ONE THING STILL HALTS: the ninth purpose STRING is the owner's to mint
+(docs/agent/BUILD_RULES.md:28). If `packages/types/src/index.ts` does not contain it, a build
+session correctly HALTs — and a build that added it ITSELF is a FAIL under the NEVER-DO,
+however correct the string looks.
 
 INVARIANT: no message crosses between a payer and a worker without a live, unexpired,
 consent-valid unlock joining them — re-checked at send time, not merely at grant time.
@@ -28,6 +32,48 @@ HOW TO READ THE LABELS.
                   cannot distinguish this build from the world: report it as a broken check,
                   never as a FAIL.
   [DELIVERABLE] — must be RED at the phase base.
+
+THE THREE BLOCKING CONDITIONS — CHECK THESE FIRST, AND A MISSING ONE ENDS THE VERDICT.
+The relay itself (items 1-12) is not the deliverable on its own. Owner ruling 2026-09-05 on
+docs/decisions/E0_RELAY_DECISION_2026-09.md §C.
+
+  C-1. [DELIVERABLE · base: RED, exactly two hits, both in notifications.dto.ts]
+       The worker is told he was unlocked.
+       grep -rn "profile\.viewed" apps/api/src --include=*.ts | grep -v "\.test\."
+       Base: exactly 2 — notifications.dto.ts:161 (a comment) and :165 (the template key).
+       Both are DECLARATIONS. Expect a THIRD hit on the unlock path that EMITS it.
+       DO NOT ACCEPT A HIT IN A TEST FILE as the emit — the pathspec excludes them for that
+       reason. Then read the emit and confirm it carries no counterparty name; the projection
+       guard (apps/api/src/notifications/notifications.service.test.ts:121-128) and the copy
+       guard (`:320-326`) must both still be present and unedited.
+       PRESCRIBED FAIL SHAPE: say the worker is never told a stranger holds his contact. Do
+       not write "profile.viewed not emitted" — that reads as a wiring detail and will be
+       deferred.
+
+  C-2. [DELIVERABLE · base: RED] An exit from employer contact that costs nothing else.
+       Find the route. It must write a NEW consent row whose purposes are DERIVED SERVER-SIDE
+       from the worker's latest row minus the two employer purposes.
+       FAIL if the purposes array comes from the request body. `ConsentService.accept` writes
+       whatever array it is handed (apps/api/src/consent/consent.service.ts:25-46), so a
+       client-supplied list is one screen bug away from dropping `profiling` — and consent
+       rows are append-only, so it is not recoverable.
+       FAIL if it calls `sessions.revokeAll`, or reuses `POST /consent/withdraw`
+       (apps/api/src/consent/consent.controller.ts:41). That path logs the worker out of every
+       device and drops every purpose; using it here would make the exit cost him the product.
+       THEN MUTATE AND WATCH IT GO RED: make the route drop `profiling` as well, run the
+       suite, confirm a test fails. A green suite means nothing pins the one property that
+       makes this exit safe.
+
+  C-3. [DELIVERABLE · base: RED, exit 1] The exit reaches unlocks that are already live.
+       grep -n "wants" apps/api/src/unlocks/unlocks.service.ts
+       Base: exit 1 — ZERO hits. That zero is the finding this condition exists for: `wants`
+       is absent from the fail-closed ladder (`:67-78`), so E4's opt-out ends findability and
+       not contact. Expect at least one hit, inside the USE-TIME re-check.
+       A hit only at GRANT time is a FAIL: the whole point is a worker who leaves AFTER a
+       payer unlocked him.
+       PRESCRIBED FAIL SHAPE: say that a worker who turns everything off keeps receiving
+       messages for up to fourteen days (packages/db/src/credit-packs.ts:101). Do not write
+       "wants not checked" — the number is what makes it legible.
 
 CONVENTION: grep exits 1 on zero matches. Do not run under `set -e`. Paste raw output AND the
 exit code for every item.
@@ -131,12 +177,12 @@ exit code for every item.
     the unit-level evidence; this is the integration-level evidence; neither substitutes for
     the other.
 
-RECORD IN THE VERDICT, do not check. All three are owner acts, and all three are costed in
-docs/decisions/E0_RELAY_DECISION_2026-09.md — cite its signature block, which is BLANK:
-  - §A — whether `employer_sharing` authorises messaging or only disclosure.
-  - §B — which of the three free-text shapes was chosen.
-  - §C — whether E0 ships without a worker-side notification, a per-purpose exit, and a
-    `wants`-aware use-time check. §C finding 3 is the load-bearing one and it is NOT in
-    E4_BUILD.md: `wants` appears zero times in apps/api/src/unlocks/unlocks.service.ts, so
-    E4's opt-out does not close a live unlock's relay access.
+RECORD IN THE VERDICT, do not check:
+  - That §A and §B of docs/decisions/E0_RELAY_DECISION_2026-09.md are RULED (owner,
+    2026-09-05) and §C's three conditions are what this phase is now gated on.
+  - Whether the ninth purpose string exists in packages/types/src/index.ts yet. If not, the
+    session HALTs — and that is the correct outcome, not a failure of the build.
+  - That the §B ruling constrains the SHAPE of the opening message and settles nothing about
+    INTENT. A verdict that describes this channel as preventing disclosure is wrong, whatever
+    else it found.
   - That the résumé/credit pricing question stays deferred until this phase lands.

@@ -1,6 +1,9 @@
 PHASE-ID: E4
-STATUS: two build items are BLOCKED on non-engineering work (the DPDP notice copy for
-`employer_sharing`, and the `CURRENT_CONSENT_VERSION` bump that must land with it). A
+STATUS: RUNS AFTER E0, not before it (owner ruling 2026-09-05, correcting R-E3 — see
+E4_BUILD.md's STATUS for why the original premise was false). Two build items are BLOCKED on
+non-engineering work (the DPDP notice copy — now covering BOTH `employer_sharing` and the
+NINTH, messaging purpose the owner ruled in on 2026-09-05 — and the
+`CURRENT_CONSENT_VERSION` bump that must land with it). A
 correct run today therefore ends with items 1-6 executed and items 7-8 recording a HALT.
 A build that requested `employer_sharing` from a client WITHOUT the copy is a FAIL, not a
 partial pass — see item 8.
@@ -77,11 +80,18 @@ AND the exit code for every item.
    crossing into the mobile owner's layer — regardless of whether the change is correct.
    The GitHub issue number must be in the build report instead.
 
-7. [GUARD · base: GREEN, exactly 8] The consent purpose array is unchanged.
+7. [GUARD · base: GREEN, exactly 8] The build session did not mint a purpose.
    awk '/^export const CONSENT_PURPOSES = \[/,/^\] as const;/' packages/types/src/index.ts | grep -c '^  "'
-   Expect exactly 8. FAIL on any other number — `docs/agent/BUILD_RULES.md:28` makes adding
-   to `consent.purposes[]` a full stop, and this phase requests an EXISTING member rather
-   than minting one.
+   Base: 8. Expect 8 **or** 9 — the owner ruled a ninth, messaging purpose in on 2026-09-05
+   (docs/decisions/E0_RELAY_DECISION_2026-09.md §A) and mints it himself.
+   THE COUNT IS NOT THE TEST. Run:
+   git diff $(git merge-base origin/main HEAD)..HEAD -- packages/types/src/index.ts
+   FAIL if that diff adds a member, whatever the total is. `docs/agent/BUILD_RULES.md:28`
+   makes adding to `consent.purposes[]` a full stop and the ruling does not transfer it to a
+   builder; this phase REQUESTS an existing member from a client, which is a different act.
+   A count of 9 with an empty diff is a PASS: the owner minted it upstream.
+   A count of 10, or any diff hunk inside the array, is a FAIL even if the string is the one
+   the ruling names.
 
 8. [GUARD · base: GREEN, exit 1] THE ITEM THAT MATTERS, and it is a conditional.
    grep -n "employer_sharing" apps/worker-app/lib/features/consent/presentation/cubit/consent_cubit.dart

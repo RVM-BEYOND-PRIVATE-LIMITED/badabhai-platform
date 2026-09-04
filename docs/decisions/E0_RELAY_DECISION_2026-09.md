@@ -1,9 +1,17 @@
 # E0 — the three questions that decide whether the relay is worth building
 
-STATUS: UNSIGNED. Three owner decisions. Sections A and B are E0's two HALTs; section C is
-the third thing, and it is the one that decides whether E0 ships at all.
-Written 2026-09-05 for PR #1427. Nothing here is built. Item 0 (the false payer copy) is
-already out as issue #1430 and does not wait for any of this.
+STATUS: **ALL THREE RULED — owner, 2026-09-05.** Each ruling is recorded at the head of its
+own section, and each recommendation was accepted. Written 2026-09-05 for PR #1427; nothing
+here is built. Item 0 (the false payer copy) went out as issue #1430 ahead of every ruling.
+
+The rulings, in one place:
+  **A** — `employer_sharing` authorises DISCLOSURE only. A ninth purpose is minted for
+  messaging, NOW, in the notice copy E4 is already writing.
+  **B** — templates for the payer's opening message, free text once the worker has replied.
+  Intent stays unsolved and the ruling does not pretend otherwise.
+  **C** — the three additions are CONDITIONS OF SHIPPING E0, not nice-to-haves. Any one of
+  them proving harder than scoped is a HALT, not a trim.
+  **Sequence, corrected by C:** #1425 → E0 → E4 → E1 → E2, then P9. E3 is built.
 
 Every measurement below is against `origin/main` at `f72a7a79`. R-E4 applies: the workers on
 the live database are testers, `employer_sharing` is requested by no client, and no worker has
@@ -12,6 +20,14 @@ ever received a relayed message. Nothing here has been proven against real suppl
 ---
 
 ## A. Does `employer_sharing` authorise MESSAGING, or only DISCLOSURE?
+
+> **RULED 2026-09-05 — disclosure only; mint the ninth purpose NOW.** The recommendation
+> below argued the opposite conclusion from the same evidence, and the owner ruled against it
+> on the cost asymmetry: *"This is the `model_training` decision made deliberately a second
+> time, and the cost asymmetry is not close."* The reasoning about the enum's house rule is
+> preserved by ruling, because it is what a later session would otherwise re-derive. Proposed
+> string: `employer_messaging`; the owner confirms the name. Minting it is an owner act
+> (`docs/agent/BUILD_RULES.md:28`) and the array holds NINE members afterwards.
 
 **Reading 1 — disclosure only.** The enum docblock says it "gates whether a worker's routed
 contact may be **disclosed** to a paying party" (`packages/types/src/index.ts:26-31`).
@@ -84,6 +100,12 @@ decided **before** E4's notice ships, not after.
 
 ## B. The free-text leak
 
+> **RULED 2026-09-05 — (c) for the payer's first message, (a) after the worker replies**, as
+> recommended, with both framing corrections carried into `E0_BUILD.md`. The owner attached a
+> condition to the record: **intent remains unsolved, and no shape constraint addresses it.**
+> A later session must not read this ruling as closing both halves. `E0_BUILD.md` says so at
+> the point of use.
+
 The property is: the payer never learns the worker's phone number. A free-text channel defeats
 it in one message — the payer types "send me your number", the worker types it back. No schema,
 guard, or event can prevent that, because both parties are legitimate and the text is the
@@ -153,6 +175,18 @@ to build, breaks the product's own vocabulary, and buys a guarantee it cannot ke
 
 ## C. What does the worker EXPERIENCE when a payer opens a relay?
 
+> **RULED 2026-09-05 — the three additions are BLOCKING CONDITIONS on E0**, written into
+> `E0_BUILD.md` above the phase title in the same position as E2's empty-result trap. E0 does
+> not ship without all three; a builder finding any of them harder than scoped HALTs rather
+> than trims.
+> **This section also corrected the owner's own sequencing.** R-E3 put E4 first so that a
+> visible-by-default worker had an exit before a contact channel existed; finding 3 falsifies
+> that premise, because E4's exit does not reach a live unlock. Corrected sequence:
+> **#1425 → E0 → E4 → E1 → E2, then P9.**
+> Finding 1 — `profile.viewed` registered, templated and emitted by nothing — is ALSO PARKED
+> separately as its own defect (`PARKED.md` P-019): it is the notification path C-1 needs, and
+> it is half-built already.
+
 Measured at HEAD. This section is not a HALT in E0's brief; it is here because the answers
 decide whether E0 is worth building.
 
@@ -160,6 +194,14 @@ decide whether E0 is worth building.
    (`packages/event-schema/src/registry.ts:517`) and a faceless notification template
    (`apps/api/src/notifications/notifications.dto.ts:165-172`) — and **nothing emits it**. A
    payer unlocks a worker today and the worker is never told.
+   **CORRECTION, 2026-09-05, after the ruling.** I called this "the wiring is the missing
+   line" here and in the PR comment. It is not. `ProfileViewedPayload` requires `job_id`
+   (`packages/event-schema/src/payloads.ts:2145-2149`), while `unlocks.job_id` is NULLABLE
+   (`packages/db/src/schema/payer.ts:235-236`) and the request DTO defaults it to null
+   (`apps/api/src/unlocks/unlocks.dto.ts:23`) — so a search-driven unlock, which is E2's whole
+   flow, cannot emit it as the contract stands. Closing that is an owner/architect act with
+   three routes and real trade-offs; it is written up in `E0_BUILD.md` C-1 and parked as
+   `PARKED.md` P-019. C-1 stands as a blocking condition; what changed is its price.
 2. **No context, and the guard is deliberate.** The alerts feed structurally cannot name a
    counterparty: `apps/api/src/notifications/notifications.service.test.ts:320-326` fails any
    template copy matching `/\bemployer\b|\bcompany\b|\bpayer\b/i`, and `:121-128` asserts the
@@ -191,9 +233,9 @@ question wearing different clothes.
 
 Four items. The first three are cheap, and I would make them conditions of E0 shipping:
 
-  - **Emit `profile.viewed` on unlock.** Event and template both already exist; the wiring is
-    the missing line. The worker learns he is being looked at *before* the first message rather
-    than *by* it.
+  - **Emit `profile.viewed` on unlock.** Event and template both already exist; what does not
+    is a payload that fits a search-driven unlock (see the correction under finding 1). The
+    worker learns he is being looked at *before* the first message rather than *by* it.
   - **A per-purpose exit for `employer_sharing`** — a "stop employer contact" switch that
     writes a new consent row without that purpose. This is what makes the notice's "you can
     turn this off" true, it is smaller than E4's clear-all, and it is the exit that matches the

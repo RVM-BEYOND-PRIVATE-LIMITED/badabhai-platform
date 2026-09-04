@@ -41,26 +41,35 @@ P*_CHECK.md carries its own closure block naming what, if anything, that phase d
 TWO EXCEPTIONS, reopened by owner ruling and both STANDALONE — neither is part of the
 E-chain and neither blocks it:
   P9  the verification visibility gate. Ruled a GATE, unbuilt, and an unverified posting is
-      visible to every worker today. Sequenced AFTER E4.
+      visible to every worker today. Sequenced AFTER E2 — it was "after E4" until the
+      2026-09-05 reordering; it follows the chain, not one phase of it.
   P8  job-posting drafts and checkpoints — and the home of ADR-0035 Amendment 1, which names
       that brief by path.
 
-THE LIVE CHAIN:
+THE LIVE CHAIN, corrected 2026-09-05 (owner ruling — E0 moved AHEAD of E4; see below):
 
-  E0 → E4 → E1 → E2 → E3
+  #1425 → E0 → E4 → E1 → E2,  then P9.   E3 is already built.
 
-  E0  The relay. A credit currently buys a handle that resolves to nothing. Owner ruling
-      2026-09-05 puts it first, because it decides what a credit is worth — and the
-      résumé/credit pricing question is deferred behind it. Its item 0 (correcting live,
-      false payer-facing copy) did NOT wait: raised as issue #1430, 2026-09-05.
-      The rest is HALTed on THREE unsigned decisions, all costed with recommendations in
-      docs/decisions/E0_RELAY_DECISION_2026-09.md — its blank signature block is the halt.
-  E4  Worker opt-out. Before E2 by ruling R-E3: a worker made findable by search needs an
-      exit before the door opens.
+  #1425 is a PREREQUISITE, not a phase — it is open, and until it lands a completed trade form
+      derives zero `worker_skill` rows, so E2 has no supply to search.
+  E0  The relay. A credit currently buys a handle that resolves to nothing. Its item 0
+      (correcting live, false payer-facing copy) did NOT wait: raised as issue #1430,
+      2026-09-05. Its two rulings are SIGNED (docs/decisions/E0_RELAY_DECISION_2026-09.md
+      §A, §B); what gates it now are the THREE BLOCKING CONDITIONS in E0_BUILD.md, above the
+      phase title. E0 does not ship with two of three.
+  E4  Worker opt-out — the findability half. It carries the DPDP notice copy for
+      `employer_sharing` AND for the ninth, messaging purpose ruled in on 2026-09-05.
   E1  The posting form asks once, and every answer reaches the row.
-  E2  Candidate search. BLOCKED until ADR-0040 is signed, and until E4 and #1425 land —
+  E2  Candidate search. BLOCKED until ADR-0040 is signed and until E4 and #1425 land —
       before those, a correct E2 returns zero rows.
   E3  Credits and unlock — a RE-POINT of shipped surfaces, not a build.
+
+WHY E0 MOVED IN FRONT OF E4. Ruling R-E3 originally put E4 first, so a visible-by-default
+worker would have an exit before a contact channel existed. That premise measured false:
+`wants` appears zero times in apps/api/src/unlocks/unlocks.service.ts, so E4's opt-out ends
+findability and leaves an already-granted unlock live for its remaining 14 days. E0-after-E4
+would still have landed messages on workers who could not stop them. The exit R-E3 wanted is
+now E0's conditions C-2 and C-3.
 
 ## Before every phase
 

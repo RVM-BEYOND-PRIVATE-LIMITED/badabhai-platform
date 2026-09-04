@@ -1,4 +1,13 @@
-STATUS: SHIPS FIRST — before E1, E2 and E3 (owner ruling R-E3, 2026-09-05). Two items in
+STATUS: SHIPS SECOND, AFTER E0 — then E1, then E2 (owner ruling 2026-09-05, CORRECTING R-E3
+of the same day, which put this phase first). WHY IT MOVED: R-E3's reason was that a
+visible-by-default worker needs a working exit before a contact channel exists. That premise
+is false as this brief was written — `wants` is absent from the unlock ladder, so the exit
+built here does not reach a live unlock, and E0-after-E4 would still land messages on workers
+who cannot stop them (docs/decisions/E0_RELAY_DECISION_2026-09.md §C finding 3). The exit
+R-E3 wanted is now E0's blocking conditions C-2 and C-3; this phase keeps the findability
+half. See WHAT THIS EXIT DOES NOT DO below.
+ONE MORE THING NOW LANDS WITH THIS PHASE'S NOTICE COPY: a NINTH consent purpose for messaging
+(owner ruling 2026-09-05, §A of that note). See item 6. Two items in
 this brief are BLOCKED and neither is engineering work: the DPDP notice copy for
 `employer_sharing`, and the `CURRENT_CONSENT_VERSION` bump that must land with it. Build
 items 1-4, raise item 5's issue, and HALT on items 6-7. Do NOT request the purpose from a
@@ -76,8 +85,17 @@ BUILD THESE FOUR.
 
 HALT ON THESE TWO. Collect them and ask; do not choose a sensible-looking default.
 
-  6. THE DPDP NOTICE COPY for `employer_sharing`. It does not exist, and a builder cannot
-     write it. The enum's own docblock says so (packages/types/src/index.ts:29-31:
+  6. THE DPDP NOTICE COPY for `employer_sharing` AND FOR THE NINTH, MESSAGING PURPOSE.
+     Neither exists, and a builder cannot write either. The ninth purpose is an owner ruling
+     of 2026-09-05 (docs/decisions/E0_RELAY_DECISION_2026-09.md §A): `employer_sharing`
+     authorises DISCLOSURE only, messaging gets its own basis, and it lands in THIS notice
+     rather than a later one because no worker holds `employer_sharing` today — so the
+     re-consent this phase already owes is the only one anybody has to run. A second notice
+     later would mean re-consenting a base that had already opted in once, which is the
+     `model_training` mistake (packages/types/src/index.ts:23-24) made twice.
+     The proposed string is `employer_messaging` and the OWNER mints it; if it is not in
+     `CONSENT_PURPOSES` when you build, HALT — adding it yourself is the NEVER-DO
+     (docs/agent/BUILD_RULES.md:28), however obviously correct the string looks. The enum's own docblock says so (packages/types/src/index.ts:29-31:
      "Production DPDP notice copy + lawful-basis wording remain a human/legal launch gate"),
      and the consent-version policy says why it matters
      (packages/types/src/index.ts:83-96): "Bumping the version while the app shows the old
@@ -104,10 +122,14 @@ append-only.
 
 THIS IS NOT A NEVER-DO. `docs/agent/BUILD_RULES.md:28` forbids adding anything to
 `consent.purposes[]`. You are NOT adding a purpose: `employer_sharing` is already the fifth
-member of `CONSENT_PURPOSES` (packages/types/src/index.ts:32), and the array must still hold
-exactly EIGHT members when you are done. Requesting an existing purpose from a client is a
-different act from minting a new one. If you find yourself editing the array, stop — that IS
-the NEVER-DO.
+member of `CONSENT_PURPOSES` (packages/types/src/index.ts:32). Requesting an existing purpose
+from a client is a different act from minting a new one. If you find yourself editing the
+array, stop — that IS the NEVER-DO, and it is still the NEVER-DO for the ninth purpose the
+owner ruled in: the OWNER mints that string, and your job is to request it from the client
+once its copy exists.
+COUNT CHECK, CORRECTED 2026-09-05: this brief previously said the array must still hold
+EIGHT members when you are done. Under the §A ruling it holds NINE. If it holds eight when
+you go to request the messaging purpose, the owner has not minted it yet — HALT.
 
 DO NOT TOUCH: apps/ai-service, the profiling orchestrator, the chat service, the trade form
 question flow, `pack_answers`, or anything else on the worker conversational path. `setWants`
