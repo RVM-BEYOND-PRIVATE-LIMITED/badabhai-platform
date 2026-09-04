@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/error/failure.dart';
+import '../../../../core/util/title_case.dart';
 import '../../domain/name_repository.dart';
 
 enum NameStatus { idle, submitting, success, failed }
@@ -29,7 +30,7 @@ class NameCubit extends Cubit<NameState> {
   final NameRepository _repo;
 
   Future<void> submit(String fullName) async {
-    final String trimmed = fullName.trim();
+    final String trimmed = titleCaseName(fullName.trim());
     if (trimmed.isEmpty || state.isSubmitting) return;
     emit(const NameState(status: NameStatus.submitting));
     try {
