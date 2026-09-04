@@ -40,34 +40,46 @@ snapshots — any change here should be made deliberately, not as a side effect.
 
 ---
 
-## P-002 · No `matching_catalog.published` event — the event catalog is frozen
+## P-002 · CORRECTED — this entry documented a BRANCH as if it were `main`
 
-**Found:** 2026-09-02, phase P1 (`matching_catalog`)
-**Location:** [apps/api/src/match/matching-catalog.service.ts](apps/api/src/match/matching-catalog.service.ts) `publish()` — the point where a sibling service would emit
-**Owner ruling:** parked by Prakash, 2026-09-02
+**Corrected:** 2026-09-03, phase-brief survey. **Owner ruling:** Prakash.
+**Superseded on merge:** PR #1387 replaces this entry wholesale. Take ITS version.
 
-**What is missing.** Every important business action emits a validated event
-(engineering contract §3, "Event First"). Publishing a matching catalog is one: it
-changes, platform-wide, which workers are visible for which jobs. The sibling path
-emits `pricing.changed` on exactly the analogous write.
+**What this entry used to claim.** That no `matching_catalog.published` event existed,
+that the event schema was frozen under ADR-0014 with CEO signature, and that adding one
+was therefore not an engineering decision. It cited
+`apps/api/src/match/matching-catalog.service.ts` as a live location.
 
-**Why it is not built.** The event schema is frozen under ADR-0014 with CEO signature.
-Additive or not, a new event type is a change to a frozen catalog, and that is not an
-engineering decision to make inside a build phase.
+**Both halves were wrong, in different ways.**
 
-**What ships instead.** The publish path logs the new revision at INFO
-(`MatchingCatalogService`) and the row itself is the durable record — `revision` is
-unique and never reused, `updated_by` and `updated_at` are stamped, and no revision is
-ever deleted. So the audit trail exists in the table; what is missing is the
-_notification_, not the record.
+**1 — the file is not on `main`.** `apps/api/src/match/matching-catalog.service.ts` exists
+only on branch `p1-matching-catalog`. So does the rest of P1: `packages/matching-catalog/`,
+the controller, the DTO, the repository and migration `0099_overrated_fantastic_four.sql`.
+On `main` (`git ls-tree`, any spelling) there is nothing. **This entry was written against
+an unmerged branch and filed as if it described `main`** — which is worse than a stale
+link, because every reader downstream inherited it. Five phase briefs and ten of eleven
+phase surveys did.
 
-**The specific thing to watch for.** No consumer needs cache invalidation on publish
-today, because nothing reads `matching_catalog` yet — P2's tier resolver is the first
-consumer and is not built. **If a consumer caches the active catalog, this stops being
-a documentation gap and becomes a correctness bug**: a published revision would not
-take effect until restart, with no signal that it had not. The standing instruction is
-to HALT and raise it rather than work around it, because a cache that needs
-invalidation changes the answer on whether the event is optional.
+**2 — the event ships, and the freeze premise was false.** `matching_catalog.published`
+v1 is commit `a454fac0` on that same branch. ADR-0014 says the opposite of what the park
+claimed, in its own words: *"we are **NOT hard-freezing** the schema … this is a
+guardrail, not a freeze"*. The park was reasoned from a remembered summary of an ADR
+rather than from the ADR.
+
+**Where this actually stands.** P1 is **built, unmerged and unchecked** — open draft
+**PR #1387, "[DO NOT MERGE — blocked on role-registry ruling]"**, held on the R1–R4
+signatures, not on code. There is no `docs/qa/evidence/P1/`. Nobody has run P1_CHECK
+against the branch.
+
+**The cache-invalidation warning still stands, and now has an owner.** Nothing on `main`
+reads `matching_catalog`, so no consumer needs invalidation yet. **The first consumer to
+cache the active catalog turns this from a documentation gap into a correctness bug** — a
+published revision would not take effect until restart, with no signal that it had not.
+That consumer is P2. HALT and raise it rather than work around it.
+
+**Lesson, and it is the reason this correction is this long:** a park that cites a file
+must say which ref it read. This one cost a survey ten wrong conclusions about whether
+P1 existed at all.
 
 ---
 
