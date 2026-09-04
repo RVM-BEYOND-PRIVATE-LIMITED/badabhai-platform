@@ -40,34 +40,46 @@ snapshots — any change here should be made deliberately, not as a side effect.
 
 ---
 
-## P-002 · No `matching_catalog.published` event — the event catalog is frozen
+## P-002 · CORRECTED — this entry documented a BRANCH as if it were `main`
 
-**Found:** 2026-09-02, phase P1 (`matching_catalog`)
-**Location:** [apps/api/src/match/matching-catalog.service.ts](apps/api/src/match/matching-catalog.service.ts) `publish()` — the point where a sibling service would emit
-**Owner ruling:** parked by Prakash, 2026-09-02
+**Corrected:** 2026-09-03, phase-brief survey. **Owner ruling:** Prakash.
+**Superseded on merge:** PR #1387 replaces this entry wholesale. Take ITS version.
 
-**What is missing.** Every important business action emits a validated event
-(engineering contract §3, "Event First"). Publishing a matching catalog is one: it
-changes, platform-wide, which workers are visible for which jobs. The sibling path
-emits `pricing.changed` on exactly the analogous write.
+**What this entry used to claim.** That no `matching_catalog.published` event existed,
+that the event schema was frozen under ADR-0014 with CEO signature, and that adding one
+was therefore not an engineering decision. It cited
+`apps/api/src/match/matching-catalog.service.ts` as a live location.
 
-**Why it is not built.** The event schema is frozen under ADR-0014 with CEO signature.
-Additive or not, a new event type is a change to a frozen catalog, and that is not an
-engineering decision to make inside a build phase.
+**Both halves were wrong, in different ways.**
 
-**What ships instead.** The publish path logs the new revision at INFO
-(`MatchingCatalogService`) and the row itself is the durable record — `revision` is
-unique and never reused, `updated_by` and `updated_at` are stamped, and no revision is
-ever deleted. So the audit trail exists in the table; what is missing is the
-_notification_, not the record.
+**1 — the file is not on `main`.** `apps/api/src/match/matching-catalog.service.ts` exists
+only on branch `p1-matching-catalog`. So does the rest of P1: `packages/matching-catalog/`,
+the controller, the DTO, the repository and migration `0099_overrated_fantastic_four.sql`.
+On `main` (`git ls-tree`, any spelling) there is nothing. **This entry was written against
+an unmerged branch and filed as if it described `main`** — which is worse than a stale
+link, because every reader downstream inherited it. Five phase briefs and ten of eleven
+phase surveys did.
 
-**The specific thing to watch for.** No consumer needs cache invalidation on publish
-today, because nothing reads `matching_catalog` yet — P2's tier resolver is the first
-consumer and is not built. **If a consumer caches the active catalog, this stops being
-a documentation gap and becomes a correctness bug**: a published revision would not
-take effect until restart, with no signal that it had not. The standing instruction is
-to HALT and raise it rather than work around it, because a cache that needs
-invalidation changes the answer on whether the event is optional.
+**2 — the event ships, and the freeze premise was false.** `matching_catalog.published`
+v1 is commit `a454fac0` on that same branch. ADR-0014 says the opposite of what the park
+claimed, in its own words: *"we are **NOT hard-freezing** the schema … this is a
+guardrail, not a freeze"*. The park was reasoned from a remembered summary of an ADR
+rather than from the ADR.
+
+**Where this actually stands.** P1 is **built, unmerged and unchecked** — open draft
+**PR #1387, "[DO NOT MERGE — blocked on role-registry ruling]"**, held on the R1–R4
+signatures, not on code. There is no `docs/qa/evidence/P1/`. Nobody has run P1_CHECK
+against the branch.
+
+**The cache-invalidation warning still stands, and now has an owner.** Nothing on `main`
+reads `matching_catalog`, so no consumer needs invalidation yet. **The first consumer to
+cache the active catalog turns this from a documentation gap into a correctness bug** — a
+published revision would not take effect until restart, with no signal that it had not.
+That consumer is P2. HALT and raise it rather than work around it.
+
+**Lesson, and it is the reason this correction is this long:** a park that cites a file
+must say which ref it read. This one cost a survey ten wrong conclusions about whether
+P1 existed at all.
 
 ---
 
@@ -128,7 +140,7 @@ now carries the correction so the doc does not repeat the error.
 ## P-005 · `pnpm build` cannot pass on Windows — `admin-web` dies on a symlink
 
 **Found:** 2026-09-02, running the gates after the P1-duplicate cleanup
-**Location:** [apps/admin-web/next.config.ts](apps/admin-web/next.config.ts) — `output: "standalone"`
+**Location:** [apps/admin-web/next.config.mjs](apps/admin-web/next.config.mjs) — `output: "standalone"`
 **Severity:** none in CI, total locally. **Do not re-investigate this; it is known.**
 
 **What happens.** `pnpm build` reports `15 successful, 17 total` / `Failed:
@@ -433,3 +445,51 @@ has moved, the whole calculation changes.
 matcher must follow the runtime, and those are different questions. Answering the second by
 inference from the first is settling a ruling by default. The three measurements above are what
 would let the owner answer it on evidence rather than on the shape of the argument.
+
+---
+
+## P-013 · The payer Flutter app hardcodes three role vocabularies, and they disagree
+
+**Found:** 2026-09-04, phase-brief rewrite, while applying owner ruling R4-d(a) (the role
+count is 21).
+**Owner ruling:** PARK, do not fix — Prakash, 2026-09-04.
+**Location:** [apps/payer-app/lib/features/jobs/presentation/post_job_screen.dart](apps/payer-app/lib/features/jobs/presentation/post_job_screen.dart)
+lines 80-87 and 90, and
+[apps/payer-app/lib/core/data/models.dart](apps/payer-app/lib/core/data/models.dart)
+lines 554-570 (`kAgencyTradeKeys`) with its label map at 573.
+**Severity:** low today, and it is the shape of the defect rather than its size that matters.
+
+**What is there.** Three role vocabularies ship in one Flutter app, none derived from the
+server:
+
+- `post_job_screen.dart:80-87` — six DISPLAY STRINGS: `'CNC Setter'`, `'VMC Setter'`,
+  `'CNC Operator'`, `'Quality Inspector'`, `'Welder / Fabricator'`, `'Fitter'`.
+- `models.dart:554-570` — fifteen `trade_key` VALUES (`cnc_operator` … `fitter`) plus a
+  display-label map, documented as *"the ratified manufacturing alpha trade keys."*
+- `post_job_screen.dart:90` — the `vacancy_band` enum restated as five literal strings.
+
+They do not agree with each other, and neither agrees with the server: the role registry
+declares FIVE (`apps/api/src/profiling/roles/role-registry.ts:39-45`, all `formEnabled`).
+Six, fifteen, and five are three answers to one question, and `'Welder / Fabricator'` has no
+counterpart in either of the other two lists.
+
+**Why it is a defect and not a preference.** Ruling ① of 2026-09-04 says a brief may not
+assert a role count, because the taxonomy is RVM's and moves. A client that hardcodes one is
+the same failure with a longer feedback loop: the day a role is added, renamed or disabled
+server-side, this app keeps offering the old set and nothing fails — the payer picks a trade
+that no longer exists, or never sees one that does. P10 and P12 both exist to make clients
+render from a server-served schema; this is the surface they were written for.
+
+**Why it is parked and not fixed.** Fixing it is not deleting the lists — it is giving the
+payer app a served descriptor to read, which is P8's `GET /schema` (deleted from that phase,
+blocked on PR #1387 and P3's columns) and P12's wizard (blocked on ruling R6, unsigned). The
+fix has no landing place until those exist. Editing the three lists into agreement now would
+also be an edit inside `apps/payer-app`, which has **no owner in `.github/CODEOWNERS`** — the
+exact gap R6 exists to close.
+
+**The specific thing to watch for.** `P12_CHECK` item 4 greps Dart for hardcoded role labels
+and fails on any hit. It therefore fails TODAY, on this code, before P12 writes a line. That
+item is scoped in the rewritten P12 to the new wizard's files for exactly this reason. **If
+someone later widens it back to the whole app without removing these three lists first, P12
+becomes unpassable** — and the failure will read as a defect in the new wizard rather than in
+code that predates it by months.

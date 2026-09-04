@@ -1,17 +1,41 @@
 PHASE-ID: P2
-INVARIANT: exactly one tier-resolution implementation exists in the whole repo.
+INVARIANT: on a posting whose reach_skill_ids is resolveReachSet(match_skill_ids) and
+which carries no job_reach_widen grant, every match_tier written to job_reach equals
+matchTierFor(wanted, match_skill_ids), and a worker matchTierFor returns null for gets
+no row.
 
-EXPECTED ARTIFACTS: a shared resolveMatchTier implementation imported by both
-match-engine and reach-engine, plus committed golden fixtures covering all 22 roles.
-If these do not exist, VERDICT is FAIL, reason "phase not built". Stop there.
+EXPECTED ARTIFACTS: apps/api/src/match/tier-parity.test.ts, wired into
+.github/workflows/ci.yml. Absent, VERDICT is FAIL, reason "phase not built". Stop there.
 
-Do these checks and paste raw output for each:
-1. grep the entire repo for tier logic: TIER_ORDER, the word tier, and any A/B/C
-   comparison against a threshold. Paste every hit. Two implementations is a FAIL.
-2. Run the golden fixture suite. Paste the raw output including the pass count.
-3. Confirm every threshold and multiplier comes from matching_catalog.
-   grep the engine source for the literals 0.85, 0.25, 0.30. Any hardcoded one is a FAIL.
-4. Build a worker with function = null against a job that wants function = setter.
-   Confirm the worker is scored and carries reason "function_unconfirmed".
-   If the worker is excluded, that is a FAIL — it breaks the partial-profiles rule.
-5. Confirm reasons[] is filled in for every non-exact match in the golden set.
+P2 adds no migration; it needs the schema rank-parity already needs, which Prakash
+applies between the build and check sessions. Run every command under bash — the
+VAR=x prefix is a parse error in PowerShell.
+
+Paste raw output for each:
+1. RUN_DB_TESTS=1 pnpm --filter @badabhai/api run test tier-parity
+   "skipped" for this file is a FAIL (ci.yml:1438 exists for exactly that). The run must
+   assert a non-zero expected row count and an explicit worker-id set; an expectation
+   over zero rows is a FAIL.
+2. Confirm the unmutated run observed at least one job_reach row with match_tier = 2 and
+   one with 1. If not, no mutation below can go red — FAIL.
+3. Change ELSE 2 to ELSE 1 at apps/api/src/match/worker-skills.repository.ts:360.
+   Re-run step 1, paste, revert. Green is a FAIL.
+4. Same at worker-skills.repository.ts:280. Green is a FAIL — the test never drives
+   reconcileReachForWorker, so half the invariant is unguarded.
+5. In packages/match-engine/src/reach.ts make matchTierFor return 1 where it returns 2,
+   then `pnpm --filter @badabhai/match-engine build` BEFORE re-running: apps/api resolves
+   the package to dist/index.js (package.json exports), so an unbuilt edit is invisible
+   and the run stays green for the wrong reason. Revert and rebuild. Green is a FAIL.
+6. Change ELSE 2 to ELSE 3 at packages/db/src/materialize-job-reach.ts:158 — whitespace
+   or a rename survives the pin's normalization. Re-run, paste, revert. Green means the
+   D5 runner is unguarded — FAIL.
+7. grep -n "tier-parity" .github/workflows/ci.yml. It must appear at ~:1416 and in the
+   `for f in` loop at ~:1430, and the count at ~:1448 must read 10. Any one missing and
+   the gate never runs in CI — FAIL.
+8. git diff $(git merge-base origin/main HEAD)..HEAD -- '*.ts'. FAIL on any weakened,
+   skipped or deleted test; on a new NON-TEST file under packages/match-engine/src; on
+   any hit for resolveMatchTier, tradeFactor, functionMultiplier or collarTierBand. Hits
+   in docs/agent/phases/ are expected — this brief names them.
+9. Every workers row must carry a synthetic marker in phone_e164 and phone_hash (the
+   enc:/hash: shape of rank-parity.test.ts:203-207). A real number, a person's name or
+   an email anywhere in the fixtures is a FAIL.

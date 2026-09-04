@@ -1,17 +1,37 @@
 PHASE-ID: P10
-INVARIANT: no job-posting field, step, or option value is hardcoded in the client.
+INVARIANT: no file under apps/payer-web/src/app/(portal)/postings/new/wizard/ declares a step,
+a field id, or an option array. Every one arrives from the GET /schema payload, or from
+GET /payer/match/skills for the skill vocabulary MatchSkillPicker already renders.
 
-EXPECTED ARTIFACTS: a schema-driven wizard in apps/payer-web, checkpoint POSTs with
-version and idempotency headers, a 409 conflict screen, and draft resume.
-If these do not exist, VERDICT is FAIL, reason "phase not built". Stop there.
+STATUS: BLOCKED ON P8. Run
+`git grep -nIiE "job-posting-drafts|drafts/schema" -- '*.ts' '*.tsx' '*.dart' '*.sql'`.
+Exit 1 means P8's schema route does not exist and P10 was correctly not started: VERDICT is
+BLOCKED ON P8, NOT FAIL. Stop there.
 
-Do these checks and paste raw output for each:
-1. grep apps/payer-web for all 22 role labels, every function value, and every collar
-   tier value. Any hit outside a test fixture is a FAIL. Paste the hits.
-2. Add a new field to the served schema WITHOUT touching any client code. Reload the
-   page. The field must render. If it does not, the wizard is not schema-driven — FAIL.
-3. Remove a step from the served schema. The wizard must adapt with no client change.
-4. Force a 409: change the draft out of band, then submit a step from a stale client.
-   The conflict screen must appear. A silent retry or a lost edit is a FAIL.
-5. Bump the served schema_version against an in-flight draft. The explicit update step
-   must appear. Silent migration is a FAIL.
+EXPECTED ARTIFACTS: the wizard directory above, a committed schema fixture, a test that renders
+the wizard from it, a checkpoint seam test recording the POSTs, a 409 conflict screen, and a
+schema_version drift screen. If these do not exist, VERDICT is FAIL, "phase not built". Stop.
+
+Paste raw output AND the exit code for every check. Scope every grep to the wizard directory
+and exclude *.test.ts / *.test.tsx BY NAME.
+1. grep -rnE "TRADE_KEYS|SHIFTS|NEEDED_BY|tradeKeySchema|shiftSchema|neededBySchema" and
+   grep -rnE '"(day|night|rotational|immediate|soon|flexible)"'. Any hit is a FAIL — importing
+   the constant hardcodes the option set as surely as typing it. RED looks like today's
+   posting-form.tsx:260, `options={TRADE_KEYS.map(...)}`. Do NOT grep role names or collar
+   tiers: neither appears in apps/payer-web, and no count is the client's business — it
+   renders whatever the server serves.
+2. Add a field to the committed fixture whose field_id returns zero hits from
+   `grep -rn <field_id> apps/payer-web/src`. Re-run `pnpm --filter @badabhai/payer-web test`.
+   Its label must appear in the collected tree (node env, no DOM — house walk/collect at
+   agency-job-form.test.tsx:156,191). RED: the field renders nothing.
+3. Delete a step from the same fixture. Re-run. The collected ids (acc.ids,
+   agency-job-form.test.tsx:187) must equal the fixture's remaining step ids, in order, no
+   extras. RED: the deleted step's id still collected — the step list is a client constant.
+4. Call the checkpoint reducer directly with a 409 carrying the conflicting step_id: it must
+   return the conflict state. Then drive that submit through the seam test: exactly ONE POST
+   recorded. RED: the reducer returns success, or a second POST — a silent retry.
+5. Render against a fixture whose schema_version differs from the draft's. The drift screen
+   must be in the tree and no fixture field id may be. RED: field ids present. Silent
+   migration is a FAIL.
+
+pnpm build cannot pass on this box (PARKED.md:140). Do not record it as a P10 failure.

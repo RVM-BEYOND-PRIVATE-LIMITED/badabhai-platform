@@ -1,5 +1,7 @@
 # BADABHAI — COMPLETE CODEBASE INTELLIGENCE & CURRENT STATE REPORT
 
+> **NOT AN AUTHORITY. Snapshot without a SHA. Verify every claim against HEAD.**
+
 **Classification:** Internal Engineering Reference
 **Date:** September 1, 2026
 **Prepared by:** Codebase Forensic Analysis

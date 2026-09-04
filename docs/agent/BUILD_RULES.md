@@ -18,8 +18,10 @@ DEAD IDEAS — do not use these, do not bring them back, do not cite them:
   - "Match acceptance rate" as the north-star metric
 
 NEVER DO THESE. Each one is a full stop, not a decision you get to make:
-  - Run a database migration. Write the file only. Divyanshu runs it.
+  - Run a database migration. Write the file only. Prakash applies it.
     No db:push. No drizzle-kit migrate. No psql DDL. Not even "just to test".
+    This is the step BETWEEN the build session and the check session: a CHECK that
+    needs a live schema waits for Prakash to apply, it does not apply its own.
   - Weaken, skip, .skip, or delete a test so a suite goes green.
   - Change the reach weights 35/20/15/15/10/5.
   - Add any ranking input that money, RVM membership, or a demographic can influence.
