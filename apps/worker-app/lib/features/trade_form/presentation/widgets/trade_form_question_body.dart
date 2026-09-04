@@ -78,6 +78,17 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
   @override
   Widget build(BuildContext context) {
     final VoiceQuestion q = widget.step.question;
+    // A question whose OWN options already carry a none-of-above chip
+    // (#1382's `isNoneOfAbove`) offers that identical "nothing here
+    // applies" declaration inside the grid already — the standalone button
+    // below would be a second, redundant way to say the same thing on the
+    // same screen. Only ~7 of 17 CNC-turning questions carry one today (the
+    // rest have no options at all, or an options set with no none-of-above
+    // entry), so this check — NOT a blanket removal — is what keeps every
+    // other question's only decline path intact (#1341's own "never a
+    // silent skip" guarantee).
+    final bool hasNoneOfAboveOption =
+        q.options.any((VoiceChoice o) => o.isNoneOfAbove);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -94,12 +105,14 @@ class _TradeFormQuestionBodyState extends State<TradeFormQuestionBody> {
             child: _body(q),
           ),
         ),
-        const SizedBox(height: AppSpacing.s3),
-        BbButton(
-          label: _kDeclineLabel,
-          variant: BbButtonVariant.ghost,
-          onPressed: widget.enabled ? widget.onDecline : null,
-        ),
+        if (!hasNoneOfAboveOption) ...<Widget>[
+          const SizedBox(height: AppSpacing.s3),
+          BbButton(
+            label: _kDeclineLabel,
+            variant: BbButtonVariant.ghost,
+            onPressed: widget.enabled ? widget.onDecline : null,
+          ),
+        ],
       ],
     );
   }
