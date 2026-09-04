@@ -4,7 +4,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/bb_blue_header.dart';
-import '../../../core/widgets/bb_chip.dart';
+import '../../../core/widgets/bb_searchable_dropdown_field.dart';
 
 /// A REAL, curated (not exhaustive) sample: 15 states, a handful of major
 /// cities each. Stands in for the authoritative backend dataset #1429 asks
@@ -135,47 +135,53 @@ class _CityStateDemoScreenState extends State<CityStateDemoScreen> {
                       ),
                     ),
                     const SizedBox(height: AppSpacing.s5),
-                    Text(
-                      '1. STATE CHUNEIN',
-                      style: AppTypography.eyebrow(color: AppColors.textMuted),
-                    ),
-                    const SizedBox(height: AppSpacing.s2),
-                    Wrap(
-                      spacing: AppSpacing.s2,
-                      runSpacing: AppSpacing.s2,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
-                        for (final String state in kDemoStateCities.keys)
-                          BbChip(
-                            label: state,
-                            selected: _state == state,
-                            icon: _state == state ? Icons.check : null,
-                            onTap: () => _pickState(state),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                'STATE',
+                                style: AppTypography.eyebrow(
+                                  color: AppColors.textMuted,
+                                ),
+                              ),
+                              const SizedBox(height: AppSpacing.s1),
+                              BbSearchableDropdownField(
+                                placeholder: 'STATE CHUNEIN',
+                                options: kDemoStateCities.keys.toList(),
+                                selected: _state,
+                                onSelected: _pickState,
+                              ),
+                            ],
                           ),
+                        ),
+                        const SizedBox(width: AppSpacing.s2),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                'SHEHER',
+                                style: AppTypography.eyebrow(
+                                  color: AppColors.textMuted,
+                                ),
+                              ),
+                              const SizedBox(height: AppSpacing.s1),
+                              BbSearchableDropdownField(
+                                placeholder: 'SHEHER CHUNEIN',
+                                options: cities,
+                                selected: _city,
+                                enabled: _state != null,
+                                onSelected: _pickCity,
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
-                    if (_state != null) ...<Widget>[
-                      const SizedBox(height: AppSpacing.s5),
-                      Text(
-                        '2. SHEHER CHUNEIN ($_state)',
-                        style: AppTypography.eyebrow(
-                          color: AppColors.textMuted,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.s2),
-                      Wrap(
-                        spacing: AppSpacing.s2,
-                        runSpacing: AppSpacing.s2,
-                        children: <Widget>[
-                          for (final String city in cities)
-                            BbChip(
-                              label: city,
-                              selected: _city == city,
-                              icon: _city == city ? Icons.check : null,
-                              onTap: () => _pickCity(city),
-                            ),
-                        ],
-                      ),
-                    ],
                     if (_city != null) ...<Widget>[
                       const SizedBox(height: AppSpacing.s5),
                       Text(

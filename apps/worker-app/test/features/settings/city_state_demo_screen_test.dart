@@ -12,23 +12,44 @@ void main() {
     ));
   }
 
-  testWidgets('cities only appear after a state is picked, filtered to it',
-      (WidgetTester tester) async {
+  testWidgets(
+      'both dropdowns render closed with their placeholder — no chip wall, '
+      'no summary yet', (WidgetTester tester) async {
     await pump(tester);
 
-    // No state chosen yet — no city section, no summary.
-    expect(find.textContaining('SHEHER CHUNEIN'), findsNothing);
+    expect(find.text('STATE CHUNEIN'), findsOneWidget);
+    expect(find.text('SHEHER CHUNEIN'), findsOneWidget);
     expect(find.textContaining('YEH DATA JAAYEGA'), findsNothing);
-    // A city belonging to a DIFFERENT state must not already be visible.
+    // Nothing is pre-opened — every state/city lives inside its own closed
+    // sheet, not inline.
+    expect(find.text('Punjab'), findsNothing);
     expect(find.text('Ludhiana'), findsNothing);
+  });
 
-    await tester.ensureVisible(find.text('Punjab'));
+  testWidgets(
+      'opening the state dropdown, then the city dropdown, only offers '
+      'cities filtered to the picked state', (WidgetTester tester) async {
+    await pump(tester);
+
+    await tester.tap(find.text('STATE CHUNEIN'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+        find.text('Punjab'), 200,
+        scrollable: find.byType(Scrollable).last);
+    expect(find.text('Punjab'), findsOneWidget);
+
     await tester.tap(find.text('Punjab'));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
-    expect(find.textContaining('SHEHER CHUNEIN (Punjab)'), findsOneWidget);
+    // The state dropdown now shows the pick, not the placeholder.
+    expect(find.text('Punjab'), findsOneWidget);
+    expect(find.text('STATE CHUNEIN'), findsNothing);
+
+    await tester.tap(find.text('SHEHER CHUNEIN'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Ludhiana'), findsOneWidget);
-    // Maharashtra's cities must not leak into Punjab's list.
+    // Maharashtra's cities must not leak into Punjab's sheet.
     expect(find.text('Mumbai'), findsNothing);
   });
 
@@ -36,31 +57,63 @@ void main() {
       'work-history field would carry', (WidgetTester tester) async {
     await pump(tester);
 
+    await tester.tap(find.text('STATE CHUNEIN'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Maharashtra'));
-    await tester.pump();
-    await tester.ensureVisible(find.text('Pune'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('SHEHER CHUNEIN'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Pune'));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.text('Sheher: Pune  ·  State: Maharashtra'), findsOneWidget);
   });
 
-  testWidgets('switching state clears a stale city pick', (WidgetTester tester) async {
+  testWidgets('switching state clears a stale city pick',
+      (WidgetTester tester) async {
     await pump(tester);
 
+    await tester.tap(find.text('STATE CHUNEIN'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Maharashtra'));
-    await tester.pump();
-    await tester.ensureVisible(find.text('Pune'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('SHEHER CHUNEIN'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Pune'));
-    await tester.pump();
+    await tester.pumpAndSettle();
+
     expect(find.textContaining('YEH DATA JAAYEGA'), findsOneWidget);
 
-    await tester.ensureVisible(find.text('Gujarat'));
+    await tester.tap(find.text('Maharashtra'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Gujarat'));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.textContaining('YEH DATA JAAYEGA'), findsNothing);
     expect(find.text('Pune'), findsNothing);
-    expect(find.text('Ahmedabad'), findsOneWidget);
+    // The city dropdown fell back to its placeholder, not a stale value.
+    expect(find.text('SHEHER CHUNEIN'), findsOneWidget);
+  });
+
+  testWidgets('the state dropdown search box filters to a typed query',
+      (WidgetTester tester) async {
+    await pump(tester);
+
+    await tester.tap(find.text('STATE CHUNEIN'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Gujarat'), findsOneWidget);
+    await tester.scrollUntilVisible(
+        find.text('Punjab'), 200,
+        scrollable: find.byType(Scrollable).last);
+    expect(find.text('Punjab'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'Punj');
+    await tester.pump();
+
+    expect(find.text('Punjab'), findsOneWidget);
+    expect(find.text('Gujarat'), findsNothing);
   });
 }
