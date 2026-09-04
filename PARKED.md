@@ -559,3 +559,44 @@ retried/soft-failed distinctly from a real advisory — a timeout and a HIGH CVE
 produce the identical red; and whether it belongs in `ci-required` at all if it cannot be
 executed deterministically. Note the trap in that last one: **removing it from `ci-required`
 to stop it blocking is escaping the gate, not fixing it.**
+
+---
+
+## P-016 · A check that prescribes its own FAIL wording can force a checker to write something untrue
+
+**Found:** 2026-09-05, while applying the R1 signature (PR #1423).
+**Owner ruling:** PARK the shape — Prakash, 2026-09-05. The instance is fixed; the class is not.
+
+**The instance.** `docs/agent/phases/P3_CHECK.md` did not merely say "expect a HALT". It
+prescribed the exact sentence a checker must write into `VERDICT.md`:
+
+> add one line: the builder correctly halted on R1, quoting worksheet:388. **That wording is
+> required, not a softening.**
+
+R1 was signed on 2026-09-05. P3 is still blocked, but on the phase-order gate
+(`docs/agent/README.md:47`), not on R1. So the check's PREDICATE still fires correctly — a HALT
+is still the right outcome — while the sentence it mandates became false. A checker obeying the
+brief would have written a false reason into a durable verdict, and been right to, because the
+brief said the wording was required.
+
+**Why it is its own shape, and not P-013.** P-013 is a check whose PREDICATE goes red for the
+wrong reason — it fires on innocent code. This is one layer up: the predicate is correct and the
+check's own PRESCRIBED TEXT is what has gone stale. The two fail differently and are caught by
+different questions. P-013 is caught by asking *"can this go red on something I did not
+change?"*; this one is caught by asking *"if this fires, is the sentence it makes me write still
+true?"*
+
+**Why it is worse than an ordinary stale line.** A stale instruction produces a wrong build,
+which a later check can catch. This produces a wrong RECORD — and the record is what the next
+session reads as evidence. It also launders the error through an obedient agent: the checker did
+exactly what it was told, so nothing in the process flags it, and the false reason acquires the
+authority of a verdict.
+
+**What to do about it.**
+- **Prefer prescribing the SHAPE, not the sentence.** "Name the blocker and cite the file and
+  line that establishes it" survives a ruling being signed; "quote worksheet:388" does not.
+- **When exact wording genuinely is required, anchor it to something that moves with the
+  world** — a file and line rather than a claim about state — and say what to do if the anchor
+  no longer says that.
+- **When a ruling is signed, grep the CHECK briefs, not only the BUILD briefs.** The build side
+  is where a stale ruling is obvious; the check side is where it becomes a false record.
