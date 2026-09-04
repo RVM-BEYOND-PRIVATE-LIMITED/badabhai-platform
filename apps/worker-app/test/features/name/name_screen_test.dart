@@ -28,7 +28,8 @@ Future<void> _pump(
   registerFallbackValue('');
   when(() => repo.submitName(any(),
       city: any(named: 'city'),
-      state: any(named: 'state'))).thenAnswer((_) async {});
+      state: any(named: 'state'),
+      address: any(named: 'address'))).thenAnswer((_) async {});
   locator.registerFactory<NameRepository>(() => repo);
   locator.registerFactory<NameCubit>(() => NameCubit(locator<NameRepository>()));
   locator.registerLazySingleton<LocationLookup>(() => locationLookup);
@@ -85,13 +86,8 @@ void main() {
 
     await tester.tap(find.text('Khud likhein'));
     await tester.pump();
-    final Finder locationFields = find.byType(TextField);
-    await tester.enterText(locationFields.at(2), 'Pune');
-    await tester.pump();
-    // City alone, no state yet.
-    expect(tester.widget<FilledButton>(continueButton).onPressed, isNull);
-
-    await tester.enterText(locationFields.at(3), 'Maharashtra');
+    final Finder addressField = find.byType(TextField).at(2);
+    await tester.enterText(addressField, 'G32, Kalwar Road, Jaipur, Rajasthan');
     await tester.pump();
     expect(tester.widget<FilledButton>(continueButton).onPressed, isNotNull);
   });
@@ -121,7 +117,8 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
     await tester.pump();
 
-    verify(() => repo.submitName('Asha Kumari', city: 'Pune', state: 'Maharashtra'))
+    verify(() => repo.submitName('Asha Kumari',
+            city: 'Pune', state: 'Maharashtra', address: null))
         .called(1);
   });
 
@@ -141,7 +138,33 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Location ki permission nahi mili. Neeche khud likhein.'),
         findsOneWidget);
-    // Dropped straight into manual entry — the worker is never stranded.
-    expect(find.byType(TextField), findsNWidgets(4));
+    // Dropped straight into manual entry (one address line, not two
+    // city/state boxes) — the worker is never stranded.
+    expect(find.byType(TextField), findsNWidgets(3));
+  });
+
+  testWidgets(
+      'manual address entry submits address only, never a parsed city/state',
+      (WidgetTester tester) async {
+    final MockNameRepository repo = MockNameRepository();
+    await _pump(tester, repo: repo, locationLookup: MockLocationLookup());
+
+    final Finder nameFields = find.byType(TextField);
+    await tester.enterText(nameFields.at(0), 'Asha');
+    await tester.enterText(nameFields.at(1), 'Kumari');
+    await tester.tap(find.text('Khud likhein'));
+    await tester.pump();
+    await tester.enterText(find.byType(TextField).at(2),
+        'g32, mangalam city, kalwar road, jaipur, rajasthan');
+    await tester.pump();
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Continue'));
+    await tester.pump();
+
+    verify(() => repo.submitName('Asha Kumari',
+            city: null,
+            state: null,
+            address: 'G32, Mangalam City, Kalwar Road, Jaipur, Rajasthan'))
+        .called(1);
   });
 }

@@ -473,6 +473,7 @@ class ApiClient {
     required String authToken,
     String? city,
     String? state,
+    String? address,
   }) async {
     await _patch(
       '/workers/me/name',
@@ -484,6 +485,7 @@ class ApiClient {
         // so a plain name-only submit stays byte-identical to before.
         if (city != null) 'city': city,
         if (state != null) 'state': state,
+        if (address != null) 'address': address,
       },
       authToken: authToken,
     );

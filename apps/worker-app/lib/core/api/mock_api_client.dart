@@ -142,6 +142,7 @@ class MockApiClient extends ApiClient {
     required String authToken,
     String? city,
     String? state,
+    String? address,
   }) async {
     // No-op: never stores, echoes, or logs the name/location (PII-free by
     // construction).

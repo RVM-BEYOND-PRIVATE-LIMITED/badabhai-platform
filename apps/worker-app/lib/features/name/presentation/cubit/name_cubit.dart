@@ -30,16 +30,25 @@ class NameCubit extends Cubit<NameState> {
 
   final NameRepository _repo;
 
-  Future<void> submit(String fullName, {String? city, String? state}) async {
+  Future<void> submit(
+    String fullName, {
+    String? city,
+    String? state,
+    String? address,
+  }) async {
     final String trimmed = titleCaseName(fullName.trim());
     if (trimmed.isEmpty || this.state.isSubmitting) return;
-    final String? trimmedCity =
-        (city != null && city.trim().isNotEmpty) ? titleCaseName(city.trim()) : null;
-    final String? trimmedState =
-        (state != null && state.trim().isNotEmpty) ? titleCaseName(state.trim()) : null;
+    final String? trimmedCity = _titleCaseOrNull(city);
+    final String? trimmedState = _titleCaseOrNull(state);
+    final String? trimmedAddress = _titleCaseOrNull(address);
     emit(const NameState(status: NameStatus.submitting));
     try {
-      await _repo.submitName(trimmed, city: trimmedCity, state: trimmedState);
+      await _repo.submitName(
+        trimmed,
+        city: trimmedCity,
+        state: trimmedState,
+        address: trimmedAddress,
+      );
       if (isClosed) return;
       emit(const NameState(status: NameStatus.success));
     } on Failure catch (_) {
@@ -47,4 +56,9 @@ class NameCubit extends Cubit<NameState> {
       emit(const NameState(status: NameStatus.failed));
     }
   }
+
+  String? _titleCaseOrNull(String? value) =>
+      (value != null && value.trim().isNotEmpty)
+          ? titleCaseName(value.trim())
+          : null;
 }
