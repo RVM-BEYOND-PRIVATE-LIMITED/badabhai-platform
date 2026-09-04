@@ -120,12 +120,18 @@ function makeService(
     emitted.push(params);
     return {};
   });
+  const rebuildQuietly = vi.fn(async () => undefined);
   const service = new TradeFormService(
     chat as never,
     packs as never,
     answers as never,
     { upsertMany } as never,
     { emit } as never,
+    // M1 — the match rebuild the completion now enqueues. A spy, not a stub of the real
+    // service: what these tests assert is the FORM's behaviour, and the only thing they need
+    // from the matching layer is that it is called with the worker id. `rebuildQuietly` is
+    // contractually never-throwing, which is why the form can await it without a try/catch.
+    { rebuildQuietly } as never,
   );
   return { service, written, packs, chat, upsertMany, emitted, emit };
 }

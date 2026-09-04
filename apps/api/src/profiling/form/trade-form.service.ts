@@ -12,6 +12,7 @@ import type { WorkerPackAnswer } from "@badabhai/db";
 import { ChatRepository } from "../../chat/chat.repository";
 import type { RequestContext } from "../../common/request-context";
 import { EventsService } from "../../events/events.service";
+import { WorkerSkillsService } from "../../match/worker-skills.service";
 import { WorkerAttributesRepository } from "../../profiles/worker-attributes.repository";
 import { projectProfile } from "../answer-map-projector";
 import { packAnswerRowFor } from "../pack-answer-row";
@@ -56,6 +57,9 @@ export class TradeFormService {
     private readonly attributes: WorkerAttributesRepository,
     // The completion half of the form funnel. See `recordCompletion`.
     private readonly events: EventsService,
+    // M1 — the matching layer's rebuild, enqueued when the form completes. READ-ONLY as far as
+    // this service is concerned: it hands over a worker id and never learns what was derived.
+    private readonly workerSkills: WorkerSkillsService,
   ) {}
 
   /**
@@ -357,6 +361,24 @@ export class TradeFormService {
           `${(error as Error).message}`,
       );
     }
+
+    // M1 — CLOSE THE SUPPLY CHAIN HERE, ON THE SERVER.
+    //
+    // The form has just written this worker's last `worker_attributes` row. Until now nothing
+    // server-side turned those into `worker_skill`, so a completed form produced a worker who was
+    // invisible to every posting: the employer-push materializer runs on publish and reads
+    // `worker_skill`, which stayed empty. The chain was being closed client-side, by the Flutter
+    // resume screen happening to hit an endpoint that rebuilt — a worker who completed the form
+    // and closed the app never got there.
+    //
+    // OUTSIDE THE try/catch ABOVE, DELIBERATELY. The event and the rebuild are independent: a
+    // failed emit must not also cost the worker their skills. `rebuildQuietly` is contractually
+    // never-throwing (worker-skills.service.ts) and logs its own failures, so this cannot fail
+    // the answer the worker just saved.
+    //
+    // NOT A CHANGE TO THE FORM. No question, no answer, no extraction setting is touched — this
+    // reads what the form already stored and hands a worker id to the matching layer.
+    await this.workerSkills.rebuildQuietly(workerId, requestCtx);
   }
 
   /**
