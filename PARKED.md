@@ -445,3 +445,51 @@ has moved, the whole calculation changes.
 matcher must follow the runtime, and those are different questions. Answering the second by
 inference from the first is settling a ruling by default. The three measurements above are what
 would let the owner answer it on evidence rather than on the shape of the argument.
+
+---
+
+## P-013 · The payer Flutter app hardcodes three role vocabularies, and they disagree
+
+**Found:** 2026-09-04, phase-brief rewrite, while applying owner ruling R4-d(a) (the role
+count is 21).
+**Owner ruling:** PARK, do not fix — Prakash, 2026-09-04.
+**Location:** [apps/payer-app/lib/features/jobs/presentation/post_job_screen.dart](apps/payer-app/lib/features/jobs/presentation/post_job_screen.dart)
+lines 80-87 and 90, and
+[apps/payer-app/lib/core/data/models.dart](apps/payer-app/lib/core/data/models.dart)
+lines 554-570 (`kAgencyTradeKeys`) with its label map at 573.
+**Severity:** low today, and it is the shape of the defect rather than its size that matters.
+
+**What is there.** Three role vocabularies ship in one Flutter app, none derived from the
+server:
+
+- `post_job_screen.dart:80-87` — six DISPLAY STRINGS: `'CNC Setter'`, `'VMC Setter'`,
+  `'CNC Operator'`, `'Quality Inspector'`, `'Welder / Fabricator'`, `'Fitter'`.
+- `models.dart:554-570` — fifteen `trade_key` VALUES (`cnc_operator` … `fitter`) plus a
+  display-label map, documented as *"the ratified manufacturing alpha trade keys."*
+- `post_job_screen.dart:90` — the `vacancy_band` enum restated as five literal strings.
+
+They do not agree with each other, and neither agrees with the server: the role registry
+declares FIVE (`apps/api/src/profiling/roles/role-registry.ts:39-45`, all `formEnabled`).
+Six, fifteen, and five are three answers to one question, and `'Welder / Fabricator'` has no
+counterpart in either of the other two lists.
+
+**Why it is a defect and not a preference.** Ruling ① of 2026-09-04 says a brief may not
+assert a role count, because the taxonomy is RVM's and moves. A client that hardcodes one is
+the same failure with a longer feedback loop: the day a role is added, renamed or disabled
+server-side, this app keeps offering the old set and nothing fails — the payer picks a trade
+that no longer exists, or never sees one that does. P10 and P12 both exist to make clients
+render from a server-served schema; this is the surface they were written for.
+
+**Why it is parked and not fixed.** Fixing it is not deleting the lists — it is giving the
+payer app a served descriptor to read, which is P8's `GET /schema` (deleted from that phase,
+blocked on PR #1387 and P3's columns) and P12's wizard (blocked on ruling R6, unsigned). The
+fix has no landing place until those exist. Editing the three lists into agreement now would
+also be an edit inside `apps/payer-app`, which has **no owner in `.github/CODEOWNERS`** — the
+exact gap R6 exists to close.
+
+**The specific thing to watch for.** `P12_CHECK` item 4 greps Dart for hardcoded role labels
+and fails on any hit. It therefore fails TODAY, on this code, before P12 writes a line. That
+item is scoped in the rewritten P12 to the new wizard's files for exactly this reason. **If
+someone later widens it back to the whole app without removing these three lists first, P12
+becomes unpassable** — and the failure will read as a defect in the new wizard rather than in
+code that predates it by months.
