@@ -498,6 +498,26 @@ export const TRADE_FORM_KINDS_ALL = Object.freeze([
   "cnc_grinding", // declared
   "cam_programmer", // qp_cam_programming — enabled in Batch 1; a desk role in the `design` cluster
   "cad_draughtsman", // qp_cad_drafting — enabled in Batch 1; the fresher-first drawing-office role
+
+  // ── BATCH 2 — metal fabrication, assembly & maintenance (declared; forms follow per cluster) ──
+  "conventional_machinist", // qp_conventional_machining — `machining`; shares "lathe" with turning
+  "tool_die_maker", // qp_tool_die_making — `machining`; the tool room, vetoed against mould making
+  "welder", // qp_welding_trade — `fabrication`
+  "sheet_metal_worker", // qp_sheet_metal_fab — `fabrication`
+  "press_operator", // qp_press_operation — `fabrication`; die setting overlaps the tool room
+  "painter_coating", // qp_powder_coating — `fabrication`
+  "fitter", // qp_fitter — `maintenance`
+  "maintenance_technician", // qp_maintenance_tech — `maintenance`
+  "industrial_electrician", // qp_industrial_electrician — `maintenance`
+  "assembly_line_worker", // qp_assembly_line — `production`
+  "quality_inspector", // qp_quality_inspection — `production`
+
+  // ── BATCH 3 — plastics & rubber (declared for their VOCABULARY, so Batch 2's vetoes are whole) ──
+  "injection_moulding_operator", // qp_injection_moulding — `polymer`
+  "mould_die_maker", // qp_mould_making — `polymer`; the cross-cluster rival of `tool_die_maker`
+  "blow_moulding_operator", // qp_blow_moulding — `polymer`
+  "rubber_moulding_operator", // qp_rubber_moulding — `polymer`
+  "plastic_process_technician", // qp_plastic_process — `polymer`
 ] as const);
 
 export type TradeFormKindName = (typeof TRADE_FORM_KINDS_ALL)[number];
