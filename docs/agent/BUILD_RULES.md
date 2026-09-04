@@ -1,11 +1,14 @@
 BUILD RULES — read fully before doing anything.
 
 SOURCE OF TRUTH, in order of authority. Every entry is in this repository and can be
-opened. If you are citing something you cannot open, you are guessing:
+opened. If you are citing something you cannot open, you are guessing. Every file named
+anywhere in this document is written as a repo-root-relative path, and CI fails if one of
+them does not resolve -- scripts/check-authority-paths.mjs:
 
   1. docs/decisions/*.md -- the ADRs, and ONLY those whose Status line reads Accepted.
-     A Proposed ADR decides nothing: 0028-international-occupation-taxonomy-adoption.md
-     is Proposed and states outright that it "produces no code, schema, or migration".
+     A Proposed ADR decides nothing:
+     docs/decisions/0028-international-occupation-taxonomy-adoption.md is Proposed and
+     states outright that it "produces no code, schema, or migration".
      The newest Accepted ADR wins over an older one on the same subject.
      CITE THE FILE PATH, NEVER THE BARE NUMBER. The historical documents in
      docs/reference/ use "ADR-0035" and "ADR-0036" for entirely different documents
