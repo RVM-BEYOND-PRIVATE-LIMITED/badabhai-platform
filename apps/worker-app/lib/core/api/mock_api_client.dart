@@ -229,6 +229,32 @@ class MockApiClient extends ApiClient {
         'rotational': 'Rotational',
         'any': 'Any',
       },
+      // A representative slice of the real gazetteer (#1406/#1410's
+      // `worker-cities.catalogue.ts`), canned here so the city
+      // auto-suggest is testable in mock mode with no backend running.
+      // `updateWorkPreferences` below is a no-op, so there is no server
+      // validator for the mock path to match exactly — this only needs
+      // to exercise the CLIENT's own resolve/suggest/error logic.
+      cities: <CityOptionDto>[
+        CityOptionDto(value: 'Chandigarh', aliases: <String>[]),
+        CityOptionDto(value: 'Chennai', aliases: <String>[]),
+        CityOptionDto(value: 'Delhi', aliases: <String>['dilli', 'dilly']),
+        CityOptionDto(value: 'Faridabad', aliases: <String>[]),
+        CityOptionDto(
+            value: 'Bangalore', aliases: <String>['banglore', 'bengaluru']),
+        CityOptionDto(value: 'Greater Noida', aliases: <String>[]),
+        CityOptionDto(
+            value: 'Gurugram', aliases: <String>['gurgaon', 'gudgaon']),
+        CityOptionDto(value: 'Hyderabad', aliases: <String>[]),
+        CityOptionDto(value: 'Jaipur', aliases: <String>[]),
+        CityOptionDto(value: 'Kolkata', aliases: <String>['calcutta']),
+        CityOptionDto(value: 'Kota', aliases: <String>[]),
+        CityOptionDto(value: 'Mumbai', aliases: <String>['bombay']),
+        CityOptionDto(value: 'Neemrana', aliases: <String>[]),
+        CityOptionDto(value: 'New Delhi', aliases: <String>[]),
+        CityOptionDto(value: 'Noida', aliases: <String>[]),
+        CityOptionDto(value: 'Pune', aliases: <String>['poona']),
+      ],
     );
   }
 
