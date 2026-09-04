@@ -52,7 +52,7 @@ Paste raw output for each.
 
 7. The governing ruling still governs.
    head -6 docs/decisions/0036-matching-algorithm-v1.md (Status must read Accepted);
-   sed -n '774p' docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md (R7, must be blank).
+   sed -n '794p' docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md (R7, must be blank).
    RED: ADR-0036 superseded, or R7 signed — R7 option (a) puts a reordering facet on the
    employer candidate list, which is this invariant's subject.
    INFORMATIONAL only, never RED: R4-d (ruled 21, 2026-09-04) settles a role count and does
