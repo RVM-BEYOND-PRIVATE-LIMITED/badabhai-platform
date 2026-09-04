@@ -11,6 +11,28 @@ import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { SetMyPreferencesSchema, type SetMyPreferencesDto } from "./worker-preferences.dto";
 import { WorkerPreferencesService } from "./worker-preferences.service";
 import { DOCUMENTS_READY, JOB_TYPES, LANGUAGES, SHIFTS } from "./worker-preferences.vocabulary";
+import { CITY_CATALOGUE, type CityOption } from "./worker-cities.catalogue";
+
+/**
+ * The preferences page's whole vocabulary, in one response.
+ *
+ * NAMED rather than left inline because it is a published contract with a second team. Today the
+ * Flutter `WorkPrefOptionsDto` decodes the FOUR dictionaries and ignores `cities` — that is what
+ * makes shipping the fifth key ahead of the client work safe — so renaming one of the four is a
+ * silent empty chip row on a worker's phone, while renaming `cities` breaks nothing yet and
+ * everything once #1406's UI lands.
+ */
+export interface WorkPreferenceOptionsResponse {
+  readonly languages: Record<string, string>;
+  readonly documents_ready: Record<string, string>;
+  readonly job_type: Record<string, string>;
+  readonly shift: Record<string, string>;
+  /**
+   * The preferred-city options (#1406). A LIST, not a slug→label map like its four neighbours,
+   * because a city has no slug in this system — see `worker-cities.catalogue.ts`.
+   */
+  readonly cities: readonly CityOption[];
+}
 
 /**
  * The finishing form's closed-set page (R6 §4).
@@ -37,20 +59,28 @@ export class WorkerPreferencesController {
    *
    * NO WORKER DATA IN THE RESPONSE — it is a static dictionary, so it is guarded for consistency
    * with the write below rather than because it discloses anything.
+   *
+   * `cities` RIDES THIS RESPONSE RATHER THAN A `?q=` SEARCH ROUTE (#1406). It is the same
+   * argument, applied to the one field on this page that had no options to serve: the gazetteer
+   * `preferred_cities` validates against is 34 values and 1.2 KB, so the client can hold it and
+   * filter as the worker types — the pattern `SEARCHABLE_OPTION_THRESHOLD` already ratified for
+   * every other long option list in the product. A per-keystroke route would put a network round
+   * trip between a worker on 3G and his next character, to save a payload smaller than the
+   * headers carrying it. This page already fetches this response on mount, so the fix costs no
+   * request at all.
+   *
+   * ADDITIVE, so shipped builds are unaffected: the Flutter decoder reads named keys and ignores
+   * the rest.
    */
   @Get("me/work-preferences/options")
   @UseGuards(WorkerAuthGuard, ConsentGuard)
-  options(): {
-    languages: Record<string, string>;
-    documents_ready: Record<string, string>;
-    job_type: Record<string, string>;
-    shift: Record<string, string>;
-  } {
+  options(): WorkPreferenceOptionsResponse {
     return {
       languages: LANGUAGES,
       documents_ready: DOCUMENTS_READY,
       job_type: JOB_TYPES,
       shift: SHIFTS,
+      cities: CITY_CATALOGUE,
     };
   }
 
