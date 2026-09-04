@@ -396,10 +396,24 @@ describe("the qualifications form's contract", () => {
     expect(() => parse({ educations: [education({ council: "ncvt" })] })).not.toThrow();
   });
 
-  it("bounds the year on the same range the CHECK constraints use", () => {
+  it("floors the year at 1950 and accepts an absent one", () => {
     expect(() => parse({ certificates: [certificate({ year: 1949 })] })).toThrow();
-    expect(() => parse({ certificates: [certificate({ year: 2101 })] })).toThrow();
+    expect(() => parse({ certificates: [certificate({ year: 1950 })] })).not.toThrow();
     expect(() => parse({ certificates: [certificate({ year: null })] })).not.toThrow();
+  });
+
+  it("refuses a year in the FUTURE, which the old fixed 2100 ceiling did not (#1407)", () => {
+    // THE CASE THE OLD BOUND MISSED, and the reason this test is written against the clock
+    // rather than against a literal. `.max(2100)` rejected 2101 and accepted 2099, so the
+    // schema's own doc comment — "a year in the future ... is a typo" — described a rule it
+    // did not implement, and would not have implemented at any point in this platform's life.
+    const thisYear = new Date().getFullYear();
+    expect(() => parse({ certificates: [certificate({ year: thisYear })] })).not.toThrow();
+    expect(() => parse({ certificates: [certificate({ year: thisYear + 1 })] })).toThrow();
+    // 2099 is the concrete row a worker could have submitted before this fix. Kept as a literal
+    // as well as the relative case, because it is the claim the issue was filed about — and it
+    // stays a future year for the next seventy-odd years, so it will not rot into a false pass.
+    expect(() => parse({ certificates: [certificate({ year: 2099 })] })).toThrow();
   });
 
   it("refuses a blank certificate name — a nameless row prints its issuer and nothing else", () => {

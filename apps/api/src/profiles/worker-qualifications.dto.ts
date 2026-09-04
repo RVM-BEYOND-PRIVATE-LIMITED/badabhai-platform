@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { looksLikePii } from "@badabhai/validators";
 
+import { credentialYearSchema } from "./credential-year";
 import {
   EDUCATION_COUNCILS,
   EDUCATION_QUALIFICATIONS,
@@ -94,10 +95,14 @@ function optionsOf(vocabulary: PreferenceVocabulary): [string, ...string[]] {
 /**
  * BOUNDED ON THE SAME RANGE `education_year` ALREADY USES, and the bound is on the same argument:
  * a year in the future or before living memory is a typo, and a typo printed beside a real
- * credential does more damage than a missing segment. Matches `wc_year_chk` / `wed_year_chk`
- * exactly, so the database never has to be the thing that reports a bad year.
+ * credential does more damage than a missing segment. The API stays the layer that reports a bad
+ * year, so the database never has to.
+ *
+ * The ceiling is the CURRENT year and moves with the clock — see `credential-year.ts` for why it
+ * is evaluated per parse and why it is deliberately narrower than `wc_year_chk` / `wed_year_chk`,
+ * which this comment used to claim it matched exactly (#1407).
  */
-const credentialYear = z.number().int().min(1950).max(2100).nullable().default(null);
+const credentialYear = credentialYearSchema.nullable().default(null);
 
 /**
  * HOW MANY CERTIFICATES ONE SUBMISSION MAY CARRY.

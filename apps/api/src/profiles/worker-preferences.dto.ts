@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { canonicalCity } from "@badabhai/profiling-lexicon";
 
+import { credentialYearSchema } from "./credential-year";
 import {
   DOCUMENTS_READY,
   EDUCATION_COUNCILS,
@@ -132,9 +133,11 @@ export const SetMyPreferencesSchema = z
      * BOUNDED, AND NOT AT "any four digits". A year in the future or before living memory is a
      * typo, and a typo printed on a résumé beside a real credential does more damage than a
      * missing segment. The floor is 1950 (a worker awarded earlier is past retirement) and the
-     * ceiling is deliberately generous — a certificate can be dated the year it is issued.
+     * ceiling is the CURRENT year — a certificate can be dated the year it is issued, and no
+     * later. It used to be a fixed 2100, which is not what "in the future" means and let a worker
+     * date an ITI certificate 2099 (#1407). See `credential-year.ts`.
      */
-    education_year: z.number().int().min(1950).max(2100).nullable().optional(),
+    education_year: credentialYearSchema.nullable().optional(),
     /**
      * The institute, as the worker reads it off the certificate.
      *
