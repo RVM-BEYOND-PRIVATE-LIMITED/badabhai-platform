@@ -107,6 +107,14 @@ class TradeFormEmploymentPageState extends State<TradeFormEmploymentPage> {
   /// internal page — see `_WizardScaffoldState`'s routing.
   void save() => widget.onSave(_entries);
 
+  /// Always null: the year/month fields here come from a bounded PICKER
+  /// SHEET (`_YearMonthSheet`), not free text, so an invalid or future date
+  /// cannot be entered in the first place — nothing to block. Present only
+  /// so `_WizardScaffoldState` can check every marker's validity the same
+  /// way; see `TradeFormPreferencesPageState.currentPageError`'s doc for
+  /// why this check exists at all.
+  String? currentPageError() => null;
+
   void goToNextPage() {
     if (isLastPage) return;
     setState(() => _page += 1);
