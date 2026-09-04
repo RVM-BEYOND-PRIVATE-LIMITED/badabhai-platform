@@ -1553,6 +1553,110 @@ void main() {
     });
   });
 
+  group('employer location: state-then-city demo picker (#1429 preview)', () {
+    Future<void> walkToEmploymentPage(WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first);
+      await tester.pumpAndSettle();
+      await _walkThroughPreferencesPages(tester);
+      await tester.ensureVisible(find.text('Aur ek jagah jodein'));
+      await tester.tap(find.text('Aur ek jagah jodein'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'a blank entry defaults to the picker — no free-text city/state '
+        'fields until "Khud likhein"', (WidgetTester tester) async {
+      await walkToEmploymentPage(tester);
+
+      expect(find.text('STATE CHUNEIN'), findsOneWidget);
+      expect(find.text('Haryana'), findsOneWidget);
+      expect(find.text('Maharashtra'), findsOneWidget);
+      // Only name, role, and work-done — no free-text city/state yet.
+      expect(find.byType(TextField), findsNWidgets(3));
+      expect(find.text('SHEHER CHUNEIN'), findsNothing);
+    });
+
+    testWidgets(
+        'picking a state then a city fills employerCity/employerState, '
+        'filtered to that state', (WidgetTester tester) async {
+      await walkToEmploymentPage(tester);
+
+      await tester.ensureVisible(find.text('Haryana'));
+      await tester.tap(find.text('Haryana'));
+      await tester.pump();
+
+      expect(find.textContaining('SHEHER CHUNEIN'), findsOneWidget);
+      expect(find.text('Gurugram'), findsOneWidget);
+      expect(find.text('Faridabad'), findsOneWidget);
+      // Maharashtra's cities must not leak into Haryana's list.
+      expect(find.text('Mumbai'), findsNothing);
+
+      await tester.tap(find.text('Gurugram'));
+      await tester.pump();
+
+      await tester.enterText(find.byType(TextField).at(0), 'Acme');
+      await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      await tester.pump();
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      final List<TradeFormEmploymentEntry> sent = verify(
+              () => repo.saveEmployment(captureAny()))
+          .captured
+          .single as List<TradeFormEmploymentEntry>;
+      expect(sent.single.employerCity, 'Gurugram');
+      expect(sent.single.employerState, 'Haryana');
+    });
+
+    testWidgets(
+        '"Khud likhein" reveals free-text fallback fields for an employer '
+        'outside the 2-state demo set', (WidgetTester tester) async {
+      await walkToEmploymentPage(tester);
+
+      await tester.ensureVisible(find.text('Khud likhein'));
+      await tester.tap(find.text('Khud likhein'));
+      await tester.pump();
+
+      expect(find.text('Sheher'), findsWidgets); // label + hint text, both "Sheher"
+      expect(find.text('State'), findsWidgets); // label + hint text, both "State"
+      // name, role, city, state, work-done.
+      expect(find.byType(TextField), findsNWidgets(5));
+
+      await tester.enterText(find.byType(TextField).at(0), 'Acme');
+      await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      await tester.enterText(find.byType(TextField).at(2), 'Kota');
+      await tester.enterText(find.byType(TextField).at(3), 'Rajasthan');
+      await tester.pump();
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      final List<TradeFormEmploymentEntry> sent = verify(
+              () => repo.saveEmployment(captureAny()))
+          .captured
+          .single as List<TradeFormEmploymentEntry>;
+      expect(sent.single.employerCity, 'Kota');
+      expect(sent.single.employerState, 'Rajasthan');
+    });
+  });
+
   group('the true final-submit button is green + distinct (#1384 item 3)', () {
     testWidgets(
         'a marker-is-last-step case renders BbButtonVariant.success',
