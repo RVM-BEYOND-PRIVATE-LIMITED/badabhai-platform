@@ -336,6 +336,49 @@ assumed, or pre-wired by this slice:
 
 ---
 
+## Amendment 1 (2026-09-04) — `payer_form_drafts` is CLAIMED by phase P8
+
+**Status:** Accepted — owner ruling (Prakash), 2026-09-04.
+
+This ADR shipped `payer_form_drafts` with **no consumer**, as deliberate forward scaffolding,
+and §Consequences asked for exactly this decision: *"if no future workstream claims it within
+a reasonable window, it should be reconsidered rather than left as speculative surface"*
+(with `packages/db/src/schema/payer.ts:770-771` adding that a claim comes "via an ADR").
+
+**The workstream that claims it is P8** (`docs/agent/phases/P8_BUILD.md`) — job-posting drafts
+and checkpoints. The alternative considered and rejected was a third draft store built beside
+this one: the repository would then hold `payer_job_posting_chat_sessions.draft` (in use),
+`payer_form_drafts` (unused), and a new `job_posting_drafts` — three answers to one question.
+
+### What changes about the table
+
+Two schema changes, both required by the claim and neither optional:
+
+1. **A `version` column.** The table as shipped has none, so it is last-write-wins. That is
+   the precise defect P8 exists to close — `job-posting-chat.repository.ts:120-125` already
+   names optimistic concurrency as the unbuilt follow-up.
+2. **`UNIQUE(payer_id, form_type)` is relaxed.** One row per payer per form cannot hold a
+   new-posting draft and a reopened edit of a published posting at the same time, and P8
+   needs both to coexist. The replacement (a widened key, or a partial index over the live
+   status) is P8's to choose and to justify in its plan.
+
+The remaining P8 fields — `current_step_id`, `completed_step_ids`, `payload`,
+`schema_version`, `source_posting_id`, `status`, `last_client`, `expires_at` — and the
+append-only checkpoint child table are additive and carry no amendment burden here.
+
+### What this supersedes in the text above
+
+The two "no consumer" statements — §Decision's `payer_form_drafts` bullet and §Consequences'
+reconsider-it note — are **historical from this date**. The table has a named consumer. Its
+`state` jsonb keeps the same posture: a form snapshot keyed to the opaque `payer_id`, with
+the no-free-text-into-events rule unchanged.
+
+**What does NOT change.** The job-posting chat keeps writing its own
+`payer_job_posting_chat_sessions.draft` column until P8 migrates it; this amendment claims
+the table, it does not move the chat. The five shipped chat routes are untouched.
+
+---
+
 ## Related
 
 - ADR-0019 (`docs/decisions/0019-self-serve-payer-portal.md`) — `payers` account,

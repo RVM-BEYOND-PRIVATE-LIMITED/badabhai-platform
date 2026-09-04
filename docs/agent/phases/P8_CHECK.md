@@ -2,13 +2,22 @@ PHASE-ID: P8
 INVARIANT: draft.payload is recomputed server-side as the fold of that draft's checkpoint
 rows in seq order, and is never taken from a request body.
 
-FIRST, THE HALT. Half A was BLOCKED on an owner decision about where the draft is stored.
-Establish whether it was answered (a store named in the build session's output, or in
-docs/decisions/). If it was NOT, the verdict is HALTED — not FAIL, not PASS — and you stop.
-Only if the store was ruled do absent artifacts mean FAIL, "phase not built".
-EXPECTED ARTIFACTS then: a migration FILE for the draft store and its append-only checkpoint
-child, and a checkpoint POST endpoint. GET /payer/job-posting-drafts/schema is NOT expected —
-if it exists, that is a FAIL. Half B was deleted from the phase.
+THE STORE IS RULED: payer_form_drafts (owner ruling 2026-09-04). A build that created a NEW
+draft table instead is a FAIL — the ruling exists because a third store beside an unused one
+is the duplication P2 exists to remove. A build that extended
+payer_job_posting_chat_sessions.draft instead is also a FAIL.
+
+EXPECTED ARTIFACTS: a migration FILE altering payer_form_drafts (adding version and the
+fields at P8_BUILD's "HALF A"), a migration FILE for its append-only checkpoint child, a
+checkpoint POST endpoint, and an ADR-0035 amendment recording the claim.
+GET /payer/job-posting-drafts/schema is NOT expected — if it exists, that is a FAIL. Half B
+was deleted from the phase.
+
+0. THE CLAIM. Confirm the UNIQUE at packages/db/src/schema/payer.ts:792 no longer forbids two
+   live drafts for one payer: create a new-posting draft AND a reopened edit for the SAME
+   payer, and assert both rows exist. One row, or a unique violation, is a FAIL — a reopened
+   edit would silently overwrite an in-progress posting. Then confirm ADR-0035 carries the
+   amendment; an unamended ADR still saying the table has no consumer is a FAIL.
 
 Prakash applies the migration before you run. Read the checkpoint table's real name out of
 the migration file and paste it; every SQL item below uses that name. Paste raw output.

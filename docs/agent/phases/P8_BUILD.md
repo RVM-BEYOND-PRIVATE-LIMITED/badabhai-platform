@@ -1,20 +1,32 @@
-STATUS: BLOCKED ON AN OWNER DECISION — where the draft is stored. Half A does not start
-until that is answered. HALF B (GET /schema) is deleted from this phase; see the bottom.
+STATUS: HALF A IS BUILDABLE. The store is ruled — claim payer_form_drafts (owner ruling
+2026-09-04). HALF B (GET /schema) stays deleted from this phase; see the bottom.
+PHASE-ORDER GATE: docs/agent/README.md:47 requires the previous VERDICT to be PASS, and
+docs/qa/evidence/ holds only P0 (FAIL) and PX. Ask the owner to lift it before you start.
 
 PHASE P8 — job posting drafts and checkpoints. PLAN MODE. Changes the database.
 
 Show me the plan first.
 
-THE STORE IS THE OWNER'S CALL. Three candidates, none of them yours to pick:
-  (a) Claim payer_form_drafts (packages/db/src/schema/payer.ts:775-794). It has no consumer
-      in apps/ or packages/. ADR-0035:322-325: an unclaimed table "should be reconsidered
-      rather than left as speculative surface"; payer.ts:770-771 adds the "(via an ADR)".
-      It needs version + a checkpoint child, and the UNIQUE at :792 (one draft per payer per
-      form) relaxed — which presupposes a payer may hold two live drafts. ASK, do not assume.
-  (b) Extend payer_job_posting_chat_sessions.draft (payer.ts:710) with a version column and
-      a checkpoint child. That table already carries five shipped routes; say what moves.
-  (c) New tables plus an ADR-0035 amendment.
-HALT until you have the answer. Do not choose one because it looks sensible.
+THE STORE — RULED, do not re-open it. Claim payer_form_drafts
+(packages/db/src/schema/payer.ts:775-794). It was shipped by ADR-0035 as forward
+scaffolding naming `job_posting` as its own example, and it has no consumer in apps/ or
+packages/. ADR-0035:322-325 says an unclaimed table "should be reconsidered rather than left
+as speculative surface"; payer.ts:770-771 adds the "(via an ADR)". Building a third store
+beside it is the duplication P2 exists to remove.
+
+  Two changes the claim requires, both ruled:
+  - ADD a `version` column. The table has none, so it is last-write-wins today — the exact
+    thing this phase closes.
+  - RELAX the UNIQUE at :792 off (payer_id, form_type). One row per payer per form cannot
+    hold a new-posting draft and a reopened edit at once, and this phase needs both.
+    Widen it to include the draft id, or drop it for a partial index on the live status —
+    say which you chose and why.
+
+  AMEND ADR-0035 IN THIS PHASE, not afterwards. It is the ADR that shipped the table
+  unclaimed and asked for exactly this. The amendment records: P8 is the workstream that
+  claims it, the two schema changes above, and that the table's "no consumer" note at
+  ADR-0035:111 and :323 no longer holds. A migration that claims a table an ADR describes
+  as unclaimed, without amending the ADR, leaves two records disagreeing.
 
 WHAT MAIN ALREADY HAS — do not rebuild it, do not re-argue it:
   - The draft is already in Postgres: jsonb on the chat session (payer.ts:710, migration
@@ -34,7 +46,7 @@ WHAT MAIN ALREADY HAS — do not rebuild it, do not re-argue it:
 
 HALF A — the store.
 
-  Wherever it lands it carries version, current_step_id, completed_step_ids, payload jsonb,
+  payer_form_drafts gains version, current_step_id, completed_step_ids, payload jsonb,
   schema_version, source_posting_id, status, last_client, expires_at, plus a checkpoint child
   (draft_id, seq, step_id, payload_delta jsonb, client, member_id, idempotency_key,
   created_at) with UNIQUE (draft_id, idempotency_key). member_id references payer_members.id
@@ -80,9 +92,10 @@ HALF A — the store.
 
 HALF B — GET /payer/job-posting-drafts/schema: DELETED FROM THIS PHASE. Its option sets read
 from matching_catalog, which is PR #1387 and is not on main; two of them (shifts, benefits)
-are not in that catalog's payload at all (P1_BUILD:17-26); function and collar tiers are P3's
-unbuilt columns; the role count is R4-d, unsigned, and BUILD_RULES:31 makes settling it a
-full stop. Build no part of it.
+are not in that catalog's payload at all (P1_BUILD:17-26); and function and collar tiers are P3's
+unbuilt columns. Build no part of it. (The role count is no longer a blocker — R4-d(a) is
+ruled: 21. The registry declares five with formEnabled true, so a chip set is still read
+from the registry, never from a hand-typed list of any length.)
 
 INVARIANT: draft.payload is recomputed server-side as the fold of that draft's checkpoint
 rows in seq order, and is never taken from a request body.
