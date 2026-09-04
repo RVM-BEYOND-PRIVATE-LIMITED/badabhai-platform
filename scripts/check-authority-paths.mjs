@@ -44,10 +44,10 @@ const DEFAULT_TARGET = "docs/agent/BUILD_RULES.md";
  * matching would report zero problems over zero paths, which is the shape of a green run that
  * checked nothing.
  *
- * SET FROM A MEASUREMENT, NOT A GUESS: `--json` reports 16 distinct paths in BUILD_RULES.md
- * today. 12 leaves the file room to shed four entries without a CI failure while still being
- * far above what a broken match would produce. The first draft of this file guessed 30 and
- * failed its own first run — which is the argument for the floor existing at all.
+ * SET FROM A MEASUREMENT, NOT A GUESS: `--json` reports 18 distinct paths in BUILD_RULES.md
+ * today. 12 leaves the file room to shed several entries without a CI failure while still
+ * being far above what a broken match would produce. The first draft of this file guessed 30
+ * and failed its own first run — which is the argument for the floor existing at all.
  */
 const MIN_PATHS = 12;
 

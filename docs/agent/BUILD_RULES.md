@@ -74,7 +74,17 @@ NEVER DO THESE. Each one is a full stop, not a decision you get to make:
     This is the step BETWEEN the build session and the check session: a CHECK that
     needs a live schema waits for Prakash to apply, it does not apply its own.
   - Weaken, skip, .skip, or delete a test so a suite goes green.
-  - Change the reach weights 35/20/15/15/10/5.
+  - Add a weight, a coefficient, or any blended score to ranking. ADR-0036's rank key is a
+    lexicographic tuple with "no weight, no coefficient, no blend", chosen precisely so that
+    no future config change can silently violate it
+    (docs/decisions/0036-matching-algorithm-v1.md:17, :39).
+  - Change the rank key, the month bucket size, the feed order, or the Related-Skills table.
+    Each needs a NEW engine_version, CEO sign-off, and its own ADR
+    (docs/decisions/0036-matching-algorithm-v1.md:75). Never a builder's call, in any phase.
+  - Retune the surviving weighted engine. WEIGHTS in packages/reach-engine/src/scoring.ts:52
+    still ships 35/20/15/15/10/5 and still serves, because MATCH_V1_ENABLED defaults OFF and
+    both engines run side by side through the cutover. It is being RETIRED, not maintained:
+    the numbers stay frozen until it is deleted.
   - Add any ranking input that money, RVM membership, or a demographic can influence.
   - Add anything to consent.purposes[].
   - Create an in-app-purchase product or any payment screen inside a Flutter app.
