@@ -568,7 +568,8 @@ to stop it blocking is escaping the gate, not fixing it.**
 **Owner ruling:** PARK the shape — Prakash, 2026-09-05. The instance is fixed; the class is not.
 
 **The instance.** `docs/agent/phases/P3_CHECK.md` did not merely say "expect a HALT". It
-prescribed the exact sentence a checker must write into `VERDICT.md`:
+prescribed the exact sentence a checker must write into `VERDICT.md` — quoted here as it read
+BEFORE the fix, so grepping the current file for this string will correctly find nothing:
 
 > add one line: the builder correctly halted on R1, quoting worksheet:388. **That wording is
 > required, not a softening.**
