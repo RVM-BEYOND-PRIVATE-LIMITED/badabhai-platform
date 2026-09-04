@@ -269,7 +269,54 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
     });
   }
 
+  /// The current marker page's blocking validation message, or null — e.g.
+  /// a "kis saal" field still showing a future/invalid year. A red inline
+  /// message with no way to stop "Aage badhein" was a real, reported bug;
+  /// this is the actual gate, checked before every advance/save below.
+  String? _currentMarkerPageError(TradeFormStep? step) {
+    if (step is TradeFormPreferencesStep) {
+      return _prefsKey.currentState?.currentPageError();
+    } else if (step is TradeFormEmploymentStep) {
+      return _empKey.currentState?.currentPageError();
+    } else if (step is TradeFormQualificationsStep) {
+      return _qualsKey.currentState?.currentPageError();
+    }
+    return null;
+  }
+
+  /// Docks at the TOP of the scaffold body (unlike a `SnackBar`, which
+  /// always animates from the bottom) — the owner's explicit ask for a red
+  /// banner where the worker's eyes already are, right under the header,
+  /// not somewhere they have to look down for.
+  void _showBlockedBanner(String message) {
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    messenger.clearMaterialBanners();
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        backgroundColor: AppColors.danger,
+        content: Text(message,
+            style: AppTypography.body(
+                size: AppTypography.sizeSm, color: Colors.white)),
+        actions: <Widget>[
+          TextButton(
+            onPressed: messenger.hideCurrentMaterialBanner,
+            child: const Text('Theek hai',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    Future<void>.delayed(const Duration(seconds: 4), () {
+      if (mounted) messenger.hideCurrentMaterialBanner();
+    });
+  }
+
   void _goToNextMarkerPage(TradeFormStep? step) {
+    final String? error = _currentMarkerPageError(step);
+    if (error != null) {
+      _showBlockedBanner(error);
+      return;
+    }
     if (step is TradeFormPreferencesStep) {
       _prefsKey.currentState?.goToNextPage();
     } else if (step is TradeFormEmploymentStep) {
@@ -379,6 +426,11 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                       onPressed: () {
                         if (!markerOnLastInternalPage) {
                           _goToNextMarkerPage(step);
+                          return;
+                        }
+                        final String? error = _currentMarkerPageError(step);
+                        if (error != null) {
+                          _showBlockedBanner(error);
                           return;
                         }
                         if (step is TradeFormPreferencesStep) {

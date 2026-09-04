@@ -163,9 +163,36 @@ class ResumeCubit extends Cubit<ResumeState> {
         final String retryText = await _repo.generateResume(force: false);
         if (isClosed) return;
         if (!_isBlank(retryText)) {
+          // THIS retry path was landing a worker on the Resume tab with the
+          // thin resumeText fallback and no loader at all — awaitingDocument
+          // defaults to false, and nothing here ever fetched the structured
+          // document. It is reachable disproportionately by FORM-FIRST
+          // workers (this whole branch only runs because "form handover
+          // skips extraction", per the class doc above), i.e. exactly the
+          // population the awaitingDocument fix in the happy path below was
+          // built for — so it needs the identical two-emit dance, not a
+          // shortcut. See ResumeState.awaitingDocument's own doc.
           emit(ResumeState(
             status: ResumeStatus.ready,
             resumeText: retryText,
+            awaitingDocument: true,
+          ));
+          if (!_resumeReadyLogged) {
+            _resumeReadyLogged = true;
+            unawaited(BbAnalytics.instance.log(BbAnalytics.resumeReady));
+          }
+          final Future<bool> nightShiftFuture = _loadNightShiftReady();
+          final Future<ResumeDocument?> documentFuture =
+              _loadDocumentWithRetry();
+          final bool nightShiftReady = await nightShiftFuture;
+          final ResumeDocument? document = await documentFuture;
+          if (isClosed) return;
+          emit(ResumeState(
+            status: ResumeStatus.ready,
+            resumeText: retryText,
+            nightShiftReady: nightShiftReady,
+            document: document,
+            awaitingDocument: false,
           ));
           return;
         }

@@ -327,6 +327,56 @@ void main() {
       expect(cubit.state.document, same(tradeSheet));
     });
 
+    // A real, reported gap: the form-first "profile wasn't extracted yet"
+    // retry inside generate() emitted `ready` with awaitingDocument
+    // defaulting to false and never fetched the document at all — a worker
+    // landing on the Resume tab via THIS path (disproportionately
+    // form-first workers, since the branch only runs because form handover
+    // skips extraction) saw the thin resumeText fallback immediately, with
+    // no loader, exactly the "incomplete info shown before the real content
+    // arrives" bug this whole mechanism exists to prevent.
+    blocTest<ResumeCubit, ResumeState>(
+      'generate() retried after ProfileIncompleteFailure ALSO shows the '
+      'loader and fetches the structured document — not a shortcut',
+      build: () {
+        // generate()'s default `force: false` means the FIRST call and the
+        // catch block's retry call are the exact same stub shape
+        // (`generateResume(force: false)`) — a call counter is the only way
+        // to make the first one throw and the retry succeed.
+        int calls = 0;
+        when(() => repo.generateResume(force: false)).thenAnswer((_) async {
+          calls++;
+          if (calls == 1) throw const ProfileIncompleteFailure();
+          return 'RETRY RESUME TEXT';
+        });
+        when(() => profileRepo.extractProfile())
+            .thenAnswer((_) async => 'profile-1');
+        when(() => profileRepo.confirmProfile()).thenAnswer((_) async {});
+        when(() => repo.loadResumeDocument())
+            .thenAnswer((_) async => tradeSheet);
+        return ResumeCubit(repo, editRepo, profileRepo);
+      },
+      act: (ResumeCubit c) => c.generate(),
+      expect: () => <ResumeState>[
+        const ResumeState(status: ResumeStatus.loading),
+        const ResumeState(
+          status: ResumeStatus.ready,
+          resumeText: 'RETRY RESUME TEXT',
+          awaitingDocument: true,
+        ),
+        ResumeState(
+          status: ResumeStatus.ready,
+          resumeText: 'RETRY RESUME TEXT',
+          document: tradeSheet,
+        ),
+      ],
+      verify: (_) {
+        verify(() => profileRepo.extractProfile()).called(1);
+        verify(() => profileRepo.confirmProfile()).called(1);
+        verify(() => repo.loadResumeDocument()).called(1);
+      },
+    );
+
     test('refresh() re-fetches and can pick up a document that appeared '
         'since the last load', () async {
       when(() => repo.generateResume(force: any(named: 'force')))

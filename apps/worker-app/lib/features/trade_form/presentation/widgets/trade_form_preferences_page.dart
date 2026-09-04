@@ -119,14 +119,16 @@ class TradeFormPreferencesPage extends StatefulWidget {
 }
 
 class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
-  /// Page 0: languages + documents · 1: shift · 2: job type · 3: cities ·
-  /// 4: relocate + accommodation + salary · 5: education. Shift, job type
-  /// and cities were one shared page until the owner flagged a worker
-  /// facing all three questions at once as a single wall — each is its own
-  /// internal page now. Fixed count — this marker's field groups never
-  /// change size at runtime (contrast `TradeFormEmploymentPageState.pageCount`,
-  /// which is driven by a repeat-row list).
-  static const int pageCount = 6;
+  /// Page 0: languages · 1: documents · 2: shift · 3: job type · 4: cities ·
+  /// 5: relocate + accommodation + salary · 6: credential · 7: council ·
+  /// 8: kis saal poora hua + institute. Every one of these used to share a
+  /// page with at least one other question — languages+documents, then
+  /// shift+jobType+cities, then all four education fields — until the owner
+  /// flagged a worker facing more than one question at a time as a single
+  /// wall. Fixed count — this marker's field groups never change size at
+  /// runtime (contrast `TradeFormEmploymentPageState.pageCount`, which is
+  /// driven by a repeat-row list).
+  static const int pageCount = 9;
 
   WorkPrefOptionsDto? _options;
   String? _loadError;
@@ -188,6 +190,18 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// Called by the screen's sticky bottom bar ONLY on this marker's LAST
   /// internal page — see `_WizardScaffoldState`'s routing.
   void save() => widget.onSave(_prefs);
+
+  /// The CURRENT internal page's blocking validation message, or null. Only
+  /// the year+institute page can ever fail this — every other page is
+  /// closed-set chips/toggles, which cannot be entered wrong. Checked by
+  /// `_WizardScaffoldState` BEFORE calling [goToNextPage]/[save]: a red year
+  /// with no way to stop "Aage badhein" was a real, reported bug (a future
+  /// year showed the inline error and still let the worker through) — this
+  /// is what actually blocks the tap now, not just the inline text.
+  String? currentPageError() {
+    if (_page == pageCount - 1) return _yearError;
+    return null;
+  }
 
   void goToNextPage() {
     if (isLastPage) return;
@@ -267,21 +281,27 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   Widget _pageContent(WorkPrefOptionsDto options) {
     switch (_page) {
       case 0:
-        return _languagesAndDocumentsPage(options);
+        return _languagesPage(options);
       case 1:
-        return _shiftPage(options);
+        return _documentsPage(options);
       case 2:
-        return _jobTypePage(options);
+        return _shiftPage(options);
       case 3:
-        return _citiesPage(options);
+        return _jobTypePage(options);
       case 4:
+        return _citiesPage(options);
+      case 5:
         return _relocateAccommodationSalaryPage();
+      case 6:
+        return _credentialPage();
+      case 7:
+        return _councilPage();
       default:
-        return _educationPage();
+        return _yearInstitutePage();
     }
   }
 
-  Widget _languagesAndDocumentsPage(WorkPrefOptionsDto options) {
+  Widget _languagesPage(WorkPrefOptionsDto options) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -293,6 +313,17 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
         _multiChips(options.languages, _prefs.languages,
             (String slug) => setState(() => _prefs = _prefs.copyWith(
                 languages: _toggled(_prefs.languages, slug)))),
+      ],
+    );
+  }
+
+  Widget _documentsPage(WorkPrefOptionsDto options) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(_kOptionalNote,
+            style: AppTypography.body(
+                size: AppTypography.sizeSm, color: AppColors.textMuted)),
         const SizedBox(height: AppSpacing.s5),
         _label(_kDocLabel),
         _multiChips(options.documentsReady, _prefs.documentsReady,
@@ -443,7 +474,7 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     );
   }
 
-  Widget _educationPage() {
+  Widget _credentialPage() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -452,13 +483,27 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
             (String slug) => setState(() => _prefs = _prefs.copyWith(
                 educationCredential:
                     _prefs.educationCredential == slug ? null : slug))),
-        const SizedBox(height: AppSpacing.s5),
+      ],
+    );
+  }
+
+  Widget _councilPage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
         _label(_kCouncilLabel),
         _singleChips(_kCouncils, _prefs.educationCouncil,
             (String slug) => setState(() => _prefs = _prefs.copyWith(
                 educationCouncil:
                     _prefs.educationCouncil == slug ? null : slug))),
-        const SizedBox(height: AppSpacing.s5),
+      ],
+    );
+  }
+
+  Widget _yearInstitutePage() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
         _label(_kEduYearLabel),
         TradeFormTextField(
           controller: _year,
