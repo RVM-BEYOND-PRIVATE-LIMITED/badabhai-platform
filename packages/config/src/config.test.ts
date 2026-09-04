@@ -500,9 +500,21 @@ describe("OTP per-caller send/verify budgets (#1306)", () => {
     const c = loadServerConfig({});
     expect(c.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR).not.toBe(c.OTP_MAX_SENDS_PER_HOUR);
     expect(c.OTP_MAX_SENDS_PER_DEVICE_PER_HOUR).not.toBe(c.OTP_MAX_SENDS_PER_DAY);
-    // The per-phone caps are what actually bound spend and are deliberately UNCHANGED by #1306.
-    expect(c.OTP_MAX_SENDS_PER_HOUR).toBe(5);
-    expect(c.OTP_MAX_SENDS_PER_DAY).toBe(10);
+    // The per-phone caps are what actually bound spend. Raised by owner ruling 2026-09-04 —
+    // 5/hour was reachable by an honest worker at a 30s cooldown, and 10/day was reachable
+    // across a failed onboarding plus a PIN reset, which share one per-phone budget.
+    expect(c.OTP_MAX_SENDS_PER_HOUR).toBe(10);
+    expect(c.OTP_MAX_SENDS_PER_DAY).toBe(30);
+  });
+
+  it("keeps the per-phone HOURLY cap strictly below the DAILY one, or the hourly cap is dead", () => {
+    // NOT A STYLE RULE. Both counters INCR on every accepted send (`otp.service.ts`), so if the
+    // hourly limit ever equals or exceeds the daily one it can never refuse a request the daily
+    // limit would not also refuse inside the same UTC day: it becomes dead configuration that
+    // still reads like a live control, and the `phone_hourly_cap` refusal reason stops being
+    // reachable in logs. PR #1305 proposed 50/50 and would have shipped precisely that.
+    const c = loadServerConfig({});
+    expect(c.OTP_MAX_SENDS_PER_HOUR).toBeLessThan(c.OTP_MAX_SENDS_PER_DAY);
   });
 });
 

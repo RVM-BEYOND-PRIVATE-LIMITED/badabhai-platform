@@ -186,8 +186,10 @@ describe("throttle/edge knobs (TD25 trust proxy + TD60 per-phone daily cap)", ()
     expect(() => cfg({ TRUST_PROXY_HOP_COUNT: "-1" })).toThrow();
   });
 
-  it("OTP_MAX_SENDS_PER_DAY defaults to 10 and must be positive (0-as-kill-switch is the GLOBAL cap's job)", () => {
-    expect(cfg().OTP_MAX_SENDS_PER_DAY).toBe(10);
+  it("OTP_MAX_SENDS_PER_DAY defaults to 30 and must be positive (0-as-kill-switch is the GLOBAL cap's job)", () => {
+    // 10 -> 30 by owner ruling, 2026-09-04. Worker-only, and deliberately above the per-phone
+    // HOURLY cap (10) so that cap stays reachable rather than dead.
+    expect(cfg().OTP_MAX_SENDS_PER_DAY).toBe(30);
     expect(cfg({ OTP_MAX_SENDS_PER_DAY: "25" }).OTP_MAX_SENDS_PER_DAY).toBe(25);
     expect(() => cfg({ OTP_MAX_SENDS_PER_DAY: "0" })).toThrow();
   });
