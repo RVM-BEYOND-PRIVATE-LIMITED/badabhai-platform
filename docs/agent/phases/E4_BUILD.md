@@ -13,6 +13,18 @@ THROWS (apps/api/src/match/worker-skills.service.ts:157-165), so a worker made v
 no exit but account deletion. That is the owner's stated reason for the order and it is a
 property of the design, not of the schedule.
 
+WHAT THIS EXIT DOES NOT DO, measured 2026-09-05 and added here because this brief implied
+otherwise. `wants` appears ZERO times in apps/api/src/unlocks/unlocks.service.ts — it is not
+in the fail-closed ladder (`:67-78`). So `setWants(false)`, and the clear-all in item 3, end
+FINDABILITY and do not end CONTACT: a payer who already unlocked the worker keeps his
+14-day window (packages/db/src/credit-packs.ts:101), and once E0 lands he keeps a live relay
+through it. The exit from contact is a per-purpose withdrawal of `employer_sharing`, which
+does not exist — `POST /consent/withdraw` is all-or-nothing and also revokes every session
+(apps/api/src/consent/consent.service.ts:67-72). That gap is E0's to close, not this phase's:
+see docs/decisions/E0_RELAY_DECISION_2026-09.md §C, findings 3-4. Do not widen this phase to
+cover it, and do not write copy for the item 5 issue that claims the toggle stops employers
+contacting him.
+
 ALREADY TRUE AT HEAD — do not rebuild these, and do not break them:
   - `wants boolean NOT NULL DEFAULT true` (packages/db/src/schema/match.ts:59). R-E2 is the
     SHIPPED default. This phase has nothing to build for R-E2; it has something not to break.

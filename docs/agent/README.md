@@ -52,7 +52,9 @@ THE LIVE CHAIN:
   E0  The relay. A credit currently buys a handle that resolves to nothing. Owner ruling
       2026-09-05 puts it first, because it decides what a credit is worth — and the
       résumé/credit pricing question is deferred behind it. Its item 0 (correcting live,
-      false payer-facing copy) ships separately and immediately, ahead of the rest.
+      false payer-facing copy) did NOT wait: raised as issue #1430, 2026-09-05.
+      The rest is HALTed on THREE unsigned decisions, all costed with recommendations in
+      docs/decisions/E0_RELAY_DECISION_2026-09.md — its blank signature block is the halt.
   E4  Worker opt-out. Before E2 by ruling R-E3: a worker made findable by search needs an
       exit before the door opens.
   E1  The posting form asks once, and every answer reaches the row.

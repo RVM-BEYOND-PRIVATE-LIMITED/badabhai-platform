@@ -1,8 +1,14 @@
-STATUS: FIRST IN THE E-CHAIN, ahead of E1 (owner ruling, 2026-09-05). One item ships
-SEPARATELY AND IMMEDIATELY, before the rest of this phase is designed, let alone built —
-see ITEM 0. Two questions in this brief are UNSIGNED and each HALTs the build: the free-text
-question (§THE LEAK THIS CHANNEL HAS BY CONSTRUCTION) and the consent question (item 3).
-Collect them and ask; do not pick a sensible-looking default.
+STATUS: FIRST IN THE E-CHAIN, ahead of E1 (owner ruling, 2026-09-05). ITEM 0 IS DONE AND
+DID NOT WAIT: filed as issue #1430 (payer-web, the frontend owner's layer) with the exact
+replacement copy, 2026-09-05.
+Two questions in this brief are UNSIGNED and each HALTs the build: the free-text question
+(§THE LEAK THIS CHANNEL HAS BY CONSTRUCTION) and the consent question (item 3). BOTH ARE
+WRITTEN UP, COSTED, AND AWAITING A SIGNATURE in docs/decisions/E0_RELAY_DECISION_2026-09.md
+(sections A and B) — read it before asking again; do not pick a sensible-looking default.
+THAT NOTE'S SECTION C IS A THIRD, UNSIGNED CONDITION ON THIS PHASE and it is not one of the
+two HALTs: it measures what a worker experiences when a payer opens a relay (no notification,
+no context, no working exit) and recommends three additions without which this phase should
+not ship. Read it before building item 1.
 
 PHASE E0 — make the handle dial something.
 
@@ -29,9 +35,10 @@ payer is given after spending a credit. Correct it to describe what the handle a
 a reference to a granted, time-boxed access record — and to say the routed channel is not yet
 open. Do NOT wait for the rest of this phase: the copy is wrong whether or not the relay
 gets built, and a separate one-file commit stops the false promise today.
-This is a payer-web change and therefore the FRONTEND owner's layer (CLAUDE.md §6). If you
-are the backend owner, raise the issue with the exact replacement copy and do not edit the
-file. Either way it does not wait.
+This is a payer-web change and therefore the FRONTEND owner's layer (CLAUDE.md §6), so it
+was RAISED rather than edited: **issue #1430**, 2026-09-05, carrying the exact replacement
+copy. Nothing is owed here by a build session — confirm the issue is still open, and if it
+has been closed, confirm the string is gone from the file.
 
 WHAT ALREADY EXISTS — do not rebuild any of it.
   - The entitlement and its lifecycle: `unlocks` (packages/db/src/schema/payer.ts:225), the
@@ -89,6 +96,10 @@ handle resolve, it does not build a messaging product.
      precisely because messaging over a third party needed its own basis. Adding a NINTH
      purpose is a NEVER-DO (docs/agent/BUILD_RULES.md:28). So the answer is either "the
      existing purpose covers it" or "an owner act" — and it is not yours. ASK.
+     BOTH READINGS ARE ALREADY COSTED in docs/decisions/E0_RELAY_DECISION_2026-09.md §A,
+     including the finding that decides the DEADLINE rather than the answer: no worker holds
+     `employer_sharing` today, so a re-consent of the whole base is already owed by E4, and a
+     ninth purpose is nearly free if it lands in E4's notice and expensive if it lands after.
 
   4. THE EVENTS. A message sent and a message read are business actions. PII-FREE: opaque
      ids, a direction enum, counts — never the body, never a name, never a phone. Follow the
@@ -115,7 +126,10 @@ Three shapes exist and the choice is the OWNER'S:
       prior attempt at this class of filter in this repository has been measured leaky.
   (c) Structured messages only — a closed set of templates. Preserves the property
       completely and may be too rigid to be used at all.
-DO NOT PICK ONE. Write down what you would need in order to build each, and ask.
+DO NOT PICK ONE. All three are costed in PRODUCT terms as well as privacy terms in
+docs/decisions/E0_RELAY_DECISION_2026-09.md §B — which also corrects two things in the framing
+above: the property is asymmetric by DIRECTION (a payer volunteering his own number breaks
+nothing the worker was promised), and shape is largely solved while intent is not.
 
 NEVER DO, each a full stop:
   - Return, log, event, or store the worker's phone. The ONLY decrypt on this path is

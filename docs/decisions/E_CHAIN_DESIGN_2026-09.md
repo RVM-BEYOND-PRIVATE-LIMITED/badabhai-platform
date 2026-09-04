@@ -457,7 +457,7 @@ other direction, for workers.
 
 | Phase | Category | Ships |
 |---|---|---|
-| **E0** (first — owner ruling 2026-09-05) | NOT BUILT | The relay resolves. A `relay_handle` currently dials nothing (`RESUME_DISCLOSURE_DECISION_2026-09.md` §1b), so a credit buys an entitlement and a dead string. Item 0 of that brief — correcting payer-web's live-and-false *"Use it in-app to reach the candidate"* — ships **separately and immediately**, ahead of the rest. |
+| **E0** (first — owner ruling 2026-09-05) | NOT BUILT | The relay resolves. A `relay_handle` currently dials nothing (`RESUME_DISCLOSURE_DECISION_2026-09.md` §1b), so a credit buys an entitlement and a dead string. Item 0 — correcting payer-web's live-and-false *"Use it in-app to reach the candidate"* — **shipped separately as issue #1430 (2026-09-05)** and did not wait. The rest is HALTed on three unsigned decisions, all costed in `E0_RELAY_DECISION_2026-09.md`. |
 | **E4** (then, per R-E3) | PARTLY BUILT / gated | `setWants` implemented and reconciling `job_reach`; a worker endpoint; a clear-all affordance; a Frontend issue for the UI; `employer_sharing` requested **only once the notice copy exists** |
 | **E1** | PARTLY BUILT | One call carries pay, city, shift, needed-by and the experience window to the row; role-scoped skills served from the server; the client `TRADE_KEYS` constant retired in favour of the served vocabulary |
 | **E2** | NOT BUILT | `POST /payer/candidates/search` — masked, pseudonymised, paginated; consent and `wants` **in the WHERE clause**; R-E1 ordering; sourced from `worker_skill`, never from `worker_profiles` |
@@ -601,7 +601,31 @@ the one direction nobody investigates** (PARKED.md, P-016).
    `P5_BUILD.md:1` stays HALTed on a question you have already answered, and any builder
    implementing E2 is settling an open ruling, which `docs/agent/BUILD_RULES.md:31` makes a
    full stop.
-7. **PR #1425 (M1) is E2's supply.** On `main` today the only caller of `rebuildQuietly` is
+8. **E0's three decisions — `docs/decisions/E0_RELAY_DECISION_2026-09.md`, signature block
+   blank.** Written 2026-09-05 on your instruction; each is one page-section, costed, with my
+   recommendation stated.
+   **(A)** Does `employer_sharing` authorise messaging or only disclosure? I recommend the
+   broad reading *conditional on the notice text*, and against a ninth purpose — the
+   `whatsapp_messaging` precedent turns on EGRESS to a third party, not on messaging, and the
+   in-app relay has neither. **This one has a deadline:** no worker holds `employer_sharing`
+   today, so a full re-consent is already owed by E4; decided now it costs one sentence in
+   copy that does not yet exist, decided after E4's notice ships it costs a second re-consent
+   pass over the whole base.
+   **(B)** Which free-text shape? I recommend structured templates for the payer's FIRST
+   message and free text once the worker has replied, and (a) over (b) if you want a single
+   shape — an outbound scan costs the most, breaks the product's own numeric vocabulary, and
+   buys a guarantee it cannot keep.
+   **(C)** Should E0 ship at all on top of HEAD? A worker today gets no notification when he
+   is unlocked (`profile.viewed` is registered and templated and **nothing emits it**), the
+   alerts feed is guard-barred from naming who, and his only exits are a full consent
+   withdrawal that logs him out everywhere or account deletion. I recommend three cheap
+   additions as conditions of shipping. **The load-bearing finding is new and was not in
+   `E4_BUILD.md`:** `wants` appears zero times in `apps/api/src/unlocks/unlocks.service.ts`,
+   so E4's opt-out ends findability and does not end contact — an already-unlocked payer keeps
+   his 14-day window and, after E0, a live relay through it. `E4_BUILD.md` has been corrected
+   in this PR.
+
+9. **PR #1425 (M1) is E2's supply.** On `main` today the only caller of `rebuildQuietly` is
    the extraction processor
    ([apps/api/src/profiles/profile-extraction.processor.ts:501](../../apps/api/src/profiles/profile-extraction.processor.ts)),
    and the trade-form handover switches extraction off — so **a completed trade form derives

@@ -1,9 +1,13 @@
 PHASE-ID: E0
 STATUS: TWO QUESTIONS ARE UNSIGNED and each HALTs the build — the free-text question
 (E0_BUILD §THE LEAK THIS CHANNEL HAS BY CONSTRUCTION) and the consent question (E0_BUILD
-item 3). A correct session run TODAY ends VERDICT PASS, reason "phase correctly halted",
-with a HALT record naming both, plus ITEM 0 SHIPPED. Item 0 is the exception and does not
-wait for either ruling: the copy is false whether or not the relay is built.
+item 3). Both are written up and costed in docs/decisions/E0_RELAY_DECISION_2026-09.md
+(§A, §B), whose signature block is BLANK — that file being unsigned IS the halt condition,
+and a check session should read it rather than re-derive the questions. Its §C carries a
+third unsigned condition (what the worker experiences) with three recommended additions.
+A correct session run TODAY ends VERDICT PASS, reason "phase correctly halted", with a HALT
+record naming all three sections. ITEM 0 IS ALREADY DONE — raised as issue #1430 on
+2026-09-05, before any of the rulings; item 1 below now checks that issue, not the work.
 
 INVARIANT: no message crosses between a payer and a worker without a live, unexpired,
 consent-valid unlock joining them — re-checked at send time, not merely at grant time.
@@ -30,11 +34,13 @@ exit code for every item.
 
 1. [DELIVERABLE · base: RED, one hit at :31] ITEM 0 — the false promise is gone.
    grep -n "Use it in-app to reach the candidate" apps/payer-web/src/components/unlock/routed-contact-card.tsx
-   Base: one hit. Expect exit 1, OR a GitHub issue number in the build report carrying the
-   exact replacement copy (CLAUDE.md §6 — payer-web is the frontend owner's layer).
-   FAIL if the string survives AND no issue was raised. This is the only item that does not
-   wait for the two open rulings, and a run that halts on those without doing this has left a
-   live false statement on a paid surface.
+   Base: one hit at :31. The issue IS RAISED (#1430, 2026-09-05, carrying the exact
+   replacement copy) — payer-web is the frontend owner's layer (CLAUDE.md §6), so a backend
+   session owes the issue and not the edit.
+   gh issue view 1430 --json state,title
+   PASS on either: the grep exits 1 (Frontend shipped it), or #1430 is still open. FAIL only
+   if #1430 is CLOSED and the string survives — that is a fix reported as done and not done,
+   which is the one state nobody would re-check.
    PRESCRIBED FAIL SHAPE: say that a PAYING surface still instructs an action the platform
    cannot perform. Do not write "copy not updated" — that reads as a polish task and will be
    deferred again.
@@ -125,7 +131,12 @@ exit code for every item.
     the unit-level evidence; this is the integration-level evidence; neither substitutes for
     the other.
 
-RECORD IN THE VERDICT, do not check:
-  - Whether `employer_sharing` authorises messaging or only disclosure. Owner act.
-  - Which of the three free-text shapes was chosen. Owner act.
+RECORD IN THE VERDICT, do not check. All three are owner acts, and all three are costed in
+docs/decisions/E0_RELAY_DECISION_2026-09.md — cite its signature block, which is BLANK:
+  - §A — whether `employer_sharing` authorises messaging or only disclosure.
+  - §B — which of the three free-text shapes was chosen.
+  - §C — whether E0 ships without a worker-side notification, a per-purpose exit, and a
+    `wants`-aware use-time check. §C finding 3 is the load-bearing one and it is NOT in
+    E4_BUILD.md: `wants` appears zero times in apps/api/src/unlocks/unlocks.service.ts, so
+    E4's opt-out does not close a live unlock's relay access.
   - That the résumé/credit pricing question stays deferred until this phase lands.
