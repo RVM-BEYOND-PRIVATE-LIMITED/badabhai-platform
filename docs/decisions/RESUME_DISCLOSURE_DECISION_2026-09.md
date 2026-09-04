@@ -4,7 +4,13 @@
 **Why this exists:** the E-chain design found the premise inverted. The flow as described has
 the résumé **paid and full**; ADR-0013 C.3 has it **free and masked**. That is not a wiring
 gap, so it is not a builder's call. **E2 and E3 wait on this.**
-**Status: UNSIGNED. No brief has been written to any option below.**
+**Status: DEFERRED by owner ruling, 2026-09-05 — not merely unsigned.** The owner accepted
+the recommendation at §4 over their own question: **build the relay first (phase E0), and
+revisit this once a credit buys something that works.** Until then, pricing a bundle whose
+other half does not exist is a decision without a subject. No brief has been written to any
+option below, and none should be until E0 lands.
+
+The analysis stands as written and is what this decision will be made from.
 
 ---
 
@@ -185,7 +191,8 @@ changes nothing about privacy. Option C changes both at once. If the goal is to 
 evaluation, B does it; if the goal is to let a payer see *who* before they spend, only C does,
 and that is a separate ask that happens to be bundled with it in the described flow.
 
-**The relay comes first, whatever you rule.** §1b says the thing a credit buys does not
+**The relay comes first, whatever you rule — RULED 2026-09-05, and this note is deferred
+behind it.** §1b says the thing a credit buys does not
 function. Whichever option you pick, pricing a résumé or a profile against a credit whose
 existing benefit is inert is deciding the price of a bundle whose other half is missing. If
 only one thing is built next, it should be the relay — not because the résumé question is

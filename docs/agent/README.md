@@ -34,18 +34,40 @@ PASS means move on. FAIL means fix it and check again with a fresh agent.
 
 ## Order
 
-P0 first — it produces the RVM decision sheet, and rulings R1–R4 set permanent
-skill_id numbers that can never be changed later.
+**P0–P12 ARE CLOSED (2026-09-05), superseded by the E-chain**
+(docs/decisions/E_CHAIN_DESIGN_2026-09.md). Do not start any P-phase. Every P*_BUILD.md and
+P*_CHECK.md carries its own closure block naming what, if anything, that phase dropped.
 
-Then two independent chains:
-  Matching:  P1 → P2 → P3 → P4 → P5 → P6 → P7
-  Posting:   P8 → P9 → P10 → P11 → P12
-  PX runs alongside everything from day one.
+TWO EXCEPTIONS, reopened by owner ruling and both STANDALONE — neither is part of the
+E-chain and neither blocks it:
+  P9  the verification visibility gate. Ruled a GATE, unbuilt, and an unverified posting is
+      visible to every worker today. Sequenced AFTER E4.
+  P8  job-posting drafts and checkpoints — and the home of ADR-0035 Amendment 1, which names
+      that brief by path.
+
+THE LIVE CHAIN:
+
+  E0 → E4 → E1 → E2 → E3
+
+  E0  The relay. A credit currently buys a handle that resolves to nothing. Owner ruling
+      2026-09-05 puts it first, because it decides what a credit is worth — and the
+      résumé/credit pricing question is deferred behind it. Its item 0 (correcting live,
+      false payer-facing copy) ships separately and immediately, ahead of the rest.
+  E4  Worker opt-out. Before E2 by ruling R-E3: a worker made findable by search needs an
+      exit before the door opens.
+  E1  The posting form asks once, and every answer reaches the row.
+  E2  Candidate search. BLOCKED until ADR-0040 is signed, and until E4 and #1425 land —
+      before those, a correct E2 returns zero rows.
+  E3  Credits and unlock — a RE-POINT of shipped surfaces, not a build.
 
 ## Before every phase
 
 1. Did the last VERDICT.md say PASS? If not, do not start the next phase.
+   NOTE: docs/qa/evidence/P0/VERDICT.md is FAIL and does NOT gate the E-chain. It gated the
+   P-chain, which is closed; P0_CHECK is now structurally unpassable because the owner signed
+   two rulings on a worksheet that check requires to be unsigned. The E-chain starts clean.
 2. Re-run git rev-parse HEAD. Use the new number.
 3. Read PARKED.md. Anything now blocking becomes a ruling, not a quiet fix.
-4. Did any of R1–R7 get answered? If so, update BUILD_RULES.md.
+4. Did any of R1–R7 get answered? If so, update BUILD_RULES.md. R1 and R4-d are SIGNED;
+   R7 is the one the E-chain waits on (worksheet:794), and ADR-0040 carries it.
 5. Fresh session. Never continue an old one.

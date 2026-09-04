@@ -457,7 +457,8 @@ other direction, for workers.
 
 | Phase | Category | Ships |
 |---|---|---|
-| **E4** (first, per R-E3) | PARTLY BUILT / gated | `setWants` implemented and reconciling `job_reach`; a worker endpoint; a clear-all affordance; a Frontend issue for the UI; `employer_sharing` requested **only once the notice copy exists** |
+| **E0** (first — owner ruling 2026-09-05) | NOT BUILT | The relay resolves. A `relay_handle` currently dials nothing (`RESUME_DISCLOSURE_DECISION_2026-09.md` §1b), so a credit buys an entitlement and a dead string. Item 0 of that brief — correcting payer-web's live-and-false *"Use it in-app to reach the candidate"* — ships **separately and immediately**, ahead of the rest. |
+| **E4** (then, per R-E3) | PARTLY BUILT / gated | `setWants` implemented and reconciling `job_reach`; a worker endpoint; a clear-all affordance; a Frontend issue for the UI; `employer_sharing` requested **only once the notice copy exists** |
 | **E1** | PARTLY BUILT | One call carries pay, city, shift, needed-by and the experience window to the row; role-scoped skills served from the server; the client `TRADE_KEYS` constant retired in favour of the served vocabulary |
 | **E2** | NOT BUILT | `POST /payer/candidates/search` — masked, pseudonymised, paginated; consent and `wants` **in the WHERE clause**; R-E1 ordering; sourced from `worker_skill`, never from `worker_profiles` |
 | **E3** | ALREADY BUILT (re-point) | The existing credits, unlock and résumé surfaces beside the search results. **No new billing object.** |
@@ -494,11 +495,13 @@ and `P*_CHECK.md` now carries a closure block at the top, in the form `P4_BUILD.
 used, naming what no E-phase covers. The files are NOT deleted: the survey's value is that it
 can be diffed against them.
 
-### CORRECTION TO THIS DOCUMENT — it said three phases; it is nine
+### CORRECTION TO THIS DOCUMENT — it said three phases; it is nine. That was my error.
 
-The paragraph that stood here named **P1, P3 and P9** as the phases carrying deliverables no
-E-phase covers. That was written from a partial read — four of the fourteen brief pairs — and
-it was wrong in the direction that loses work.
+The paragraph that stood here named **P1, P3 and P9**. **That was wrong, it was mine, and the
+cause was a partial read** — four of the fourteen brief pairs, generalised to all fourteen.
+It erred in the direction that loses work, which is the expensive direction. Recorded here in
+full so the count is not re-litigated later: **nine, not three**, and the six that were
+refuted are listed nowhere precisely so they cannot creep back.
 
 A full pass over all twenty-eight briefs produced twenty-two candidate survivors. Each was
 then attacked on three lenses — *it already ships* / *an E-phase covers it* / *a signed ruling
@@ -520,16 +523,27 @@ are deliberately not listed anywhere.** Sixteen survived, across **nine** phases
 **P0, P4, P7, P10 and PX close clean** — every deliverable is shipped, deleted by a signed
 ruling, or carried by an E-phase.
 
-Two of these are worth your attention beyond the closure itself:
+### Two of the nine are NOT closed — owner rulings, 2026-09-05
 
-- **P9 is the largest thing being dropped, and it is not a feature.** You ruled it a GATE.
-  An unverified posting is visible to every worker today, and nothing in the E-chain changes
-  that. **My recommendation: reopen P9 on its own, after E4.** It is the only survivor whose
-  ruling is already signed.
-- **P8 leaves a signed ADR behind.** ADR-0035 Amendment 1 names `payer_form_drafts` as the
-  draft store and points at P8 to build it. Closing P8 without disposing of that amendment
-  leaves a signed decision pointing at a dead file — the same class of defect this whole
-  session exists to remove.
+**P9 — REOPENED, standalone, sequenced after E4.** Closing it would have dropped a trust
+property by filing error: it was swept up because no E-phase covers it, which is a fact about
+the E-chain rather than a judgement about P9. Its ruling is already signed, the gate is
+unbuilt, and an unverified posting is visible to every worker today. It does not compete with
+the E-chain for scope — it competes for sequence.
+
+**P8 — REOPENED, standalone.** A signed decision may not be left pointing at a dead brief.
+The owner offered two ways out: keep P8 open as the amendment's home, or write the
+amendment's retirement into ADR-0035. **I chose to keep P8 open**, for three reasons, in
+increasing order of force: retiring the amendment does not rehome P8's other two survivors;
+it would trade a dangling pointer for a dangling table, since `payer_form_drafts` is real,
+shipped, unclaimed, and ADR-0035's own §Consequences asks that such a table "be reconsidered
+rather than left as speculative surface"; and the brief is not stale — #1416 rewrote it
+against ADR-0036, its store question is RULED and its Half A is buildable. Retiring the
+amendment remains available, but it is then an ADR supersede *and* a disposition of the
+table, not a one-line edit.
+
+**So seven of the nine close as briefed; two reopen.** Neither reopened phase is part of the
+E-chain, and neither blocks it.
 
 ### One thing that closing P0 does NOT do
 

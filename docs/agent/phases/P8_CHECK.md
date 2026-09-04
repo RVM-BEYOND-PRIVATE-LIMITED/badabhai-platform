@@ -1,16 +1,30 @@
-STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
-Do not build from this file without reopening the phase.
+STATUS: REOPENED 2026-09-05 — owner ruling. NOT closed with P0-P12, and NOT part of the
+E-chain. This phase runs STANDALONE.
 
-WHAT NO E-PHASE COVERS — dropped visibly, not quietly. Each survived an adversarial
-refutation pass (already-ships / an-E-phase-covers-it / a-signed-ruling-deleted-it):
-  - The disposition of `payer_form_drafts` — built as forward scaffolding for exactly this,
-    claimed by nothing. Closing P8 leaves a signed ADR-0035 amendment pointing at a dead
-    brief.
-  - Optimistic concurrency for the AI job-posting chat draft. Neither candidate table has a
-    version column and `saveTurn`'s UPDATE has no version predicate — last-write-wins,
-    which the code itself names as an unbuilt follow-up.
-  - The checkpoint child table, its append-only trigger, the server-side fold, and the
-    Idempotency-Key-then-`expected_version` 409 envelope.
+THE CHOICE, AND WHY, because the owner gave two ways to remove the dangling pointer and this
+brief took the first. ADR-0035 Amendment 1 (Accepted, owner ruling 2026-09-04) names THIS
+FILE BY PATH as the workstream claiming `payer_form_drafts`
+(docs/decisions/0035-ai-job-posting-chat-and-cross-device-drafts.md:339, :348). The options
+were: keep P8 open as the amendment's home, or write the amendment's retirement into the ADR.
+
+KEEP P8 OPEN. Three reasons, in increasing order of force:
+
+  1. RETIRING THE AMENDMENT DOES NOT REHOME THE OTHER TWO SURVIVORS. P8 carries three things
+     no E-phase covers and only one of them is the table claim; the optimistic-concurrency
+     gap and the checkpoint table would still need a home.
+  2. IT WOULD TRADE A DANGLING POINTER FOR A DANGLING TABLE. `payer_form_drafts` is real,
+     shipped, and unclaimed (packages/db/src/schema/payer.ts:775-795). ADR-0035's own
+     §Consequences asks that an unclaimed table "should be reconsidered rather than left as
+     speculative surface" — retiring the claim without disposing of the table restores
+     precisely the state the amendment was written to end.
+  3. THE BRIEF IS NOT STALE. It was rewritten against ADR-0036 and shipped code in #1416: the
+     store question is RULED and Half A is buildable. Reopening it is not reviving a wrong
+     document.
+
+Retiring the amendment stays available if the owner prefers it — but it is then an ADR
+supersede AND a disposition of the table, not a one-line edit.
+
+The rest of this file stands as written.
 
 ------------------------------------------------------------------------------
 PHASE-ID: P8
