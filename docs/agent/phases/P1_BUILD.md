@@ -42,7 +42,8 @@ Deliver:
   6. Only one row can have is_active = true. Enforce this in the DATABASE
      (unique partial index or similar), not in application code.
 
-Do NOT put real values in. R1 to R4 are still open. Seed only a syntactically valid
+Do NOT put real values in. R1 and R4-d are signed (2026-09-05); R2, R3 and R4-a/b/c are still
+open, and the catalog needs all of them. Seed only a syntactically valid
 fixture catalog with is_active = false, for tests.
 
 INVARIANT: an invalid catalog can never become the active one.

@@ -385,7 +385,19 @@ never zero — so a genuine null is safe. A wrong default is not.
 ```
 Answer: ......................................................................
 
-Signed (RVM / CEO): .......................  Date: .................
+Verdict: one skill_id per role. Function and collar tier are modifiers on the
+role, not separate roles. setter_programmer is RATIFIED as a function enum value.
+
+Signed (RVM / CEO): Prakash Kantumutchu, TPM   Date: 2026-09-05
+
+Reason: §21 of the master context already locks function as a modifier, and the
+locked adjacency multipliers (higher-tier-to-operator 0.85,
+operator-to-higher-tier 0.25) are directional arithmetic on an ordinal, which is
+only expressible if level lives on the role rather than as the role.
+"Setter-cum-Programmer" already ships live in
+apps/api/src/profiling/roles/cnc-turner.role.ts:20 as a levelLadder rung, with no
+matching function enum value; ratifying setter_programmer matches the enum to
+working production code.
 ```
 
 ---
@@ -611,7 +623,15 @@ signed on its own:
 | **(c)** | Row 15 splits into two per §23 (Press/Stamping + Machine Operator General), which makes 22. | Resolves Q1 and **R4-a** with one answer — but see R4-a, where `Machine Operator (General)` becomes a magnet for un-resolvable phrases. Do not pick (c) here without also picking R4-a (b). |
 
 ```
-RVM verdict: .................................................................
+RVM verdict: OPTION (b) — there are 21 roles; the summary line is an arithmetic
+slip.
+
+Signed: Prakash Kantumutchu, TPM, 2026-09-05.
+
+Reason: Sections 1A-1D contain 21 roles (1A=4, 1B=1, 1C=11, 1D=5), arrived at
+independently three times. The sheet's "4 launch + 18 Phase 2" is off by one in
+the Phase 2 half. Option (c) is rejected: splitting row 15 to reach 22 is fitting
+the taxonomy to the summary rather than to the trade.
 
 Signed for all of R4 (RVM): .......................  Date: .................
 ```

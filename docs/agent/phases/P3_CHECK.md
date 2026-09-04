@@ -2,12 +2,15 @@ PHASE-ID: P3
 INVARIANT: no existing row gets a value in any of the four new columns that it did not supply;
 all four land NULL on every pre-existing row.
 
-R1 IS UNSIGNED (docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md:388) and P3_BUILD orders a HALT
-while it is open. VERDICT.md carries PASS or FAIL on line 1 and nothing else (CHECK_RULES:43) —
-there is no HALT verdict available to you. If the build produced a HALT report and no migration,
-write FAIL with the reason "phase not built" (CHECK_RULES:10-12) and add one line: the builder
-correctly halted on R1, quoting worksheet:388. That wording is required, not a softening, and
-not a fault found in the builder.
+R1 IS SIGNED (2026-09-05, docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md:391) and no longer
+blocks this phase. P3_BUILD still orders a HALT, on the PHASE-ORDER GATE: docs/agent/README.md:47
+forbids starting until the previous VERDICT says PASS, and P1 and P2 have none. VERDICT.md
+carries PASS or FAIL on line 1 and nothing else (CHECK_RULES:43) — there is no HALT verdict
+available to you. If the build produced a HALT report and no migration, write FAIL with the
+reason "phase not built" (CHECK_RULES:10-12) and add one line: the builder correctly halted on
+the phase-order gate, quoting README.md:47. That wording is required, not a softening, and not a
+fault found in the builder. Do NOT accept a HALT that cites R1 — that reason expired on
+2026-09-05.
 
 If a migration DOES exist, run all of these and paste raw output.
 1. Paste every ADD COLUMN line for the four columns. A DEFAULT on any is a FAIL. An UPDATE or

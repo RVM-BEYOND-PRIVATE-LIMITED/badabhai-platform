@@ -93,7 +93,7 @@ HALF A — the store.
 HALF B — GET /payer/job-posting-drafts/schema: DELETED FROM THIS PHASE. Its option sets read
 from matching_catalog, which is PR #1387 and is not on main; two of them (shifts, benefits)
 are not in that catalog's payload at all (P1_BUILD:17-26); and function and collar tiers are P3's
-unbuilt columns. Build no part of it. (The role count is no longer a blocker — R4-d(a) is
+unbuilt columns. Build no part of it. (The role count is no longer a blocker — R4-d(b) is
 ruled: 21. The registry declares five with formEnabled true, so a chip set is still read
 from the registry, never from a hand-typed list of any length.)
 

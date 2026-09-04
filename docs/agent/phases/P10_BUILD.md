@@ -54,7 +54,7 @@ Pin schema_version on the draft. If the served version differs, render "we have 
 form" BEFORE any field. Never migrate the draft silently.
 
 DELETED — "If you type one of the 22 role names into a .tsx file, you have failed this phase."
-R4-d(a) is ruled 21 (owner, 2026-09-04), so 22 was wrong; but the instruction stays deleted
+R4-d(b) is ruled 21 (owner, 2026-09-04), so 22 was wrong; but the instruction stays deleted
 because 21 is the taxonomy count and role-registry.ts:39-45 declares five. The client reads
 the registry through the server. It never types a list of any length.
 
