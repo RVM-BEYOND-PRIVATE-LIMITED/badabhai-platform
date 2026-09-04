@@ -1005,6 +1005,43 @@ void main() {
       expect(sent.educations.single.institute, 'Rvm Cad Pvt Ltd');
       expect(router.routerDelegate.currentConfiguration.uri.path, '/building');
     });
+
+    testWidgets(
+        'a trade/subject typed lowercase is title-cased before it reaches '
+        'saveQualifications', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
+
+      final GoRouter router = await pumpToBuilding(tester);
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // -> credential+subject
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Aur ek entry jodein'));
+      await tester.tap(find.text('Aur ek entry jodein'));
+      await tester.pumpAndSettle();
+
+      // Now on credential+subject: chip picker (credential) + one TextField
+      // ("Trade ya subject").
+      expect(find.text('Trade ya subject'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).first, 'electric');
+      await tester.pump();
+
+      // Walk the remaining 2 internal pages (council, year+institute) to save.
+      for (int i = 0; i < 2; i++) {
+        await tester.ensureVisible(find.text('Aage badhein'));
+        await tester.tap(find.text('Aage badhein'));
+        await tester.pumpAndSettle();
+      }
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      final TradeFormQualifications sent = verify(
+              () => repo.saveQualifications(captureAny()))
+          .captured
+          .single as TradeFormQualifications;
+      expect(sent.educations.single.field, 'Electric');
+      expect(router.routerDelegate.currentConfiguration.uri.path, '/building');
+    });
   });
 
   group('going Back into an already-passed marker keeps what was typed '
