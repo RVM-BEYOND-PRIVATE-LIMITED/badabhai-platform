@@ -21,8 +21,7 @@ DELETED BY RULING. Do not build these, and do not reintroduce them as a fallback
 
 THE P5/P7 COLLISION IS DISSOLVED, NOT REORDERED.
 ADR-0036:97 retires PACE and `hot` on one line, so both sides of it are gone. No phase moves.
-P7_BUILD.md:5 still orders "Set PACE_ENABLED to true"; that brief has not been rewritten yet.
-Do not act on it from here.
+P7 is CLOSED for the same reason and says so at P7_BUILD.md:1.
 
 RECORD FOR WHEN R7 IS SIGNED. Do not build on any of it now.
   - The route ships and takes no query parameter today:
