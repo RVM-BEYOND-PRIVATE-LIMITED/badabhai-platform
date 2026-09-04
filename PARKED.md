@@ -593,7 +593,15 @@ with RLS bypassed. Three things follow:
 **Measured, not inferred.** The audit reported live counts (`workers 4`, `worker_profiles 4`,
 `worker_skill 3`, `job_reach 6`) that do not match the local compose database (`workers 2`,
 `worker_profiles 0`, `worker_skill 2`, `job_reach 2`) — which is how the remote target was
-noticed at all. No write was attempted, and phase M1's five end-to-end trade-form runs were
+noticed at all.
+
+**AND THAT DETECTION WAS LUCK, NOT METHOD — this is the strongest argument for
+target-as-argument, stronger than the `bypassrls` role itself.** The only reason the remote
+target surfaced is that the two databases happened to hold different numbers. Had they agreed —
+two fresh environments, or one seeded from the other — the counts would have been reported as
+local, believed, and never questioned. "The numbers happened to disagree" is not a control. No
+part of the invocation, the output, or the developer's expectation would have caught it, and the
+next person has no reason to expect better luck. No write was attempted, and phase M1's five end-to-end trade-form runs were
 STOPPED rather than executed, because completing a form creates worker rows.
 
 **What a fix would have to decide** (not settled here): whether the audit reads a target from an
