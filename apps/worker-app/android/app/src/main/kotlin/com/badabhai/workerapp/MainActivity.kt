@@ -7,7 +7,6 @@ import android.content.Intent
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -16,7 +15,6 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
-import android.view.WindowManager
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -34,42 +32,8 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        applyScreenCaptureBlock()
         FirebaseManager.init(this)
         requestNotificationPermissionIfNeeded()
-    }
-
-    /**
-     * Blocks OS screenshots and screen recording for the whole app (#353).
-     *
-     * Flutter renders every route into this ONE activity, so the flag is
-     * necessarily app-wide — and that is the posture we want. The worker app
-     * shows a 4-digit PIN keypad, the OTP code next to the raw phone number, and
-     * the decrypted full name on the resume/name screens. Any app holding
-     * MediaProjection or an accessibility capture service — rampant in the
-     * sideload-heavy low-end Android segment this product targets — can
-     * otherwise record a PIN + OTP + phone, which is enough to take the account
-     * over from the same device. OS screenshots of those screens also sync
-     * straight to Google Photos (a DPDP exposure).
-     *
-     * DEFAULT-DENY on purpose: gating per-route would mean enumerating every
-     * sensitive screen and silently losing protection the day someone adds a new
-     * PII screen and forgets to opt in. The worker loses nothing real — the
-     * resume is downloadable as a PDF (#256), which is the honest way to share
-     * it.
-     *
-     * DEBUGGABLE builds are exempt so development and QA can still capture
-     * evidence; the shipped release build is always protected. Keyed off
-     * FLAG_DEBUGGABLE rather than BuildConfig.DEBUG, which is not generated
-     * unless the module opts into the buildConfig feature.
-     */
-    private fun applyScreenCaptureBlock() {
-        val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
-        if (debuggable) return
-        window.setFlags(
-            WindowManager.LayoutParams.FLAG_SECURE,
-            WindowManager.LayoutParams.FLAG_SECURE,
-        )
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -289,8 +253,7 @@ class MainActivity : FlutterActivity() {
      * notification with, needing no further permission and giving the worker no
      * signal. In the sideload-heavy low-end Android segment this product targets,
      * the booster/"cleaner" utilities that ask for that access as a matter of
-     * course are exactly that app — the same threat model [applyScreenCaptureBlock]
-     * invokes to justify app-wide FLAG_SECURE. So this notification now names the
+     * course are exactly that app. So this notification now names the
      * FOLDER, never the file. The real name stays where it is useful and bounded:
      * on disk, and in the in-app SnackBar (downloadCompleteNoticeFor).
      *
