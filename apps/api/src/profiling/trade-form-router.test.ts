@@ -150,7 +150,14 @@ describe("routeToTradeForm", () => {
       ["Construction", "Electrician"],
       ["Garments", "Tailor"],
       ["Hospitality", "Cook"],
-      ["Welding", "MIG welder"],
+      // "Welding / MIG welder" USED TO LIVE HERE and has moved to a positive assertion below.
+      // It was correct while welding had no form; Batch 2 gave it one, so a MIG welder reaching
+      // NO form would now be the bug. Moved rather than deleted, because the reason it changed is
+      // the thing a reviewer needs to see.
+      //
+      // "Construction / Electrician" STAYS. `industrial_electrician` is declared but disabled —
+      // its words all reach fam_electrical's house wiring, so there is no form to route to and a
+      // domestic wireman must not be handed a VFD questionnaire.
       [null, null],
       ["", ""],
       [null, "   "],
@@ -160,6 +167,23 @@ describe("routeToTradeForm", () => {
         expect(route(domain, role, null)).toBeNull();
       });
     }
+
+    it("routes a welder to the welding form — Batch 2's first fabrication trade", () => {
+      // THE POSITIVE HALF OF THE ROW REMOVED ABOVE. "welder" is an occupation term, so it routes
+      // on its own evidence without needing a family pin — the same tier the turner's "turning"
+      // sits in.
+      expect(route("Welding", "MIG welder", null)).toBe("welder");
+      expect(route("Manufacturing", "Welder", null)).toBe("welder");
+    });
+
+    it("a welder who also names a fabrication rival reaches NO form", () => {
+      // THE CLUSTER VETO, measured rather than assumed. `sheet_metal_worker` and `press_operator`
+      // are declared in `fabrication` alongside welding, so their vocabulary is derived into
+      // welding's conflict set even though neither form ships yet — which is exactly what
+      // declaring a role early buys. A man who does both must keep talking.
+      expect(route("Fabrication", "Welder and sheet metal worker", null)).toBeNull();
+      expect(route("Fabrication", "Welder, powder coating bhi karta hoon", null)).toBeNull();
+    });
 
     it("a pinned turning family alone does not route a label that never mentions turning", () => {
       // The pin corroborates a machine term; it is not evidence by itself. A mis-pin must not be

@@ -1,7 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Which of the two Jobs-tab layouts the worker last picked: the scrollable
-/// list (default) or the Tinder-style swipe deck.
+/// Which of the two Jobs-tab layouts the worker last picked: the Tinder-style
+/// swipe deck (default) or the scrollable list.
 enum JobFeedViewMode { list, deck }
 
 /// The minimal persistence surface the Jobs tab needs to remember WHICH view
@@ -16,7 +16,7 @@ enum JobFeedViewMode { list, deck }
 /// `LocaleStore` (also never cleared on logout). Nothing here is PII or a
 /// credential, so it belongs in PLAIN prefs, not secure storage.
 abstract interface class JobFeedViewStore {
-  /// The persisted view mode. Defaults to [JobFeedViewMode.list] when nothing
+  /// The persisted view mode. Defaults to [JobFeedViewMode.deck] when nothing
   /// has been stored yet.
   Future<JobFeedViewMode> read();
 
@@ -25,7 +25,7 @@ abstract interface class JobFeedViewStore {
 }
 
 /// The DEFAULT [JobFeedViewStore]: remembers nothing across launches, always
-/// reads back [JobFeedViewMode.list].
+/// reads back [JobFeedViewMode.deck].
 ///
 /// The synchronous DI graph ([setupLocator]) is deliberately PLUGIN-FREE — see
 /// the rule documented in core/di/locator.dart — because widget tests build
@@ -42,7 +42,7 @@ class SessionOnlyJobFeedViewStore implements JobFeedViewStore {
   const SessionOnlyJobFeedViewStore();
 
   @override
-  Future<JobFeedViewMode> read() async => JobFeedViewMode.list;
+  Future<JobFeedViewMode> read() async => JobFeedViewMode.deck;
 
   @override
   Future<void> write(JobFeedViewMode mode) async {
@@ -70,9 +70,12 @@ class SharedPrefsJobFeedViewStore implements JobFeedViewStore {
   Future<JobFeedViewMode> read() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     final String? stored = prefs.getString(kViewMode);
-    return stored == JobFeedViewMode.deck.name
-        ? JobFeedViewMode.deck
-        : JobFeedViewMode.list;
+    // An explicit prior choice (either value) is always honoured — only
+    // NOTHING stored yet (a fresh install, or a worker who never touched the
+    // toggle) falls through to the deck default.
+    if (stored == JobFeedViewMode.list.name) return JobFeedViewMode.list;
+    if (stored == JobFeedViewMode.deck.name) return JobFeedViewMode.deck;
+    return JobFeedViewMode.deck;
   }
 
   @override

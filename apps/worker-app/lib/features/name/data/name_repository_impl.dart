@@ -17,13 +17,24 @@ class NameRepositoryImpl implements NameRepository {
   final SessionRepository _session;
 
   @override
-  Future<void> submitName(String fullName) async {
+  Future<void> submitName(
+    String fullName, {
+    String? city,
+    String? state,
+    String? address,
+  }) async {
     final String? token = _session.sessionToken;
     if (token == null) {
       throw const UnauthorizedFailure();
     }
     try {
-      await _api.updateName(fullName: fullName, authToken: token);
+      await _api.updateName(
+        fullName: fullName,
+        city: city,
+        state: state,
+        address: address,
+        authToken: token,
+      );
     } catch (error) {
       throw mapError(error);
     }

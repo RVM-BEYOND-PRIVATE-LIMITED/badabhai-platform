@@ -1,0 +1,784 @@
+{
+  "_why": "Role track for PAINTER / POWDER COATING, authored under docs/profiling/role-pack-authoring-guide.md as a Batch 2 pack. fam_painting is HOUSE PAINTING -- walls, putty, distemper, a brush and a ladder -- and shares nothing with an industrial coating hand beyond the English word 'painter'. Reusing that family or its pack id would ask a man who runs a conveyorised powder line about wall putty, so the ids are fam_powder_coating / qp_powder_coating, named for the half of the trade that is unambiguous. Only the industrial coating occupations belong here; the construction painter keeps fam_painting's own interview, whose first question already disambiguates him.",
+  "_scope": "POWDER AND LIQUID SPRAY, on the same ruling that shaped qp_cnc_turning and qp_cnc_grinding. The ratified sheet's own worker runs both -- 'Powder coating, Liquid spray -- HVLP, Electrostatic spray' is his headline -- and a paint-shop hand who has only ever held an HVLP gun must be able to answer every question here honestly: coating_process leads with powder coating but carries liquid spray and touch-up beside it, coating_equipment carries the spray booth next to the powder booth, and booth_type has a 'Pata nahi' escape. The gate says 'Powder coating ya paint', not 'Powder coating', for the same reason the turner's gate says 'Turning'.",
+  "_depth": "THE TIER GATE IS coating_experience, asked FIRST, and it is the key PAINTER_COATING.tenureQuestionKey already names. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected -- and a worker handed the role form on his first message may never be asked it at all. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber ?? valueBool, so adding a value_text would make the captured answer a STRING; every gte below would then compare a string to a number, compare() returns null, and the predicate is false forever. A permanently-false ask_if is a question that is never asked, silently -- the #776 defect that sat in qp_welding for the life of the pack. The ask_if shape here is {op, left:{field}, right:{const}}, never {op, args:[...]}, which is the same defect wearing the other hat.",
+  "_budget": "MAX_ENGINE_ASKS is 28 and qp_universal spends 8. Tier 0 is 8 items (16 total), tier 1 adds 3 (19), tier 2 adds 4 (23). The three fresher items are gated on coating_experience <= 0 and a senior never sees them; a fresher skips tiers 1 and 2 entirely, so his worst case is 16 + 3 = 19. The tiers are mutually exclusive by construction, which is why the fresher branch costs the senior nothing. qp_universal@2 already asks primary_trade, experience_years, current_city, salary_expected, preferred_locations, availability, education and shift_preference; none of them is repeated here.",
+  "_sheet": "SECTION B IS READ OFF THE RATIFIED REFERENCE SHEET (Shyam Lal Meena, Painter / Powder Coating -- Skilled), not invented. Its eight rows are Processes, Equipment, Coatings applied, Surface preparation, Checks performed, Film thickness held, Booth type and Sector worked, and every one has a question here that fills it: coating_process, coating_equipment, coating_material, surface_prep, coating_checks, film_thickness, booth_type, sector_worked. FILM THICKNESS IS A BANDED single_select rather than a free number -- the sheet prints '60 - 80 microns', which is a band, and a banded chip keeps a low-literacy worker tapping instead of typing while avoiding the answer_type 'number' path that has no Flutter widget. SURFACE PREPARATION CARRIES EIGHT CHIPS AND THAT IS DELIBERATE: the ratified row has seven ticks (Degreasing, Phosphating, Shot blasting, Sanding, Masking, Hanging & jigging, Oven schedule setting) and all seven must be offerable or the row cannot be filled, so the eighth is the none-of-above a man whose prep is done by another gang needs. THE LEVEL RUNG IS ITS OWN QUESTION: every reference sheet leads with '{Role} -- {Level}' and this one reads 'Painter / Powder Coating -- Skilled', so coating_level offers exactly PAINTER_COATING.levelLadder and nothing else. It is NOT a Section B row and is absent from the resume map -- the rung prints in the headline, not in the capability block.",
+  "pack_id": "qp_powder_coating",
+  "version": 1,
+  "family_id": "fam_powder_coating",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Drafted for owner review (Prakash). Shop-floor vocabulary NOT yet corrected by a practising powder coater -- see docs/registers/trade-content-ratification.md.",
+  "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half, and it reads iti_workshop_machines and trade_test_status LITERALLY -- the keys are not renameable. Only the OPTIONS are this trade's: a Painter General pass-out ran a spray gun, a booth and an oven, not a lathe and a shaper.",
+  "items": [
+    {
+      "question_key": "coating_experience",
+      "prompt_text": "Powder coating ya paint ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal coating ka kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "coating_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "under_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_seven",
+          "label_text": "3 se 7 saal",
+          "value_number": 5
+        },
+        {
+          "option_key": "over_seven",
+          "label_text": "7 saal se zyada",
+          "value_number": 10
+        }
+      ]
+    },
+    {
+      "question_key": "coating_level",
+      "prompt_text": "Paint shop me aap kis level par kaam karte hain?",
+      "why_text": "Level se employer ko aapka darja saaf pata chalta hai.",
+      "retry_text": "Helper, operator ya skilled, kaunsa level hai?",
+      "target_kind": "attribute",
+      "target_field": "coating_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "helper",
+          "label_text": "Helper",
+          "value_text": "helper"
+        },
+        {
+          "option_key": "operator",
+          "label_text": "Operator",
+          "value_text": "operator"
+        },
+        {
+          "option_key": "skilled",
+          "label_text": "Skilled painter",
+          "value_text": "skilled"
+        }
+      ]
+    },
+    {
+      "question_key": "coating_process",
+      "prompt_text": "Aap kaunsa coating ka kaam karte hain?",
+      "why_text": "Process ke hisaab se sahi kaam dikhaya jaata hai.",
+      "retry_text": "Powder coating, spray ya touch-up, kya kaam karte hain?",
+      "target_kind": "attribute",
+      "target_field": "coating_process",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "powder_coating",
+          "label_text": "Powder coating",
+          "value_text": "powder_coating"
+        },
+        {
+          "option_key": "liquid_hvlp",
+          "label_text": "Liquid spray, HVLP gun",
+          "value_text": "liquid_hvlp"
+        },
+        {
+          "option_key": "electrostatic",
+          "label_text": "Electrostatic spray",
+          "value_text": "electrostatic"
+        },
+        {
+          "option_key": "touch_up",
+          "label_text": "Touch-up aur repair",
+          "value_text": "touch_up"
+        },
+        {
+          "option_key": "other_process",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "coating_equipment",
+      "prompt_text": "Kaunse booth aur oven par kaam kiya hai?",
+      "why_text": "Equipment ka tajurba employer sabse pehle dekhte hain.",
+      "retry_text": "Powder booth, spray booth ya oven, kis par kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "coating_equipment",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "powder_booth",
+          "label_text": "Powder booth aur gun",
+          "value_text": "powder_booth"
+        },
+        {
+          "option_key": "spray_booth",
+          "label_text": "Spray booth",
+          "value_text": "spray_booth"
+        },
+        {
+          "option_key": "curing_oven",
+          "label_text": "Curing oven",
+          "value_text": "curing_oven"
+        },
+        {
+          "option_key": "pretreatment_line",
+          "label_text": "Pretreatment line",
+          "value_text": "pretreatment_line"
+        },
+        {
+          "option_key": "other_equipment",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "coating_material",
+      "prompt_text": "Kaunsa powder ya paint lagaya hai?",
+      "why_text": "Material ka tajurba employer ke liye alag mayne rakhta hai.",
+      "retry_text": "Epoxy, polyester, PU ya primer, kya lagaya hai?",
+      "target_kind": "attribute",
+      "target_field": "coating_material",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "epoxy_powder",
+          "label_text": "Epoxy powder",
+          "value_text": "epoxy_powder"
+        },
+        {
+          "option_key": "polyester_powder",
+          "label_text": "Polyester powder",
+          "value_text": "polyester_powder"
+        },
+        {
+          "option_key": "pu_paint",
+          "label_text": "PU paint",
+          "value_text": "pu_paint"
+        },
+        {
+          "option_key": "primer_sealer",
+          "label_text": "Primer aur sealer",
+          "value_text": "primer_sealer"
+        },
+        {
+          "option_key": "other_coating",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "surface_prep",
+      "prompt_text": "Coating se pehle kaunsi tayyari khud karte hain?",
+      "why_text": "Tayyari ka kaam coating ki quality tay karta hai.",
+      "retry_text": "Degreasing, phosphating ya masking, kya karte hain?",
+      "target_kind": "attribute",
+      "target_field": "surface_prep",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "degreasing",
+          "label_text": "Degreasing",
+          "value_text": "degreasing"
+        },
+        {
+          "option_key": "phosphating",
+          "label_text": "Phosphating",
+          "value_text": "phosphating"
+        },
+        {
+          "option_key": "shot_blasting",
+          "label_text": "Shot blasting",
+          "value_text": "shot_blasting"
+        },
+        {
+          "option_key": "sanding",
+          "label_text": "Sanding aur rubbing",
+          "value_text": "sanding"
+        },
+        {
+          "option_key": "masking",
+          "label_text": "Masking",
+          "value_text": "masking"
+        },
+        {
+          "option_key": "hanging_jigging",
+          "label_text": "Hanging aur jigging",
+          "value_text": "hanging_jigging"
+        },
+        {
+          "option_key": "oven_setting",
+          "label_text": "Oven schedule set karna",
+          "value_text": "oven_setting"
+        },
+        {
+          "option_key": "no_prep",
+          "label_text": "Tayyari koi aur karta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "coating_checks",
+      "prompt_text": "Coating ke baad kaunsi checking karte hain?",
+      "why_text": "Checking karne wale ko quality ka kaam diya jaata hai.",
+      "retry_text": "DFT gauge, gloss meter ya adhesion test, kya karte hain?",
+      "target_kind": "attribute",
+      "target_field": "coating_checks",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "dft_gauge",
+          "label_text": "DFT gauge se thickness naapna",
+          "value_text": "dft_gauge"
+        },
+        {
+          "option_key": "gloss_meter",
+          "label_text": "Gloss meter",
+          "value_text": "gloss_meter"
+        },
+        {
+          "option_key": "cross_hatch",
+          "label_text": "Cross-hatch adhesion test",
+          "value_text": "cross_hatch"
+        },
+        {
+          "option_key": "bend_test",
+          "label_text": "Bend test",
+          "value_text": "bend_test"
+        },
+        {
+          "option_key": "salt_spray",
+          "label_text": "Salt-spray sample dena",
+          "value_text": "salt_spray"
+        },
+        {
+          "option_key": "no_checks",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "booth_type",
+      "prompt_text": "Booth batch wala hai ya conveyor line?",
+      "why_text": "Batch aur conveyor line ka kaam alag hota hai.",
+      "retry_text": "Batch booth, conveyor line ya dono, kis par kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "booth_type",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "batch_booth",
+          "label_text": "Batch powder booth",
+          "value_text": "batch_booth"
+        },
+        {
+          "option_key": "conveyorised",
+          "label_text": "Conveyor line",
+          "value_text": "conveyorised"
+        },
+        {
+          "option_key": "both_booth",
+          "label_text": "Dono par kaam kiya hai",
+          "value_text": "both_booth"
+        },
+        {
+          "option_key": "booth_unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "film_thickness",
+      "prompt_text": "Kitne micron ki coating thickness rakhte hain?",
+      "why_text": "Thickness se coating ki quality aur cost tay hoti hai.",
+      "retry_text": "Lagbhag kitne micron DFT par kaam karte hain?",
+      "target_kind": "attribute",
+      "target_field": "film_thickness",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "coating_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "under_sixty",
+          "label_text": "60 micron se kam",
+          "value_text": "under_60"
+        },
+        {
+          "option_key": "sixty_to_eighty",
+          "label_text": "60 se 80 micron",
+          "value_text": "60_80"
+        },
+        {
+          "option_key": "eighty_to_hundred",
+          "label_text": "80 se 100 micron",
+          "value_text": "80_100"
+        },
+        {
+          "option_key": "over_hundred",
+          "label_text": "100 micron se zyada",
+          "value_text": "over_100"
+        },
+        {
+          "option_key": "thickness_unknown",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "prompt_text": "Kis industry ke parts par coating ki hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "retry_text": "Auto parts, white goods ya furniture, kis line me kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "coating_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "auto_components",
+          "label_text": "Auto components",
+          "value_text": "auto_components"
+        },
+        {
+          "option_key": "white_goods",
+          "label_text": "Fridge, washing machine wale parts",
+          "value_text": "white_goods"
+        },
+        {
+          "option_key": "furniture_steel",
+          "label_text": "Steel furniture",
+          "value_text": "furniture_steel"
+        },
+        {
+          "option_key": "fabrication",
+          "label_text": "Fabrication aur structure",
+          "value_text": "fabrication"
+        },
+        {
+          "option_key": "general_job",
+          "label_text": "General job work",
+          "value_text": "general_job"
+        },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "substrate_worked",
+      "prompt_text": "Kis dhaat par coating karte hain?",
+      "why_text": "Dhaat ke hisaab se coating ka tarika badal jaata hai.",
+      "retry_text": "MS, GI, aluminium ya stainless, kis par coating ki hai?",
+      "target_kind": "attribute",
+      "target_field": "substrate_worked",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "coating_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "mild_steel",
+          "label_text": "MS, mild steel",
+          "value_text": "mild_steel"
+        },
+        {
+          "option_key": "gi_sheet",
+          "label_text": "GI aur galvanised sheet",
+          "value_text": "gi_sheet"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "die_cast",
+          "label_text": "Zinc ya aluminium die-cast",
+          "value_text": "die_cast"
+        },
+        {
+          "option_key": "other_substrate",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "gun_setting",
+      "prompt_text": "Gun ki kaunsi setting khud karte hain?",
+      "why_text": "Gun setting se coating barabar lagti hai aur powder bachta hai.",
+      "retry_text": "kV, powder flow ya gun distance, kya set karte hain?",
+      "target_kind": "attribute",
+      "target_field": "gun_setting",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "coating_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "kv_setting",
+          "label_text": "kV aur voltage set karna",
+          "value_text": "kv_setting"
+        },
+        {
+          "option_key": "powder_flow",
+          "label_text": "Powder flow set karna",
+          "value_text": "powder_flow"
+        },
+        {
+          "option_key": "gun_distance",
+          "label_text": "Gun distance aur speed",
+          "value_text": "gun_distance"
+        },
+        {
+          "option_key": "nozzle_change",
+          "label_text": "Nozzle badalna aur safai",
+          "value_text": "nozzle_change"
+        },
+        {
+          "option_key": "gun_earthing",
+          "label_text": "Earthing check karna",
+          "value_text": "gun_earthing"
+        },
+        {
+          "option_key": "no_gun_setting",
+          "label_text": "Setting koi aur karta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "oven_schedule",
+      "prompt_text": "Curing oven kis temperature par chalate hain?",
+      "why_text": "Oven ka temperature aur time coating ki jaan hai.",
+      "retry_text": "Lagbhag kitne degree par curing karte hain?",
+      "target_kind": "attribute",
+      "target_field": "oven_schedule",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "coating_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "upto_one_sixty",
+          "label_text": "160 degree tak",
+          "value_text": "upto_160"
+        },
+        {
+          "option_key": "one_eighty",
+          "label_text": "180 degree ke aaspaas",
+          "value_text": "180"
+        },
+        {
+          "option_key": "two_hundred_plus",
+          "label_text": "200 degree ya zyada",
+          "value_text": "200_plus"
+        },
+        {
+          "option_key": "oven_by_other",
+          "label_text": "Oven koi aur set karta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "coating_defects",
+      "prompt_text": "Coating ki kaunsi dikkat aap sudhaar lete hain?",
+      "why_text": "Dikkat sudhaarne wale operator ki shop par zaroorat rehti hai.",
+      "retry_text": "Orange peel, patli coating ya blister, kya theek karte hain?",
+      "target_kind": "attribute",
+      "target_field": "coating_defects",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "coating_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "orange_peel",
+          "label_text": "Orange peel",
+          "value_text": "orange_peel"
+        },
+        {
+          "option_key": "poor_coverage",
+          "label_text": "Coating patli ya kam aana",
+          "value_text": "poor_coverage"
+        },
+        {
+          "option_key": "faraday_cage",
+          "label_text": "Corner me powder na chipakna",
+          "value_text": "faraday_cage"
+        },
+        {
+          "option_key": "blister_pinhole",
+          "label_text": "Blister aur pinhole",
+          "value_text": "blister_pinhole"
+        },
+        {
+          "option_key": "colour_mismatch",
+          "label_text": "Colour match na hona",
+          "value_text": "colour_mismatch"
+        },
+        {
+          "option_key": "poor_adhesion",
+          "label_text": "Coating ukhad jaana",
+          "value_text": "poor_adhesion"
+        },
+        {
+          "option_key": "no_defect_work",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "colour_change",
+      "prompt_text": "Colour change ke waqt kaunsa kaam karte hain?",
+      "why_text": "Colour change jaldi karne se line ka time bachta hai.",
+      "retry_text": "Booth safai, powder reclaim ya filter, kaunsa kaam karte hain?",
+      "target_kind": "attribute",
+      "target_field": "colour_change",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "coating_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "booth_cleaning",
+          "label_text": "Booth ki safai",
+          "value_text": "booth_cleaning"
+        },
+        {
+          "option_key": "powder_reclaim",
+          "label_text": "Powder reclaim aur cyclone",
+          "value_text": "powder_reclaim"
+        },
+        {
+          "option_key": "filter_change",
+          "label_text": "Filter badalna",
+          "value_text": "filter_change"
+        },
+        {
+          "option_key": "hopper_change",
+          "label_text": "Hopper aur powder badalna",
+          "value_text": "hopper_change"
+        },
+        {
+          "option_key": "no_colour_change",
+          "label_text": "Colour change koi aur karta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "retry_text": "Spray gun, booth ya oven, kis par kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "coating_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "spray_gun",
+          "label_text": "Spray gun",
+          "value_text": "spray_gun"
+        },
+        {
+          "option_key": "powder_booth",
+          "label_text": "Powder coating booth",
+          "value_text": "powder_booth"
+        },
+        {
+          "option_key": "curing_oven",
+          "label_text": "Curing oven",
+          "value_text": "curing_oven"
+        },
+        {
+          "option_key": "compressor",
+          "label_text": "Air compressor",
+          "value_text": "compressor"
+        },
+        {
+          "option_key": "sanding_machine",
+          "label_text": "Sanding aur buffing machine",
+          "value_text": "sanding_machine"
+        },
+        {
+          "option_key": "unknown_machine",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "trade_test_status",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "retry_text": "Trade test pass kiya hai ya abhi nahi diya?",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "coating_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ]
+    },
+    {
+      "question_key": "iti_project_work",
+      "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "retry_text": "ITI me banaya hua koi ek kaam bata dijiye.",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "coating_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": []
+    }
+  ]
+}

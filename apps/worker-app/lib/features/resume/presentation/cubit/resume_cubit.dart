@@ -163,9 +163,36 @@ class ResumeCubit extends Cubit<ResumeState> {
         final String retryText = await _repo.generateResume(force: false);
         if (isClosed) return;
         if (!_isBlank(retryText)) {
+          // THIS retry path was landing a worker on the Resume tab with the
+          // thin resumeText fallback and no loader at all — awaitingDocument
+          // defaults to false, and nothing here ever fetched the structured
+          // document. It is reachable disproportionately by FORM-FIRST
+          // workers (this whole branch only runs because "form handover
+          // skips extraction", per the class doc above), i.e. exactly the
+          // population the awaitingDocument fix in the happy path below was
+          // built for — so it needs the identical two-emit dance, not a
+          // shortcut. See ResumeState.awaitingDocument's own doc.
           emit(ResumeState(
             status: ResumeStatus.ready,
             resumeText: retryText,
+            awaitingDocument: true,
+          ));
+          if (!_resumeReadyLogged) {
+            _resumeReadyLogged = true;
+            unawaited(BbAnalytics.instance.log(BbAnalytics.resumeReady));
+          }
+          final Future<bool> nightShiftFuture = _loadNightShiftReady();
+          final Future<ResumeDocument?> documentFuture =
+              _loadDocumentWithRetry();
+          final bool nightShiftReady = await nightShiftFuture;
+          final ResumeDocument? document = await documentFuture;
+          if (isClosed) return;
+          emit(ResumeState(
+            status: ResumeStatus.ready,
+            resumeText: retryText,
+            nightShiftReady: nightShiftReady,
+            document: document,
+            awaitingDocument: false,
           ));
           return;
         }
@@ -248,36 +275,60 @@ class ResumeCubit extends Cubit<ResumeState> {
 
   /// Display an already-generated resume (generated upstream by the Building
   /// screen) without re-running generation.
+  ///
+  /// MUST HOLD [_loading] FOR ITS WHOLE DURATION — this is the actual bug
+  /// behind 3 rounds of "the resume tab still shows incomplete info first",
+  /// and it was never in this method's own emit sequence (which was already
+  /// correct). The Building screen hands off via `context.go`, landing on
+  /// this cubit's `create:` on the VERY FIRST build of the resume tab
+  /// branch — before the shell's own `TabFocus` value has caught up (it
+  /// defaults to the jobs tab). `_syncActiveTabAfterBuild` (router.dart)
+  /// corrects that ONE frame later via `addPostFrameCallback`, which fires
+  /// `TabFocusRefetch` → [refresh]. Without a shared mutex, that [refresh]
+  /// call races the document poll below: `_loading` was still `false` (this
+  /// method never touched it), so [refresh] ran, reused the already-created
+  /// resume, and emitted `ready` with `awaitingDocument` defaulting to
+  /// `false` and `document` still `null` — the exact thin/incomplete
+  /// content the loader exists to hide, landing IN BETWEEN this method's
+  /// own correct first and second emits. A worker on their FIRST EVER
+  /// resume never taps anything to trigger this — the automatic post-frame
+  /// tab-sync alone reproduces it every time.
   Future<void> showGenerated(String text) async {
-    // #820 — the Building screen can hand off an empty body; never present it as a
-    // ready resume. Fail closed to the retry view.
-    if (_isBlank(text)) {
-      emit(const ResumeState(status: ResumeStatus.failed));
-      return;
+    if (_loading) return; // never race a concurrent refresh()/generate()
+    _loading = true;
+    try {
+      // #820 — the Building screen can hand off an empty body; never present it as a
+      // ready resume. Fail closed to the retry view.
+      if (_isBlank(text)) {
+        emit(const ResumeState(status: ResumeStatus.failed));
+        return;
+      }
+      // This hands off a JUST-generated resume (from the Building screen,
+      // right after trade-form/chat completion). The document fetch below is
+      // WITH RETRY (see [_loadDocumentWithRetry]) — the screen shows a loader
+      // for this window (awaitingDocument), never the bare text, so a
+      // form-first worker's thin fallback narrative never flashes on screen
+      // only to be replaced a moment later by the real structured content.
+      emit(ResumeState(
+        status: ResumeStatus.ready,
+        resumeText: text,
+        awaitingDocument: true,
+      ));
+      final Future<bool> nightShiftFuture = _loadNightShiftReady();
+      final Future<ResumeDocument?> documentFuture = _loadDocumentWithRetry();
+      final bool nightShiftReady = await nightShiftFuture;
+      final ResumeDocument? document = await documentFuture;
+      if (isClosed) return;
+      emit(ResumeState(
+        status: ResumeStatus.ready,
+        resumeText: text,
+        nightShiftReady: nightShiftReady,
+        document: document,
+        awaitingDocument: false,
+      ));
+    } finally {
+      _loading = false;
     }
-    // This hands off a JUST-generated resume (from the Building screen,
-    // right after trade-form/chat completion). The document fetch below is
-    // WITH RETRY (see [_loadDocumentWithRetry]) — the screen shows a loader
-    // for this window (awaitingDocument), never the bare text, so a
-    // form-first worker's thin fallback narrative never flashes on screen
-    // only to be replaced a moment later by the real structured content.
-    emit(ResumeState(
-      status: ResumeStatus.ready,
-      resumeText: text,
-      awaitingDocument: true,
-    ));
-    final Future<bool> nightShiftFuture = _loadNightShiftReady();
-    final Future<ResumeDocument?> documentFuture = _loadDocumentWithRetry();
-    final bool nightShiftReady = await nightShiftFuture;
-    final ResumeDocument? document = await documentFuture;
-    if (isClosed) return;
-    emit(ResumeState(
-      status: ResumeStatus.ready,
-      resumeText: text,
-      nightShiftReady: nightShiftReady,
-      document: document,
-      awaitingDocument: false,
-    ));
   }
 
   /// Reload only the night-shift pref from the server — lightweight, no
