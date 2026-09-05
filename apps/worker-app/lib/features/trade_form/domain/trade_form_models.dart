@@ -283,6 +283,15 @@ class TradeFormAnswerResult extends Equatable {
 const int kTradeFormMaxPreferredCities = 5;
 
 /// The closed-set preferences a worker sets on a `preferences` marker screen.
+///
+/// Deliberately carries NO education/credential fields any more — this
+/// marker's own "ITI ya Diploma?" + council + year/institute ask was a
+/// duplicate of the SAME information the `qualifications` marker's
+/// `educations[]` entries already capture (and the only one of the two the
+/// résumé pipeline should read from — see `TradeFormEducationEntry`). Backend
+/// cleanup of the now-dead `work_preferences.education_*` columns/vocabulary
+/// (`EDUCATION_CREDENTIALS` in `worker-preferences.vocabulary.ts`, separate
+/// from `EDUCATION_QUALIFICATIONS`) is tracked for Prakash.
 class TradeFormPreferences extends Equatable {
   const TradeFormPreferences({
     this.languages = const <String>{},
@@ -293,10 +302,6 @@ class TradeFormPreferences extends Equatable {
     this.willingToRelocate = false,
     this.accommodationNeeded = false,
     this.salaryExpectedMax,
-    this.educationCredential,
-    this.educationCouncil,
-    this.educationYear,
-    this.educationInstitute,
   });
 
   final Set<String> languages;
@@ -307,10 +312,6 @@ class TradeFormPreferences extends Equatable {
   final bool willingToRelocate;
   final bool accommodationNeeded;
   final int? salaryExpectedMax;
-  final String? educationCredential;
-  final String? educationCouncil;
-  final int? educationYear;
-  final String? educationInstitute;
 
   TradeFormPreferences copyWith({
     Set<String>? languages,
@@ -321,10 +322,6 @@ class TradeFormPreferences extends Equatable {
     bool? willingToRelocate,
     bool? accommodationNeeded,
     Object? salaryExpectedMax = _sentinel,
-    Object? educationCredential = _sentinel,
-    Object? educationCouncil = _sentinel,
-    Object? educationYear = _sentinel,
-    Object? educationInstitute = _sentinel,
   }) {
     return TradeFormPreferences(
       languages: languages ?? this.languages,
@@ -337,18 +334,6 @@ class TradeFormPreferences extends Equatable {
       salaryExpectedMax: salaryExpectedMax == _sentinel
           ? this.salaryExpectedMax
           : salaryExpectedMax as int?,
-      educationCredential: educationCredential == _sentinel
-          ? this.educationCredential
-          : educationCredential as String?,
-      educationCouncil: educationCouncil == _sentinel
-          ? this.educationCouncil
-          : educationCouncil as String?,
-      educationYear: educationYear == _sentinel
-          ? this.educationYear
-          : educationYear as int?,
-      educationInstitute: educationInstitute == _sentinel
-          ? this.educationInstitute
-          : educationInstitute as String?,
     );
   }
 
@@ -368,14 +353,6 @@ class TradeFormPreferences extends Equatable {
     if (salaryExpectedMax != null) {
       body['salary_expected_max'] = salaryExpectedMax;
     }
-    if (educationCredential != null) {
-      body['education_credential'] = educationCredential;
-    }
-    if (educationCouncil != null) body['education_council'] = educationCouncil;
-    if (educationYear != null) body['education_year'] = educationYear;
-    if (educationInstitute != null) {
-      body['education_institute'] = educationInstitute;
-    }
     return body;
   }
 
@@ -389,10 +366,6 @@ class TradeFormPreferences extends Equatable {
         willingToRelocate,
         accommodationNeeded,
         salaryExpectedMax,
-        educationCredential,
-        educationCouncil,
-        educationYear,
-        educationInstitute,
       ];
 }
 

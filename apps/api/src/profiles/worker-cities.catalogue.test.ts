@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { canonicalCity } from "@badabhai/profiling-lexicon";
 import CITIES_FILE from "@badabhai/profiling-lexicon/data/cities.json";
 
-import { CITY_CATALOGUE } from "./worker-cities.catalogue";
+import { CITY_CATALOGUE, STATE_CATALOGUE } from "./worker-cities.catalogue";
 import { SetMyPreferencesSchema } from "./worker-preferences.dto";
 
 /**
@@ -163,6 +163,41 @@ describe("the gazetteer file itself", () => {
         canonical.has(target),
         `alias "${alias}" points at "${target}", not a canonical city`,
       ).toBe(true);
+    }
+  });
+
+  it("tags every canonical city with a state, and only with a real one (#1429)", () => {
+    // THE GATE ON THE STATE TAG IS THE SAME GATE AS THE REST OF THIS FILE: it is hand-maintained
+    // JSON, so the EDIT is what needs catching. A canonical city added without a `states` row is
+    // a city the state-then-city cascade can never reach — it shows in the flat list and vanishes
+    // from every filtered one. The catalogue turns that into a BOOT failure; this turns it into a
+    // red test on the PR that causes it, which is a much better place to read it.
+    const canonical = [...CITIES_FILE.canonical];
+    const tagged = Object.keys(CITIES_FILE.states);
+    expect([...tagged].sort()).toEqual([...canonical].sort());
+
+    // Sorted for the same reason `canonical` and `aliases` are: an out-of-order insert makes the
+    // diff of a privacy-reviewed file unreviewable.
+    expect(tagged).toEqual([...tagged].sort());
+
+    // Every value must be a state the picker actually offers, or the cascade advertises a filter
+    // that matches nothing. STATE_CATALOGUE is the list served to the client.
+    const offered = new Set(STATE_CATALOGUE);
+    for (const [token, state] of Object.entries(CITIES_FILE.states)) {
+      expect(offered.has(state), `"${token}" is tagged "${state}", not an offered state`).toBe(
+        true,
+      );
+    }
+
+    // AND THE TWO DOUBLE-BOOKED TOKENS MUST AGREE. `bengaluru` and `gurgaon` are members of
+    // `canonical` AND keys of `aliases`, so each pair folds to ONE city — tagging the two halves
+    // differently would make the surviving state depend on iteration order.
+    for (const [alias, target] of Object.entries(CITIES_FILE.aliases)) {
+      const aliasState = (CITIES_FILE.states as Record<string, string | undefined>)[alias];
+      if (aliasState === undefined) continue; // a pure alias inherits its target's state
+      expect(aliasState, `alias "${alias}" and target "${target}" disagree on state`).toBe(
+        (CITIES_FILE.states as Record<string, string | undefined>)[target],
+      );
     }
   });
 
