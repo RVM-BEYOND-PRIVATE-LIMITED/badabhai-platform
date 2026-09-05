@@ -1,3 +1,17 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+WHAT NO E-PHASE COVERS — dropped visibly, not quietly. Each survived an adversarial
+refutation pass (already-ships / an-E-phase-covers-it / a-signed-ruling-deleted-it):
+  - The attribute FACET itself — R7 option (a) as running code, with its two constraints:
+    400 on an unknown facet key, and the key list sourced from the question-pack
+    attribute whitelist. ADR-0040 Decision 7 now PERMITS this; E2_BUILD.md explicitly
+    puts building it out of scope. So the ruling is covered and the build is not.
+
+P5_BUILD is R7 option (a) verbatim. ADR-0040 (unsigned) carries that ruling now, so the
+QUESTION moves to the ADR and only the BUILD is dropped.
+
+------------------------------------------------------------------------------
 PHASE-ID: P5
 STATUS: BLOCKED ON RULING R7. The hot-tag half is deleted by ADR-0036. The expected artifact is
 a HALT file, not code.
@@ -15,7 +29,7 @@ Absent code is NOT "phase not built" here. Shipped facet code IS the FAIL.
 Do these checks and paste raw output with exit codes:
 1. ls -l docs/qa/evidence/P5/HALT.md, then grep -n "R7\|774\|P0" it. A missing file, or one
    naming neither R7 nor the P0 FAIL, is a FAIL.
-2. sed -n '774p' docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md. Dotted and blank means R7 is
+2. sed -n '794p' docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md. Dotted and blank means R7 is
    open and the HALT was correct. A signature there means this brief is stale: stop and report
    that, do not proceed.
 3. git grep --untracked -in "facet" -- apps/api/src packages/reach-engine/src

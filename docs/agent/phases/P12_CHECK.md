@@ -1,10 +1,20 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+WHAT NO E-PHASE COVERS — dropped visibly, not quietly. Each survived an adversarial
+refutation pass (already-ships / an-E-phase-covers-it / a-signed-ruling-deleted-it):
+  - The in-app-purchase dependency guard test under `apps/payer-app/test`. The invariant
+    holds today by convention; nothing enforces it. `kShowBuyCreditsOnWeb = false` is a
+    visibility flag, not a dependency gate.
+
+------------------------------------------------------------------------------
 PHASE-ID: P12
 INVARIANT: apps/payer-app declares no payment or in-app-purchase package anywhere in
 pubspec.yaml and no file under lib/ imports one, both enforced by a test in apps/payer-app/test
 that reads those files and fails when either appears.
 
 PRECONDITIONS, before artifacts. CHECK_RULES.md:43 admits only PASS or FAIL — use FAIL.
-- R6 signed: RVM_TAXONOMY_WORKSHEET_2026-09.md:743 and :745 both filled in. Blank means the
+- R6 signed: RVM_TAXONOMY_WORKSHEET_2026-09.md:765 and :745 both filled in. Blank means the
   build correctly stopped: FAIL, reason "blocked on unsigned R6 — build halted", NOT "phase not
   built". Naming the owner was never this phase's job (BUILD_RULES.md:31). Whether CHECK_RULES
   should gain a BLOCKED verdict is an owner question, not yours to settle.

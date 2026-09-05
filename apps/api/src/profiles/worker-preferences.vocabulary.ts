@@ -61,6 +61,22 @@ export const DOCUMENTS_READY: PreferenceVocabulary = {
   pan: "PAN",
   bank_account: "Bank account",
   uan_pf: "UAN / PF",
+  /**
+   * The second statutory number, and it sits beside `uan_pf` because they are the same fact about
+   * a worker: whether he is already inside the formal system.
+   *
+   * MEASURED, NOT ASSUMED. It appears on THIRTEEN of the twenty-one ratified reference pages —
+   * more often than `experience_letter` (3) and `passport_photos` (2), both of which have had a
+   * slug here since the beginning. Every other document those pages print was already in this
+   * dictionary; ESIC was the only one missing, so a worker who has one had no way to say so and
+   * the row simply never mentioned it.
+   *
+   * IT IS HIRING FRICTION, WHICH IS WHAT THIS BLOCK IS FOR. An employer reading "documents ready"
+   * is asking how fast this man can start. A worker who already holds an ESIC number joins on the
+   * existing registration; one who does not needs a fresh enrolment before he is covered, and on
+   * a factory floor that is a real delay somebody has to own.
+   */
+  esic: "ESIC",
   iti_certificate: "ITI certificate",
   experience_letter: "Experience letter",
   passport_photos: "Passport photos",
@@ -148,6 +164,37 @@ export const EDUCATION_COUNCILS: PreferenceVocabulary = {
  * BACKWARD COMPATIBLE BY CONSTRUCTION. `education_level` keeps its stored `iti_diploma` value and
  * its meaning; this is an ADDITIONAL, narrower fact. A worker who never answers the form still
  * prints "ITI / Diploma", which is true of him — it is unspecific, not wrong.
+ *
+ * ═══ #1447 — THE CLIENT STOPPED ASKING; THIS DID NOT BECOME DEAD ═══
+ *
+ * The trade form's "Availability & terms" marker no longer collects the credential, and #1447
+ * asked whether this dictionary and the four `education_*` attribute keys could now be dropped.
+ * They cannot, for two independent reasons.
+ *
+ * FIRST, THE WRITE HAS NOT ACTUALLY STOPPED. Two client surfaces PUT to /workers/me/work-preferences
+ * and only one of them changed: the finishing form still sends all four
+ * (`finishing_models.dart:221-227`).
+ *
+ * SECOND — and this holds even if both stopped — "no client writes it" and "nothing reads it" are
+ * different facts, and only the first would be true.
+ *
+ * READ PATH, STILL LIVE: `resume-preference-facts.ts:146` composes `educationCredential` /
+ * `educationDetail` from these keys, and `resume-render-input.ts` resolves Zone 5's education
+ * headline as `tradeSheet?.qualification?.educationHeadline ?? <that composition>` (:627, :902).
+ * The `??` is a FALLBACK, not a leftover — it is what a worker with no `worker_education` rows
+ * renders from, and that is every worker who answered the old form plus every worker who
+ * completes the trade form without reaching the qualifications marker.
+ *
+ * WHAT DELETING IT WOULD COST, measured rather than guessed. `educationLevelText` narrows the
+ * merged `iti_diploma` level to the credential ONLY when this value is present; without it a
+ * worker whose interview stored `iti_diploma` renders "ITI / Diploma — Machinist" instead of
+ * "ITI — Machinist" — the exact R11 §3.1 defect this dictionary was built to fix, on the one line
+ * an employer checks hardest. `yadav-parity.contract.test.ts` pins both halves of that already.
+ * The council, year and institute segments would go with it.
+ *
+ * SO THE CORRECT STATE IS: write path retired at the client's discretion, read path retained and
+ * load-bearing. Retiring the READ is a migration of historical worker data onto
+ * `worker_education` rows, not a deletion.
  */
 export const EDUCATION_CREDENTIALS: PreferenceVocabulary = {
   iti: "ITI",

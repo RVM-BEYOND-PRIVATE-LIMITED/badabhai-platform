@@ -1,3 +1,15 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+WHAT NO E-PHASE COVERS — dropped visibly, not quietly. Each survived an adversarial
+refutation pass (already-ships / an-E-phase-covers-it / a-signed-ruling-deleted-it):
+  - The `weekly_payers` twin of the cap-pinning test — the daily cap is pinned, the
+    10-distinct-payers-per-7-days cap is not.
+  - Boost supply eligibility resolved at the OFFER through one shared method that
+    `assertBoostSupply` also calls, plus the additive field carrying it to the payer.
+    Today it gates at PURCHASE only, and fails OPEN on an unreadable reach count.
+
+------------------------------------------------------------------------------
 PHASE-ID: P6
 INVARIANT: supply eligibility is resolved in ONE method that both the offer read and
 `assertBoostSupply` call, agreeing on every branch — below floor, at floor, floor <= 0,

@@ -1,3 +1,10 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+NOTHING SURVIVES THIS CLOSURE. Every deliverable is either shipped, deleted by a signed
+ruling, or carried by an E-phase. Checked adversarially, not assumed.
+
+------------------------------------------------------------------------------
 PHASE PX — alias ingestion and review tooling. Runs in parallel with everything.
 
 STATUS: CLOSED 2026-09-03 — NOT BUILT (already implemented).

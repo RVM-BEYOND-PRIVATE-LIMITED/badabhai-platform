@@ -7,7 +7,7 @@ import 'package:badabhai_worker_app/core/widgets/bb_spinner.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/cubit/set_pin_cubit.dart';
 import 'package:badabhai_worker_app/features/auth/presentation/set_pin_screen.dart';
-import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_set_pin_form.dart';
 
 class MockAuthSessionManager extends Mock implements AuthSessionManager {}
 
@@ -26,12 +26,11 @@ class FakeSetPinCubit extends SetPinCubit {
       emit(SetPinState(status: SetPinStatus.failure, message: message));
 }
 
-/// The create/reset-PIN screen drives EVERY error through a centred, blocking
-/// dialog and BLOCKS a guessable PIN on the client. Entering the confirm step
-/// ALSO opens a dialog telling the worker to re-enter the same PIN. These tests
-/// pin that behaviour: the confirm prompt, the guessable block, the mismatch
-/// dialog, the server-failure dialog, the happy path, and no short-screen
-/// overflow.
+/// The create/reset-PIN screen is now ONE page: the enter row and the confirm
+/// row are both on screen together (no next-screen transition), driven by the
+/// OS numeric keyboard (no custom keypad). Every error is a centred, blocking
+/// dialog: a guessable PIN is blocked on the client, a mismatch and a server
+/// rejection each clear both rows and explain in a dialog.
 void main() {
   // The exact copy the screen ships — asserted verbatim so a wording drift is
   // caught here rather than by a worker.
@@ -56,12 +55,16 @@ void main() {
     await tester.pump();
   }
 
-  /// Tap the on-screen keypad digit by digit (no OS keyboard on this surface).
-  Future<void> enterPin(WidgetTester tester, String pin) async {
-    for (final String d in pin.split('')) {
-      await tester.tap(find.text(d));
-      await tester.pump();
-    }
+  /// Type into the OS-keyboard-driven field behind a row — no custom keypad on
+  /// this screen any more.
+  Future<void> enterFirst(WidgetTester tester, String pin) async {
+    await tester.enterText(find.byKey(kSetPinFirstFieldKey), pin);
+    await tester.pump();
+  }
+
+  Future<void> enterConfirm(WidgetTester tester, String pin) async {
+    await tester.enterText(find.byKey(kSetPinConfirmFieldKey), pin);
+    await tester.pump();
   }
 
   Future<void> tapOk(WidgetTester tester) async {
@@ -69,105 +72,50 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Enter a valid first PIN and wait for the processing beat + confirm delay,
-  /// landing on the confirm step ready for the second entry.
-  Future<void> advanceToConfirm(WidgetTester tester, String pin) async {
-    await enterPin(tester, pin);
-    // The processing beat + 2s confirm delay (no dialog to dismiss).
-    await tester.pumpAndSettle();
-  }
-
-  testWidgets(
-      'entering the confirm step transitions to the confirm header (no dialog)',
+  testWidgets('both rows are on screen together — no next-screen transition',
       (WidgetTester tester) async {
     await pumpScreen(tester);
-    await enterPin(tester, '3927');
 
-    // The confirm dialog was dropped — the header now carries the prompt.
-    // After the processing beat + delay, the confirm header appears directly.
-    await tester.pumpAndSettle();
-    expect(find.text('PIN confirm karein'), findsNothing);
-    expect(find.text('PIN dobara daalein'), findsOneWidget);
+    expect(find.text('PIN DAALEIN'), findsOneWidget);
+    expect(find.text('PIN DOBARA DAALEIN'), findsOneWidget);
+    expect(find.byKey(kSetPinFirstFieldKey), findsOneWidget);
+    expect(find.byKey(kSetPinConfirmFieldKey), findsOneWidget);
   });
 
-  testWidgets('the 4th-dot pop plays first, THEN a 2-second loader, THEN confirm',
+  testWidgets('a guessable PIN is blocked with a dialog and clears the row',
       (WidgetTester tester) async {
     await pumpScreen(tester);
-    await enterPin(tester, '3927'); // strong PIN → 4th digit lands
-
-    // Briefly the keypad is STILL up so the 4th dot's fill-pop can render — the
-    // loader has not swapped in yet (this is the fix: the swap no longer lands
-    // in the same frame and eats the 4th dot's pop).
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(find.byType(BbPinKeypad), findsOneWidget);
-    expect(find.byType(BbSpinner), findsNothing);
-
-    // After the ~300ms pop beat, the loader takes over; confirm not reached yet.
-    await tester.pump(const Duration(milliseconds: 400)); // ~500ms in
-    expect(find.byType(BbSpinner), findsOneWidget);
-    expect(find.text('PIN set kar rahe hain…'), findsOneWidget);
-    expect(find.byType(BbPinKeypad), findsNothing);
-    expect(find.text('PIN dobara daalein'), findsNothing);
-
-    // After the 2-second delay the loader clears into the confirm header.
-    await tester.pump(const Duration(seconds: 2));
-    await tester.pumpAndSettle();
-    expect(find.byType(BbSpinner), findsNothing);
-    expect(find.text('PIN dobara daalein'), findsOneWidget);
-    // The redundant confirm dialog was dropped — the header carries the prompt.
-    expect(find.text('PIN confirm karein'), findsNothing);
-  });
-
-  testWidgets('a guessable PIN is blocked with a dialog and never advances',
-      (WidgetTester tester) async {
-    await pumpScreen(tester);
-    await enterPin(tester, '1234');
+    await enterFirst(tester, '1234');
     await tester.pumpAndSettle();
 
-    // The centred block — not a silent advance, and NOT the confirm prompt.
+    // The centred block — not a silent advance.
     expect(find.text('Yeh PIN aasan hai'), findsOneWidget);
     expect(find.text(guessMsg), findsOneWidget);
-    expect(find.text('PIN confirm karein'), findsNothing);
 
     await tapOk(tester);
 
-    // Still on the ENTER step: the enter title is present, the confirm one is not.
-    expect(find.text('PIN banayein'), findsOneWidget);
-    expect(find.text('PIN dobara daalein'), findsNothing);
-    // A hard client block never reaches the cubit.
+    // Still on the one page; the confirm row was never reached.
+    expect(find.text('PIN DAALEIN'), findsOneWidget);
     expect(cubit.submitted, isEmpty);
   });
 
-  testWidgets('a strong PIN advances to the confirm step (after the prompt)',
+  testWidgets('a mismatched confirm shows the mismatch dialog and clears both rows',
       (WidgetTester tester) async {
     await pumpScreen(tester);
-    await advanceToConfirm(tester, '3927');
-
-    expect(find.text('PIN dobara daalein'), findsOneWidget); // confirm header
-    expect(cubit.submitted, isEmpty);
-  });
-
-  testWidgets('a mismatched confirm shows the mismatch dialog, back to enter',
-      (WidgetTester tester) async {
-    await pumpScreen(tester);
-    await advanceToConfirm(tester, '3927');
-
-    await enterPin(tester, '1122'); // differs from 3927
+    await enterFirst(tester, '3927');
+    await enterConfirm(tester, '1122'); // differs from 3927
     await tester.pumpAndSettle();
-    expect(find.text('PIN alag hai'), findsOneWidget);
 
+    expect(find.text('PIN alag hai'), findsOneWidget);
     await tapOk(tester);
-    expect(find.text('PIN banayein'), findsOneWidget); // back to enter
     expect(cubit.submitted, isEmpty);
   });
 
   testWidgets('a matching confirm submits the PIN exactly once',
       (WidgetTester tester) async {
     await pumpScreen(tester);
-    await advanceToConfirm(tester, '3927');
-
-    await enterPin(tester, '3927'); // matches
-    await tester.pump();
+    await enterFirst(tester, '3927');
+    await enterConfirm(tester, '3927'); // matches
 
     expect(cubit.submitted, <String>['3927']);
   });
@@ -182,6 +130,20 @@ void main() {
     expect(find.text('Server ne yeh PIN reject kar diya'), findsOneWidget);
   });
 
+  testWidgets('while submitting, the spinner shows and no custom keypad exists',
+      (WidgetTester tester) async {
+    await pumpScreen(tester);
+    // isSubmitting only ever comes from the real cubit state, not this fake —
+    // this test just pins that the busy affordance is the real spinner, and
+    // that the screen never renders a custom on-screen keypad at all.
+    await enterFirst(tester, '3927');
+    await enterConfirm(tester, '3927');
+    await tester.pump();
+
+    expect(find.text('7'), findsNothing); // no digit keys anywhere
+    expect(find.byType(BbSpinner), findsNothing); // fake cubit never submits
+  });
+
   testWidgets('a short screen scrolls instead of overflowing',
       (WidgetTester tester) async {
     tester.view.physicalSize = const Size(360, 480);
@@ -191,7 +153,7 @@ void main() {
 
     await pumpScreen(tester);
 
-    // The keypad body centres when there is room and scrolls when cramped — it
+    // Both rows visible at once take more vertical room than a single step —
     // must never throw a RenderFlex overflow on a small handset.
     expect(tester.takeException(), isNull);
   });

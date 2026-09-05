@@ -1,11 +1,25 @@
-STATUS: BLOCKED ON RULING R7 (unsigned, docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md:774).
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+WHAT NO E-PHASE COVERS — dropped visibly, not quietly. Each survived an adversarial
+refutation pass (already-ships / an-E-phase-covers-it / a-signed-ruling-deleted-it):
+  - The attribute FACET itself — R7 option (a) as running code, with its two constraints:
+    400 on an unknown facet key, and the key list sourced from the question-pack
+    attribute whitelist. ADR-0040 Decision 7 now PERMITS this; E2_BUILD.md explicitly
+    puts building it out of scope. So the ruling is covered and the build is not.
+
+P5_BUILD is R7 option (a) verbatim. ADR-0040 (unsigned) carries that ruling now, so the
+QUESTION moves to the ADR and only the BUILD is dropped.
+
+------------------------------------------------------------------------------
+STATUS: BLOCKED ON RULING R7 (unsigned, docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md:794).
 The hot-tag half of this phase is deleted outright; what remains IS R7 option (a) verbatim, and
 building it settles an open ruling. BUILD_RULES.md:31 makes that a full stop. HALT and ask.
 
 PHASE P5 — an employer facet over the applicants list.
 
 DO THIS, AND ONLY THIS.
-Write docs/qa/evidence/P5/HALT.md. Name R7 and worksheet:774, or name the P0 FAIL
+Write docs/qa/evidence/P5/HALT.md. Name R7 and worksheet:794, or name the P0 FAIL
 (docs/qa/evidence/P0/VERDICT.md line 1 is "FAIL", and README.md:47 forbids starting downstream
 of that). Either ground is sufficient. Change no code. No route, no query parameter, no
 constant, no test.
@@ -37,7 +51,8 @@ RECORD FOR WHEN R7 IS SIGNED. Do not build on any of it now.
   - FACET KEY SOURCE, until matching_catalog carries real values: the question-pack JSON,
     packages/db/data/question-packs/packs/*.json, keyed "target_kind": "attribute" plus
     "target_field" — qp_cnc_turning.json:94-95 gives controller_brand, six option_keys at
-    :101-129. matching_catalog is not on main (open PR #1387, DO NOT MERGE) and P1_BUILD.md:45-46
+    :101-129. matching_catalog is not on main (PR #1387 CLOSED UNMERGED 2026-09-04; branch
+    origin/p1-matching-catalog survives at a454fac0) and P1_BUILD.md:45-46
     seeds only an is_active=false fixture with no real values. Do NOT source it from
     apps/api/src/match/pack-attribute-skills.ts:78, which carries three of the six on purpose.
   - OPEN, NOT YOURS TO SETTLE: (i) does ADR-0036:86, "Boost never touches the company's

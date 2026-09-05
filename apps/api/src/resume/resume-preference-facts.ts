@@ -33,6 +33,16 @@ export interface ResumePreferenceFacts {
   readonly preferredLocations: string[];
   /** "Rotational shifts · Permanent" — shift and employment type, as the ratified sheet joins them. */
   readonly shiftLine: string | null;
+  /**
+   * The shift half of {@link shiftLine} on its own ("Night shift"), or null.
+   *
+   * EXPOSED SEPARATELY BECAUSE ONE CALLER NEEDS THE HALF, NOT THE LINE (#1426).
+   * `humanizeAvailability` suppresses the night-shift-readiness clause when the sheet's shift
+   * already says nights, and its test is an ANCHORED regex — so it can match "Night shift" and
+   * can never match "Night shift · Permanent". Splitting the composed line back apart at the
+   * separator would work today and break the first time a half contains one.
+   */
+  readonly shiftLabel: string | null;
   /** Undefined means UNANSWERED. Only `true` ever prints; see `buildAvailabilityRows`. */
   readonly willingToRelocate: boolean | undefined;
   readonly accommodationNeeded: boolean | undefined;
@@ -68,6 +78,7 @@ export const NO_PREFERENCES: ResumePreferenceFacts = {
   documents: [],
   preferredLocations: [],
   shiftLine: null,
+  shiftLabel: null,
   willingToRelocate: undefined,
   accommodationNeeded: undefined,
   educationDetail: null,
@@ -133,6 +144,7 @@ export function readPreferenceFacts(
     // ("Rotational shifts · Permanent") and an empty half must take its separator with it — the
     // same rule the verdict line follows. Either half alone still prints.
     shiftLine: [shift, jobType].filter((v): v is string => v !== null).join(" · ") || null,
+    shiftLabel: shift,
     willingToRelocate: flag(attributes.relocation_willingness),
     accommodationNeeded: flag(attributes.accommodation_needed),
     // COUNCIL, YEAR, INSTITUTE - in the order the ratified sheet prints them, each dropping its

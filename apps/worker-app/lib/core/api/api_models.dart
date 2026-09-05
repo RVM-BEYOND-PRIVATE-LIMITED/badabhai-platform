@@ -1817,10 +1817,20 @@ class ResumeFieldsDto extends Equatable {
 /// never rendered, never submitted; they exist so a worker typing the name
 /// they actually use still finds the city the résumé prints.
 class CityOptionDto extends Equatable {
-  const CityOptionDto({required this.value, required this.aliases});
+  const CityOptionDto({
+    required this.value,
+    required this.aliases,
+    this.state = '',
+  });
 
   final String value;
   final List<String> aliases;
+
+  /// The state/UT this city is in (#1429) — a member of
+  /// [WorkPrefOptionsDto.states], by exact string equality. PURELY a filter
+  /// key for a state-then-city cascade; never part of the
+  /// `preferred_cities` write contract, which still submits [value] alone.
+  final String state;
 
   factory CityOptionDto.fromJson(Map<String, dynamic> json) => CityOptionDto(
         value: json['value'] as String? ?? '',
@@ -1828,10 +1838,11 @@ class CityOptionDto extends Equatable {
                 ?.whereType<String>()
                 .toList() ??
             const <String>[],
+        state: json['state'] as String? ?? '',
       );
 
   @override
-  List<Object?> get props => <Object?>[value, aliases];
+  List<Object?> get props => <Object?>[value, aliases, state];
 }
 
 class WorkPrefOptionsDto extends Equatable {
@@ -1841,6 +1852,7 @@ class WorkPrefOptionsDto extends Equatable {
     required this.jobType,
     required this.shift,
     this.cities = const <CityOptionDto>[],
+    this.states = const <String>[],
   });
 
   final Map<String, String> languages;
@@ -1848,6 +1860,11 @@ class WorkPrefOptionsDto extends Equatable {
   final Map<String, String> jobType;
   final Map<String, String> shift;
   final List<CityOptionDto> cities;
+
+  /// The state/UT picker list (#1429), in server order — the same strings
+  /// [CityOptionDto.state] carries, so filtering a city list to one state is
+  /// plain string equality with no lookup table of its own.
+  final List<String> states;
 
   static Map<String, String> _labelMap(dynamic raw) {
     if (raw is! Map) return const <String, String>{};
@@ -1876,11 +1893,15 @@ class WorkPrefOptionsDto extends Equatable {
         jobType: _labelMap(json['job_type']),
         shift: _labelMap(json['shift']),
         cities: _cityList(json['cities']),
+        states: (json['states'] as List<dynamic>?)
+                ?.whereType<String>()
+                .toList() ??
+            const <String>[],
       );
 
   @override
   List<Object?> get props =>
-      <Object?>[languages, documentsReady, jobType, shift, cities];
+      <Object?>[languages, documentsReady, jobType, shift, cities, states];
 }
 
 /// GET /workers/me/qualifications/options (#1384/#1385, migration 0098) — the

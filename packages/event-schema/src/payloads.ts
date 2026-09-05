@@ -62,6 +62,29 @@ export const WorkerNameRecordedPayload = z.object({
   worker_id: uuidSchema,
 });
 
+// The worker recorded their coarse home location on the first onboarding screen (#1428).
+//
+// THE VALUES DO NOT TRAVEL, and that is the same decision `WorkerEmploymentRecordedPayload` below
+// took for the same reason. A city is NOT an identifier — the 2026-07-31 owner ruling is explicit
+// that it must never be redacted from an AI prompt, because it is the strongest matching signal
+// this product has. But a city plus a state plus a worker id plus a timestamp narrows a person
+// considerably, and an audit trail needs none of it: what it needs to know is that the worker
+// answered, and which halves they gave. `worker-preferences.service.ts` states the same rule as
+// "COUNTS, NEVER THE ANSWERS".
+//
+// A SEPARATE EVENT FROM `worker.name_recorded` rather than two more fields on it. They ride one
+// PATCH, but they are different facts with different lifetimes — a name is set once and a location
+// can be re-stated — and widening a shipped payload is the schema mutation §3 forbids.
+export const WorkerLocationRecordedPayload = z
+  .object({
+    worker_id: uuidSchema,
+    /** Whether this write supplied a city. Never which city. */
+    city_recorded: z.boolean(),
+    /** Whether this write supplied a state. Never which state. */
+    state_recorded: z.boolean(),
+  })
+  .strict();
+
 // The worker recorded their work history on the post-interview form.
 //
 // PII-FREE, AND THIS ONE TOOK A DECISION RATHER THAN A CONVENTION. The employer name IS the
@@ -110,7 +133,8 @@ export const WorkerPreferencesRecordedPayload = z
  * ═══ WHY NOT MORE COUNTS ON `worker.preferences_recorded` ═══
  *
  * That payload counts ATTRIBUTE KEYS, and its `keys_written` is bounded at 16 because
- * `PREFERENCE_KEYS` has sixteen entries. Certificates and educations are rows in their own tables
+ * `PREFERENCE_KEYS` has twelve entries (counted 2026-09-05; this line said sixteen and was never
+ * moved as the map changed — the cap below is deliberately loose, not derived from the count). Certificates and educations are rows in their own tables
  * with their own uniqueness constraint and their own endpoint; folding their counts into a field
  * named for attribute keys would make the number mean two things and its bound meaningless. This
  * is the shape `worker.employment_recorded` already has, for a table of the same kind.

@@ -7,6 +7,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
+import '../../../../core/widgets/bb_searchable_dropdown_field.dart';
 import '../../../../core/widgets/bb_toggle.dart';
 import '../../domain/trade_form_models.dart';
 import 'trade_form_text_field.dart';
@@ -19,9 +20,12 @@ const String _kShiftLabel = 'Shift';
 const String _kJobTypeLabel = 'Naukri ka type';
 const String _kCitiesLabel = 'Kahan kaam karna chahte hain?';
 const String _kCitiesSubtitle = 'Zyada se zyada 5 sheher jod sakte hain.';
+const String _kStateLabel = 'State';
+const String _kPickStateLabel = 'STATE CHUNEIN';
 const String _kCityHint = 'Sheher ka naam likhein';
 const String _kCityNotFoundError =
     'Yeh sheher list mein nahi mila — neeche diye suggestion mein se chunein.';
+const String _kCityAddedToast = 'Sheher add ho gaya';
 
 /// The tap-to-add suggestion row shows at most this many cities at once —
 /// mirrors `_kMaxSuggestionChips` on the qualifications page's certificate
@@ -31,32 +35,7 @@ const int _kMaxCitySuggestions = 6;
 const String _kRelocateLabel = 'Doosre sheher ja sakte hain?';
 const String _kAccommodationLabel = 'Rehne ki jagah chahiye?';
 const String _kSalaryLabel = 'Mahine ki salary kitni chahte hain?';
-const String _kCredentialLabel = 'Agar ITI ya Diploma hai to kaun sa?';
-const String _kCouncilLabel = 'Council / board';
-const String _kEduYearLabel = 'Kis saal poora hua';
-const String _kEduYearHint = 'Jaise: 2018';
-const String _kInstituteLabel = 'Institute ka naam';
-const String _kInstituteHint = 'Jaise: Govt. ITI, Faridabad';
 const String _kOptionalNote = 'Jo laagu ho, wahi bharein — sab optional hai.';
-
-// #1298's education vocabularies are not served by an options endpoint, so
-// they are pinned here from the authoritative source
-// (apps/api/src/profiles/worker-preferences.vocabulary.ts), same as
-// `features/finishing` does today.
-const Map<String, String> _kCredentials = <String, String>{
-  'iti': 'ITI',
-  'diploma': 'Diploma',
-};
-const Map<String, String> _kCouncils = <String, String>{
-  'ncvt': 'NCVT',
-  'scvt': 'SCVT',
-  'nsqf': 'NSQF',
-  'aicte': 'AICTE',
-  'state_board': 'State board',
-  'cbse': 'CBSE',
-  'icse': 'ICSE',
-  'open_school': 'NIOS / Open school',
-};
 
 const Map<int, String> _kSalaryBands = <int, String>{
   15000: '₹10–15 hazaar',
@@ -66,10 +45,6 @@ const Map<int, String> _kSalaryBands = <int, String>{
   50000: '₹35–50 hazaar',
   100000: '₹50 hazaar se upar',
 };
-
-const int _kYearMin = 1950;
-const String _kYearFutureError = 'Yeh saal abhi aaya nahi — sahi saal likhein';
-const String _kYearInvalidError = 'Sahi saal likhein';
 
 /// The `type: "preferences"` marker screen (#1341) — the closed-set fields
 /// `PUT /workers/me/work-preferences` owns. #1384 item 2 split what was
@@ -119,13 +94,22 @@ class TradeFormPreferencesPage extends StatefulWidget {
 }
 
 class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
-  /// Page 0: languages + documents · 1: shift · 2: job type · 3: cities ·
-  /// 4: relocate + accommodation + salary · 5: education. Shift, job type
-  /// and cities were one shared page until the owner flagged a worker
-  /// facing all three questions at once as a single wall — each is its own
-  /// internal page now. Fixed count — this marker's field groups never
-  /// change size at runtime (contrast `TradeFormEmploymentPageState.pageCount`,
-  /// which is driven by a repeat-row list).
+  /// Page 0: languages · 1: documents · 2: shift · 3: job type · 4: cities ·
+  /// 5: relocate + accommodation + salary. Every one of these used to share a
+  /// page with at least one other question — languages+documents, then
+  /// shift+jobType+cities — until the owner flagged a worker facing more than
+  /// one question at a time as a single wall. Fixed count — this marker's
+  /// field groups never change size at runtime (contrast
+  /// `TradeFormEmploymentPageState.pageCount`, which is driven by a
+  /// repeat-row list).
+  ///
+  /// USED TO carry 3 more pages (credential / council / kis saal poora hua +
+  /// institute) — dropped because they asked the SAME "ITI ya Diploma?"
+  /// question the `qualifications` marker's education entries already ask,
+  /// on a DIFFERENT screen with a DIFFERENT vocabulary
+  /// (`EDUCATION_CREDENTIALS` here vs `EDUCATION_QUALIFICATIONS` there). The
+  /// qualifications marker is the one kept; backend cleanup of the now-dead
+  /// `work_preferences.education_*` columns is tracked for Prakash.
   static const int pageCount = 6;
 
   WorkPrefOptionsDto? _options;
@@ -141,11 +125,12 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// catalogue, so accepting an unresolved city client-side would just move
   /// the dead end from submit-time to save-time.
   String? _cityError;
-  late final TextEditingController _year = TextEditingController(
-      text: widget.initialPreferences?.educationYear?.toString() ?? '');
-  late final TextEditingController _institute = TextEditingController(
-      text: widget.initialPreferences?.educationInstitute ?? '');
-  late String? _yearError = _yearErrorText(_year.text);
+
+  /// The state currently narrowing the city search (#1429) — a PURE UI
+  /// filter, never part of [_prefs]/the write contract (`preferred_cities`
+  /// still submits the city's [CityOptionDto.value] alone). Null means no
+  /// state picked yet, so the city search stays closed (see [_citiesPage]).
+  String? _cityState;
 
   int _page = 0;
   bool get isFirstPage => _page <= 0;
@@ -180,14 +165,20 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   @override
   void dispose() {
     _city.dispose();
-    _year.dispose();
-    _institute.dispose();
     super.dispose();
   }
 
   /// Called by the screen's sticky bottom bar ONLY on this marker's LAST
   /// internal page — see `_WizardScaffoldState`'s routing.
   void save() => widget.onSave(_prefs);
+
+  /// No page on this marker can be entered wrong any more — every field is
+  /// closed-set chips/toggles/a resolved-city picker. (The one free-typed
+  /// field that COULD fail, the education year, left with the education
+  /// pages — see `pageCount`'s doc.) Checked by `_WizardScaffoldState` before
+  /// [goToNextPage]/[save] for every marker, so this stays a real method
+  /// rather than being dropped from the shared interface.
+  String? currentPageError() => null;
 
   void goToNextPage() {
     if (isLastPage) return;
@@ -205,29 +196,6 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     final Set<String> next = Set<String>.of(set);
     if (!next.add(slug)) next.remove(slug);
     return next;
-  }
-
-  /// Floor `1950`, ceiling TODAY'S year, not the server's fixed `2100` — an
-  /// education cannot complete in the future, so the client shouldn't
-  /// produce a value the server would only accept because its own bound is
-  /// far looser.
-  int? _yearInRange(String s) {
-    final int? v = int.tryParse(s.trim());
-    if (v == null || v < _kYearMin || v > DateTime.now().year) return null;
-    return v;
-  }
-
-  /// Inline message for the year field, or null while still valid
-  /// (including mid-typing a 4-digit year).
-  static String? _yearErrorText(String s) {
-    final String t = s.trim();
-    if (t.length < 4) return null;
-    if (t.length > 4) return _kYearInvalidError;
-    final int? v = int.tryParse(t);
-    if (v == null) return _kYearInvalidError;
-    if (v > DateTime.now().year) return _kYearFutureError;
-    if (v < _kYearMin) return _kYearInvalidError;
-    return null;
   }
 
   @override
@@ -267,21 +235,21 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   Widget _pageContent(WorkPrefOptionsDto options) {
     switch (_page) {
       case 0:
-        return _languagesAndDocumentsPage(options);
+        return _languagesPage(options);
       case 1:
-        return _shiftPage(options);
+        return _documentsPage(options);
       case 2:
-        return _jobTypePage(options);
+        return _shiftPage(options);
       case 3:
-        return _citiesPage(options);
+        return _jobTypePage(options);
       case 4:
-        return _relocateAccommodationSalaryPage();
+        return _citiesPage(options);
       default:
-        return _educationPage();
+        return _relocateAccommodationSalaryPage();
     }
   }
 
-  Widget _languagesAndDocumentsPage(WorkPrefOptionsDto options) {
+  Widget _languagesPage(WorkPrefOptionsDto options) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
@@ -293,6 +261,17 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
         _multiChips(options.languages, _prefs.languages,
             (String slug) => setState(() => _prefs = _prefs.copyWith(
                 languages: _toggled(_prefs.languages, slug)))),
+      ],
+    );
+  }
+
+  Widget _documentsPage(WorkPrefOptionsDto options) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(_kOptionalNote,
+            style: AppTypography.body(
+                size: AppTypography.sizeSm, color: AppColors.textMuted)),
         const SizedBox(height: AppSpacing.s5),
         _label(_kDocLabel),
         _multiChips(options.documentsReady, _prefs.documentsReady,
@@ -343,38 +322,44 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
         // cap, same convention as `kTradeFormMaxCertificates`/
         // `kTradeFormMaxEducations`'s add button.
         if (!atCityCap) ...<Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(
-                child: TradeFormTextField(
-                  controller: _city,
-                  hint: _kCityHint,
-                  textInputAction: TextInputAction.done,
-                  errorText: _cityError,
-                  onChanged: (String v) => setState(() => _cityError = null),
-                  onSubmitted: (_) => _submitTypedCity(options),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.s2),
-              BbButton(
-                label: '+',
-                variant: BbButtonVariant.secondary,
-                size: BbButtonSize.md,
-                onPressed: () => _submitTypedCity(options),
+          // State-then-city cascade (#1429): the state list picks which
+          // state's cities the search below offers — no "+" add button, a
+          // worker cannot enter a custom city (the server's gazetteer is
+          // closed, #1406/#1410), so the ONLY way to add one is picking a
+          // suggestion chip below (or hitting the keyboard's "Done", which
+          // resolves the same exact-match check a "+" button would have).
+          _label(_kStateLabel),
+          BbSearchableDropdownField(
+            placeholder: _kPickStateLabel,
+            options: options.states,
+            selected: _cityState,
+            onSelected: (String state) => setState(() {
+              _cityState = state;
+              _city.clear();
+              _cityError = null;
+            }),
+          ),
+          if (_cityState != null) ...<Widget>[
+            const SizedBox(height: AppSpacing.s3),
+            TradeFormTextField(
+              controller: _city,
+              hint: _kCityHint,
+              textInputAction: TextInputAction.done,
+              errorText: _cityError,
+              onChanged: (String v) => setState(() => _cityError = null),
+              onSubmitted: (_) => _submitTypedCity(options),
+            ),
+            if (suggestions.isNotEmpty) ...<Widget>[
+              const SizedBox(height: AppSpacing.s2),
+              Wrap(
+                spacing: AppSpacing.s2,
+                runSpacing: AppSpacing.s2,
+                children: <Widget>[
+                  for (final CityOptionDto c in suggestions)
+                    BbChip(label: c.value, onTap: () => _addResolvedCity(c)),
+                ],
               ),
             ],
-          ),
-          if (suggestions.isNotEmpty) ...<Widget>[
-            const SizedBox(height: AppSpacing.s2),
-            Wrap(
-              spacing: AppSpacing.s2,
-              runSpacing: AppSpacing.s2,
-              children: <Widget>[
-                for (final CityOptionDto c in suggestions)
-                  BbChip(label: c.value, onTap: () => _addResolvedCity(c)),
-              ],
-            ),
           ],
         ],
         if (_prefs.preferredCities.isNotEmpty) ...<Widget>[
@@ -443,63 +428,24 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     );
   }
 
-  Widget _educationPage() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        _label(_kCredentialLabel),
-        _singleChips(_kCredentials, _prefs.educationCredential,
-            (String slug) => setState(() => _prefs = _prefs.copyWith(
-                educationCredential:
-                    _prefs.educationCredential == slug ? null : slug))),
-        const SizedBox(height: AppSpacing.s5),
-        _label(_kCouncilLabel),
-        _singleChips(_kCouncils, _prefs.educationCouncil,
-            (String slug) => setState(() => _prefs = _prefs.copyWith(
-                educationCouncil:
-                    _prefs.educationCouncil == slug ? null : slug))),
-        const SizedBox(height: AppSpacing.s5),
-        _label(_kEduYearLabel),
-        TradeFormTextField(
-          controller: _year,
-          hint: _kEduYearHint,
-          label: _kEduYearLabel,
-          keyboardType: TextInputType.number,
-          errorText: _yearError,
-          onChanged: (String v) => setState(() {
-            _prefs = _prefs.copyWith(educationYear: _yearInRange(v));
-            _yearError = _yearErrorText(v);
-          }),
-        ),
-        const SizedBox(height: AppSpacing.s5),
-        _label(_kInstituteLabel),
-        TradeFormTextField(
-          controller: _institute,
-          hint: _kInstituteHint,
-          label: _kInstituteLabel,
-          maxLength: 120,
-          textInputAction: TextInputAction.done,
-          onChanged: (String v) {
-            final String trimmed = v.trim();
-            setState(() => _prefs = _prefs.copyWith(
-                educationInstitute: trimmed.isEmpty ? null : trimmed));
-          },
-        ),
-      ],
-    );
-  }
-
   /// Chips matching what's typed so far against BOTH `value` and its
   /// `aliases` (a worker typing "dilli"/"bombay"/"banglore"/"poona" must
   /// still find the city) — or the first few when the field is empty, so a
   /// worker can browse without typing at all. Already-picked cities are
   /// dropped from the pool; there is no reason to suggest adding one twice.
+  ///
+  /// FILTERED TO [_cityState] FIRST (#1429) — the state-then-city cascade;
+  /// empty when no state is picked yet (the caller doesn't even show the
+  /// search box in that case — see [_citiesPage]).
   List<CityOptionDto> _matchingCities(WorkPrefOptionsDto options) {
+    final String? state = _cityState;
+    if (state == null) return const <CityOptionDto>[];
     final String typed = _city.text.trim().toLowerCase();
     final Set<String> picked =
         _prefs.preferredCities.map((String c) => c.toLowerCase()).toSet();
     final Iterable<CityOptionDto> pool = options.cities.where(
       (CityOptionDto c) =>
+          c.state == state &&
           !picked.contains(c.value.toLowerCase()) &&
           (typed.isEmpty ||
               c.value.toLowerCase().contains(typed) ||
@@ -509,13 +455,19 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   }
 
   /// Resolves typed text against the gazetteer — an exact match (`value` OR
-  /// any `alias`, case-insensitive) — or null. There is no fuzzy/partial
-  /// accept: [_matchingCities] is how a worker finds the right chip to tap,
-  /// this is only for pressing "+"/submit with the full name already typed.
+  /// any `alias`, case-insensitive), WITHIN [_cityState] — or null. There is
+  /// no fuzzy/partial accept: [_matchingCities] is how a worker finds the
+  /// right chip to tap, this is only for pressing "+"/submit with the full
+  /// name already typed. Scoped to the picked state so typing an exact city
+  /// name that belongs to a DIFFERENT state is treated as not-found rather
+  /// than silently resolving against the wrong cascade branch.
   CityOptionDto? _resolveCity(WorkPrefOptionsDto options, String typed) {
+    final String? state = _cityState;
+    if (state == null) return null;
     final String q = typed.trim().toLowerCase();
     if (q.isEmpty) return null;
     for (final CityOptionDto c in options.cities) {
+      if (c.state != state) continue;
       if (c.value.toLowerCase() == q) return c;
       if (c.aliases.any((String a) => a.toLowerCase() == q)) return c;
     }
@@ -550,6 +502,31 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
       }
     });
     _city.clear();
+    if (exists) return; // already in the list — nothing new happened
+    // A MaterialBanner (top), NOT a SnackBar — this screen's sticky bottom
+    // bar owns the bottom edge (see `trade_form_screen.dart`'s
+    // `_showBlockedBanner` doc: a SnackBar here would animate up from the
+    // bottom and cover "Aage badhein").
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    messenger.clearMaterialBanners();
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        backgroundColor: AppColors.success,
+        content: Text(_kCityAddedToast,
+            style: AppTypography.body(
+                size: AppTypography.sizeSm, color: Colors.white)),
+        actions: <Widget>[
+          TextButton(
+            onPressed: messenger.hideCurrentMaterialBanner,
+            child: const Text('Theek hai',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    Future<void>.delayed(const Duration(seconds: 2), () {
+      if (mounted) messenger.hideCurrentMaterialBanner();
+    });
   }
 
   Widget _label(String text) => Padding(

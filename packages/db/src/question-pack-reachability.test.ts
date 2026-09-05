@@ -296,11 +296,21 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
     // "turning ka kaam") and 7223.0601 took reach from ONE phrase to six, with no change to the
     // alias corpus.
     //
-    // The two `fam_machining` rows are DELIBERATE, not a gap. 7223.5001 owns the machine-agnostic
-    // "cnc" / "cnc operator" / "cnc machine", and 7223.0500 owns "machinist"; a VMC or milling
-    // operator says those words too, and the generic machining pack's first question
-    // (`machine_type`) disambiguates lathe from VMC correctly. Routing them here would ask a
-    // milling operator about chucks and tailstocks.
+    // The three `fam_machining` rows are DELIBERATE, not a gap. 7223.5001 owns the
+    // machine-agnostic "cnc" / "cnc operator" / "cnc machine"; a VMC or milling operator says
+    // those words too, and the generic machining pack's first question (`machine_type`)
+    // disambiguates lathe from VMC correctly. Routing them here would ask a milling operator
+    // about chucks and tailstocks.
+    //
+    // "machinist" MOVED IN BATCH 2, from fam_machining to fam_conventional_machining, and this
+    // row is the whole reason that move is reviewable. 7223.0500 ("Mechanist, General/Machinist")
+    // owns it, and that code's NCO description is decisive — "operates various types of power
+    // driven metal cutting or grinding machines... Fastens metal in chuck, jig or other fixture",
+    // with no programming in it anywhere; NCO files the CNC people separately on 5001/6001-6003.
+    // So the man who types "machinist" is a manual machinist and now gets manual-machining depth
+    // instead of six generic questions. It does NOT reach turning: `lathe`, `kharad` and `खराद`
+    // stay on fam_cnc_turning above, which is why conventional-machinist.role.ts declares those
+    // as its own machine terms rather than trying to take them.
     expect(routing).toEqual({
       "cnc turning": "fam_cnc_turning",
       kharad: "fam_cnc_turning",
@@ -309,7 +319,7 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
       cnc: "fam_machining",
       "cnc operator": "fam_machining",
       "cnc machine": "fam_machining",
-      machinist: "fam_machining",
+      machinist: "fam_conventional_machining",
     });
   });
 
@@ -524,10 +534,14 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
     // is green on the case that works and silent on the ones that do not, which is how the first
     // draft of this file passed while three welding phrases and six spellings of "fashion" were
     // being handed to a drawing office.
+    // `fam_welding_trade` SINCE BATCH 2, and the assertion's meaning is unchanged: these phrases
+    // must stay with WELDING rather than being swallowed by the CAD tranche's "fsn" skeleton.
+    // Batch 2 bound the arc/MIG/TIG/gas occupations to the role pack, so the welding answer is now
+    // the deeper one — the guard still fails the moment a drawing office takes any of them.
     for (const phrase of ["fusion welding", "fusion welder", "fusion weld", "seam fusion welder"]) {
-      expect(familyFor(phrase), `"${phrase}" left the welding trade`).toBe("fam_welding");
+      expect(familyFor(phrase), `"${phrase}" left the welding trade`).toBe("fam_welding_trade");
     }
-    expect(familyFor("fusion cutting")).toBe("fam_welding");
+    expect(familyFor("fusion cutting")).toBe("fam_welding_trade");
     // THE "fsn" SKELETON IS LEFT UNCLAIMED, which is why bare "fusion" is not an alias and the
     // "fashion" row that guarded it was withdrawn with it. Neither this tranche's packs nor any
     // other family may answer these: an unclaimed bucket falls through to trigram and vector,
@@ -615,6 +629,139 @@ describe("role-pack reachability — do a worker's own words reach the pack for 
     expect(familyFor("ग्राइंडिंग")).toBe("fam_cnc_grinding");
     // And the machine-agnostic words stay on the disambiguator, as the turning table records.
     expect(familyFor("cnc operator")).toBe("fam_machining");
-    expect(familyFor("machinist")).toBe("fam_machining");
+    // "machinist" is NO LONGER on the disambiguator — Batch 2 gave it a home. See the turning
+    // table above for why 7223.0500 is unambiguously the MANUAL trade. Kept in this list, with the
+    // new answer, rather than deleted: the property under guard is "the desk trades moved
+    // nothing", and dropping the row would hide the next move instead of recording this one.
+    expect(familyFor("machinist")).toBe("fam_conventional_machining");
+  });
+});
+
+/**
+ * BATCH 2, PART ONE — the four roles the corpus could already reach.
+ *
+ * ═══ WHY ONLY FOUR OF ELEVEN, AND WHY THAT IS THE HEADLINE ═══
+ *
+ * Reachability was measured for all eleven Batch 2 roles through this same chain BEFORE any pack
+ * was authored. Seven cannot be reached by binding at all — "sheet metal", "fabricator" and
+ * "press brake" are NO MATCH; "power press" reaches masonry; "press operator" reaches textile
+ * machines; every electrician phrase reaches fam_electrical's house wiring; "qc", "quality
+ * control" and "क्वालिटी" are NO MATCH. Binding decides which family a HIT lands in; it cannot
+ * create a hit. Those seven wait on a ratified alias tranche rather than shipping a pack that
+ * passes every structural gate and that no worker can reach.
+ *
+ * The four below each already owned live vernacular on a bindable code, which is the only thing
+ * that separates them.
+ */
+describe("Batch 2 part one — the four roles whose words already reached a bindable code", () => {
+  it("CHARACTERIZES the four new families, and what each deliberately did NOT take", () => {
+    const routing = Object.fromEntries(
+      [
+        // Conventional machining — 7223.0500 owns "machinist" and "machine shop"; the rest are
+        // one machine word each on their own NCO code.
+        "machinist", "machine shop", "shaper", "planer", "slotter", "drilling machine",
+        "radial driller", "cylinder borer",
+        // Tool and die — 7222.0200 is the sole claimant of every one of these.
+        "tool maker", "tool room", "टूल रूम", "टूल मेकर", "डाई मेकर", "jig borer", "jig fixture",
+        // Welding — the deepest reach in the batch, because 7212.0301 already carried vernacular.
+        "welder", "welding", "वेल्डर", "वेल्डिंग", "welding mistri", "jodai ka kaam", "जोड़ाई",
+        "veldar", "arc welding", "mig welding", "tig welding", "gas welding", "gas cutting",
+        // Powder coating — one contaminated code doing most of the work. See below.
+        "spray painter", "स्प्रे पेंटिंग", "industrial painter", "painter spray", "metal sprayer",
+      ].map((p) => [p, familyFor(p)]),
+    );
+    expect(routing).toEqual({
+      machinist: "fam_conventional_machining",
+      "machine shop": "fam_conventional_machining",
+      shaper: "fam_conventional_machining",
+      planer: "fam_conventional_machining",
+      slotter: "fam_conventional_machining",
+      "drilling machine": "fam_conventional_machining",
+      "radial driller": "fam_conventional_machining",
+      "cylinder borer": "fam_conventional_machining",
+      "tool maker": "fam_tool_die_making",
+      "tool room": "fam_tool_die_making",
+      "टूल रूम": "fam_tool_die_making",
+      "टूल मेकर": "fam_tool_die_making",
+      "डाई मेकर": "fam_tool_die_making",
+      "jig borer": "fam_tool_die_making",
+      "jig fixture": "fam_tool_die_making",
+      welder: "fam_welding_trade",
+      welding: "fam_welding_trade",
+      "वेल्डर": "fam_welding_trade",
+      "वेल्डिंग": "fam_welding_trade",
+      "welding mistri": "fam_welding_trade",
+      "jodai ka kaam": "fam_welding_trade",
+      "जोड़ाई": "fam_welding_trade",
+      veldar: "fam_welding_trade",
+      "arc welding": "fam_welding_trade",
+      "mig welding": "fam_welding_trade",
+      "tig welding": "fam_welding_trade",
+      "gas welding": "fam_welding_trade",
+      "gas cutting": "fam_welding_trade",
+      "spray painter": "fam_powder_coating",
+      "स्प्रे पेंटिंग": "fam_powder_coating",
+      "industrial painter": "fam_powder_coating",
+      "painter spray": "fam_powder_coating",
+      "metal sprayer": "fam_powder_coating",
+    });
+  });
+
+  it("takes nothing that belongs to a neighbouring trade", () => {
+    // TURNING KEEPS THE LATHE. This is the pair that collides hardest in the whole registry, and
+    // it is why conventional-machinist.role.ts declares "lathe"/"खराद" as its OWN machine terms:
+    // a word shared by VALUE vetoes neither trade, and the binding never contests them.
+    expect(familyFor("lathe")).toBe("fam_cnc_turning");
+    expect(familyFor("kharad")).toBe("fam_cnc_turning");
+    expect(familyFor("खराद")).toBe("fam_cnc_turning");
+    // THE GENERIC MACHINING DISAMBIGUATOR KEEPS THE MACHINE-AGNOSTIC CNC WORDS.
+    expect(familyFor("cnc")).toBe("fam_machining");
+    expect(familyFor("cnc operator")).toBe("fam_machining");
+    // WELDING'S ADJACENT JOINING TRADES STAY ON THE GENERIC PACK. 7212.0500 and 7212.0600 were
+    // deliberately not bound: brazing and lead burning are not the arc/gas trade this pack asks
+    // eighteen questions about.
+    expect(familyFor("brazer")).toBe("fam_welding");
+    expect(familyFor("lead burner")).toBe("fam_welding");
+    // HOUSE PAINTING STAYS HOUSE PAINTING. 7131.0100 owns "painter", "पेंटर" and "paint shop" and
+    // is not bound — fam_painting already disambiguates it, and a powder-coating form asking a
+    // building painter about oven schedules is the failure painter-coating.role.ts exists to name.
+    expect(familyFor("painter")).toBe("fam_painting");
+    expect(familyFor("पेंटर")).toBe("fam_painting");
+    expect(familyFor("paint shop")).toBe("fam_painting");
+    // THE TOOL-ROOM NODE IS NOT BOUND, and these three are why: jd_isco_7222 owns "Locksmith",
+    // "Gunsmith" and "Patternmaker" alongside "Toolmaker" and "Die maker". Binding it to win two
+    // phrases would hand a locksmith questions about punch-and-die clearance, so the two one-word
+    // phrases stay generic instead.
+    expect(familyFor("locksmith")).toBe("fam_toolmaking");
+    expect(familyFor("gunsmith")).toBe("fam_toolmaking");
+    expect(familyFor("patternmaker")).toBe("fam_toolmaking");
+    expect(familyFor("toolmaker")).toBe("fam_toolmaking");
+    expect(familyFor("die maker")).toBe("fam_toolmaking");
+  });
+
+  it("PINS THE TWO IMPRECISIONS THIS BATCH KNOWINGLY ACCEPTED", () => {
+    // NOT ASPIRATIONS — these two rows are wrong, they are bound anyway, and they are pinned so
+    // the harm stays visible and reviewable rather than being discovered on a worker's screen.
+    //
+    // 1. "paper hanger" REACHES A POWDER-COATING FORM. The nco2015 scrape hung "Paper Hanger/
+    //    Wallpaper Fixer/Decorator" on 7131.0500, which is also the ONLY row in the corpus owning
+    //    "spray painter" and "स्प्रे पेंटिंग". Leaving it unbound costs the trade its commonest
+    //    phrase — the qp_cnc_turning failure exactly. Binding it costs a wallpaper fixer one wrong
+    //    form. The alias rows belong on a decorating code; that is ratification work.
+    expect(familyFor("paper hanger")).toBe("fam_powder_coating");
+    // 2. "brazier" AND "flame cutter" COME WITH THE WELDING UNIT NODE, whose isco08 alias list is
+    //    "Welders and Flame Cutters / Brazier / Flame cutter / Welder". The node is bound because
+    //    it is the only carrier of the bare word "welder". Flame cutting is squarely in trade; a
+    //    brazier is the one accepted imprecision, and the dedicated code 7212.0500 still routes
+    //    "brazer" correctly, which is why the miss is narrow.
+    expect(familyFor("brazier")).toBe("fam_welding_trade");
+    expect(familyFor("flame cutter")).toBe("fam_welding_trade");
+  });
+
+  it("no phrase of the four new trades falls through to the universal pack", () => {
+    for (const phrase of ["machinist", "tool room", "welder", "spray painter"]) {
+      expect(familyFor(phrase), `"${phrase}" falls through`).not.toBe("fam_universal");
+      expect(familyFor(phrase), `"${phrase}" reaches nothing`).not.toBeNull();
+    }
   });
 });

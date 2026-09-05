@@ -1,3 +1,13 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+WHAT NO E-PHASE COVERS — dropped visibly, not quietly. Each survived an adversarial
+refutation pass (already-ships / an-E-phase-covers-it / a-signed-ruling-deleted-it):
+  - The posting-chat provenance gate and its failing test — every value written into a
+    draft must be a literal substring of the pseudonymized message the model saw, and a
+    failing delta is dropped before persistence.
+
+------------------------------------------------------------------------------
 PHASE-ID: P11
 INVARIANT: every value the chat writes into a draft is text the payer typed — value_raw is a
 literal substring of the pseudonymized message its evidence_span cites, and a delta failing that

@@ -66,13 +66,13 @@ export class WorkerSkillsService {
    * Rebuild everything Matching V1 knows about one worker's supply, then reconcile his
    * reach. Idempotent: running it twice on an unchanged profile writes the same rows.
    *
-   * Returns `null` when the worker has no profile yet (nothing to derive) — that is a
-   * legitimate state, not a failure.
+   * Returns `null` only when the worker has NEITHER a profile row NOR any pack answers —
+   * i.e. nothing to derive from at all. That is a legitimate state, not a failure. A worker
+   * with pack answers and no profile row (every trade-form completion) is NOT that case.
    */
   async rebuildForWorker(workerId: string, ctx?: RequestContext): Promise<RebuildResult | null> {
     const cfg = await this.config.get();
     const signals = await this.repo.findLatestProfileSignals(workerId);
-    if (!signals) return null;
 
     // ⓪ B0b — the role pack's answers join the profile's own attribute ids.
     //
@@ -86,23 +86,46 @@ export class WorkerSkillsService {
     const packSkills = corpusSkillsForPackAttributes(
       await this.repo.findPackAttributeOptions(workerId),
     );
-    const profileSkills = [...new Set([...signals.profileSkills, ...packSkills])].sort();
+
+    // THE GUARD MOVED BELOW THE PACK READ, AND THE CONDITION CHANGED WITH IT (M1).
+    //
+    // It used to be `if (!signals) return null` ABOVE this read, which made the whole
+    // pack-attribute bridge unreachable for exactly the workers it was written for. A trade form
+    // writes `worker_attributes` and never writes `worker_profiles` — deliberately; the handover
+    // switches extraction off on purpose (trade-form.service.ts:169-177), and re-enabling it
+    // re-blanks the trade sheet's capability zone. So a worker could tap every question in the
+    // form, land eighteen rows in `worker_attributes`, and derive ZERO skills because a row in a
+    // different table did not exist.
+    //
+    // WHAT THE GUARD WAS ACTUALLY PROTECTING, and why it is still here in a narrower form: the
+    // rebuild below is delete-then-insert. Running it for a worker with NOTHING to derive from
+    // does not merely write nothing — it DELETES whatever `worker_skill` rows he already had.
+    // That is load-bearing for the interview path, where a worker can sit between "extraction
+    // started" and "profile row written". `!signals` was a proxy for "no evidence"; with a second
+    // evidence source it is the wrong proxy. The condition is now the thing it always meant.
+    if (!signals && packSkills.length === 0) return null;
+
+    const profileSkills = [...new Set([...(signals?.profileSkills ?? []), ...packSkills])].sort();
 
     // ① The set: role bridge ∪ attribute bridge. EMPTY is a legitimate answer — a worker
     //    whose role and attributes imply no postable skill reaches nothing, and we never
     //    fabricate a skill to give a man a feed.
     const derived: WorkerSkillRow[] = deriveWorkerSkills(
       {
-        canonicalRoleId: signals.canonicalRoleId,
+        // `signals` is undefined for a form-only worker: no profile row, so no role and no
+        // total-years. `deriveWorkerSkills` already handles both (derive.ts:57, :69) — a null
+        // role contributes no role-bridge skill and a null tenure buckets to zero — so the
+        // pack bridge stands on its own rather than needing a synthesised profile.
+        canonicalRoleId: signals?.canonicalRoleId ?? null,
         profileSkills,
-        totalYears: signals.totalYears,
+        totalYears: signals?.totalYears ?? null,
       },
       cfg,
     );
 
     // ② Tenure, per industry, from the SAME rows the engine just produced (so the E8
     //    clamp compares a skill against tenure in that skill's OWN industry — E7).
-    const tenure = computeIndustryTenure(derived, signals.totalYears, cfg.monthBucket);
+    const tenure = computeIndustryTenure(derived, signals?.totalYears ?? null, cfg.monthBucket);
 
     await this.repo.replaceDerivedSkillsAndTenure(
       workerId,

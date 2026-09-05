@@ -1,3 +1,10 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+NOTHING SURVIVES THIS CLOSURE. Every deliverable is either shipped, deleted by a signed
+ruling, or carried by an E-phase. Checked adversarially, not assumed.
+
+------------------------------------------------------------------------------
 PHASE-ID: P4
 INVARIANT: an active boost changes nothing on the company's candidate list — the same
 rows in the same order, field for field — and that query reads no column from
@@ -52,7 +59,7 @@ Paste raw output for each.
 
 7. The governing ruling still governs.
    head -6 docs/decisions/0036-matching-algorithm-v1.md (Status must read Accepted);
-   sed -n '774p' docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md (R7, must be blank).
+   sed -n '794p' docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md (R7, must be blank).
    RED: ADR-0036 superseded, or R7 signed — R7 option (a) puts a reordering facet on the
    employer candidate list, which is this invariant's subject.
    INFORMATIONAL only, never RED: R4-d (ruled 21, 2026-09-04) settles a role count and does
