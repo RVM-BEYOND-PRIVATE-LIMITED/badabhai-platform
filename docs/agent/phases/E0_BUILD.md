@@ -46,7 +46,7 @@ a reasonable scope call late in a session.
          (iii) mint a distinct event for the unlock notification, with its own template.
        Collect it with your other questions. Do not settle it by building.
        DO NOT NAME THE COUNTERPARTY. `apps/api/src/notifications/notifications.service.test.ts:320-326`
-       fails any template copy matching /employer|company|payer/i and `:121-128`
+       fails any template copy matching /\bemployer\b|\bcompany\b|\bpayer\b/i and `:121-128`
        asserts the payload never reaches the output. Both guards are correct and stay.
        The copy that ships is the one already written: "Someone has viewed your profile."
 
