@@ -1335,6 +1335,755 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       },
     ],
   },
+
+  // ══ BATCH 2, PART ONE ═══════════════════════════════════════════════════════════════
+  //
+  // Four roles, and the reason it is four and not eleven is REACH rather than effort:
+  // reachability was measured for all eleven Batch 2 roles through the production chain
+  // before any pack was authored, and seven of them cannot be reached by binding at all.
+  // See `_families.jsonl` and `question-pack-reachability.test.ts` for the measurements.
+  //
+  // Every row below was read off that role's page in the ratified reference set, not
+  // invented, and every `values` key is the option's STORED `value_text`. The chip
+  // vocabulary is drafted and NOT yet corrected by a practising worker in any of the four
+  // trades — see docs/registers/trade-content-ratification.md.
+  {
+    /**
+     * THE CONVENTIONAL MACHINIST's SHEET — the manual half of the machine shop, and the first
+     * machining map in this file with NO CONTROLLERS ROW.
+     *
+     * ITS RANK-2 ROW IS THE MACHINE, AND THERE IS NOTHING ELSE IT COULD BE. The turner's map
+     * leads with `controller_brand` because a CNC lathe advertisement is written in Fanuc and
+     * Siemens; this trade has no control to name, so §5.1 rank 2 — "the literal vocabulary of the
+     * job advertisement" — is the machine list itself. The ratified page proves it character for
+     * character: "Conventional Machinist — Skilled · 12 yrs · Centre lathe, Vertical milling,
+     * Radial drill" is `toolsPhrase`'s three-value cap applied to this row's four.
+     *
+     * EIGHT ROWS, WHICH IS THE PAGE'S OWN COUNT rather than a budget decision. Ram Naresh Gupta's
+     * sheet prints Machines, Materials, Operations, Measuring instruments, Drawings, Turning
+     * capacity, Tolerance held and Sector worked, and `qp_conventional_machining` asks exactly one
+     * question per row. Two rows below ten leaves the section room the other machining maps do not
+     * have, and no row is ever shed — `rank` decides nothing here today and is authored anyway,
+     * because the day a ninth row is proposed is the day it would otherwise be ranked by whoever
+     * is editing.
+     *
+     * FOUR ANSWERS ARE CAPTURED AND DELIBERATELY NOT PRINTED. `machining_level` is the ladder rung
+     * ("Helper / Operator / Skilled") and belongs to the HEADLINE, not to a capability row — the
+     * page renders it as part of the role title, and giving it a row as well would print the same
+     * word twice on a sheet with one page. `setting_operation`, `tool_grinding` and
+     * `advanced_work` are real matching data with no row on the ratified page, and §8 forbids
+     * inventing one for them; grinding's `dressing_method` is the recorded precedent for how much
+     * trouble the opposite choice causes.
+     *
+     * TURNING CAPACITY SITS AT RANK 23, WITH THE MACHINES. It is a statement about what the
+     * machine can do — the same judgement the turner's map makes for `advanced_capability` — and
+     * on this trade it moves the pay band: a man who has turned 600 mm on a heavy lathe is hired
+     * for jobs a 200 mm bench lathe cannot hold. It is a FACT row all the same, because the page
+     * prints it with the middot separator every fact cell on these sheets uses.
+     */
+    pack_id: "qp_conventional_machining",
+    // Sentence case — the template uppercases. A conventional machinist's sheet says
+    // "operations" where the turner's says "controllers": his spread is what he can DO by hand,
+    // not what electronics he can drive.
+    section_title: "Machines, operations & capability",
+    capability: [
+      {
+        from: "machining_machine",
+        rank: 21,
+        inHeadline: true,
+        // Guideline §4.3: machines max 4. The page prints exactly four (Centre lathe, Vertical
+        // milling, Radial drill, Boring machine) and the dictionary's order is what the cap takes
+        // the first four of — "most-used first" is not a fact we measured, so it is not claimed.
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          centre_lathe: "Centre lathe",
+          vertical_milling: "Vertical milling",
+          radial_drill: "Radial drill",
+          boring_machine: "Boring machine",
+          shaper_planer: "Shaper / planer",
+          slotter: "Slotter",
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        // DICTIONARY ORDER IS THE SHEET'S ORDER, as on the milling and grinding maps: values
+        // render in the order this object lists them, and the page leads "MS EN8 Cast iron
+        // Aluminium" — the four the cap keeps.
+        values: {
+          mild_steel: "MS",
+          en_eight: "EN8",
+          cast_iron: "Cast iron",
+          aluminium: "Aluminium",
+          stainless: "Stainless steel",
+          brass: "Brass",
+        },
+      },
+      {
+        from: "machining_operation",
+        rank: 63,
+        label: "Operations",
+        kind: "ticks",
+        // EIGHT VALUES, AND THE PACK CARRIES EIGHT CHIPS TO MATCH. This is the one row in the
+        // corpus where the ratified page sets the chip count rather than the other way round: a
+        // seven-chip question cannot reproduce a row the sheet prints eight ticks in, and the
+        // ampersand pairs ("Turning & facing", "Drilling & reaming") are the page's own
+        // groupings, not ours to re-split.
+        values: {
+          turning_facing: "Turning & facing",
+          screw_cutting: "Screw cutting",
+          knurling: "Knurling",
+          milling_slotting: "Milling & slotting",
+          drilling_reaming: "Drilling & reaming",
+          boring: "Boring",
+          tapping: "Tapping",
+          marking_scribing: "Marking & scribing",
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        // `dial_indicator` PRINTS AS "Dial gauge", exactly as on the grinding map. The pack's slug
+        // is the corpus-wide one and the page's word is the shop floor's; this file is where those
+        // two disagree without either having to move.
+        values: {
+          vernier: "Vernier",
+          micrometer: "Micrometer",
+          height_gauge: "Height gauge",
+          dial_indicator: "Dial gauge",
+          bore_gauge: "Bore gauge",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` has no entry ON PURPOSE, exactly as on the turner's, miller's and grinder's maps.
+        // "Cannot read drawings" is a true answer that belongs in matching data, not on the
+        // worker's own marketing document.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          gdt: "Reads 2D drawings and GD&T",
+        },
+      },
+      {
+        from: "turning_capacity",
+        rank: 23,
+        label: "Turning capacity",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE, not the option key. The pack's `value_text` is `four_hundred`
+        // and its `option_key` is `upto_four_hundred`; keying this by the option key would render
+        // nothing at all, silently, for every machinist who answered — which has already shipped
+        // twice in this file's history.
+        values: {
+          two_hundred: "Up to 200 mm dia, 1000 mm bed",
+          four_hundred: "Up to 400 mm dia, 1500 mm bed",
+          six_hundred: "Up to 600 mm dia, 2000 mm bed",
+          over_six_hundred: "Over 600 mm dia — heavy lathe",
+        },
+      },
+      {
+        from: "tolerance_band",
+        rank: 62,
+        label: "Tolerance held",
+        kind: "fact",
+        // The stored value is the numeric string, as on every other machining map.
+        values: {
+          "0.1": "±0.1 mm",
+          "0.05": "±0.05 mm",
+          "0.02": "±0.02 mm",
+          "0.01": "±0.01 mm or finer",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        maxValues: 3,
+        label: "Sector worked",
+        kind: "fact",
+        // THE PAGE'S CELL READS "Job shop — repair and spares" AND SO DOES THIS DICTIONARY ENTRY.
+        // The grinding and CAM maps had to record a divergence here because their pages' sector
+        // cells are hand-set prose no closed vocabulary reproduces; this one does not, because the
+        // page's phrase IS one sector and can therefore be one printed value. Nothing about that
+        // makes the general problem solved — the other pages' cells are still prose — it just does
+        // not bite this role.
+        values: {
+          job_shop_repair: "Job shop — repair and spares",
+          automotive: "Automotive parts",
+          general_engg: "General engineering",
+          pump_valve: "Pumps and valves",
+          agri: "Agricultural equipment",
+          textile_mill: "Textile mill spares",
+        },
+      },
+    ],
+  },
+  {
+    /**
+     * THE TOOL & DIE MAKER's SHEET — read off the ratified page (Prakash Rathod, "Tool & Die
+     * Maker — Tool Maker · 9 yrs · Press tools, Progressive dies, Jigs & fixtures"), row for row.
+     *
+     * ITS RANK-2 ROW IS WHAT THE SHOP BUILDS, NOT WHAT IT STANDS AT. §5.1 rank 2 is "the literal
+     * vocabulary of the job advertisement, highest-signal attribute in the wedge", and a tool-room
+     * vacancy is written in tooling — "press tool maker", "progressive die maker" — never in
+     * machines. So `tooling_made` carries `inHeadline`, and `toolsPhrase`'s three-value cap
+     * applied to this row's four printed values reproduces the ratified headline character for
+     * character.
+     *
+     * THE MACHINE ROW COULD NOT CARRY IT, and that is a fact about this trade rather than a
+     * layout preference. "Surface grinder · Wire-cut EDM · Sinker EDM · Milling" is three-quarters
+     * another machining role's daily equipment — `tool-die-maker.role.ts` says so in as many words
+     * — so a headline built from it would read as CNC Grinding's. The turner and the miller lead
+     * with controllers because a CNC advertisement does; copying either here would be copying
+     * another sheet instead of reading this one.
+     *
+     * EIGHT ROWS AGAINST A BUDGET OF TEN. Nothing sheds for any worker, so `rank` decides no
+     * outcome today; it is authored anyway, because the day a ninth row is proposed is the day it
+     * would otherwise be chosen by whoever is editing.
+     *
+     * THE THREE `maxValues` ARE THE GUIDELINE's §4.3 CAPS AND ALSO REPRODUCE THE PAGE. Each of
+     * the three chip rows offers five values in its dictionary and the ratified page prints four
+     * of each — Tooling made stops at "Check gauges", Machines at "Milling", Tool steels at "MS
+     * die sets" — so the cap and the page agree without either being bent to the other.
+     *
+     * FIVE PACK ANSWERS ARE CAPTURED AND DELIBERATELY NOT PRINTED: `edm_work`,
+     * `die_design_work`, `die_troubleshooting`, `heat_treatment_work` and `press_tonnage`. All
+     * five are real matching data on `worker_attributes`, and the ratified page has no row for any
+     * of them. Inventing one is what §5b forbids; this is the `programming_mode` precedent from
+     * the CAM map exactly. `toolroom_level` is captured and not printed HERE for a different
+     * reason — it is the headline's level rung ("— Tool Maker"), which is a header slot and not a
+     * capability row.
+     */
+    pack_id: "qp_tool_die_making",
+    section_title: "Tooling, machines & capability",
+    capability: [
+      {
+        from: "tooling_made",
+        rank: 21,
+        inHeadline: true,
+        maxValues: 4,
+        label: "Tooling made",
+        kind: "chips",
+        // DICTIONARY ORDER IS THE SHEET's ORDER — values render in the order this object lists
+        // them, and the ratified row reads "Press tools Progressive dies Jigs & fixtures Check
+        // gauges". `metal_mould` is the fifth and is what `maxValues: 4` holds back, which is
+        // also what the page does with it.
+        values: {
+          press_tool: "Press tools",
+          progressive_die: "Progressive dies",
+          jig_fixture: "Jigs & fixtures",
+          check_gauge: "Check gauges",
+          metal_mould: "Moulds (metal)",
+        },
+      },
+      {
+        from: "toolroom_machine",
+        rank: 22,
+        maxValues: 4,
+        label: "Machines",
+        kind: "chips",
+        values: {
+          surface_grinder: "Surface grinder",
+          wire_cut: "Wire-cut EDM",
+          sinker_edm: "Sinker EDM",
+          milling: "Milling",
+          lathe: "Lathe",
+        },
+      },
+      {
+        from: "tool_steel",
+        rank: 61,
+        maxValues: 4,
+        label: "Tool steels",
+        kind: "chips",
+        // THE PACK ASKS "tool steel", NOT "material worked", and the row label follows the pack
+        // rather than the other machining maps. For a tool maker the tool steel IS the workpiece,
+        // and "OHNS" is an answer a turner would never give — which is the whole reason this is a
+        // separate question key instead of a reused `material_worked`.
+        values: {
+          ohns: "OHNS",
+          hchcr_dtwo: "HCHCr / D2",
+          en_thirty_one: "EN31",
+          ms_die_set: "MS die sets",
+          hss: "HSS",
+        },
+      },
+      {
+        from: "toolroom_work",
+        rank: 41,
+        label: "Tool-room work",
+        kind: "ticks",
+        values: {
+          die_assembly: "Die assembly",
+          clearance_setting: "Punch & die clearance setting",
+          tryout_correction: "Tryout & correction",
+          benchwork: "Benchwork & scraping",
+          shut_height: "Shut-height setting",
+          regrind: "Sharpening & regrind",
+        },
+      },
+      {
+        from: "measuring_tools",
+        rank: 51,
+        label: "Measuring instruments",
+        kind: "ticks",
+        values: {
+          slip_gauge: "Slip gauges",
+          height_gauge: "Height gauge",
+          micrometer: "Micrometer",
+          sine_bar: "Sine bar",
+          profile_projector: "Profile projector",
+          dial_gauge: "Dial gauge",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` has no entry ON PURPOSE, exactly as on the turner's, miller's and grinder's maps.
+        // "Cannot read drawings" is a true answer that belongs in matching data, not on the
+        // worker's own document.
+        values: {
+          basic_drawing: "Reads 2D tooling drawings",
+          gdt: "Reads 2D tooling drawings and GD&T",
+        },
+      },
+      {
+        from: "tolerance_band",
+        rank: 62,
+        label: "Tolerance held",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE, not the option key — the pack's `value_text` is the numeric
+        // string. Keying this by `point_zero_one` would render nothing at all, silently, for
+        // every tool maker who answered.
+        //
+        // THE CLAUSE "on die clearance" IS THE RATIFIED CELL, not decoration. The page prints
+        // "±0.01 mm on die clearance", and a bare "±0.01 mm" on a tool-room sheet is ambiguous
+        // between the clearance and the ground size, which are different claims about the work.
+        values: {
+          "0.05": "±0.05 mm on die clearance",
+          "0.02": "±0.02 mm on die clearance",
+          "0.01": "±0.01 mm on die clearance",
+          "0.005": "±0.005 mm on die clearance",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        maxValues: 3,
+        label: "Sector worked",
+        kind: "fact",
+        // §4.3 ranks the sector "display only. Never a matching input — locked", which is why it
+        // sits last and drops first. The ratified cell reads "Sheet-metal press tooling" and this
+        // dictionary's first entry is that string exactly, so a worker who taps only that chip
+        // reproduces the page.
+        values: {
+          sheet_metal_press: "Sheet-metal press tooling",
+          automotive: "Automotive",
+          electrical_parts: "Electrical & electronics",
+          white_goods: "White goods",
+          general_engg: "General engineering / job shop",
+        },
+      },
+    ],
+  },
+  {
+    pack_id: "qp_welding_trade",
+    // A WELDER'S FIRST SECTION IS NOT A MACHINIST'S. The turner's sheet says "Machines,
+    // controllers & capability" because a lathe advertisement is written in machines and
+    // controls; a welding advertisement is written in PROCESSES and POSITIONS ("MIG welder,
+    // 3G, structural fab"), and the heading has to name what the reader is scanning for.
+    // Sentence case — the template uppercases.
+    section_title: "Processes, positions & capability",
+    capability: [
+      {
+        from: "welding_process",
+        // §5.1 rank 2 — "the literal vocabulary of the job advertisement". For this trade that
+        // is the PROCESS, not the machine: a shop advertises for a MIG welder or a TIG welder
+        // and only then asks which set he has stood at. Equipment takes 22 for the same reason
+        // the turner's controllers do — it is the hardware behind the advertised word.
+        rank: 21,
+        // THE HEADLINE IS THE PROCESS LIST. `toolsPhrase` caps the Verdict Line at three, so a
+        // welder who runs MIG, arc and TIG reads "Welder — Certified Welder · 8 yrs · MIG / MAG
+        // (GMAW), Arc / rod (SMAW), TIG (GTAW)". Putting the flag on `welding_equipment` instead
+        // would lead the sheet with an inverter set, which no advertisement is written in, and
+        // would go empty for a site welder who answered "Inme se koi nahi" to the equipment
+        // chip — pinning the sheet's highest-ranked scan element to a row he can legitimately
+        // not answer is what `headlineToolsOrFallback` then has to paper over.
+        inHeadline: true,
+        // §4.3's "machines max 4" applied to this trade's machine-equivalent row. The pack
+        // offers five processes; a man who genuinely runs all five prints the first four in
+        // DICTIONARY order and the headline still shows three.
+        maxValues: 4,
+        label: "Processes",
+        kind: "chips",
+        // KEYED BY THE OPTION'S `value_text`, NEVER ITS `option_key`. They are equal for most
+        // rows here by construction, and that is a convenience, not a licence: `drawing_reading`
+        // and `plate_thickness` below are keyed by values that differ from their keys, and a row
+        // keyed the wrong way renders NOTHING, silently, for every worker who answered it.
+        values: {
+          mig_mag: "MIG / MAG (GMAW)",
+          arc: "Arc / rod (SMAW)",
+          tig: "TIG (GTAW)",
+          gas_cutting: "Gas cutting",
+          spot: "Spot welding",
+        },
+      },
+      {
+        from: "welding_equipment",
+        rank: 22,
+        // §4.3's "controllers max 3" applied to the hardware row, on the same reading that gives
+        // Processes the machines cap: this is the row that corroborates the advertised word.
+        maxValues: 3,
+        label: "Equipment",
+        kind: "chips",
+        values: {
+          inverter_arc: "Inverter arc set",
+          co_two_mig: "CO2 / MIG machine",
+          tig_machine: "TIG set",
+          gas_cutting_set: "Oxy-acetylene cutting set",
+        },
+      },
+      {
+        from: "electrode_type",
+        // 4x — the consumable is SETTING capability, not a possession. Choosing E7018 over
+        // E6013 for a root run is the judgement that separates a welder from a man holding a
+        // holder, which is what §5.1 rank 4 covers. Same reading the grinding map applies to its
+        // wheel row.
+        rank: 43,
+        label: "Electrodes / wire",
+        kind: "chips",
+        // THE PRINTED ENGLISH CARRIES THE DIGITS THE KEY MAY NOT. `option_key` and `value_text`
+        // are `^[a-z_]+$` — `e_six_zero_one_three` — because `slugKey` refuses a digit at
+        // runtime and one such key makes the whole pack unparseable. The sheet still says E6013,
+        // because that is the only thing a fabrication supervisor reads.
+        values: {
+          e_six_zero_one_three: "E6013",
+          e_seven_zero_one_eight: "E7018",
+          er_seventy_s_six: "ER70S-6",
+        },
+      },
+      {
+        from: "material_worked",
+        rank: 61,
+        // §4.3 — materials max 4, quoted, not chosen.
+        maxValues: 4,
+        label: "Materials",
+        kind: "chips",
+        // DICTIONARY ORDER IS THE SHEET'S ORDER: mild steel leads because it is what structural
+        // fabrication is made of, and the exotic stock follows.
+        values: {
+          mild_steel: "MS",
+          stainless: "Stainless steel",
+          aluminium: "Aluminium",
+          cast_iron: "Cast iron",
+        },
+      },
+      {
+        from: "welding_position",
+        // 4x, WITH THE SETTING ROWS AND NOT WITH THE WEDGE ATTRIBUTES. Position is the whole
+        // spread in welding hiring the way programming is in CNC hiring: a flat-only welder and
+        // a 4G overhead welder are two different pay bands doing two different jobs, and the
+        // ratified page prints the ticks for exactly that reason. Ranking it 6x would drop it
+        // before materials on a crowded sheet, which would be a layout judgement standing in for
+        // trade truth.
+        rank: 41,
+        label: "Positions",
+        kind: "ticks",
+        values: {
+          flat: "1G flat",
+          horizontal: "2G horizontal",
+          vertical: "3G vertical",
+          overhead: "4G overhead",
+        },
+      },
+      {
+        from: "inspection_work",
+        // 5x — §5.1 rank 5, the measuring-instruments slot. A welder's instruments are a weld
+        // gauge and the tests he has been present for; "witness" is deliberate and is what the
+        // chip says in Hinglish ("DPT ke samay"), because standing at a radiography test is not
+        // the same claim as being a certified NDT inspector and the sheet must not blur them.
+        rank: 51,
+        label: "Inspection",
+        kind: "ticks",
+        values: {
+          visual: "Visual inspection",
+          weld_gauge: "Fillet / weld gauge",
+          dye_penetrant: "Dye-penetrant (DPT) witness",
+          xray_ut: "X-ray / UT witness",
+        },
+      },
+      {
+        from: "plate_thickness",
+        rank: 62,
+        label: "Plate thickness",
+        kind: "fact",
+        // KEYED BY THE STORED VALUE, and BANDED rather than a free number. The worker taps a
+        // ceiling in his own words ("25 mm tak"); the sheet prints the band from the trade's
+        // floor, which is what the ratified page carries. `answer_type: "number"` was never an
+        // option — it has no Flutter widget, and a low-literacy worker typing millimetres is a
+        // worker who abandons.
+        values: {
+          upto_three: "Up to 3 mm plate",
+          upto_twelve: "3 mm - 12 mm plate",
+          upto_twentyfive: "3 mm - 25 mm plate",
+          over_twentyfive: "25 mm plate and above",
+        },
+      },
+      {
+        from: "drawing_reading",
+        rank: 44,
+        label: "Drawings",
+        kind: "fact",
+        // `none` HAS NO ENTRY ON PURPOSE, exactly as on the turner's, miller's and grinder's
+        // maps. "Cannot read drawings" is real matching data and it is captured; a worker's own
+        // marketing document is not where a negative claim about him belongs.
+        values: {
+          basic_drawing: "Reads 2D drawings",
+          weld_symbol: "Reads 2D drawings and weld symbols",
+        },
+      },
+      {
+        from: "sector_worked",
+        // 8x — §4.3 `sector_tag`: "display only. Never a matching input — locked". It drops
+        // first when the page runs out, which is the same rank the turner's and miller's maps
+        // give it.
+        rank: 81,
+        label: "Sector worked",
+        kind: "fact",
+        // A RECORDED DIVERGENCE, on the ruling the grinding and CAM maps already carry. The
+        // ratified page reads "Structural fabrication — general engineering" and this row will
+        // print "Structural fabrication · General engineering": the reference sector cells are
+        // hand-set prose, no closed-vocabulary dictionary reproduces them, and §8 permits
+        // nothing else. A per-row `join` would give this file a second separator for one kind of
+        // row and is not worth the divergence it hides.
+        values: {
+          structural: "Structural fabrication",
+          general_engg: "General engineering",
+          automotive: "Automotive",
+          pipeline: "Pipeline / pressure vessel",
+          sheet_fab: "Sheet metal fabrication",
+        },
+      },
+      // NINE ROWS, AND THE PACK ASKS FIFTEEN NON-FRESHER QUESTIONS. `welder_level` prints in the
+      // HEADLINE ("Welder — Certified Welder"), not in this section, so it has no row here by
+      // design. `joint_type`, `machine_setting`, `weld_defect` and `fabrication_work` have no row
+      // because NO RATIFIED WELDER PAGE PRINTS ONE — they are matching data in
+      // `worker_attributes`, and inventing a tenth and eleventh row for them would be this file
+      // asserting a layout the shop floor never approved. If the owner rules that one of them
+      // belongs on the sheet, it is a row added here and nothing else changes.
+    ],
+  },
+  {
+    /**
+     * THE PAINTER / POWDER COATING SHEET.
+     *
+     * READ OFF THE RATIFIED REFERENCE SHEET (Shyam Lal Meena, Painter / Powder Coating — Skilled),
+     * row for row. Its capability block has EIGHT rows and this map has eight `from`s, in the
+     * page's own order: Processes, Equipment, Coatings applied, Surface preparation, Checks
+     * performed, Film thickness held, Booth type, Sector worked. Nothing here is invented, and
+     * nothing the page prints is missing.
+     *
+     * THE ORDER IS ALSO THE TEMPLATE'S BANDS, which is why it can be both. `bb_trade.v1.html`
+     * emits all chip rows, then all tick rows, then all fact rows; the page prints three chip rows,
+     * two tick rows and three fact rows in exactly that sequence, so the array order and the
+     * band order agree with no tension to resolve.
+     *
+     * EIGHT ROWS AGAINST A `CAPABILITY_ROW_BUDGET` OF 10, so this trade never reaches the rank
+     * slice — every row a worker answers survives, including the sector row that turning and
+     * milling both lose. The ranks below still matter (they are trade truth, and the budget is
+     * measured rather than fixed), but no shipped persona is currently shed by them.
+     *
+     * `coating_level` IS DELIBERATELY ABSENT. The rung — Helper / Operator / Skilled — prints in
+     * the HEADLINE ("Painter / Powder Coating — Skilled"), not in the capability block, and the
+     * ratified page carries no capability row for it. Mapping it here would invent a ninth row.
+     */
+    pack_id: "qp_powder_coating",
+    section_title: "Processes, equipment & capability",
+    capability: [
+      {
+        from: "coating_process",
+        rank: 21,
+        /**
+         * THE HEADLINE IS THE PROCESS, and unlike the machining roles there is nothing to argue
+         * about. The ratified page reads "Painter / Powder Coating — Skilled · 8 yrs · Powder
+         * coating, Liquid spray -- HVLP, Electrostatic spray": those three strings ARE this row's
+         * first three values in dictionary order, and `toolsPhrase` caps the headline at three, so
+         * the segment reproduces character for character.
+         *
+         * A COATING ADVERTISEMENT IS WRITTEN IN PROCESSES. "Powder coating operator", "spray
+         * painter", "HVLP" — never in booth makes, which is what `coating_equipment` holds. The
+         * turner's map leads with controllers because a CNC lathe advertisement does; this trade's
+         * equivalent of that sentence is the process list.
+         */
+        inHeadline: true,
+        // §4.3 caps the machines-equivalent row at 4, and the ratified page prints exactly four
+        // processes. A cap of 3 here would silently drop "Touch-up" off a page a human signed off.
+        maxValues: 4,
+        label: "Processes",
+        kind: "chips",
+        values: {
+          powder_coating: "Powder coating",
+          // THE PAGE'S OWN PUNCTUATION. It prints "Liquid spray -- HVLP" with the gun type set off
+          // by a dash rather than in brackets, and this row is where that string is authored.
+          liquid_hvlp: "Liquid spray — HVLP",
+          electrostatic: "Electrostatic spray",
+          touch_up: "Touch-up",
+        },
+      },
+      {
+        from: "coating_equipment",
+        rank: 22,
+        /**
+         * FOUR, NOT THE CONTROLLER ROW'S THREE. §4.3's "controllers max 3" is a cap on a row whose
+         * ratified pages print at most three; this row's ratified page prints FOUR — "Powder booth
+         * & gun Spray booth Curing oven Pretreatment line" — so borrowing the controller number
+         * because this is the second 2x row would drop the pretreatment line off the sheet. The
+         * cap follows the page, not the row's position.
+         */
+        maxValues: 4,
+        label: "Equipment",
+        kind: "chips",
+        values: {
+          powder_booth: "Powder booth & gun",
+          spray_booth: "Spray booth",
+          curing_oven: "Curing oven",
+          pretreatment_line: "Pretreatment line",
+        },
+      },
+      {
+        from: "coating_material",
+        rank: 61,
+        // §4.3 materials cap. The page prints four coatings and the dictionary lists four.
+        maxValues: 4,
+        label: "Coatings applied",
+        kind: "chips",
+        // DICTIONARY ORDER IS THE SHEET'S ORDER: values render in the order this object lists
+        // them, and the page leads with the two powders before the wet paint and the primer.
+        values: {
+          epoxy_powder: "Epoxy powder",
+          polyester_powder: "Polyester powder",
+          pu_paint: "PU paint",
+          primer_sealer: "Primer & sealer",
+        },
+      },
+      {
+        from: "surface_prep",
+        rank: 41,
+        /**
+         * §5.1 RANK 4 — "separates a button-presser from a man who can set the job". In this trade
+         * the spread is not programming, it is PREPARATION: adhesion and salt-spray life are won
+         * or lost at the degreasing tank and the masking bench, and a coater who only pulls the
+         * trigger is a different hire from one who runs the pretreatment line.
+         */
+        label: "Surface preparation",
+        kind: "ticks",
+        values: {
+          degreasing: "Degreasing",
+          phosphating: "Phosphating",
+          shot_blasting: "Shot blasting",
+          sanding: "Sanding",
+          masking: "Masking",
+          hanging_jigging: "Hanging & jigging",
+          oven_setting: "Oven schedule setting",
+        },
+      },
+      {
+        from: "coating_checks",
+        rank: 51,
+        // §5.1 rank 5, the measuring row. A DFT gauge and a cross-hatch kit are this trade's
+        // micrometer and its dial indicator.
+        label: "Checks performed",
+        kind: "ticks",
+        values: {
+          dft_gauge: "DFT gauge",
+          gloss_meter: "Gloss meter",
+          cross_hatch: "Cross-hatch adhesion test",
+          bend_test: "Bend test",
+          salt_spray: "Salt-spray sample submission",
+        },
+      },
+      {
+        from: "film_thickness",
+        rank: 62,
+        label: "Film thickness held",
+        kind: "fact",
+        /**
+         * KEYED BY THE STORED VALUE, not the option key — the pack's `value_text` is the band
+         * string. Keying this by `sixty_to_eighty` would render NOTHING AT ALL, silently, for
+         * every coater who answered, which is the failure this file has already shipped twice.
+         *
+         * THE BANDS ARE THE ANSWER, NOT A NUMBER THE WORKER TYPED. The page prints "60 - 80
+         * microns dry film thickness"; the pack asks it as four chips because `answer_type:
+         * "number"` has no Flutter widget and a low-literacy worker should be tapping. The row
+         * prints "DFT" where the page spells out "dry film thickness" — the abbreviation is what
+         * the shop floor and the job advertisement both use, and it costs the sheet three words.
+         */
+        values: {
+          under_60: "Under 60 microns DFT",
+          "60_80": "60 - 80 microns DFT",
+          "80_100": "80 - 100 microns DFT",
+          over_100: "Over 100 microns DFT",
+        },
+      },
+      {
+        from: "booth_type",
+        rank: 71,
+        /**
+         * 7x — VOLUNTEERED DEPTH THE GUIDELINE NEVER NAMES. §5.1 has no rung for it and §4.3 does
+         * not list it among the wedge attributes, but every ratified coating page prints it,
+         * because batch and conveyorised are two different working lives: a conveyor line sets the
+         * pace and the oven schedule for you, a batch booth does not.
+         *
+         * ITS "BOTH" CHIP CARRIES THE PAGE'S OWN SENTENCE. The ratified cell reads "Batch powder
+         * booth and conveyorised line", which is one value here rather than two joined — so the
+         * default " · " separator never has to reproduce an "and" it does not have.
+         */
+        label: "Booth type",
+        kind: "fact",
+        values: {
+          batch_booth: "Batch powder booth",
+          conveyorised: "Conveyorised line",
+          both_booth: "Batch powder booth and conveyorised line",
+        },
+      },
+      {
+        from: "sector_worked",
+        rank: 81,
+        maxValues: 3,
+        label: "Sector worked",
+        kind: "fact",
+        /**
+         * §4.3 `sector_tag`: "display only. Never a matching input — locked". It ranks last on
+         * every machining map for that reason and it ranks last here; with eight rows against a
+         * budget of ten it is not actually shed, which is the only difference.
+         *
+         * A RECORDED DIVERGENCE, on the ruling the CAM and grinding sheets already carry. The page
+         * reads "Auto components and white goods" and this row will read "Auto components · White
+         * goods". The ratified sector cells are hand-set prose across all twenty-one pages, so no
+         * closed-vocabulary dictionary reproduces them; a `join: " and "` for this one row would
+         * give the file a third separator for one kind of row, which is the change that was
+         * declined on grinding and is declined again here rather than re-argued per trade.
+         */
+        values: {
+          auto_components: "Auto components",
+          white_goods: "White goods",
+          furniture_steel: "Steel furniture",
+          fabrication: "Fabrication & structures",
+          general_job: "General job work",
+        },
+      },
+    ],
+  },
 ];
 
 export function tradeResumeMapFor(packId: string | null | undefined): TradeResumeMap | undefined {

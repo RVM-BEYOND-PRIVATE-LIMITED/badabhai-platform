@@ -37,7 +37,7 @@ export const WELDER = {
   packId: "qp_welding_trade",
   familyId: "fam_welding_trade",
   cluster: "fabrication",
-  formEnabled: false,
+  formEnabled: true,
   displayName: "Welder",
   offerName: "welder",
   levelLadder: ["Helper", "Welder", "Certified Welder"],
@@ -58,4 +58,44 @@ export const WELDER = {
     ],
     levelTerms: ["helper", "welder", "certified welder", "हेल्पर"],
   },
+  fresher: {
+    // KEYED BY STORED `value_text`. THE LIST IS WELDING SETS, NOT MACHINE TOOLS, which is the
+    // first time in this registry that the "ITI workshop" block is not four machining machines:
+    // an ITI Welder trainee stands at an arc set, not a lathe. Copying the machining list here
+    // would have asked him which milling machine he ran, and he ran none.
+    workshopMachines: {
+      arc_set: "Arc welding set",
+      mig_set: "MIG / CO2 machine",
+      tig_set: "TIG welding set",
+      gas_set: "Gas welding and cutting set",
+      grinder: "Grinding machine",
+    },
+    tradeTest: {
+      passed: "Trade test passed",
+      appeared: "Trade test taken, result awaited",
+    },
+  },
+  /**
+   * AUTOCOMPLETE, NOT A CLOSED SET, and this trade is the clearest case in the programme for why
+   * it must not be closed: the reference sheet carries "Welder Qualification Test — 3G, MS plate
+   * (Al Barsha Steel Fabrication LLC, 2023)", issued by an EMPLOYER in another country. A WQT is
+   * named for the position, process and material it was sat on, so the real strings are open-ended
+   * by construction and no register exists to validate them against.
+   *
+   * THE POSITION-SPECIFIC ENTRIES ARE THE POINT. "Certified Welder" is this role's top rung and a
+   * certificate naming 3G or 6G is worth more to a supervisor than any generic course, because it
+   * is the one credential in the trade that states exactly what the man can hold.
+   */
+  suggestedCertificates: [
+    "Welder Qualification Test — 3G, MS plate",
+    "Welder Qualification Test — 6G, pipe",
+    "ITI Welder — NCVT",
+    "MIG / MAG (GMAW) Welding",
+    "TIG (GTAW) Welding",
+    "Arc Welding — SMAW",
+    "Site Safety Induction",
+    "Trade Test — Welder",
+    "Fire & Safety Awareness",
+    "First Aid",
+  ],
 } as const satisfies RoleFormDescriptor;

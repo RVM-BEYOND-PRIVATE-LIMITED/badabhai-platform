@@ -30,7 +30,7 @@ export const PAINTER_COATING = {
   packId: "qp_powder_coating",
   familyId: "fam_powder_coating",
   cluster: "fabrication",
-  formEnabled: false,
+  formEnabled: true,
   displayName: "Painter / Powder Coating",
   offerName: "powder coating operator",
   levelLadder: ["Helper", "Operator", "Skilled"],
@@ -63,4 +63,40 @@ export const PAINTER_COATING = {
      */
     extraConflictTerms: ["house painting", "wall painting", "putty", "distemper", "whitewash"],
   },
+  fresher: {
+    // KEYED BY STORED `value_text`. Booth, gun and oven — the paint shop's own equipment, for the
+    // same reason the welder's list is welding sets: an ITI Painter General trainee never touches
+    // a machine tool, and offering him one would be asking him to claim training he has not had.
+    workshopMachines: {
+      spray_gun: "Spray gun",
+      powder_booth: "Powder coating booth",
+      curing_oven: "Curing oven",
+      compressor: "Air compressor",
+      sanding_machine: "Sanding and buffing machine",
+    },
+    tradeTest: {
+      passed: "Trade test passed",
+      appeared: "Trade test taken, result awaited",
+    },
+  },
+  /**
+   * AUTOCOMPLETE, NOT A CLOSED SET.
+   *
+   * THE ENTRIES NAME THE COATING AND THE TEST, not a generic "painting course", because that is
+   * what a paint-shop supervisor screens on: a man who can state a DFT range and has sat a
+   * salt-spray or adhesion test is the man who can hold a specification. The reference sheet's own
+   * education row is "10th standard — Painter General · SCVT", which is why the ITI entry names
+   * that trade rather than an industrial-coating one that does not exist as an ITI trade.
+   */
+  suggestedCertificates: [
+    "Powder Coating Operator — NSQF",
+    "ITI Painter General — NCVT",
+    "ITI Painter General — SCVT",
+    "Industrial Spray Painting — HVLP",
+    "Pretreatment & Phosphating",
+    "Paint Inspection — DFT & Adhesion",
+    "Trade Test — Painter",
+    "Fire & Safety Awareness",
+    "First Aid",
+  ],
 } as const satisfies RoleFormDescriptor;
