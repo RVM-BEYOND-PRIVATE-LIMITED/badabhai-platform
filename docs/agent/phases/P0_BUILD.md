@@ -1,3 +1,16 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+NOTHING SURVIVES THIS CLOSURE. Every deliverable is either shipped, deleted by a signed
+ruling, or carried by an E-phase. Checked adversarially, not assumed.
+
+The WORKSHEET is not closed by this. docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md
+stays LIVE — R1 and R4-d are signed, six rulings are still open, and R7's blank slot at
+:794 is E2's gate. Closing this phase retires the BRIEF, not the worksheet.
+P0_CHECK is now structurally unpassable and that is the correct reason to close it: its
+item 3 requires every signature column to be empty, and the owner signed two.
+
+------------------------------------------------------------------------------
 PHASE P0 — RVM decision worksheet. No code in this phase.
 
 Produce docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md.

@@ -1,3 +1,32 @@
+STATUS: REOPENED 2026-09-05 — owner ruling. NOT closed with P0-P12, and NOT part of the
+E-chain. This phase runs STANDALONE.
+
+THE CHOICE, AND WHY, because the owner gave two ways to remove the dangling pointer and this
+brief took the first. ADR-0035 Amendment 1 (Accepted, owner ruling 2026-09-04) names THIS
+FILE BY PATH as the workstream claiming `payer_form_drafts`
+(docs/decisions/0035-ai-job-posting-chat-and-cross-device-drafts.md:339, :348). The options
+were: keep P8 open as the amendment's home, or write the amendment's retirement into the ADR.
+
+KEEP P8 OPEN. Three reasons, in increasing order of force:
+
+  1. RETIRING THE AMENDMENT DOES NOT REHOME THE OTHER TWO SURVIVORS. P8 carries three things
+     no E-phase covers and only one of them is the table claim; the optimistic-concurrency
+     gap and the checkpoint table would still need a home.
+  2. IT WOULD TRADE A DANGLING POINTER FOR A DANGLING TABLE. `payer_form_drafts` is real,
+     shipped, and unclaimed (packages/db/src/schema/payer.ts:775-795). ADR-0035's own
+     §Consequences asks that an unclaimed table "should be reconsidered rather than left as
+     speculative surface" — retiring the claim without disposing of the table restores
+     precisely the state the amendment was written to end.
+  3. THE BRIEF IS NOT STALE. It was rewritten against ADR-0036 and shipped code in #1416: the
+     store question is RULED and Half A is buildable. Reopening it is not reviving a wrong
+     document.
+
+Retiring the amendment stays available if the owner prefers it — but it is then an ADR
+supersede AND a disposition of the table, not a one-line edit.
+
+The rest of this file stands as written.
+
+------------------------------------------------------------------------------
 STATUS: HALF A IS BUILDABLE. The store is ruled — claim payer_form_drafts (owner ruling
 2026-09-04). HALF B (GET /schema) stays deleted from this phase; see the bottom.
 PHASE-ORDER GATE: docs/agent/README.md:47 requires the previous VERDICT to be PASS, and
@@ -93,7 +122,7 @@ HALF A — the store.
 HALF B — GET /payer/job-posting-drafts/schema: DELETED FROM THIS PHASE. Its option sets read
 from matching_catalog, which is PR #1387 and is not on main; two of them (shifts, benefits)
 are not in that catalog's payload at all (P1_BUILD:17-26); and function and collar tiers are P3's
-unbuilt columns. Build no part of it. (The role count is no longer a blocker — R4-d(a) is
+unbuilt columns. Build no part of it. (The role count is no longer a blocker — R4-d(b) is
 ruled: 21. The registry declares five with formEnabled true, so a chip set is still read
 from the registry, never from a hand-typed list of any length.)
 

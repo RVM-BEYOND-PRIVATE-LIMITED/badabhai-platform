@@ -5,21 +5,28 @@ import 'package:badabhai_worker_app/features/swipe/data/job_feed_view_store.dart
 
 void main() {
   group('SessionOnlyJobFeedViewStore', () {
-    test('always reads list, even after a write', () async {
+    test('always reads deck, even after a write', () async {
       const SessionOnlyJobFeedViewStore store = SessionOnlyJobFeedViewStore();
-      expect(await store.read(), JobFeedViewMode.list);
+      expect(await store.read(), JobFeedViewMode.deck);
 
-      await store.write(JobFeedViewMode.deck);
+      await store.write(JobFeedViewMode.list);
       // write() is a no-op — nothing persists.
-      expect(await store.read(), JobFeedViewMode.list);
+      expect(await store.read(), JobFeedViewMode.deck);
     });
   });
 
   group('SharedPrefsJobFeedViewStore', () {
     setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
-    test('defaults to list when unset', () async {
+    test('defaults to deck when unset', () async {
       const SharedPrefsJobFeedViewStore store = SharedPrefsJobFeedViewStore();
+      expect(await store.read(), JobFeedViewMode.deck);
+    });
+
+    test('an explicit prior "list" choice is honoured, not overridden by the '
+        'new deck default', () async {
+      const SharedPrefsJobFeedViewStore store = SharedPrefsJobFeedViewStore();
+      await store.write(JobFeedViewMode.list);
       expect(await store.read(), JobFeedViewMode.list);
     });
 

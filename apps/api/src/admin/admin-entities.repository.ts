@@ -119,7 +119,12 @@ export class AdminEntitiesRepository {
       preferred_language: r.preferredLanguage,
       has_photo: r.hasPhoto,
       resume_show_photo: r.resumeShowPhoto,
-      resume_night_shift_ready: r.resumeNightShiftReady,
+      // COALESCED AT THE BOUNDARY (#1426). The column is three-state since 0100, but
+      // `AdminWorkerListItem` types this `boolean` and apps/admin-web parses it with
+      // `z.boolean()` — a JSON null fails that safeParse, which `adminFetch` turns into a
+      // thrown AdminRequestError, dark-ing the whole workers list rather than one field. The
+      // ops console has no third state to show, and "never asked" reads as "no" there anyway.
+      resume_night_shift_ready: r.resumeNightShiftReady ?? false,
       deletion_scheduled_at: r.deletionScheduledAt,
       created_at: r.createdAt,
       updated_at: r.updatedAt,
@@ -175,7 +180,8 @@ export class AdminEntitiesRepository {
       preferred_language: w.preferredLanguage,
       has_photo: w.hasPhoto,
       resume_show_photo: w.resumeShowPhoto,
-      resume_night_shift_ready: w.resumeNightShiftReady,
+      // Same coalesce as the list projection above, and for the same admin-web contract.
+      resume_night_shift_ready: w.resumeNightShiftReady ?? false,
       deletion_scheduled_at: w.deletionScheduledAt,
       created_at: w.createdAt,
       updated_at: w.updatedAt,

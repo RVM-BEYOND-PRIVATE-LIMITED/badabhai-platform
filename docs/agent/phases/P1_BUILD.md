@@ -1,3 +1,20 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+WHAT NO E-PHASE COVERS — dropped visibly, not quietly. Each survived an adversarial
+refutation pass (already-ships / an-E-phase-covers-it / a-signed-ruling-deleted-it):
+  - The `matching_catalog` table — migration, Drizzle schema, repository. Built on
+    `origin/p1-matching-catalog` (a454fac0), whose PR #1387 is CLOSED AND UNMERGED
+    (2026-09-04). No E-phase creates any taxonomy config table; ADR-0036 §8's
+    `match_config` holds nine SCALARS and no taxonomy.
+  - The publish-time validator that names the exact bad field, plus the versioned Zod
+    catalog schema — i.e. this phase's INVARIANT, "an invalid catalog can never become
+    the active one". Nothing on main validates a taxonomy blob.
+  - Taxonomy as PUBLISHED CONFIG rather than a compiled constant — a role/family/domain
+    registry an RVM sign-off can change without a deploy. E1 reads a compile-time
+    constant instead, which is the opposite arrangement.
+
+------------------------------------------------------------------------------
 PHASE P1 — matching_catalog config table. PLAN MODE. Changes the database.
 
 Show me the plan and wait for approval before writing any code.
@@ -42,7 +59,8 @@ Deliver:
   6. Only one row can have is_active = true. Enforce this in the DATABASE
      (unique partial index or similar), not in application code.
 
-Do NOT put real values in. R1 to R4 are still open. Seed only a syntactically valid
+Do NOT put real values in. R1 and R4-d are signed (2026-09-05); R2, R3 and R4-a/b/c are still
+open, and the catalog needs all of them. Seed only a syntactically valid
 fixture catalog with is_active = false, for tests.
 
 INVARIANT: an invalid catalog can never become the active one.

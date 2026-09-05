@@ -27,6 +27,11 @@ export const EVENT_REGISTRY = {
   // from worker.otp_verified so a test mint is always distinguishable on the spine.
   "worker.test_login": { version: 1, domain: "worker", payload: p.WorkerTestLoginPayload },
   "worker.name_recorded": { version: 1, domain: "worker", payload: p.WorkerNameRecordedPayload },
+  "worker.location_recorded": {
+    version: 1,
+    domain: "worker",
+    payload: p.WorkerLocationRecordedPayload,
+  },
   "worker.employment_recorded": {
     version: 1,
     domain: "worker",
@@ -952,7 +957,8 @@ export const EVENT_REGISTRY = {
 
   // Migration 0098 — the worker recorded their certificates and education on the finishing form's
   // qualifications page. NOT more counts on `worker.preferences_recorded`: that payload counts
-  // ATTRIBUTE KEYS and is bounded at sixteen because `PREFERENCE_KEYS` has sixteen entries, while
+  // ATTRIBUTE KEYS and is bounded at sixteen — a deliberately loose ceiling, NOT the map's size:
+  // `PREFERENCE_KEYS` holds twelve (counted 2026-09-05; this line claimed sixteen). While
   // these are rows in their own tables behind their own endpoint. Same shape as
   // `worker.employment_recorded`, for a table of the same kind. Two counts and one flag. No
   // credential names, no issuers, no institutes — an issuer can BE an employer, which is exactly

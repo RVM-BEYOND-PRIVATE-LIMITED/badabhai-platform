@@ -59,14 +59,51 @@ describe("the city catalogue when the gazetteer and its matcher disagree", () =>
     );
   });
 
-  it("boots when the two agree", async () => {
-    // The control. Without it the two cases above would still pass against a module that threw
-    // unconditionally, and this file would be asserting nothing about the real code path.
-    vi.mocked(canonicalCity).mockImplementation((text: string) =>
-      normalized(text.slice(0, 1).toUpperCase() + text.slice(1).toLowerCase()),
+  it("refuses to boot when a canonical city carries no state tag (#1429)", async () => {
+    // The state-dimension drift: a city is added to `canonical` and nobody adds its `states` row.
+    // Serving it would put a city in the flat list that no state filter can reach — the #1406 dead
+    // end one layer in, and invisible to the round-trip check above because the value is fine.
+    //
+    // FORCED ON EXACTLY ONE CITY, not all of them. Resolving every token to one value would fold
+    // 38 differently-tagged canonical entries together and trip the CONFLICT branch instead — a
+    // different guard, and the test would pass while asserting nothing about this one. So only
+    // "banglore" (an alias key, and therefore untagged by design — aliases inherit their canonical
+    // member's state) is diverted to a value nothing tags, and every other token resolves
+    // faithfully.
+    vi.mocked(canonicalCity).mockImplementation((text: string) => {
+      const token = text.trim().toLowerCase();
+      if (token === "banglore" || token === "atlantis") return normalized("Atlantis");
+      const canonical = (CITIES_FILE.aliases as Record<string, string>)[token] ?? token;
+      return normalized(canonical.replace(/(^|\s)\S/g, (c) => c.toUpperCase()));
+    });
+
+    await expect(import("./worker-cities.catalogue")).rejects.toThrow(
+      /city gazetteer gap: "Atlantis" has no entry in data\/cities\.json/,
     );
+    // It names the obligation, because the reader of a boot crash is on-call, not in this file.
+    await expect(import("./worker-cities.catalogue")).rejects.toThrow(/must carry a state/);
+  });
+
+  it("boots when the two agree", async () => {
+    // The control. Without it the cases above would still pass against a module that threw
+    // unconditionally, and this file would be asserting nothing about the real code path.
+    //
+    // THE MOCK IS FAITHFUL RATHER THAN CONVENIENT, and #1429 is why it had to become so. It used
+    // to upper-case the first character only, which resolved "banglore" to "Banglore" — a value
+    // the real matcher never produces. That was harmless while the catalogue only grouped
+    // aliases; once every city must also carry a state, an invented city has no tag and the
+    // control started failing on a condition the product cannot reach. Mirroring the real alias
+    // fold keeps this a test of the happy path rather than of the mock.
+    vi.mocked(canonicalCity).mockImplementation((text: string) => {
+      const token = text.trim().toLowerCase();
+      const canonical = (CITIES_FILE.aliases as Record<string, string>)[token] ?? token;
+      return normalized(canonical.replace(/(^|\s)\S/g, (c) => c.toUpperCase()));
+    });
 
     const { CITY_CATALOGUE } = await import("./worker-cities.catalogue");
     expect(CITY_CATALOGUE.length).toBeGreaterThan(0);
+    // And the happy path really did tag every one of them — otherwise "boots" would be satisfied
+    // by a catalogue that silently dropped the field this test exists to protect.
+    for (const city of CITY_CATALOGUE) expect(city.state).toBeTruthy();
   });
 });

@@ -10,6 +10,7 @@ import '../../../core/error/failure_reason.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/util/title_case.dart';
 import '../../../core/widgets/bb_app_bar.dart';
 import '../../../core/widgets/bb_button.dart';
 import '../../../core/widgets/bb_scaffold.dart';
@@ -172,7 +173,7 @@ class _ResumeEditViewState extends State<_ResumeEditView> {
     );
     if (!mounted) return; // popped while the dialog was open
     if (value == null) return;
-    final String trimmed = value.trim();
+    final String trimmed = titleCaseName(value.trim());
     if (trimmed.isEmpty) return;
     cubit.setDisplayName(trimmed);
   }

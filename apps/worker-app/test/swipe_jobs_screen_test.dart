@@ -130,6 +130,11 @@ void main() {
       'pay band from the feed (ADR-0024 addendum)', (
     WidgetTester tester,
   ) async {
+    // This test is about the LIST card's own rendering, not the default
+    // view — force list mode so it stays valid regardless of which view
+    // mode a fresh install now defaults to.
+    locator.registerSingleton<JobFeedViewStore>(_FakeJobFeedViewStore());
+    addTearDown(() => locator.unregister<JobFeedViewStore>());
     http.Request? captured;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
       
@@ -238,6 +243,9 @@ void main() {
       '(no nav)', (
     WidgetTester tester,
   ) async {
+    // The list's own inline-apply card, not the deck — force list mode.
+    locator.registerSingleton<JobFeedViewStore>(_FakeJobFeedViewStore());
+    addTearDown(() => locator.unregister<JobFeedViewStore>());
     http.Request? applyReq;
     final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
 
@@ -347,7 +355,7 @@ void main() {
 
   group('list <-> deck view toggle', () {
     testWidgets(
-        'the header toggle switches the body between ListView and JobDeck',
+        'the header toggle switches the body between JobDeck and ListView',
         (WidgetTester tester) async {
       _tallSurface(tester);
       final SwipeBloc bloc = _bloc(MockClient((http.Request req) async {
@@ -365,24 +373,24 @@ void main() {
       await tester.pumpWidget(_harness(bloc));
       await tester.pumpAndSettle();
 
-      // Defaults to the list — the swipe deck is not on screen.
-      expect(find.byType(ListView), findsOneWidget);
-      expect(find.byType(JobDeck), findsNothing);
-
-      await tester.tap(find.byKey(const Key('jobFeedViewToggle')));
-      await tester.pumpAndSettle();
-
-      // Same header, same jobs — only the body swapped to the deck.
+      // Defaults to the swipe deck — the scrollable list is not on screen.
       expect(find.byType(JobDeck), findsOneWidget);
       expect(find.byType(ListView), findsNothing);
-      expect(find.text('First Job'), findsOneWidget);
 
-      // Toggling back returns to the list.
       await tester.tap(find.byKey(const Key('jobFeedViewToggle')));
       await tester.pumpAndSettle();
 
+      // Same header, same jobs — only the body swapped to the list.
       expect(find.byType(ListView), findsOneWidget);
       expect(find.byType(JobDeck), findsNothing);
+      expect(find.text('First Job'), findsOneWidget);
+
+      // Toggling back returns to the deck.
+      await tester.tap(find.byKey(const Key('jobFeedViewToggle')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(JobDeck), findsOneWidget);
+      expect(find.byType(ListView), findsNothing);
     });
 
     testWidgets(
@@ -418,8 +426,7 @@ void main() {
       await tester.pumpWidget(_harness(bloc));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('jobFeedViewToggle')));
-      await tester.pumpAndSettle();
+      // Deck is the default view now — no toggle tap needed to reach it.
       expect(find.byType(JobDeck), findsOneWidget);
 
       // The deck's own big Apply button — same key job_deck_test.dart asserts on.

@@ -475,10 +475,11 @@ describe("buildResumeRenderInput — the LLM-led labels", () => {
  * `{{night_shift_ready}}` slot would mean four more layouts and would render as nothing until
  * every one of them landed. `{{availability}}` prints on all twelve today.
  *
- * AND `false` PRINTS NOTHING — the trap the column sets, and the assertion this block exists
- * for. The column is `notNull().default(false)`, so "answered No" and "never opened the screen"
- * are the same stored byte; a "…: No" line would stamp a refusal onto the résumé of every
- * worker who has never seen the toggle. Only `true` speaks.
+ * AND `false` PRINTS NOTHING — the trap the column set, and the assertion this block exists
+ * for. The column is three-state since #1426, but every caller coalesces NULL to `false` before
+ * this function sees it, so "answered No" and "never answered" still arrive here identically;
+ * a "…: No" line would stamp a refusal onto the résumé of every worker who has never seen the
+ * toggle. Only `true` speaks.
  */
 describe("buildResumeRenderInput — the worker's night-shift toggle (#947)", () => {
   it("puts the worker's own answer on the résumé when they ticked it", () => {
@@ -598,10 +599,52 @@ describe("buildResumeRenderInput — the worker's night-shift toggle (#947)", ()
     expect(input.availability).toBe("Day shift · Night shift ke liye taiyaar");
   });
 
+  it("says nights ONCE when the sheet's own shift row already says it (#1426)", () => {
+    // THE DUPLICATION #1426's DERIVATION WOULD OTHERWISE CREATE AT SCALE, and the reason this
+    // guard had to grow a second source.
+    //
+    // The dedupe used to test only the MODEL's `shift`. But the sheet's Shift row actually prints
+    // `preferences.shiftLine ?? humanizeShift(<model shift>)` — the worker's own finishing-form
+    // answer wins — and that same answer is now what seeds `nightShiftReady`. So a worker who
+    // picked "night" on the form, and whose interview never mentioned shifts, gets `shift: null`
+    // here and a Shift row reading "Night shift": the old guard sees nothing to dedupe against
+    // and prints the readiness clause anyway. One answer, said twice, in two slots — exactly what
+    // `humanizeAvailability`'s own docblock promises never to print, and it would happen to every
+    // night-preference worker rather than as an edge case.
+    const input = buildResumeRenderInput(
+      { shift: null, availability: { status: "immediate" } },
+      null,
+      null,
+      null,
+      true,
+      "worker",
+      { packId: null, attributes: { shift_preference: "night" } },
+    );
+    expect(input.availability).toBe("Available immediately");
+    expect(input.availability).not.toMatch(/taiyaar/i);
+  });
+
+  it("still prints the readiness clause when the sheet's shift row says something else", () => {
+    // The control, and it is the half that matters: the guard must suppress a DUPLICATE, never a
+    // second real answer. "I prefer days, and I am ready for nights" is two answers by one
+    // author and both belong on the sheet — the same rule the model-shift arm above follows.
+    const input = buildResumeRenderInput(
+      { shift: null, availability: { status: "immediate" } },
+      null,
+      null,
+      null,
+      true,
+      "worker",
+      { packId: null, attributes: { shift_preference: "day" } },
+    );
+    expect(input.availability).toMatch(/taiyaar/i);
+  });
+
   it("NEVER prints a No the worker did not say", () => {
-    // THE DEFAULT-FALSE TRAP, AND THE DESIGN CALL THIS BLOCK DEFENDS. `false` is not an answer:
-    // the column is `notNull().default(false)`, so it is also what every worker who has never
-    // opened the Edit-Resume screen carries, and they are the overwhelming majority. Printing
+    // THE FALSE-IS-NOT-AN-ANSWER TRAP, AND THE DESIGN CALL THIS BLOCK DEFENDS. `false` reaching
+    // this function is also what every worker who has never opened the Edit-Resume screen
+    // produces — NULL since #1426, coalesced to `false` at the boundary — and they are the
+    // overwhelming majority. Printing
     // "Night shift ke liye taiyaar: No" for them would stamp a refusal they never gave onto the
     // one document whose entire purpose is to be handed to an employer — turning a fix for a
     // handful of workers into a regression for all the rest. So false says nothing, exactly as

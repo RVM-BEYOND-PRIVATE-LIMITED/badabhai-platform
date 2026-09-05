@@ -1,3 +1,10 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+NOTHING SURVIVES THIS CLOSURE. Every deliverable is either shipped, deleted by a signed
+ruling, or carried by an E-phase. Checked adversarially, not assumed.
+
+------------------------------------------------------------------------------
 STATUS: CLOSED 2026-09-04 — every deliverable deleted by ADR-0036. Nothing to build.
 Do not build from this file without reopening the phase.
 
@@ -45,7 +52,7 @@ DELETED BY ADR-0036 §5 — "Bump engine_version on job_reach."
   is stamped per APPLICATION (:75) and a bump is CEO-gated, never a build-phase action.
 
 DELETED — the property test over "all 22 roles."
-  22 was never right: R4-d(a) is ruled 21 (owner, 2026-09-04), and 21 is the taxonomy count,
+  22 was never right: R4-d(b) is ruled 21 (owner, 2026-09-04), and 21 is the taxonomy count,
   while apps/api/src/profiling/roles/role-registry.ts:39-45 declares FIVE.
   The count is not why the test goes, though — see below.
   The rule that test would have guarded — boost never crosses a relevance bucket — no

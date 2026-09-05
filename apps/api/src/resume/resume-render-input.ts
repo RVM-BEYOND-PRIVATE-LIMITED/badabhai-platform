@@ -708,7 +708,12 @@ function buildUndegraded(
     // #947 — the worker's own night-shift toggle joins the model's extracted shift on this one
     // slot. `false` contributes nothing at all, so every row still sitting on the column's
     // default renders this line byte-for-byte as it does today; see `humanizeAvailability`.
-    availability: humanizeAvailability(draft.availability.status, draft.shift, nightShiftReady),
+    availability: humanizeAvailability(
+      draft.availability.status,
+      draft.shift,
+      nightShiftReady,
+      preferences.shiftLabel,
+    ),
     summary: buildSummary(draft, trade),
     // Q14: canonical skill NAMES first (ids resolved to display labels — the résumé
     // must never show skill_* ids), then the worker-confirmed raw labels (deduped).
@@ -1018,6 +1023,7 @@ function fromResumeProfile(
       cleanScalar(rp.availability),
       cleanScalar(rp.shift),
       nightShiftReady,
+      preferences.shiftLabel,
     ),
     // The CLEANED labels, not `rp`'s raw ones — see the note at the top of this function.
     summary: summaryFor({ role_label: roleLabel, domain_label: domainLabel, years: totalYears }),
@@ -1376,9 +1382,11 @@ function mergeSkillsWithLabels(names: string[], labels: string[]): string[] {
  *
  * ── TRUE PRINTS; FALSE PRINTS NOTHING, AND THE ASYMMETRY IS THE DESIGN ─────────────────
  *
- * `workers.resume_night_shift_ready` is `notNull().default(false)`. So "the worker answered No"
- * and "the worker has never opened the Edit-Resume screen" are THE SAME STORED BYTE, and nothing
- * in the column can tell them apart. A "Night shift ke liye taiyaar: No" line would therefore
+ * `workers.resume_night_shift_ready` is three-state since #1426 — NULL means the worker has
+ * never answered — but this function is handed a plain boolean, because every caller coalesces
+ * `?? false` at its own boundary. So from here "the worker answered No" and "the worker has
+ * never opened the Edit-Resume screen" still arrive as THE SAME VALUE, and the asymmetry below
+ * is what makes that safe. A "Night shift ke liye taiyaar: No" line would
  * stamp a refusal onto the résumé of every worker who has never seen the toggle — a claim they
  * never made, printed on the one document whose entire purpose is to be handed to an employer,
  * and the overwhelming majority of rows are in exactly that state. It would make the fix for a
@@ -1389,8 +1397,8 @@ function mergeSkillsWithLabels(names: string[], labels: string[]): string[] {
  * made. This is the same judgement `AVAILABILITY_PHRASES` already makes by having no
  * `not_looking` entry: a résumé exists to be shown to employers, and stamping it with a line
  * that discourages them serves nobody. It is also what makes the change unconditionally
- * back-compatible — every row still on the column default renders `{{availability}}`
- * byte-for-byte as it does today (invariant #8).
+ * back-compatible — every row that has never been answered renders `{{availability}}`
+ * byte-for-byte as it does today (invariant #8), whether it holds `false` or NULL.
  *
  * THE COST, STATED PLAINLY: a worker who genuinely means No cannot say so on the PDF. That is
  * the right trade. Silence is already what a résumé says about every preference nobody asserted,
@@ -1411,6 +1419,7 @@ function humanizeAvailability(
   status: string | null,
   shift: string | null,
   nightShiftReady: boolean,
+  sheetShiftLabel: string | null = null,
 ): string | null {
   const phrase = AVAILABILITY_PHRASES[status?.trim().toLowerCase() ?? ""] ?? null;
   // WHEN BOTH SAY NIGHTS, THE STRONGER CLAIM SURVIVES — and it is the model's, not the toggle's.
@@ -1440,9 +1449,17 @@ function humanizeAvailability(
   // character of a value it does not recognise, so "NIGHT SHIFT" and "Night Shift" come back
   // unchanged and an equality test against "Night shift" misses both. Case, surrounding space and
   // the singular/plural tail are all noise on a free-text field the model is not constrained to.
-  const shiftAlreadySaysNight = NIGHT_SHIFT_TOKENS.test(
-    (shift ?? "").trim().toLowerCase().replace(/\s+/g, " "),
-  );
+  //
+  // TESTED AGAINST THE SHEET'S SHIFT ROW TOO, NOT ONLY THE MODEL'S (#1426). The row actually
+  // printed is `preferences.shiftLine ?? humanizeShift(<model shift>)`, so the worker's own
+  // finishing-form answer can say "Night shift" while `shift` here is null — and it will now do
+  // so systematically, because that same answer is what seeds `nightShiftReady`. Left to the
+  // model's field alone this guard would go quiet exactly when the duplication became routine,
+  // and the sheet would say nights in one slot and willing-to-work-nights in the other, from one
+  // answer. Either source saying night is enough to drop the weaker clause.
+  const saysNight = (value: string | null): boolean =>
+    NIGHT_SHIFT_TOKENS.test((value ?? "").trim().toLowerCase().replace(/\s+/g, " "));
+  const shiftAlreadySaysNight = saysNight(shift) || saysNight(sheetShiftLabel);
   const clauses = [
     phrase,
     shiftPhrase,

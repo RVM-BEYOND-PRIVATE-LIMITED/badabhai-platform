@@ -62,7 +62,20 @@ export const workers = pgTable(
     // gates the (deferred) profile-photo on the worker's own resume/app avatar;
     // `night_shift_ready` is the worker-asserted availability flag.
     resumeShowPhoto: boolean("resume_show_photo").notNull().default(true),
-    resumeNightShiftReady: boolean("resume_night_shift_ready").notNull().default(false),
+    // THREE-STATE ON PURPOSE (#1426): NULL = the worker has never answered, `true`/`false` = they
+    // did. It was `notNull().default(false)`, and that made "never asked" and "said no"
+    // indistinguishable — which is fine while the ONLY writer is the worker's own toggle, and
+    // wrong the moment anything wants to DERIVE a default. A derivation cannot know whether it is
+    // filling a blank or overwriting a deliberate "no" unless the column can say.
+    //
+    // THE DEFAULT IS DROPPED, NOT JUST THE NOT NULL, and that is load-bearing: leaving
+    // `.default(false)` on would land every new row on `false` and reproduce exactly the
+    // ambiguity this change exists to remove, while looking fixed.
+    //
+    // READERS COALESCE, THE COLUMN DOES NOT. `?? false` at every render/disclosure/admin/event
+    // boundary keeps the wire contracts byte-identical — a null still prints nothing, which is
+    // what `false` always meant on the sheet.
+    resumeNightShiftReady: boolean("resume_night_shift_ready"),
     // Worker-controlled push preference (#643). NON-PII boolean. Default TRUE so every
     // existing row keeps today's behaviour — the column is additive and back-compat.
     // READ BY THE SEND PATH: PushService.deliver gates the fan-out on it (ADR-0034), so
@@ -85,6 +98,29 @@ export const workers = pgTable(
     // rest in Storage. NULL until the worker uploads one. Erased (column + object)
     // on photo delete and on account deletion (prefix sweep).
     photoStorageKey: text("photo_storage_key"),
+    // The worker's own COARSE home location, captured on the first onboarding screen beside
+    // the name (#1428). City + state only — never an address, never a coordinate, never a
+    // pincode. NULL until the worker gives one; both halves are independently nullable
+    // because a manual entry can supply one without the other.
+    //
+    // NOT PII, AND THAT IS AN OWNER RULING, NOT A JUDGEMENT CALL HERE (2026-07-31, the Master
+    // Context DEAD LIST): "cities as PII (-> a 20-point matching input; never redact)". A city
+    // identifies nobody and is the strongest matching signal this product has; a state is
+    // coarser still. So unlike `full_name` and `phone_e164` two fields up, these columns hold
+    // PLAINTEXT — encrypting them would destroy the only thing they are for, and would be
+    // encrypting something the platform has already ruled is not identity.
+    //
+    // WHY IT IS A COLUMN HERE AND NOT THE JSONB TWO TABLES OVER. `worker_profiles`
+    // `.location_preference.current_city` exists and is written ONLY by the extraction
+    // processor — and the trade form deliberately runs no extraction, so for a trade-form
+    // worker it is never written at all (PARKED.md P-018). This is the FIRST-PARTY answer:
+    // the worker typed it, or accepted a device reverse-geocode, on day one.
+    //
+    // WHICH ONE WINS: THIS ONE (owner ruling 2026-09-05, #1428). A chat-extracted city is a
+    // derived guess; this is the worker's own assertion, and "AI never owns business
+    // decisions" applies to overwriting it too. Nothing in the extraction path writes here.
+    currentCity: text("current_city"),
+    currentState: text("current_state"),
     status: text("status").$type<WorkerStatus>().notNull().default("pending"),
     // ADR-0031 — 7-day deletion grace window. The DUE time of the scheduled hard-
     // delete (requested_at + ACCOUNT_DELETION_GRACE_DAYS). NULL = active worker;

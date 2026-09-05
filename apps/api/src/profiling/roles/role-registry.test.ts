@@ -95,12 +95,22 @@ describe("the role registry", () => {
       // must never carry a kind with no pack behind it — that is a 503 waiting for the first
       // worker whose session happens to name it, which is why this is pinned by VALUE rather than
       // by count.
+      //
+      // BATCH 2 PART ONE ADDED FOUR, AND ONLY FOUR OF ELEVEN. The other seven Batch 2 roles stay
+      // DECLARED-BUT-DISABLED because reachability was measured before authoring and their words
+      // do not reach a bindable code — "sheet metal" and "press brake" are NO MATCH, "power press"
+      // reaches masonry, every electrician phrase reaches house wiring. A kind here with a pack
+      // nobody can reach passes every gate and helps nobody, which is why the flag is per role.
       expect([...TRADE_FORM_KINDS]).toEqual([
         "cnc_turner",
         "vmc_milling",
         "cnc_grinding",
+        "conventional_machinist",
+        "tool_die_maker",
         "cam_programmer",
         "cad_draughtsman",
+        "welder",
+        "painter_coating",
       ]);
     });
 
@@ -135,6 +145,38 @@ describe("the role registry", () => {
         headline: "CNC turner profile detected",
         ctaLabel: "Form bharkar resume pura karein",
       });
+    });
+
+    it("starts EVERY role's handover sentence with a capital, not just the acronym ones", () => {
+      // THE BUG THIS CATCHES, FOUND BY DRIVING A WELDER END TO END. The headline is
+      // `${offerName} profile detected`, and all five Batch 1 offerNames begin with an acronym —
+      // "CNC turner", "CAM programmer", "CAD draughtsman" — so every shipped card started with a
+      // capital BY ACCIDENT OF THE TRADE'S NAME and the composition looked right for a year.
+      // Batch 2's roles are ordinary nouns, and the same line produced "welder profile detected".
+      //
+      // ASSERTED OVER EVERY ENABLED ROLE, not over the four that exposed it. A pin on "welder"
+      // alone would go quiet the moment role twenty-two is a "fitter" or an "assembly line
+      // worker" — which is exactly how this survived to Batch 2 in the first place.
+      for (const descriptor of ENABLED_ROLE_DESCRIPTORS) {
+        const { headline, reply } = TRADE_FORM_OFFERS[descriptor.kind];
+        const first = headline[0]!;
+        expect(first, `${descriptor.kind}: handover headline starts lower case`).toBe(
+          first.toUpperCase(),
+        );
+        // The reply embeds the headline, so it must carry the same casing rather than being
+        // composed a second, divergent way.
+        expect(reply.startsWith(headline), `${descriptor.kind}: reply does not open with the headline`).toBe(true);
+      }
+    });
+
+    it("leaves the offerName itself sentence-cased — the fix belongs to the SENTENCE", () => {
+      // `offerName` is documented as the form that appears INSIDE a worker-facing sentence, and is
+      // deliberately not `displayName` so the card does not read like a form field. Capitalising
+      // the descriptor instead of the composition would have quietly undone that ruling, so the
+      // distinction is pinned: "welder", not "Welder", on the descriptor.
+      expect(descriptorForKind("welder")?.offerName).toBe("welder");
+      expect(descriptorForKind("welder")?.displayName).toBe("Welder");
+      expect(TRADE_FORM_OFFERS.welder.headline).toBe("Welder profile detected");
     });
   });
 

@@ -1,0 +1,339 @@
+{
+  "_why": "Role track for TOOL & DIE MAKING, authored under docs/profiling/role-pack-authoring-guide.md as part of Batch 2. fam_toolmaking stays the generic Tool and Die Making interview bound at ISCO unit 7222; this pack binds the NCO tool-and-die occupations directly (job_domain specificity 50 beats unit 40), so a press-tool maker gets tool-room depth and every other 7222 worker is untouched. The generic pack asks five questions -- what you make, drawing, tolerance, workplace, own tools -- which is the whole of a tool room's hiring stated once each. This pack is that hiring conversation.",
+  "_scope": "THE TOOL ROOM, NOT ONE MACHINE. This role stands at a surface grinder, a wire-cut EDM, a sinker EDM, a milling machine and a bench in the same week, and the ratified sheet's machine row says exactly that. So the machine question is a multi_select over the tool room's equipment rather than a disambiguator, and the role's own identity question is toolroom_level -- Trainee, Tool Maker, Senior -- which is what the headline prints and what a tool-room advertisement asks for. tool-die-maker.role.ts declares that ladder and names toolroom_experience as this role's tenureQuestionKey; both are honoured here literally, because a renamed gate key would leave the sheet's years figure reading nothing on a worker handed the form on his first message.",
+  "_depth": "THE TIER GATE IS toolroom_experience, asked FIRST. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber ?? valueBool, so adding a value_text would make the answer a STRING; every gte below would then compare a string to a number, compare() returns null, and the predicate is false forever. A permanently-false ask_if is a question that is never asked, silently -- the #776 defect that sat in qp_welding for the life of the pack. Every ask_if here uses the contract shape {op, left:{field}, right:{const}}, never {op, args}, which is the other half of that same defect.",
+  "_budget": "MAX_ENGINE_ASKS is 28 and qp_universal spends 8. Tier 0 is 8 items (16 total), tier 1 adds 3 at gte 2 (19), tier 2 adds 4 at gte 5 (23). The three fresher items are gated on toolroom_experience <= 0 and a senior never sees them; a fresher skips tiers 1 and 2 entirely, so his worst case is 16 + 3 = 19. The tiers are mutually exclusive by construction, which is why the fresher branch costs the senior nothing. Worst case anywhere is 23 against 28.",
+  "_sheet": "SECTION B IS READ OFF THE RATIFIED REFERENCE SHEET (Prakash Rathod, Tool & Die Maker -- Tool Maker), not invented. Its eight rows are Tooling made, Machines, Tool steels, Tool-room work, Measuring instruments, Drawings, Tolerance held and Sector worked, and every one has a question here that fills it. THE HEADLINE ROW IS Tooling made, not Machines: the ratified headline reads 'Tool & Die Maker -- Tool Maker, 9 yrs, Press tools, Progressive dies, Jigs & fixtures', which is toolsPhrase's three-value cap applied to that row. A tool-room advertisement is written in what the shop builds; the machines under it are shared with CNC Grinding and conventional machining and identify nobody. Tolerance is a BANDED single_select rather than a free number: the sheet prints a band, and a banded chip keeps a low-literacy worker tapping instead of typing while avoiding the answer_type 'number' path that has no Flutter widget.",
+  "_capture_only": "FIVE ITEMS ARE CAPTURED AND DELIBERATELY NOT PRINTED -- edm_work, die_design_work, die_troubleshooting, heat_treatment_work and press_tonnage. They are real matching data landing on worker_attributes with full provenance, but the ratified page has no row for any of them and guide section 5b forbids inventing one. This is the programming_mode precedent from qp_cam_programming exactly. drawing_reading's 'none' is likewise omitted from the map, on the same ruling that governs the turner, the miller and the grinder: a worker's own marketing document is not where a negative claim belongs.",
+  "pack_id": "qp_tool_die_making",
+  "version": 1,
+  "family_id": "fam_tool_die_making",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Drafted for owner review (Prakash). Shop-floor vocabulary NOT yet corrected by a practising tool and die maker -- see docs/registers/trade-content-ratification.md.",
+  "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half, and it reads iti_workshop_machines and trade_test_status LITERALLY -- neither may be renamed. The workshop machine list is the TOOL ROOM's ITI bench, so it leads with fitting-bench work rather than with a lathe.",
+  "items": [
+    {
+      "question_key": "toolroom_experience",
+      "prompt_text": "Tool room ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal tool room ka kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "toolroom_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "under_one", "label_text": "1 saal se kam", "value_number": 0 },
+        { "option_key": "one_to_three", "label_text": "1 se 3 saal", "value_number": 2 },
+        { "option_key": "three_to_seven", "label_text": "3 se 7 saal", "value_number": 5 },
+        { "option_key": "over_seven", "label_text": "7 saal se zyada", "value_number": 10 }
+      ]
+    },
+    {
+      "question_key": "toolroom_level",
+      "prompt_text": "Tool room me aapki abhi kaunsi post hai?",
+      "why_text": "Post se employer ko aapka darja pehli line me samajh aata hai.",
+      "retry_text": "Trainee, tool maker ya senior, kaunsi post hai?",
+      "target_kind": "attribute",
+      "target_field": "toolroom_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "trainee", "label_text": "Trainee ya helper", "value_text": "trainee" },
+        { "option_key": "tool_maker", "label_text": "Tool maker", "value_text": "tool_maker" },
+        { "option_key": "senior", "label_text": "Senior tool maker", "value_text": "senior" }
+      ]
+    },
+    {
+      "question_key": "tooling_made",
+      "prompt_text": "Aap kaunsa tooling banate hain?",
+      "why_text": "Aap kya banate hain, yahi employer sabse pehle dekhta hai.",
+      "retry_text": "Press tool, die ya fixture, kya banate hain?",
+      "target_kind": "attribute",
+      "target_field": "tooling_made",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "press_tool", "label_text": "Press tool", "value_text": "press_tool" },
+        { "option_key": "progressive_die", "label_text": "Progressive die", "value_text": "progressive_die" },
+        { "option_key": "jig_fixture", "label_text": "Jig aur fixture", "value_text": "jig_fixture" },
+        { "option_key": "check_gauge", "label_text": "Check gauge", "value_text": "check_gauge" },
+        { "option_key": "metal_mould", "label_text": "Metal ka mould", "value_text": "metal_mould" },
+        { "option_key": "other_tooling", "label_text": "Inme se koi nahi", "value_text": "unknown", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "toolroom_machine",
+      "prompt_text": "Tool room me kaunsi machine chalate hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "retry_text": "Grinder, EDM ya milling, kaunsi machine chalate hain?",
+      "target_kind": "attribute",
+      "target_field": "toolroom_machine",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "surface_grinder", "label_text": "Surface grinder", "value_text": "surface_grinder" },
+        { "option_key": "wire_cut", "label_text": "Wire-cut EDM", "value_text": "wire_cut" },
+        { "option_key": "sinker_edm", "label_text": "Sinker EDM ya spark erosion", "value_text": "sinker_edm" },
+        { "option_key": "milling", "label_text": "Milling machine", "value_text": "milling" },
+        { "option_key": "lathe", "label_text": "Khraad ya lathe", "value_text": "lathe" },
+        { "option_key": "other_machine", "label_text": "Inme se koi nahi", "value_text": "unknown", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "tool_steel",
+      "prompt_text": "Kaunse tool steel par kaam kiya hai?",
+      "why_text": "Tool steel ka tajurba employer ke liye alag mayne rakhta hai.",
+      "retry_text": "OHNS, HCHCr ya EN31, kaunsa steel istemaal kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "tool_steel",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "ohns", "label_text": "OHNS", "value_text": "ohns" },
+        { "option_key": "hchcr_dtwo", "label_text": "HCHCr ya D2", "value_text": "hchcr_dtwo" },
+        { "option_key": "en_thirty_one", "label_text": "EN31", "value_text": "en_thirty_one" },
+        { "option_key": "ms_die_set", "label_text": "MS die set", "value_text": "ms_die_set" },
+        { "option_key": "hss", "label_text": "HSS", "value_text": "hss" },
+        { "option_key": "other_steel", "label_text": "Inme se koi nahi", "value_text": "unknown", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "toolroom_work",
+      "prompt_text": "Tool room ka kaunsa kaam khud karte hain?",
+      "why_text": "Khud kiya hua kaam helper aur tool maker ka farq batata hai.",
+      "retry_text": "Assembly, tryout ya benchwork, kaunsa kaam karte hain?",
+      "target_kind": "attribute",
+      "target_field": "toolroom_work",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "die_assembly", "label_text": "Die assembly", "value_text": "die_assembly" },
+        { "option_key": "clearance_setting", "label_text": "Punch aur die clearance setting", "value_text": "clearance_setting" },
+        { "option_key": "tryout_correction", "label_text": "Tryout aur correction", "value_text": "tryout_correction" },
+        { "option_key": "benchwork", "label_text": "Benchwork aur scraping", "value_text": "benchwork" },
+        { "option_key": "shut_height", "label_text": "Shut-height setting", "value_text": "shut_height" },
+        { "option_key": "regrind", "label_text": "Sharpening aur regrind", "value_text": "regrind" },
+        { "option_key": "no_toolroom_work", "label_text": "Inme se koi nahi", "value_text": "unknown", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "measuring_tools",
+      "prompt_text": "Kaunse measuring instrument chala lete hain?",
+      "why_text": "Naap lene wale operator ko quality ka kaam diya jaata hai.",
+      "retry_text": "Slip gauge, micrometer ya sine bar, kya chalate hain?",
+      "target_kind": "attribute",
+      "target_field": "measuring_tools",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "slip_gauge", "label_text": "Slip gauge", "value_text": "slip_gauge" },
+        { "option_key": "height_gauge", "label_text": "Height gauge", "value_text": "height_gauge" },
+        { "option_key": "micrometer", "label_text": "Micrometer", "value_text": "micrometer" },
+        { "option_key": "sine_bar", "label_text": "Sine bar", "value_text": "sine_bar" },
+        { "option_key": "profile_projector", "label_text": "Profile projector", "value_text": "profile_projector" },
+        { "option_key": "dial_gauge", "label_text": "Dial gauge", "value_text": "dial_gauge" },
+        { "option_key": "other_instrument", "label_text": "Inme se koi nahi", "value_text": "unknown", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "retry_text": "Tooling drawing dekh kar kaam kar lete hain?",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        { "option_key": "no_drawing", "label_text": "Nahi padh pata", "value_text": "none" },
+        { "option_key": "basic_drawing", "label_text": "Tooling drawing padh leta hoon", "value_text": "basic_drawing" },
+        { "option_key": "gdt", "label_text": "GD aur T bhi samajhta hoon", "value_text": "gdt" }
+      ]
+    },
+    {
+      "question_key": "tolerance_band",
+      "prompt_text": "Aap kitni tolerance tak kaam kar lete hain?",
+      "why_text": "Tolerance se aapke kaam ki fine quality pata chalti hai.",
+      "retry_text": "Die clearance kitni tolerance tak rakh lete hain?",
+      "target_kind": "attribute",
+      "target_field": "tolerance_band",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": { "op": "gte", "left": { "field": "toolroom_experience" }, "right": { "const": 2 } },
+      "options": [
+        { "option_key": "point_zero_five", "label_text": "0.05 mm tak", "value_text": "0.05" },
+        { "option_key": "point_zero_two", "label_text": "0.02 mm tak", "value_text": "0.02" },
+        { "option_key": "point_zero_one", "label_text": "0.01 mm tak", "value_text": "0.01" },
+        { "option_key": "point_zero_zero_five", "label_text": "0.005 mm ya usse kam", "value_text": "0.005" },
+        { "option_key": "tolerance_unknown", "label_text": "Pata nahi", "value_text": "unknown", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "prompt_text": "Kis industry ke liye tooling banayi hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "retry_text": "Sheet metal, auto ya electrical, kis line ki tooling banayi?",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": { "op": "gte", "left": { "field": "toolroom_experience" }, "right": { "const": 2 } },
+      "options": [
+        { "option_key": "sheet_metal_press", "label_text": "Sheet metal press tooling", "value_text": "sheet_metal_press" },
+        { "option_key": "automotive", "label_text": "Automotive ya auto parts", "value_text": "automotive" },
+        { "option_key": "electrical_parts", "label_text": "Electrical ya electronics parts", "value_text": "electrical_parts" },
+        { "option_key": "white_goods", "label_text": "White goods ya ghar ka saamaan", "value_text": "white_goods" },
+        { "option_key": "general_engg", "label_text": "General engineering, job shop", "value_text": "general_engg" },
+        { "option_key": "other_sector", "label_text": "Inme se koi nahi", "value_text": "unknown", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "edm_work",
+      "prompt_text": "EDM par aap kaunsa kaam karte hain?",
+      "why_text": "EDM ka kaam tool room me alag hunar mana jaata hai.",
+      "retry_text": "Wire-cut program, electrode ya setting, kya karte hain?",
+      "target_kind": "attribute",
+      "target_field": "edm_work",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": { "op": "gte", "left": { "field": "toolroom_experience" }, "right": { "const": 2 } },
+      "options": [
+        { "option_key": "wire_program", "label_text": "Wire-cut ka program banana", "value_text": "wire_program" },
+        { "option_key": "electrode_making", "label_text": "Electrode banana", "value_text": "electrode_making" },
+        { "option_key": "sinker_setting", "label_text": "Sinker EDM setting", "value_text": "sinker_setting" },
+        { "option_key": "wire_loading", "label_text": "Wire loading aur job setting", "value_text": "wire_loading" },
+        { "option_key": "no_edm", "label_text": "EDM par kaam nahi karta", "value_text": "unknown", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "die_design_work",
+      "prompt_text": "Die design ka kaunsa kaam karte hain?",
+      "why_text": "Design samajhne wale tool maker ko senior kaam milta hai.",
+      "retry_text": "Strip layout ya clearance nikalna, kya karte hain?",
+      "target_kind": "attribute",
+      "target_field": "die_design_work",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": { "op": "gte", "left": { "field": "toolroom_experience" }, "right": { "const": 5 } },
+      "options": [
+        { "option_key": "strip_layout", "label_text": "Strip layout banana", "value_text": "strip_layout" },
+        { "option_key": "clearance_calc", "label_text": "Clearance nikalna", "value_text": "clearance_calc" },
+        { "option_key": "cad_drawing", "label_text": "CAD par drawing banana", "value_text": "cad_drawing" },
+        { "option_key": "die_modify", "label_text": "Purani die ka design badalna", "value_text": "die_modify" },
+        { "option_key": "no_design", "label_text": "Design ka kaam nahi karta", "value_text": "unknown", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "die_troubleshooting",
+      "prompt_text": "Die ki kaunsi dikkat aap sudhaar lete hain?",
+      "why_text": "Dikkat sudhaarne wale tool maker ki shop par zaroorat rehti hai.",
+      "retry_text": "Burr, punch tootna ya strip jam, kya theek karte hain?",
+      "target_kind": "attribute",
+      "target_field": "die_troubleshooting",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": { "op": "gte", "left": { "field": "toolroom_experience" }, "right": { "const": 5 } },
+      "options": [
+        { "option_key": "burr", "label_text": "Burr aana", "value_text": "burr" },
+        { "option_key": "punch_breakage", "label_text": "Punch tootna", "value_text": "punch_breakage" },
+        { "option_key": "strip_jam", "label_text": "Strip jam ya misfeed", "value_text": "strip_jam" },
+        { "option_key": "die_chipping", "label_text": "Die chipping", "value_text": "die_chipping" },
+        { "option_key": "shut_height_problem", "label_text": "Shut height galat hona", "value_text": "shut_height_problem" },
+        { "option_key": "no_trouble", "label_text": "Inme se koi nahi", "value_text": "unknown", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "heat_treatment_work",
+      "prompt_text": "Heat treatment ka kaam aap kaise sambhaalte hain?",
+      "why_text": "Hardness sahi na ho to die jaldi toot jaati hai.",
+      "retry_text": "Hardness khud check karte hain ya bahar bhijwate hain?",
+      "target_kind": "attribute",
+      "target_field": "heat_treatment_work",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": { "op": "gte", "left": { "field": "toolroom_experience" }, "right": { "const": 5 } },
+      "options": [
+        { "option_key": "own_furnace", "label_text": "Apni shop ke furnace par karta hoon", "value_text": "own_furnace" },
+        { "option_key": "send_outside", "label_text": "Bahar bhijwa kar hardness check karta hoon", "value_text": "send_outside" },
+        { "option_key": "only_send", "label_text": "Sirf bhijwata hoon, check koi aur karta hai", "value_text": "only_send" },
+        { "option_key": "no_heat_treat", "label_text": "Is kaam se lena dena nahi", "value_text": "unknown", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "press_tonnage",
+      "prompt_text": "Kitne tonnage ki press par tryout kiya hai?",
+      "why_text": "Press ka size batata hai ki kitni badi tooling banayi hai.",
+      "retry_text": "Chhoti press ya badi press, kis par tryout kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "press_tonnage",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": { "op": "gte", "left": { "field": "toolroom_experience" }, "right": { "const": 5 } },
+      "options": [
+        { "option_key": "upto_sixty", "label_text": "60 ton tak", "value_text": "upto_sixty" },
+        { "option_key": "sixty_to_one_fifty", "label_text": "60 se 150 ton", "value_text": "sixty_to_one_fifty" },
+        { "option_key": "one_fifty_to_three_hundred", "label_text": "150 se 300 ton", "value_text": "one_fifty_to_three_hundred" },
+        { "option_key": "above_three_hundred", "label_text": "300 ton se zyada", "value_text": "above_three_hundred" },
+        { "option_key": "tonnage_unknown", "label_text": "Pata nahi", "value_text": "unknown", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "retry_text": "Workshop me kaunsi machine par haath aazmaya hai?",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": { "op": "lte", "left": { "field": "toolroom_experience" }, "right": { "const": 0 } },
+      "options": [
+        { "option_key": "fitting_bench", "label_text": "Fitting bench aur vice ka kaam", "value_text": "fitting_bench" },
+        { "option_key": "surface_grinder", "label_text": "Surface grinder", "value_text": "surface_grinder" },
+        { "option_key": "milling", "label_text": "Milling machine", "value_text": "milling" },
+        { "option_key": "conventional_lathe", "label_text": "Khraad ya conventional lathe", "value_text": "conventional_lathe" },
+        { "option_key": "drilling", "label_text": "Drilling machine", "value_text": "drilling" },
+        { "option_key": "shaper", "label_text": "Shaper ya planer", "value_text": "shaper" },
+        { "option_key": "unknown_machine", "label_text": "Yaad nahi", "value_text": "unknown", "is_none_of_above": true }
+      ]
+    },
+    {
+      "question_key": "trade_test_status",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "retry_text": "Trade test ka result aa gaya hai?",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": { "op": "lte", "left": { "field": "toolroom_experience" }, "right": { "const": 0 } },
+      "options": [
+        { "option_key": "passed", "label_text": "Haan, pass kiya", "value_text": "passed" },
+        { "option_key": "appeared", "label_text": "Diya hai, result aana hai", "value_text": "appeared" },
+        { "option_key": "not_yet", "label_text": "Abhi nahi diya", "value_text": "not_yet" }
+      ]
+    },
+    {
+      "question_key": "iti_project_work",
+      "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "retry_text": "Kaunsa job ya model banaya tha ITI me?",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "max_asks": 2,
+      "ask_if": { "op": "lte", "left": { "field": "toolroom_experience" }, "right": { "const": 0 } },
+      "options": []
+    }
+  ]
+}

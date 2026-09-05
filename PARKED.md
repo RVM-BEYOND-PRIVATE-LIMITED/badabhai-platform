@@ -450,7 +450,7 @@ would let the owner answer it on evidence rather than on the shape of the argume
 
 ## P-013 · The payer Flutter app hardcodes three role vocabularies, and they disagree
 
-**Found:** 2026-09-04, phase-brief rewrite, while applying owner ruling R4-d(a) (the role
+**Found:** 2026-09-04, phase-brief rewrite, while applying owner ruling R4-d(b) (the role
 count is 21).
 **Owner ruling:** PARK, do not fix — Prakash, 2026-09-04.
 **Location:** [apps/payer-app/lib/features/jobs/presentation/post_job_screen.dart](apps/payer-app/lib/features/jobs/presentation/post_job_screen.dart)
@@ -493,3 +493,309 @@ item is scoped in the rewritten P12 to the new wizard's files for exactly this r
 someone later widens it back to the whole app without removing these three lists first, P12
 becomes unpassable** — and the failure will read as a defect in the new wizard rather than in
 code that predates it by months.
+
+---
+
+## P-014 · A PDF converted to Markdown was invisible to ripgrep, and looked exactly like a clean search
+
+**Found:** 2026-09-04, PR #1418, by `apps/api/src/common/source-hygiene.test.ts` in CI.
+**Owner ruling:** PARK the general rule — Prakash, 2026-09-04. The instance is already FIXED
+on PR #1418; what is parked is the practice that must follow every conversion.
+
+**What happened.** `docs/reference/BadaBhai_Role_Taxonomy_Master_2026-08-09.md` — which lives on
+PR #1418 and is NOT on `main` as this entry is written — was converted from a PDF so that
+agents could read a document `docs/agent/BUILD_RULES.md` names. The PDF's
+bullet glyph extracted as raw `0x7f` (DEL) at the head of four prose lines (386, 388, 390,
+392). **ripgrep treats a file containing raw control characters as BINARY and skips it
+silently.** The document committed specifically to be searchable could not be searched at all.
+
+**Why this class is worse than a broken file.** A search over it returned nothing, and a search
+that finds nothing is indistinguishable from a search over a file with nothing in it. There is
+no error, no warning, and no failing step anywhere near the person doing the searching — the
+next agent would have concluded the document does not mention what it in fact says on line 386.
+Same shape as every check that runs, exits 0, and answers a different question than the one
+asked: a real command ran and told the truth about the wrong thing.
+
+**The rule to apply.** A conversion is not done when the text looks right. **Grep-verify it:**
+pick a phrase from the middle of the converted body and confirm `rg` returns it, and scan the
+output for C0/C1 characters before committing. Do not infer searchability from the fact that a
+text editor renders the file — an editor is not ripgrep, and neither is a diff view.
+
+**Why the local run missed it.** The branch was docs-only, so nothing about the diff suggested
+an `apps/api` suite was relevant. The guard that caught it lives there. Relevance was the wrong
+filter; CI does not use one.
+
+---
+
+## P-015 · `deps-audit` is a required check that almost never runs
+
+**Found:** 2026-09-04, PR #1418, when a two-line `package.json` edit woke it.
+**Owner ruling:** PARK, do not fix — Prakash, 2026-09-04.
+
+**What is true today.** `deps-audit` sits in `ci-required`'s `needs` (`.github/workflows/ci.yml`),
+so it can block any merge. It is path-filtered, and on every recent run against `main` it
+reports `skipped` — no row at all. Adding two `scripts` entries to `package.json` — not a
+dependency change — is what made it execute for the first time on that branch.
+
+**And when it executed, it failed.** Three consecutive runs died the same way:
+
+    POST https://registry.npmjs.org/-/npm/v1/security/advisories/bulk error (503)
+    TimeoutError: The operation was aborted due to timeout
+
+Reproduced locally on a different network, so it is npm's advisory API, not the runner and not
+the diff. That is the immediate cause and it will pass; the parked defect is structural.
+
+**Why it is a defect.** A gate that fires only when someone accidentally trips a path filter is
+not a gate. Two things follow, and both are bad on their own:
+
+1. **It is not protecting anything.** Between the filter and this outage, no recent merge to
+   `main` has had its dependencies audited. The check's green record is mostly `skipped`.
+2. **When it does fire, it blocks unrelated work.** It is `ci-required`, so a docs PR that
+   happens to touch `package.json` inherits a network dependency on npm's advisory service.
+
+**What a fix would have to decide** (not settled here): whether the audit runs on a schedule
+against `main` rather than per-PR; whether a registry timeout should fail the job or be
+retried/soft-failed distinctly from a real advisory — a timeout and a HIGH CVE currently
+produce the identical red; and whether it belongs in `ci-required` at all if it cannot be
+executed deterministically. Note the trap in that last one: **removing it from `ci-required`
+to stop it blocking is escaping the gate, not fixing it.**
+
+---
+
+## P-016 · A check that prescribes its own FAIL wording can force a checker to write something untrue
+
+**Found:** 2026-09-05, while applying the R1 signature (PR #1423).
+**Owner ruling:** PARK the shape — Prakash, 2026-09-05. The instance is fixed; the class is not.
+
+**The instance.** `docs/agent/phases/P3_CHECK.md` did not merely say "expect a HALT". It
+prescribed the exact sentence a checker must write into `VERDICT.md` — quoted here as it read
+BEFORE the fix, so grepping the current file for this string will correctly find nothing:
+
+> add one line: the builder correctly halted on R1, quoting worksheet:388. **That wording is
+> required, not a softening.**
+
+R1 was signed on 2026-09-05. P3 is still blocked, but on the phase-order gate
+(`docs/agent/README.md:47`), not on R1. So the check's PREDICATE still fires correctly — a HALT
+is still the right outcome — while the sentence it mandates became false. A checker obeying the
+brief would have written a false reason into a durable verdict, and been right to, because the
+brief said the wording was required.
+
+**Why it is its own shape, and not P-013.** P-013 is a check whose PREDICATE goes red for the
+wrong reason — it fires on innocent code. This is one layer up: the predicate is correct and the
+check's own PRESCRIBED TEXT is what has gone stale. The two fail differently and are caught by
+different questions. P-013 is caught by asking *"can this go red on something I did not
+change?"*; this one is caught by asking *"if this fires, is the sentence it makes me write still
+true?"*
+
+**THE DIRECTION MATTERS MORE THAN THE MECHANISM, and a later instance proved it.** Every
+instance of this shape found before 2026-09-05 produced a false **FAIL**: the check goes red for
+the wrong reason, somebody investigates, the truth surfaces on the way. The cost is a wasted
+session, not a wrong belief.
+
+Then `P5_CHECK.md` item 2 turned up. It ran `sed -n '774p'` on the worksheet and read *"dotted
+and blank means R7 is unsigned"*. Signing R1 and R4-d shifted every slot below them by twenty
+lines, so 774 became `### The question` — **neither dotted nor blank**. The predicate evaluates
+false and the checker concludes **R7 IS SIGNED**, on a ruling nobody has signed. That is a false
+**PASS**, and **nobody investigates a green.** It would have sat there certifying a settled
+ruling until someone tried to build on it.
+
+So the rule sharpens: **a citation-drift bug that lands on non-blank text is strictly more
+dangerous than one that lands on nothing.** Landing on nothing is loud. Landing on a different
+real line is silent, and the check keeps reporting with full confidence. When line numbers move,
+the citations to re-verify FIRST are the ones whose surrounding logic tests for *emptiness* —
+those are the ones that flip rather than break.
+
+**Why it is worse than an ordinary stale line.** A stale instruction produces a wrong build,
+which a later check can catch. This produces a wrong RECORD — and the record is what the next
+session reads as evidence. It also launders the error through an obedient agent: the checker did
+exactly what it was told, so nothing in the process flags it, and the false reason acquires the
+authority of a verdict.
+
+**What to do about it.**
+- **Prefer prescribing the SHAPE, not the sentence.** "Name the blocker and cite the file and
+  line that establishes it" survives a ruling being signed; "quote worksheet:388" does not.
+- **When exact wording genuinely is required, anchor it to something that moves with the
+  world** — a file and line rather than a claim about state — and say what to do if the anchor
+  no longer says that.
+- **When a ruling is signed, grep the CHECK briefs, not only the BUILD briefs.** The build side
+  is where a stale ruling is obvious; the check side is where it becomes a false record.
+---
+
+## P-017 · `db:audit:live-population` targets remote Supabase as `postgres` with `bypassrls=true`
+
+**Found:** 2026-09-05, phase M1, on the first run of a command the phase brief named.
+**Owner ruling:** PARK, do not fix — the owner rules on both the target and the role.
+
+**What the command prints on its own first line:**
+
+```
+$ pnpm --filter @badabhai/db db:audit:live-population
+[audit:live-population] READ-ONLY, ZERO SPEND, NO PII SELECTED.
+  target = SUPABASE (remote)  role=postgres  bypassrls=true
+```
+
+**Why this is a defect and not a configuration detail.** It is a developer-facing command in the
+root workspace, run by name from a brief, and it reaches a REMOTE database as a superuser role
+with RLS bypassed. Three things follow:
+
+1. **The safety is a convention, not a boundary.** The banner says READ-ONLY; the connection is
+   not. `bypassrls=true` means the role can write every table and no row-level policy would stop
+   it. A command that announces a property it does not enforce is the shape that gets trusted.
+2. **The target is implicit.** Nothing in the invocation names an environment. Running
+   `pnpm db:audit:live-population` from a clean checkout, expecting the local compose Postgres,
+   silently reaches production instead — and the local one exists and is what every other
+   `db:*` command in this session used.
+3. **The blast radius is one typo wide.** The nearby `db:*` scripts include seeders and
+   backfills. An engineer or an agent that reaches for the audit and hits an adjacent script name
+   is writing to live with a superuser role.
+
+**Measured, not inferred.** The audit reported live counts (`workers 4`, `worker_profiles 4`,
+`worker_skill 3`, `job_reach 6`) that do not match the local compose database (`workers 2`,
+`worker_profiles 0`, `worker_skill 2`, `job_reach 2`) — which is how the remote target was
+noticed at all.
+
+**AND THAT DETECTION WAS LUCK, NOT METHOD — this is the strongest argument for
+target-as-argument, stronger than the `bypassrls` role itself.** The only reason the remote
+target surfaced is that the two databases happened to hold different numbers. Had they agreed —
+two fresh environments, or one seeded from the other — the counts would have been reported as
+local, believed, and never questioned. "The numbers happened to disagree" is not a control. No
+part of the invocation, the output, or the developer's expectation would have caught it, and the
+next person has no reason to expect better luck. No write was attempted, and phase M1's five end-to-end trade-form runs were
+STOPPED rather than executed, because completing a form creates worker rows.
+
+**What a fix would have to decide** (not settled here): whether the audit reads a target from an
+explicit, named argument rather than ambient environment; whether it refuses to run against a
+non-local host without a confirmation flag; and whether any developer-facing script should ever
+resolve credentials for a `bypassrls` role. Note the trap: making the banner louder is not the
+fix — the banner is already accurate about intent and wrong about capability.
+
+**Consequence for M1:** the phase's verification (five real trade forms end to end, then a
+publish showing `job_reach` move) is UNRUN. It runs against the local database once the owner
+confirms the target, never against the audit's.
+
+---
+
+## P-018 · A worker has no city, so the payer's first-named filter cannot be built
+
+**Found:** 2026-09-05, the E-chain design session (PR #1427), measuring the filter set for E2.
+**Owner ruling:** SHIP E2 WITHOUT A LOCATION FILTER and label the absence; do NOT edit the
+trade form question flow to get a city column — Prakash, 2026-09-05. Parked so the next
+person does not rediscover it.
+
+**What is true today.** Location was the FIRST filter the owner named for the candidate
+search, and there is nowhere to read it from.
+
+1. **`workers` has no city column.** The table is `packages/db/src/schema/worker.ts:37-112`;
+   there is no city, no state, no district, no pincode, no coordinate.
+2. **The only worker-side location is a JSONB blob on the retiring engine's table** —
+   `worker_profiles.location_preference` (`packages/db/src/schema/profile.ts:61`), shaped
+   `{current_city, preferred_cities[], willing_to_relocate}`. It carries no index, so even
+   where it is populated a filter over it is a scan.
+3. **Its only writer is the extraction processor**
+   (`apps/api/src/profiles/profile-extraction.processor.ts:402`, and again at `:1347`).
+4. **And the trade form deliberately does not run extraction.** The reason is written at
+   `apps/api/src/profiling/form/trade-form.service.ts:173` — "the trade-form handover
+   deliberately switches extraction OFF (a two-turn transcript yields a container that
+   outranks the answer map and blanks the sheet)". So for a worker who completed a trade
+   form, `location_preference` is never written by anything.
+
+**Therefore: a trade-form worker has no stored city by any path**, and trade-form workers are
+the population E2 exists to sell.
+
+**What filling it would require — this is the part worth not rediscovering.**
+
+The obvious move is "add a `current_city` column and backfill it". That does not work,
+because the column is not the missing piece — **the question is**.
+
+- `current_city` exists as a question in exactly **2 of 148** packs: `qp_universal.json` and
+  `qp_universal@2.json`. It is in **none** of the five packs the shipping roles use
+  (`qp_cnc_turning`, `qp_vmc_milling`, `qp_cnc_grinding`, `qp_cam_programming`,
+  `qp_cad_drafting` — declared at `apps/api/src/profiling/roles/cnc-turner.role.ts:14` and
+  its four siblings).
+- It is `target_kind: "rfs"`, not `"attribute"`, so even when it IS answered it lands in the
+  Resume Field Set draft rather than in `worker_attributes` — which is why the M1 pack-attribute
+  bridge does not reach it either.
+- So filling it means **adding a question to the trade form**, which is the one boundary this
+  session was told to hold. That is a product decision about the 24-ask budget, not a schema
+  change: every question added to the form competes with a question already there.
+
+Three routes exist and each has a real cost:
+  (a) **Add `current_city` to the five shipping packs.** Cheapest technically, but it spends
+      an ask from a budget the owner has already ruled on, and it fills nothing retroactively.
+  (b) **Ask for the city outside the trade form** — at signup, or on a profile screen. Does
+      not touch the question flow, but it is a new worker-facing surface and therefore mobile
+      work under CLAUDE.md §6.
+  (c) **Promote `current_city` to a first-class indexed column on `workers`** and write it
+      from whichever of (a)/(b) lands. Necessary eventually for an indexed filter, useless on
+      its own — a column with no writer is the same empty filter, spelled differently.
+
+**Note, because it argues the other way.** The corpus author already treated city as
+load-bearing: `qp_universal@2.json:3` says *"city and salary are what the match engine
+actually ranks on, so they must be asked before a worker is likely to walk"*, and hoists both
+questions for that reason. That belief is currently unfunded by any shipping pack — which is
+itself the finding.
+
+**Do not "fix" this by filtering on `location_label` from the posting side.** That is the
+JOB's location, not the worker's, and using it as a proxy would silently return workers who
+have never said they would work there.
+
+---
+
+## P-019 · `profile.viewed` is registered, templated, and emitted by nothing — and its payload does not fit the unlock that would emit it
+
+**Parked by owner ruling, 2026-09-05.** Surfaced while writing E0's blocking condition C-1
+(`docs/agent/phases/E0_BUILD.md`) and parked separately because it is its own defect: it is
+the notification path C-1 needs, and it is half-built already.
+
+**What is built.** The event is registered — `"profile.viewed": { version: 1, domain:
+"profile", payload: p.ProfileViewedPayload }`
+([packages/event-schema/src/registry.ts:517](packages/event-schema/src/registry.ts)). The
+worker-facing notification template is written, faceless, and bilingual
+([apps/api/src/notifications/notifications.dto.ts:165-172](apps/api/src/notifications/notifications.dto.ts)),
+with a comment explaining why the copy names nobody: *"the worker learns their profile was
+seen, not who saw it. That is the most this signal can say without revealing a counterparty
+identity."*
+
+**What is not.** Nothing emits it.
+
+    grep -rn "profile\.viewed" apps/api/src --include=*.ts | grep -v "\.test\."
+    → 2 hits, both in notifications.dto.ts, both declarations
+
+So the alerts feed carries a template for an event that has never fired, and a worker is never
+told that a paying stranger holds his routed contact.
+
+**THE PART THAT MAKES IT MORE THAN WIRING.** `ProfileViewedPayload` requires `job_id`:
+
+    export const ProfileViewedPayload = z.object({
+      worker_id: uuidSchema,
+      viewer_payer_id: uuidSchema,
+      job_id: uuidSchema,          // ← required
+    });
+    packages/event-schema/src/payloads.ts:2145-2149
+
+`unlocks.job_id` is nullable by design — *"Optional job context (per-profile granularity, so
+nullable)"* ([packages/db/src/schema/payer.ts:235-236](packages/db/src/schema/payer.ts)) — and
+the request DTO defaults it to `null`
+([apps/api/src/unlocks/unlocks.dto.ts:23](apps/api/src/unlocks/unlocks.dto.ts)). **An unlock
+with no posting attached cannot emit this event**, and a search-driven unlock is exactly that
+case, which is the whole of E2's flow.
+
+**Three routes, none of them a builder's to pick.**
+  (a) **Emit only when `job_id` is non-null.** Compiles, and silently skips precisely the
+      workers found by search. This is the option that will look reasonable at 11pm.
+  (b) **Loosen `job_id` to nullable in the payload.** CLAUDE.md §3 forbids mutating an event
+      schema, and `registry.ts:517` pins `version: 1`. The practical risk really is nil —
+      zero producers, zero consumers — but that is an argument for the owner to weigh, not a
+      licence to skip the versioning question.
+  (c) **Mint a distinct event for the unlock notification**, with its own template. Costs more
+      and mutates nothing.
+
+**Why it is parked rather than fixed here.** E0's C-1 needs it and will HALT on it, which is
+the correct outcome under the 2026-09-05 ruling (*"harder than scoped is a HALT, not a
+trim"*). Recording it now means the HALT arrives with the analysis already done instead of
+costing a session.
+
+**Do not close this by deleting the template.** A faceless template that names nobody is the
+hard part and it is already written and already guarded
+([apps/api/src/notifications/notifications.service.test.ts:320-326](apps/api/src/notifications/notifications.service.test.ts)).
+The gap is the producer and the payload, not the copy.

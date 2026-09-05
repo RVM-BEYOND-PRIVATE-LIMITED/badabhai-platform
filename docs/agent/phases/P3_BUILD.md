@@ -1,8 +1,20 @@
-STATUS: BLOCKED — R1 IS UNSIGNED AND THE PHASE-ORDER GATE IS SHUT. Do not write a migration.
-R1's signature line is blank dots at docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md:388, and
-the `function` vocabulary is exactly what R1 decides — choosing it is BUILD_RULES:31, a full
-stop. Separately, docs/agent/README.md:47 forbids starting until the previous VERDICT says
-PASS; docs/qa/evidence/ holds only P0 (line 1 = FAIL) and PX. P1 and P2 have no VERDICT.
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+WHAT NO E-PHASE COVERS — dropped visibly, not quietly. Each survived an adversarial
+refutation pass (already-ships / an-E-phase-covers-it / a-signed-ruling-deleted-it):
+  - The four columns — `worker_skill.function`, `worker_skill.collar_tier`,
+    `job_postings.function_required`, `job_postings.collar_tier_min` — with their
+    migration, journal entry, snapshot, rollback path and no-backfill guard. Still gated
+    on R1. NOT surviving: the function/collar VOCABULARY constant, which already exists.
+
+------------------------------------------------------------------------------
+STATUS: BLOCKED — THE PHASE-ORDER GATE IS SHUT. Do not write a migration.
+R1 IS NOW SIGNED (2026-09-05, docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md:391): one
+skill_id per role, `function` and `collar_tier` as modifiers, `setter_programmer` RATIFIED.
+That blocker is gone. THE OTHER ONE IS NOT: docs/agent/README.md:47 forbids starting until the
+previous VERDICT says PASS; docs/qa/evidence/ holds only P0 (line 1 = FAIL) and PX. P1 and P2
+have no VERDICT.
 The correct outcome of a session today is HALT. Read the rest so the HALT report is specific,
 then stop.
 
@@ -48,10 +60,13 @@ apps/api/src/match/worker-skills.repository.ts:187-188 scopes the upsert with
 worker or an ops human actually said."
 
 VOCABULARY — transcribed in-repo at RVM_TAXONOMY_WORKSHEET_2026-09.md:38-56: nine function
-values (43-44), `setter_programmer` PROPOSED and not locked (50), four collar tiers lowest to
+values (43-44), `setter_programmer` RATIFIED by R1 on 2026-09-05 — the worksheet's vocabulary
+table at :50 still reads "PROPOSED, not locked" because a signature does not rewrite an option
+table; the ruling at :391 is what governs — four collar tiers lowest to
 highest (56). No TS constant for either exists on main (grepped COLLAR_TIER, collarTier,
 FUNCTION_VALUES, setter_programmer under packages/ and apps/ — zero hits). Writing that constant
-out IS the R1 settlement, so it is blocked with the rest of the phase. Cite in-repo files only.
+out IS the R1 settlement. R1 is signed, so the VOCABULARY is settled; the phase is still blocked
+by the phase-order gate above. Cite in-repo files only.
 A level is an attribute of one role, never a role of its own (BUILD_RULES:12).
 
 MIGRATION NUMBER: main stops at 0098 and _journal.json ends at idx 98. 0099 is already claimed
@@ -61,7 +76,7 @@ main at your HEAD.
 SCOPE: ADR-0036:61 closes the rank key — "Nothing else may enter the rank". These four columns
 are schema. Wiring one into ranking or visibility is a separate ruling, not this phase.
 
-DELIVER — none of it reachable until R1 is signed.
+DELIVER — none of it reachable until the phase-order gate opens (R1 no longer blocks it).
  1. The migration FILE, its packages/db/migrations/meta/_journal.json entry, and its
     NNNN_snapshot.json. Generate all three with drizzle-kit generate; never hand-write the
     snapshot. The entry's `when` MUST exceed every earlier entry's or drizzle skips the file

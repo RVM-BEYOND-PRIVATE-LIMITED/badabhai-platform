@@ -1,3 +1,24 @@
+STATUS: REOPENED 2026-09-05 — owner ruling. NOT closed with P0-P12, and NOT part of the
+E-chain. This phase runs STANDALONE, sequenced AFTER E2 — it read "after E4" until the
+2026-09-05 reordering moved E0 to the front; it follows the whole chain, not one phase of it.
+
+WHY IT WAS NOT CLOSED. Closing it would have dropped a trust property by filing error — it
+was swept up because no E-phase covers it, which is a fact about the E-chain and not a
+judgement about this phase. The ruling here is already SIGNED: verification is a GATE (owner,
+2026-09-04). The gate is unbuilt. And an unverified posting is visible to every worker today
+— every read filters on `status='open'` alone (apps/api/src/jobs/jobs.repository.ts:176,
+:223; apps/api/src/match/match-feed.repository.ts:143) and every row defaults 'unverified'
+(packages/db/src/schema/job.ts:95-98).
+
+It does not compete with the E-chain for scope. It competes for SEQUENCE, and it comes after
+E4.
+
+STILL BLOCKED ON FOUR OWNER SUB-RULINGS — "STILL THE OWNER'S" below, (b), (c), (d) and (f).
+Each halts the build. (c) is the one that can empty the feed and search on the day it ships.
+
+The rest of this file stands as written.
+
+------------------------------------------------------------------------------
 STATUS: GATE IT — ruled by the owner, 2026-09-04. Verification becomes a hard visibility
 gate. Six deliverables are still deleted below; four sub-questions are still open and each
 one HALTS the build until answered — see "STILL THE OWNER'S", especially (c), which can

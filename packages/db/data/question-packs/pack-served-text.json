@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "pack_count": 148,
+  "pack_count": 152,
   "packs": {
     "qp_ac_refrigeration@1": {
       "served_text_sha256": "d06b4ae6ca7502d3f991cdb96b4b53c04208085afa9450799c453967ac6f6b7e",
@@ -149,6 +149,10 @@
     "qp_construction_other@1": {
       "served_text_sha256": "6c9f8692140ca763f9b7f4bacdf3a88395e0010513ac50e6516282b61ca9f9f0",
       "served_text_count": 12
+    },
+    "qp_conventional_machining@1": {
+      "served_text_sha256": "ff8d2500d212614588455b943d4a22eaeb740eedcf8130af785f5a502476f3f7",
+      "served_text_count": 90
     },
     "qp_cooking@1": {
       "served_text_sha256": "44255ea92c1641d93dffd691d8c53379596cec545aed27b6c432175144954c5e",
@@ -398,6 +402,10 @@
       "served_text_sha256": "d91d3caf157e5c77ad236f98d3e1a0962d87e92f3d5a18edd26ace07fa3c4138",
       "served_text_count": 15
     },
+    "qp_powder_coating@1": {
+      "served_text_sha256": "7fd442a4771e5389c6b809b576f4ee30a821a4b0847202971120a4da415e91cc",
+      "served_text_count": 90
+    },
     "qp_printing@1": {
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",
       "served_text_count": 15
@@ -530,6 +538,10 @@
       "served_text_sha256": "86e0793f1fe45d090149deb2198c0de14baab8b338f788f426c4d1e704d91247",
       "served_text_count": 12
     },
+    "qp_tool_die_making@1": {
+      "served_text_sha256": "2d13854bf896fc7eebc61b4e2433c66c461cffee3b34d2407bcbc261554efafb",
+      "served_text_count": 90
+    },
     "qp_toolmaking@1": {
       "served_text_sha256": "9db40e5fea20a4389b189180a560373df69c85e2a6747ead288ac4380ae738ca",
       "served_text_count": 15
@@ -581,6 +593,10 @@
     "qp_welding@1": {
       "served_text_sha256": "e1c9a3de94bb921ea6fe57b3c2989f89d9ed9ee760a4f3d14bc881aa25a6bf92",
       "served_text_count": 20
+    },
+    "qp_welding_trade@1": {
+      "served_text_sha256": "25962977448bd13421f8c50520929bac10d338a1a36ecf0d8586d42ee1dddee9",
+      "served_text_count": 66
     },
     "qp_wood_plant@1": {
       "served_text_sha256": "7b8019db9ec2e177b2a9ced79bee63011fddf396ea182cdd0d5cc547ccee5575",

@@ -98,7 +98,15 @@ describe("trade resume map — qp_cnc_turning", () => {
       "qp_cnc_grinding",
       "qp_cam_programming",
       "qp_cad_drafting",
+      "qp_conventional_machining",
+      "qp_tool_die_making",
+      "qp_welding_trade",
+      "qp_powder_coating",
     ]);
+    // `qp_welding` IS THE GENERIC ISCO-UNIT PACK AND STILL HAS NO MAP — and this row is now doing
+    // real work rather than naming an arbitrary absent pack. Batch 2 added `qp_welding_trade`
+    // BESIDE it, on the guide's rule that a role pack never replaces the family pack. If the two
+    // ids were ever conflated, this assertion is what fails.
     expect(tradeResumeMapFor("qp_welding")).toBeUndefined();
     expect(tradeResumeMapFor(null)).toBeUndefined();
   });

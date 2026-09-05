@@ -1,3 +1,10 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+NOTHING SURVIVES THIS CLOSURE. Every deliverable is either shipped, deleted by a signed
+ruling, or carried by an E-phase. Checked adversarially, not assumed.
+
+------------------------------------------------------------------------------
 STATUS: CLOSED — both deliverables are deleted by signed rulings. Nothing to build.
 Do not open a branch. ONE OPEN ITEM, and it is a signature, not a build: ADR-0036:97 flags
 the PACE retirement "for explicit owner acknowledgement", still open at

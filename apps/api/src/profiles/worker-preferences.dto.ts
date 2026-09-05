@@ -41,12 +41,38 @@ function optionsOf(vocabulary: Readonly<Record<string, string>>): [string, ...st
  * relative to what a real worker ticks (both ratified samples list three languages and five
  * documents) and exists so a malformed client cannot hand the degradation ladder a row with
  * forty values in it.
+ *
+ * THE CAP APPLIES BEFORE THE DE-DUPLICATION, which is what makes it a bound on the REQUEST rather
+ * than on the answer: `.max()` runs on the raw array and `.transform()` collapses it afterwards.
+ * That ordering is deliberate — it is the malformed client this guards against, not the worker.
  */
 function multiSelect(vocabulary: Readonly<Record<string, string>>, max: number) {
   return z
     .array(z.enum(optionsOf(vocabulary)))
     .max(max)
     .transform((values) => [...new Set(values)]);
+}
+
+/**
+ * A multi-select a worker may legitimately tick EVERY option of, so the cap is the dictionary.
+ *
+ * ═══ WHY THIS EXISTS INSTEAD OF A NUMBER ═══
+ *
+ * `documents_ready` was `multiSelect(DOCUMENTS_READY, 8)` against a dictionary of exactly eight,
+ * so the literal was already the dictionary's size — it just did not say so. Adding `esic` made it
+ * nine options behind a cap of eight, and the failure would have been invisible to every existing
+ * test: the eight-document worker still passes, and only the worker who genuinely holds all nine
+ * gets a 400 naming a limit nobody meant to impose.
+ *
+ * A DERIVED CAP CANNOT DRIFT. The next slug added to a dictionary used this way raises the bound
+ * with it, which is the property a hand-written 8 did not have and could not have.
+ *
+ * NOT FOR EVERY LIST. `languages` is capped at 6 of 16 ON PURPOSE — that is a real editorial
+ * limit on how many a sheet will print, not an accident of the dictionary's length. This helper is
+ * only for the lists where "all of them" is a true and unremarkable answer.
+ */
+function multiSelectAll(vocabulary: Readonly<Record<string, string>>) {
+  return multiSelect(vocabulary, Object.keys(vocabulary).length);
 }
 
 /**
@@ -83,7 +109,10 @@ const preferredCities = z
 export const SetMyPreferencesSchema = z
   .object({
     languages: multiSelect(LANGUAGES, 6).optional(),
-    documents_ready: multiSelect(DOCUMENTS_READY, 8).optional(),
+    // EVERY DOCUMENT IS A TRUE ANSWER FOR SOME WORKER — a man with Aadhaar, PAN, a bank account,
+    // UAN, ESIC, an ITI certificate, an experience letter, photos and a licence has nine, and
+    // there is nothing unusual about him. See {@link multiSelectAll}.
+    documents_ready: multiSelectAll(DOCUMENTS_READY).optional(),
     preferred_cities: preferredCities.optional(),
     job_type: z.enum(optionsOf(JOB_TYPES)).nullable().optional(),
     shift: z.enum(optionsOf(SHIFTS)).nullable().optional(),
@@ -109,6 +138,28 @@ export const SetMyPreferencesSchema = z
     salary_expected_max: z.number().int().min(1000).max(500000).nullable().optional(),
 
     // ── THE CREDENTIAL'S THREE MISSING COMPONENTS (R9 §3) ────────────────────────────
+    //
+    // ⚠ #1447 — DO NOT DELETE THESE FOUR FIELDS. The trade form's "Availability & terms" marker
+    // stopped asking for them, and the issue proposed dropping them as dead. Three facts say no.
+    //
+    // 1. THERE IS STILL A WRITER. The finishing form sends all four to this same endpoint
+    //    (`finishing_models.dart:221-227`); only the trade-form marker stopped.
+    // 2. DELETING THEM IS A BREAKING CHANGE, NOT A CLEANUP. This schema is `.strict()`, so an
+    //    unknown key is a 400 that fails the WHOLE preferences save — a worker on an installed
+    //    build would lose their languages, documents, shift and salary answers too, not just the
+    //    education ones. Every shipped app still sends these keys (§3).
+    // 3. THEY ARE STILL READ (see below).
+    //
+    // All four have ALWAYS been `.nullable().optional()`, so a client that simply OMITS them is
+    // already safe and needed no backend edit at all.
+    //
+    // THEY ARE NOT DEAD. `resume-preference-facts.ts` composes Zone 5's education line from them,
+    // and `resume-render-input.ts` uses that composition as the FALLBACK when a worker has no
+    // `worker_education` rows (`?? ` at :627 and :902). Dropping them would blank the council,
+    // year and institute AND re-collapse "ITI" back to "ITI / Diploma" for every worker whose
+    // interview stored the merged `iti_diploma` level — the R11 §3.1 defect, reopened.
+    //
+    // Keep validating them: a value that can still arrive must still be checked.
     //
     // The ratified sheet prints "ITI — Machinist · NCVT · 2018 · Govt. ITI, Faridabad". We held
     // the level and the trade and nothing else, so three of five segments had no source at all.
@@ -143,8 +194,20 @@ export const SetMyPreferencesSchema = z
      *
      * FREE TEXT, because there is no national register of ITI names this could validate against
      * and inventing a closed set would silently drop every institute not on it. It is the ONE
-     * free-text field on this form; the length cap is what keeps it a name rather than a
-     * paragraph, and `looksLikePii` screens it at the render boundary like every other string.
+     * free-text field on this form, and the length cap is what keeps it a name rather than a
+     * paragraph.
+     *
+     * ⚠ IT IS NOT PII-SCREENED, ON EITHER SIDE — this line used to claim `looksLikePii` screens it
+     * "at the render boundary like every other string", and that is not what happens. The render
+     * reads it through `resume-preference-facts.ts`'s `scalar()`, which is a `typeof` + trim and
+     * nothing else; `looksLikePii` is applied to the container scalars and the own-words list, not
+     * to this value. So a worker who types a phone number here has it printed on the sheet.
+     *
+     * The SIBLING FIELD DOES SCREEN IT: `worker_education.institute` goes through
+     * `worker-qualifications.dto.ts`'s `freeText(120, …)`, which applies `looksLikePii` at the
+     * write. The asymmetry is real and is flagged on #1447 rather than closed here, because adding
+     * the screen is a behaviour change (it would reject values this endpoint accepts today) and
+     * belongs in a change that can be reviewed as one.
      */
     education_institute: z.string().trim().min(1).max(120).nullable().optional(),
   })

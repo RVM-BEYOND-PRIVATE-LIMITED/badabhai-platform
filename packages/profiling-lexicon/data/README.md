@@ -12,8 +12,8 @@ Never hand-edit the mirror: run `pnpm lexicon:sync` and commit what it writes.
 | `predicates.json` | Cue patterns for don't-know, hardship, question-back, abuse, correction | Phase 3 |
 | `skills.json` | The `_SKILLS` keyword → label → taxonomy-id table | Phase 3 |
 | `particles.json` | Indian occupational particles the normalizer strips (`wala`, `ka kaam`, …) | Phase 1 (Divyanshu) |
-| `cities.json` | `KNOWN_CITIES` + `CITY_ALIASES` | Phase 3 (values slice) |
-| `states.json` | States, abbreviations and multi-state regions | Phase 3 (values slice) |
+| `cities.json` | `KNOWN_CITIES` + `CITY_ALIASES`, plus `states` (city → state tag, #1429) | Phase 3 (values slice) |
+| `states.json` | States, abbreviations and multi-state regions, plus `administrative` (the picker list, #1429) | Phase 3 (values slice) |
 | `experience.json` | The spelled-out Hinglish quantity table + the years matcher | Phase 3 (values slice) |
 | `salary.json` | The amount matcher, the annual/monthly/money cue lists, the credential guard | Phase 3 (values slice) |
 | `availability.json` | Availability, notice-period and relocation cues, plus their blockers | Phase 3 (values slice) |
@@ -162,3 +162,31 @@ Each pattern object carries `{ "source": ..., "flags": ... }`. Only `i` is used.
 to `re.IGNORECASE` and the JS `i` flag. A pattern with `"flags": ""` is case-sensitive **on purpose**
 — `states.json`'s two-letter abbreviations will rely on it, because a case-insensitive `up` would
 swallow "set up".
+
+## Detection data vs picker data (#1429)
+
+Two keys in this directory are **not** detector inputs, and the split is deliberate.
+
+| key | read by | changing it changes |
+| --- | --- | --- |
+| `cities.json` → `canonical`, `aliases` | `pseudonymize.py`, `signals.py`, `canonicalCity` | what is read out of worker speech, **and the privacy carve-out** |
+| `cities.json` → `states` | `apps/api` city catalogue only | which state a city filters under |
+| `states.json` → `names`, `abbreviations`, `regions` | `signals.py` | what is read out of worker speech |
+| `states.json` → `administrative` | `apps/api` state catalogue only | which states a picker offers |
+
+**Why `administrative` is not just `names`.** `names` holds 22 entries and no union territory,
+because it only ever needed the states a worker says out loud. A picker cannot have that gap:
+`delhi`, `new delhi` and `chandigarh` are canonical cities here with nowhere to sit. Adding them to
+`names` to fill the picker would make "Delhi" resolve as a **state** in free text, where it is far
+more often the city — a detection change smuggled in behind a UI feature.
+
+**Tagging is not widening.** Adding a `states` row for a city already in `canonical` is safe.
+Adding a **city** is not: `canonical` and `aliases` are the carve-out in `pseudonymize.py` that
+stops a capitalised token being masked as a person's name, so a new city releases a string the
+gateway was withholding. That remains a privacy decision needing its own reviewable commit.
+
+**What no test can catch.** `worker-cities.catalogue.test.ts` asserts every canonical city is
+tagged, that the two double-booked tokens (`bengaluru`, `gurgaon`) agree, and that every value is a
+real offered state. It cannot tell you a tag is simply **wrong** — "Pune → Punjab" is a real state
+on a real city and passes every structural check. As with the privacy rule above, the gate is the
+diff.

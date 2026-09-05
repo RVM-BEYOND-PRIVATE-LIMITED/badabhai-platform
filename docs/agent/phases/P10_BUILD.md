@@ -1,8 +1,16 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+NOTHING SURVIVES THIS CLOSURE. Every deliverable is either shipped, deleted by a signed
+ruling, or carried by an E-phase. Checked adversarially, not assumed.
+
+------------------------------------------------------------------------------
 STATUS: BLOCKED ON P8. Do not start.
 The wizard renders from GET /payer/job-posting-drafts/schema. That route does not exist:
   git grep -nIiE "job-posting-drafts|drafts/schema" -- '*.ts' '*.tsx' '*.dart' '*.sql' -> exit 1
 It is P8's deliverable (P8_BUILD:33). P8's chip option sets read matching_catalog, which is NOT
-on main — open draft PR #1387 "[DO NOT MERGE — blocked on role-registry ruling]" — and its
+on main — PR #1387 "[DO NOT MERGE — blocked on role-registry ruling]", CLOSED UNMERGED
+2026-09-04, branch origin/p1-matching-catalog still at a454fac0 — and its
 function/collar sets need P3's columns. P8 must land and PASS first. docs/qa/evidence/ holds
 only P0 and PX, so README:47 blocks P10 a second way.
 
@@ -54,7 +62,7 @@ Pin schema_version on the draft. If the served version differs, render "we have 
 form" BEFORE any field. Never migrate the draft silently.
 
 DELETED — "If you type one of the 22 role names into a .tsx file, you have failed this phase."
-R4-d(a) is ruled 21 (owner, 2026-09-04), so 22 was wrong; but the instruction stays deleted
+R4-d(b) is ruled 21 (owner, 2026-09-04), so 22 was wrong; but the instruction stays deleted
 because 21 is the taxonomy count and role-registry.ts:39-45 declares five. The client reads
 the registry through the server. It never types a list of any length.
 

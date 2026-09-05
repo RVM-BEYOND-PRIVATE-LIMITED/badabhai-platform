@@ -15,6 +15,7 @@ import 'package:badabhai_worker_app/features/chat/domain/chat_turn.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/bloc/chat_bloc.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
 import 'package:badabhai_worker_app/router.dart';
+import 'package:badabhai_worker_app/core/util/devanagari_guard.dart';
 
 class MockChatRepository extends Mock implements ChatRepository {}
 
@@ -710,6 +711,32 @@ void main() {
       expect(find.text(predSkills.promptText), findsOneWidget,
           reason: 'the fallback path still indexes by the label (label == key)');
       verify(() => repo.sendMessage('Fanuc', submissionId: any(named: 'submissionId'))).called(1);
+    });
+  });
+
+  group('Devanagari is blocked in the composer (#1411)', () {
+    testWidgets(
+        'typing Devanagari strips it from the composer and shows the notice',
+        (WidgetTester tester) async {
+      await pumpScreen(tester);
+
+      await tester.enterText(find.byType(TextField), 'मेने काम किया');
+      await tester.pump();
+
+      final TextField field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.controller!.text, isNot(contains(RegExp('[ऀ-ॿ]'))));
+      expect(find.text(kDevanagariBlockedHint), findsOneWidget);
+    });
+
+    testWidgets('plain Hinglish typing never shows the notice',
+        (WidgetTester tester) async {
+      await pumpScreen(tester);
+
+      await tester.enterText(
+          find.byType(TextField), 'Turning machine par kaam kiya');
+      await tester.pump();
+
+      expect(find.text(kDevanagariBlockedHint), findsNothing);
     });
   });
 }

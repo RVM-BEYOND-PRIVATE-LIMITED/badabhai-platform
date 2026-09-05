@@ -42,6 +42,7 @@ function make() {
   };
   const workersService = {
     setFullName: vi.fn(async () => ({ worker_id: ID })),
+    setLocation: vi.fn(async () => undefined),
     getProfileSummary: vi.fn(async () => PROFILE_SUMMARY),
     getResumeFields: vi.fn(async () => ({
       full_name: "Asha",
@@ -197,6 +198,40 @@ describe("WorkersController — list/getProfile (read, no-PII) + setName", () =>
     // response NEVER carries the name (or even the id): only { ok: true }
     expect(res).toEqual({ ok: true });
     expect(JSON.stringify(res)).not.toMatch(/Asha/i);
+  });
+
+  it("setMyName forwards an optional coarse city/state to the service (#1428)", async () => {
+    const { controller, workersService } = make();
+    const worker = { id: ID, sid: "sess-1" };
+    const res = await controller.setMyName(
+      worker,
+      { full_name: "Asha", city: "Pune", state: "Maharashtra" } as never,
+      CTX,
+    );
+
+    // Same route, same token-derived worker id — never a body id, for the location either.
+    expect(workersService.setLocation).toHaveBeenCalledWith(
+      ID,
+      { city: "Pune", state: "Maharashtra" },
+      CTX,
+    );
+    // The response shape is UNCHANGED: still only { ok: true }, and still no echo of anything.
+    expect(res).toEqual({ ok: true });
+    expect(JSON.stringify(res)).not.toMatch(/Pune|Maharashtra|Asha/i);
+  });
+
+  it("setMyName still handles a name-only body — the pre-#1428 request shape", async () => {
+    // The shipped client sends exactly this. It must remain a working request that writes a name
+    // and nothing else, so the location half is passed through as two undefineds and no-ops.
+    const { controller, workersService } = make();
+    const res = await controller.setMyName({ id: ID, sid: "s" }, { full_name: "Asha" } as never, CTX);
+    expect(workersService.setFullName).toHaveBeenCalledWith(ID, "Asha", CTX);
+    expect(workersService.setLocation).toHaveBeenCalledWith(
+      ID,
+      { city: undefined, state: undefined },
+      CTX,
+    );
+    expect(res).toEqual({ ok: true });
   });
 
   it("getMyResumeFields takes the worker from the token and returns the service projection", async () => {
