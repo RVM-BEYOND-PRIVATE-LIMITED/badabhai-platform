@@ -161,7 +161,7 @@ this register's own preamble names, a route changing without its row changing:
 | GET | /workers/me/{profile-summary,resume-fields,photo-url,profile} | WAG,CG | A | |
 | GET | /workers/:id/profile | ISG | C/D | superseded for worker-self by `/me/profile` |
 | PUT | /workers/:id/name | ISG | D | legacy; worker-self path is `PATCH /workers/me/name` |
-| PATCH | /workers/me/name | WAG,CG | A | |
+| PATCH | /workers/me/name | WAG,CG | A | also takes optional coarse `city`/`state` (#1428) — plaintext, non-PII by the 2026-07-31 ruling |
 | PATCH | /workers/me/resume-prefs | WAG,CG | A | |
 | POST/DELETE | /workers/me/photo(/upload-url) | WAG,CG | A | Storage; triggers resume-render |
 | GET | /feed | WAG,CG | A | event: feed.shown per row |

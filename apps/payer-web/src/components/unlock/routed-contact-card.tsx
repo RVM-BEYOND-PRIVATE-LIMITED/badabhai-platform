@@ -27,9 +27,9 @@ export function RoutedContactCard({ view }: { view: Extract<ContactView, { kind:
   return (
     <Card variant="flat" padding="sm" className="reveal-card">
       <p className="reveal-card__lead">
-        <strong>Routed contact.</strong> This is an opaque relay —{" "}
-        <strong>not a phone number</strong>. Use it in-app to reach the candidate; it expires with
-        your access window.
+        <strong>Routed contact.</strong> This is an opaque reference to your access record —{" "}
+        <strong>not a phone number</strong>. The routed channel is not open yet, so there is
+        nothing to dial or message today; the reference expires with your access window.
       </p>
       <dl className="reveal-card__dl">
         <dt>Relay handle</dt>

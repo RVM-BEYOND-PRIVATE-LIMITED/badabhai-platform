@@ -179,6 +179,31 @@ export class WorkersRepository {
   }
 
   /**
+   * Patch the worker's coarse home location (#1428). A partial set — only the provided halves
+   * are written, so an absent key leaves the stored value alone.
+   *
+   * A SEPARATE METHOD FROM {@link updateFullName} ON PURPOSE. That one takes an ALREADY-ENCRYPTED
+   * token and its name says so; these two columns hold PLAINTEXT, because the 2026-07-31 owner
+   * ruling puts a city outside the identity classes ("cities as PII -> a 20-point matching input;
+   * never redact") and encrypting them would destroy the only thing they are for. Widening
+   * `updateFullName` to carry both would blur the one boundary that file exists to make explicit,
+   * and would put a plaintext value behind a parameter named `encryptedFullName`.
+   *
+   * Returns the updated row, or undefined if no worker matched.
+   */
+  async updateLocation(
+    id: string,
+    patch: { currentCity?: string; currentState?: string },
+  ): Promise<Worker | undefined> {
+    const rows = await this.db
+      .update(workers)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(workers.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  /**
    * Patch the worker's resume display prefs (a partial set — only the provided
    * flags are written). NON-PII booleans; the service reads back the returned row
    * for the resulting values it emits. Returns the updated row, or undefined if no

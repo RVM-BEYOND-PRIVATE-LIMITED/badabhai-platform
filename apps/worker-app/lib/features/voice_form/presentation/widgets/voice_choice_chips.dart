@@ -75,6 +75,8 @@ class VoiceChoiceChips extends StatefulWidget {
     required this.onBoolean,
     this.initialSelected,
     this.isFinalStep = false,
+    this.showSubmitButton = true,
+    this.onMultiSelectionChanged,
   });
 
   final VoiceQuestion question;
@@ -102,11 +104,24 @@ class VoiceChoiceChips extends StatefulWidget {
   /// copy instead of the ordinary [kVoiceMultiSubmit] "Aage badhein".
   final bool isFinalStep;
 
+  /// False hides this widget's own internal multi-select submit button —
+  /// the trade form pins its OWN submit button in a fixed footer outside
+  /// this widget's scroll region instead (see `TradeFormQuestionBody`), so
+  /// rendering this one too would be a redundant second button. DEFAULT
+  /// TRUE, unchanged for every other caller (voice_form's two call sites).
+  final bool showSubmitButton;
+
+  /// Reports the live multi-select [_selected] list on every tap — null for
+  /// every caller that doesn't need it (only the trade form's pinned footer
+  /// does, via [TradeFormQuestionBody]). Meaningless for boolean/single-
+  /// select, which never touch `_selected`.
+  final ValueChanged<List<String>>? onMultiSelectionChanged;
+
   @override
-  State<VoiceChoiceChips> createState() => _VoiceChoiceChipsState();
+  State<VoiceChoiceChips> createState() => VoiceChoiceChipsState();
 }
 
-class _VoiceChoiceChipsState extends State<VoiceChoiceChips> {
+class VoiceChoiceChipsState extends State<VoiceChoiceChips> {
   /// Selected keys for a multi-select question, in tap order.
   final List<String> _selected = <String>[];
 
@@ -149,6 +164,7 @@ class _VoiceChoiceChipsState extends State<VoiceChoiceChips> {
         ..clear()
         ..addAll(next);
     });
+    widget.onMultiSelectionChanged?.call(List<String>.of(_selected));
   }
 
   @override
@@ -200,23 +216,26 @@ class _VoiceChoiceChipsState extends State<VoiceChoiceChips> {
               ),
           ],
         ),
-        const SizedBox(height: AppSpacing.s4),
-        BbButton(
-          // #1384 item 3 — the ONE true final-submit button of the whole
-          // walk is green with distinct copy; every other multi-select
-          // submit (including on a non-final question) stays the ordinary
-          // primary/haldi "Aage badhein".
-          label: widget.isFinalStep ? kVoiceFinalSubmit : kVoiceMultiSubmit,
-          variant: widget.isFinalStep
-              ? BbButtonVariant.success
-              : BbButtonVariant.primary,
-          block: true,
-          // Disabled until at least one option is chosen — a zero-key submit is
-          // never a valid multi-select answer.
-          onPressed: _selected.isEmpty
-              ? null
-              : () => widget.onChips(List<String>.of(_selected)),
-        ),
+        if (widget.showSubmitButton) ...<Widget>[
+          const SizedBox(height: AppSpacing.s4),
+          BbButton(
+            // #1384 item 3 — the ONE true final-submit button of the whole
+            // walk is green with distinct copy; every other multi-select
+            // submit (including on a non-final question) is navy, not
+            // primary/haldi — haldi is IDENTICAL to a selected BbChip's fill,
+            // so this nav button read as just another option.
+            label: widget.isFinalStep ? kVoiceFinalSubmit : kVoiceMultiSubmit,
+            variant: widget.isFinalStep
+                ? BbButtonVariant.success
+                : BbButtonVariant.navy,
+            block: true,
+            // Disabled until at least one option is chosen — a zero-key submit is
+            // never a valid multi-select answer.
+            onPressed: _selected.isEmpty
+                ? null
+                : () => widget.onChips(List<String>.of(_selected)),
+          ),
+        ],
       ],
     );
   }
