@@ -257,10 +257,41 @@ export interface TradeFormOffer {
  */
 const FORM_CTA_LABEL = "Form bharkar resume pura karein";
 
+/**
+ * Sentence case for the FIRST character only — because `offerName` is sentence-cased for the
+ * MIDDLE of a sentence and this is the one place it starts one.
+ *
+ * ═══ THE BUG THIS FIXES, AND WHY FIVE ROLES HID IT ═══
+ *
+ * The headline is `${offerName} profile detected`, and every Batch 1 role's offerName begins with
+ * an acronym — "CNC turner", "CNC machining centre operator", "CAM programmer", "CAD draughtsman".
+ * All four therefore started with a capital by accident of the trade's name, and the composition
+ * looked correct for a year. Batch 2's roles are ordinary nouns, and the same line produced
+ * "welder profile detected", "tool and die maker profile detected" and "conventional machinist
+ * profile detected" — a sentence beginning in lower case, on the one card the worker reads at the
+ * moment we tell them we recognised their trade.
+ *
+ * ═══ WHY THE FIX IS HERE AND NOT ON THE DESCRIPTOR ═══
+ *
+ * Capitalising `offerName` itself would be wrong: the descriptor documents it as the form that
+ * appears INSIDE a worker-facing sentence, and it is deliberately not `displayName` precisely so
+ * the card does not read like a form field. The casing belongs to the SENTENCE, so it is applied
+ * where the sentence is built.
+ *
+ * ═══ ZERO REGRESSION, WHICH IS CHECKABLE RATHER THAN ASSERTED ═══
+ *
+ * All five shipped headlines already begin with an uppercase letter, so this leaves every one of
+ * them byte-identical — which matters because the Flutter contract test pins the shipped copy
+ * exactly. `toUpperCase()` on an already-uppercase character is the identity.
+ */
+function sentenceCase(text: string): string {
+  return text.length === 0 ? text : text[0]!.toUpperCase() + text.slice(1);
+}
+
 export const TRADE_FORM_OFFERS: Readonly<Record<TradeFormKind, TradeFormOffer>> = Object.freeze(
   Object.fromEntries(
     ENABLED_ROLE_DESCRIPTORS.map((descriptor) => {
-      const headline = `${descriptor.offerName} profile detected`;
+      const headline = sentenceCase(`${descriptor.offerName} profile detected`);
       return [
         descriptor.kind,
         {

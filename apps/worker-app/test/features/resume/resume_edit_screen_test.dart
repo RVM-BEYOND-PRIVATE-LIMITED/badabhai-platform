@@ -118,6 +118,24 @@ void main() {
     expect(find.text('Ramesh Kumaar'), findsOneWidget);
   });
 
+  testWidgets(
+      'an all-lowercase name typed in the dialog is title-cased before it '
+      'reaches the cubit / shows on screen', (WidgetTester tester) async {
+    await _pump(tester);
+
+    await tester.tap(find.byIcon(Icons.edit_outlined));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'ramesh kumar');
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+
+    // The screen shows the cubit's OWN state (setDisplayName's argument),
+    // not the dialog's raw text — so this proves the title-case happened
+    // BEFORE the value reached the cubit, not just in the dialog's own box.
+    expect(find.text('Ramesh Kumar'), findsOneWidget);
+    expect(find.text('ramesh kumar'), findsNothing);
+  });
+
   testWidgets('cancelling the name dialog leaves the spelling untouched', (
     WidgetTester tester,
   ) async {

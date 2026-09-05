@@ -53,6 +53,8 @@
 	<string>BadaBhai needs the camera so you can take a photo for your profile or attach a picture with your feedback.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>BadaBhai needs access to your photos so you can pick a picture for your profile or attach one with your feedback.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>BadaBhai uses your location to fill in your city and state automatically, so you don't have to type them.</string>
 	<!-- Deep links (referral invites, `/i/<code>`) — the iOS twin of the Android
 	     manifest setup. FlutterDeepLinkingEnabled routes an incoming URL through
 	     the Flutter Router (go_router), whose root redirect captures the opaque

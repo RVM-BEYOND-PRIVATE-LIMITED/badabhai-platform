@@ -2,6 +2,7 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/error/failure.dart';
+import '../../../../core/util/title_case.dart';
 import '../../domain/name_repository.dart';
 
 enum NameStatus { idle, submitting, success, failed }
@@ -20,20 +21,34 @@ class NameState extends Equatable {
   List<Object?> get props => <Object?>[status];
 }
 
-/// Drives the "Your name" onboarding step: submit the name once, then continue
-/// to chat profiling. The name is passed as a method argument (never stored on
-/// the cubit). A failure surfaces a retry rather than a stuck spinner.
+/// Drives the "Your name" onboarding step: submit the name (+ coarse
+/// city/state, if captured) once, then continue to chat profiling. Nothing
+/// is stored on the cubit — everything is a method argument. A failure
+/// surfaces a retry rather than a stuck spinner.
 class NameCubit extends Cubit<NameState> {
   NameCubit(this._repo) : super(const NameState());
 
   final NameRepository _repo;
 
-  Future<void> submit(String fullName) async {
-    final String trimmed = fullName.trim();
-    if (trimmed.isEmpty || state.isSubmitting) return;
+  Future<void> submit(
+    String fullName, {
+    String? city,
+    String? state,
+    String? address,
+  }) async {
+    final String trimmed = titleCaseName(fullName.trim());
+    if (trimmed.isEmpty || this.state.isSubmitting) return;
+    final String? trimmedCity = _titleCaseOrNull(city);
+    final String? trimmedState = _titleCaseOrNull(state);
+    final String? trimmedAddress = _titleCaseOrNull(address);
     emit(const NameState(status: NameStatus.submitting));
     try {
-      await _repo.submitName(trimmed);
+      await _repo.submitName(
+        trimmed,
+        city: trimmedCity,
+        state: trimmedState,
+        address: trimmedAddress,
+      );
       if (isClosed) return;
       emit(const NameState(status: NameStatus.success));
     } on Failure catch (_) {
@@ -41,4 +56,9 @@ class NameCubit extends Cubit<NameState> {
       emit(const NameState(status: NameStatus.failed));
     }
   }
+
+  String? _titleCaseOrNull(String? value) =>
+      (value != null && value.trim().isNotEmpty)
+          ? titleCaseName(value.trim())
+          : null;
 }

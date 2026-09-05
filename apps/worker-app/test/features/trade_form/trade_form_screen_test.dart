@@ -35,14 +35,19 @@ bool _chipSelected(WidgetTester tester, String label) {
 TradeFormProgressBar _progressBar(WidgetTester tester) =>
     tester.widget<TradeFormProgressBar>(find.byType(TradeFormProgressBar));
 
-/// The preferences marker is now SIX internal pages (languages+documents /
-/// shift / jobType / cities / relocate+accommodation+salary / education —
-/// shift, jobType and cities split from one shared page into three so a
-/// worker faces one question at a time), each walked via its own "Aage
+/// The preferences marker is SIX internal pages (languages / documents /
+/// shift / jobType / cities / relocate+accommodation+salary —
+/// languages+documents was its own further split so a worker never faces
+/// more than one question group at a time), each walked via its own "Aage
 /// badhein" tap; only the LAST tap (on the last internal page) actually
 /// calls `TradeFormCubit.savePreferencesAndAdvance` and moves the OUTER
 /// walk. Every test that used to reach/save the preferences marker in one
 /// tap drives all six here instead of duplicating this sequence.
+///
+/// USED TO be nine pages (credential / council / kis saal poora hua +
+/// institute) — dropped because they duplicated the SAME "ITI ya Diploma?"
+/// ask the `qualifications` marker's education entries already own; see
+/// `TradeFormPreferencesPageState.pageCount`'s own doc.
 Future<void> _walkThroughPreferencesPages(WidgetTester tester) async {
   for (int i = 0; i < 6; i++) {
     await tester.ensureVisible(find.text('Aage badhein'));
@@ -860,22 +865,30 @@ void main() {
       when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
 
       await pump(tester);
-      // #1384 item 2 — education is the marker's SECOND internal page.
+      // #1384 item 2 — education is the marker's 2nd-4th internal pages
+      // (credential+subject / council / year+institute), each its own page.
       await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // -> credential+subject
       await tester.pumpAndSettle();
       await tester.ensureVisible(find.text('Aur ek entry jodein'));
       await tester.tap(find.text('Aur ek entry jodein'));
       await tester.pumpAndSettle();
 
       expect(find.text('ITI'), findsOneWidget);
-      expect(find.text('NCVT'), findsOneWidget);
       expect(_chipSelected(tester, 'ITI'), isFalse);
-
       await tester.tap(find.text('ITI'));
       await tester.pumpAndSettle();
-
       expect(_chipSelected(tester, 'ITI'), isTrue);
+
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // -> council
+      await tester.pumpAndSettle();
+
+      expect(find.text('NCVT'), findsOneWidget);
+      expect(_chipSelected(tester, 'NCVT'), isFalse);
+      await tester.tap(find.text('NCVT'));
+      await tester.pumpAndSettle();
+      expect(_chipSelected(tester, 'NCVT'), isTrue);
     });
 
     testWidgets(
@@ -893,11 +906,14 @@ void main() {
       await tester.enterText(find.byType(TextField).first, 'ITI Certificate');
       await tester.pumpAndSettle();
       // #1384 item 2 — "Ho gaya" only renders on the marker's LAST internal
-      // page (education); this "Aage badhein" tap is purely internal
-      // pagination and must NOT reach the server.
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein'));
-      await tester.pumpAndSettle();
+      // page (year+institute, the 4th) — certificates -> credential+subject
+      // -> council -> year+institute; every "Aage badhein" before that is
+      // purely internal pagination and must NOT reach the server.
+      for (int i = 0; i < 3; i++) {
+        await tester.ensureVisible(find.text('Aage badhein'));
+        await tester.tap(find.text('Aage badhein'));
+        await tester.pumpAndSettle();
+      }
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
@@ -917,11 +933,13 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).first, 'ITI Certificate');
       await tester.pumpAndSettle();
-      // #1384 item 2 — walk to the marker's LAST internal page (education)
-      // before the button's tap actually saves.
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein'));
-      await tester.pumpAndSettle();
+      // #1384 item 2 — walk to the marker's LAST internal page (education's
+      // 3rd sub-page, year+institute) before the button's tap actually saves.
+      for (int i = 0; i < 3; i++) {
+        await tester.ensureVisible(find.text('Aage badhein'));
+        await tester.tap(find.text('Aage badhein'));
+        await tester.pumpAndSettle();
+      }
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
@@ -942,17 +960,93 @@ void main() {
       when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
 
       final GoRouter router = await pumpToBuilding(tester);
-      // #1384 item 2 — walk to the marker's LAST internal page (education);
-      // this "Aage badhein" tap is purely internal and must not touch
-      // saveQualifications either.
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein'));
-      await tester.pumpAndSettle();
+      // #1384 item 2 — walk to the marker's LAST internal page (education's
+      // 3rd sub-page, year+institute); every "Aage badhein" before that is
+      // purely internal and must not touch saveQualifications either.
+      for (int i = 0; i < 3; i++) {
+        await tester.ensureVisible(find.text('Aage badhein'));
+        await tester.tap(find.text('Aage badhein'));
+        await tester.pumpAndSettle();
+      }
       await tester.ensureVisible(find.text('Ho gaya'));
       await tester.tap(find.text('Ho gaya'));
       await tester.pumpAndSettle();
 
       verifyNever(() => repo.saveQualifications(any()));
+      expect(router.routerDelegate.currentConfiguration.uri.path, '/building');
+    });
+
+    testWidgets(
+        'an institute name typed lowercase is title-cased before it reaches '
+        'saveQualifications', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
+
+      final GoRouter router = await pumpToBuilding(tester);
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // -> credential+subject
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Aur ek entry jodein'));
+      await tester.tap(find.text('Aur ek entry jodein'));
+      await tester.pumpAndSettle();
+
+      for (int i = 0; i < 2; i++) {
+        await tester.ensureVisible(find.text('Aage badhein'));
+        await tester.tap(find.text('Aage badhein'));
+        await tester.pumpAndSettle();
+      }
+      // Now on year+institute. Two fields (year, then institute).
+      expect(find.text('Institute ka naam'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).last, 'rvm cad pvt ltd');
+      await tester.pump();
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      final TradeFormQualifications sent = verify(
+              () => repo.saveQualifications(captureAny()))
+          .captured
+          .single as TradeFormQualifications;
+      expect(sent.educations.single.institute, 'Rvm Cad Pvt Ltd');
+      expect(router.routerDelegate.currentConfiguration.uri.path, '/building');
+    });
+
+    testWidgets(
+        'a trade/subject typed lowercase is title-cased before it reaches '
+        'saveQualifications', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _qualificationsForm());
+
+      final GoRouter router = await pumpToBuilding(tester);
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein')); // -> credential+subject
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Aur ek entry jodein'));
+      await tester.tap(find.text('Aur ek entry jodein'));
+      await tester.pumpAndSettle();
+
+      // "Trade ya subject" only shows once a subject-bearing credential
+      // (ITI/Diploma/Graduate/12th pass) is picked — hidden until then.
+      expect(find.text('Trade ya subject'), findsNothing);
+      await tester.tap(find.text('ITI'));
+      await tester.pumpAndSettle();
+      expect(find.text('Trade ya subject'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).first, 'electric');
+      await tester.pump();
+
+      // Walk the remaining 2 internal pages (council, year+institute) to save.
+      for (int i = 0; i < 2; i++) {
+        await tester.ensureVisible(find.text('Aage badhein'));
+        await tester.tap(find.text('Aage badhein'));
+        await tester.pumpAndSettle();
+      }
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      final TradeFormQualifications sent = verify(
+              () => repo.saveQualifications(captureAny()))
+          .captured
+          .single as TradeFormQualifications;
+      expect(sent.educations.single.field, 'Electric');
       expect(router.routerDelegate.currentConfiguration.uri.path, '/building');
     });
   });
@@ -1046,17 +1140,23 @@ void main() {
       await tester.tap(find.text('Pata nahi').first); // decline q2
       await tester.pumpAndSettle();
 
-      // Page 0 (languages + documents) — the EARLIEST page.
+      // Page 0 (languages) — the EARLIEST page.
       expect(find.text('Hindi'), findsOneWidget);
       await tester.tap(find.text('Hindi'));
       await tester.pump();
+      await tester.ensureVisible(find.text('Aage badhein'));
+      await tester.tap(find.text('Aage badhein'));
+      await tester.pumpAndSettle();
+
+      // Page 1 (documents) — its own page.
+      expect(find.text('Aadhaar'), findsOneWidget);
       await tester.tap(find.text('Aadhaar'));
       await tester.pump();
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
 
-      // Page 1 (shift) — its own page.
+      // Page 2 (shift) — its own page.
       expect(find.text('Day'), findsOneWidget);
       await tester.tap(find.text('Day'));
       await tester.pump();
@@ -1064,7 +1164,7 @@ void main() {
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
 
-      // Page 2 (job type) — its own page.
+      // Page 3 (job type) — its own page.
       expect(find.text('Permanent'), findsOneWidget);
       await tester.tap(find.text('Permanent'));
       await tester.pump();
@@ -1072,23 +1172,21 @@ void main() {
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
 
-      // Page 3 (cities) — its own page.
+      // Page 4 (cities) — its own page. Resolves against the gazetteer
+      // fixture (`_prefOptions.cities` includes Faridabad).
       expect(find.text('Kahan kaam karna chahte hain?'), findsOneWidget);
       await tester.enterText(find.byType(TextField).first, 'Faridabad');
-      await tester.tap(find.text('+'));
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      // Flush the resolved-add banner's 2s auto-dismiss timer.
+      await tester.pump(const Duration(seconds: 2));
       await tester.pump();
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
 
-      // Page 4 (relocate + accommodation + salary) — untouched, all optional.
+      // Page 5 (relocate + accommodation + salary) — the LAST internal page;
+      // this tap actually saves.
       expect(find.text('Doosre sheher ja sakte hain?'), findsOneWidget);
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein'));
-      await tester.pumpAndSettle();
-
-      // Page 5 (education) — the LAST internal page; this tap actually saves.
-      expect(find.text('Institute ka naam'), findsOneWidget);
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
@@ -1101,7 +1199,7 @@ void main() {
       // this test — survived several MORE internal-page transitions.
       expect(sent.languages, <String>{'hindi'});
       expect(sent.documentsReady, <String>{'aadhaar'});
-      // Fields entered on pages 1-3 also made it through.
+      // Fields entered on pages 2-4 also made it through.
       expect(sent.shift, 'day');
       expect(sent.jobType, 'permanent');
       expect(sent.preferredCities, <String>['Faridabad']);
@@ -1137,10 +1235,10 @@ void main() {
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
 
-      // Now on page 1 (shift) — the outer step never moved (still the
+      // Now on page 1 (documents) — the outer step never moved (still the
       // preferences marker), so "Wapas" must go back to page 0, NOT pop
       // the whole screen or walk to a previous question.
-      expect(find.text('Day'), findsOneWidget);
+      expect(find.text('Aadhaar'), findsOneWidget);
       await tester.tap(find.byTooltip('Wapas'));
       await tester.pumpAndSettle();
 
@@ -1154,6 +1252,40 @@ void main() {
   });
 
   group('preferred cities: 5-city cap + horizontal list', () {
+    testWidgets(
+        'no "+" add button — a worker cannot enter a custom city, only pick '
+        'a suggestion', (WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first);
+      await tester.pumpAndSettle();
+      for (int i = 0; i < 4; i++) {
+        await tester.ensureVisible(find.text('Aage badhein'));
+        await tester.tap(find.text('Aage badhein'));
+        await tester.pumpAndSettle();
+      }
+
+      expect(find.text('Kahan kaam karna chahte hain?'), findsOneWidget);
+      expect(find.text('+'), findsNothing);
+      await tester.enterText(find.byType(TextField).first, 'gurugram');
+      await tester.pump();
+      expect(find.text('+'), findsNothing);
+    });
+
     Future<void> walkToCitiesPage(WidgetTester tester) async {
       await tester.ensureVisible(find.text('Pata nahi').first);
       await tester.tap(find.text('Pata nahi').first); // decline q1
@@ -1161,8 +1293,9 @@ void main() {
       await tester.ensureVisible(find.text('Pata nahi').first);
       await tester.tap(find.text('Pata nahi').first); // decline q2
       await tester.pumpAndSettle();
-      // Page 0 (languages+documents) -> 1 (shift) -> 2 (jobType) -> 3 (cities).
-      for (int i = 0; i < 3; i++) {
+      // Page 0 (languages) -> 1 (documents) -> 2 (shift) -> 3 (jobType) ->
+      // 4 (cities).
+      for (int i = 0; i < 4; i++) {
         await tester.ensureVisible(find.text('Aage badhein'));
         await tester.tap(find.text('Aage badhein'));
         await tester.pumpAndSettle();
@@ -1171,7 +1304,10 @@ void main() {
 
     Future<void> addCityText(WidgetTester tester, String city) async {
       await tester.enterText(find.byType(TextField).first, city);
-      await tester.tap(find.text('+'));
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      // A resolved add shows a self-dismissing MaterialBanner (2s) — flush
+      // that timer now so it never leaks past this test as a pending timer.
+      await tester.pump(const Duration(seconds: 2));
       await tester.pump();
     }
 
@@ -1204,11 +1340,11 @@ void main() {
         await addCityText(tester, city);
       }
 
-      // At the 5-city cap: the add row (text field + "+") is gone — the
-      // same "affordance disappears at the cap" convention as certificates/
+      // At the 5-city cap: the add row (just the text field — no "+" button,
+      // #1406/#1410 already closed custom free text) is gone — the same
+      // "affordance disappears at the cap" convention as certificates/
       // educations.
       expect(find.byType(TextField), findsNothing);
-      expect(find.text('+'), findsNothing);
 
       // Rendered as a horizontal ListView, not a Wrap — the whole point of
       // this change.
@@ -1223,9 +1359,9 @@ void main() {
       await addCityText(tester, 'Faridabad');
       expect(find.byType(TextField), findsNothing);
 
-      // Walk to the marker's last internal page and save: page 3 (cities)
-      // -> 4 (relocate) -> 5 (education), then one more tap ON page 5 saves.
-      for (int i = 0; i < 3; i++) {
+      // Walk to the marker's last internal page and save: page 4 (cities)
+      // -> 5 (relocate) is 1 tap, then one more tap WHILE on page 5 saves.
+      for (int i = 0; i < 2; i++) {
         await tester.ensureVisible(find.text('Aage badhein'));
         await tester.tap(find.text('Aage badhein'));
         await tester.pumpAndSettle();
@@ -1317,6 +1453,11 @@ void main() {
       // straight off the suggestion row, no typing at all.
       await tester.tap(find.text('Gurugram'));
       await tester.pump();
+      expect(find.text('Sheher add ho gaya'), findsOneWidget);
+      // Flush the resolved-add banner's 2s auto-dismiss timer.
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump();
+      expect(find.text('Sheher add ho gaya'), findsNothing);
 
       final ListView list = tester.widget<ListView>(find.byType(ListView));
       expect(list.scrollDirection, Axis.horizontal);
@@ -1396,6 +1537,152 @@ void main() {
     });
   });
 
+  group('employer location: state-then-city demo picker (#1429 preview)', () {
+    Future<void> walkToEmploymentPage(WidgetTester tester) async {
+      when(() => repo.loadForm()).thenAnswer((_) async => _form());
+      when(() => repo.submitAnswer(
+            questionKey: any(named: 'questionKey'),
+            answer: any(named: 'answer'),
+          )).thenAnswer((_) async => const TradeFormAnswerResult(
+            questionKey: 'x',
+            status: TradeFormAnswerStatus.answered,
+            answered: 2,
+            total: 2,
+          ));
+
+      await pump(tester);
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Pata nahi').first);
+      await tester.tap(find.text('Pata nahi').first);
+      await tester.pumpAndSettle();
+      await _walkThroughPreferencesPages(tester);
+      await tester.ensureVisible(find.text('Aur ek jagah jodein'));
+      await tester.tap(find.text('Aur ek jagah jodein'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+        'a blank entry defaults to the picker — both dropdowns show their '
+        'placeholder, no free-text city/state fields until "Khud likhein"',
+        (WidgetTester tester) async {
+      await walkToEmploymentPage(tester);
+
+      // Both closed dropdowns render their placeholder text — the options
+      // themselves are inside the (closed) sheet, not inline.
+      expect(find.text('STATE CHUNEIN'), findsOneWidget);
+      expect(find.text('SHEHER CHUNEIN'), findsOneWidget);
+      expect(find.text('Haryana'), findsNothing);
+      expect(find.text('Maharashtra'), findsNothing);
+      // Only name, role, and work-done — no free-text city/state yet.
+      expect(find.byType(TextField), findsNWidgets(3));
+    });
+
+    testWidgets(
+        'picking a state then a city (via the searchable dropdown sheets) '
+        'fills employerCity/employerState, filtered to that state',
+        (WidgetTester tester) async {
+      await walkToEmploymentPage(tester);
+
+      await tester.ensureVisible(find.text('STATE CHUNEIN'));
+      await tester.tap(find.text('STATE CHUNEIN'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Haryana'), findsOneWidget);
+      expect(find.text('Maharashtra'), findsOneWidget);
+
+      await tester.tap(find.text('Haryana'));
+      await tester.pumpAndSettle();
+
+      // The state dropdown now shows the picked value, not the placeholder.
+      expect(find.text('Haryana'), findsOneWidget);
+      expect(find.text('STATE CHUNEIN'), findsNothing);
+
+      await tester.ensureVisible(find.text('SHEHER CHUNEIN'));
+      await tester.tap(find.text('SHEHER CHUNEIN'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Gurugram'), findsOneWidget);
+      expect(find.text('Faridabad'), findsOneWidget);
+      // Maharashtra's cities must not leak into Haryana's sheet.
+      expect(find.text('Mumbai'), findsNothing);
+
+      await tester.tap(find.text('Gurugram'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).at(0), 'Acme');
+      await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      await tester.pump();
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      final List<TradeFormEmploymentEntry> sent = verify(
+              () => repo.saveEmployment(captureAny()))
+          .captured
+          .single as List<TradeFormEmploymentEntry>;
+      expect(sent.single.employerCity, 'Gurugram');
+      expect(sent.single.employerState, 'Haryana');
+    });
+
+    testWidgets(
+        'the city dropdown search box filters to a typed query',
+        (WidgetTester tester) async {
+      await walkToEmploymentPage(tester);
+
+      await tester.ensureVisible(find.text('STATE CHUNEIN'));
+      await tester.tap(find.text('STATE CHUNEIN'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Haryana'));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('SHEHER CHUNEIN'));
+      await tester.tap(find.text('SHEHER CHUNEIN'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Gurugram'), findsOneWidget);
+      expect(find.text('Faridabad'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField).last, 'Fari');
+      await tester.pump();
+
+      expect(find.text('Faridabad'), findsOneWidget);
+      expect(find.text('Gurugram'), findsNothing);
+    });
+
+    testWidgets(
+        '"Khud likhein" reveals free-text fallback fields for an employer '
+        'outside the 2-state demo set', (WidgetTester tester) async {
+      await walkToEmploymentPage(tester);
+
+      await tester.ensureVisible(find.text('Khud likhein'));
+      await tester.tap(find.text('Khud likhein'));
+      await tester.pump();
+
+      expect(find.text('Sheher'), findsWidgets); // label + hint text, both "Sheher"
+      expect(find.text('State'), findsWidgets); // label + hint text, both "State"
+      // name, role, city, state, work-done.
+      expect(find.byType(TextField), findsNWidgets(5));
+
+      await tester.enterText(find.byType(TextField).at(0), 'Acme');
+      await tester.enterText(find.byType(TextField).at(1), 'Fitter');
+      await tester.enterText(find.byType(TextField).at(2), 'Kota');
+      await tester.enterText(find.byType(TextField).at(3), 'Rajasthan');
+      await tester.pump();
+      await tester.ensureVisible(find.text('Ho gaya'));
+      await tester.tap(find.text('Ho gaya'));
+      await tester.pumpAndSettle();
+
+      final List<TradeFormEmploymentEntry> sent = verify(
+              () => repo.saveEmployment(captureAny()))
+          .captured
+          .single as List<TradeFormEmploymentEntry>;
+      expect(sent.single.employerCity, 'Kota');
+      expect(sent.single.employerState, 'Rajasthan');
+    });
+  });
+
   group('the true final-submit button is green + distinct (#1384 item 3)', () {
     testWidgets(
         'a marker-is-last-step case renders BbButtonVariant.success',
@@ -1464,7 +1751,7 @@ void main() {
     });
 
     testWidgets(
-        'a non-last question step stays primary with "Aage badhein"',
+        'a non-last question step is navy (not haldi) with "Aage badhein"',
         (WidgetTester tester) async {
       when(() => repo.loadForm()).thenAnswer((_) async => _form());
 
@@ -1477,7 +1764,9 @@ void main() {
       final BbButton nextButton = tester.widget<BbButton>(
         find.widgetWithText(BbButton, 'Aage badhein'),
       );
-      expect(nextButton.variant, BbButtonVariant.primary);
+      // navy, not primary/haldi — haldi is identical to a selected BbChip's
+      // fill, which made the nav button read as just another option.
+      expect(nextButton.variant, BbButtonVariant.navy);
     });
   });
 }
