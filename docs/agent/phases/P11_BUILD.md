@@ -1,3 +1,13 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+WHAT NO E-PHASE COVERS — dropped visibly, not quietly. Each survived an adversarial
+refutation pass (already-ships / an-E-phase-covers-it / a-signed-ruling-deleted-it):
+  - The posting-chat provenance gate and its failing test — every value written into a
+    draft must be a literal substring of the pseudonymized message the model saw, and a
+    failing delta is dropped before persistence.
+
+------------------------------------------------------------------------------
 STATUS: BLOCKED. Do not start. Three things must be settled first.
   1. P8 AND P10 ARE NOT BUILT. job_posting_drafts, job_posting_draft_checkpoints and the
      checkpoint POST are P8's (P8_BUILD.md:16-31); the form half is P10's (P10_BUILD.md:1-12).

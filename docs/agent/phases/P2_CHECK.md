@@ -1,3 +1,13 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+WHAT NO E-PHASE COVERS — dropped visibly, not quietly. Each survived an adversarial
+refutation pass (already-ships / an-E-phase-covers-it / a-signed-ruling-deleted-it):
+  - `tier-parity.test.ts` — pinning the THREE SQL writers of `job_reach.match_tier` to the
+    reference `matchTierFor`. The duplication is deliberate (rank-parity.test.ts says so);
+    what is missing is the test that keeps the copies agreeing. No E-phase adds it.
+
+------------------------------------------------------------------------------
 PHASE-ID: P2
 INVARIANT: on a posting whose reach_skill_ids is resolveReachSet(match_skill_ids) and
 which carries no job_reach_widen grant, every match_tier written to job_reach equals

@@ -672,3 +672,130 @@ fix — the banner is already accurate about intent and wrong about capability.
 **Consequence for M1:** the phase's verification (five real trade forms end to end, then a
 publish showing `job_reach` move) is UNRUN. It runs against the local database once the owner
 confirms the target, never against the audit's.
+
+---
+
+## P-018 · A worker has no city, so the payer's first-named filter cannot be built
+
+**Found:** 2026-09-05, the E-chain design session (PR #1427), measuring the filter set for E2.
+**Owner ruling:** SHIP E2 WITHOUT A LOCATION FILTER and label the absence; do NOT edit the
+trade form question flow to get a city column — Prakash, 2026-09-05. Parked so the next
+person does not rediscover it.
+
+**What is true today.** Location was the FIRST filter the owner named for the candidate
+search, and there is nowhere to read it from.
+
+1. **`workers` has no city column.** The table is `packages/db/src/schema/worker.ts:37-112`;
+   there is no city, no state, no district, no pincode, no coordinate.
+2. **The only worker-side location is a JSONB blob on the retiring engine's table** —
+   `worker_profiles.location_preference` (`packages/db/src/schema/profile.ts:61`), shaped
+   `{current_city, preferred_cities[], willing_to_relocate}`. It carries no index, so even
+   where it is populated a filter over it is a scan.
+3. **Its only writer is the extraction processor**
+   (`apps/api/src/profiles/profile-extraction.processor.ts:402`, and again at `:1347`).
+4. **And the trade form deliberately does not run extraction.** The reason is written at
+   `apps/api/src/profiling/form/trade-form.service.ts:173` — "the trade-form handover
+   deliberately switches extraction OFF (a two-turn transcript yields a container that
+   outranks the answer map and blanks the sheet)". So for a worker who completed a trade
+   form, `location_preference` is never written by anything.
+
+**Therefore: a trade-form worker has no stored city by any path**, and trade-form workers are
+the population E2 exists to sell.
+
+**What filling it would require — this is the part worth not rediscovering.**
+
+The obvious move is "add a `current_city` column and backfill it". That does not work,
+because the column is not the missing piece — **the question is**.
+
+- `current_city` exists as a question in exactly **2 of 148** packs: `qp_universal.json` and
+  `qp_universal@2.json`. It is in **none** of the five packs the shipping roles use
+  (`qp_cnc_turning`, `qp_vmc_milling`, `qp_cnc_grinding`, `qp_cam_programming`,
+  `qp_cad_drafting` — declared at `apps/api/src/profiling/roles/cnc-turner.role.ts:14` and
+  its four siblings).
+- It is `target_kind: "rfs"`, not `"attribute"`, so even when it IS answered it lands in the
+  Resume Field Set draft rather than in `worker_attributes` — which is why the M1 pack-attribute
+  bridge does not reach it either.
+- So filling it means **adding a question to the trade form**, which is the one boundary this
+  session was told to hold. That is a product decision about the 24-ask budget, not a schema
+  change: every question added to the form competes with a question already there.
+
+Three routes exist and each has a real cost:
+  (a) **Add `current_city` to the five shipping packs.** Cheapest technically, but it spends
+      an ask from a budget the owner has already ruled on, and it fills nothing retroactively.
+  (b) **Ask for the city outside the trade form** — at signup, or on a profile screen. Does
+      not touch the question flow, but it is a new worker-facing surface and therefore mobile
+      work under CLAUDE.md §6.
+  (c) **Promote `current_city` to a first-class indexed column on `workers`** and write it
+      from whichever of (a)/(b) lands. Necessary eventually for an indexed filter, useless on
+      its own — a column with no writer is the same empty filter, spelled differently.
+
+**Note, because it argues the other way.** The corpus author already treated city as
+load-bearing: `qp_universal@2.json:3` says *"city and salary are what the match engine
+actually ranks on, so they must be asked before a worker is likely to walk"*, and hoists both
+questions for that reason. That belief is currently unfunded by any shipping pack — which is
+itself the finding.
+
+**Do not "fix" this by filtering on `location_label` from the posting side.** That is the
+JOB's location, not the worker's, and using it as a proxy would silently return workers who
+have never said they would work there.
+
+---
+
+## P-019 · `profile.viewed` is registered, templated, and emitted by nothing — and its payload does not fit the unlock that would emit it
+
+**Parked by owner ruling, 2026-09-05.** Surfaced while writing E0's blocking condition C-1
+(`docs/agent/phases/E0_BUILD.md`) and parked separately because it is its own defect: it is
+the notification path C-1 needs, and it is half-built already.
+
+**What is built.** The event is registered — `"profile.viewed": { version: 1, domain:
+"profile", payload: p.ProfileViewedPayload }`
+([packages/event-schema/src/registry.ts:517](packages/event-schema/src/registry.ts)). The
+worker-facing notification template is written, faceless, and bilingual
+([apps/api/src/notifications/notifications.dto.ts:165-172](apps/api/src/notifications/notifications.dto.ts)),
+with a comment explaining why the copy names nobody: *"the worker learns their profile was
+seen, not who saw it. That is the most this signal can say without revealing a counterparty
+identity."*
+
+**What is not.** Nothing emits it.
+
+    grep -rn "profile\.viewed" apps/api/src --include=*.ts | grep -v "\.test\."
+    → 2 hits, both in notifications.dto.ts, both declarations
+
+So the alerts feed carries a template for an event that has never fired, and a worker is never
+told that a paying stranger holds his routed contact.
+
+**THE PART THAT MAKES IT MORE THAN WIRING.** `ProfileViewedPayload` requires `job_id`:
+
+    export const ProfileViewedPayload = z.object({
+      worker_id: uuidSchema,
+      viewer_payer_id: uuidSchema,
+      job_id: uuidSchema,          // ← required
+    });
+    packages/event-schema/src/payloads.ts:2145-2149
+
+`unlocks.job_id` is nullable by design — *"Optional job context (per-profile granularity, so
+nullable)"* ([packages/db/src/schema/payer.ts:235-236](packages/db/src/schema/payer.ts)) — and
+the request DTO defaults it to `null`
+([apps/api/src/unlocks/unlocks.dto.ts:23](apps/api/src/unlocks/unlocks.dto.ts)). **An unlock
+with no posting attached cannot emit this event**, and a search-driven unlock is exactly that
+case, which is the whole of E2's flow.
+
+**Three routes, none of them a builder's to pick.**
+  (a) **Emit only when `job_id` is non-null.** Compiles, and silently skips precisely the
+      workers found by search. This is the option that will look reasonable at 11pm.
+  (b) **Loosen `job_id` to nullable in the payload.** CLAUDE.md §3 forbids mutating an event
+      schema, and `registry.ts:517` pins `version: 1`. The practical risk really is nil —
+      zero producers, zero consumers — but that is an argument for the owner to weigh, not a
+      licence to skip the versioning question.
+  (c) **Mint a distinct event for the unlock notification**, with its own template. Costs more
+      and mutates nothing.
+
+**Why it is parked rather than fixed here.** E0's C-1 needs it and will HALT on it, which is
+the correct outcome under the 2026-09-05 ruling (*"harder than scoped is a HALT, not a
+trim"*). Recording it now means the HALT arrives with the analysis already done instead of
+costing a session.
+
+**Do not close this by deleting the template.** A faceless template that names nobody is the
+hard part and it is already written and already guarded
+([apps/api/src/notifications/notifications.service.test.ts:320-326](apps/api/src/notifications/notifications.service.test.ts)).
+The gap is the producer and the payload, not the copy.

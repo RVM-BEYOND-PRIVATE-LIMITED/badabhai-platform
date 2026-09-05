@@ -1,3 +1,10 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+NOTHING SURVIVES THIS CLOSURE. Every deliverable is either shipped, deleted by a signed
+ruling, or carried by an E-phase. Checked adversarially, not assumed.
+
+------------------------------------------------------------------------------
 PHASE-ID: P10
 INVARIANT: no file under apps/payer-web/src/app/(portal)/postings/new/wizard/ declares a step,
 a field id, or an option array. Every one arrives from the GET /schema payload, or from

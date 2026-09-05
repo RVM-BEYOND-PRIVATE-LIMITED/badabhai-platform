@@ -1,3 +1,14 @@
+STATUS: CLOSED 2026-09-05 — superseded by the E-chain (docs/decisions/E_CHAIN_DESIGN_2026-09.md).
+Do not build from this file without reopening the phase.
+
+WHAT NO E-PHASE COVERS — dropped visibly, not quietly. Each survived an adversarial
+refutation pass (already-ships / an-E-phase-covers-it / a-signed-ruling-deleted-it):
+  - The four columns — `worker_skill.function`, `worker_skill.collar_tier`,
+    `job_postings.function_required`, `job_postings.collar_tier_min` — with their
+    migration, journal entry, snapshot, rollback path and no-backfill guard. Still gated
+    on R1. NOT surviving: the function/collar VOCABULARY constant, which already exists.
+
+------------------------------------------------------------------------------
 PHASE-ID: P3
 INVARIANT: no existing row gets a value in any of the four new columns that it did not supply;
 all four land NULL on every pre-existing row.
