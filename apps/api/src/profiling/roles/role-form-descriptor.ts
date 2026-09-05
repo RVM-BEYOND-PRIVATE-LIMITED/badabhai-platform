@@ -46,7 +46,37 @@ import { TRADE_FORM_KINDS_ALL, type TradeFormKindName } from "@badabhai/types";
  * "metal fabrication" and CNC Turner under the launch wedge, but the two collide hard on the word
  * "lathe" — so batching and vetoing are two different questions and get two different fields.
  */
-export const ROLE_CLUSTERS = ["machining", "design", "fabrication", "polymer"] as const;
+/**
+ * ═══ WHY SIX AND NOT FOUR, AND WHY NOT ONE PER TAXONOMY GROUP ═══
+ *
+ * A cluster is sized by the question this file's doc comment asks — "would handing a worker the
+ * wrong one of these ask eighteen wrong questions?" — and the answer bounds it from BOTH sides.
+ *
+ * Too coarse and the veto eats the trade. The taxonomy files all eleven Batch 2 roles under one
+ * "metal fabrication, assembly & maintenance" heading; deriving conflicts across that would give a
+ * welder roughly sixty veto words, including a painter's and a QC inspector's, and a welder who
+ * mentions that he also touches up paint would never reach a form at all. That is the same failure
+ * as deriving across the whole registry, one order of magnitude down.
+ *
+ * Too fine and the veto disappears. A cluster of one derives NOTHING, so the two roles that share
+ * a production line — an assembly worker and the inspector standing at the end of it — have to sit
+ * together for either veto to exist.
+ *
+ * `maintenance` and `production` are therefore split out of what the taxonomy calls one group:
+ * a fitter, a maintenance technician and an industrial electrician genuinely compete for the man
+ * who says "plant maintenance ka kaam", and none of them competes with a press operator.
+ * Genuine pairs that cross a boundary — press setting against the tool room, assembly fitting
+ * against the fitter — are declared as {@link RoleDetectionTerms.extraConflictTerms}, which is
+ * what that field is for and is cheaper than a cluster that is wrong in the other direction.
+ */
+export const ROLE_CLUSTERS = [
+  "machining",
+  "design",
+  "fabrication",
+  "maintenance",
+  "production",
+  "polymer",
+] as const;
 export type RoleCluster = (typeof ROLE_CLUSTERS)[number];
 
 /**

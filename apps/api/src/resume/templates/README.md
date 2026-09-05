@@ -124,10 +124,47 @@ fields first, then check the PDF against them:
 `degradationOverBudgetLines` says by how much, in lines of 4.89 mm. The corpus's worst is
 under 3.2 lines, so a spilling sheet should show only a little content on page 2.
 
-**Not yet confirmed by a real render.** The two-page behaviour is asserted through the line
-model only — `sheetContentLines` against `SHEET_LINE_BUDGET`. The template supports it
-(`@page { size: A4; margin: 12mm }`, and `.foot` carries no positioning, so it flows to the
-end of the last page), but no WeasyPrint render of a spilling sheet has been done. Do one
-before release, on these three: **grinding** and the **maximal turner** (both spill by
-~0.2 lines — the interesting case, since they may well still render on one page) and
-**matrix shape 9** (the wrapped 18 pt name, ~2.9 lines over).
+### CONFIRMED BY A REAL RENDER — 2026-09-05
+
+This section used to say "not yet confirmed by a real render". It has now been done, on
+**WeasyPrint 69.0** in a container carrying the same native stack `apps/api/Dockerfile`
+installs (Pango/cairo + `fonts-noto-core` — the font package is load-bearing, see above).
+Page counts come from `len(HTML(...).render().pages)`, not from eyeballing a viewer.
+
+**68 sheets rendered, 0 in the dangerous direction.**
+
+| set | sheets | result |
+| --- | --- | --- |
+| the 6 shipped roles, at persona AND widest answers | 12 | predicted 1 page, **rendered 1** — all 12 |
+| `SHEET_SHAPES` × both audiences × shape/future | 56 | 42 predicted 1 and rendered 1; 12 predicted 2 and **rendered 2** |
+
+**The two-page branch works.** Twelve spilling sheets were rendered and every one produced
+exactly two pages, with the footer flowing to the end of the last page as the template
+intends. That is the behaviour the owner's 2026-09-03 ruling depends on, and it had never
+been executed.
+
+**The model NEVER under-counts.** Not one sheet rendered MORE pages than predicted, which is
+the failure that would matter: a sheet that spills when the model said it would not is
+content arriving where nobody checked it.
+
+**It over-counts slightly, twice, and that is the safe direction.** Two sheets predicted to
+spill fitted on one page after all:
+
+| sheet | lines | over budget | rendered |
+| --- | --- | --- | --- |
+| `shape-05-worker` | 43.19 | 2.19 | **1 page** |
+| `shape-09-employer` | 42.93 | 1.93 | **1 page** |
+
+So the real budget is **at least ~43.2 lines** for the worker audience, against the fitted
+`SHEET_LINE_BUDGET = 41`. Everything at or under 41 is safe with margin; a sheet between 41
+and ~43 may take a second page it did not need.
+
+**`SHEET_LINE_BUDGET` was deliberately NOT raised on this evidence.** The measurement is 68
+fixtures on one font stack, and the cost of the two disagreements is a needless second page —
+cosmetic, and no content is lost. The cost of raising the budget and being wrong is a sheet
+that overflows unpredictably. A conservative budget fails in the direction that keeps the
+worker's résumé intact, so it stays until there is a reason better than "we found 2 lines".
+
+**Re-running it.** Emit with `EMIT_SHEETS=<dir> npx vitest run src/resume/sheet-shape-emit`,
+then render the directory with the recipe above; count pages through the WeasyPrint API
+rather than a PDF page-object grep, which miscounts.

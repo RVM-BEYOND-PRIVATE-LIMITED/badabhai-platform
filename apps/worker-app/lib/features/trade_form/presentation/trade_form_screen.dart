@@ -193,11 +193,14 @@ class _ErrorBody extends StatelessWidget {
 }
 
 /// The main walk chrome: a per-step header (section title, back-to-previous),
-/// a progress bar, the swapped step body, and — for the two marker screens
-/// ONLY — a sticky save/advance button. A question screen has no such
-/// button: it advances from its OWN inline controls
-/// ([TradeFormQuestionBody]), since each question is its own
-/// `POST /profiling/form/answer` rather than a batched page write.
+/// a progress bar, and the swapped step body. A marker screen's sticky
+/// save/advance button ([_MarkerBottomBar]) lives HERE, a sibling of the
+/// scrollable body; a question screen's own pinned submit button lives
+/// INSIDE [TradeFormQuestionBody] instead (it needs the live draft text/
+/// selection, which only that widget holds) — either way every "Aage
+/// badhein" on this walk is fixed at the bottom, never scrolls away. Each
+/// question answer is still its own `POST /profiling/form/answer` rather
+/// than a batched page write.
 class _WizardScaffold extends StatefulWidget {
   const _WizardScaffold({required this.state});
   final TradeFormState state;
@@ -269,7 +272,54 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
     });
   }
 
+  /// The current marker page's blocking validation message, or null — e.g.
+  /// a "kis saal" field still showing a future/invalid year. A red inline
+  /// message with no way to stop "Aage badhein" was a real, reported bug;
+  /// this is the actual gate, checked before every advance/save below.
+  String? _currentMarkerPageError(TradeFormStep? step) {
+    if (step is TradeFormPreferencesStep) {
+      return _prefsKey.currentState?.currentPageError();
+    } else if (step is TradeFormEmploymentStep) {
+      return _empKey.currentState?.currentPageError();
+    } else if (step is TradeFormQualificationsStep) {
+      return _qualsKey.currentState?.currentPageError();
+    }
+    return null;
+  }
+
+  /// Docks at the TOP of the scaffold body (unlike a `SnackBar`, which
+  /// always animates from the bottom) — the owner's explicit ask for a red
+  /// banner where the worker's eyes already are, right under the header,
+  /// not somewhere they have to look down for.
+  void _showBlockedBanner(String message) {
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+    messenger.clearMaterialBanners();
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        backgroundColor: AppColors.danger,
+        content: Text(message,
+            style: AppTypography.body(
+                size: AppTypography.sizeSm, color: Colors.white)),
+        actions: <Widget>[
+          TextButton(
+            onPressed: messenger.hideCurrentMaterialBanner,
+            child: const Text('Theek hai',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    Future<void>.delayed(const Duration(seconds: 4), () {
+      if (mounted) messenger.hideCurrentMaterialBanner();
+    });
+  }
+
   void _goToNextMarkerPage(TradeFormStep? step) {
+    final String? error = _currentMarkerPageError(step);
+    if (error != null) {
+      _showBlockedBanner(error);
+      return;
+    }
     if (step is TradeFormPreferencesStep) {
       _prefsKey.currentState?.goToNextPage();
     } else if (step is TradeFormEmploymentStep) {
@@ -358,11 +408,23 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                     ),
                   ],
                   Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(AppSpacing.gutter,
-                          AppSpacing.s4, AppSpacing.gutter, AppSpacing.s4),
-                      child: _stepBody(step, cubit, enabled, state),
-                    ),
+                    // A question step (`TradeFormQuestionBody`) manages its
+                    // OWN internal scroll region + pinned submit footer (the
+                    // "Aage badhein"/"Submit karein" button must stay fixed
+                    // at the bottom, not scroll away on a long question) — so
+                    // it is handed the raw space directly, unwrapped. Every
+                    // other step keeps the plain scroll-the-whole-body
+                    // treatment.
+                    child: step is TradeFormQuestionStep
+                        ? _stepBody(step, cubit, enabled, state)
+                        : SingleChildScrollView(
+                            padding: const EdgeInsets.fromLTRB(
+                                AppSpacing.gutter,
+                                AppSpacing.s4,
+                                AppSpacing.gutter,
+                                AppSpacing.s4),
+                            child: _stepBody(step, cubit, enabled, state),
+                          ),
                   ),
                   if (isMarkerStep)
                     _MarkerBottomBar(
@@ -379,6 +441,11 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                       onPressed: () {
                         if (!markerOnLastInternalPage) {
                           _goToNextMarkerPage(step);
+                          return;
+                        }
+                        final String? error = _currentMarkerPageError(step);
+                        if (error != null) {
+                          _showBlockedBanner(error);
                           return;
                         }
                         if (step is TradeFormPreferencesStep) {
@@ -483,7 +550,9 @@ class _MarkerBottomBar extends StatelessWidget {
         // (see the `_MarkerBottomBar(...)` call site's own comment) —
         // green, reserved for exactly this ("Money / WhatsApp / done ONLY",
         // `bb_button.dart`'s own doc on `BbButtonVariant.success`).
-        variant: isLast ? BbButtonVariant.success : BbButtonVariant.primary,
+        // navy (not primary/haldi) — haldi is IDENTICAL to a selected
+        // BbChip's fill, so this nav button read as just another option.
+        variant: isLast ? BbButtonVariant.success : BbButtonVariant.navy,
         block: true,
         loading: isSubmitting,
         onPressed: isSubmitting ? null : onPressed,

@@ -17,6 +17,7 @@ import '../../../core/widgets/bb_alerts_action.dart';
 import '../../../core/widgets/bb_bottom_sheet.dart';
 import '../../../core/widgets/bb_job_card.dart';
 import '../../../core/widgets/bb_chip.dart';
+import '../../../core/widgets/bb_search_field.dart';
 import '../../../core/widgets/bb_status_view.dart';
 import '../../../core/widgets/bb_success_stamp.dart';
 import '../../../router.dart';
@@ -28,12 +29,32 @@ import 'bloc/swipe_state.dart';
 import 'widgets/filters_sheet.dart';
 import 'widgets/job_deck.dart';
 
+/// Which [FilterSelection] dimension a [_FilterSuggestion] belongs to.
+enum _FilterDim { trade, city, experience, shift, pay }
+
+/// A unified filter-value suggestion or active pick surfaced by the header's
+/// filter-search box — see `_FeedViewState._filterOptions`'s own doc for the
+/// full shape/rationale.
+@immutable
+class _FilterSuggestion {
+  const _FilterSuggestion({
+    required this.dim,
+    required this.value,
+    required this.label,
+  });
+
+  final _FilterDim dim;
+  final String value;
+  final String label;
+}
+
 /// The Jobs tab — kit 07 "Job feed", switchable between TWO layouts via a
 /// header toggle: a scrolling [ListView] of [BbJobCard]s (default — each with
 /// an inline green "APPLY →" and a tappable title that opens the full posting)
 /// and the original Tinder-style [JobDeck] (swipe right to apply, left to
 /// skip). A deep-blue header ("Kaam milega." + the day's job count + a
-/// horizontal row of filter chips) sits above the body in BOTH modes.
+/// filter-search box with a horizontal row of applied filter chips) sits
+/// above the body in BOTH modes.
 ///
 /// All business logic stays in [SwipeBloc]; this widget renders state and
 /// dispatches events. The real feed contract ([FeedItem] / getFeed) is PII-free
@@ -82,9 +103,15 @@ class _FeedViewState extends State<_FeedView> {
   bool _applyStamp = false;
   Timer? _applyStampTimer;
 
+  /// The header's unified filter-search box — types across every filter
+  /// dimension (trade/city/experience/shift/pay); see [_filterOptions].
+  final TextEditingController _filterSearchController = TextEditingController();
+  String _filterQuery = '';
+
   @override
   void dispose() {
     _applyStampTimer?.cancel();
+    _filterSearchController.dispose();
     super.dispose();
   }
 
@@ -104,11 +131,12 @@ class _FeedViewState extends State<_FeedView> {
   /// sheet does.
   FilterSelection _filters = FilterSelection.initial;
 
-  /// Which body renders — the scrollable list (default) or the swipe deck.
-  /// Starts at [JobFeedViewMode.list] and stays there unless/until a persisted
-  /// `deck` choice loads from [JobFeedViewStore] — eventual consistency, no
-  /// flash-of-wrong-mode requirement, matching how [_filters] is seeded.
-  JobFeedViewMode _viewMode = JobFeedViewMode.list;
+  /// Which body renders — the Tinder-style swipe deck (default) or the
+  /// scrollable list. Starts at [JobFeedViewMode.deck] and stays there
+  /// unless/until a persisted choice loads from [JobFeedViewStore] —
+  /// eventual consistency, no flash-of-wrong-mode requirement, matching how
+  /// [_filters] is seeded.
+  JobFeedViewMode _viewMode = JobFeedViewMode.deck;
 
   @override
   void initState() {
@@ -119,7 +147,7 @@ class _FeedViewState extends State<_FeedView> {
 
   /// Reads the persisted view-mode preference if a store is registered — absent
   /// under the plugin-free widget-test graph, in which case the default
-  /// [JobFeedViewMode.list] simply stays. Fire-and-forget from [initState].
+  /// [JobFeedViewMode.deck] simply stays. Fire-and-forget from [initState].
   Future<void> _loadViewMode() async {
     if (!locator.isRegistered<JobFeedViewStore>()) return;
     final JobFeedViewMode mode = await locator<JobFeedViewStore>().read();
@@ -145,13 +173,6 @@ class _FeedViewState extends State<_FeedView> {
   void _setFilters(SwipeBloc bloc, FilterSelection next) {
     setState(() => _filters = next);
     bloc.add(SwipeFiltersChanged(next));
-  }
-
-  /// Toggle one trade from the header chip row — the same path the sheet takes.
-  void _toggleTradeChip(BuildContext context, String trade) {
-    final Set<String> trades = <String>{..._filters.trades};
-    trades.contains(trade) ? trades.remove(trade) : trades.add(trade);
-    _setFilters(context.read<SwipeBloc>(), _filters.copyWith(trades: trades));
   }
 
   Future<void> _openFilters(BuildContext context) async {
@@ -471,7 +492,7 @@ class _FeedViewState extends State<_FeedView> {
           const SizedBox(height: AppSpacing.s2),
           _searchBar(context),
           const SizedBox(height: AppSpacing.s2),
-          _chipRow(context),
+          _filterSearchArea(context, state),
         ],
       ),
     );
@@ -522,45 +543,302 @@ class _FeedViewState extends State<_FeedView> {
     );
   }
 
-  /// The header quick-filter row on the blue band: a leading "Sabhi" (all) chip
-  /// plus REAL trade chips. Each reads its selected state from [_filters] and
-  /// writes through the same path as the sheet, so the two can never disagree.
+  /// A unified filter-value suggestion or active pick: [dim] says which
+  /// [FilterSelection] dimension it belongs to, [value] is the raw value that
+  /// dimension stores (a trade label, a city name, an experience-band label,
+  /// a shift WIRE value, or a pay-floor DISPLAY key — see [_filterOptions]),
+  /// and [label] is what the worker actually reads.
   ///
-  /// ("Verified" and "Day shift" chips used to sit here. Both were deleted when
-  /// neither had a backing `/feed` field. Verification still has none, so it
-  /// stays gone. Shift IS on the wire now (ADR-0024 addendum) and IS filterable —
-  /// but from the "Filter jobs" SHEET (single-select), not this quick-chip row,
-  /// which stays trade-only.)
-  Widget _chipRow(BuildContext context) {
-    final SwipeBloc bloc = context.read<SwipeBloc>();
-    const List<(String, IconData)> chips = <(String, IconData)>[
-      ('CNC', Icons.build_outlined),
-      ('VMC', Icons.build_outlined),
+  /// Presentation-only — this never crosses into `job_filter.dart`'s domain
+  /// matching rules, it just labels the same values those rules already use.
+  /// Prefixing every label with its dimension name ("Trade: CNC", "Shift:
+  /// Night") disambiguates a mixed list where trade/city are self-evident but
+  /// experience/shift/pay are not.
+  static const Map<_FilterDim, String> _kDimPrefix = <_FilterDim, String>{
+    _FilterDim.trade: 'Trade',
+    _FilterDim.city: 'City',
+    _FilterDim.experience: 'Experience',
+    _FilterDim.shift: 'Shift',
+    _FilterDim.pay: 'Pay',
+  };
+
+  /// Every value across all 5 [FilterSelection] dimensions the worker could
+  /// search for — the universe [_matchingSuggestions] filters down as they
+  /// type. Cities are DERIVED from the loaded queue (never hardcoded — see
+  /// [availableCities]'s own doc on why); the other four dimensions are the
+  /// same fixed vocabularies the "Filter jobs" sheet already offers.
+  List<_FilterSuggestion> _filterOptions(SwipeState state) {
+    return <_FilterSuggestion>[
+      for (final String trade in kTradeFilterKeywords.keys)
+        _FilterSuggestion(
+            dim: _FilterDim.trade,
+            value: trade,
+            label: '${_kDimPrefix[_FilterDim.trade]}: $trade'),
+      for (final String city
+          in availableCities(state.queue, selected: _filters.cities))
+        _FilterSuggestion(
+            dim: _FilterDim.city,
+            value: city,
+            label: '${_kDimPrefix[_FilterDim.city]}: $city'),
+      for (final String band in kExperienceBandLabels)
+        _FilterSuggestion(
+            dim: _FilterDim.experience,
+            value: band,
+            label: '${_kDimPrefix[_FilterDim.experience]}: $band'),
+      for (final MapEntry<String, String> e in kShiftFilterLabels.entries)
+        _FilterSuggestion(
+            dim: _FilterDim.shift,
+            value: e.value,
+            label: '${_kDimPrefix[_FilterDim.shift]}: ${e.key}'),
+      for (final String payLabel in kPayFloorOptions.keys)
+        _FilterSuggestion(
+            dim: _FilterDim.pay,
+            value: payLabel,
+            label: '${_kDimPrefix[_FilterDim.pay]}: $payLabel'),
     ];
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: <Widget>[
-          BbChip(
-            label: 'Sabhi',
-            selected: _filters.trades.isEmpty,
-            onDark: true,
-            onTap: () =>
-                _setFilters(bloc, _filters.copyWith(trades: <String>{})),
-          ),
-          const SizedBox(width: AppSpacing.s2),
-          for (final (String label, IconData icon) in chips) ...<Widget>[
-            BbChip(
-              label: label,
-              icon: icon,
-              selected: _filters.trades.contains(label),
-              onDark: true,
-              onTap: () => _toggleTradeChip(context, label),
+  }
+
+  /// True when [s] is already applied on [_filters] — excluded from
+  /// suggestions (it already has a removable chip in the row below).
+  bool _isFilterActive(_FilterSuggestion s) {
+    switch (s.dim) {
+      case _FilterDim.trade:
+        return _filters.trades.contains(s.value);
+      case _FilterDim.city:
+        return _filters.cities.contains(s.value);
+      case _FilterDim.experience:
+        return _filters.experienceBands.contains(s.value);
+      case _FilterDim.shift:
+        return _filters.shift == s.value;
+      case _FilterDim.pay:
+        return _filters.payMin == kPayFloorOptions[s.value];
+    }
+  }
+
+  /// Suggestions for the CURRENT [_filterQuery] — empty until the worker
+  /// types something (a closed suggestion list with nothing typed would just
+  /// dump the whole vocabulary on screen). Capped so a low-literacy worker
+  /// never faces an overwhelming list.
+  List<_FilterSuggestion> _matchingSuggestions(SwipeState state) {
+    final String q = _filterQuery.trim().toLowerCase();
+    if (q.isEmpty) return const <_FilterSuggestion>[];
+    return _filterOptions(state)
+        .where((_FilterSuggestion s) =>
+            !_isFilterActive(s) && s.label.toLowerCase().contains(q))
+        .take(8)
+        .toList();
+  }
+
+  /// The currently-applied filters across every dimension, for the header's
+  /// horizontal removable-chip row. Built straight from [_filters] (not from
+  /// [_filterOptions]/the queue) so an active city whose jobs have all
+  /// drained from the queue still keeps a chip to clear it with — the same
+  /// reasoning `availableCities` documents for the sheet.
+  List<_FilterSuggestion> _activeFilterChips() {
+    final List<_FilterSuggestion> chips = <_FilterSuggestion>[
+      for (final String t in _filters.trades)
+        _FilterSuggestion(
+            dim: _FilterDim.trade,
+            value: t,
+            label: '${_kDimPrefix[_FilterDim.trade]}: $t'),
+      for (final String c in _filters.cities)
+        _FilterSuggestion(
+            dim: _FilterDim.city,
+            value: c,
+            label: '${_kDimPrefix[_FilterDim.city]}: $c'),
+      for (final String b in _filters.experienceBands)
+        _FilterSuggestion(
+            dim: _FilterDim.experience,
+            value: b,
+            label: '${_kDimPrefix[_FilterDim.experience]}: $b'),
+    ];
+    final String? shift = _filters.shift;
+    if (shift != null) {
+      final String shiftLabel = kShiftFilterLabels.entries
+          .firstWhere((MapEntry<String, String> e) => e.value == shift,
+              orElse: () => MapEntry<String, String>(shift, shift))
+          .key;
+      chips.add(_FilterSuggestion(
+          dim: _FilterDim.shift,
+          value: shift,
+          label: '${_kDimPrefix[_FilterDim.shift]}: $shiftLabel'));
+    }
+    final int? payMin = _filters.payMin;
+    if (payMin != null) {
+      final String payLabel = kPayFloorOptions.entries
+          .firstWhere((MapEntry<String, int> e) => e.value == payMin,
+              orElse: () => MapEntry<String, int>('₹$payMin+', payMin))
+          .key;
+      chips.add(_FilterSuggestion(
+          dim: _FilterDim.pay,
+          value: payLabel,
+          label: '${_kDimPrefix[_FilterDim.pay]}: $payLabel'));
+    }
+    return chips;
+  }
+
+  /// Applies a tapped suggestion — trade/city/experience ADD to their set
+  /// (multi-select dimensions); shift/pay REPLACE the single current value
+  /// (single-select dimensions, same rule the sheet already follows). Clears
+  /// the search query so the field is ready for the next filter.
+  void _applyFilterSuggestion(BuildContext context, _FilterSuggestion s) {
+    final SwipeBloc bloc = context.read<SwipeBloc>();
+    switch (s.dim) {
+      case _FilterDim.trade:
+        _setFilters(bloc,
+            _filters.copyWith(trades: <String>{..._filters.trades, s.value}));
+      case _FilterDim.city:
+        _setFilters(bloc,
+            _filters.copyWith(cities: <String>{..._filters.cities, s.value}));
+      case _FilterDim.experience:
+        _setFilters(
+            bloc,
+            _filters.copyWith(experienceBands: <String>{
+              ..._filters.experienceBands,
+              s.value
+            }));
+      case _FilterDim.shift:
+        _setFilters(
+            bloc,
+            FilterSelection(
+              trades: _filters.trades,
+              cities: _filters.cities,
+              experienceBands: _filters.experienceBands,
+              shift: s.value,
+              payMin: _filters.payMin,
+            ));
+      case _FilterDim.pay:
+        _setFilters(
+            bloc,
+            FilterSelection(
+              trades: _filters.trades,
+              cities: _filters.cities,
+              experienceBands: _filters.experienceBands,
+              shift: _filters.shift,
+              payMin: kPayFloorOptions[s.value],
+            ));
+    }
+    _filterSearchController.clear();
+    setState(() => _filterQuery = '');
+  }
+
+  /// Removes one already-applied filter from the header's chip row — the
+  /// inverse of [_applyFilterSuggestion]. [FilterSelection.copyWith] cannot
+  /// null out `shift`/`payMin` (by design — see its own doc), so those two
+  /// branches rebuild the selection directly instead.
+  void _removeFilterChip(BuildContext context, _FilterSuggestion s) {
+    final SwipeBloc bloc = context.read<SwipeBloc>();
+    switch (s.dim) {
+      case _FilterDim.trade:
+        _setFilters(
+            bloc,
+            _filters.copyWith(
+                trades: <String>{..._filters.trades}..remove(s.value)));
+      case _FilterDim.city:
+        _setFilters(
+            bloc,
+            _filters.copyWith(
+                cities: <String>{..._filters.cities}..remove(s.value)));
+      case _FilterDim.experience:
+        _setFilters(
+            bloc,
+            _filters.copyWith(
+                experienceBands: <String>{..._filters.experienceBands}
+                  ..remove(s.value)));
+      case _FilterDim.shift:
+        _setFilters(
+            bloc,
+            FilterSelection(
+              trades: _filters.trades,
+              cities: _filters.cities,
+              experienceBands: _filters.experienceBands,
+              payMin: _filters.payMin,
+            ));
+      case _FilterDim.pay:
+        _setFilters(
+            bloc,
+            FilterSelection(
+              trades: _filters.trades,
+              cities: _filters.cities,
+              experienceBands: _filters.experienceBands,
+              shift: _filters.shift,
+            ));
+    }
+  }
+
+  /// Replaces the old static CNC/VMC/"Sabhi" chip row: a search box over
+  /// every filter dimension (trade/city/experience/shift/pay), suggestions
+  /// appearing as the worker types, and a horizontal removable-chip row for
+  /// whatever is currently applied. Writes through the SAME [_setFilters]
+  /// path the "Filter jobs" sheet uses, so the filter-icon's active dot
+  /// ([_filters.isEmpty]) and the sheet's own seeded selection can never
+  /// disagree with a pick made here.
+  ///
+  /// ("Verified" and "Day shift" chips used to sit in the old row. Both were
+  /// deleted when neither had a backing `/feed` field — Verification still
+  /// has none, so it stays gone. Shift now has a real backing field and is
+  /// reachable here, alongside every other dimension.)
+  Widget _filterSearchArea(BuildContext context, SwipeState state) {
+    final List<_FilterSuggestion> suggestions = _matchingSuggestions(state);
+    final List<_FilterSuggestion> active = _activeFilterChips();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        BbSearchField(
+          fieldKey: const Key('jobFilterSearchField'),
+          controller: _filterSearchController,
+          label: 'Filter search karein',
+          hint: 'Trade, city, shift, pay dhoondein',
+          onChanged: (String v) => setState(() => _filterQuery = v),
+        ),
+        if (suggestions.isNotEmpty) ...<Widget>[
+          const SizedBox(height: AppSpacing.s2),
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.surfaceCard,
+              borderRadius: BorderRadius.circular(AppRadii.md),
             ),
-            const SizedBox(width: AppSpacing.s2),
-          ],
+            padding: const EdgeInsets.all(AppSpacing.s2),
+            child: Wrap(
+              spacing: AppSpacing.s2,
+              runSpacing: AppSpacing.s2,
+              children: <Widget>[
+                for (final _FilterSuggestion s in suggestions)
+                  BbChip(
+                    key: Key('jobFilterSuggestion_${s.dim.name}_${s.value}'),
+                    label: s.label,
+                    onTap: () => _applyFilterSuggestion(context, s),
+                  ),
+              ],
+            ),
+          ),
         ],
-      ),
+        if (active.isNotEmpty) ...<Widget>[
+          const SizedBox(height: AppSpacing.s2),
+          SizedBox(
+            key: const Key('jobActiveFilterChips'),
+            height: AppSpacing.tap,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: active.length,
+              itemBuilder: (BuildContext context, int index) {
+                final _FilterSuggestion s = active[index];
+                final bool isLast = index == active.length - 1;
+                return Padding(
+                  padding: EdgeInsets.only(right: isLast ? 0 : AppSpacing.s2),
+                  child: BbChip(
+                    key: Key('jobFilterChip_${s.dim.name}_${s.value}'),
+                    label: s.label,
+                    selected: true,
+                    icon: Icons.close,
+                    onTap: () => _removeFilterChip(context, s),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ],
     );
   }
 

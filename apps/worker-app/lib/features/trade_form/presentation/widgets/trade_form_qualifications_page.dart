@@ -4,6 +4,7 @@ import '../../../../core/api/api_client.dart' show QualificationOptionsDto;
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
+import '../../../../core/util/title_case.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
 import '../../domain/trade_form_models.dart';
@@ -40,6 +41,24 @@ const int _kYearMin = 1950;
 const String _kYearFutureError = 'Yeh saal abhi aaya nahi — sahi saal likhein';
 const String _kYearInvalidError = 'Sahi saal likhein';
 
+/// `EDUCATION_QUALIFICATIONS` slugs (`worker-preferences.vocabulary.ts`) that
+/// carry a real trade/stream — ITI, Diploma and Graduate name a specific
+/// trade or subject, and 12th pass carries a stream (Science/Commerce/Arts).
+/// `below_10`/`class_10` do not: there is no "subject" to a 10th-or-below
+/// schooling, so the field has nothing honest to ask for and stays hidden.
+const Set<String> _kFieldVisibleCredentials = <String>{
+  'iti',
+  'diploma',
+  'graduate',
+  'class_12',
+};
+
+/// Shown by the wizard's top banner when "Aage badhein" is blocked — the
+/// inline red text under the field already says WHICH year is wrong; this
+/// only needs to say why the tap did nothing.
+const String _kBlockedAdvanceMessage =
+    'Sahi saal daalein — tabhi aage badh sakte hain.';
+
 /// The tap-to-fill suggestion row shows at most this many chips at once — a
 /// low-literacy worker scanning a phone screen, not a full picklist.
 const int _kMaxSuggestionChips = 6;
@@ -49,9 +68,11 @@ const int _kMaxSuggestionChips = 6;
 /// owns. Two independent repeatable sections, mirroring
 /// `TradeFormEmploymentPage`'s add/remove-row pattern.
 ///
-/// #1384 item 2 — the two sections are now separate INTERNAL pages (page 0:
-/// certificates, page 1: education) rather than stacked on one scroll — the
-/// natural two-subsection split this widget already had.
+/// #1384 item 2 — the two sections are now separate INTERNAL pages rather
+/// than stacked on one scroll; education is further split into 3 pages
+/// (credential+subject / council / kis saal poora hua+institute) — a worker
+/// facing 5 education questions at once was a single wall, same reasoning
+/// as every other multi-field marker page in this app.
 ///
 /// TRI-STATE, NOT "always send both lists" (see `trade_form_models.dart`'s
 /// `TradeFormQualifications` doc): this widget's only job is to track,
@@ -86,7 +107,8 @@ class TradeFormQualificationsPage extends StatefulWidget {
   final TradeFormQualifications? initialQualifications;
 
   /// #1384 item 2 — see `TradeFormPreferencesPage.onPageChanged`'s doc; the
-  /// same contract, off a fixed [pageCount] of 2 (certificates, education).
+  /// same contract, off a fixed [pageCount] of 4 (certificates, then
+  /// education's credential+subject / council / year+institute).
   final void Function(int page, int pageCount)? onPageChanged;
 
   @override
@@ -96,9 +118,11 @@ class TradeFormQualificationsPage extends StatefulWidget {
 
 class TradeFormQualificationsPageState
     extends State<TradeFormQualificationsPage> {
-  /// Page 0: certificates · 1: education. Fixed — this marker's two
-  /// sub-sections never change count at runtime.
-  static const int pageCount = 2;
+  /// Page 0: certificates · 1: education credential+subject · 2: education
+  /// council · 3: kis saal poora hua+institute. Fixed — this marker's
+  /// sub-sections never change count at runtime (only the REPEATED rows
+  /// within education do, tracked separately below).
+  static const int pageCount = 4;
 
   QualificationOptionsDto? _options;
   String? _optionsLoadError;
@@ -110,11 +134,44 @@ class TradeFormQualificationsPageState
   late bool _certificatesTouched =
       widget.initialQualifications?.certificatesTouched ?? false;
 
+  /// True while ANY certificate card currently shows a year error — tracked
+  /// here (not just inside each card) so the wizard's "Aage badhein" can be
+  /// blocked from the outside; see [currentPageError].
+  final Set<int> _certYearErrorIndices = <int>{};
+
   late List<TradeFormEducationEntry> _educations = List<TradeFormEducationEntry>.of(
       widget.initialQualifications?.educations ??
           const <TradeFormEducationEntry>[]);
   late bool _educationsTouched =
       widget.initialQualifications?.educationsTouched ?? false;
+
+  /// Education's field/year/institute controllers are OWNED HERE, not by a
+  /// per-row child widget — the education section now spans 3 internal
+  /// pages (credential+subject / council / year+institute), and a row's
+  /// typed text must survive walking between them. A child `StatefulWidget`
+  /// rebuilt fresh per page would lose it; keeping the controllers in this
+  /// State (which stays mounted for the marker's whole internal walk) is
+  /// the same fix `TradeFormPreferencesPageState` already uses for its own
+  /// (non-repeated) year/institute fields.
+  late final List<TextEditingController> _eduFieldControllers =
+      <TextEditingController>[
+    for (final TradeFormEducationEntry e in _educations)
+      TextEditingController(text: e.field ?? ''),
+  ];
+  late final List<TextEditingController> _eduYearControllers =
+      <TextEditingController>[
+    for (final TradeFormEducationEntry e in _educations)
+      TextEditingController(text: e.year?.toString() ?? ''),
+  ];
+  late final List<TextEditingController> _eduInstituteControllers =
+      <TextEditingController>[
+    for (final TradeFormEducationEntry e in _educations)
+      TextEditingController(text: e.institute ?? ''),
+  ];
+  late final List<String?> _eduYearErrors = <String?>[
+    for (final TextEditingController c in _eduYearControllers)
+      _yearErrorText(c.text),
+  ];
 
   int _page = 0;
   bool get isFirstPage => _page <= 0;
@@ -130,10 +187,53 @@ class TradeFormQualificationsPageState
     });
   }
 
+  @override
+  void dispose() {
+    for (final TextEditingController c in _eduFieldControllers) {
+      c.dispose();
+    }
+    for (final TextEditingController c in _eduYearControllers) {
+      c.dispose();
+    }
+    for (final TextEditingController c in _eduInstituteControllers) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
   void goToNextPage() {
     if (isLastPage) return;
     setState(() => _page += 1);
     widget.onPageChanged?.call(_page, pageCount);
+  }
+
+  /// The CURRENT internal page's blocking validation message, or null.
+  /// Checked by `_WizardScaffoldState` BEFORE calling [goToNextPage]/[save]
+  /// — a red year with no way to stop "Aage badhein" was a real, reported
+  /// bug (a future year showed the inline error and still let the worker
+  /// through). Page 0 (certificates) can fail on ANY card's year; the last
+  /// page (year+institute) can fail on any education row's year — every
+  /// other page is closed-set chips/free text with no year field.
+  String? currentPageError() {
+    if (_page == 0) {
+      return _certYearErrorIndices.isNotEmpty ? _kBlockedAdvanceMessage : null;
+    }
+    if (_page == pageCount - 1) {
+      return _eduYearErrors.any((String? e) => e != null)
+          ? _kBlockedAdvanceMessage
+          : null;
+    }
+    return null;
+  }
+
+  void _onCertYearValidity(int index, bool hasError) {
+    setState(() {
+      if (hasError) {
+        _certYearErrorIndices.add(index);
+      } else {
+        _certYearErrorIndices.remove(index);
+      }
+    });
   }
 
   void goToPreviousPage() {
@@ -194,6 +294,11 @@ class TradeFormQualificationsPageState
     setState(() {
       _certificates = next;
       _certificatesTouched = true;
+      // Cards are keyed by POSITION (`ValueKey<int>(i)`), so a removal
+      // reshuffles every later card onto a different key — each one remounts
+      // fresh and reports its own validity again. Stale indices here would
+      // otherwise wrongly keep the wizard blocked (or wrongly unblock it).
+      _certYearErrorIndices.clear();
     });
   }
 
@@ -207,6 +312,10 @@ class TradeFormQualificationsPageState
         const TradeFormEducationEntry(),
       ];
       _educationsTouched = true;
+      _eduFieldControllers.add(TextEditingController());
+      _eduYearControllers.add(TextEditingController());
+      _eduInstituteControllers.add(TextEditingController());
+      _eduYearErrors.add(null);
     });
   }
 
@@ -220,12 +329,34 @@ class TradeFormQualificationsPageState
     });
   }
 
+  /// A credential-chip tap for row [index]. Toggles [slug] exactly like every
+  /// other single-select chip here — but a credential switching AWAY from
+  /// ITI/Diploma/Graduate/12th pass also hides (see [_kFieldVisibleCredentials])
+  /// and clears the trade/subject field, so a stale subject typed under the
+  /// PREVIOUS credential never rides along on a save under a credential that
+  /// has no subject to name.
+  void _onCredentialSelected(
+      int index, TradeFormEducationEntry e, String slug) {
+    final String? nextCredential = e.credential == slug ? null : slug;
+    if (!_kFieldVisibleCredentials.contains(nextCredential)) {
+      _eduFieldControllers[index].clear();
+      _updateEducation(
+          index, e.copyWith(credential: nextCredential, field: null));
+      return;
+    }
+    _updateEducation(index, e.copyWith(credential: nextCredential));
+  }
+
   void _removeEducation(int index) {
     final List<TradeFormEducationEntry> next =
         List<TradeFormEducationEntry>.of(_educations)..removeAt(index);
     setState(() {
       _educations = next;
       _educationsTouched = true;
+      _eduFieldControllers.removeAt(index).dispose();
+      _eduYearControllers.removeAt(index).dispose();
+      _eduInstituteControllers.removeAt(index).dispose();
+      _eduYearErrors.removeAt(index);
     });
   }
 
@@ -235,9 +366,26 @@ class TradeFormQualificationsPageState
       ignoring: !widget.enabled,
       child: Opacity(
         opacity: widget.enabled ? 1 : 0.5,
-        child: _page == 0 ? _certificatesPage() : _educationPage(),
+        child: _pageContent(),
       ),
     );
+  }
+
+  Widget _pageContent() {
+    switch (_page) {
+      case 0:
+        return _certificatesPage();
+      case 1:
+        return _educationPage(
+          title: _kEduTitle,
+          subtitle: _kEduSubtitle,
+          section: _EduSection.credentialAndField,
+        );
+      case 2:
+        return _educationPage(section: _EduSection.council);
+      default:
+        return _educationPage(section: _EduSection.yearAndInstitute);
+    }
   }
 
   Widget _certificatesPage() {
@@ -258,6 +406,8 @@ class TradeFormQualificationsPageState
             onChanged: (TradeFormCertificateEntry e) =>
                 _updateCertificate(i, e),
             onRemove: () => _removeCertificate(i),
+            onValidityChanged: (bool hasError) =>
+                _onCertYearValidity(i, hasError),
           ),
           const SizedBox(height: AppSpacing.s3),
         ],
@@ -274,22 +424,34 @@ class TradeFormQualificationsPageState
     );
   }
 
-  Widget _educationPage() {
+  /// One of the education marker's 3 internal pages — [title]/[subtitle]
+  /// (the heading + "up to 4 entries" note) render only on the FIRST of the
+  /// three, matching how the certificates page has exactly one heading; the
+  /// other two are a continuation of the same section, not a new one.
+  Widget _educationPage({
+    String? title,
+    String? subtitle,
+    required _EduSection section,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Text(_kEduTitle, style: AppTypography.display(size: AppTypography.sizeLg)),
-        const SizedBox(height: AppSpacing.s2),
-        Text(_kEduSubtitle,
-            style: AppTypography.body(
-                size: AppTypography.sizeSm, color: AppColors.textMuted)),
-        const SizedBox(height: AppSpacing.s4),
-        _educationSection(),
+        if (title != null) ...<Widget>[
+          Text(title, style: AppTypography.display(size: AppTypography.sizeLg)),
+          const SizedBox(height: AppSpacing.s2),
+        ],
+        if (subtitle != null) ...<Widget>[
+          Text(subtitle,
+              style: AppTypography.body(
+                  size: AppTypography.sizeSm, color: AppColors.textMuted)),
+          const SizedBox(height: AppSpacing.s4),
+        ],
+        _educationSection(section),
       ],
     );
   }
 
-  Widget _educationSection() {
+  Widget _educationSection(_EduSection section) {
     if (_optionsLoadError != null) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -318,17 +480,19 @@ class TradeFormQualificationsPageState
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         for (int i = 0; i < _educations.length; i++) ...<Widget>[
-          _EducationCard(
-            key: ValueKey<int>(i),
-            entry: _educations[i],
-            credentialOptions: options.educationCredential,
-            councilOptions: options.educationCouncil,
-            onChanged: (TradeFormEducationEntry e) => _updateEducation(i, e),
+          _cardShell(
             onRemove: () => _removeEducation(i),
+            child: _educationRow(i, options, section),
           ),
           const SizedBox(height: AppSpacing.s3),
         ],
-        if (_educations.length < kTradeFormMaxEducations)
+        // The "add another" affordance lives on the FIRST education
+        // sub-page only — that is where a new, blank entry actually starts
+        // making sense (it has no credential yet); offering "add" on the
+        // council or year+institute page would drop a blank card into a
+        // page that cannot fill it in.
+        if (section == _EduSection.credentialAndField &&
+            _educations.length < kTradeFormMaxEducations)
           BbButton(
             label: _kAddEducation,
             variant: BbButtonVariant.outline,
@@ -340,7 +504,104 @@ class TradeFormQualificationsPageState
       ],
     );
   }
+
+  Widget _educationRow(
+      int i, QualificationOptionsDto options, _EduSection section) {
+    final TradeFormEducationEntry e = _educations[i];
+    switch (section) {
+      case _EduSection.credentialAndField:
+        final bool showField =
+            _kFieldVisibleCredentials.contains(e.credential);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            _fieldLabel(_kCredentialLabel),
+            _eduSingleChips(
+              options.educationCredential,
+              e.credential,
+              (String slug) => _onCredentialSelected(i, e, slug),
+            ),
+            if (showField) ...<Widget>[
+              const SizedBox(height: AppSpacing.s3),
+              _fieldLabel(_kFieldLabel),
+              TradeFormTextField(
+                controller: _eduFieldControllers[i],
+                hint: _kFieldHint,
+                label: _kFieldLabel,
+                maxLength: 80,
+                onChanged: (String v) => _updateEducation(
+                    i, e.copyWith(field: _titleCaseOrNull(v))),
+              ),
+            ],
+          ],
+        );
+      case _EduSection.council:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            _fieldLabel(_kCouncilLabel),
+            _eduSingleChips(
+              options.educationCouncil,
+              e.council,
+              (String slug) => _updateEducation(
+                  i, e.copyWith(council: e.council == slug ? null : slug)),
+            ),
+          ],
+        );
+      case _EduSection.yearAndInstitute:
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            _fieldLabel(_kEduYearLabel),
+            TradeFormTextField(
+              controller: _eduYearControllers[i],
+              hint: _kEduYearHint,
+              label: _kEduYearLabel,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
+              errorText: _eduYearErrors[i],
+              onChanged: (String v) => setState(() {
+                _eduYearErrors[i] = _yearErrorText(v);
+                _updateEducation(i, e.copyWith(year: _yearInRange(v)));
+              }),
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            _fieldLabel(_kInstituteLabel),
+            TradeFormTextField(
+              controller: _eduInstituteControllers[i],
+              hint: _kInstituteHint,
+              label: _kInstituteLabel,
+              maxLength: 120,
+              textInputAction: TextInputAction.done,
+              onChanged: (String v) =>
+                  _updateEducation(i, e.copyWith(institute: _titleCaseOrNull(v))),
+            ),
+          ],
+        );
+    }
+  }
+
+  Widget _eduSingleChips(
+      Map<String, String> labels, String? selected, void Function(String) onTap) {
+    return Wrap(
+      spacing: AppSpacing.s2,
+      runSpacing: AppSpacing.s2,
+      children: <Widget>[
+        for (final MapEntry<String, String> entry in labels.entries)
+          BbChip(
+            label: entry.value,
+            selected: selected == entry.key,
+            icon: selected == entry.key ? Icons.check : null,
+            onTap: () => onTap(entry.key),
+          ),
+      ],
+    );
+  }
 }
+
+/// Which fields an education row shows on THIS internal page — see
+/// `TradeFormQualificationsPageState.pageCount`'s doc.
+enum _EduSection { credentialAndField, council, yearAndInstitute }
 
 /// Floor `1950` (`wc_year_chk` / `wed_year_chk`'s living-memory bound), ceiling
 /// TODAY'S year, not the server's fixed `2100` — a certificate or an ITI
@@ -370,6 +631,16 @@ String? _yearErrorText(String s) {
 String? _trimOrNull(String v) {
   final String t = v.trim();
   return t.isEmpty ? null : t;
+}
+
+/// [_trimOrNull], plus [titleCaseName] — for the institute and trade/subject
+/// fields (both short proper-noun-like labels, e.g. "electric" -> "Electric").
+/// Certificate name/issuer stays on [_trimOrNull] verbatim, along with every
+/// genuine free-text description elsewhere in this walk: title-casing is
+/// never applied to a description a worker wrote in their own words.
+String? _titleCaseOrNull(String v) {
+  final String? trimmed = _trimOrNull(v);
+  return trimmed == null ? null : titleCaseName(trimmed);
 }
 
 Widget _fieldLabel(String text) => Padding(
@@ -417,12 +688,19 @@ class _CertificateCard extends StatefulWidget {
     required this.suggestions,
     required this.onChanged,
     required this.onRemove,
+    this.onValidityChanged,
   });
 
   final TradeFormCertificateEntry entry;
   final List<String> suggestions;
   final ValueChanged<TradeFormCertificateEntry> onChanged;
   final VoidCallback onRemove;
+
+  /// Fires whenever this card's year field flips between valid/invalid —
+  /// the parent (this marker's own page, not a per-card concern) uses it to
+  /// block "Aage badhein" on page 0; see
+  /// `TradeFormQualificationsPageState.currentPageError`.
+  final ValueChanged<bool>? onValidityChanged;
 
   @override
   State<_CertificateCard> createState() => _CertificateCardState();
@@ -532,10 +810,15 @@ class _CertificateCardState extends State<_CertificateCard> {
                       keyboardType: TextInputType.number,
                       textInputAction: TextInputAction.done,
                       errorText: _yearError,
-                      onChanged: (String v) => setState(() {
-                        _push(e.copyWith(year: _yearInRange(v)));
-                        _yearError = _yearErrorText(v);
-                      }),
+                      onChanged: (String v) {
+                        final String? next = _yearErrorText(v);
+                        final bool flipped = (next != null) != (_yearError != null);
+                        setState(() {
+                          _push(e.copyWith(year: _yearInRange(v)));
+                          _yearError = next;
+                        });
+                        if (flipped) widget.onValidityChanged?.call(next != null);
+                      },
                     ),
                   ],
                 ),
@@ -548,126 +831,3 @@ class _CertificateCardState extends State<_CertificateCard> {
   }
 }
 
-/// One `educations[]` row: `credential`/`council` render as chip-pickers
-/// from the server's own vocabulary (same UX the preferences page already
-/// used for the four `education_*` attributes it still writes — see
-/// `trade_form_models.dart`'s doc on why this is a SECOND source); `field`/
-/// `institute`/`year` are simple text/number entry.
-class _EducationCard extends StatefulWidget {
-  const _EducationCard({
-    super.key,
-    required this.entry,
-    required this.credentialOptions,
-    required this.councilOptions,
-    required this.onChanged,
-    required this.onRemove,
-  });
-
-  final TradeFormEducationEntry entry;
-  final Map<String, String> credentialOptions;
-  final Map<String, String> councilOptions;
-  final ValueChanged<TradeFormEducationEntry> onChanged;
-  final VoidCallback onRemove;
-
-  @override
-  State<_EducationCard> createState() => _EducationCardState();
-}
-
-class _EducationCardState extends State<_EducationCard> {
-  late final TextEditingController _field =
-      TextEditingController(text: widget.entry.field ?? '');
-  late final TextEditingController _year =
-      TextEditingController(text: widget.entry.year?.toString() ?? '');
-  late final TextEditingController _institute =
-      TextEditingController(text: widget.entry.institute ?? '');
-  late String? _yearError = _yearErrorText(_year.text);
-
-  @override
-  void dispose() {
-    _field.dispose();
-    _year.dispose();
-    _institute.dispose();
-    super.dispose();
-  }
-
-  void _push(TradeFormEducationEntry next) => widget.onChanged(next);
-
-  Widget _singleChips(
-      Map<String, String> labels, String? selected, void Function(String) onTap) {
-    return Wrap(
-      spacing: AppSpacing.s2,
-      runSpacing: AppSpacing.s2,
-      children: <Widget>[
-        for (final MapEntry<String, String> entry in labels.entries)
-          BbChip(
-            label: entry.value,
-            selected: selected == entry.key,
-            icon: selected == entry.key ? Icons.check : null,
-            onTap: () => onTap(entry.key),
-          ),
-      ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final TradeFormEducationEntry e = widget.entry;
-    return _cardShell(
-      onRemove: widget.onRemove,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          _fieldLabel(_kCredentialLabel),
-          _singleChips(
-            widget.credentialOptions,
-            e.credential,
-            (String slug) => setState(() => _push(
-                e.copyWith(credential: e.credential == slug ? null : slug))),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          _fieldLabel(_kFieldLabel),
-          TradeFormTextField(
-            controller: _field,
-            hint: _kFieldHint,
-            label: _kFieldLabel,
-            maxLength: 80,
-            onChanged: (String v) => _push(e.copyWith(field: _trimOrNull(v))),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          _fieldLabel(_kCouncilLabel),
-          _singleChips(
-            widget.councilOptions,
-            e.council,
-            (String slug) => setState(
-                () => _push(e.copyWith(council: e.council == slug ? null : slug))),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          _fieldLabel(_kEduYearLabel),
-          TradeFormTextField(
-            controller: _year,
-            hint: _kEduYearHint,
-            label: _kEduYearLabel,
-            keyboardType: TextInputType.number,
-            textInputAction: TextInputAction.done,
-            errorText: _yearError,
-            onChanged: (String v) => setState(() {
-              _push(e.copyWith(year: _yearInRange(v)));
-              _yearError = _yearErrorText(v);
-            }),
-          ),
-          const SizedBox(height: AppSpacing.s3),
-          _fieldLabel(_kInstituteLabel),
-          TradeFormTextField(
-            controller: _institute,
-            hint: _kInstituteHint,
-            label: _kInstituteLabel,
-            maxLength: 120,
-            textInputAction: TextInputAction.done,
-            onChanged: (String v) =>
-                _push(e.copyWith(institute: _trimOrNull(v))),
-          ),
-        ],
-      ),
-    );
-  }
-}

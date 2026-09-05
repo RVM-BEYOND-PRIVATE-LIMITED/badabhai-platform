@@ -11,7 +11,7 @@
 | `profile_status` | `worker_profiles.profile_status` (`draft \| extracting \| extracted \| confirmed`) | never null (defaults `draft`); **no profile row yet ⇒ `"none"`** |
 | `confirmed_at` | `worker_profiles.confirmed_at` (ISO-8601) | `null` until confirmed |
 | `trade` | `{ canonical_trade_id, canonical_role_id, display_name }`; `display_name` = `getRole(canonicalRoleId)?.name` (taxonomy) → else `resolveTradeContent(...)?.display_name` → else `null` | every part nullable — extraction may not have canonicalized yet; client shows a "complete your profile" hint on null |
-| `city` | `locationPreference.preferred_cities[0]` (defensive `asObject` narrowing — the JSONB is untyped at the DB layer) | `null` when absent/empty |
+| `city` | `workers.current_city` FIRST (#1428 — the worker own onboarding answer, owner ruling 2026-09-05), then `locationPreference.current_city`, then `locationPreference.preferred_cities[0]` (defensive `asObject` narrowing — the JSONB is untyped at the DB layer) | `null` when all three are absent/empty |
 | `strength` | **recomputed** on read, `countFields`-equivalent over the stored row (see below) | `0` when no profile |
 
 **`strength` recompute** (mirror of `profile-extraction.processor.ts#countFields`, over the stored row):

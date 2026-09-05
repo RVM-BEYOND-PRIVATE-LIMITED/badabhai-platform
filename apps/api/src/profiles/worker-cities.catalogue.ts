@@ -1,5 +1,6 @@
 import { canonicalCity } from "@badabhai/profiling-lexicon";
 import CITIES_FILE from "@badabhai/profiling-lexicon/data/cities.json";
+import STATES_FILE from "@badabhai/profiling-lexicon/data/states.json";
 
 /**
  * The preferred-city option list, DERIVED from the same gazetteer that validates the answer
@@ -59,6 +60,18 @@ import CITIES_FILE from "@badabhai/profiling-lexicon/data/cities.json";
 interface CitiesFile {
   readonly canonical: readonly string[];
   readonly aliases: Readonly<Record<string, string>>;
+  /** Canonical token -> state display label (#1429). Covers every `canonical` member. */
+  readonly states: Readonly<Record<string, string>>;
+}
+
+/** The shape of the state gazetteer this module reads. Only the picker list is consumed here. */
+interface StatesFile {
+  /**
+   * The 28 states + 8 union territories, as display labels. DELIBERATELY NOT `names`: that key
+   * is DETECTION data compiled into regexes that run over worker speech, it holds 22 entries and
+   * no union territory, and `Delhi`/`Chandigarh` — both canonical cities — are absent from it.
+   */
+  readonly administrative: readonly string[];
 }
 
 /**
@@ -74,11 +87,41 @@ export interface CityOption {
   /** The canonical spelling — what the chip shows AND what `preferred_cities` must be sent. */
   readonly value: string;
   /**
+   * The state this city is in, as a member of {@link STATE_CATALOGUE} (#1429).
+   *
+   * PURELY A FILTER KEY. It is not part of the write contract — `preferred_cities` still submits
+   * `value` alone — so a client that ignores it behaves exactly as before. It exists so the
+   * picker can be a state-then-city cascade instead of one flat list of 36.
+   */
+  readonly state: string;
+  /**
    * Alternate spellings that resolve to `value`, lowercased. SEARCH KEYS ONLY — never rendered,
    * never submitted. Empty for a city nobody spells another way.
    */
   readonly aliases: readonly string[];
 }
+
+/**
+ * The state/UT options, in the order the picker shows them.
+ *
+ * WHY IT IS SERVED AT ALL. #1429 asks for a state-then-city cascade, and a client cannot build
+ * one from the city list alone: it would have to derive the state set by scanning the cities it
+ * was given, which yields only the 13 states that happen to contain a manufacturing hub. That is
+ * the right list for filtering the closed city set and the wrong one for the employer-location
+ * field beside it, where a worker's previous employer can be anywhere in India.
+ *
+ * READ FROM `administrative`, NOT `names`. `names` is DETECTION data — signals.py compiles it
+ * into a regex that runs over free worker speech — and it holds 22 entries with no union
+ * territory, so `Delhi` and `Chandigarh`, both canonical cities in this very catalogue, are
+ * absent from it. Adding them there to fill the picker would silently change what the profiler
+ * reads out of a sentence, where "Delhi" is far more often the city than the state.
+ *
+ * FROZEN, because it is handed out by reference on a response every worker fetches on mount and
+ * a caller mutating it would corrupt every later request in the process.
+ */
+export const STATE_CATALOGUE: readonly string[] = Object.freeze([
+  ...(STATES_FILE as unknown as StatesFile).administrative,
+]);
 
 /**
  * Resolve one gazetteer token, or fail loudly.
@@ -111,6 +154,7 @@ function resolveOrThrow(token: string): string {
 function buildCatalogue(): readonly CityOption[] {
   const file = CITIES_FILE as unknown as CitiesFile;
   const aliasesByCity = new Map<string, Set<string>>();
+  const tokensByCity = new Map<string, string[]>();
 
   // Every token the gazetteer can match, canonical entries and alias keys alike. Both are things
   // a worker might type, so both are search keys; which list a token came from says nothing about
@@ -121,13 +165,15 @@ function buildCatalogue(): readonly CityOption[] {
     if (!aliases) {
       aliases = new Set<string>();
       aliasesByCity.set(city, aliases);
+      tokensByCity.set(city, []);
     }
+    tokensByCity.get(city)!.push(token);
     // The token that IS the display spelling is not an alias of itself. Compared case-insensitively
     // because the gazetteer stores tokens lowercased and `canonicalCity` title-cases its output.
     if (token.toLowerCase() !== city.toLowerCase()) aliases.add(token.toLowerCase());
   }
 
-  const catalogue = [...aliasesByCity.entries()]
+  const grouped = [...aliasesByCity.entries()]
     .map(([value, aliases]) => ({ value, aliases: [...aliases].sort() }))
     // Alphabetical, because there is no ranking signal in the gazetteer to offer instead and an
     // arbitrary file order would read as a recommendation the product has not made.
@@ -136,13 +182,62 @@ function buildCatalogue(): readonly CityOption[] {
   // The round-trip guarantee, asserted rather than assumed. `canonicalCity` is case-insensitive,
   // so feeding it the title-cased display value must land back on that same value — if it ever
   // does not, the option list has become a set of strings the validator would 400 on.
-  for (const city of catalogue) {
+  //
+  // CHECKED BEFORE THE STATE TAGS BELOW, deliberately. This is the older and more fundamental
+  // guarantee: if the matcher and the file disagree about which spelling wins, every state tag is
+  // being folded onto a city that does not exist, and the resulting error would name the tag
+  // rather than the drift that caused it.
+  for (const city of grouped) {
     if (resolveOrThrow(city.value) !== city.value) {
       throw new Error(`city catalogue does not round-trip: "${city.value}"`);
     }
   }
 
-  return catalogue;
+  return grouped.map((city) => ({ ...city, state: stateOf(city.value, tokensByCity.get(city.value)!) }));
+}
+
+/**
+ * The state for one resolved city, or fail loudly (#1429).
+ *
+ * TAKES THE TOKENS, NOT THE DISPLAY VALUE, because `states` is keyed by gazetteer token and two
+ * tokens can reach one city: `bengaluru` and `gurgaon` are members of `canonical` AND keys of
+ * `aliases`, so 38 canonical entries are only 36 distinct answers. A map keyed by token would give
+ * Bangalore two entries and let whichever was written last win silently; folding onto the RESOLVED
+ * value and REFUSING a disagreement makes that impossible rather than merely unlikely — the same
+ * rule, and the same trap, as the alias grouping above.
+ */
+function stateOf(city: string, tokens: readonly string[]): string {
+  const file = CITIES_FILE as unknown as CitiesFile;
+  // Alias keys carry no tag of their own — they inherit the canonical member they resolve to.
+  const tagged = [...new Set(tokens.map((t) => file.states[t]).filter((v): v is string => !!v))];
+
+  if (tagged.length === 0) {
+    // FAIL CLOSED rather than emitting `state: undefined`. A city with no state vanishes from every
+    // state a worker can pick: it would show in the flat list and be unreachable through the
+    // cascade — the #1406 dead end, one layer in.
+    throw new Error(
+      `city gazetteer gap: "${city}" has no entry in data/cities.json \`states\`. Every canonical ` +
+        `city must carry a state (#1429). Tokens seen: ${tokens.join(", ")}.`,
+    );
+  }
+  if (tagged.length > 1) {
+    throw new Error(
+      `city gazetteer conflict: "${city}" is tagged ${tagged.map((t) => `"${t}"`).join(" and ")} ` +
+        `in data/cities.json \`states\` — tokens resolving to one city must agree.`,
+    );
+  }
+
+  const state = tagged[0]!;
+  // EVERY STATE MUST BE ONE THE PICKER OFFERS. A typo here ships a filter value matching no entry
+  // in STATE_CATALOGUE, so the cascade offers a state whose cities can never be reached, and the
+  // worker cannot tell that from "no cities here".
+  if (!STATE_CATALOGUE.includes(state)) {
+    throw new Error(
+      `city gazetteer drift: "${city}" is tagged state "${state}", which is not a member of ` +
+        `data/states.json \`administrative\`.`,
+    );
+  }
+  return state;
 }
 
 /**

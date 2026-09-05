@@ -81,6 +81,7 @@ function setup(workerExists = true) {
   const repo = {
     findById: vi.fn(async (_id: string) => (workerExists ? { id: "w-1", fullName: null } : undefined)),
     updateFullName: vi.fn(async (_id: string, _token: string) => ({ id: "w-1" })),
+    updateLocation: vi.fn(async (_id: string, _patch: unknown) => ({ id: "w-1" })),
     // The name is baked onto the PDF at render time, so setFullName re-renders the
     // latest resume in place (TD77 parity with updateResumePrefs).
     latestResume: vi.fn(async (_id: string) => ({ id: "res-1", version: 1 })),
@@ -139,6 +140,80 @@ describe("WorkersService.setFullName (TD21)", () => {
     repo.latestResume.mockResolvedValueOnce(undefined as never);
     await svc.setFullName("w-1", NAME, CTX);
     expect(renderQueue.add).not.toHaveBeenCalled();
+  });
+});
+
+describe("WorkersService.setLocation (#1428)", () => {
+  it("stores city and state as PLAINTEXT — the PII crypto is not involved", async () => {
+    // The inverse of the assertion on setFullName above, and deliberately so. Owner ruling
+    // 2026-07-31 puts a city outside the identity classes ("cities as PII -> a 20-point matching
+    // input; never redact"); encrypting it would destroy the matching signal that is the only
+    // reason to store it, and would be encrypting something the platform has ruled is not
+    // identity. If someone "hardens" this by routing it through pii.encrypt, this goes red.
+    const { svc, repo, pii } = setup();
+    await svc.setLocation("w-1", { city: "Patna", state: "Bihar" }, CTX);
+
+    expect(pii.encrypt).not.toHaveBeenCalled();
+    expect(repo.updateLocation).toHaveBeenCalledWith("w-1", {
+      currentCity: "Patna",
+      currentState: "Bihar",
+    });
+  });
+
+  it("emits city_recorded/state_recorded and NEVER the values themselves", async () => {
+    // A city is not an identifier, but a city plus a state plus a worker id plus a timestamp
+    // narrows a person considerably — the same reasoning `worker.employment_recorded` records for
+    // its own city, and `worker-preferences.service.ts` states as "COUNTS, NEVER THE ANSWERS".
+    const { svc, events } = setup();
+    await svc.setLocation("w-1", { city: "Patna", state: "Bihar" }, CTX);
+
+    const emitArg = events.emit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(emitArg.event_name).toBe("worker.location_recorded");
+    expect(emitArg.payload).toEqual({
+      worker_id: "w-1",
+      city_recorded: true,
+      state_recorded: true,
+    });
+    expect(JSON.stringify(emitArg)).not.toMatch(/Patna|Bihar/i);
+  });
+
+  it("ACCEPTS a city the gazetteer has never heard of, verbatim", async () => {
+    // THE PRODUCT DECISION THIS LOCKS. `preferred_cities` 400s on anything outside the 36-value
+    // closed set (#1406) — correct for a finishing-form field a worker reaches after committing.
+    // This is screen ONE of onboarding, and the gazetteer is a closed set of manufacturing hubs,
+    // so applying the same rule here would refuse a worker in Patna at the first thing the
+    // product ever asks him — about the name of the place he lives, which he is not wrong about.
+    const { svc, repo } = setup();
+    await svc.setLocation("w-1", { city: "Muzaffarpur" }, CTX);
+    expect(repo.updateLocation).toHaveBeenCalledWith("w-1", { currentCity: "Muzaffarpur" });
+  });
+
+  it("canonicalises a spelling the gazetteer DOES know, so the hubs stay comparable", async () => {
+    // "poona" and "PUNE" must land on the one spelling `preferred_cities` and the résumé already
+    // use — otherwise the same city is three strings and nothing can be compared to anything.
+    const { svc, repo } = setup();
+    await svc.setLocation("w-1", { city: "poona", state: "maharashtra" }, CTX);
+    expect(repo.updateLocation).toHaveBeenCalledWith("w-1", {
+      currentCity: "Pune",
+      currentState: "Maharashtra",
+    });
+  });
+
+  it("writes and emits NOTHING when neither half is present", async () => {
+    // setFullName is the caller and a name-only PATCH is the common case — the pre-#1428 request
+    // shape, which must stay byte-identical in effect.
+    const { svc, repo, events } = setup();
+    await svc.setLocation("w-1", {}, CTX);
+    expect(repo.updateLocation).not.toHaveBeenCalled();
+    expect(events.emit).not.toHaveBeenCalled();
+  });
+
+  it("writes only the half that was given", async () => {
+    const { svc, repo, events } = setup();
+    await svc.setLocation("w-1", { state: "Bihar" }, CTX);
+    expect(repo.updateLocation).toHaveBeenCalledWith("w-1", { currentState: "Bihar" });
+    const payload = (events.emit.mock.calls[0]![0] as Record<string, unknown>).payload;
+    expect(payload).toEqual({ worker_id: "w-1", city_recorded: false, state_recorded: true });
   });
 });
 

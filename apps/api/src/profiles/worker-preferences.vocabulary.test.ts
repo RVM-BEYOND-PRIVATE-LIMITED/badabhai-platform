@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DOCUMENTS_READY,
   EDUCATION_COUNCILS,
   EDUCATION_CREDENTIALS,
   EDUCATION_QUALIFICATIONS,
   labelFor,
   labelsFor,
 } from "./worker-preferences.vocabulary";
+import { SetMyPreferencesSchema } from "./worker-preferences.dto";
 
 /**
  * THE DROP-THE-UNKNOWN RULE, held in place.
@@ -105,5 +107,40 @@ describe("EDUCATION_QUALIFICATIONS — the whole-credential set", () => {
     for (const slug of Object.keys(EDUCATION_CREDENTIALS)) {
       expect(EDUCATION_QUALIFICATIONS[slug]).toBe(EDUCATION_CREDENTIALS[slug]);
     }
+  });
+});
+
+describe("DOCUMENTS_READY — the documents a worker says he can bring", () => {
+  it("carries ESIC, the one document the ratified pages print and this dictionary lacked", () => {
+    // MEASURED AGAINST THE 21 RATIFIED PAGES: ESIC appears on THIRTEEN of them — more often than
+    // `experience_letter` (3) and `passport_photos` (2), which have had slugs here since the
+    // beginning. It was the ONLY document those pages print that had no slug, so a worker holding
+    // one could not say so and the row silently never mentioned it.
+    expect(DOCUMENTS_READY.esic).toBe("ESIC");
+    expect(SetMyPreferencesSchema.safeParse({ documents_ready: ["esic"] }).success).toBe(true);
+  });
+
+  it("ACCEPTS A WORKER WHO HOLDS EVERY DOCUMENT — the cap is the dictionary, not a literal", () => {
+    // THE BUG THIS CATCHES, AND IT WOULD HAVE SHIPPED SILENTLY. `documents_ready` was capped at a
+    // hand-written 8 against a dictionary of exactly 8, so the literal was already the
+    // dictionary's size and nothing said so. Adding `esic` made nine options sit behind a cap of
+    // eight, and every existing test still passed: an eight-document worker is fine, and only the
+    // man who genuinely holds all nine gets a 400 naming a limit nobody meant to impose.
+    //
+    // ASSERTED OVER THE WHOLE DICTIONARY rather than over the number 9, so the next slug added
+    // raises the bound with it instead of re-introducing the same defect one document later.
+    const all = Object.keys(DOCUMENTS_READY);
+    expect(all.length).toBeGreaterThan(8);
+    const parsed = SetMyPreferencesSchema.safeParse({ documents_ready: all });
+    expect(parsed.success, `a worker with all ${all.length} documents was rejected`).toBe(true);
+    expect(parsed.success && parsed.data.documents_ready).toEqual(all);
+  });
+
+  it("still de-duplicates, and still refuses a slug it does not know", () => {
+    // The cap bounds the RAW array before `.transform()` collapses it, so these two properties are
+    // independent of the change above and both are worth holding.
+    const dupes = SetMyPreferencesSchema.safeParse({ documents_ready: ["esic", "esic", "pan"] });
+    expect(dupes.success && dupes.data.documents_ready).toEqual(["esic", "pan"]);
+    expect(SetMyPreferencesSchema.safeParse({ documents_ready: ["esi"] }).success).toBe(false);
   });
 });
