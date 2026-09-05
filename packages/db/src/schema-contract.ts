@@ -289,6 +289,29 @@ export const SCHEMA_REQUIREMENTS: readonly SchemaRequirement[] = [
       "identical to 0081 and worse in one respect: EVERY feedback submission 500s, including the ones carrying no image at all, because the insert names the model's whole column list rather than only the fields the request filled in. The dormant-bucket 503 does NOT protect this — that flag only gates the MINT route",
   },
   {
+    id: "0099-worker-current-city-column",
+    migration: "0099_flaky_squirrel_girl",
+    kind: "column",
+    table: "workers",
+    object: "current_city",
+    requiredBy:
+      "the `workers` drizzle model's full column list — WorkersRepository.findById, .findByPhoneHash " +
+      "and every other bare `select()` over the table name it unconditionally, and those sit under " +
+      "worker authentication itself. Also written by WorkersService.setLocation on PATCH /workers/me/name",
+    failureMode:
+      "the WIDEST blast radius in this manifest, and worth stating plainly: this is not one feature 500ing. `select()` with no column list compiles to every column the MODEL declares, so a database missing this column fails EVERY read of the workers table — WorkerAuthGuard resolving a session, the profile summary, the resume render, account deletion. No worker can sign in. It presents as total worker-side outage with a `column workers.current_city does not exist` in the API log",
+  },
+  {
+    id: "0099-worker-current-state-column",
+    migration: "0099_flaky_squirrel_girl",
+    kind: "column",
+    table: "workers",
+    object: "current_state",
+    requiredBy: "the same `workers` model column list as its city sibling — one migration adds both",
+    failureMode:
+      "identical to the city column and listed separately for the same reason 0081 is: the two are added by one migration but a database can be missing either, and the audit must name the object that is actually absent",
+  },
+  {
     id: "0084-ai-call-traces-table",
     migration: "0083_ai_call_traces",
     kind: "table",

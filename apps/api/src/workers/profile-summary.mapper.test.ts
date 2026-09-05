@@ -151,3 +151,47 @@ describe("toProfileSummary — invariant #8: pre-interview profiles are untouche
     expect(s.strength).toBe(0);
   });
 });
+
+describe("toProfileSummary — which city wins (#1428)", () => {
+  /**
+   * THE PRECEDENCE, AND IT IS AN OWNER RULING (2026-09-05), not a preference.
+   *
+   * `workers.current_city` is what the worker typed, or accepted from a device reverse-geocode,
+   * on the first onboarding screen — a first-party assertion. `location_preference.current_city`
+   * is written only by the extraction processor: a value the model inferred from chat. The rule
+   * that AI never owns business decisions covers overwriting the worker's own answer with a
+   * derived guess, so the guess loses. Without this test the mapper would keep rendering the
+   * extraction's city and the worker would type a city at onboarding and never see it again.
+   */
+  it("prefers the worker's OWN city over the extraction's", () => {
+    expect(
+      from({
+        workerCity: "Patna",
+        locationPreference: { current_city: "Pune", preferred_cities: ["Mumbai"] },
+      }).city,
+    ).toBe("Patna");
+  });
+
+  it("falls back to the extraction when the worker never gave one", () => {
+    // The overwhelmingly common case today: every worker who onboarded before #1428 has no
+    // `workers.current_city` at all, and their city must keep coming from where it always did.
+    expect(from({ workerCity: null, locationPreference: { current_city: "Pune" } }).city).toBe(
+      "Pune",
+    );
+    expect(from({ locationPreference: { current_city: "Pune" } }).city).toBe("Pune");
+  });
+
+  it("keeps the #423 preferred_cities fallback intact underneath both", () => {
+    // NOT dead code: before current and preferred locations were split, the legacy builder
+    // PREPENDED the current city to this array, so on every pre-split profile it is the only
+    // place the city exists.
+    expect(from({ locationPreference: { preferred_cities: ["Nashik"] } }).city).toBe("Nashik");
+  });
+
+  it("treats a blank worker city as absent rather than as an answer", () => {
+    // A whitespace-only column value must not blank out a city the extraction did find.
+    expect(from({ workerCity: "   ", locationPreference: { current_city: "Pune" } }).city).toBe(
+      "Pune",
+    );
+  });
+});

@@ -9,6 +9,7 @@ import { Inject } from "@nestjs/common";
 import { InjectQueue } from "@nestjs/bullmq";
 import { Queue } from "bullmq";
 import { randomUUID } from "node:crypto";
+import { canonicalCity, canonicalState } from "@badabhai/profiling-lexicon";
 import type { ServerConfig } from "@badabhai/config";
 import { SERVER_CONFIG } from "../config/config.module";
 import type { RequestContext } from "../common/request-context";
@@ -147,6 +148,58 @@ export class WorkersService {
   }
 
   /**
+   * Record the worker's coarse home location from the first onboarding screen (#1428).
+   *
+   * PLAINTEXT ON PURPOSE — see the column note in `schema/worker.ts`. Owner ruling 2026-07-31 puts
+   * a city outside the identity classes; encrypting it would destroy the matching signal that is
+   * the entire reason to store it.
+   *
+   * CANONICALISED WHEN THE GAZETTEER RECOGNISES IT, STORED VERBATIM WHEN IT DOES NOT, and the
+   * asymmetry is the point. Resolving through `canonicalCity` means "pune", "Poona" and "PUNE" all
+   * land on the one spelling `preferred_cities` and the résumé already use, so the 36 hub cities
+   * stay directly comparable to every other city in the system. Refusing the ones it does not know
+   * is what this must NOT do: the gazetteer is a closed set of manufacturing hubs, this is the
+   * first screen of onboarding, and a worker in Patna would be turned away at the first question
+   * the product asks him. An unrecognised city is stored exactly as typed.
+   *
+   * A NO-OP WRITE IS NOT AN EVENT. If the request carried neither half, nothing is written and
+   * nothing is emitted — `setFullName` is the caller and a name-only PATCH is the common case.
+   */
+  async setLocation(
+    workerId: string,
+    location: { city?: string; state?: string },
+    ctx: RequestContext,
+  ): Promise<void> {
+    const patch: { currentCity?: string; currentState?: string } = {};
+    if (location.city !== undefined) patch.currentCity = canonicalCity(location.city)?.value ?? location.city;
+    if (location.state !== undefined) {
+      patch.currentState = canonicalState(location.state)?.value ?? location.state;
+    }
+    if (patch.currentCity === undefined && patch.currentState === undefined) return;
+
+    await this.workers.updateLocation(workerId, patch);
+
+    // COUNTS, NEVER THE ANSWERS — the same rule `worker.employment_recorded` and
+    // `worker.preferences_recorded` follow. A city is not an identifier, but a city plus a state
+    // plus a worker id plus a timestamp narrows a person considerably and an audit trail needs
+    // only that the worker answered.
+    await this.events.emit({
+      event_name: "worker.location_recorded",
+      actor: { actor_type: "worker", actor_id: workerId },
+      subject: { subject_type: "worker", subject_id: workerId },
+      payload: {
+        worker_id: workerId,
+        city_recorded: patch.currentCity !== undefined,
+        state_recorded: patch.currentState !== undefined,
+      },
+      correlationId: ctx.correlationId,
+      requestId: ctx.requestId,
+    });
+
+    this.logger.log(`coarse location recorded for worker ${workerId}`); // never logs the values
+  }
+
+  /**
    * Worker SELF-view profile summary (TD54 — the worker-app home "my profile"
    * card). Projects the LATEST `worker_profiles` row via the pure
    * {@link toProfileSummary} mapper: canonical trade ids + resolved display
@@ -170,7 +223,9 @@ export class WorkersService {
     if (!profile) return toProfileSummary(null);
     const hasPhoto =
       typeof worker?.photoStorageKey === "string" && worker.photoStorageKey.length > 0;
-    return toProfileSummary({ ...profile, hasPhoto });
+    // #1428 — the worker's own onboarding city outranks the extraction's (owner ruling
+    // 2026-09-05). Threaded from the `workers` row, which this method already reads for the photo.
+    return toProfileSummary({ ...profile, hasPhoto, workerCity: worker?.currentCity ?? null });
   }
 
   /**
