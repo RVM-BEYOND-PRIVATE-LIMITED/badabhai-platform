@@ -5,7 +5,6 @@ import '../../../../core/api/api_client.dart'
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
-import '../../../../core/util/title_case.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
 import '../../../../core/widgets/bb_toggle.dart';
@@ -33,32 +32,7 @@ const int _kMaxCitySuggestions = 6;
 const String _kRelocateLabel = 'Doosre sheher ja sakte hain?';
 const String _kAccommodationLabel = 'Rehne ki jagah chahiye?';
 const String _kSalaryLabel = 'Mahine ki salary kitni chahte hain?';
-const String _kCredentialLabel = 'Agar ITI ya Diploma hai to kaun sa?';
-const String _kCouncilLabel = 'Council / board';
-const String _kEduYearLabel = 'Kis saal poora hua';
-const String _kEduYearHint = 'Jaise: 2018';
-const String _kInstituteLabel = 'Institute ka naam';
-const String _kInstituteHint = 'Jaise: Govt. ITI, Faridabad';
 const String _kOptionalNote = 'Jo laagu ho, wahi bharein — sab optional hai.';
-
-// #1298's education vocabularies are not served by an options endpoint, so
-// they are pinned here from the authoritative source
-// (apps/api/src/profiles/worker-preferences.vocabulary.ts), same as
-// `features/finishing` does today.
-const Map<String, String> _kCredentials = <String, String>{
-  'iti': 'ITI',
-  'diploma': 'Diploma',
-};
-const Map<String, String> _kCouncils = <String, String>{
-  'ncvt': 'NCVT',
-  'scvt': 'SCVT',
-  'nsqf': 'NSQF',
-  'aicte': 'AICTE',
-  'state_board': 'State board',
-  'cbse': 'CBSE',
-  'icse': 'ICSE',
-  'open_school': 'NIOS / Open school',
-};
 
 const Map<int, String> _kSalaryBands = <int, String>{
   15000: '₹10–15 hazaar',
@@ -68,10 +42,6 @@ const Map<int, String> _kSalaryBands = <int, String>{
   50000: '₹35–50 hazaar',
   100000: '₹50 hazaar se upar',
 };
-
-const int _kYearMin = 1950;
-const String _kYearFutureError = 'Yeh saal abhi aaya nahi — sahi saal likhein';
-const String _kYearInvalidError = 'Sahi saal likhein';
 
 /// The `type: "preferences"` marker screen (#1341) — the closed-set fields
 /// `PUT /workers/me/work-preferences` owns. #1384 item 2 split what was
@@ -122,15 +92,22 @@ class TradeFormPreferencesPage extends StatefulWidget {
 
 class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// Page 0: languages · 1: documents · 2: shift · 3: job type · 4: cities ·
-  /// 5: relocate + accommodation + salary · 6: credential · 7: council ·
-  /// 8: kis saal poora hua + institute. Every one of these used to share a
+  /// 5: relocate + accommodation + salary. Every one of these used to share a
   /// page with at least one other question — languages+documents, then
-  /// shift+jobType+cities, then all four education fields — until the owner
-  /// flagged a worker facing more than one question at a time as a single
-  /// wall. Fixed count — this marker's field groups never change size at
-  /// runtime (contrast `TradeFormEmploymentPageState.pageCount`, which is
-  /// driven by a repeat-row list).
-  static const int pageCount = 9;
+  /// shift+jobType+cities — until the owner flagged a worker facing more than
+  /// one question at a time as a single wall. Fixed count — this marker's
+  /// field groups never change size at runtime (contrast
+  /// `TradeFormEmploymentPageState.pageCount`, which is driven by a
+  /// repeat-row list).
+  ///
+  /// USED TO carry 3 more pages (credential / council / kis saal poora hua +
+  /// institute) — dropped because they asked the SAME "ITI ya Diploma?"
+  /// question the `qualifications` marker's education entries already ask,
+  /// on a DIFFERENT screen with a DIFFERENT vocabulary
+  /// (`EDUCATION_CREDENTIALS` here vs `EDUCATION_QUALIFICATIONS` there). The
+  /// qualifications marker is the one kept; backend cleanup of the now-dead
+  /// `work_preferences.education_*` columns is tracked for Prakash.
+  static const int pageCount = 6;
 
   WorkPrefOptionsDto? _options;
   String? _loadError;
@@ -145,11 +122,6 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// catalogue, so accepting an unresolved city client-side would just move
   /// the dead end from submit-time to save-time.
   String? _cityError;
-  late final TextEditingController _year = TextEditingController(
-      text: widget.initialPreferences?.educationYear?.toString() ?? '');
-  late final TextEditingController _institute = TextEditingController(
-      text: widget.initialPreferences?.educationInstitute ?? '');
-  late String? _yearError = _yearErrorText(_year.text);
 
   int _page = 0;
   bool get isFirstPage => _page <= 0;
@@ -184,8 +156,6 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   @override
   void dispose() {
     _city.dispose();
-    _year.dispose();
-    _institute.dispose();
     super.dispose();
   }
 
@@ -193,17 +163,13 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// internal page — see `_WizardScaffoldState`'s routing.
   void save() => widget.onSave(_prefs);
 
-  /// The CURRENT internal page's blocking validation message, or null. Only
-  /// the year+institute page can ever fail this — every other page is
-  /// closed-set chips/toggles, which cannot be entered wrong. Checked by
-  /// `_WizardScaffoldState` BEFORE calling [goToNextPage]/[save]: a red year
-  /// with no way to stop "Aage badhein" was a real, reported bug (a future
-  /// year showed the inline error and still let the worker through) — this
-  /// is what actually blocks the tap now, not just the inline text.
-  String? currentPageError() {
-    if (_page == pageCount - 1) return _yearError;
-    return null;
-  }
+  /// No page on this marker can be entered wrong any more — every field is
+  /// closed-set chips/toggles/a resolved-city picker. (The one free-typed
+  /// field that COULD fail, the education year, left with the education
+  /// pages — see `pageCount`'s doc.) Checked by `_WizardScaffoldState` before
+  /// [goToNextPage]/[save] for every marker, so this stays a real method
+  /// rather than being dropped from the shared interface.
+  String? currentPageError() => null;
 
   void goToNextPage() {
     if (isLastPage) return;
@@ -221,29 +187,6 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
     final Set<String> next = Set<String>.of(set);
     if (!next.add(slug)) next.remove(slug);
     return next;
-  }
-
-  /// Floor `1950`, ceiling TODAY'S year, not the server's fixed `2100` — an
-  /// education cannot complete in the future, so the client shouldn't
-  /// produce a value the server would only accept because its own bound is
-  /// far looser.
-  int? _yearInRange(String s) {
-    final int? v = int.tryParse(s.trim());
-    if (v == null || v < _kYearMin || v > DateTime.now().year) return null;
-    return v;
-  }
-
-  /// Inline message for the year field, or null while still valid
-  /// (including mid-typing a 4-digit year).
-  static String? _yearErrorText(String s) {
-    final String t = s.trim();
-    if (t.length < 4) return null;
-    if (t.length > 4) return _kYearInvalidError;
-    final int? v = int.tryParse(t);
-    if (v == null) return _kYearInvalidError;
-    if (v > DateTime.now().year) return _kYearFutureError;
-    if (v < _kYearMin) return _kYearInvalidError;
-    return null;
   }
 
   @override
@@ -292,14 +235,8 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
         return _jobTypePage(options);
       case 4:
         return _citiesPage(options);
-      case 5:
-        return _relocateAccommodationSalaryPage();
-      case 6:
-        return _credentialPage();
-      case 7:
-        return _councilPage();
       default:
-        return _yearInstitutePage();
+        return _relocateAccommodationSalaryPage();
     }
   }
 
@@ -462,67 +399,6 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
                         _prefs.salaryExpectedMax == e.key ? null : e.key)),
               ),
           ],
-        ),
-      ],
-    );
-  }
-
-  Widget _credentialPage() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        _label(_kCredentialLabel),
-        _singleChips(_kCredentials, _prefs.educationCredential,
-            (String slug) => setState(() => _prefs = _prefs.copyWith(
-                educationCredential:
-                    _prefs.educationCredential == slug ? null : slug))),
-      ],
-    );
-  }
-
-  Widget _councilPage() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        _label(_kCouncilLabel),
-        _singleChips(_kCouncils, _prefs.educationCouncil,
-            (String slug) => setState(() => _prefs = _prefs.copyWith(
-                educationCouncil:
-                    _prefs.educationCouncil == slug ? null : slug))),
-      ],
-    );
-  }
-
-  Widget _yearInstitutePage() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        _label(_kEduYearLabel),
-        TradeFormTextField(
-          controller: _year,
-          hint: _kEduYearHint,
-          label: _kEduYearLabel,
-          keyboardType: TextInputType.number,
-          errorText: _yearError,
-          onChanged: (String v) => setState(() {
-            _prefs = _prefs.copyWith(educationYear: _yearInRange(v));
-            _yearError = _yearErrorText(v);
-          }),
-        ),
-        const SizedBox(height: AppSpacing.s5),
-        _label(_kInstituteLabel),
-        TradeFormTextField(
-          controller: _institute,
-          hint: _kInstituteHint,
-          label: _kInstituteLabel,
-          maxLength: 120,
-          textInputAction: TextInputAction.done,
-          onChanged: (String v) {
-            final String trimmed = v.trim();
-            setState(() => _prefs = _prefs.copyWith(
-                educationInstitute:
-                    trimmed.isEmpty ? null : titleCaseName(trimmed)));
-          },
         ),
       ],
     );

@@ -41,6 +41,18 @@ const int _kYearMin = 1950;
 const String _kYearFutureError = 'Yeh saal abhi aaya nahi — sahi saal likhein';
 const String _kYearInvalidError = 'Sahi saal likhein';
 
+/// `EDUCATION_QUALIFICATIONS` slugs (`worker-preferences.vocabulary.ts`) that
+/// carry a real trade/stream — ITI, Diploma and Graduate name a specific
+/// trade or subject, and 12th pass carries a stream (Science/Commerce/Arts).
+/// `below_10`/`class_10` do not: there is no "subject" to a 10th-or-below
+/// schooling, so the field has nothing honest to ask for and stays hidden.
+const Set<String> _kFieldVisibleCredentials = <String>{
+  'iti',
+  'diploma',
+  'graduate',
+  'class_12',
+};
+
 /// Shown by the wizard's top banner when "Aage badhein" is blocked — the
 /// inline red text under the field already says WHICH year is wrong; this
 /// only needs to say why the tap did nothing.
@@ -317,6 +329,24 @@ class TradeFormQualificationsPageState
     });
   }
 
+  /// A credential-chip tap for row [index]. Toggles [slug] exactly like every
+  /// other single-select chip here — but a credential switching AWAY from
+  /// ITI/Diploma/Graduate/12th pass also hides (see [_kFieldVisibleCredentials])
+  /// and clears the trade/subject field, so a stale subject typed under the
+  /// PREVIOUS credential never rides along on a save under a credential that
+  /// has no subject to name.
+  void _onCredentialSelected(
+      int index, TradeFormEducationEntry e, String slug) {
+    final String? nextCredential = e.credential == slug ? null : slug;
+    if (!_kFieldVisibleCredentials.contains(nextCredential)) {
+      _eduFieldControllers[index].clear();
+      _updateEducation(
+          index, e.copyWith(credential: nextCredential, field: null));
+      return;
+    }
+    _updateEducation(index, e.copyWith(credential: nextCredential));
+  }
+
   void _removeEducation(int index) {
     final List<TradeFormEducationEntry> next =
         List<TradeFormEducationEntry>.of(_educations)..removeAt(index);
@@ -480,6 +510,8 @@ class TradeFormQualificationsPageState
     final TradeFormEducationEntry e = _educations[i];
     switch (section) {
       case _EduSection.credentialAndField:
+        final bool showField =
+            _kFieldVisibleCredentials.contains(e.credential);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -487,19 +519,20 @@ class TradeFormQualificationsPageState
             _eduSingleChips(
               options.educationCredential,
               e.credential,
-              (String slug) => _updateEducation(i,
-                  e.copyWith(credential: e.credential == slug ? null : slug)),
+              (String slug) => _onCredentialSelected(i, e, slug),
             ),
-            const SizedBox(height: AppSpacing.s3),
-            _fieldLabel(_kFieldLabel),
-            TradeFormTextField(
-              controller: _eduFieldControllers[i],
-              hint: _kFieldHint,
-              label: _kFieldLabel,
-              maxLength: 80,
-              onChanged: (String v) =>
-                  _updateEducation(i, e.copyWith(field: _titleCaseOrNull(v))),
-            ),
+            if (showField) ...<Widget>[
+              const SizedBox(height: AppSpacing.s3),
+              _fieldLabel(_kFieldLabel),
+              TradeFormTextField(
+                controller: _eduFieldControllers[i],
+                hint: _kFieldHint,
+                label: _kFieldLabel,
+                maxLength: 80,
+                onChanged: (String v) => _updateEducation(
+                    i, e.copyWith(field: _titleCaseOrNull(v))),
+              ),
+            ],
           ],
         );
       case _EduSection.council:

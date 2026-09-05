@@ -35,17 +35,21 @@ bool _chipSelected(WidgetTester tester, String label) {
 TradeFormProgressBar _progressBar(WidgetTester tester) =>
     tester.widget<TradeFormProgressBar>(find.byType(TradeFormProgressBar));
 
-/// The preferences marker is now NINE internal pages (languages / documents
-/// / shift / jobType / cities / relocate+accommodation+salary / credential /
-/// council / kis saal poora hua+institute — languages+documents and the
-/// education fields were each their own further split so a worker never
-/// faces more than one question group at a time), each walked via its own
-/// "Aage badhein" tap; only the LAST tap (on the last internal page)
-/// actually calls `TradeFormCubit.savePreferencesAndAdvance` and moves the
-/// OUTER walk. Every test that used to reach/save the preferences marker in
-/// one tap drives all nine here instead of duplicating this sequence.
+/// The preferences marker is SIX internal pages (languages / documents /
+/// shift / jobType / cities / relocate+accommodation+salary —
+/// languages+documents was its own further split so a worker never faces
+/// more than one question group at a time), each walked via its own "Aage
+/// badhein" tap; only the LAST tap (on the last internal page) actually
+/// calls `TradeFormCubit.savePreferencesAndAdvance` and moves the OUTER
+/// walk. Every test that used to reach/save the preferences marker in one
+/// tap drives all six here instead of duplicating this sequence.
+///
+/// USED TO be nine pages (credential / council / kis saal poora hua +
+/// institute) — dropped because they duplicated the SAME "ITI ya Diploma?"
+/// ask the `qualifications` marker's education entries already own; see
+/// `TradeFormPreferencesPageState.pageCount`'s own doc.
 Future<void> _walkThroughPreferencesPages(WidgetTester tester) async {
-  for (int i = 0; i < 9; i++) {
+  for (int i = 0; i < 6; i++) {
     await tester.ensureVisible(find.text('Aage badhein'));
     await tester.tap(find.text('Aage badhein'));
     await tester.pumpAndSettle();
@@ -755,7 +759,7 @@ void main() {
       expect(_progressBar(tester).answered, 3);
       expect(_progressBar(tester).total, 4);
 
-      for (int i = 0; i < 8; i++) {
+      for (int i = 0; i < 5; i++) {
         await tester.ensureVisible(find.text('Aage badhein'));
         await tester.tap(find.text('Aage badhein'));
         await tester.pumpAndSettle();
@@ -1019,8 +1023,11 @@ void main() {
       await tester.tap(find.text('Aur ek entry jodein'));
       await tester.pumpAndSettle();
 
-      // Now on credential+subject: chip picker (credential) + one TextField
-      // ("Trade ya subject").
+      // "Trade ya subject" only shows once a subject-bearing credential
+      // (ITI/Diploma/Graduate/12th pass) is picked — hidden until then.
+      expect(find.text('Trade ya subject'), findsNothing);
+      await tester.tap(find.text('ITI'));
+      await tester.pumpAndSettle();
       expect(find.text('Trade ya subject'), findsOneWidget);
       await tester.enterText(find.byType(TextField).first, 'electric');
       await tester.pump();
@@ -1177,30 +1184,9 @@ void main() {
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
 
-      // Page 5 (relocate + accommodation + salary) — untouched, all optional.
+      // Page 5 (relocate + accommodation + salary) — the LAST internal page;
+      // this tap actually saves.
       expect(find.text('Doosre sheher ja sakte hain?'), findsOneWidget);
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein'));
-      await tester.pumpAndSettle();
-
-      // Page 6 (credential) — its own page.
-      expect(find.text('Agar ITI ya Diploma hai to kaun sa?'), findsOneWidget);
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein'));
-      await tester.pumpAndSettle();
-
-      // Page 7 (council) — its own page.
-      expect(find.text('Council / board'), findsOneWidget);
-      await tester.ensureVisible(find.text('Aage badhein'));
-      await tester.tap(find.text('Aage badhein'));
-      await tester.pumpAndSettle();
-
-      // Page 8 (year + institute) — the LAST internal page; this tap
-      // actually saves. Typed lowercase — must reach the server title-cased.
-      expect(find.text('Institute ka naam'), findsOneWidget);
-      // Two fields on this page (year, then institute) — institute is last.
-      await tester.enterText(find.byType(TextField).last, 'rvm cad pvt ltd');
-      await tester.pump();
       await tester.ensureVisible(find.text('Aage badhein'));
       await tester.tap(find.text('Aage badhein'));
       await tester.pumpAndSettle();
@@ -1217,7 +1203,6 @@ void main() {
       expect(sent.shift, 'day');
       expect(sent.jobType, 'permanent');
       expect(sent.preferredCities, <String>['Faridabad']);
-      expect(sent.educationInstitute, 'Rvm Cad Pvt Ltd');
     });
 
     testWidgets(
@@ -1375,9 +1360,8 @@ void main() {
       expect(find.byType(TextField), findsNothing);
 
       // Walk to the marker's last internal page and save: page 4 (cities)
-      // -> 5 (relocate) -> 6 (credential) -> 7 (council) -> 8
-      // (year+institute) is 4 taps, then one more tap WHILE on page 8 saves.
-      for (int i = 0; i < 5; i++) {
+      // -> 5 (relocate) is 1 tap, then one more tap WHILE on page 5 saves.
+      for (int i = 0; i < 2; i++) {
         await tester.ensureVisible(find.text('Aage badhein'));
         await tester.tap(find.text('Aage badhein'));
         await tester.pumpAndSettle();
