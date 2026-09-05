@@ -38,6 +38,13 @@ class BbPinView extends StatelessWidget {
   /// size rather than a flat colour swap.
   static const double _emptyScale = 0.92;
 
+  /// Box width — wider than the 4px grid's [AppSpacing.s9] (48) so the star
+  /// glyph has real breathing room, but short of [AppSpacing.s10] (64) to
+  /// leave 4 boxes + gaps comfortable margin on a 360dp screen (the
+  /// short-screen scroll test's own width) inside the auth screens' 20px
+  /// gutter.
+  static const double _boxWidth = 56;
+
   /// Time the just-filled box needs to finish its fill-pop (the [AnimatedScale]
   /// runs 260ms; this leaves a small margin). A parent that CLEARS or SWITCHES
   /// its buffer on the last digit MUST wait this long first — otherwise the
@@ -64,7 +71,7 @@ class BbPinView extends StatelessWidget {
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 160),
                 curve: Curves.easeOut,
-                width: AppSpacing.s9,
+                width: _boxWidth,
                 height: AppSpacing.s10,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
@@ -78,7 +85,7 @@ class BbPinView extends StatelessWidget {
                 // A filled slot shows a STAR, tinted the same colour as its
                 // border — never the digit. An empty slot stays blank.
                 child: i < filled
-                    ? Icon(Icons.star_rounded, color: borderOn, size: AppSpacing.s6)
+                    ? Icon(Icons.star_rounded, color: borderOn, size: AppSpacing.s5)
                     : null,
               ),
             ),
