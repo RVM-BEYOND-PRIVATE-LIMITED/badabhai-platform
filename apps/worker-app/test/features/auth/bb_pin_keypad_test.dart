@@ -114,6 +114,29 @@ void main() {
 
       expect(_slotDecoration(tester, 0).border!.top.color, AppColors.danger);
     });
+
+    testWidgets(
+        'filled slots show a STAR tinted the border colour; empty slots show none',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: BbPinView(length: 4, filled: 2)),
+      ));
+
+      expect(find.byIcon(Icons.star_rounded), findsNWidgets(2));
+      final Icon star =
+          tester.widgetList<Icon>(find.byIcon(Icons.star_rounded)).first;
+      expect(star.color, AppColors.blue);
+    });
+
+    testWidgets('an error tints the star crimson too', (WidgetTester tester) async {
+      await tester.pumpWidget(const MaterialApp(
+        home: Scaffold(body: BbPinView(length: 4, filled: 1, error: true)),
+      ));
+
+      final Icon star =
+          tester.widgetList<Icon>(find.byIcon(Icons.star_rounded)).first;
+      expect(star.color, AppColors.danger);
+    });
   });
 
   group('isWeakPin (hint heuristic — never a block)', () {

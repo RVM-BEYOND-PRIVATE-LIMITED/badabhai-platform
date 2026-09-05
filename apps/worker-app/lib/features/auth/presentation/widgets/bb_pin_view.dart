@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_spacing.dart';
 
-/// The masked PIN indicator: a row of rounded-box slots whose BORDER fills in
-/// as digits are entered.
+/// The masked PIN indicator: a row of rounded-box slots. An empty slot has a
+/// grey border; a filled slot's border turns the theme blue and the box shows
+/// a STAR glyph tinted that same colour.
 ///
 /// SECURITY: it renders only the COUNT of entered digits, never the digits
 /// themselves. The actual PIN value lives in the parent's local state and is
@@ -14,7 +15,8 @@ import '../../../../core/theme/app_spacing.dart';
 /// smaller size up to full size with a gentle overshoot (easeOutBack) while
 /// its border cross-fades from grey to the theme blue, so each keypress has a
 /// clear, satisfying beat — important feedback for a low-literacy worker who
-/// can't see the digit. [error] tints the border crimson (wrong-PIN feedback).
+/// can't see the digit. [error] tints the border (and star) crimson (wrong-PIN
+/// feedback).
 class BbPinView extends StatelessWidget {
   const BbPinView({
     super.key,
@@ -64,6 +66,7 @@ class BbPinView extends StatelessWidget {
                 curve: Curves.easeOut,
                 width: AppSpacing.s9,
                 height: AppSpacing.s10,
+                alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: AppColors.surfaceCard,
                   borderRadius: BorderRadius.circular(AppRadii.md),
@@ -72,6 +75,11 @@ class BbPinView extends StatelessWidget {
                     width: 2,
                   ),
                 ),
+                // A filled slot shows a STAR, tinted the same colour as its
+                // border — never the digit. An empty slot stays blank.
+                child: i < filled
+                    ? Icon(Icons.star_rounded, color: borderOn, size: AppSpacing.s6)
+                    : null,
               ),
             ),
           ),
