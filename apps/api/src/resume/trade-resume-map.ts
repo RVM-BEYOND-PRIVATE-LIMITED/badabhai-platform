@@ -1741,9 +1741,22 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
       {
         from: "welding_equipment",
         rank: 22,
-        // §4.3's "controllers max 3" applied to the hardware row, on the same reading that gives
-        // Processes the machines cap: this is the row that corroborates the advertised word.
-        maxValues: 3,
+        /**
+         * FOUR, NOT THE CONTROLLER ROW'S THREE — the cap follows the PAGE, not the row's position.
+         *
+         * THIS SHIPPED AS 3 AND WAS A DEFECT, found by driving a welder end to end. The reasoning
+         * was "§4.3's controllers max 3 applied to the hardware row", which reads plausibly and is
+         * wrong here: `welding_equipment` offers exactly FOUR options and the ratified page prints
+         * all four — "Inverter arc set · CO2 / MIG machine · TIG set · Oxy-acetylene cutting set".
+         * A cap of three silently dropped the last one, so a welder who tapped every chip he owns
+         * still printed as a man with no cutting torch, on the row a fabrication shop scans to see
+         * whether he can cut as well as weld.
+         *
+         * The painter's `coating_equipment` in this same file already settles the identical
+         * tension the other way and for the same reason. A controllers cap of three comes from a
+         * page that prints three controllers; it is not a rule about hardware rows.
+         */
+        maxValues: 4,
         label: "Equipment",
         kind: "chips",
         values: {
@@ -1799,11 +1812,16 @@ export const TRADE_RESUME_MAPS: readonly TradeResumeMap[] = [
         rank: 41,
         label: "Positions",
         kind: "ticks",
+        // THE DASH IS THE PAGE'S, AND IT BELONGS IN THE VALUE. The ratified page prints
+        // "1G — flat · 2G — horizontal · 3G — vertical": the code and its gloss are one cell, and
+        // this dictionary is exactly the seam where the worker's shop-floor chip ("1G flat")
+        // becomes the sheet's English. The painter's map already settles it the same way, keeping
+        // the page's dash inside "Liquid spray — HVLP" rather than dropping it at render.
         values: {
-          flat: "1G flat",
-          horizontal: "2G horizontal",
-          vertical: "3G vertical",
-          overhead: "4G overhead",
+          flat: "1G — flat",
+          horizontal: "2G — horizontal",
+          vertical: "3G — vertical",
+          overhead: "4G — overhead",
         },
       },
       {

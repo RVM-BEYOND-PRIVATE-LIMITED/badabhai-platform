@@ -146,6 +146,38 @@ describe("the role registry", () => {
         ctaLabel: "Form bharkar resume pura karein",
       });
     });
+
+    it("starts EVERY role's handover sentence with a capital, not just the acronym ones", () => {
+      // THE BUG THIS CATCHES, FOUND BY DRIVING A WELDER END TO END. The headline is
+      // `${offerName} profile detected`, and all five Batch 1 offerNames begin with an acronym —
+      // "CNC turner", "CAM programmer", "CAD draughtsman" — so every shipped card started with a
+      // capital BY ACCIDENT OF THE TRADE'S NAME and the composition looked right for a year.
+      // Batch 2's roles are ordinary nouns, and the same line produced "welder profile detected".
+      //
+      // ASSERTED OVER EVERY ENABLED ROLE, not over the four that exposed it. A pin on "welder"
+      // alone would go quiet the moment role twenty-two is a "fitter" or an "assembly line
+      // worker" — which is exactly how this survived to Batch 2 in the first place.
+      for (const descriptor of ENABLED_ROLE_DESCRIPTORS) {
+        const { headline, reply } = TRADE_FORM_OFFERS[descriptor.kind];
+        const first = headline[0]!;
+        expect(first, `${descriptor.kind}: handover headline starts lower case`).toBe(
+          first.toUpperCase(),
+        );
+        // The reply embeds the headline, so it must carry the same casing rather than being
+        // composed a second, divergent way.
+        expect(reply.startsWith(headline), `${descriptor.kind}: reply does not open with the headline`).toBe(true);
+      }
+    });
+
+    it("leaves the offerName itself sentence-cased — the fix belongs to the SENTENCE", () => {
+      // `offerName` is documented as the form that appears INSIDE a worker-facing sentence, and is
+      // deliberately not `displayName` so the card does not read like a form field. Capitalising
+      // the descriptor instead of the composition would have quietly undone that ruling, so the
+      // distinction is pinned: "welder", not "Welder", on the descriptor.
+      expect(descriptorForKind("welder")?.offerName).toBe("welder");
+      expect(descriptorForKind("welder")?.displayName).toBe("Welder");
+      expect(TRADE_FORM_OFFERS.welder.headline).toBe("Welder profile detected");
+    });
   });
 
   describe("what every enabled role must satisfy", () => {
