@@ -41,12 +41,38 @@ function optionsOf(vocabulary: Readonly<Record<string, string>>): [string, ...st
  * relative to what a real worker ticks (both ratified samples list three languages and five
  * documents) and exists so a malformed client cannot hand the degradation ladder a row with
  * forty values in it.
+ *
+ * THE CAP APPLIES BEFORE THE DE-DUPLICATION, which is what makes it a bound on the REQUEST rather
+ * than on the answer: `.max()` runs on the raw array and `.transform()` collapses it afterwards.
+ * That ordering is deliberate — it is the malformed client this guards against, not the worker.
  */
 function multiSelect(vocabulary: Readonly<Record<string, string>>, max: number) {
   return z
     .array(z.enum(optionsOf(vocabulary)))
     .max(max)
     .transform((values) => [...new Set(values)]);
+}
+
+/**
+ * A multi-select a worker may legitimately tick EVERY option of, so the cap is the dictionary.
+ *
+ * ═══ WHY THIS EXISTS INSTEAD OF A NUMBER ═══
+ *
+ * `documents_ready` was `multiSelect(DOCUMENTS_READY, 8)` against a dictionary of exactly eight,
+ * so the literal was already the dictionary's size — it just did not say so. Adding `esic` made it
+ * nine options behind a cap of eight, and the failure would have been invisible to every existing
+ * test: the eight-document worker still passes, and only the worker who genuinely holds all nine
+ * gets a 400 naming a limit nobody meant to impose.
+ *
+ * A DERIVED CAP CANNOT DRIFT. The next slug added to a dictionary used this way raises the bound
+ * with it, which is the property a hand-written 8 did not have and could not have.
+ *
+ * NOT FOR EVERY LIST. `languages` is capped at 6 of 16 ON PURPOSE — that is a real editorial
+ * limit on how many a sheet will print, not an accident of the dictionary's length. This helper is
+ * only for the lists where "all of them" is a true and unremarkable answer.
+ */
+function multiSelectAll(vocabulary: Readonly<Record<string, string>>) {
+  return multiSelect(vocabulary, Object.keys(vocabulary).length);
 }
 
 /**
@@ -83,7 +109,10 @@ const preferredCities = z
 export const SetMyPreferencesSchema = z
   .object({
     languages: multiSelect(LANGUAGES, 6).optional(),
-    documents_ready: multiSelect(DOCUMENTS_READY, 8).optional(),
+    // EVERY DOCUMENT IS A TRUE ANSWER FOR SOME WORKER — a man with Aadhaar, PAN, a bank account,
+    // UAN, ESIC, an ITI certificate, an experience letter, photos and a licence has nine, and
+    // there is nothing unusual about him. See {@link multiSelectAll}.
+    documents_ready: multiSelectAll(DOCUMENTS_READY).optional(),
     preferred_cities: preferredCities.optional(),
     job_type: z.enum(optionsOf(JOB_TYPES)).nullable().optional(),
     shift: z.enum(optionsOf(SHIFTS)).nullable().optional(),

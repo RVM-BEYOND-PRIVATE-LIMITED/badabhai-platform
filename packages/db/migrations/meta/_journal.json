@@ -695,6 +695,13 @@
       "when": 1788331576411,
       "tag": "0098_worker_qualifications",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1788586147877,
+      "tag": "0099_flaky_squirrel_girl",
+      "breakpoints": true
     }
   ]
 }

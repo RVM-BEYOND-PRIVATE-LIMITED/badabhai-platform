@@ -25,6 +25,39 @@ export const SetWorkerNameSchema = z.object({
 export type SetWorkerNameDto = z.infer<typeof SetWorkerNameSchema>;
 
 /**
+ * One half of the coarse home location captured beside the name (#1428).
+ *
+ * OPTIONAL, AND THE TWO HALVES ARE INDEPENDENT. The first onboarding screen resolves city+state
+ * from the device or takes them by hand, and a manual entry can produce one without the other. An
+ * omitted key leaves the stored value alone; this is a name endpoint that also accepts a location,
+ * not a location endpoint.
+ *
+ * FREE TEXT, DELIBERATELY — and this is the one place this codebase does NOT resolve a city
+ * against the gazetteer. `preferred_cities` 400s on anything outside the 36-value closed set
+ * (#1406), which is right for a finishing-form field a worker reaches after committing. This is
+ * screen ONE. The gazetteer is a closed set of manufacturing hubs by construction, so a worker in
+ * Patna would be refused at the first thing the product ever asks him — and refused about the name
+ * of the place he lives, which he is not wrong about. The service canonicalises the spelling when
+ * the gazetteer happens to recognise it and stores what he typed when it does not.
+ *
+ * BOUNDED AND CONTROL-CHAR GUARDED like `full_name`, because it is the same class of input from
+ * the same screen. 80 chars is far above any real Indian city or state name.
+ *
+ * NOT `.strict()` ON THE PARENT, and that is unchanged: this schema has always silently stripped
+ * unknown keys, and making it strict now would turn a shipped client's extra field into a 400.
+ */
+function coarseLocationPart(field: "city" | "state") {
+  return z
+    .string()
+    .trim()
+    .min(1, `${field} must not be empty`)
+    .max(80, `${field} is too long`)
+    .refine((s) => !hasControlChars(s), `${field} must not contain control characters`)
+    .refine((s) => !/^\d+$/.test(s), `${field} must not be digits only`)
+    .optional();
+}
+
+/**
  * Worker SELF-service name capture (PATCH /workers/me/name). Tighter than the ops
  * {@link SetWorkerNameSchema}: 1–80 chars and rejects an all-digits string (a name
  * is not a number — catches a fat-fingered phone/id). Control chars rejected; the
@@ -38,6 +71,8 @@ export const SetMyNameSchema = z.object({
     .max(80, "full_name is too long")
     .refine((s) => !hasControlChars(s), "full_name must not contain control characters")
     .refine((s) => !/^\d+$/.test(s), "full_name must not be digits only"),
+  city: coarseLocationPart("city"),
+  state: coarseLocationPart("state"),
 });
 export type SetMyNameDto = z.infer<typeof SetMyNameSchema>;
 

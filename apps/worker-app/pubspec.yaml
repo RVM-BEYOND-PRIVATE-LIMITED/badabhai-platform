@@ -178,6 +178,8 @@ dependencies:
   # strings image_picker already requires.
   image_cropper: ^9.1.0
   flutter_tts: ^4.2.5
+  geolocator: ^14.0.2
+  geocoding: ^5.0.0
 
 dev_dependencies:
   flutter_test:

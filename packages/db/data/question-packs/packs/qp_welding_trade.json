@@ -1,0 +1,752 @@
+{
+  "_why": "Role track for WELDING, authored under docs/profiling/role-pack-authoring-guide.md as Batch 2's fabrication pack. fam_welding stays the generic ISCO-unit-7212 interview and is NOT touched; this pack belongs to fam_welding_trade, which binds the NCO welding occupations directly (job_domain specificity 50 beats unit 40), so a production welder gets welding depth and every other worker in 7212 — the plumber-welder, the brazier, the solderer — keeps the interview they have today. The ids differ (qp_welding_trade / fam_welding_trade) rather than this pack overwriting qp_welding, because assertRegistryIsCoherent rejects a duplicate packId and descriptorForPack would otherwise start answering for the generic pack's workers.",
+  "_scope": "ARC, MIG/MAG, TIG, GAS CUTTING AND SPOT, on structural and sheet fabrication -- the whole trade, not one process. welding_process is asked of everyone rather than used as a router, because a man who runs a rod set on site and a CO2 machine in the shop is one welder with two processes, not two roles. The level ladder (Helper / Welder / Certified Welder) is asked as welder_level so the sheet can print '{Role} -- {Level}' from a fact the worker STATED; RoleFormDescriptor.levelLadder is the list this question offers, and nothing infers a rung from tenure.",
+  "_depth": "THE TIER GATE IS welding_experience, asked FIRST, and it is WELDER.tenureQuestionKey. It cannot be experience_years from qp_universal: phase order runs occupation_specific BEFORE universal_tail, so the universal answer does not exist yet when these items are selected -- gating on it is permanently false. Its options carry value_number ONLY. pack-registry.service.ts resolves valueText ?? valueNumber ?? valueBool, so one stray value_text would make the captured answer a STRING, compare() would refuse to order it against a number and return null, and EVERY gte/lte below would evaluate false forever, silently. Every predicate here uses the contract shape {op, left:{field}, right:{const}} -- the older {op, args:[...]} shape is #776, the defect that left two qp_welding questions unasked for the life of that pack, and this is the trade it was found in.",
+  "_budget": "MAX_ENGINE_ASKS is 28 and qp_universal spends 8. Tier 0 is 8 items (8 + 8 = 16), tier 1 (welding_experience >= 2) adds 3 (19), tier 2 (>= 5) adds 4 (23) -- five asks of headroom against the ceiling. The three fresher items are gated welding_experience <= 0, so a senior never sees them and a fresher, who fails both gte gates by construction, tops out at 16 + 3 = 19. The tiers are mutually exclusive, which is why the fresher branch costs the senior nothing. 18 items, 0 of them duplicating qp_universal's primary_trade / experience_years / current_city / salary_expected / preferred_locations / availability / education / shift_preference.",
+  "_sheet": "SECTION B IS READ OFF THE RATIFIED WELDER REFERENCE RESUME, not invented. Its nine rows are Processes, Equipment, Electrodes/wire, Materials, Positions, Inspection, Plate thickness, Drawings and Sector worked, and every one has a question here that fills it. Plate thickness is a BANDED single_select rather than a free number: the sheet prints '3 mm - 25 mm plate', which is a band, and a banded chip keeps a low-literacy worker tapping instead of typing while avoiding answer_type 'number', which has no Flutter widget. The four tier-2 items (joint_type, machine_setting, weld_defect, fabrication_work) deliberately have NO sheet row -- the ratified page has none and this pack does not invent one; they are matching data in worker_attributes, which is where trade depth with no printed slot belongs.",
+  "_keys": "NO DIGITS IN ANY question_key OR option_key. Both regexes are ^[a-z_]+$, and slugKey REFUSES a key with a digit at runtime even where the corpus validator historically let it through -- one such key makes the whole pack unparseable. So the positions are flat/horizontal/vertical/overhead and the consumables are e_six_zero_one_three / e_seven_zero_one_eight / er_seventy_s_six. THE LABEL KEEPS THE REAL SHOP-FLOOR TEXT ('1G flat', 'E6013 rod'), because the label is the worker's answer of record; only the key is letters.",
+  "pack_id": "qp_welding_trade",
+  "version": 1,
+  "family_id": "fam_welding_trade",
+  "locale": "hi-IN",
+  "status": "active",
+  "review_note": "Drafted for owner review (Prakash). Shop-floor vocabulary NOT yet corrected by a practising welder -- see docs/registers/trade-content-ratification.md.",
+  "_fresher": "Guideline section 11 #1: a fresher's Zone 4 is training, trade test, machines used in the ITI workshop and project work, and the History heading never renders empty. These three items are the ask half; resume-fresher-rows.ts, fed by this role's descriptor, is the render half. The KEYS are read literally by that file and must not be renamed; only the workshop VOCABULARY is trade-specific, and a welder's ITI workshop holds welding sets, not lathes.",
+  "items": [
+    {
+      "question_key": "welding_experience",
+      "prompt_text": "Welding ka kitna tajurba hai?",
+      "why_text": "Tajurbe ke hisaab se aage ke sawaal poochhe jaate hain.",
+      "retry_text": "Lagbhag kitne saal welding ka kaam kiya hai?",
+      "target_kind": "attribute",
+      "target_field": "welding_experience",
+      "answer_type": "single_select",
+      "is_core": true,
+      "is_mandatory": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "under_one",
+          "label_text": "1 saal se kam",
+          "value_number": 0
+        },
+        {
+          "option_key": "one_to_three",
+          "label_text": "1 se 3 saal",
+          "value_number": 2
+        },
+        {
+          "option_key": "three_to_seven",
+          "label_text": "3 se 7 saal",
+          "value_number": 5
+        },
+        {
+          "option_key": "over_seven",
+          "label_text": "7 saal se zyada",
+          "value_number": 10
+        }
+      ]
+    },
+    {
+      "question_key": "welding_process",
+      "prompt_text": "Aap kaunsi welding karte hain?",
+      "why_text": "Har welding alag hoti hai, isse sahi naukri milti hai.",
+      "retry_text": "Gas, arc, MIG ya TIG mein se kaunsi?",
+      "target_kind": "attribute",
+      "target_field": "welding_process",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "mig_mag",
+          "label_text": "MIG ya MAG welding",
+          "value_text": "mig_mag"
+        },
+        {
+          "option_key": "arc",
+          "label_text": "Arc ya rod welding",
+          "value_text": "arc"
+        },
+        {
+          "option_key": "tig",
+          "label_text": "TIG welding",
+          "value_text": "tig"
+        },
+        {
+          "option_key": "gas_cutting",
+          "label_text": "Gas cutting",
+          "value_text": "gas_cutting"
+        },
+        {
+          "option_key": "spot",
+          "label_text": "Spot welding",
+          "value_text": "spot"
+        },
+        {
+          "option_key": "other_process",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "welder_level",
+      "prompt_text": "Aap khud ko kis level ka welder maante hain?",
+      "why_text": "Helper aur certified welder ka kaam aur vetan alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "welder_level",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "helper",
+          "label_text": "Helper, madad karta hoon",
+          "value_text": "helper"
+        },
+        {
+          "option_key": "welder",
+          "label_text": "Welder, khud welding karta hoon",
+          "value_text": "welder"
+        },
+        {
+          "option_key": "certified_welder",
+          "label_text": "Certified welder, test pass kiya hai",
+          "value_text": "certified_welder"
+        }
+      ]
+    },
+    {
+      "question_key": "welding_equipment",
+      "prompt_text": "Kaunsi welding machine par kaam karte hain?",
+      "why_text": "Machine ke hisaab se sahi kaam dikhaya jaata hai.",
+      "retry_text": "Inverter, CO2 ya TIG machine, kaunsi chalayi hai?",
+      "target_kind": "attribute",
+      "target_field": "welding_equipment",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 2,
+      "options": [
+        {
+          "option_key": "inverter_arc",
+          "label_text": "Inverter arc welding set",
+          "value_text": "inverter_arc"
+        },
+        {
+          "option_key": "co_two_mig",
+          "label_text": "CO2 ya MIG machine",
+          "value_text": "co_two_mig"
+        },
+        {
+          "option_key": "tig_machine",
+          "label_text": "TIG welding set",
+          "value_text": "tig_machine"
+        },
+        {
+          "option_key": "gas_cutting_set",
+          "label_text": "Oxy-acetylene cutting set",
+          "value_text": "gas_cutting_set"
+        },
+        {
+          "option_key": "other_equipment",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "electrode_type",
+      "prompt_text": "Kaunsi rod ya wire istemaal karte hain?",
+      "why_text": "Rod aur wire ka sahi chunaav welder ka hunar hai.",
+      "target_kind": "attribute",
+      "target_field": "electrode_type",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "e_six_zero_one_three",
+          "label_text": "E6013 rod",
+          "value_text": "e_six_zero_one_three"
+        },
+        {
+          "option_key": "e_seven_zero_one_eight",
+          "label_text": "E7018 rod",
+          "value_text": "e_seven_zero_one_eight"
+        },
+        {
+          "option_key": "er_seventy_s_six",
+          "label_text": "ER70S-6 MIG wire",
+          "value_text": "er_seventy_s_six"
+        },
+        {
+          "option_key": "unknown_consumable",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "material_worked",
+      "prompt_text": "Kaunse material par welding karte hain?",
+      "why_text": "Steel aur aluminium ka kaam alag hota hai.",
+      "target_kind": "attribute",
+      "target_field": "material_worked",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "mild_steel",
+          "label_text": "MS ya loha",
+          "value_text": "mild_steel"
+        },
+        {
+          "option_key": "stainless",
+          "label_text": "Stainless steel",
+          "value_text": "stainless"
+        },
+        {
+          "option_key": "aluminium",
+          "label_text": "Aluminium",
+          "value_text": "aluminium"
+        },
+        {
+          "option_key": "cast_iron",
+          "label_text": "Cast iron",
+          "value_text": "cast_iron"
+        },
+        {
+          "option_key": "other_material",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "welding_position",
+      "prompt_text": "Kaunsi position me welding kar lete hain?",
+      "why_text": "Overhead welding ka alag rate milta hai.",
+      "target_kind": "attribute",
+      "target_field": "welding_position",
+      "answer_type": "multi_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "flat",
+          "label_text": "1G flat",
+          "value_text": "flat"
+        },
+        {
+          "option_key": "horizontal",
+          "label_text": "2G horizontal",
+          "value_text": "horizontal"
+        },
+        {
+          "option_key": "vertical",
+          "label_text": "3G vertical",
+          "value_text": "vertical"
+        },
+        {
+          "option_key": "overhead",
+          "label_text": "4G overhead",
+          "value_text": "overhead"
+        },
+        {
+          "option_key": "unknown_position",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "drawing_reading",
+      "prompt_text": "Kya aap drawing padh lete hain?",
+      "why_text": "Drawing padhna kai jagah zaroori hota hai.",
+      "target_kind": "attribute",
+      "target_field": "drawing_reading",
+      "answer_type": "single_select",
+      "is_core": true,
+      "max_asks": 1,
+      "options": [
+        {
+          "option_key": "no_drawing",
+          "label_text": "Nahi padh pata",
+          "value_text": "none"
+        },
+        {
+          "option_key": "basic_drawing",
+          "label_text": "Basic 2D drawing padh leta hoon",
+          "value_text": "basic_drawing"
+        },
+        {
+          "option_key": "weld_symbol",
+          "label_text": "Weld symbol bhi samajhta hoon",
+          "value_text": "weld_symbol"
+        }
+      ]
+    },
+    {
+      "question_key": "plate_thickness",
+      "prompt_text": "Kitni moti plate par welding karte hain?",
+      "why_text": "Moti plate ka kaam alag rate par hota hai.",
+      "target_kind": "attribute",
+      "target_field": "plate_thickness",
+      "answer_type": "single_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "welding_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "upto_three",
+          "label_text": "3 mm tak, patli sheet",
+          "value_text": "upto_three"
+        },
+        {
+          "option_key": "upto_twelve",
+          "label_text": "12 mm tak",
+          "value_text": "upto_twelve"
+        },
+        {
+          "option_key": "upto_twentyfive",
+          "label_text": "25 mm tak",
+          "value_text": "upto_twentyfive"
+        },
+        {
+          "option_key": "over_twentyfive",
+          "label_text": "25 mm se zyada",
+          "value_text": "over_twentyfive"
+        },
+        {
+          "option_key": "unknown_thickness",
+          "label_text": "Pata nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "inspection_work",
+      "prompt_text": "Weld ki checking ka kaunsa kaam karte hain?",
+      "why_text": "Checking jaanne wale welder ko quality ka kaam milta hai.",
+      "target_kind": "attribute",
+      "target_field": "inspection_work",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "welding_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "visual",
+          "label_text": "Aankh se visual checking",
+          "value_text": "visual"
+        },
+        {
+          "option_key": "weld_gauge",
+          "label_text": "Fillet ya weld gauge se naap",
+          "value_text": "weld_gauge"
+        },
+        {
+          "option_key": "dye_penetrant",
+          "label_text": "DPT, dye-penetrant test ke samay",
+          "value_text": "dye_penetrant"
+        },
+        {
+          "option_key": "xray_ut",
+          "label_text": "X-ray ya UT test ke samay",
+          "value_text": "xray_ut"
+        },
+        {
+          "option_key": "no_inspection",
+          "label_text": "Checking koi aur karta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "sector_worked",
+      "prompt_text": "Kis line ki fabrication me kaam kiya hai?",
+      "why_text": "Sector ka tajurba usi line ke employer dhoondhte hain.",
+      "target_kind": "attribute",
+      "target_field": "sector_worked",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "welding_experience"
+        },
+        "right": {
+          "const": 2
+        }
+      },
+      "options": [
+        {
+          "option_key": "structural",
+          "label_text": "Structural fabrication, shed aur beam",
+          "value_text": "structural"
+        },
+        {
+          "option_key": "general_engg",
+          "label_text": "General engineering, job shop",
+          "value_text": "general_engg"
+        },
+        {
+          "option_key": "automotive",
+          "label_text": "Automotive ya auto parts",
+          "value_text": "automotive"
+        },
+        {
+          "option_key": "pipeline",
+          "label_text": "Pipeline ya pressure vessel",
+          "value_text": "pipeline"
+        },
+        {
+          "option_key": "sheet_fab",
+          "label_text": "Sheet metal fabrication",
+          "value_text": "sheet_fab"
+        },
+        {
+          "option_key": "other_sector",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "joint_type",
+      "prompt_text": "Kaunse joint weld kar lete hain?",
+      "why_text": "Joint ka tarika kaam ki mushkil batata hai.",
+      "target_kind": "attribute",
+      "target_field": "joint_type",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "welding_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "butt_joint",
+          "label_text": "Butt joint",
+          "value_text": "butt_joint"
+        },
+        {
+          "option_key": "fillet_joint",
+          "label_text": "Fillet ya T joint",
+          "value_text": "fillet_joint"
+        },
+        {
+          "option_key": "lap_joint",
+          "label_text": "Lap joint",
+          "value_text": "lap_joint"
+        },
+        {
+          "option_key": "corner_joint",
+          "label_text": "Corner joint",
+          "value_text": "corner_joint"
+        },
+        {
+          "option_key": "pipe_joint",
+          "label_text": "Pipe ka joint",
+          "value_text": "pipe_joint"
+        },
+        {
+          "option_key": "unknown_joint",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "machine_setting",
+      "prompt_text": "Machine ki kaunsi setting khud karte hain?",
+      "why_text": "Setting karne wale welder ko zyada vetan milta hai.",
+      "target_kind": "attribute",
+      "target_field": "machine_setting",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "welding_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "current_setting",
+          "label_text": "Current ya ampere setting",
+          "value_text": "current_setting"
+        },
+        {
+          "option_key": "wire_speed",
+          "label_text": "Wire speed aur voltage",
+          "value_text": "wire_speed"
+        },
+        {
+          "option_key": "gas_flow",
+          "label_text": "Gas flow setting",
+          "value_text": "gas_flow"
+        },
+        {
+          "option_key": "polarity",
+          "label_text": "Polarity badalna",
+          "value_text": "polarity"
+        },
+        {
+          "option_key": "consumable_choice",
+          "label_text": "Rod ya wire chunna",
+          "value_text": "consumable_choice"
+        },
+        {
+          "option_key": "no_setting",
+          "label_text": "Setting koi aur karta hai",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "weld_defect",
+      "prompt_text": "Weld ki kaunsi kharabi aap sudhaar lete hain?",
+      "why_text": "Kharabi sudhaarne wale welder ki shop par zaroorat rehti hai.",
+      "target_kind": "attribute",
+      "target_field": "weld_defect",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "welding_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "porosity",
+          "label_text": "Porosity, hawa ke chhed",
+          "value_text": "porosity"
+        },
+        {
+          "option_key": "undercut",
+          "label_text": "Undercut",
+          "value_text": "undercut"
+        },
+        {
+          "option_key": "spatter",
+          "label_text": "Spatter zyada aana",
+          "value_text": "spatter"
+        },
+        {
+          "option_key": "distortion",
+          "label_text": "Plate tedhi ho jaana",
+          "value_text": "distortion"
+        },
+        {
+          "option_key": "crack",
+          "label_text": "Weld me crack aana",
+          "value_text": "crack"
+        },
+        {
+          "option_key": "no_defect",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "fabrication_work",
+      "prompt_text": "Welding ke alawa kaunsa kaam karte hain?",
+      "why_text": "Poora fabrication jaanne wale ko shop me aage rakha jaata hai.",
+      "target_kind": "attribute",
+      "target_field": "fabrication_work",
+      "answer_type": "multi_select",
+      "max_asks": 1,
+      "ask_if": {
+        "op": "gte",
+        "left": {
+          "field": "welding_experience"
+        },
+        "right": {
+          "const": 5
+        }
+      },
+      "options": [
+        {
+          "option_key": "fit_up",
+          "label_text": "Fit-up aur tacking",
+          "value_text": "fit_up"
+        },
+        {
+          "option_key": "gouging",
+          "label_text": "Gas cutting aur gouging",
+          "value_text": "gouging"
+        },
+        {
+          "option_key": "grinding_finish",
+          "label_text": "Grinding aur finishing",
+          "value_text": "grinding_finish"
+        },
+        {
+          "option_key": "jig_fixture",
+          "label_text": "Jig fixture par kaam",
+          "value_text": "jig_fixture"
+        },
+        {
+          "option_key": "height_work",
+          "label_text": "Unchai par site welding",
+          "value_text": "height_work"
+        },
+        {
+          "option_key": "no_fabrication",
+          "label_text": "Inme se koi nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "iti_workshop_machines",
+      "prompt_text": "ITI ke workshop me kaunsi machine par kaam kiya hai?",
+      "why_text": "Training me chalayi hui machine bhi tajurba hai, employer ise dekhte hain.",
+      "retry_text": "Workshop me kaunsi machine chalayi thi?",
+      "target_kind": "attribute",
+      "target_field": "iti_workshop_machines",
+      "answer_type": "multi_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "welding_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "arc_set",
+          "label_text": "Arc welding set",
+          "value_text": "arc_set"
+        },
+        {
+          "option_key": "mig_set",
+          "label_text": "MIG ya CO2 machine",
+          "value_text": "mig_set"
+        },
+        {
+          "option_key": "tig_set",
+          "label_text": "TIG welding set",
+          "value_text": "tig_set"
+        },
+        {
+          "option_key": "gas_set",
+          "label_text": "Gas welding aur cutting set",
+          "value_text": "gas_set"
+        },
+        {
+          "option_key": "grinder",
+          "label_text": "Grinding machine",
+          "value_text": "grinder"
+        },
+        {
+          "option_key": "unknown_machine",
+          "label_text": "Yaad nahi",
+          "value_text": "unknown",
+          "is_none_of_above": true
+        }
+      ]
+    },
+    {
+      "question_key": "trade_test_status",
+      "prompt_text": "Trade test diya hai?",
+      "why_text": "Trade test pass hona certificate jitna hi mayne rakhta hai.",
+      "retry_text": "Trade test ka kya status hai?",
+      "target_kind": "attribute",
+      "target_field": "trade_test_status",
+      "answer_type": "single_select",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "welding_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": [
+        {
+          "option_key": "passed",
+          "label_text": "Haan, pass kiya",
+          "value_text": "passed"
+        },
+        {
+          "option_key": "appeared",
+          "label_text": "Diya hai, result aana hai",
+          "value_text": "appeared"
+        },
+        {
+          "option_key": "not_yet",
+          "label_text": "Abhi nahi diya",
+          "value_text": "not_yet"
+        }
+      ]
+    },
+    {
+      "question_key": "iti_project_work",
+      "prompt_text": "ITI me kya banaya tha? Apne shabdon me bataiye.",
+      "why_text": "Banaya hua job dikhata hai ki aap kya kar sakte hain.",
+      "retry_text": "Workshop me kaunsa job ya project banaya tha?",
+      "target_kind": "attribute",
+      "target_field": "iti_project_work",
+      "answer_type": "text",
+      "max_asks": 2,
+      "ask_if": {
+        "op": "lte",
+        "left": {
+          "field": "welding_experience"
+        },
+        "right": {
+          "const": 0
+        }
+      },
+      "options": []
+    }
+  ]
+}
