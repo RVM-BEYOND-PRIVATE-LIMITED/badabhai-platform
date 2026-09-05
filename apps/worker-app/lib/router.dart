@@ -32,7 +32,6 @@ import 'features/invite/presentation/invite_screen.dart';
 import 'features/job_search/presentation/job_search_screen.dart';
 import 'features/applications/presentation/applied_jobs_screen.dart';
 import 'features/profile_tab/presentation/profile_tab_screen.dart';
-import 'features/settings/presentation/city_state_demo_screen.dart';
 import 'features/settings/presentation/settings_screen.dart';
 import 'features/resume/presentation/building_screen.dart';
 import 'features/resume/presentation/resume_edit_screen.dart';
@@ -64,11 +63,6 @@ class Routes {
 
   /// My-devices list (reachable from Settings).
   static const String devices = '/profile/settings/devices';
-
-  /// Preview-only "pick state, then filtered cities" demo (#1429), reachable
-  /// from Settings. Writes nothing anywhere — see
-  /// `CityStateDemoScreen`'s own doc.
-  static const String cityStateDemo = '/profile/settings/city-state-demo';
 
   static const String consent = '/consent';
   static const String name = '/name'; // "Your name" step (after consent, before chat)
@@ -577,11 +571,6 @@ GoRouter _buildRouter() {
                         path: 'devices',
                         parentNavigatorKey: _rootNavKey, // no bar
                         builder: (_, __) => const DevicesScreen(),
-                      ),
-                      GoRoute(
-                        path: 'city-state-demo',
-                        parentNavigatorKey: _rootNavKey, // no bar
-                        builder: (_, __) => const CityStateDemoScreen(),
                       ),
                     ],
                   ),

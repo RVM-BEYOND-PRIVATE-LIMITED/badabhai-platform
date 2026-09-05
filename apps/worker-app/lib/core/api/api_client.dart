@@ -473,19 +473,17 @@ class ApiClient {
     required String authToken,
     String? city,
     String? state,
-    String? address,
   }) async {
     await _patch(
       '/workers/me/name',
       <String, dynamic>{
         'full_name': fullName,
-        // city/state persist for real (#1428) — see NameRepository's doc.
-        // address has no matching column; the schema silently drops it, so
-        // sending it stays a harmless no-op. All three stay off the body
-        // when null so a plain name-only submit is byte-identical to before.
+        // city/state persist for real (#1428) to `workers.current_city` /
+        // `current_state` — see NameRepository's doc. Both stay off the body
+        // when null, so a plain name-only submit (the resume-edit screen's
+        // rename) is byte-identical to before.
         if (city != null) 'city': city,
         if (state != null) 'state': state,
-        if (address != null) 'address': address,
       },
       authToken: authToken,
     );
