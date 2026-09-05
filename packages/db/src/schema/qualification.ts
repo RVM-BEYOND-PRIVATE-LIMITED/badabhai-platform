@@ -135,7 +135,16 @@ export const workerEducations = pgTable(
     workerId: uuid("worker_id")
       .notNull()
       .references(() => workers.id, { onDelete: "cascade" }),
-    /** ITI, Diploma, 10th, 12th — the closed set `EDUCATION_CREDENTIALS` offers. */
+    /**
+     * ITI, Diploma, 10th, 12th, below-10th, Graduate — the closed set `EDUCATION_QUALIFICATIONS`
+     * offers (six values), which is what `worker-qualifications.dto.ts` validates against and
+     * what `resume-qualification-rows.ts` labels from.
+     *
+     * NOT `EDUCATION_CREDENTIALS` — this line used to say so and it is the likeliest source of
+     * the #1447 misreading that the two dictionaries are duplicates. That one holds exactly TWO
+     * values and answers a narrower question: "the interview's merged `iti_diploma` option names
+     * two credentials, which is yours". This column holds a whole credential standing on its own.
+     */
     credential: text("credential"),
     /** The trade or stream: "Machinist", "Fitter", "Mechanical Engineering", "Science". */
     field: text("field"),
