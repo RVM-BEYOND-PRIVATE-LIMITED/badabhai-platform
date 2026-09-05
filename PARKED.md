@@ -562,6 +562,65 @@ to stop it blocking is escaping the gate, not fixing it.**
 
 ---
 
+## P-016 · A check that prescribes its own FAIL wording can force a checker to write something untrue
+
+**Found:** 2026-09-05, while applying the R1 signature (PR #1423).
+**Owner ruling:** PARK the shape — Prakash, 2026-09-05. The instance is fixed; the class is not.
+
+**The instance.** `docs/agent/phases/P3_CHECK.md` did not merely say "expect a HALT". It
+prescribed the exact sentence a checker must write into `VERDICT.md` — quoted here as it read
+BEFORE the fix, so grepping the current file for this string will correctly find nothing:
+
+> add one line: the builder correctly halted on R1, quoting worksheet:388. **That wording is
+> required, not a softening.**
+
+R1 was signed on 2026-09-05. P3 is still blocked, but on the phase-order gate
+(`docs/agent/README.md:47`), not on R1. So the check's PREDICATE still fires correctly — a HALT
+is still the right outcome — while the sentence it mandates became false. A checker obeying the
+brief would have written a false reason into a durable verdict, and been right to, because the
+brief said the wording was required.
+
+**Why it is its own shape, and not P-013.** P-013 is a check whose PREDICATE goes red for the
+wrong reason — it fires on innocent code. This is one layer up: the predicate is correct and the
+check's own PRESCRIBED TEXT is what has gone stale. The two fail differently and are caught by
+different questions. P-013 is caught by asking *"can this go red on something I did not
+change?"*; this one is caught by asking *"if this fires, is the sentence it makes me write still
+true?"*
+
+**THE DIRECTION MATTERS MORE THAN THE MECHANISM, and a later instance proved it.** Every
+instance of this shape found before 2026-09-05 produced a false **FAIL**: the check goes red for
+the wrong reason, somebody investigates, the truth surfaces on the way. The cost is a wasted
+session, not a wrong belief.
+
+Then `P5_CHECK.md` item 2 turned up. It ran `sed -n '774p'` on the worksheet and read *"dotted
+and blank means R7 is unsigned"*. Signing R1 and R4-d shifted every slot below them by twenty
+lines, so 774 became `### The question` — **neither dotted nor blank**. The predicate evaluates
+false and the checker concludes **R7 IS SIGNED**, on a ruling nobody has signed. That is a false
+**PASS**, and **nobody investigates a green.** It would have sat there certifying a settled
+ruling until someone tried to build on it.
+
+So the rule sharpens: **a citation-drift bug that lands on non-blank text is strictly more
+dangerous than one that lands on nothing.** Landing on nothing is loud. Landing on a different
+real line is silent, and the check keeps reporting with full confidence. When line numbers move,
+the citations to re-verify FIRST are the ones whose surrounding logic tests for *emptiness* —
+those are the ones that flip rather than break.
+
+**Why it is worse than an ordinary stale line.** A stale instruction produces a wrong build,
+which a later check can catch. This produces a wrong RECORD — and the record is what the next
+session reads as evidence. It also launders the error through an obedient agent: the checker did
+exactly what it was told, so nothing in the process flags it, and the false reason acquires the
+authority of a verdict.
+
+**What to do about it.**
+- **Prefer prescribing the SHAPE, not the sentence.** "Name the blocker and cite the file and
+  line that establishes it" survives a ruling being signed; "quote worksheet:388" does not.
+- **When exact wording genuinely is required, anchor it to something that moves with the
+  world** — a file and line rather than a claim about state — and say what to do if the anchor
+  no longer says that.
+- **When a ruling is signed, grep the CHECK briefs, not only the BUILD briefs.** The build side
+  is where a stale ruling is obvious; the check side is where it becomes a false record.
+---
+
 ## P-017 · `db:audit:live-population` targets remote Supabase as `postgres` with `bypassrls=true`
 
 **Found:** 2026-09-05, phase M1, on the first run of a command the phase brief named.
