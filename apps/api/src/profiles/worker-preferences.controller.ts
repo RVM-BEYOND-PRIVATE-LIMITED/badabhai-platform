@@ -11,7 +11,7 @@ import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { SetMyPreferencesSchema, type SetMyPreferencesDto } from "./worker-preferences.dto";
 import { WorkerPreferencesService } from "./worker-preferences.service";
 import { DOCUMENTS_READY, JOB_TYPES, LANGUAGES, SHIFTS } from "./worker-preferences.vocabulary";
-import { CITY_CATALOGUE, type CityOption } from "./worker-cities.catalogue";
+import { CITY_CATALOGUE, STATE_CATALOGUE, type CityOption } from "./worker-cities.catalogue";
 
 /**
  * The preferences page's whole vocabulary, in one response.
@@ -32,6 +32,12 @@ export interface WorkPreferenceOptionsResponse {
    * because a city has no slug in this system — see `worker-cities.catalogue.ts`.
    */
   readonly cities: readonly CityOption[];
+  /**
+   * The state/UT options (#1429). A flat list of display labels — the same string a
+   * {@link CityOption.state} carries, so a client filters the city list by string equality with
+   * no lookup table of its own.
+   */
+  readonly states: readonly string[];
 }
 
 /**
@@ -69,6 +75,12 @@ export class WorkerPreferencesController {
    * headers carrying it. This page already fetches this response on mount, so the fix costs no
    * request at all.
    *
+   * `states` RIDES IT FOR THE SAME REASON (#1429), and it is 36 strings. It is what makes the
+   * city list a state-then-city cascade rather than one flat list — and it is deliberately the
+   * FULL administrative list, not the 13 states the city catalogue happens to cover, because the
+   * employer-location field on the same form asks where a previous employer was, and that can be
+   * anywhere in India.
+   *
    * ADDITIVE, so shipped builds are unaffected: the Flutter decoder reads named keys and ignores
    * the rest.
    */
@@ -81,6 +93,7 @@ export class WorkerPreferencesController {
       job_type: JOB_TYPES,
       shift: SHIFTS,
       cities: CITY_CATALOGUE,
+      states: STATE_CATALOGUE,
     };
   }
 

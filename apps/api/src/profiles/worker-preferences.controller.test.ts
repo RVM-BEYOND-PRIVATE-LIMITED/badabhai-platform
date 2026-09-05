@@ -5,7 +5,7 @@ import { WorkerPreferencesController } from "./worker-preferences.controller";
 import type { WorkerPreferencesService } from "./worker-preferences.service";
 import type { AuthenticatedWorker } from "../auth/worker-auth.guard";
 import type { RequestContext } from "../common/request-context";
-import { CITY_CATALOGUE } from "./worker-cities.catalogue";
+import { CITY_CATALOGUE, STATE_CATALOGUE } from "./worker-cities.catalogue";
 import { DOCUMENTS_READY, JOB_TYPES, LANGUAGES, SHIFTS } from "./worker-preferences.vocabulary";
 
 /**
@@ -27,16 +27,37 @@ function controller(): WorkerPreferencesController {
 }
 
 describe("GET /workers/me/work-preferences/options", () => {
-  it("serves exactly five option sets", () => {
-    // Pinned as a whole, not key by key: a SIXTH key added without a client change is a payload
+  it("serves exactly six option sets", () => {
+    // Pinned as a whole, not key by key: a SEVENTH key added without a client change is a payload
     // every worker downloads and nothing renders, and this list is where that gets noticed.
+    // `states` was the sixth, added consciously by #1429 for the state-then-city cascade.
     expect(Object.keys(controller().options()).sort()).toEqual([
       "cities",
       "documents_ready",
       "job_type",
       "languages",
       "shift",
+      "states",
     ]);
+  });
+
+  it("serves the state/UT list, and every city's state is one of them (#1429)", () => {
+    const { states, cities } = controller().options();
+    expect(states).toBe(STATE_CATALOGUE);
+    // 28 states + 8 union territories. Pinned as a count so a half-deleted list is loud.
+    expect(states).toHaveLength(36);
+    expect([...states]).toEqual([...states].slice().sort());
+
+    // THE PROPERTY THE CASCADE RESTS ON. A city tagged with a state that is not offered is a city
+    // no worker can ever reach by picking a state first — it would show in the flat list and
+    // vanish from the filtered one, which is the #1406 dead end one layer in.
+    const offered = new Set(states);
+    for (const city of cities) expect(offered.has(city.state)).toBe(true);
+
+    // DELIBERATELY WIDER THAN THE CITY SET. The employer-location field on the same form asks
+    // where a PREVIOUS employer was, which can be anywhere in India — so the state list must not
+    // collapse to the 13 states that happen to hold a manufacturing hub.
+    expect(new Set(cities.map((c) => c.state)).size).toBeLessThan(states.length);
   });
 
   it("serves the four closed vocabularies by reference, not a copy", () => {
@@ -57,8 +78,9 @@ describe("GET /workers/me/work-preferences/options", () => {
     // The shape, pinned. `value` is what a chip shows AND what `preferred_cities` must be sent —
     // there is no slug layer to get wrong — and `aliases` are lowercase search keys only.
     for (const city of cities) {
-      expect(Object.keys(city).sort()).toEqual(["aliases", "value"]);
+      expect(Object.keys(city).sort()).toEqual(["aliases", "state", "value"]);
       expect(typeof city.value).toBe("string");
+      expect(typeof city.state).toBe("string");
       expect(Array.isArray(city.aliases)).toBe(true);
     }
 
