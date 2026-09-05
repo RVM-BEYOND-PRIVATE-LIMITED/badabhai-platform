@@ -143,12 +143,21 @@ import { PdfRenderer } from "../common/pdf/pdf-renderer.service";
  * and a site safety induction), which is the strongest case in the corpus for that row and still
  * not a reason to fake it here.
  *
- * TWO ZONE 5 VALUES ON PAGE 15 HAVE NO SLUG AT ALL, and they are recorded here rather than in
- * `captureGaps` because that record is keyed by a Section B row and these are neither. The page
- * lists "Arabic" among the languages and "ESIC" among the documents; `LANGUAGES` and
- * `DOCUMENTS_READY` in `worker-preferences.vocabulary.ts` carry neither, so a Gulf-returned
- * welder — which is what page 15 describes, and a large share of this trade — silently loses both.
- * The persona below therefore answers only slugs that exist, and the loss is named here.
+ * TWO ZONE 5 VALUES ON PAGE 15 HAD NO SLUG. They were recorded here rather than in `captureGaps`
+ * because that record is keyed by a Section B row and these are neither. They were then MEASURED
+ * against all twenty-one ratified pages, and the two answers came out opposite — which is the
+ * point of counting rather than generalising from the page in front of you.
+ *
+ *   · "ESIC" — on THIRTEEN of the twenty-one pages, more often than `experience_letter` (3) and
+ *     `passport_photos` (2), both of which already had slugs. It was the ONLY document those
+ *     pages print that this dictionary lacked. ADDED; the persona below now answers it.
+ *   · "Arabic" — on ONE page, this one, and only because its persona spent three years in Dubai.
+ *     DELIBERATELY NOT ADDED. It is not a matching signal — no employer in Faridabad, Pune or
+ *     Ahmedabad screens for Arabic, and the languages row exists so a supervisor knows he can
+ *     talk to the man. Its only value would be as a proxy for Gulf experience, which the work
+ *     history states far better ("Al Barsha Steel Fabrication LLC · Dubai · 3 yrs"). `LANGUAGES`
+ *     already carries sixteen, including every major Indian regional language; it is not missing
+ *     a category, it was missing one word for one man. The persona answers the three that exist.
  *
  * WHERE ZONE 5 IS ACTUALLY ASSERTED, so this is a stated boundary rather than a hole:
  *   · `yadav-parity.emit.test.ts` — the turner keeps "Languages spoken" and an NCVT Education
@@ -1287,16 +1296,19 @@ const CASES: readonly RoleCase[] = [
       formAttributes: {
         ...FORM_NCR,
         // NOT `FORM_NCR`'s LANGUAGES. Page 15 lists Hindi · Urdu · English · Arabic, and `arabic`
-        // has no slug in `LANGUAGES` — see the Zone 5 note in this file's header. The three that
-        // exist are answered; the fourth is recorded there rather than silently handed in as a
-        // slug that renders nothing, which is the failure this whole file is built to catch.
+        // has no slug in `LANGUAGES` — deliberately, on the measurement in this file's header.
+        // The three that exist are answered; the fourth is recorded there rather than silently
+        // handed in as a slug that renders nothing, which is what this whole file is built to
+        // catch.
         languages: ["hindi", "urdu", "english"],
-        // The page's document row, less "ESIC", which `DOCUMENTS_READY` also has no slug for.
+        // THE PAGE'S DOCUMENT ROW IN FULL, "ESIC" INCLUDED. This list used to stop short of it
+        // because `DOCUMENTS_READY` had no slug; it has one now, so the row is reproducible.
         documents_ready: [
           "aadhaar",
           "pan",
           "bank_account",
           "uan_pf",
+          "esic",
           "experience_letter",
           "passport_photos",
         ],
