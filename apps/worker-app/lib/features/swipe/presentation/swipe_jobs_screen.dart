@@ -104,11 +104,12 @@ class _FeedViewState extends State<_FeedView> {
   /// sheet does.
   FilterSelection _filters = FilterSelection.initial;
 
-  /// Which body renders — the scrollable list (default) or the swipe deck.
-  /// Starts at [JobFeedViewMode.list] and stays there unless/until a persisted
-  /// `deck` choice loads from [JobFeedViewStore] — eventual consistency, no
-  /// flash-of-wrong-mode requirement, matching how [_filters] is seeded.
-  JobFeedViewMode _viewMode = JobFeedViewMode.list;
+  /// Which body renders — the Tinder-style swipe deck (default) or the
+  /// scrollable list. Starts at [JobFeedViewMode.deck] and stays there
+  /// unless/until a persisted choice loads from [JobFeedViewStore] —
+  /// eventual consistency, no flash-of-wrong-mode requirement, matching how
+  /// [_filters] is seeded.
+  JobFeedViewMode _viewMode = JobFeedViewMode.deck;
 
   @override
   void initState() {
@@ -119,7 +120,7 @@ class _FeedViewState extends State<_FeedView> {
 
   /// Reads the persisted view-mode preference if a store is registered — absent
   /// under the plugin-free widget-test graph, in which case the default
-  /// [JobFeedViewMode.list] simply stays. Fire-and-forget from [initState].
+  /// [JobFeedViewMode.deck] simply stays. Fire-and-forget from [initState].
   Future<void> _loadViewMode() async {
     if (!locator.isRegistered<JobFeedViewStore>()) return;
     final JobFeedViewMode mode = await locator<JobFeedViewStore>().read();
