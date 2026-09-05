@@ -50,6 +50,8 @@
     "lexicon:verify": "pnpm --filter @badabhai/profiling-lexicon lexicon:verify",
     "pins": "node scripts/list-open-pins.mjs",
     "pins:test": "node --test scripts/list-open-pins.test.mjs",
+    "authority": "node scripts/check-authority-paths.mjs",
+    "authority:test": "node --test scripts/check-authority-paths.test.mjs",
     "staging:smoke": "node scripts/staging-smoke.mjs",
     "staging:smoke:test": "node --test scripts/staging-smoke.test.mjs",
     "clean": "turbo run clean",

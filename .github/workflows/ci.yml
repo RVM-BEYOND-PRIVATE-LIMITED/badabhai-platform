@@ -929,6 +929,25 @@ jobs:
       - name: Repo self-test (lint-gate parity)
         run: node --test scripts/lint-gate-parity.test.mjs
 
+      # THE AUTHORITY LIST MUST NAME ONLY FILES THAT EXIST. `docs/agent/BUILD_RULES.md` tells
+      # every agent session which documents are source of truth, and until 2026-09-04 the top
+      # two entries were not in this repository — so an agent told to obey them read whatever it
+      # COULD open instead. That is the traced cause of 67 factual errors across eleven phase
+      # briefs. Committing the documents fixed it once; this step is what stops it rotting back,
+      # because a renamed ADR or a moved reference doc is a one-line change nobody notices.
+      #
+      # THE SELF-TEST RUNS FIRST AND IS NOT DECORATION. The gate's only failure mode that
+      # matters is going green while checking nothing, so `check` carries a vacuity floor and
+      # the suite pins both directions: the two documents from the real incident are caught
+      # (one of them has no file extension, which an earlier draft missed), and identifiers like
+      # `OTP_MAX_SENDS_PER_DAY` that share the same shape are NOT. Ordered self-test-then-gate
+      # so a broken extractor is reported as a broken extractor rather than as a clean repo.
+      - name: Repo self-test (authority paths)
+        run: node --test scripts/check-authority-paths.test.mjs
+
+      - name: Every document named in BUILD_RULES.md resolves
+        run: node scripts/check-authority-paths.mjs
+
       - name: Build
         run: pnpm build
 
