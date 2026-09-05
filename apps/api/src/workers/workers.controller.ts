@@ -225,6 +225,13 @@ export class WorkersController {
    * The plaintext name is encrypted at rest by the service, emitted as a name-free
    * `worker.name_recorded` event, and never logged — the response is only
    * `{ ok: true }` (never the raw name).
+   *
+   * IT ALSO ACCEPTS AN OPTIONAL COARSE `city` / `state` (#1428), captured on the same onboarding
+   * screen. Those are NOT PII by owner ruling (2026-07-31: "cities as PII -> a 20-point matching
+   * input; never redact"), so unlike the name they are stored in plaintext — and, also unlike the
+   * name, only the FACT of each is emitted (`worker.location_recorded` carries booleans, never
+   * the values). Before this the schema silently STRIPPED both keys, because it is a non-strict
+   * `z.object`: a client could send them and watch them vanish with no error.
    */
   @Patch("me/name")
   @HttpCode(200)
@@ -235,6 +242,12 @@ export class WorkersController {
     @Ctx() ctx: RequestContext,
   ): Promise<{ ok: true }> {
     await this.workersService.setFullName(worker.id, dto.full_name, ctx);
+    // #1428 — the same screen also captures a coarse home location, so it rides the same PATCH:
+    // one round trip on a 3G handset instead of two, on the first screen of onboarding. Both
+    // halves are optional and a name-only body is byte-identical to the pre-#1428 request, so
+    // shipped clients are unaffected. Ordered AFTER the name because the name is what this route
+    // is for and a location failure must not cost the worker their name.
+    await this.workersService.setLocation(worker.id, { city: dto.city, state: dto.state }, ctx);
     return { ok: true };
   }
 
