@@ -155,19 +155,43 @@ const VoiceQuestion _searchableQuestionWithNoneOfAbove = VoiceQuestion(
   ],
 );
 
+// #1429 — every fixture city is tagged the SAME test state so existing test
+// flows only need one state pick (via `_pickCityState`) before adding
+// several cities, rather than re-picking a real (and here irrelevant) state
+// per city.
+const String _kTestCityState = 'Haryana';
+
 const WorkPrefOptionsDto _prefOptions = WorkPrefOptionsDto(
   languages: <String, String>{'hindi': 'Hindi'},
   documentsReady: <String, String>{'aadhaar': 'Aadhaar'},
   jobType: <String, String>{'permanent': 'Permanent'},
   shift: <String, String>{'day': 'Day'},
   cities: <CityOptionDto>[
-    CityOptionDto(value: 'Delhi', aliases: <String>['dilli']),
-    CityOptionDto(value: 'Faridabad', aliases: <String>[]),
-    CityOptionDto(value: 'Ghaziabad', aliases: <String>[]),
-    CityOptionDto(value: 'Gurugram', aliases: <String>['gurgaon']),
-    CityOptionDto(value: 'Noida', aliases: <String>[]),
+    CityOptionDto(
+        value: 'Delhi', aliases: <String>['dilli'], state: _kTestCityState),
+    CityOptionDto(
+        value: 'Faridabad', aliases: <String>[], state: _kTestCityState),
+    CityOptionDto(
+        value: 'Ghaziabad', aliases: <String>[], state: _kTestCityState),
+    CityOptionDto(
+        value: 'Gurugram',
+        aliases: <String>['gurgaon'],
+        state: _kTestCityState),
+    CityOptionDto(
+        value: 'Noida', aliases: <String>[], state: _kTestCityState),
   ],
+  states: <String>[_kTestCityState],
 );
+
+/// Picks [state] via the cities page's state-then-city cascade (#1429) — the
+/// worker must be on the preferences marker's cities internal page (page 4)
+/// already; opens the `BbSearchableDropdownField` sheet and taps the option.
+Future<void> _pickCityState(WidgetTester tester, String state) async {
+  await tester.tap(find.text('STATE CHUNEIN'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(state));
+  await tester.pumpAndSettle();
+}
 
 const QualificationOptionsDto _qualOptions = QualificationOptionsDto(
   educationCredential: <String, String>{'iti': 'ITI', 'diploma': 'Diploma'},
@@ -1175,6 +1199,7 @@ void main() {
       // Page 4 (cities) — its own page. Resolves against the gazetteer
       // fixture (`_prefOptions.cities` includes Faridabad).
       expect(find.text('Kahan kaam karna chahte hain?'), findsOneWidget);
+      await _pickCityState(tester, _kTestCityState);
       await tester.enterText(find.byType(TextField).first, 'Faridabad');
       await tester.testTextInput.receiveAction(TextInputAction.done);
       // Flush the resolved-add banner's 2s auto-dismiss timer.
@@ -1281,6 +1306,7 @@ void main() {
 
       expect(find.text('Kahan kaam karna chahte hain?'), findsOneWidget);
       expect(find.text('+'), findsNothing);
+      await _pickCityState(tester, _kTestCityState);
       await tester.enterText(find.byType(TextField).first, 'gurugram');
       await tester.pump();
       expect(find.text('+'), findsNothing);
@@ -1300,6 +1326,8 @@ void main() {
         await tester.tap(find.text('Aage badhein'));
         await tester.pumpAndSettle();
       }
+      // #1429 — the city search only opens once a state is picked.
+      await _pickCityState(tester, _kTestCityState);
     }
 
     Future<void> addCityText(WidgetTester tester, String city) async {
@@ -1450,7 +1478,10 @@ void main() {
       await walkToCitiesPage(tester);
 
       // Empty query browses the whole (small) gazetteer — tap "Gurugram"
-      // straight off the suggestion row, no typing at all.
+      // straight off the suggestion row, no typing at all. The state picker
+      // above pushed this row lower on screen (#1429), so scroll it into
+      // view first.
+      await tester.ensureVisible(find.text('Gurugram'));
       await tester.tap(find.text('Gurugram'));
       await tester.pump();
       expect(find.text('Sheher add ho gaya'), findsOneWidget);

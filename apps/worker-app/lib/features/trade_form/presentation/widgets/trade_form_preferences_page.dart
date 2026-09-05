@@ -7,6 +7,7 @@ import '../../../../core/theme/app_spacing.dart';
 import '../../../../core/theme/app_typography.dart';
 import '../../../../core/widgets/bb_button.dart';
 import '../../../../core/widgets/bb_chip.dart';
+import '../../../../core/widgets/bb_searchable_dropdown_field.dart';
 import '../../../../core/widgets/bb_toggle.dart';
 import '../../domain/trade_form_models.dart';
 import 'trade_form_text_field.dart';
@@ -19,6 +20,8 @@ const String _kShiftLabel = 'Shift';
 const String _kJobTypeLabel = 'Naukri ka type';
 const String _kCitiesLabel = 'Kahan kaam karna chahte hain?';
 const String _kCitiesSubtitle = 'Zyada se zyada 5 sheher jod sakte hain.';
+const String _kStateLabel = 'State';
+const String _kPickStateLabel = 'STATE CHUNEIN';
 const String _kCityHint = 'Sheher ka naam likhein';
 const String _kCityNotFoundError =
     'Yeh sheher list mein nahi mila — neeche diye suggestion mein se chunein.';
@@ -122,6 +125,12 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// catalogue, so accepting an unresolved city client-side would just move
   /// the dead end from submit-time to save-time.
   String? _cityError;
+
+  /// The state currently narrowing the city search (#1429) — a PURE UI
+  /// filter, never part of [_prefs]/the write contract (`preferred_cities`
+  /// still submits the city's [CityOptionDto.value] alone). Null means no
+  /// state picked yet, so the city search stays closed (see [_citiesPage]).
+  String? _cityState;
 
   int _page = 0;
   bool get isFirstPage => _page <= 0;
@@ -313,29 +322,44 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
         // cap, same convention as `kTradeFormMaxCertificates`/
         // `kTradeFormMaxEducations`'s add button.
         if (!atCityCap) ...<Widget>[
-          // No "+" add button — a worker cannot enter a custom city (the
-          // server's gazetteer is closed, #1406/#1410), so the ONLY way to
-          // add one is picking a suggestion chip below (or hitting the
-          // keyboard's "Done", which resolves the same exact-match check a
-          // "+" button would have).
-          TradeFormTextField(
-            controller: _city,
-            hint: _kCityHint,
-            textInputAction: TextInputAction.done,
-            errorText: _cityError,
-            onChanged: (String v) => setState(() => _cityError = null),
-            onSubmitted: (_) => _submitTypedCity(options),
+          // State-then-city cascade (#1429): the state list picks which
+          // state's cities the search below offers — no "+" add button, a
+          // worker cannot enter a custom city (the server's gazetteer is
+          // closed, #1406/#1410), so the ONLY way to add one is picking a
+          // suggestion chip below (or hitting the keyboard's "Done", which
+          // resolves the same exact-match check a "+" button would have).
+          _label(_kStateLabel),
+          BbSearchableDropdownField(
+            placeholder: _kPickStateLabel,
+            options: options.states,
+            selected: _cityState,
+            onSelected: (String state) => setState(() {
+              _cityState = state;
+              _city.clear();
+              _cityError = null;
+            }),
           ),
-          if (suggestions.isNotEmpty) ...<Widget>[
-            const SizedBox(height: AppSpacing.s2),
-            Wrap(
-              spacing: AppSpacing.s2,
-              runSpacing: AppSpacing.s2,
-              children: <Widget>[
-                for (final CityOptionDto c in suggestions)
-                  BbChip(label: c.value, onTap: () => _addResolvedCity(c)),
-              ],
+          if (_cityState != null) ...<Widget>[
+            const SizedBox(height: AppSpacing.s3),
+            TradeFormTextField(
+              controller: _city,
+              hint: _kCityHint,
+              textInputAction: TextInputAction.done,
+              errorText: _cityError,
+              onChanged: (String v) => setState(() => _cityError = null),
+              onSubmitted: (_) => _submitTypedCity(options),
             ),
+            if (suggestions.isNotEmpty) ...<Widget>[
+              const SizedBox(height: AppSpacing.s2),
+              Wrap(
+                spacing: AppSpacing.s2,
+                runSpacing: AppSpacing.s2,
+                children: <Widget>[
+                  for (final CityOptionDto c in suggestions)
+                    BbChip(label: c.value, onTap: () => _addResolvedCity(c)),
+                ],
+              ),
+            ],
           ],
         ],
         if (_prefs.preferredCities.isNotEmpty) ...<Widget>[
@@ -409,12 +433,19 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   /// still find the city) — or the first few when the field is empty, so a
   /// worker can browse without typing at all. Already-picked cities are
   /// dropped from the pool; there is no reason to suggest adding one twice.
+  ///
+  /// FILTERED TO [_cityState] FIRST (#1429) — the state-then-city cascade;
+  /// empty when no state is picked yet (the caller doesn't even show the
+  /// search box in that case — see [_citiesPage]).
   List<CityOptionDto> _matchingCities(WorkPrefOptionsDto options) {
+    final String? state = _cityState;
+    if (state == null) return const <CityOptionDto>[];
     final String typed = _city.text.trim().toLowerCase();
     final Set<String> picked =
         _prefs.preferredCities.map((String c) => c.toLowerCase()).toSet();
     final Iterable<CityOptionDto> pool = options.cities.where(
       (CityOptionDto c) =>
+          c.state == state &&
           !picked.contains(c.value.toLowerCase()) &&
           (typed.isEmpty ||
               c.value.toLowerCase().contains(typed) ||
@@ -424,13 +455,19 @@ class TradeFormPreferencesPageState extends State<TradeFormPreferencesPage> {
   }
 
   /// Resolves typed text against the gazetteer — an exact match (`value` OR
-  /// any `alias`, case-insensitive) — or null. There is no fuzzy/partial
-  /// accept: [_matchingCities] is how a worker finds the right chip to tap,
-  /// this is only for pressing "+"/submit with the full name already typed.
+  /// any `alias`, case-insensitive), WITHIN [_cityState] — or null. There is
+  /// no fuzzy/partial accept: [_matchingCities] is how a worker finds the
+  /// right chip to tap, this is only for pressing "+"/submit with the full
+  /// name already typed. Scoped to the picked state so typing an exact city
+  /// name that belongs to a DIFFERENT state is treated as not-found rather
+  /// than silently resolving against the wrong cascade branch.
   CityOptionDto? _resolveCity(WorkPrefOptionsDto options, String typed) {
+    final String? state = _cityState;
+    if (state == null) return null;
     final String q = typed.trim().toLowerCase();
     if (q.isEmpty) return null;
     for (final CityOptionDto c in options.cities) {
+      if (c.state != state) continue;
       if (c.value.toLowerCase() == q) return c;
       if (c.aliases.any((String a) => a.toLowerCase() == q)) return c;
     }
