@@ -17,15 +17,23 @@ import { PdfRenderer } from "../common/pdf/pdf-renderer.service";
 
 /**
  * ══════════════════════════════════════════════════════════════════════════════════════
- * THE FIVE SHIPPED ROLES, RENDERED — the ratified reference sheets as the expectation.
+ * THE SIX SHIPPED ROLES, RENDERED — the ratified reference sheets as the expectation.
  * ══════════════════════════════════════════════════════════════════════════════════════
  *
  * WHY THIS FILE EXISTS. `trade-form.service.test.ts` proves an answer is STORED and
  * `trade-resume-map.test.ts` proves a dictionary entry EXISTS. Neither walks a role from a
- * fully-answered form to a rendered sheet, so four of the five shipped roles had never been
+ * fully-answered form to a rendered sheet, so four of the five Batch 1 roles had never been
  * driven end to end by anything, and the one failure mode this programme has already shipped
  * TWICE — a `values` table keyed by `option_key` where the pipeline stores `value_text` —
  * renders NOTHING, with no error, on exactly that path.
+ *
+ * BATCH 2 IS WHY THERE IS A SIXTH CASE. `qp_welding_trade` shipped with a nine-row Section B
+ * read off page 15 of the corpus and NOTHING drove it — not this file, which hand-authored the
+ * five Batch 1 personas, and not the pack or map unit tests, which never meet. The welder below
+ * is the first Batch 2 role here, and it earned its place on its first run: it found a row the
+ * shipped map cannot print in full, which no test that stops at "the dictionary entry exists"
+ * can see. See `qp_welding_trade`'s `Equipment` entry in {@link ReferenceSheet.captureGaps} and
+ * item 5 of the unresolved list below.
  *
  * WHAT IS REAL HERE, and it is the whole point:
  *   · the REAL pack JSON in `packages/db/data/question-packs/packs` — every option key below is
@@ -54,15 +62,16 @@ import { PdfRenderer } from "../common/pdf/pdf-renderer.service";
  *
  * ── WHAT IS STILL UNRESOLVED, AND WHY — READ THIS BEFORE "FIXING" ANYTHING BELOW ───────
  *
- * Nine rows and one headline cannot be reproduced. Each is a question nobody has answered, not an
+ * Ten rows and one headline cannot be reproduced. Each is a question nobody has answered, not an
  * oversight, and each would be answered WRONGLY by adjusting the expectation to match what the
  * renderer prints.
  *
  * THEY ARE RECORDED RATHER THAN LEFT RED, and the distinction matters because the alternative was
- * tried first. An earlier draft of this file simply failed on all ten. A suite that is expected to
+ * tried first. An earlier draft of this file simply failed on every one. A suite that is expected to
  * be red is one every reader learns to skip — it cannot be a merge gate, and the next real
- * regression lands inside the noise. So each is recorded as data: nine as {@link
- * ReferenceSheet.captureGaps} entries naming the pack option that is missing, one as {@link
+ * regression lands inside the noise. So each is recorded as data: ten as {@link
+ * ReferenceSheet.captureGaps} entries naming the pack option that is missing (nine of them) or
+ * the map rule that drops the value (the tenth, welding's `Equipment`), one as {@link
  * RoleCase.headlineConflict}. NOTHING WAS RELAXED TO GET THERE. `REFERENCE[...].rows` still holds
  * the ratified page's own string as the only authority, the green value assertion still compares
  * every OTHER row exactly against it, and an `it.fails` tripwire re-runs the full untouched
@@ -104,6 +113,19 @@ import { PdfRenderer } from "../common/pdf/pdf-renderer.service";
  *    dictionaries ruled on together, and none of it is a renderer bug this file may invent a fix
  *    for.
  *
+ * 5. welder — TWO MAP DEFECTS, FOUND BY DRIVING THIS PERSONA AND SINCE FIXED. Both are recorded
+ *    here rather than forgotten, because "the welder reproduces its page" means something
+ *    different depending on which of the two ways it came to be true.
+ *      · `Equipment` carried `maxValues: 3` against a page that prints FOUR and a pack that
+ *        stores all four, so "Oxy-acetylene cutting set" was dropped before the sheet was
+ *        composed — a gas cutter reading as a man with no torch. The painter's map in the same
+ *        file had already settled the identical tension the other way ("the cap follows the page,
+ *        not the row's position"); the welder's row now agrees with it.
+ *      · `Positions` printed the pack's shop-floor label "1G flat" where the page prints
+ *        "1G — flat". The map dictionary is exactly the seam where a worker's chip becomes the
+ *        sheet's English, so the page's dash now lives in the value.
+ *    NEITHER WAS RELAXED INTO A RECORD. The expectation still carries the page's own strings.
+ *
  * ── WHAT THIS FILE DOES NOT MEASURE: ZONE 5 ───────────────────────────────────────────
  *
  * SECTION B ONLY. `REFERENCE[...].rows` and every assertion built on it read `capChipRows`,
@@ -114,9 +136,19 @@ import { PdfRenderer } from "../common/pdf/pdf-renderer.service";
  * IT IS A PIPELINE BOUNDARY, NOT AN OVERSIGHT. This file drives a role from a fully-answered
  * FORM, and Zone 5 is not built from form answers: `Certificates` is fed by `facts.certifications`
  * (`resume-sheet-rows.ts`), a DB credential source these fixtures deliberately do not supply, so
- * all five personas render Zone 5 as [Education, Languages spoken, Documents ready] while pages
- * 1-5 of the corpus each print a Certificates row too. Handing the personas invented certificate
- * strings would make the row appear without exercising one line of the path that produces it.
+ * all six personas render Zone 5 as [Education, Languages spoken, Documents ready] while pages
+ * 1-5 and page 15 of the corpus each print a Certificates row too. Handing the personas invented
+ * certificate strings would make the row appear without exercising one line of the path that
+ * produces it. The welder's page carries TWO of them ("Welder Qualification Test — 3G, MS plate"
+ * and a site safety induction), which is the strongest case in the corpus for that row and still
+ * not a reason to fake it here.
+ *
+ * TWO ZONE 5 VALUES ON PAGE 15 HAVE NO SLUG AT ALL, and they are recorded here rather than in
+ * `captureGaps` because that record is keyed by a Section B row and these are neither. The page
+ * lists "Arabic" among the languages and "ESIC" among the documents; `LANGUAGES` and
+ * `DOCUMENTS_READY` in `worker-preferences.vocabulary.ts` carry neither, so a Gulf-returned
+ * welder — which is what page 15 describes, and a large share of this trade — silently loses both.
+ * The persona below therefore answers only slugs that exist, and the loss is named here.
  *
  * WHERE ZONE 5 IS ACTUALLY ASSERTED, so this is a stated boundary rather than a hole:
  *   · `yadav-parity.emit.test.ts` — the turner keeps "Languages spoken" and an NCVT Education
@@ -152,7 +184,7 @@ interface PackOption {
   readonly is_none_of_above?: boolean;
 }
 
-/** The only `ask_if` shape these five packs use — asserted rather than assumed by `isVisible`. */
+/** The only `ask_if` shape these six packs use — asserted rather than assumed by `isVisible`. */
 interface PackGate {
   readonly op: string;
   readonly left: { readonly field: string };
@@ -207,7 +239,7 @@ function storedValue(
 function isVisible(item: PackItem, tierField: string, tier: number): boolean {
   const gate = item.ask_if;
   if (!gate) return true;
-  // ASSERTED, NOT ASSUMED. Every gate in these five packs is a numeric comparison against the
+  // ASSERTED, NOT ASSUMED. Every gate in these six packs is a numeric comparison against the
   // tier question; a pack that grows a different shape must fail here rather than be evaluated
   // wrongly and quietly change which questions this file thinks a worker was asked.
   if (gate.left.field !== tierField) {
@@ -295,7 +327,7 @@ function snapshotFor(persona: Persona): Record<string, unknown> {
   return {
     // NO `resume_profile`. A form-first worker never runs extraction (`trade-form.service.ts`
     // switches it off on handover), so the LEGACY branch of the mapper is the one their sheet
-    // actually takes — and it is the branch four of these five roles reach in production.
+    // actually takes — and it is the branch four of the five Batch 1 roles reach in production.
     role_label: persona.roleLabel,
     education_level: persona.educationLevel,
     education_field: persona.educationField,
@@ -446,6 +478,18 @@ interface ReferenceSheet {
    * NONE OF THESE IS A RENDERER BUG, and none may be "fixed" here. Closing one means adding an
    * option to a pack in `packages/db/data/question-packs/packs` or ruling on a seam — pack and
    * dictionary work, owned elsewhere and listed in this file's header.
+   *
+   * ═══ A MAP DEFECT IS NOT A CAPTURE GAP — FIX IT, DO NOT FILE IT ═══
+   *
+   * This record is for a page row the PACK cannot store. `qp_welding_trade`'s `Equipment` row was
+   * briefly filed here and should not have been: the pack stored all four values the page prints,
+   * and it was the MAP's own `maxValues: 3` that dropped the fourth. Nothing about that is a
+   * capture gap — no answer was missing, and the fix was two characters in a file this repo owns.
+   *
+   * The distinction is worth keeping sharp, because filing a fixable defect as a recorded gap is
+   * how a defect acquires tenure: the row goes green, the record reads like a decision somebody
+   * made, and the next author inherits it as context rather than as a bug. If a row cannot be
+   * reproduced because of something in `trade-resume-map.ts`, change the map.
    */
   readonly captureGaps?: Readonly<Record<string, RecordedCaptureGap>>;
 }
@@ -464,7 +508,14 @@ interface RecordedCaptureGap {
   readonly page: string;
   /** What the pipeline produces today. NOT an agreed rendering — see {@link ReferenceSheet.captureGaps}. */
   readonly rendered: string;
-  /** WHICH answer the pack cannot store. Name the attribute and the missing option. */
+  /**
+   * WHICH answer the pack cannot store. Name the attribute and the missing option.
+   *
+   * This field names the thing to change; a sentence that only regrets the difference is an
+   * excuse, and the assertion below rejects one too short to be anything else. If what it would
+   * name is a rule in `trade-resume-map.ts` rather than a missing pack option, this is the wrong
+   * record — see {@link ReferenceSheet.captureGaps}.
+   */
   readonly missing: string;
 }
 
@@ -740,9 +791,68 @@ const REFERENCE: Readonly<Record<string, ReferenceSheet>> = {
       },
     },
   },
+
+  // Page 15, the first BATCH 2 role in this file — "Welder — Certified Welder · 11 yrs · MIG /
+  // MAG (GMAW), Arc / rod (SMAW), TIG (GTAW)". Nine rows, which is what `qp_welding_trade`'s
+  // `_sheet` note says it was authored from, and they arrive in the page's own order without the
+  // map having to declare them in it: `bb_trade.v1.html` emits chips, then ticks, then facts, and
+  // page 15 prints four chip rows, two tick rows and three fact rows in exactly that sequence.
+  qp_welding_trade: {
+    headline: "Welder — Certified Welder · 11 yrs · MIG / MAG (GMAW), Arc / rod (SMAW), TIG (GTAW)",
+    rows: [
+      ["Processes", "MIG / MAG (GMAW) · Arc / rod (SMAW) · TIG (GTAW) · Gas cutting"],
+      // "CO2", NOT "CO". `pdftotext -layout` drops the subscript 2 the page sets, so the naive
+      // transcription reads "CO / MIG machine" — a gas that is not the one in the bottle.
+      ["Equipment", "Inverter arc set · CO2 / MIG machine · TIG set · Oxy-acetylene cutting set"],
+      ["Electrodes / wire", "E6013 · E7018 · ER70S-6"],
+      ["Materials", "MS · Stainless steel · Aluminium"],
+      ["Positions", "1G — flat · 2G — horizontal · 3G — vertical"],
+      ["Inspection", "Visual inspection · Fillet / weld gauge · Dye-penetrant (DPT) witness"],
+      ["Plate thickness", "3 mm - 25 mm plate"],
+      ["Drawings", "Reads 2D drawings and weld symbols"],
+      ["Sector worked", "Structural fabrication — general engineering"],
+    ],
+    // NOTHING IS UNASKABLE ON THIS PAGE. Only the two oldest packs carry an `unaskable` row at
+    // all — the turner's swing/between-centres and the miller's table size, neither of which any
+    // question anywhere in their packs targets. `qp_welding_trade` was authored FROM this page,
+    // row by row (its `_sheet` note says so), and the nine labels below are the nine `from`s in
+    // its map: that is what writing the pack after the reference is supposed to buy.
+    unaskable: [],
+    divergences: {
+      "Sector worked": {
+        page: "Structural fabrication — general engineering",
+        rendered: "Structural fabrication · General engineering",
+        why:
+          "THE SAME RULING THE GRINDING AND CAM SHEETS ALREADY CARRY, and this map's own " +
+          "`sector_worked` comment predicts this row verbatim before anyone ran it. The ratified " +
+          "sector cells are hand-set prose: a fact row joins closed-vocabulary labels with this " +
+          "file's one separator, and matching the page would need both a second separator and a " +
+          "down-cased label ('general engineering'), neither of which §8 permits a dictionary to " +
+          "produce. Three pages now diverge here for one cause, which is an argument about the " +
+          "sector CELL and not about this trade.",
+      },
+    },
+    // NO CAPTURE GAPS, AND THE TWO THIS PAGE FOUND WERE BOTH FIXED RATHER THAN RECORDED.
+    //
+    // Driving this persona for the first time surfaced two real defects in the shipped map, and
+    // neither belonged in a `captureGaps` record — that field is for a page row the PACK cannot
+    // store, and both of these were the map's own doing:
+    //
+    //   · `Equipment` carried `maxValues: 3` against a page that prints FOUR and a pack that
+    //     stores all four, so "Oxy-acetylene cutting set" was dropped before the sheet was
+    //     composed and a gas cutter read as a man with no torch. Now 4, matching the painter's
+    //     row, which had already settled the identical tension the other way.
+    //   · `Positions` printed the pack's shop-floor label "1G flat" where the page prints
+    //     "1G — flat". The dictionary is exactly the seam where the worker's chip becomes the
+    //     sheet's English, so the page's dash now lives in the value.
+    //
+    // Recorded here rather than deleted silently: a reviewer reading this file later should see
+    // that the row list below is reproduced because the map was CORRECTED, not because the
+    // expectation was relaxed to meet it.
+  },
 };
 
-// ── THE FIVE PERSONAS, ANSWERED AGAINST THE REAL PACKS ─────────────────────────────────
+// ── THE SIX PERSONAS, ANSWERED AGAINST THE REAL PACKS ──────────────────────────────────
 
 /**
  * The option keys behind each ratified page, chosen to reproduce it as closely as the shipped
@@ -1076,7 +1186,7 @@ const CASES: readonly RoleCase[] = [
   },
   {
     /**
-     * THE FRESHER PATH, AND THE RISKIEST OF THE FIVE. `qp_cad_drafting`'s tier question offers
+     * THE FRESHER PATH, AND THE RISKIEST OF THE SIX. `qp_cad_drafting`'s tier question offers
      * `fresher_course` (stored `0`), which closes every `gte` gate and opens the four `lte 1`
      * ones — so this persona's Zone 4 is the training block, not employment, and the page has no
      * work-history section at all. NO EMPLOYMENTS is therefore load-bearing, not an omission.
@@ -1127,6 +1237,167 @@ const CASES: readonly RoleCase[] = [
     },
     employments: [],
   },
+  {
+    /**
+     * THE FIRST BATCH 2 ROLE IN THIS FILE, and the first whose pack was authored FROM its ratified
+     * page rather than beside it — `qp_welding_trade`'s `_sheet` note names the nine rows of page
+     * 15 and says every one of them has a question. That claim had never been executed: nothing
+     * drove this role from a form to a sheet, so "there is a question for it" and "the sheet
+     * prints it" were the same sentence to everyone reading. They are not. SIX of the nine rows
+     * reproduce the page character for character, two carry a recorded divergence, and the ninth
+     * — `Equipment` — is a capture gap no test that stops at the pack or at the dictionary could
+     * have seen: both halves are individually correct and the row is still short a chip.
+     *
+     * WHAT IS ANSWERED HERE AND WHAT IS DELIBERATELY NOT — the turner's and grinder's precedent,
+     * followed rather than re-derived. Both of those cases answer exactly the questions whose map
+     * row their page prints, and leave the rest of the pack unanswered: the grinder never answers
+     * `dressing_method` (a rank-64 row no ratified page shows) or `grinding_type` (no row at all),
+     * because a wider answer set adds rows the page does not print and sheds a ratified one to pay
+     * for them. So `joint_type`, `machine_setting`, `weld_defect` and `fabrication_work` — the
+     * four `gte 5` questions a senior welder really is asked — are NOT answered below. They carry
+     * no capability row BY DESIGN (`trade-resume-map.ts` writes out why: page 15 prints none, and
+     * they are matching data in `worker_attributes`), so answering them would change NOTHING on
+     * this sheet — there is no row for them to fill — and the only thing it could do is blur WHERE
+     * that was decided. It is the map's decision, not this persona's answer set, and a reader who
+     * saw them answered and unprinted would have to re-derive that from the map to find out.
+     *
+     * `welder_level` IS ANSWERED, and it is the one answer here that prints no capability row. The
+     * rung rides the HEADLINE ("Welder — Certified Welder") through `role_label`, which this file
+     * hands in directly — so nothing in this render depends on it, and it is answered anyway
+     * because a form-first welder answers it (it is `is_core`) and because leaving the level out
+     * of the one persona this role has would make the ladder look optional to the next reader.
+     *
+     * THE DISPLAY NAME IS NOT THE PAGE'S. Page 15's name was not part of the transcription this
+     * case was built from; `displayName` reaches Zone 1, which this file does not measure, and
+     * every string that IS measured — the headline and all nine Section B rows — comes from the
+     * page or from the pack.
+     */
+    persona: {
+      id: "welder",
+      packId: "qp_welding_trade",
+      displayName: "Mohammad Aslam",
+      roleLabel: "Welder — Certified Welder",
+      city: "Faridabad",
+      totalYears: 11,
+      // "available immediately" on the page's terms line — no notice period to serve, which is
+      // what a contract welder between site postings actually has.
+      availability: { status: "immediate", notice_period_days: null },
+      salaryMin: 26000,
+      salaryMax: 30000,
+      formAttributes: {
+        ...FORM_NCR,
+        // NOT `FORM_NCR`'s LANGUAGES. Page 15 lists Hindi · Urdu · English · Arabic, and `arabic`
+        // has no slug in `LANGUAGES` — see the Zone 5 note in this file's header. The three that
+        // exist are answered; the fourth is recorded there rather than silently handed in as a
+        // slug that renders nothing, which is the failure this whole file is built to catch.
+        languages: ["hindi", "urdu", "english"],
+        // The page's document row, less "ESIC", which `DOCUMENTS_READY` also has no slug for.
+        documents_ready: [
+          "aadhaar",
+          "pan",
+          "bank_account",
+          "uan_pf",
+          "experience_letter",
+          "passport_photos",
+        ],
+      },
+      // NO ITI, AND NO `education_credential`. Page 15's qualification block reads "10th standard"
+      // and names no trade certificate — this trade is learned at the arc, not at a council — so
+      // the credential/council/year/institute quartet the four Batch 1 seniors carry is absent
+      // here rather than invented. His certificates are a Welder Qualification Test and a site
+      // safety induction, which are `facts.certifications` and out of this file's scope.
+      educationLevel: "10",
+      educationField: null,
+    },
+    tier: { field: "welding_experience", value: 10, option: "over_seven" },
+    answers: {
+      welding_experience: "over_seven",
+      // FOUR PROCESSES, WHICH IS ALSO THE ROW'S CAP. `spot` is left untapped because the page
+      // does not print it — and because with it the cap, not the page, would decide the row.
+      welding_process: ["mig_mag", "arc", "tig", "gas_cutting"],
+      welder_level: "certified_welder",
+      // ALL FOUR, THOUGH ONLY THREE SURVIVE THE MAP'S `maxValues: 3`. Answering three instead
+      // would render the identical row and hide the cap — the gap has to be visible as a LOSS,
+      // not disguised as a persona who never owned a cutting set. See `captureGaps.Equipment`.
+      welding_equipment: ["inverter_arc", "co_two_mig", "tig_machine", "gas_cutting_set"],
+      electrode_type: ["e_six_zero_one_three", "e_seven_zero_one_eight", "er_seventy_s_six"],
+      material_worked: ["mild_steel", "stainless", "aluminium"],
+      // 1G, 2G, 3G — NOT 4G. The page stops at vertical, and overhead is the rung that separates
+      // two pay bands in this trade, so tapping it to fill the row would be the one over-claim a
+      // welder's sheet must never make.
+      welding_position: ["flat", "horizontal", "vertical"],
+      // `gte 2` — on screen for this tier, and the page prints all three.
+      inspection_work: ["visual", "weld_gauge", "dye_penetrant"],
+      plate_thickness: "upto_twentyfive",
+      drawing_reading: "weld_symbol",
+      sector_worked: ["structural", "general_engg"],
+    },
+    // THE PAGE'S OWN WORK HISTORY, three blocks of it, where the four Batch 1 seniors carry one
+    // apiece and the fresher carries none.
+    // Employments feed the BUDGET block below (the parity render passes none), and this role is
+    // the first with a Gulf stint and a contract posting — `employerState` carrying a COUNTRY is
+    // §11 #15's interim shape and had no case in this file until now.
+    //
+    // THE FOURTH LINE OF THE PAGE'S HISTORY IS NOT REPRODUCIBLE HERE AND IS NOT MEANT TO BE.
+    // "2 earlier employers — 44 months total — 2015-2019" is `employmentsMore`, which
+    // `buildEmploymentBlock` emits from records BEYOND `EMPLOYMENT_BLOCK_BUDGET` (4). Two more
+    // records would print a FOURTH named block and summarise one employer, not two. Zone 4 is not
+    // what this file measures — `resume-employment-rows.test.ts` owns that line.
+    employments: [
+      {
+        // §11 #4 — the literal "Contract work", with the plant it was served at.
+        employer: "Contract work — Escorts Kubota plant",
+        employerCity: "Faridabad",
+        employerState: "Haryana",
+        startYm: "2025-08",
+        endYm: null,
+        durationStated: true,
+        roles: [
+          {
+            roleLabel: "Welder",
+            startYm: "2025-08",
+            endYm: null,
+            workDone: "Sheet-metal sub-assembly aur jig ka kaam, MS 3-12 mm",
+          },
+        ],
+      },
+      {
+        employer: "Al Barsha Steel Fabrication LLC",
+        employerCity: "Dubai",
+        // THE COUNTRY IN THE STATE COLUMN (§11 #15). There is no `country` column and the Gulf
+        // stint is the differentiator on this page, so capture writes it here and the suffix
+        // prints it verbatim. This is the interim shape, recorded in the journal, not a typo.
+        employerState: "United Arab Emirates",
+        startYm: "2022-03",
+        endYm: "2025-06",
+        durationStated: true,
+        roles: [
+          {
+            roleLabel: "MIG and TIG Welder",
+            startYm: "2022-03",
+            endYm: "2025-06",
+            workDone: "Structural steel aur stainless pipe spool, 3G vertical, DPT ke samay",
+          },
+        ],
+      },
+      {
+        employer: "Jindal Fabricators Pvt Ltd",
+        employerCity: "Faridabad",
+        employerState: "Haryana",
+        startYm: "2019-04",
+        endYm: "2022-02",
+        durationStated: true,
+        roles: [
+          {
+            roleLabel: "Arc and MIG Welder",
+            startYm: "2019-04",
+            endYm: "2022-02",
+            workDone: "Structural section, grating aur platform, E7018 rod",
+          },
+        ],
+      },
+    ],
+  },
 ];
 
 function caseFor(id: string): RoleCase {
@@ -1137,7 +1408,7 @@ function caseFor(id: string): RoleCase {
 
 // ── THE ASSERTIONS ────────────────────────────────────────────────────────────────────
 
-describe("the five shipped roles render their ratified Section B", () => {
+describe("the six shipped roles render their ratified Section B", () => {
   for (const roleCase of CASES) {
     const { persona } = roleCase;
     const pack = loadPack(persona.packId);
@@ -1298,7 +1569,7 @@ describe("the five shipped roles render their ratified Section B", () => {
       it("fits one page", () => {
         // HELD TO THE STRICT FORM, DELIBERATELY, even though the 2026-09-03 owner ruling relaxed
         // the general contract to "one page unless preserving a ratified row required two". These
-        // five ARE the ratified pages: each was signed off as a single sheet, so a persona
+        // six ARE the ratified pages: each was signed off as a single sheet, so a persona
         // reproducing one and spilling is a defect in this pipeline rather than the ruling doing
         // its job. The relaxed form belongs on synthetic and future content, and is asserted
         // there — see `sheet-shape-matrix.test.ts`.
@@ -1379,7 +1650,7 @@ describe("CAPABILITY_ROW_BUDGET holds and sheds by rank", () => {
         // pack asks, which is a shape no ratified page has and a shape the ladder may not buy a
         // page back from by deleting a row a human signed off.
         //
-        // MEASURED TODAY: all five shipped roles still fit outright, so the branch below is not
+        // MEASURED TODAY: all six shipped roles still fit outright, so the branch below is not
         // yet taken by any of them. It is written because the alternative — asserting the strict
         // fit — would fail the day a pack grows, and would fail for the RIGHT behaviour.
         if (!input.degradationOverflows) {
