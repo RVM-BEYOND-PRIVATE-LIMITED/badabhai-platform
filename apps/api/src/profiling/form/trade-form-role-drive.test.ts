@@ -249,6 +249,9 @@ function harnessFor(role: RoleUnderTest): Harness {
     answers as never,
     attributeRepo as never,
     eventsService as never,
+    // M1 — see the note in trade-form.service.test.ts. Present so the constructor arity
+    // matches; this suite asserts routing, not the rebuild.
+    { rebuildQuietly: vi.fn(async () => undefined) } as never,
   );
   return { service, rows, attributes, events };
 }
