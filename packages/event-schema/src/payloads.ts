@@ -110,7 +110,8 @@ export const WorkerPreferencesRecordedPayload = z
  * ═══ WHY NOT MORE COUNTS ON `worker.preferences_recorded` ═══
  *
  * That payload counts ATTRIBUTE KEYS, and its `keys_written` is bounded at 16 because
- * `PREFERENCE_KEYS` has sixteen entries. Certificates and educations are rows in their own tables
+ * `PREFERENCE_KEYS` has twelve entries (counted 2026-09-05; this line said sixteen and was never
+ * moved as the map changed — the cap below is deliberately loose, not derived from the count). Certificates and educations are rows in their own tables
  * with their own uniqueness constraint and their own endpoint; folding their counts into a field
  * named for attribute keys would make the number mean two things and its bound meaningless. This
  * is the shape `worker.employment_recorded` already has, for a table of the same kind.

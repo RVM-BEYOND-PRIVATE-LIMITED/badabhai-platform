@@ -194,8 +194,20 @@ export const SetMyPreferencesSchema = z
      *
      * FREE TEXT, because there is no national register of ITI names this could validate against
      * and inventing a closed set would silently drop every institute not on it. It is the ONE
-     * free-text field on this form; the length cap is what keeps it a name rather than a
-     * paragraph, and `looksLikePii` screens it at the render boundary like every other string.
+     * free-text field on this form, and the length cap is what keeps it a name rather than a
+     * paragraph.
+     *
+     * ⚠ IT IS NOT PII-SCREENED, ON EITHER SIDE — this line used to claim `looksLikePii` screens it
+     * "at the render boundary like every other string", and that is not what happens. The render
+     * reads it through `resume-preference-facts.ts`'s `scalar()`, which is a `typeof` + trim and
+     * nothing else; `looksLikePii` is applied to the container scalars and the own-words list, not
+     * to this value. So a worker who types a phone number here has it printed on the sheet.
+     *
+     * The SIBLING FIELD DOES SCREEN IT: `worker_education.institute` goes through
+     * `worker-qualifications.dto.ts`'s `freeText(120, …)`, which applies `looksLikePii` at the
+     * write. The asymmetry is real and is flagged on #1447 rather than closed here, because adding
+     * the screen is a behaviour change (it would reject values this endpoint accepts today) and
+     * belongs in a change that can be reviewed as one.
      */
     education_institute: z.string().trim().min(1).max(120).nullable().optional(),
   })
