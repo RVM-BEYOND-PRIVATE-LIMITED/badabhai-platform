@@ -664,7 +664,8 @@ export const serverEnvSchema = z.object({
   // have traded a QA outage for an unmetered billing incident, which is the worse of the two.
   //
   // SPEND IS BOUND BY THE GATES A CALLER CANNOT ROTATE PAST, and they are unchanged: what one
-  // NUMBER may receive (OTP_MAX_SENDS_PER_HOUR / _PER_DAY + the resend cooldown) and what the
+  // NUMBER may receive (WORKER_OTP_MAX_SENDS_PER_HOUR / OTP_MAX_SENDS_PER_DAY + the resend
+  // cooldown — the worker path's own caps since #1421) and what the
   // PLATFORM may spend in a day (OTP_GLOBAL_MAX_SENDS_PER_DAY). Neither is keyed on the caller,
   // so neither moves when this one does.
   OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: z.coerce.number().int().positive().default(200),
@@ -709,8 +710,8 @@ export const serverEnvSchema = z.object({
   // ADMIN_AUTH_MAX_PER_IP_PER_HOUR — those gate portal logins from office networks, not
   // handsets behind carrier NAT. If a real shared network ever hits this, raise it.
   //
-  // THE PER-PHONE CAPS ARE WHAT BOUND SMS SPEND: OTP_MAX_SENDS_PER_HOUR
-  // (5/number/hour), OTP_MAX_SENDS_PER_DAY (30/number/day), the resend cooldown, and the
+  // THE PER-PHONE CAPS ARE WHAT BOUND SMS SPEND: WORKER_OTP_MAX_SENDS_PER_HOUR
+  // (10/number/hour), OTP_MAX_SENDS_PER_DAY (30/number/day), the resend cooldown, and the
   // platform-wide OTP_GLOBAL_MAX_SENDS_PER_DAY breaker. Raising the per-IP cap widens how
   // many DISTINCT numbers may be tried from one network; it does not let any one number be
   // texted more, so the spend ceiling is untouched.
@@ -773,7 +774,7 @@ export const serverEnvSchema = z.object({
   // minting a second one — a scope with two knobs is the category error the block above records.
   OTP_MAX_VERIFY_PER_IP_PER_HOUR: z.coerce.number().int().positive().default(5000),
   // Per-phone DAILY send ceiling backstopping the hourly cap: an abuser pacing just
-  // under OTP_MAX_SENDS_PER_HOUR could still burn paid SMS all day against one number.
+  // under WORKER_OTP_MAX_SENDS_PER_HOUR could still burn paid SMS all day against one number.
   // Trips the SAME neutral 429 as the hourly cap (no new oracle); fail-closed like every
   // OTP throttle. WORKER-ONLY — the admin and payer OTP services read OTP_MAX_SENDS_PER_HOUR
   // and have no daily cap of their own.
