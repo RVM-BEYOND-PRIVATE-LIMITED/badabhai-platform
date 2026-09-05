@@ -40,7 +40,7 @@ import 'package:badabhai_worker_app/core/widgets/bb_alerts_action.dart';
 import 'package:badabhai_worker_app/features/resume/presentation/cubit/resume_cubit.dart';
 import 'package:badabhai_worker_app/core/widgets/bb_bottom_nav.dart';
 import 'package:badabhai_worker_app/features/auth/domain/auth_session_manager.dart';
-import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_pin_keypad.dart';
+import 'package:badabhai_worker_app/features/auth/presentation/widgets/bb_set_pin_form.dart';
 import 'package:badabhai_worker_app/features/chat/presentation/chat_profiling_screen.dart';
 
 import '../core/auth/fakes.dart';
@@ -93,24 +93,6 @@ const int _kProfileTab = 3;
 /// without the body following (and vice versa).
 int _navIndex(WidgetTester tester) =>
     tester.widget<BbBottomNav>(find.byType(BbBottomNav)).currentIndex;
-
-/// Tap the masked PIN keypad to enter [pin] (digit by digit). The keypad has no
-/// OS keyboard, so we tap the on-screen digit keys.
-Future<void> _enterPin(WidgetTester tester, String pin) async {
-  // Set-PIN pops a "re-enter the same PIN" dialog on the confirm step; dismiss
-  // it so the keypad behind the modal barrier is tappable.
-  if (find.text('Theek hai').evaluate().isNotEmpty) {
-    await tester.tap(find.text('Theek hai'));
-    await tester.pumpAndSettle();
-  }
-  for (final String d in pin.split('')) {
-    await tester.tap(find.descendant(
-      of: find.byType(BbPinKeypad),
-      matching: find.text(d),
-    ));
-    await tester.pump();
-  }
-}
 
 void main() {
   setUp(() async {
@@ -189,12 +171,14 @@ void main() {
     await tester.tap(find.text('Verify'));
 
     // ── 3b. SET-PIN (new user) — the OTP-verify flags route here (pin_set=false).
-    //     Enter a PIN then confirm it; setPin authenticates and continues to
-    //     consent (the onboarding). Masked keypad → tap the on-screen digits. ──
+    //     ONE page: the enter row and confirm row are both on screen together;
+    //     fill each invisible field via the OS numeric keyboard. setPin then
+    //     authenticates and continues to consent (the onboarding). ──
     await _pumpUntil(tester, find.text('PIN banayein'));
-    await _enterPin(tester, '7416');
-    await _pumpUntil(tester, find.text('PIN dobara daalein'));
-    await _enterPin(tester, '7416');
+    await tester.enterText(find.byKey(kSetPinFirstFieldKey), '7416');
+    await tester.pump();
+    await tester.enterText(find.byKey(kSetPinConfirmFieldKey), '7416');
+    await tester.pump();
 
     // ── 4. CONSENT (DPDP gate) ──
     await _pumpUntil(tester, find.text('Your privacy'));
