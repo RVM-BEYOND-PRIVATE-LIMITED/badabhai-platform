@@ -29,7 +29,7 @@ Absent code is NOT "phase not built" here. Shipped facet code IS the FAIL.
 Do these checks and paste raw output with exit codes:
 1. ls -l docs/qa/evidence/P5/HALT.md, then grep -n "R7\|774\|P0" it. A missing file, or one
    naming neither R7 nor the P0 FAIL, is a FAIL.
-2. sed -n '774p' docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md. Dotted and blank means R7 is
+2. sed -n '794p' docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md. Dotted and blank means R7 is
    open and the HALT was correct. A signature there means this brief is stale: stop and report
    that, do not proceed.
 3. git grep --untracked -in "facet" -- apps/api/src packages/reach-engine/src

@@ -562,6 +562,119 @@ to stop it blocking is escaping the gate, not fixing it.**
 
 ---
 
+## P-016 · A check that prescribes its own FAIL wording can force a checker to write something untrue
+
+**Found:** 2026-09-05, while applying the R1 signature (PR #1423).
+**Owner ruling:** PARK the shape — Prakash, 2026-09-05. The instance is fixed; the class is not.
+
+**The instance.** `docs/agent/phases/P3_CHECK.md` did not merely say "expect a HALT". It
+prescribed the exact sentence a checker must write into `VERDICT.md` — quoted here as it read
+BEFORE the fix, so grepping the current file for this string will correctly find nothing:
+
+> add one line: the builder correctly halted on R1, quoting worksheet:388. **That wording is
+> required, not a softening.**
+
+R1 was signed on 2026-09-05. P3 is still blocked, but on the phase-order gate
+(`docs/agent/README.md:47`), not on R1. So the check's PREDICATE still fires correctly — a HALT
+is still the right outcome — while the sentence it mandates became false. A checker obeying the
+brief would have written a false reason into a durable verdict, and been right to, because the
+brief said the wording was required.
+
+**Why it is its own shape, and not P-013.** P-013 is a check whose PREDICATE goes red for the
+wrong reason — it fires on innocent code. This is one layer up: the predicate is correct and the
+check's own PRESCRIBED TEXT is what has gone stale. The two fail differently and are caught by
+different questions. P-013 is caught by asking *"can this go red on something I did not
+change?"*; this one is caught by asking *"if this fires, is the sentence it makes me write still
+true?"*
+
+**THE DIRECTION MATTERS MORE THAN THE MECHANISM, and a later instance proved it.** Every
+instance of this shape found before 2026-09-05 produced a false **FAIL**: the check goes red for
+the wrong reason, somebody investigates, the truth surfaces on the way. The cost is a wasted
+session, not a wrong belief.
+
+Then `P5_CHECK.md` item 2 turned up. It ran `sed -n '774p'` on the worksheet and read *"dotted
+and blank means R7 is unsigned"*. Signing R1 and R4-d shifted every slot below them by twenty
+lines, so 774 became `### The question` — **neither dotted nor blank**. The predicate evaluates
+false and the checker concludes **R7 IS SIGNED**, on a ruling nobody has signed. That is a false
+**PASS**, and **nobody investigates a green.** It would have sat there certifying a settled
+ruling until someone tried to build on it.
+
+So the rule sharpens: **a citation-drift bug that lands on non-blank text is strictly more
+dangerous than one that lands on nothing.** Landing on nothing is loud. Landing on a different
+real line is silent, and the check keeps reporting with full confidence. When line numbers move,
+the citations to re-verify FIRST are the ones whose surrounding logic tests for *emptiness* —
+those are the ones that flip rather than break.
+
+**Why it is worse than an ordinary stale line.** A stale instruction produces a wrong build,
+which a later check can catch. This produces a wrong RECORD — and the record is what the next
+session reads as evidence. It also launders the error through an obedient agent: the checker did
+exactly what it was told, so nothing in the process flags it, and the false reason acquires the
+authority of a verdict.
+
+**What to do about it.**
+- **Prefer prescribing the SHAPE, not the sentence.** "Name the blocker and cite the file and
+  line that establishes it" survives a ruling being signed; "quote worksheet:388" does not.
+- **When exact wording genuinely is required, anchor it to something that moves with the
+  world** — a file and line rather than a claim about state — and say what to do if the anchor
+  no longer says that.
+- **When a ruling is signed, grep the CHECK briefs, not only the BUILD briefs.** The build side
+  is where a stale ruling is obvious; the check side is where it becomes a false record.
+---
+
+## P-017 · `db:audit:live-population` targets remote Supabase as `postgres` with `bypassrls=true`
+
+**Found:** 2026-09-05, phase M1, on the first run of a command the phase brief named.
+**Owner ruling:** PARK, do not fix — the owner rules on both the target and the role.
+
+**What the command prints on its own first line:**
+
+```
+$ pnpm --filter @badabhai/db db:audit:live-population
+[audit:live-population] READ-ONLY, ZERO SPEND, NO PII SELECTED.
+  target = SUPABASE (remote)  role=postgres  bypassrls=true
+```
+
+**Why this is a defect and not a configuration detail.** It is a developer-facing command in the
+root workspace, run by name from a brief, and it reaches a REMOTE database as a superuser role
+with RLS bypassed. Three things follow:
+
+1. **The safety is a convention, not a boundary.** The banner says READ-ONLY; the connection is
+   not. `bypassrls=true` means the role can write every table and no row-level policy would stop
+   it. A command that announces a property it does not enforce is the shape that gets trusted.
+2. **The target is implicit.** Nothing in the invocation names an environment. Running
+   `pnpm db:audit:live-population` from a clean checkout, expecting the local compose Postgres,
+   silently reaches production instead — and the local one exists and is what every other
+   `db:*` command in this session used.
+3. **The blast radius is one typo wide.** The nearby `db:*` scripts include seeders and
+   backfills. An engineer or an agent that reaches for the audit and hits an adjacent script name
+   is writing to live with a superuser role.
+
+**Measured, not inferred.** The audit reported live counts (`workers 4`, `worker_profiles 4`,
+`worker_skill 3`, `job_reach 6`) that do not match the local compose database (`workers 2`,
+`worker_profiles 0`, `worker_skill 2`, `job_reach 2`) — which is how the remote target was
+noticed at all.
+
+**AND THAT DETECTION WAS LUCK, NOT METHOD — this is the strongest argument for
+target-as-argument, stronger than the `bypassrls` role itself.** The only reason the remote
+target surfaced is that the two databases happened to hold different numbers. Had they agreed —
+two fresh environments, or one seeded from the other — the counts would have been reported as
+local, believed, and never questioned. "The numbers happened to disagree" is not a control. No
+part of the invocation, the output, or the developer's expectation would have caught it, and the
+next person has no reason to expect better luck. No write was attempted, and phase M1's five end-to-end trade-form runs were
+STOPPED rather than executed, because completing a form creates worker rows.
+
+**What a fix would have to decide** (not settled here): whether the audit reads a target from an
+explicit, named argument rather than ambient environment; whether it refuses to run against a
+non-local host without a confirmation flag; and whether any developer-facing script should ever
+resolve credentials for a `bypassrls` role. Note the trap: making the banner louder is not the
+fix — the banner is already accurate about intent and wrong about capability.
+
+**Consequence for M1:** the phase's verification (five real trade forms end to end, then a
+publish showing `job_reach` move) is UNRUN. It runs against the local database once the owner
+confirms the target, never against the audit's.
+
+---
+
 ## P-018 · A worker has no city, so the payer's first-named filter cannot be built
 
 **Found:** 2026-09-05, the E-chain design session (PR #1427), measuring the filter set for E2.

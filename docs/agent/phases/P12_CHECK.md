@@ -14,7 +14,7 @@ pubspec.yaml and no file under lib/ imports one, both enforced by a test in apps
 that reads those files and fails when either appears.
 
 PRECONDITIONS, before artifacts. CHECK_RULES.md:43 admits only PASS or FAIL — use FAIL.
-- R6 signed: RVM_TAXONOMY_WORKSHEET_2026-09.md:743 and :745 both filled in. Blank means the
+- R6 signed: RVM_TAXONOMY_WORKSHEET_2026-09.md:765 and :745 both filled in. Blank means the
   build correctly stopped: FAIL, reason "blocked on unsigned R6 — build halted", NOT "phase not
   built". Naming the owner was never this phase's job (BUILD_RULES.md:31). Whether CHECK_RULES
   should gain a BLOCKED verdict is an owner question, not yours to settle.

@@ -15,7 +15,7 @@ STATUS: ALSO BLOCKED — the "Complete on web" hand-off is a CEO store-policy ca
 PHASE P12 — Flutter payer app: draft and resume only.
 
 WHY R6 BLOCKS THIS
-docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md:743 and :745 are blank fill-in lines.
+docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md:765 and :745 are blank fill-in lines.
 `grep -n payer .github/CODEOWNERS` exits 1 on a 76-line file, so apps/payer-app falls to the
 catch-all at :24, `*  @prakashkantumutchu @divyuuu` — two owners, not one. BUILD_RULES.md:31
 makes settling R1-R7 a full stop. Do NOT write a name into CODEOWNERS or the worksheet. The

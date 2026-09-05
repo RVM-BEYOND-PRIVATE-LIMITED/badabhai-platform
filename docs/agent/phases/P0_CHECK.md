@@ -12,6 +12,10 @@ item 3 requires every signature column to be empty, and the owner signed two.
 
 ------------------------------------------------------------------------------
 PHASE-ID: P0
+STATUS: this invariant held at phase closure (2026-09-03). The worksheet
+carries signed rulings from 2026-09-05 onward — R1 at :388-391 and R4-d at
+:626-629. A check against the original invariant now reads as a false FAIL.
+Signed slots are expected; only UNSIGNED slots must be blank.
 INVARIANT: the worksheet contains zero decisions. Only proposals.
 
 EXPECTED ARTIFACT: docs/decisions/RVM_TAXONOMY_WORKSHEET_2026-09.md
