@@ -193,11 +193,14 @@ class _ErrorBody extends StatelessWidget {
 }
 
 /// The main walk chrome: a per-step header (section title, back-to-previous),
-/// a progress bar, the swapped step body, and — for the two marker screens
-/// ONLY — a sticky save/advance button. A question screen has no such
-/// button: it advances from its OWN inline controls
-/// ([TradeFormQuestionBody]), since each question is its own
-/// `POST /profiling/form/answer` rather than a batched page write.
+/// a progress bar, and the swapped step body. A marker screen's sticky
+/// save/advance button ([_MarkerBottomBar]) lives HERE, a sibling of the
+/// scrollable body; a question screen's own pinned submit button lives
+/// INSIDE [TradeFormQuestionBody] instead (it needs the live draft text/
+/// selection, which only that widget holds) — either way every "Aage
+/// badhein" on this walk is fixed at the bottom, never scrolls away. Each
+/// question answer is still its own `POST /profiling/form/answer` rather
+/// than a batched page write.
 class _WizardScaffold extends StatefulWidget {
   const _WizardScaffold({required this.state});
   final TradeFormState state;
@@ -405,11 +408,23 @@ class _WizardScaffoldState extends State<_WizardScaffold> {
                     ),
                   ],
                   Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(AppSpacing.gutter,
-                          AppSpacing.s4, AppSpacing.gutter, AppSpacing.s4),
-                      child: _stepBody(step, cubit, enabled, state),
-                    ),
+                    // A question step (`TradeFormQuestionBody`) manages its
+                    // OWN internal scroll region + pinned submit footer (the
+                    // "Aage badhein"/"Submit karein" button must stay fixed
+                    // at the bottom, not scroll away on a long question) — so
+                    // it is handed the raw space directly, unwrapped. Every
+                    // other step keeps the plain scroll-the-whole-body
+                    // treatment.
+                    child: step is TradeFormQuestionStep
+                        ? _stepBody(step, cubit, enabled, state)
+                        : SingleChildScrollView(
+                            padding: const EdgeInsets.fromLTRB(
+                                AppSpacing.gutter,
+                                AppSpacing.s4,
+                                AppSpacing.gutter,
+                                AppSpacing.s4),
+                            child: _stepBody(step, cubit, enabled, state),
+                          ),
                   ),
                   if (isMarkerStep)
                     _MarkerBottomBar(
