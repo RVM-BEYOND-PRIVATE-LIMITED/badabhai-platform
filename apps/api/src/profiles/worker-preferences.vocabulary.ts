@@ -61,6 +61,22 @@ export const DOCUMENTS_READY: PreferenceVocabulary = {
   pan: "PAN",
   bank_account: "Bank account",
   uan_pf: "UAN / PF",
+  /**
+   * The second statutory number, and it sits beside `uan_pf` because they are the same fact about
+   * a worker: whether he is already inside the formal system.
+   *
+   * MEASURED, NOT ASSUMED. It appears on THIRTEEN of the twenty-one ratified reference pages —
+   * more often than `experience_letter` (3) and `passport_photos` (2), both of which have had a
+   * slug here since the beginning. Every other document those pages print was already in this
+   * dictionary; ESIC was the only one missing, so a worker who has one had no way to say so and
+   * the row simply never mentioned it.
+   *
+   * IT IS HIRING FRICTION, WHICH IS WHAT THIS BLOCK IS FOR. An employer reading "documents ready"
+   * is asking how fast this man can start. A worker who already holds an ESIC number joins on the
+   * existing registration; one who does not needs a fresh enrolment before he is covered, and on
+   * a factory floor that is a real delay somebody has to own.
+   */
+  esic: "ESIC",
   iti_certificate: "ITI certificate",
   experience_letter: "Experience letter",
   passport_photos: "Passport photos",
