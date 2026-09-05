@@ -65,7 +65,10 @@ NestJS boot assertion).
 - **PII protection** — `PII_HASH_PEPPER`, `PII_ENCRYPTION_KEY` (legacy single-key), the TD22-1
   keyring pair. Full rotation procedure: `docs/pii-key-rotation-runbook.md`.
 - **Worker auth** — `JWT_SECRET`, `SESSION_TTL_DAYS`, the `OTP_*` shape/lifecycle/rate-limit
-  family, `SMS_PROVIDER`/`FAST2SMS_*` (real-only, no mock).
+  family plus `WORKER_OTP_MAX_SENDS_PER_HOUR` (the worker-only per-phone hourly cap — #1421 split
+  it off `OTP_MAX_SENDS_PER_HOUR`, which is now admin + payer only),
+  `SMS_PROVIDER`/`FAST2SMS_*` (real-only, no mock). Levers and their blast radius:
+  `docs/otp-throttles-runbook.md`.
 - **Payer auth** — `PAYER_LOGIN_METHOD`, `EMAIL_PROVIDER`/`ZEPTOMAIL_*`/`SMTP_*` (real-only email
   OTP), `PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY`.
 - **PIN unlock** — `PIN_PEPPER` (ADR-0026 Phase 3).

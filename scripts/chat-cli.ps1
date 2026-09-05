@@ -99,7 +99,8 @@ try {
   Write-Host "  404 -> TEST_LOGIN_ENABLED is not true, the token does not match, or the phone" -ForegroundColor DarkGray
   Write-Host "         is outside the synthetic range (+91 then FIVE zeros then five digits)." -ForegroundColor DarkGray
   Write-Host "  429 -> the per-IP OTP cap. Every local run shares one IP, so the production" -ForegroundColor DarkGray
-  Write-Host "         default of 5/hour trips fast. Start the API with OTP_MAX_SENDS_PER_HOUR=1000." -ForegroundColor DarkGray
+  Write-Host "         default of 10/hour trips fast. Start the API with" -ForegroundColor DarkGray
+  Write-Host "         WORKER_OTP_MAX_SENDS_PER_HOUR=1000 (the worker knob, #1421)." -ForegroundColor DarkGray
   exit 1
 }
 $auth     = @{ authorization = "Bearer $($login.access_token)" }
@@ -433,7 +434,8 @@ Write-Host "    WHERE event_name='profile.interview_completed' ORDER BY occurred
     $env:TEST_LOGIN_ENABLED="true"
     $env:TEST_LOGIN_TOKEN="local-test-login-token-not-a-secret-32ch"
     $env:INTERNAL_SERVICE_TOKEN="local-internal-service-token"
-    $env:OTP_MAX_SENDS_PER_HOUR="1000"; $env:OTP_MAX_SENDS_PER_DAY="1000"
+    $env:OTP_MAX_SENDS_PER_HOUR="1000"; $env:WORKER_OTP_MAX_SENDS_PER_HOUR="1000"
+    $env:OTP_MAX_SENDS_PER_DAY="1000"
     $env:AI_ENABLE_REAL_CALLS="false"
     node apps/api/dist/main.js
 #>

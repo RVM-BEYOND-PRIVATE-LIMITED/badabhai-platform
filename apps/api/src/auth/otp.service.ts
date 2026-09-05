@@ -38,7 +38,9 @@ interface RedisOtpClient {
  *   - Verification is constant-time (timingSafeEqual over equal-length buffers).
  *   - Single-use: a successful verify deletes the code + attempt counter.
  *   - FAIL CLOSED: any Redis error rejects (503) rather than allowing a login.
- *   - Per-phone resend cooldown + hourly/daily send caps throttle abuse. These are the
+ *   - Per-phone resend cooldown + hourly/daily send caps throttle abuse. The hourly cap reads
+ *     WORKER_OTP_MAX_SENDS_PER_HOUR, which is this path's alone (#1421); the admin and payer
+ *     OTP services keep their own hourly cap on the shared OTP_MAX_SENDS_PER_HOUR. These are the
  *     gates that actually bound SMS spend, because they are keyed on the NUMBER: the
  *     per-device cap the controller applies is keyed on a caller-chosen header and is a
  *     runaway-client breaker, not a boundary (#1306). The per-IP cap that used to sit
@@ -49,6 +51,7 @@ interface RedisOtpClient {
  *   otp:attempts:<phoneHash>  verify-attempt counter   TTL = OTP_TTL_SECONDS
  *   otp:cooldown:<phoneHash>  resend cooldown marker    TTL = OTP_RESEND_COOLDOWN_SECONDS
  *   otp:sendcount:<phoneHash>:<utcHour>  hourly sends   TTL = to end of UTC hour
+ *   otp:sendcount:day:<phoneHash>:<utcDay>  daily sends  TTL = to end of UTC day
  *   otp:global_sendcount:<utcDay>  global daily REAL sends  TTL = to end of UTC day
  *
  * OTP-5 GLOBAL DAILY SEND CIRCUIT-BREAKER (the spend ceiling): in addition to the
@@ -162,12 +165,24 @@ export class OtpService {
       }
 
       // 3. Hourly send cap (per phone). INCR + (re-)set TTL to end of UTC hour.
+      //
+      // READS THE WORKER-ONLY KNOB (#1421), not the shared `OTP_MAX_SENDS_PER_HOUR`. This is
+      // the unauthenticated worker phone path; the admin portal and the payer portal keep their
+      // own hourly cap on the shared knob, because a staff/customer surface behind a login has a
+      // different threat model from a worker's handset. Before the split there was one number
+      // for all three, so the worker could not be given room inside an hour without loosening
+      // both portals — which is exactly why the 2026-09-04 ruling of 10/hour was withdrawn.
       const hour = OtpService.utcHourStamp();
       const sendCountKey = OtpService.sendCountKey(phoneHash, hour);
       const sends = await redis.incr(sendCountKey);
       await redis.expire(sendCountKey, OtpService.secondsUntilEndOfUtcHour());
-      if (sends > this.config.OTP_MAX_SENDS_PER_HOUR) {
-        this.refused(hashPrefix, "phone_hourly_cap", sends, this.config.OTP_MAX_SENDS_PER_HOUR);
+      if (sends > this.config.WORKER_OTP_MAX_SENDS_PER_HOUR) {
+        this.refused(
+          hashPrefix,
+          "phone_hourly_cap",
+          sends,
+          this.config.WORKER_OTP_MAX_SENDS_PER_HOUR,
+        );
         throw new HttpException(
           "Too many codes requested; please try again later",
           HttpStatus.TOO_MANY_REQUESTS,

@@ -40,7 +40,8 @@ if [ -z "$TOKEN" ]; then
   say "  404 -> TEST_LOGIN_ENABLED is not true, the token does not match, or the phone is"
   say "         outside the synthetic range (+91 then FIVE zeros then five digits)."
   say "  429 -> the per-IP OTP cap. Every local run shares one IP, so the production"
-  say "         default of 5/hour trips fast. Start the API with OTP_MAX_SENDS_PER_HOUR=1000."
+  say "         default of 10/hour trips fast. Start the API with"
+  say "         WORKER_OTP_MAX_SENDS_PER_HOUR=1000 (the worker knob, #1421)."
   printf '%s\n' "$LOGIN" | head -c 300; echo
   exit 1
 fi

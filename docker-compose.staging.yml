@@ -471,12 +471,16 @@ services:
       # (`printenv | grep '^OTP_'`) exists for exactly this and should be run once, on this deploy.
       OTP_GLOBAL_MAX_SENDS_PER_DAY: ${OTP_GLOBAL_MAX_SENDS_PER_DAY:-10000}
       OTP_MAX_SENDS_PER_DEVICE_PER_HOUR: ${OTP_MAX_SENDS_PER_DEVICE_PER_HOUR:-200}
-      # ⚠ NOT WORKER-ONLY. These two are read by AdminOtpService and PayerOtpService as well as
-      # OtpService, so moving either to unblock worker sign-ins loosens the admin-portal and
-      # payer-portal OTP caps by the same factor, on channels with their own spend. When only the
-      # worker budget is meant, reach for OTP_MAX_SENDS_PER_DAY (worker-only) instead.
+      # ⚠ NOT WORKER-ONLY. These two are read by AdminOtpService and PayerOtpService as well,
+      # so moving either to unblock worker sign-ins loosens the admin-portal and payer-portal
+      # OTP caps by the same factor, on channels with their own spend. OTP_MAX_SENDS_PER_HOUR no
+      # longer touches the worker path at all (#1421) — it is now admin + payer only.
       OTP_MAX_SENDS_PER_HOUR: ${OTP_MAX_SENDS_PER_HOUR:-5}
       OTP_RESEND_COOLDOWN_SECONDS: ${OTP_RESEND_COOLDOWN_SECONDS:-30}
+      # WORKER-ONLY, and the two levers to reach for when a worker needs more room: the hourly
+      # cap (#1421) for the three minutes of a failed onboarding, the daily one across a day.
+      # The hourly value MUST stay strictly below the daily one or it is dead configuration.
+      WORKER_OTP_MAX_SENDS_PER_HOUR: ${WORKER_OTP_MAX_SENDS_PER_HOUR:-10}
       OTP_MAX_SENDS_PER_DAY: ${OTP_MAX_SENDS_PER_DAY:-30}
       # DERIVED: must stay OTP_MAX_SENDS_PER_DEVICE_PER_HOUR x OTP_MAX_ATTEMPTS. A handset inside
       # its send budget can legitimately produce that many verifies, so moving the send cap alone

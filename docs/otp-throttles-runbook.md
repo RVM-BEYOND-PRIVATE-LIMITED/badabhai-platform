@@ -52,7 +52,7 @@ dc logs api --since 30m | grep -E "OTP refused|cap reached|failing closed"
 |---|---|---|
 | `deleted_phone_tombstone` | Number was hard-deleted; re-registration cool-down still running | §3 |
 | `resend_cooldown` | Within `OTP_RESEND_COOLDOWN_SECONDS` (30s) of the last send | wait |
-| `phone_hourly_cap` | `OTP_MAX_SENDS_PER_HOUR` (5) for **this number** this UTC hour | §2 |
+| `phone_hourly_cap` | `WORKER_OTP_MAX_SENDS_PER_HOUR` (10) for **this number** this UTC hour — on the admin/payer portals the same slug means `OTP_MAX_SENDS_PER_HOUR` (5) | §2 |
 | `phone_daily_cap` | `OTP_MAX_SENDS_PER_DAY` (30) for **this number** this UTC day | §2 |
 | `Global daily cap reached scope=…` | `OTP_GLOBAL_MAX_SENDS_PER_DAY` — **platform-wide**, everyone is 429ing | §4 |
 | `…failing closed` | Redis is unreachable; limiters reject rather than uncap | §5 |
@@ -119,7 +119,8 @@ and is not.
 | Var | Default | Scope | Principals affected |
 |---|---|---|---|
 | `OTP_MAX_SENDS_PER_DEVICE_PER_HOUR` | 200 | one handset (`X-Device-Id`), per UTC hour | worker + **test-login seam** |
-| `OTP_MAX_SENDS_PER_HOUR` | 5 | one phone/email, per UTC hour | ⚠ worker + **admin** + **payer** |
+| `WORKER_OTP_MAX_SENDS_PER_HOUR` | 10 | one phone number, per UTC hour | worker |
+| `OTP_MAX_SENDS_PER_HOUR` | 5 | one phone/email, per UTC hour | ⚠ **admin** + **payer** |
 | `OTP_MAX_SENDS_PER_DAY` | 30 | one phone number, per UTC day | worker |
 | `OTP_RESEND_COOLDOWN_SECONDS` | 30 | one phone/email, between sends | ⚠ worker + **admin** + **payer** |
 | `OTP_MAX_VERIFY_PER_DEVICE_PER_HOUR` | 1000 | one handset, verify calls | worker |
@@ -127,13 +128,31 @@ and is not.
 | `PAYER_OTP_GLOBAL_MAX_SENDS_PER_DAY` | 2000 | **whole platform**, per UTC day | payer email only |
 | `ACCOUNT_DELETION_COOLDOWN_SECONDS` | 604800 | post-deletion tombstone TTL | worker |
 
-⚠ **Two of these are not worker-only.** `OTP_MAX_SENDS_PER_HOUR` and `OTP_RESEND_COOLDOWN_SECONDS`
-are read by all three OTP principals — `OtpService` (worker SMS), `AdminOtpService`
-(`admin-otp.service.ts`) and `PayerOtpService` (`payer-otp.service.ts`). Raising
-`OTP_MAX_SENDS_PER_HOUR` to unblock worker sign-ins **also loosens the admin-portal and payer-portal
-OTP send caps by the same factor**, on channels with their own spend. If you only mean to move the
-worker budget, prefer `OTP_MAX_SENDS_PER_DAY` (worker-only) or the per-device cap, and say in the
-incident log that you knowingly moved a shared knob.
+⚠ **`OTP_RESEND_COOLDOWN_SECONDS` is not worker-only**, and neither is
+`OTP_MAX_SENDS_PER_HOUR` — but since #1421 the latter no longer touches the worker path at all.
+The three OTP principals are `OtpService` (worker SMS), `AdminOtpService`
+(`admin-otp.service.ts`) and `PayerOtpService` (`payer-otp.service.ts`), and they now split as:
+
+- **worker hourly** → `WORKER_OTP_MAX_SENDS_PER_HOUR` (10). Read by `OtpService` and nothing else.
+  **This is the lever to reach for when workers cannot sign in.**
+- **admin + payer hourly** → `OTP_MAX_SENDS_PER_HOUR` (5). Raising it loosens both authenticated
+  portals by the same factor, on channels with their own spend, and does **nothing** for a worker.
+- **resend cooldown** → still genuinely shared by all three. Moving it moves everyone; say so in
+  the incident log.
+
+Before #1421 there was one number for all three, so a worker could not be given room inside an
+hour without loosening both portals with them — which is why the 2026-09-04 owner ruling of
+10/hour was withdrawn at the time rather than shipped.
+
+`WORKER_OTP_MAX_SENDS_PER_HOUR` **must stay strictly below `OTP_MAX_SENDS_PER_DAY`.** Both counters
+increment on every accepted send, so at or above the daily value the hourly cap can never refuse a
+request the daily one would not also refuse in the same UTC day: it becomes dead configuration that
+still reads like a live control, and `phone_hourly_cap` stops being a reachable log line. If you
+raise the hourly cap past 30 in an incident, raise the daily cap with it.
+
+Note that a worker's per-phone budget is **shared with PIN reset** — `pin.service.ts` sends through
+`AuthService.requestOtp`, and the counters are keyed on the phone hash with no purpose segment. A
+worker who fails to sign in and then tries forgot-PIN spends one budget for both.
 
 Two more knobs are also derived or paired, and moving one alone is a defect:
 
@@ -297,7 +316,7 @@ Ranked by what it costs an abuser to step over:
 | Gate | Bypass cost | Who it binds in practice |
 |---|---|---|
 | Per-device (`X-Device-Id`, 200/hr) | **~zero** — pick a new uuid | honest clients; runaway retry loops |
-| Per-phone (5/hr, 10/day) + cooldown | **cannot** for a given number | anyone texting one number |
+| Per-phone (worker 10/hr, 30/day; admin+payer 5/hr) + cooldown | **cannot** for a given number | anyone texting one number |
 | Global daily (10000) | **cannot** | the platform's daily bill |
 
 `X-Device-Id` is an unauthenticated, caller-chosen header (`senderOf` accepts any 8–256 char

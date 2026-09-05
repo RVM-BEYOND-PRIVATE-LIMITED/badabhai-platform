@@ -1114,8 +1114,12 @@ jobs:
       # one shared CI IP for the whole suite.
       OTP_MAX_SENDS_PER_IP_PER_HOUR: "1000"
       # The per-PHONE hourly SMS budget — a DIFFERENT limit from the one above, which is
-      # why both are raised. One CI run reuses phones across the suite.
+      # why both are raised. One CI run reuses phones across the suite. BOTH names are set:
+      # the worker path reads WORKER_OTP_MAX_SENDS_PER_HOUR (#1421) and the admin + payer
+      # login paths in the same suite still read the shared one, so raising only one of them
+      # leaves the other suite 429ing at 5 with no obvious cause.
       OTP_MAX_SENDS_PER_HOUR: "1000"
+      WORKER_OTP_MAX_SENDS_PER_HOUR: "1000"
       # Same reasoning for the per-phone DAILY backstop (TD60): one CI run shares
       # phones/IPs across the whole suite, so keep it out of the way here too.
       OTP_MAX_SENDS_PER_DAY: "1000"
