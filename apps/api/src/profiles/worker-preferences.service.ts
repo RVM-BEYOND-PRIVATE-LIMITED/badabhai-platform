@@ -99,6 +99,14 @@ export class WorkerPreferencesService {
     // R11 §3.1 — which credential the merged `iti_diploma` option covers. Written BESIDE
     // `education_level`, never over it: the level is the interview's answer and stays exactly as
     // the worker gave it.
+    //
+    // #1447 — ONE of the two client surfaces that write here stopped asking; the other did not.
+    // The trade form's "Availability & terms" marker no longer collects these, but the finishing
+    // form still sends all four to this same endpoint (`finishing_models.dart:221-227`), so these
+    // lines are live, not vestigial. Even if BOTH stopped, they would stay: the three-state
+    // contract makes an absent key leave the stored value alone, so removing the writes would not
+    // delete a byte of existing data — it would only leave this endpoint unable to repair it,
+    // while the résumé kept rendering from what is already stored (see the DTO note).
     scalar("education_credential", dto.education_credential);
     scalar("education_council", dto.education_council);
     number("education_year", dto.education_year);

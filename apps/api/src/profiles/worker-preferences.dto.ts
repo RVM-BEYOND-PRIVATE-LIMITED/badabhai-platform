@@ -139,6 +139,28 @@ export const SetMyPreferencesSchema = z
 
     // ── THE CREDENTIAL'S THREE MISSING COMPONENTS (R9 §3) ────────────────────────────
     //
+    // ⚠ #1447 — DO NOT DELETE THESE FOUR FIELDS. The trade form's "Availability & terms" marker
+    // stopped asking for them, and the issue proposed dropping them as dead. Three facts say no.
+    //
+    // 1. THERE IS STILL A WRITER. The finishing form sends all four to this same endpoint
+    //    (`finishing_models.dart:221-227`); only the trade-form marker stopped.
+    // 2. DELETING THEM IS A BREAKING CHANGE, NOT A CLEANUP. This schema is `.strict()`, so an
+    //    unknown key is a 400 that fails the WHOLE preferences save — a worker on an installed
+    //    build would lose their languages, documents, shift and salary answers too, not just the
+    //    education ones. Every shipped app still sends these keys (§3).
+    // 3. THEY ARE STILL READ (see below).
+    //
+    // All four have ALWAYS been `.nullable().optional()`, so a client that simply OMITS them is
+    // already safe and needed no backend edit at all.
+    //
+    // THEY ARE NOT DEAD. `resume-preference-facts.ts` composes Zone 5's education line from them,
+    // and `resume-render-input.ts` uses that composition as the FALLBACK when a worker has no
+    // `worker_education` rows (`?? ` at :627 and :902). Dropping them would blank the council,
+    // year and institute AND re-collapse "ITI" back to "ITI / Diploma" for every worker whose
+    // interview stored the merged `iti_diploma` level — the R11 §3.1 defect, reopened.
+    //
+    // Keep validating them: a value that can still arrive must still be checked.
+    //
     // The ratified sheet prints "ITI — Machinist · NCVT · 2018 · Govt. ITI, Faridabad". We held
     // the level and the trade and nothing else, so three of five segments had no source at all.
     //
